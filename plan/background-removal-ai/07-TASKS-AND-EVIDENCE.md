@@ -202,7 +202,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [x] BR2.6 Mattes on rotated and non-square-pixel sources (display-corrected space, MK1.9) instead of `matte_unsupported_media`
 - [x] BR2.7 Reduced-size export decodes resample the matte with the same deterministic filter as the picture; bit-exact edge test
 
-- [ ] BR2.8 Variable-frame-rate clips decode through the SAME ffmpeg as every other clip (today the pts reader uses whatever `ffmpeg` is on PATH — Homebrew 8.1 locally — not MoviePy's bundled build; locally time/variable-frame-rate 50.46 → 44.29 dB, matte-vfr 56.47 → 50.81 dB, both still within gates)
+- [x] BR2.8 (d4ce2cc6, b01b807f, 87547198: one resolver `find_export_ffmpeg()` = MoviePy's binary for every export decode; VFR rows now pixel-identical on the M1 Pro; CI green run 35403245700) Variable-frame-rate clips decode through the SAME ffmpeg as every other clip (today the pts reader uses whatever `ffmpeg` is on PATH — Homebrew 8.1 locally — not MoviePy's bundled build; locally time/variable-frame-rate 50.46 → 44.29 dB, matte-vfr 56.47 → 50.81 dB, both still within gates)
 
 **DoD:** engine tests for new modules pass; golden updated in the same PR.
 

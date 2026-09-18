@@ -17,7 +17,7 @@ Agent rules to paste into every prompt: single-file tests with `--no-file-parall
 
 ## Done
 
-- MK6.4 (9463fef8, 57358449): Apple Silicon monitor now converts YUV→RGB like the export host (was up to 3 levels off on every same-size clip); oracle 297/297 on Metal; baseline keyed by renderer class; CI green run 35397473824. Follow-up BR2.8 (VFR uses PATH ffmpeg)
+- MK6.4 (9463fef8, 57358449): Apple Silicon monitor now converts YUV→RGB like the export host (was up to 3 levels off on every same-size clip); oracle 297/297 on Metal; baseline keyed by renderer class; CI green run 35397473824. BR2.8 done too: every export decode uses MoviePy's ffmpeg; VFR rows pixel-identical on Metal; CI green run 35403245700
 
 - MK9 (d6d82c20…037832c7): adjustment-lane masks + frame-space clip masks end to end; edge styles outline/glow/shadow (engine numpy + preview shaders, byte-exact vectors); AI `style_cutout_edge` (+5 tokens/request). Follow-up MK9.4: nothing sets `space: 'frame'` on a clip mask yet
 - BR6.10–6.12 (4ab1a39d…d1871279): Edge brush end to end, object hover highlight via subject.segment_frame, JobsPanel in the right rail. I gated the hover latency budget behind FRAMEPILOT_RUN_PERF (e88e4a9e) after it timed out under coverage (p95 44.7 ms locally, budget 100 ms)
@@ -93,6 +93,8 @@ Agent rules to paste into every prompt: single-file tests with `--no-file-parall
 PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## CI reds
+
+- none open: run 35403245700 at 87547198 green on every job
 
 - Local run on the M1 Pro (maintainer allowed local tests 2026-09-19): build ✓, E2E smoke 99/99 ✓, rendered proofs ✓, oracle 291 ✓ with the sidecar; real-GPU finding turned out to be a colour-converter mismatch between the arm64 export build and the monitor on every same-size clip → fixed in MK6.4 (297/297 on Metal). Also fixed: ffmpeg 8.1 refuses the flat VFR setpts chain (3edf4cd3)
 
