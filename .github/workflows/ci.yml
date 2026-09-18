@@ -53,6 +53,7 @@ jobs:
         run: |
           pnpm --filter @framepilot/timeline-schema exec vitest run src/save-budget.perf.test.ts
           pnpm --filter @framepilot/web-editor exec vitest run src/components/preview/MaskCanvasTools.perf.test.tsx
+          pnpm --filter @framepilot/desktop exec vitest run electron/capability-packs/segment-frame.test.ts -t 'hover latency'
       # AM5 AI masking eval. It recomputes reports/ai-masking/eval.json (a file snapshot, so a
       # drifted number fails) and asserts the safety gates. The numbers go on the run page.
       - name: AM5 AI masking eval

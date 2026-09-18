@@ -320,56 +320,62 @@ describe('verifySegmentFrame (BR4.12 rules on the worker output)', () => {
   });
 });
 
-describe('hover latency with a stub pack (06 budget: ≤ 100 ms p95 after the embedding exists)', () => {
-  it('measures main-side round trips through a real warm process', async () => {
-    const { project } = await projectWith();
-    const instance = new CapabilityPackSegmentFrameService({
-      matte: async () => ({
-        resolveWorker: async () => ({
-          status: 'ready' as const,
-          entrypoint: '/stub',
-          installRoot: '/stub-root',
-          packVersion: '1.0.0',
+// A wall-clock budget: coverage instrumentation multiplies its cost and a 2-vCPU runner under
+// the full turbo graph starves it (it timed out at 5 s in CI run 35358866238). Like the MK4.6
+// budgets it runs alone and uninstrumented in CI, with FRAMEPILOT_RUN_PERF=1.
+describe.skipIf(process.env.FRAMEPILOT_RUN_PERF !== '1')(
+  'hover latency with a stub pack (06 budget: ≤ 100 ms p95 after the embedding exists)',
+  () => {
+    it('measures main-side round trips through a real warm process', async () => {
+      const { project } = await projectWith();
+      const instance = new CapabilityPackSegmentFrameService({
+        matte: async () => ({
+          resolveWorker: async () => ({
+            status: 'ready' as const,
+            entrypoint: '/stub',
+            installRoot: '/stub-root',
+            packVersion: '1.0.0',
+          }),
         }),
-      }),
-      inspector: { videoTiming: async () => TIMING },
-      slotFree: () => true,
-      openWorker: (options) => {
-        const worker = new CapabilityPackWarmWorker({
-          ...options,
-          launch: (_entrypoint, _args, env) =>
-            spawn(process.execPath, [STUB, '640', '360'], {
-              shell: false,
-              env: { ...env },
-              stdio: ['pipe', 'pipe', 'pipe'],
-            }),
-        });
-        closers.push(() => worker.close());
-        return worker;
-      },
-    });
-    // Warm-up: the process start is the "first request" the budget excludes.
-    expect(
-      await instance.segment(hover({ requestId: 'warm' }), { project, projectRevision: 1 }),
-    ).toMatchObject({ ok: true });
-    const samples: number[] = [];
-    for (let index = 0; index < 60; index += 1) {
-      const started = performance.now();
-      const answer = await instance.segment(
-        hover({ requestId: `m${String(index)}`, hoverPoint: { x: (index % 20) / 20, y: 0.5 } }),
-        { project, projectRevision: 1 },
+        inspector: { videoTiming: async () => TIMING },
+        slotFree: () => true,
+        openWorker: (options) => {
+          const worker = new CapabilityPackWarmWorker({
+            ...options,
+            launch: (_entrypoint, _args, env) =>
+              spawn(process.execPath, [STUB, '640', '360'], {
+                shell: false,
+                env: { ...env },
+                stdio: ['pipe', 'pipe', 'pipe'],
+              }),
+          });
+          closers.push(() => worker.close());
+          return worker;
+        },
+      });
+      // Warm-up: the process start is the "first request" the budget excludes.
+      expect(
+        await instance.segment(hover({ requestId: 'warm' }), { project, projectRevision: 1 }),
+      ).toMatchObject({ ok: true });
+      const samples: number[] = [];
+      for (let index = 0; index < 60; index += 1) {
+        const started = performance.now();
+        const answer = await instance.segment(
+          hover({ requestId: `m${String(index)}`, hoverPoint: { x: (index % 20) / 20, y: 0.5 } }),
+          { project, projectRevision: 1 },
+        );
+        samples.push(performance.now() - started);
+        expect(answer.ok).toBe(true);
+      }
+      samples.sort((a, b) => a - b);
+      const p50 = samples[Math.floor(samples.length * 0.5)]!;
+      const p95 = samples[Math.floor(samples.length * 0.95)]!;
+      // Recorded in the BR6.11 notes; the stub answers instantly, so this is the host's own cost
+      // (schema, pts lookup, stdio round trip, strict PNG decode of a 640×360 mask).
+      process.stdout.write(
+        `hover latency (stub pack, main-side, 640x360): p50 ${p50.toFixed(1)} ms, p95 ${p95.toFixed(1)} ms\n`,
       );
-      samples.push(performance.now() - started);
-      expect(answer.ok).toBe(true);
-    }
-    samples.sort((a, b) => a - b);
-    const p50 = samples[Math.floor(samples.length * 0.5)]!;
-    const p95 = samples[Math.floor(samples.length * 0.95)]!;
-    // Recorded in the BR6.11 notes; the stub answers instantly, so this is the host's own cost
-    // (schema, pts lookup, stdio round trip, strict PNG decode of a 640×360 mask).
-    process.stdout.write(
-      `hover latency (stub pack, main-side, 640x360): p50 ${p50.toFixed(1)} ms, p95 ${p95.toFixed(1)} ms\n`,
-    );
-    expect(p95).toBeLessThan(100);
-  });
-});
+      expect(p95).toBeLessThan(100);
+    });
+  },
+);
