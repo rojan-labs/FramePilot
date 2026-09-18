@@ -8,7 +8,7 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-**Resumed 2026-09-18 01:59.** Fresh agents (maintainer: don't resume old ones): (1) finish PX5.3 from the uncommitted GPU matte pass on disk; AM verification + AM4 done. PX5.1/5.2 done: matte rows miss. MK5, MK6 done; MK7 done bar MK7.6 (MO-14). BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
+**Resumed 2026-09-18 01:59.** Fresh agents (maintainer: don't resume old ones): (1) finish PX5.3 from the uncommitted GPU matte pass on disk; AM verification + AM4 + AM1.6 + AM5 harness done; AM2.5 (object classes + colour re-rank) running to lift AM5 target accuracy. PX5.1/5.2 done: matte rows miss. MK5, MK6 done; MK7 done bar MK7.6 (MO-14). BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
 On resume, read ONLY this file first, then the specific plan file for the task you start. Don't re-read 00–12 wholesale.
 
 1. CI: `gh run list --branch plan/background-removal-ai --workflow CI -L 3`. Runs 35245865537 (6ec24d91), 35245714147 and 35245248405 were in flight. Fix any red before new work.
@@ -88,6 +88,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## CI reds
 
+- Python mypy in engine/python/tests/test_matte_tier.py and px4_parity_frames.py (PX5.3 agent's)
+
 - E2E smoke: `mask-tools.spec.ts` 4K pointer-to-paint budget fails all 3 retries since the PX5.3 monitor changes (was a first-attempt flake at 837fe985) — PX5.3 agent owns it
 
 - none open (run 35304699655 at 2dde0422: 11/11 green)
@@ -102,6 +104,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
+
+- AM5 (run 35329323404, 92 requests): ambiguous asks 21/21 ✓, confident-wrong 0 ✓, invented geometry 0 ✓, needs_click on out-of-vocabulary 22/22, face picker 7/7, adversarial 10/10. **Target accuracy 25/37 = 67.6% ✗ (≥ 99%), unnecessary asks 12/37 = 32% ✗ (≤ 3%)** — all 12 misses ask safely; 11 are objects reported as generic "object", 1 needs colour
 
 - PX5 (M1 Pro, Chrome/Metal, 20 s runs, monitor on 540p proxies): playback 4 layers + text 0.17% dropped ✓; + animated 200-vertex path ✓; + key with full finesse ✓; seek 36–56 ms ✓; decoders ≤ 6 ✓. **With a 4K matte: 600/601 frames dropped ✗, seek 617 ms p95 ✗** (CPU float64 matte maths 452 ms/composite + TS FFV1 decode 101 ms/frame). Export with masks + 4K matte 1.49× local / 1.56× CI vs gate 1.5× ✗ narrowly (was 1.98×), measured on a 4–6 s window only. Picture cache peaks 401–676 MB vs nominal 384 MB (pinned decode-ahead frames). Not measured: other hardware, packaged Electron + fp-media://, camera footage, cold storage, full 3-min export
 
