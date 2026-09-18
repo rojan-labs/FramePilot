@@ -58,6 +58,14 @@ end, as `stack_alpha` quantises once) into `R8UI`, which is the format an upload
 lands in — so the alpha cut, the effect mix and the debug views never learn where the coverage
 came from. Stacks without a key keep the byte-exact CPU path untouched.
 
+**What a key costs the monitor, unmeasured so far:** the qualifier is one pass, but the finesse
+chain is not — morph open and close are two disc passes each, shrink/grow one, and the blur is
+six separable box passes. Each writes a float target the size of the frame, and `GlResources`
+pools them by size, so a key with the whole chain holds on the order of a dozen `RGBA32F` targets
+(≈ 8 MB each at 1080p, ≈ 33 MB at 4K) for as long as it is on screen. The pool does not grow past
+that, and a key without finesse costs one pass. No playback budget has been measured for this
+path; PX5 owns that number.
+
 **The one asymmetry, recorded rather than hidden:** a key's finesse morphology runs as shader
 passes, and a disc of radius `r` costs `(2r+1)²` fetches, so the pass is bounded at 16 px (1089
 fetches at the limit). Above that the monitor refuses with a remedy while the export renders any
