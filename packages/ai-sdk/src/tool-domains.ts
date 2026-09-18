@@ -50,6 +50,7 @@ export type ToolDomain =
   | 'footage'
   | 'sourcing'
   | 'tracking'
+  | 'masking'
   | 'media'
   | 'professional';
 
@@ -76,6 +77,9 @@ export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string
     'understand the raw material: scenes, shots, what is visually in it, where each moment lives',
   sourcing: 'find and place stock footage and music from the libraries',
   tracking: 'track a subject or object over time; masks and rotoscoping',
+  // Names the REQUESTS, not the mechanics (plan 11): nobody asks for a "matte".
+  masking:
+    'masks and cut-outs: remove backgrounds, isolate or hide people and objects, blur faces or plates, grade or effect only part of the picture, put text behind a subject, track masks',
   media: 'import media into the project and organise the bin',
   professional: 'resolver-gated professional editing intent (rolls, slips, slides, inserts)',
 };
@@ -220,6 +224,16 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'track_subject_automatically',
     'detect_subjects',
   ],
+  masking: [
+    'find_mask_targets',
+    'create_mask',
+    'remove_background',
+    'put_text_behind_subject',
+    'track_mask',
+    'refine_mask',
+    'get_masks',
+    'delete_mask',
+  ],
   media: ['add_asset', 'manage_assets'],
   professional: ['professional_edit'],
 };
@@ -311,6 +325,8 @@ const DOMAIN_REQUEST_WORDS: Readonly<Record<Exclude<ToolDomain, 'core'>, RegExp>
   effects: /\b(transitions?|effects?|titles?|text layers?|graphics?|callouts?)\b/gi,
   footage: /\b(index(?:ed|ing)?|index_media|map_footage|describe_footage|search_visual|detect_scenes|footage map|scene detection|shot list)\b/gi,
   tracking: /\b(track(?:ing)? (?:the )?subject|masks?|rotoscop\w*)\b/gi,
+  masking:
+    /\b(backgrounds?|cut-?outs?|isolate\w*|blur (?:the |their |every(?:one's)? )?(?:faces?|plates?)|behind (?:the |her|him|them)\w*|green ?screen)\b/gi,
   media: /\b(import\w*|media bin|organi[sz]e the bin)\b/gi,
   professional: /\b(roll edits?|slip|slide edits?|insert edits?)\b/gi,
 };

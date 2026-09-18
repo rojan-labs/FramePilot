@@ -53,4 +53,12 @@ export interface ToolContext {
    * — run `4a8e` asked for two and got eight, burying the editor's own footage.
    */
   readonly stockCutawayCap?: number;
+  /**
+   * Every number the editor wrote in this conversation's request (`masking/geometry-provenance.ts`).
+   *
+   * A mask's geometry may come from numbers the editor typed, and only from those: `create_mask`
+   * refuses a `userShape` whose numbers are not here, which is what stops "the editor gave
+   * numbers" from becoming a side door for coordinates the model made up.
+   */
+  readonly userNumbers?: readonly number[];
 }

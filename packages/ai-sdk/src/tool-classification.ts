@@ -100,6 +100,22 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   // into a track_object patch — so its outcome ages with the arrangement.
   track_subject_automatically: { role: 'analysis', scope: 'timeline_dependent' },
   detect_subjects: { role: 'analysis', scope: 'revision_independent' },
+  // The masking domain (plan 11). `sourcing`, in the `remove_silences` mould, for the four
+  // host-measured tools: three of them MEASURE then EDIT in one call, so their ops come from
+  // the host outcome and the registry marks them `mutates: false` — `sourcing` is the role
+  // that stays offered in the execution stages and is counted as work landed. And
+  // `find_mask_targets` mints the `candidateId`s those calls spend, the relationship
+  // `search_stock` has to `add_stock`: withheld as "reconnaissance" in `apply`, a run that
+  // decides to mask a second subject after its first patch could never name it. Candidates
+  // measure the SOURCE MEDIA, so no cut invalidates them and an id stays good all run.
+  find_mask_targets: { role: 'sourcing', scope: 'revision_independent' },
+  create_mask: { role: 'sourcing', scope: 'timeline_dependent' },
+  remove_background: { role: 'sourcing', scope: 'timeline_dependent' },
+  track_mask: { role: 'sourcing', scope: 'timeline_dependent' },
+  refine_mask: { role: 'mutation', scope: 'timeline_dependent' },
+  put_text_behind_subject: { role: 'mutation', scope: 'timeline_dependent' },
+  delete_mask: { role: 'mutation', scope: 'timeline_dependent' },
+  get_masks: { role: 'inspection', scope: 'timeline_dependent' },
   professional_audio: { role: 'mutation', scope: 'timeline_dependent' },
   measure_color: { role: 'analysis', scope: 'timeline_dependent' },
   // --- analysisTool: sidecar/ffmpeg-backed reads of the SOURCE MEDIA -------------------

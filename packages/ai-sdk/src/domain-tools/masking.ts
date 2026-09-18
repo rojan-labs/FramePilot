@@ -1,0 +1,464 @@
+/**
+ * The `masking` domain (plan 11, AM1.1): masks and cut-outs driven by plain requests.
+ *
+ * Two kinds of tool live here, split the way `transcribe` and `track_subject_automatically`
+ * are. The HOST-MEASURED ones (`find_mask_targets`, `create_mask`, `remove_background`,
+ * `track_mask`) carry no in-process body: the model states an objective, the desktop executor
+ * measures the media in an isolated pack worker, and the orchestrator turns the validated
+ * measurement into editor-core commands ({@link maskingOpsFromMeasurement}). The IN-PROCESS
+ * ones (`refine_mask`, `put_text_behind_subject`, `get_masks`, `delete_mask`) only rearrange
+ * what the project already holds.
+ *
+ * In both, the model picks WHICH candidate and WHAT purpose; it never supplies a coordinate.
+ * The names of the host-measured tools are constants rather than inline literals because the
+ * desktop executor routes on them, exactly as it does for `track_subject_automatically`.
+ */
+import { z } from 'zod/v4';
+import { masksOf, type MaskLayer } from '@framepilot/timeline-schema';
+import type { Operation } from '@framepilot/editor-core';
+import type { ToolContext } from '../tool-context.js';
+import type { ToolSpec } from '../tool-registry.js';
+import { ToolRefusalError } from '../tool-refusal.js';
+import {
+  CREATE_MASK_TOOL_NAME,
+  CreateMaskMeasurementSchema,
+  FIND_MASK_TARGETS_TOOL_NAME,
+  REMOVE_BACKGROUND_TOOL_NAME,
+  TRACK_MASK_TOOL_NAME,
+  TrackMaskMeasurementSchema,
+  MaskCandidateIdSchema,
+  type MaskReviewReport,
+} from '../masking/contracts.js';
+import { USER_NUMBERS_NOT_TYPED, numbersWereTyped } from '../masking/geometry-provenance.js';
+import {
+  MASK_EDGE_INTENTS,
+  MASK_EFFECT_INTENTS,
+  MASK_GROW_INTENTS,
+  MASK_PURPOSES,
+  growStepPx,
+  matteEdgeFor,
+  shapeEdgeFor,
+} from '../masking/intent-tables.js';
+import {
+  MASK_SHAPES,
+  MaskCommandChain,
+  buildCreateMaskOps,
+  buildTrackMaskOps,
+  clipWithSize,
+  maskOnClip,
+  type BuiltMask,
+  type CreateMaskIntent,
+} from '../masking/mask-builders.js';
+import { boolean, numeric, seconds } from './tool-args.js';
+import { jsonSchema, mutateTool, readTool } from './tool-factories.js';
+
+const unit = numeric(z.number().min(0).max(1));
+
+const UserShapeSchema = z
+  .object({
+    shape: z.enum(['rectangle', 'ellipse']),
+    /** Fractions of the picture: left, top, width, height. */
+    x: unit,
+    y: unit,
+    width: unit,
+    height: unit,
+  })
+  .strict();
+
+export const FindMaskTargetsArgsSchema = z
+  .object({
+    clipId: z.string().min(1),
+    /** The editor's own words for the target: "the red car", "everyone's faces". */
+    description: z.string().min(1).max(200),
+    /** Timeline seconds to look in; omit for the whole clip. */
+    range: z.object({ start: seconds, end: seconds }).strict().optional(),
+  })
+  .strict();
+
+export const CreateMaskArgsSchema = z
+  .object({
+    clipId: z.string().min(1),
+    candidateId: MaskCandidateIdSchema.optional(),
+    userShape: UserShapeSchema.optional(),
+    precision: z.enum(['cutout', 'shape']),
+    shape: z.enum(MASK_SHAPES).optional(),
+    purpose: z.enum(MASK_PURPOSES),
+    effect: z.enum(MASK_EFFECT_INTENTS).optional(),
+    edge: z.enum(MASK_EDGE_INTENTS).default('soft'),
+    track: boolean().default(false),
+  })
+  .strict();
+
+export const RemoveBackgroundArgsSchema = z
+  .object({ clipId: z.string().min(1), candidateId: MaskCandidateIdSchema.optional() })
+  .strict();
+
+export const TrackMaskArgsSchema = z
+  .object({
+    clipId: z.string().min(1),
+    maskId: z.string().min(1),
+    method: z.enum(['position', 'position-scale-rotation', 'perspective']).optional(),
+  })
+  .strict();
+
+const REFUSE_BOTH_SOURCES =
+  'Pass either candidateId or userShape, not both: a mask has one source.';
+const REFUSE_NO_SOURCE =
+  'create_mask needs a candidateId from find_mask_targets, or a userShape the editor typed. ' +
+  'Call find_mask_targets for the clip first.';
+const REFUSE_USER_CUTOUT =
+  'A cut-out follows a subject, so it needs a candidateId. Use precision "shape" with userShape.';
+
+/**
+ * The rules `create_mask` arguments obey beyond their types. Shared with the desktop executor,
+ * so a call that would be refused is refused BEFORE a pack worker runs for minutes.
+ *
+ * @throws ToolRefusalError with the remedy.
+ */
+export function createMaskIntent(
+  rawArgs: unknown,
+  ctx: Pick<ToolContext, 'userNumbers'>,
+): CreateMaskIntent {
+  const args = CreateMaskArgsSchema.parse(rawArgs);
+  if (args.candidateId !== undefined && args.userShape !== undefined) {
+    throw new ToolRefusalError(REFUSE_BOTH_SOURCES);
+  }
+  if (args.candidateId === undefined && args.userShape === undefined) {
+    throw new ToolRefusalError(REFUSE_NO_SOURCE);
+  }
+  if (args.userShape !== undefined) {
+    if (args.precision === 'cutout') throw new ToolRefusalError(REFUSE_USER_CUTOUT);
+    const { x, y, width, height } = args.userShape;
+    if (!numbersWereTyped([x, y, width, height], ctx.userNumbers ?? [])) {
+      throw new ToolRefusalError(USER_NUMBERS_NOT_TYPED);
+    }
+  }
+  return {
+    clipId: args.clipId,
+    ...(args.candidateId === undefined ? {} : { candidateId: args.candidateId }),
+    ...(args.userShape === undefined ? {} : { userShape: args.userShape }),
+    precision: args.precision,
+    ...(args.shape === undefined ? {} : { shape: args.shape }),
+    purpose: args.purpose,
+    ...(args.effect === undefined ? {} : { effect: args.effect }),
+    edge: args.edge,
+    track: args.track,
+  };
+}
+
+/** `remove_background` is `create_mask` with its answers filled in. */
+export function removeBackgroundIntent(rawArgs: unknown): CreateMaskIntent {
+  const args = RemoveBackgroundArgsSchema.parse(rawArgs);
+  return {
+    clipId: args.clipId,
+    ...(args.candidateId === undefined ? {} : { candidateId: args.candidateId }),
+    precision: 'cutout',
+    purpose: 'cutout',
+    edge: 'soft',
+    track: false,
+  };
+}
+
+/** A host-measured masking result, ready for the orchestrator to assemble. */
+export interface MaskingMeasuredEdit {
+  readonly operations: Operation[];
+  readonly maskId: string;
+  readonly needsReview: MaskReviewReport['needsReview'];
+  readonly trackConfidence?: MaskReviewReport['trackConfidence'];
+}
+
+/** Thrown when a host payload does not survive its schema. */
+export class UnusableMaskingPayloadError extends Error {
+  public constructor() {
+    super('The masking host returned a measurement FramePilot could not read.');
+    this.name = 'UnusableMaskingPayloadError';
+  }
+}
+
+/**
+ * Turn the host's measurement for a masking call into validated editor-core operations.
+ *
+ * @param toolName - One of the host-measured mutation tools.
+ * @param rawArgs - The call's arguments, as the model sent them.
+ * @param payload - `HostToolOutcome.data`, untrusted until parsed here.
+ * @throws UnusableMaskingPayloadError for a malformed payload; ToolRefusalError for a refusal.
+ */
+export function maskingOpsFromMeasurement(
+  toolName: string,
+  rawArgs: unknown,
+  payload: unknown,
+  ctx: ToolContext,
+): MaskingMeasuredEdit {
+  if (toolName === TRACK_MASK_TOOL_NAME) {
+    const args = TrackMaskArgsSchema.parse(rawArgs);
+    const parsed = TrackMaskMeasurementSchema.safeParse(payload);
+    if (!parsed.success) throw new UnusableMaskingPayloadError();
+    if (parsed.data.clipId !== args.clipId || parsed.data.maskId !== args.maskId) {
+      throw new ToolRefusalError(
+        'The measurement is for a different mask, so nothing was applied.',
+      );
+    }
+    const built = buildTrackMaskOps(ctx.project, args.clipId, args.maskId, parsed.data.track);
+    return measuredEdit(built, parsed.data.track.flagged, parsed.data.track);
+  }
+  const intent =
+    toolName === REMOVE_BACKGROUND_TOOL_NAME
+      ? removeBackgroundIntent(rawArgs)
+      : createMaskIntent(rawArgs, ctx);
+  const parsed = CreateMaskMeasurementSchema.safeParse(payload);
+  if (!parsed.success) throw new UnusableMaskingPayloadError();
+  const built = buildCreateMaskOps(ctx.project, intent, parsed.data);
+  if (parsed.data.precision === 'cutout') return measuredEdit(built, parsed.data.needsReview);
+  return measuredEdit(built, parsed.data.track?.flagged ?? [], parsed.data.track);
+}
+
+function measuredEdit(
+  built: BuiltMask,
+  needsReview: MaskReviewReport['needsReview'],
+  track?: {
+    readonly frames: number;
+    readonly worstResidualPx: number;
+    readonly flagged: readonly unknown[];
+  },
+): MaskingMeasuredEdit {
+  return {
+    operations: built.operations,
+    maskId: built.maskId,
+    needsReview: needsReview.map((range) => ({ start: range.start, end: range.end })),
+    ...(track === undefined
+      ? {}
+      : {
+          trackConfidence: {
+            frames: track.frames,
+            worstResidualPx: track.worstResidualPx,
+            flaggedCount: track.flagged.length,
+          },
+        }),
+  };
+}
+
+const HOST_MEASURED = {
+  version: '1',
+  capabilities: ['masking', 'vision'],
+  cost: 'high',
+  latency: 'slow',
+  hostUiOnly: true,
+  mutates: false,
+  available: true,
+  kind: 'analysis',
+} as const;
+
+const hostMeasured = (
+  name: string,
+  description: string,
+  schema: z.ZodType,
+  permissions: NonNullable<ToolSpec['permissions']>,
+): ToolSpec => ({
+  ...HOST_MEASURED,
+  name,
+  description,
+  permissions,
+  parameters: jsonSchema(schema),
+  parse: (rawArgs) => schema.parse(rawArgs),
+});
+
+/** How one mask reads in `get_masks`: what it is, what it limits, and what still needs a look. */
+function maskRow(mask: MaskLayer): Record<string, unknown> {
+  const review = mask.kind === 'matte' ? mask.review : mask.tracking?.review;
+  return {
+    maskId: mask.id,
+    name: mask.name,
+    kind: mask.kind,
+    target: mask.target.kind === 'effect' ? `effect:${mask.target.effectId}` : 'clip',
+    mode: mask.mode,
+    inverted: mask.invert,
+    enabled: mask.enabled,
+    tracked: mask.tracking !== undefined,
+    // Never "verified": the Inspector's review list is the only place that word is earned.
+    review:
+      review === undefined
+        ? 'none'
+        : review.flagged.length === 0
+          ? 'nothing flagged'
+          : 'needs a look',
+    flaggedCount: review?.flagged.length ?? 0,
+  };
+}
+
+const RefineMaskArgsSchema = z
+  .object({
+    clipId: z.string().min(1),
+    maskId: z.string().min(1),
+    edge: z.enum(MASK_EDGE_INTENTS).optional(),
+    grow: z.enum(MASK_GROW_INTENTS).optional(),
+    mode: z.enum(['add', 'subtract', 'intersect']).optional(),
+    invert: boolean().optional(),
+  })
+  .strict();
+
+function refineMaskOps(args: z.infer<typeof RefineMaskArgsSchema>, ctx: ToolContext): Operation[] {
+  const { clip, size } = clipWithSize(ctx.project, args.clipId);
+  const mask = maskOnClip(clip, args.maskId);
+  const changes: Record<string, number | string | boolean | Record<string, number>> = {};
+  if (args.edge !== undefined) {
+    if (mask.kind === 'matte') {
+      const edge = matteEdgeFor(args.edge, size);
+      changes.edgeMode = edge.edgeMode;
+      changes.finesse = { ...mask.finesse, blurPx: edge.blurPx };
+    } else {
+      Object.assign(changes, shapeEdgeFor(args.edge, size));
+    }
+  }
+  if (args.grow !== undefined) {
+    const step = growStepPx(args.grow, size);
+    if (mask.kind === 'matte') changes.edgeShiftPx = mask.edgeShiftPx + step;
+    else changes.expansionPx = mask.expansionPx + step;
+  }
+  if (args.mode !== undefined) changes.mode = args.mode;
+  if (args.invert !== undefined) changes.invert = args.invert;
+  if (Object.keys(changes).length === 0) {
+    throw new ToolRefusalError(
+      'refine_mask was given nothing to change. Pass edge, grow, mode or invert.',
+    );
+  }
+  const chain = new MaskCommandChain(ctx.project);
+  chain.run({
+    type: 'set_mask_properties',
+    clipId: clip.id,
+    maskId: mask.id,
+    sourceTime: clip.sourceStart,
+    changes,
+  });
+  return chain.operations;
+}
+
+const TextStyleSchema = z
+  .object({
+    sizePercent: numeric(z.number().positive().max(100)).optional(),
+    color: z.string().optional(),
+    align: z.enum(['left', 'center', 'right']).optional(),
+    xPercent: numeric(z.number().min(0).max(100)).optional(),
+    yPercent: numeric(z.number().min(0).max(100)).optional(),
+  })
+  .strict();
+
+/** The `text` effect's own parameter names for a style the model states in tool vocabulary. */
+function textStyleParams(style: z.infer<typeof TextStyleSchema>): Record<string, unknown> {
+  const { sizePercent, ...rest } = style;
+  return {
+    ...(sizePercent === undefined ? {} : { fontSizePercent: sizePercent }),
+    ...Object.fromEntries(Object.entries(rest).filter(([, value]) => value !== undefined)),
+  };
+}
+
+export const MASKING_TOOLS: readonly ToolSpec[] = [
+  hostMeasured(
+    FIND_MASK_TARGETS_TOOL_NAME,
+    'Find what a mask request means on ONE clip: "the presenter", "everyone\'s faces", "the ' +
+      'car". Returns ranked candidates (candidateId, label, score, how long each stays on ' +
+      'screen) measured by the installed detection pack. status "resolved" names the ' +
+      'candidate(s) to pass to create_mask. "ambiguous_target", "needs_click" and ' +
+      '"needs_face_selection" mean the EDITOR must choose — FramePilot has already shown them ' +
+      'the picker, so wait for their answer and never pick for them. A candidateId stays ' +
+      'valid for the whole run.',
+    FindMaskTargetsArgsSchema,
+    ['analysis'],
+  ),
+  hostMeasured(
+    CREATE_MASK_TOOL_NAME,
+    'Mask one candidate from find_mask_targets. precision "cutout" is an exact AI matte; ' +
+      '"shape" fits an ellipse, rectangle or path to the measurement. purpose: "cutout" keeps ' +
+      'only the subject, "hide" removes it, "effect" limits an effect (brighten, darken, ' +
+      'desaturate) to it. edge is exact, soft or very_soft. track:true makes a shape follow ' +
+      'the subject. You never give coordinates; userShape is ONLY for numbers the editor ' +
+      'typed. The result lists moments that need a look — report that count, and never say ' +
+      'the mask is verified.',
+    CreateMaskArgsSchema,
+    ['analysis', 'write'],
+  ),
+  hostMeasured(
+    REMOVE_BACKGROUND_TOOL_NAME,
+    'Remove the background of ONE clip: an exact AI cut-out of the main subject, or of the ' +
+      'candidateId you pass. The result lists moments that need a look — report that count, ' +
+      'and never say it is verified.',
+    RemoveBackgroundArgsSchema,
+    ['analysis', 'write'],
+  ),
+  hostMeasured(
+    TRACK_MASK_TOOL_NAME,
+    'Make an existing rectangle, ellipse or path mask follow its subject through the clip, ' +
+      'measured by the installed tracking pack. Returns the ranges that need a look.',
+    TrackMaskArgsSchema,
+    ['analysis', 'write'],
+  ),
+  mutateTool(
+    {
+      name: 'refine_mask',
+      description:
+        'Adjust an existing mask by intent: edge (exact, soft, very_soft), grow (tighter, ' +
+        'looser — one step per call), mode (add, subtract, intersect) or invert. FramePilot ' +
+        'picks the numbers.',
+      capabilities: ['masking'],
+      hostUiOnly: true,
+    },
+    RefineMaskArgsSchema,
+    refineMaskOps,
+  ),
+  mutateTool(
+    {
+      name: 'put_text_behind_subject',
+      description:
+        'Put a title between the subject and the background of ONE clip. The clip needs its ' +
+        'background removed first (remove_background).',
+      capabilities: ['masking', 'text'],
+      hostUiOnly: true,
+    },
+    z
+      .object({
+        clipId: z.string().min(1),
+        text: z.string().min(1),
+        style: TextStyleSchema.optional(),
+      })
+      .strict(),
+    (args, ctx) => {
+      const chain = new MaskCommandChain(ctx.project);
+      chain.run({
+        type: 'text_behind_subject',
+        clipId: args.clipId,
+        text: args.text,
+        ...(args.style === undefined ? {} : { style: textStyleParams(args.style) }),
+      });
+      return chain.operations;
+    },
+  ),
+  readTool(
+    {
+      name: 'get_masks',
+      description:
+        'List the masks on ONE clip: id, kind, what each limits, whether it is tracked, and ' +
+        'how many moments still need a look.',
+      capabilities: ['masking'],
+      hostUiOnly: true,
+    },
+    z.object({ clipId: z.string().min(1) }).strict(),
+    (args, ctx) => {
+      const { clip } = clipWithSize(ctx.project, args.clipId);
+      return { clipId: clip.id, masks: masksOf(clip).map(maskRow) };
+    },
+  ),
+  mutateTool(
+    {
+      name: 'delete_mask',
+      description: 'Remove one mask from a clip. Undo restores it.',
+      capabilities: ['masking'],
+      hostUiOnly: true,
+    },
+    z.object({ clipId: z.string().min(1), maskId: z.string().min(1) }).strict(),
+    (args, ctx) => {
+      const { clip } = clipWithSize(ctx.project, args.clipId);
+      const chain = new MaskCommandChain(ctx.project);
+      chain.run({ type: 'remove_mask', clipId: clip.id, maskId: maskOnClip(clip, args.maskId).id });
+      return chain.operations;
+    },
+  ),
+];

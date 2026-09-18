@@ -68,7 +68,7 @@ import type { Project, Timeline, TranscriptWord } from '@framepilot/timeline-sch
 import { getBridge } from './bridge.js';
 import { type BrowserAiConfig, loadBrowserAiConfig } from './aiConfigStorage.js';
 import { readProjectUnderstanding, type UnderstandingReads } from './projectUnderstanding.js';
-import { LedgerClient, type LedgerSnapshot } from '@framepilot/ai-sdk';
+import { LedgerClient, MASKING_HOST_TOOL_NAMES, type LedgerSnapshot } from '@framepilot/ai-sdk';
 import { createVisualIndexClient } from './visualIndex.js';
 import { createBrowserRunStoreIO } from './browser-run-store.js';
 import {
@@ -129,7 +129,13 @@ function browserOrchestratorOptions(): ConstructorParameters<typeof Orchestrator
       baseUrl,
       // Routed only by the desktop's Capability Pack tracking executor. Offered here, both
       // failed on their first call with "no implementation on this surface".
-      unroutableToolNames: ['detect_subjects', 'track_subject_automatically'],
+      // The masking domain's measured tools are the same case (plan 11): they run in the
+      // desktop's pack workers, and the browser build has none.
+      unroutableToolNames: [
+        'detect_subjects',
+        'track_subject_automatically',
+        ...MASKING_HOST_TOOL_NAMES,
+      ],
     }),
   };
 }

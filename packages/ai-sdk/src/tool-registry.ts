@@ -55,6 +55,7 @@ import { MEDIA_TOOLS } from './domain-tools/media.js';
 import { PROJECT_TOOLS } from './domain-tools/project.js';
 import { VERIFICATION_TOOLS } from './domain-tools/verification.js';
 import { TRACKING_MASK_TOOLS } from './domain-tools/tracking-mask.js';
+import { MASKING_TOOLS } from './domain-tools/masking.js';
 import { boolean, filterString, numeric, seconds } from './domain-tools/tool-args.js';
 import { analysisTool, askTool, noArgs, readTool } from './domain-tools/tool-factories.js';
 // `tool-input-contract.ts` only imports the `ToolSpec`/`ToolParameterSchema` *types* from
@@ -549,6 +550,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
   ...COLOR_TOOLS,
   ...SOLVED_COLOR_TOOLS,
   ...TRACKING_MASK_TOOLS,
+  ...MASKING_TOOLS,
   ...AUDIO_TOOLS,
   ...CAPTION_TOOLS,
   ...GRAPHICS_TOOLS,

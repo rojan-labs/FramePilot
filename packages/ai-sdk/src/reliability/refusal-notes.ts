@@ -119,6 +119,30 @@ const UNUSABLE_HOST_PAYLOAD: Readonly<Record<string, UnusablePayloadCopy>> = {
       'the same way. Pick a different result from search_stock and add that one; if a ' +
       'second one fails like this, tell the editor the stock download failed and move on.',
   },
+  create_mask: {
+    what: 'the masking host returned a measurement FramePilot could not read, so no mask was added',
+    instead:
+      // Names no substitute, for `track_subject_automatically`'s reason: the only other way
+      // to a mask is coordinates, and the model is the one party that must never author them.
+      'Do not call it again for this clip — repeating it measures the same shot the same ' +
+      'way. Tell the editor the mask could not be made and that the clip is unchanged.',
+  },
+  remove_background: {
+    what: 'the masking host returned a measurement FramePilot could not read, so the background was not removed',
+    instead:
+      // Names no substitute, for `track_subject_automatically`'s reason: the only other way
+      // to a mask is coordinates, and the model is the one party that must never author them.
+      'Do not call it again for this clip — repeating it measures the same shot the same ' +
+      'way. Tell the editor the mask could not be made and that the clip is unchanged.',
+  },
+  track_mask: {
+    what: 'the tracking host returned a measurement FramePilot could not read, so the mask was not moved',
+    instead:
+      // Names no substitute, for `track_subject_automatically`'s reason: the only other way
+      // to a mask is coordinates, and the model is the one party that must never author them.
+      'Do not call it again for this clip — repeating it measures the same shot the same ' +
+      'way. Tell the editor the mask could not be made and that the clip is unchanged.',
+  },
   track_subject_automatically: {
     what:
       'the tracking host returned a measurement FramePilot could not read, so the mask was ' +

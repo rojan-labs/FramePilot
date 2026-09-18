@@ -271,6 +271,10 @@ import { rebaseEditorInteractionContext } from './editor-context/interaction-con
 import { MAX_IDENTITY_KEY_CHARS, boundedKeySegment } from './stable-key.js';
 import type { ToolContext } from './tool-context.js';
 import { stockCutawayCapRefusal } from './domain-tools/timeline.js';
+import { maskingOpsFromMeasurement, UnusableMaskingPayloadError } from './domain-tools/masking.js';
+import { MASKING_HOST_MUTATION_TOOL_NAMES, type MaskReviewReport } from './masking/contracts.js';
+import { assertMaskGeometrySourced, numbersIn } from './masking/geometry-provenance.js';
+import { maskReviewSentence, maskTargetsDigest } from './masking/review-report.js';
 import {
   ToolInvocationError,
   describeArgValidationError,
@@ -3279,6 +3283,23 @@ export function summarizeReadResult(
         return previewJson(value, ANALYSIS_PREVIEW_MAX);
       return `selection ${round3(obj.start)}–${round3(obj.end)}s (${round2(obj.end - obj.start)}s) in timeline time`;
     }
+    case 'find_mask_targets':
+      return maskTargetsDigest(value) ?? previewJson(value, ANALYSIS_PREVIEW_MAX);
+    case 'get_masks': {
+      const masks = (Array.isArray(obj.masks) ? obj.masks : []) as Record<string, unknown>[];
+      if (!Array.isArray(obj.masks)) return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      if (masks.length === 0) return `${String(obj.clipId ?? '?')} has no masks`;
+      return `${masks.length} mask${masks.length === 1 ? '' : 's'} on ${String(obj.clipId ?? '?')}:\n${masks
+        .map(
+          (mask) =>
+            `${String(mask.maskId)} · ${String(mask.kind)} · limits ${String(mask.target)} · ${
+              mask.tracked === true ? 'tracked' : 'not tracked'
+            } · ${String(mask.review)}${
+              Number(mask.flaggedCount) > 0 ? ` (${String(mask.flaggedCount)} flagged)` : ''
+            }`,
+        )
+        .join('\n')}`;
+    }
     case 'track_subject_automatically': {
       // Per-frame geometry, one record per frame: previewJson cut it after a handful of
       // sample rows, which is both useless and misleading. The samples are applied to the
@@ -3623,9 +3644,12 @@ export class Orchestrator {
   private toolContext(input: ContextInput): ToolContext {
     // The cutaway cap the brief states, so the placement tools can hold the run to it
     // (`domain-tools/timeline.ts`). Read here, once, from the same reader the Critic uses.
-    const cap = explicitCutawayCount(deriveObjectiveText(input.userPrompt, input.history));
+    const objective = deriveObjectiveText(input.userPrompt, input.history);
+    const cap = explicitCutawayCount(objective);
     return {
       project: input.project,
+      // The only numbers a `userShape` may carry (masking/geometry-provenance.ts).
+      userNumbers: numbersIn(objective),
       ...(cap === undefined ? {} : { stockCutawayCap: cap }),
       ...(input.projectRevision === undefined ? {} : { projectRevision: input.projectRevision }),
       // The turn number is the conversation's own clock: the user's messages so far
@@ -5072,6 +5096,13 @@ export class Orchestrator {
             rejectedOpCount: 1,
           };
         }
+      }
+      // The masking domain's host-measured edits (plan 11): the desktop executor measured the
+      // media in a pack worker; the measurement becomes the SAME editor-core commands the
+      // Inspector dispatches. A malformed payload, a measurement for another clip or a
+      // compiler refusal never becomes a fabricated mask.
+      if (MASKING_HOST_MUTATION_TOOL_NAMES.includes(call.name) && outcome.status === 'completed') {
+        return maskingOutcomeFromMeasurement(call, outcome, ctx);
       }
       // A cached replay reports the call itself (`desc`), not the original outcome's
       // summary text — the summary can be data-derived ("No silent ranges") and would
@@ -10099,6 +10130,79 @@ function withheldCallOutcome(
     withheld: true,
   };
 }
+
+/**
+ * A host-measured masking call, settled: measurement → editor-core commands → validated patch.
+ *
+ * Everything that can throw here is a pure verdict over the working copy and the measurement
+ * (the compiler's rejection codes, the geometry-provenance check, the validator), so a failure
+ * is KEYED as deterministic for the reason `track_subject_automatically`'s is: without a key
+ * the refusal could be re-earned every turn, and each repeat re-runs a pack worker over the
+ * media. `rejectedOpCount: 1` because the throw comes out of the op builder — one refused call
+ * is one thing the run could not do.
+ *
+ * The result's `data` is the deterministic review report (AM3.1): the pack's flagged ranges,
+ * the track's residual and the validator verdict. It never says "verified" — the Inspector's
+ * review list is the only place that word is earned (plan 11 rule 3).
+ */
+function maskingOutcomeFromMeasurement(
+  call: ToolCall,
+  outcome: HostToolOutcome,
+  ctx: ToolContext,
+): AgentCallOutcome {
+  try {
+    const edit = maskingOpsFromMeasurement(call.name, call.arguments, outcome.data, ctx);
+    assertMaskGeometrySourced(edit.operations);
+    const probe = assembleEdit(
+      ctx.project,
+      edit.operations,
+      MASKING_PATCH_REASON[call.name] ?? call.name,
+      'agent',
+    );
+    if (!probe.validation.valid) {
+      return hostBackedValidatorRejection(call.name, probe.validation.issues, edit.operations);
+    }
+    const report: MaskReviewReport = {
+      maskId: edit.maskId,
+      needsReview: edit.needsReview,
+      flaggedCount: edit.needsReview.length,
+      ...(edit.trackConfidence === undefined ? {} : { trackConfidence: edit.trackConfidence }),
+      validator: { valid: true, issues: [] },
+    };
+    const note = `${outcome.summary} ${maskReviewSentence(report)}`;
+    return {
+      ops: edit.operations,
+      note,
+      summary: outcome.summary,
+      status: 'completed',
+      project: applyProjectPatch(ctx.project, probe.patch),
+      data: { kind: 'mask_review', tool: call.name, ...report },
+    };
+  } catch (cause) {
+    if (cause instanceof UnusableMaskingPayloadError) {
+      const note = unusableHostPayload(call.name);
+      return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
+    }
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    const note = `Rejected "${call.name}" — ${reason}`;
+    return {
+      ops: [],
+      note,
+      summary: note,
+      status: 'failed',
+      data: reason,
+      deterministicFailure: true,
+      rejectedOpCount: 1,
+    };
+  }
+}
+
+/** Patch reasons for the host-measured masking tools, in the editor's words. */
+const MASKING_PATCH_REASON: Readonly<Record<string, string>> = {
+  create_mask: 'Create mask',
+  remove_background: 'Remove background',
+  track_mask: 'Track mask',
+};
 
 /**
  * The outcome for a HOST-BACKED tool whose built operations the validator refused.

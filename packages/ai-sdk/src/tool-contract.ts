@@ -91,6 +91,41 @@ export const TOOL_CONTRACT_DECLARATIONS: Readonly<Record<string, ToolContract>> 
     stateDependency: 'asset_content',
     cacheScope: 'none',
   },
+  // The masking domain's host-measured tools (plan 11). `find_mask_targets` measures media
+  // bytes; the other three measure and then edit, so a memoized replay would re-apply a
+  // stale mask as if it were fresh — the `track_subject_automatically` contract exactly.
+  find_mask_targets: {
+    executionPlane: 'host',
+    effectClass: 'pure_read',
+    permissions: ['analysis'],
+    concurrency: 'serial',
+    stateDependency: 'asset_content',
+    cacheScope: 'none',
+  },
+  create_mask: {
+    executionPlane: 'host',
+    effectClass: 'mutation',
+    permissions: ['analysis', 'write'],
+    concurrency: 'serial',
+    stateDependency: 'asset_content',
+    cacheScope: 'none',
+  },
+  remove_background: {
+    executionPlane: 'host',
+    effectClass: 'mutation',
+    permissions: ['analysis', 'write'],
+    concurrency: 'serial',
+    stateDependency: 'asset_content',
+    cacheScope: 'none',
+  },
+  track_mask: {
+    executionPlane: 'host',
+    effectClass: 'mutation',
+    permissions: ['analysis', 'write'],
+    concurrency: 'serial',
+    stateDependency: 'asset_content',
+    cacheScope: 'none',
+  },
   // `add_music`/`add_stock` are sourcing tools whose NAMES read as analysis and whose
   // registry kind IS `analysis` — they are reached through `search_music`/`search_stock`
   // — but each one downloads a third-party file into the project and places a clip via a

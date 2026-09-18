@@ -40,6 +40,9 @@ describe('unusableHostPayload', () => {
       'remove_silences',
       'add_music',
       'add_stock',
+      'create_mask',
+      'remove_background',
+      'track_mask',
       'track_subject_automatically',
     ]);
     for (const { tool, note } of entries) expect(note).toBe(unusableHostPayload(tool));
