@@ -70,7 +70,12 @@ const MISSING: CapabilityPackStatusWire = {
 };
 
 const assets: readonly Asset[] = [
-  { id: 'a1', path: 'media/a1.mp4', type: 'video', media: { width: 1920, height: 1080 } } as Asset,
+  {
+    id: 'a1',
+    path: 'media/a1.mp4',
+    kind: 'video',
+    media: { width: 1920, height: 1080 },
+  } as unknown as Asset,
 ];
 
 const timeline: Timeline = {
@@ -147,10 +152,10 @@ describe('BackgroundRemovalRow', () => {
     bridge.capabilityPackPropose.mockResolvedValue({ ok: true, proposal: PROPOSAL });
     bridge.capabilityPackInstall.mockResolvedValue({ ok: true, operationId: 'op1' });
     let emit: ((message: unknown) => void) | null = null;
-    bridge.onCapabilityPackProgress.mockImplementation((handler: (m: unknown) => void) => {
+    bridge.onCapabilityPackProgress.mockImplementation(((handler: (m: unknown) => void) => {
       emit = handler;
       return () => {};
-    });
+    }) as never);
 
     render(<Harness jobs={jobs} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Install 1.1 GB' }));
@@ -181,12 +186,12 @@ describe('BackgroundRemovalRow', () => {
   it('refreshes without a restart when any surface installs the pack', async () => {
     bridge.capabilityPackStatus.mockResolvedValueOnce(MISSING).mockResolvedValue(READY);
     let installed: ((event: CapabilityPackInstalledEventWire) => void) | null = null;
-    bridge.onCapabilityPackInstalled.mockImplementation(
-      (handler: (event: CapabilityPackInstalledEventWire) => void) => {
-        installed = handler;
-        return () => {};
-      },
-    );
+    bridge.onCapabilityPackInstalled.mockImplementation(((
+      handler: (event: CapabilityPackInstalledEventWire) => void,
+    ) => {
+      installed = handler;
+      return () => {};
+    }) as never);
 
     render(<Harness jobs={jobs} />);
     await screen.findByText("Background removal isn't installed.");
@@ -231,5 +236,79 @@ describe('BackgroundRemovalRow', () => {
     // 8 s of 1080p coverage at the measured 520 compute-seconds per footage second.
     expect(await screen.findByText(/About 69 minutes on this computer/)).toBeTruthy();
     expect(screen.getByText(/Covers this clip plus 2 s of handles/)).toBeTruthy();
+  });
+  it('offers Reinstall, not Install, when the installed pack failed its health check', async () => {
+    bridge.capabilityPackStatus.mockResolvedValue({
+      state: 'unhealthy',
+      capability: 'subject.matte',
+      reason: 'the entry point did not answer',
+      proposal: { ok: true, proposal: PROPOSAL },
+    });
+    render(<Harness jobs={jobs} />);
+
+    expect(
+      await screen.findByText('The Smart Mask pack is installed but failed its health check.'),
+    ).toBeTruthy();
+    expect(screen.getByText('the entry point did not answer')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reinstall' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Install/ })).toBeNull();
+  });
+
+  it('names the hardware and offers no download on an unsupported computer', async () => {
+    bridge.capabilityPackStatus.mockResolvedValue({
+      state: 'unsupported_platform',
+      capability: 'subject.matte',
+      hardware: {
+        requirement: 'an Apple Silicon Mac or a Windows x64 PC',
+        platformSupported: false,
+        minMemoryBytes: 16e9,
+        memoryBytes: 8e9,
+        meets: false,
+      },
+    });
+    render(<Harness jobs={jobs} />);
+
+    expect(
+      await screen.findByText("Background removal isn't available for this computer yet."),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Install|Reinstall/ })).toBeNull();
+    expect(
+      (screen.getByRole('button', { name: 'Remove background' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('says a build without a catalog cannot download the pack', async () => {
+    bridge.capabilityPackStatus.mockResolvedValue({
+      state: 'catalog_unconfigured',
+      capability: 'subject.matte',
+    });
+    render(<Harness jobs={jobs} />);
+
+    expect(await screen.findByText("Smart Mask can't be installed from this build.")).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Install/ })).toBeNull();
+  });
+
+  it('warns about memory below the minimum before anything is downloaded', async () => {
+    bridge.capabilityPackStatus.mockResolvedValue({
+      ...READY,
+      hardware: {
+        requirement: 'an Apple Silicon Mac with 16 GB of memory',
+        platformSupported: true,
+        minMemoryBytes: 16e9,
+        memoryBytes: 8e9,
+        meets: false,
+      },
+    });
+    render(<Harness jobs={jobs} />);
+
+    expect(
+      await screen.findByText(
+        'Needs 16 GB of memory; this computer has 8 GB, so it will run slower.',
+      ),
+    ).toBeTruthy();
+    // A warning, not a block: the tool still runs, slower.
+    expect(
+      (screen.getByRole('button', { name: 'Remove background' }) as HTMLButtonElement).disabled,
+    ).toBe(false);
   });
 });

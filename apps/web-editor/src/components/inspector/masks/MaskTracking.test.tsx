@@ -21,6 +21,20 @@ const bridge = vi.hoisted(() => ({
   capabilityPackTrackMask: vi.fn(),
   onCapabilityPackTrackProgress: vi.fn(() => () => {}),
   capabilityPackCancelTrack: vi.fn(),
+  // Tracking is pack-backed (BR6.2): without a ready answer the panel disables the button.
+  capabilityPackStatus: vi.fn(async () => ({
+    state: 'ready' as const,
+    capability: 'tracking.region',
+    pack: {
+      id: 'tracking-lite',
+      version: '1.0.0',
+      releaseDigest: 'c'.repeat(64),
+      artifactDigest: 'd'.repeat(64),
+      os: 'darwin' as const,
+      arch: 'arm64' as const,
+    },
+  })),
+  onCapabilityPackInstalled: vi.fn(() => () => {}),
 }));
 
 vi.mock('../../../editor/bridge.js', async (importOriginal) => ({
@@ -119,6 +133,12 @@ function choose(label: string, option: string): void {
 }
 
 async function track(): Promise<void> {
+  // The pack check is asynchronous, and the button is disabled until it answers (BR6.2).
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('button', { name: 'Track this mask' }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Track this mask' }));
   await waitFor(() => expect(bridge.capabilityPackTrackMask).toHaveBeenCalledTimes(1));
 }

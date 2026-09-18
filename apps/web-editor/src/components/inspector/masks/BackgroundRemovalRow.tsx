@@ -22,13 +22,13 @@ import type { Clip } from '@framepilot/timeline-schema';
 import type { MattePromptRefWire } from '@framepilot/shared-types';
 import { Button } from '@framepilot/ui';
 import type { UseEditor } from '../../../editor/useEditor.js';
-import { useProposalInstall } from '../useProposalInstall.js';
 import {
   MATTE_HANDLE_SECONDS,
   estimateMatteJob,
   formatBytes,
   formatDuration,
 } from './matteEstimate.js';
+import { PackToolWarning } from './PackToolWarning.js';
 import { hardwareNotice, packToolCopy, SMART_MASK_PACK } from './packToolCopy.js';
 import { matteJobStore, type MatteJobStore } from './matteJobStore.js';
 import { useClipMatteJob } from './useMatteJob.js';
@@ -80,12 +80,10 @@ export function BackgroundRemovalRow({
   developmentBuild = import.meta.env.DEV,
 }: BackgroundRemovalRowProps): JSX.Element {
   const { status, refresh } = usePackStatus(SUBJECT_MATTE_CAPABILITY);
-  const install = useProposalInstall();
   const tools = useMaskTools(store);
   const { job, start } = useClipMatteJob(clip.id, jobs);
   const [subject, setSubject] = useState<SubjectMode>('auto');
   const [message, setMessage] = useState<string | null>(null);
-  const [showLicences, setShowLicences] = useState(false);
 
   const copy = packToolCopy(status, {
     pack: SMART_MASK_PACK,
@@ -94,9 +92,6 @@ export function BackgroundRemovalRow({
   });
   const hardware = 'hardware' in status ? status.hardware : null;
   const hardwareLine = hardwareNotice(hardware ?? null);
-  const proposal =
-    status.kind === 'missing' || status.kind === 'unhealthy' ? status.proposal : null;
-
   const media = editor.state.assets.find((asset) => asset.id === clip.assetId)?.media;
   const size = assetDisplaySize(media);
   const coverage = {
@@ -130,77 +125,9 @@ export function BackgroundRemovalRow({
     }).then((refusal) => setMessage(refusal));
   };
 
-  const approve = (): void => {
-    if (proposal === null) return;
-    void install
-      .approve(proposal)
-      .then(() => refresh())
-      .catch(() => undefined);
-  };
-
   return (
     <div className="inspector-subpanel background-removal" aria-label="Background removal">
-      {copy.blocked && (
-        <div
-          className="background-removal-warning"
-          role="status"
-          aria-live="polite"
-          id={WARNING_ID}
-        >
-          <p className="background-removal-warning-headline">{copy.headline}</p>
-          {copy.detail !== null && <p className="inspector-empty">{copy.detail}</p>}
-          {copy.action !== null && proposal !== null && (
-            <span className="background-removal-actions">
-              <Button
-                variant="primary"
-                type="button"
-                disabled={install.installing}
-                onClick={approve}
-              >
-                {install.installing ? 'Installing…' : (copy.actionLabel ?? 'Install')}
-              </Button>
-              <Button
-                variant="ghost"
-                type="button"
-                aria-expanded={showLicences}
-                onClick={() => setShowLicences((open) => !open)}
-              >
-                Details
-              </Button>
-            </span>
-          )}
-          {install.installing && install.progress !== null && (
-            <p className="inspector-empty" role="status">
-              {install.progress.phase === 'downloading'
-                ? `Downloading ${formatBytes(install.progress.completedBytes)} of ${formatBytes(
-                    install.progress.totalBytes,
-                  )}…`
-                : install.progress.phase === 'health_checking' ||
-                    install.progress.phase === 'verifying'
-                  ? 'Verifying…'
-                  : 'Installing…'}{' '}
-              <button type="button" className="inspector-text-button" onClick={install.cancel}>
-                Cancel
-              </button>
-            </p>
-          )}
-          {showLicences && proposal !== null && (
-            <p className="inspector-empty">
-              {proposal.description} Licences:{' '}
-              {proposal.licenses.map((licence) => licence.spdx).join(', ')}.{' '}
-              {proposal.privacy.disclosure}
-            </p>
-          )}
-          {install.error !== null && (
-            <p className="inspector-empty" role="alert">
-              {install.error}{' '}
-              <button type="button" className="inspector-text-button" onClick={approve}>
-                Retry
-              </button>
-            </p>
-          )}
-        </div>
-      )}
+      <PackToolWarning id={WARNING_ID} copy={copy} status={status} onInstalled={refresh} />
       {hardwareLine !== null && !copy.blocked && (
         <p className="inspector-empty" role="status">
           {hardwareLine}

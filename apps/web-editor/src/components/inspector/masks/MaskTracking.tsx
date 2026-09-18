@@ -27,6 +27,9 @@ import type { MaskTrackIntentWire } from '@framepilot/shared-types';
 import type { UseEditor } from '../../../editor/useEditor.js';
 import { clipSourceTimeAt, runMaskCommand } from '../../../editor/mask-editing.js';
 import { LabeledSelect } from '../LabeledSelect.js';
+import { PackToolWarning } from './PackToolWarning.js';
+import { packToolCopy, TRACKING_LITE_PACK } from './packToolCopy.js';
+import { TRACKING_CAPABILITY, usePackStatus } from './usePackStatus.js';
 import { maskToolStore, useMaskTools, type MaskToolStore } from './useMaskTools.js';
 import { useMaskTrackJob } from './useMaskTrackJob.js';
 
@@ -52,6 +55,8 @@ const DIRECTION_LABELS = [
 /** Mask kinds a transform track can move (`_TRACKABLE_KINDS` of the engine). */
 const TRACKABLE = new Set<MaskLayer['kind']>(['rectangle', 'ellipse', 'path']);
 
+const TRACKING_WARNING_ID = 'mask-tracking-pack-note';
+
 function seconds(value: number): string {
   return `${value.toFixed(2)}s`;
 }
@@ -73,6 +78,10 @@ export function MaskTracking({
     () => masksOf(clip).find((candidate) => candidate.id === tools.selectedMaskId),
     [clip, tools.selectedMaskId],
   );
+  // Tracking is pack-backed like background removal, and fails the same handful of ways: the
+  // pack is missing, unhealthy, unsupported here, or there is no desktop app at all (BR6.2).
+  const { status, refresh } = usePackStatus(TRACKING_CAPABILITY);
+  const packCopy = packToolCopy(status, { pack: TRACKING_LITE_PACK, tool: 'Mask tracking' });
   const [method, setMethod] = useState<Method>('position');
   const [direction, setDirection] = useState<Direction>('forward');
   const [message, setMessage] = useState<string | null>(null);
@@ -155,6 +164,12 @@ export function MaskTracking({
       <p className="inspector-empty inspector-empty-inline">
         {tools.featurePoints.length} feature point(s), {tools.exclusions.length} excluded region(s).
       </p>
+      <PackToolWarning
+        id={TRACKING_WARNING_ID}
+        copy={packCopy}
+        status={status}
+        onInstalled={refresh}
+      />
       {running ? (
         <>
           <p className="inspector-empty inspector-empty-inline" role="status">
@@ -170,7 +185,16 @@ export function MaskTracking({
           </Button>
         </>
       ) : (
-        <Button variant="secondary" type="button" onClick={() => start(false)}>
+        <Button
+          variant="secondary"
+          type="button"
+          disabled={packCopy.blocked}
+          aria-disabled={packCopy.blocked}
+          {...(packCopy.blocked
+            ? { 'aria-describedby': TRACKING_WARNING_ID, title: packCopy.tooltip }
+            : {})}
+          onClick={() => start(false)}
+        >
           Track this mask
         </Button>
       )}
