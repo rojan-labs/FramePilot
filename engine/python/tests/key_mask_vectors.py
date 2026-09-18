@@ -169,6 +169,26 @@ MASKS: list[dict[str, Any]] = [
         "samples3d": [[0.0, 0.694, 0.251], [0.118, 0.745, 0.353]],
     },
     {
+        "id": "hsl-ratio-pushed-out",
+        "kind": "key",
+        "model": "hsl",
+        "finesse": {"inOutRatio": 0.5},
+        "ranges": [
+            {"channel": "hue", "low": 0.25, "high": 0.45, "softness": 0.2},
+            {"channel": "saturation", "low": 0.2, "high": 1.0, "softness": 0.35},
+        ],
+    },
+    {
+        "id": "hsl-ratio-pulled-in",
+        "kind": "key",
+        "model": "hsl",
+        "finesse": {"inOutRatio": -0.6},
+        "ranges": [
+            {"channel": "hue", "low": 0.25, "high": 0.45, "softness": 0.2},
+            {"channel": "saturation", "low": 0.2, "high": 1.0, "softness": 0.35},
+        ],
+    },
+    {
         "id": "hsl-cleaned-and-inverted",
         "kind": "key",
         "model": "hsl",

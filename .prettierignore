@@ -25,6 +25,8 @@ packages/timeline-schema/schema/project.schema.json
 packages/ai-sdk/skills/*.md
 
 # Written by generators that own their formatting and assert it byte for byte:
-# `pnpm mask-raster:vectors` and the vitest file snapshot of the legacy mask migration.
+# `pnpm mask-raster:vectors`, `pnpm key-mask:vectors`, and the vitest file snapshot of the
+# legacy mask migration.
 tests/fixtures/mask-raster/*.json
+tests/fixtures/mask-key/*.json
 tests/fixtures/mask-render/legacy-v21.migrated.json

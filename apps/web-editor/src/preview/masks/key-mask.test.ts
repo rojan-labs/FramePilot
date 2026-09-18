@@ -85,19 +85,31 @@ describe('key qualifier vs the export, on colour charts', () => {
     // The CPU twin runs the same float64 arithmetic, so the gate here is exact, not 1/255.
     expect(`${worst.where} delta ${String(worst.delta)}`).toBe('none delta 0');
     expect(checked).toBe(vectors.cases.length * 4 * vectors.charts[0]!.colours.length);
+    // The gate has to see soft values, not just 0 and 255, or it proves only the thresholds.
+    const soft = vectors.cases.flatMap((entry) =>
+      entry.expected.flatMap((chart) => chart.alpha8.filter((value) => value > 0 && value < 255)),
+    );
+    expect(soft.length).toBeGreaterThan(50);
   });
 
   it('packs the same uniforms the engine says the shader should read', () => {
     // The Playwright harness that runs the real shader uploads the stored numbers, so this is
     // what keeps the TypeScript packer and that harness describing one mask.
     for (const vectorCase of vectors.cases) {
-      const packed = keyUniforms(parse(vectorCase.mask), (vectorCase.mask as { opacity?: number }).opacity ?? 1);
+      const packed = keyUniforms(
+        parse(vectorCase.mask),
+        (vectorCase.mask as { opacity?: number }).opacity ?? 1,
+      );
       const stored = vectorCase.uniforms;
       expect(packed.sampled).toBe(stored.sampled);
       expect(packed.rangeCount).toBe(stored.rangeCount);
       expect(packed.sampleCount).toBe(stored.sampleCount);
-      expect([...packed.ranges]).toEqual((stored.ranges as number[]).map((value) => Math.fround(value)));
-      expect([...packed.samples]).toEqual((stored.samples as number[]).map((value) => Math.fround(value)));
+      expect([...packed.ranges]).toEqual(
+        (stored.ranges as number[]).map((value) => Math.fround(value)),
+      );
+      expect([...packed.samples]).toEqual(
+        (stored.samples as number[]).map((value) => Math.fround(value)),
+      );
       for (const field of [
         'tolerance',
         'shadowRetention',
@@ -105,6 +117,7 @@ describe('key qualifier vs the export, on colour charts', () => {
         'cleanWhite',
         'invert',
         'opacity',
+        'inOutRatio',
       ] as const) {
         expect(packed[field], field).toBeCloseTo(stored[field] as number, 12);
       }

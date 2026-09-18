@@ -54,6 +54,8 @@ export interface KeyUniforms {
   readonly cleanWhite: number;
   readonly invert: number;
   readonly opacity: number;
+  /** The finesse group's in/out ratio, applied after the raster steps and before the layer. */
+  readonly inOutRatio: number;
 }
 
 /** `qualifier` + `sample_qualifier`: the mask's numbers flattened for the shader. */
@@ -86,6 +88,7 @@ export function keyUniforms(mask: KeyMask, opacity: number): KeyUniforms {
     cleanWhite: mask.finesse.cleanWhite,
     invert: mask.invert ? 1 : 0,
     opacity: opacity <= 0 ? 0 : opacity >= 1 ? 1 : opacity,
+    inOutRatio: mask.finesse.inOutRatio,
   };
 }
 
@@ -154,6 +157,17 @@ export function rangeMembership(
   return smoothstepAt(clamp01(1 - distance / softness));
 }
 
+/** `in_out_ratio` for one value: two straight segments through a moved midpoint. */
+export function applyInOutRatio(alpha: number, ratio: number): number {
+  if (ratio === 0) return alpha;
+  const clamped = Math.min(1, Math.max(-1, ratio));
+  const mid = 0.5 - clamped * 0.5;
+  if (mid <= 0) return alpha > 0 ? 1 : 0;
+  if (mid >= 1) return alpha >= 1 ? 1 : 0;
+  const mapped = alpha <= mid ? (alpha * 0.5) / mid : 0.5 + ((alpha - mid) * 0.5) / (1 - mid);
+  return clamp01(mapped);
+}
+
 /** `apply_clean_levels` for one value. */
 export function applyCleanLevel(alpha: number, black: number, white: number): number {
   if (black === 0 && white === 1) return alpha;
@@ -162,11 +176,14 @@ export function applyCleanLevel(alpha: number, black: number, white: number): nu
 }
 
 /**
- * `key_alpha` + clean levels + invert + opacity for one RGB triple, in `[0, 1]`.
+ * The POINTWISE key chain for one RGB triple, in `[0, 1]`: the qualifier, shadow retention,
+ * clean levels, the in/out ratio, then invert and opacity.
  *
  * The same arithmetic the shader runs, in float64. Used by the eyedropper (to show what a
  * sampled colour would key) and by the parity harness as the reference the shader is measured
- * against.
+ * against. The finesse controls that read NEIGHBOURING pixels — denoise, the morphology, the
+ * blur — are not here by definition: one colour has no neighbours. Those run as raster steps,
+ * on the CPU for a matte and as shader passes for a key.
  */
 export function keyAlphaAt(uniforms: KeyUniforms, r: number, g: number, b: number): number {
   const channels = channelValues(r, g, b);
@@ -203,6 +220,7 @@ export function keyAlphaAt(uniforms: KeyUniforms, r: number, g: number, b: numbe
     matched *= smoothstepAt(clamp01(luma / uniforms.shadowRetention));
   }
   matched = applyCleanLevel(clamp01(matched), uniforms.cleanBlack, uniforms.cleanWhite);
+  matched = applyInOutRatio(matched, uniforms.inOutRatio);
   return (uniforms.invert === 1 ? 1 - matched : matched) * uniforms.opacity;
 }
 
