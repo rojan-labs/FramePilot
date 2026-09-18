@@ -8,7 +8,7 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-**Resumed 2026-09-18 01:59.** MK5+MK6 (effect targets, key mask) running; MK7 done bar MK7.6 (MO-14). BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
+**Resumed 2026-09-18 01:59.** BR6 (background-removal UI + review) running. MK5, MK6 done; MK7 done bar MK7.6 (MO-14). BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
 On resume, read ONLY this file first, then the specific plan file for the task you start. Don't re-read 00–12 wholesale.
 
 1. CI: `gh run list --branch plan/background-removal-ai --workflow CI -L 3`. Runs 35245865537 (6ec24d91), 35245714147 and 35245248405 were in flight. Fix any red before new work.
@@ -20,6 +20,8 @@ Next after those: MK5 (effect-target masks), MK6 (key), MK7 (tracking) → BR6 (
 Agent rules to paste into every prompt: single-file tests with `--no-file-parallelism`; no local Playwright or oracle (CI only; poll CI yourself in bounded rounds, never end a turn "waiting"); watchdog for model runs; explicit `git add`; no stash, force-push or trailers; don't edit plan files.
 
 ## Done
+
+- MK5 + MK6 (c6a8092a…71bbbcf7): "Add mask" on every effect row (one op, no invented bounds), adjustment-lane mask rendering (twin evaluators, byte-exact), the `key` kind (HSL/RGB/luma/3D, despill after attach, shadow retention), the finesse chain shared by key and matte, key gates on a real GPU. Caught a shader bug (R8UI sampled as sampler2D) that corrupted whole frames
 
 - MK7.1–MK7.5 (ea98df93…d3dfa2aa): transform-track artifact (48 parity cases byte-equal TS↔Python), 4 methods incl. perspective + per-vertex, reverse/one-frame/to-edge, review + constraints, tracking panel with feature points and exclusion regions. Note: an agent used `git push --force-with-lease` once to fix a commit message (against the rules; no content lost)
 
@@ -80,7 +82,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## CI reds
 
-- none open (run 35285412166 at c46d104d: 11/11 green)
+- E2E visual (`mask-panel.png` stale) and `mask-tools.spec.ts` rectangle flow (keyframe diamond under the sticky inspector statusbar) — the Mask tab grew with MK7.4 + BR6 rows; BR6 agent owns both
+- (earlier) none open (run 35285412166 at c46d104d: 11/11 green)
 - Tip: `gh workflow run CI --ref plan/background-removal-ai` lands in a different concurrency group than PR pushes, so long jobs aren't cancelled by peers' pushes
 
 - Run 35174495193 (3f4c2029): ai-sdk repeated-failure.test.ts v21 mask fixture → fixed 41af6255; Python test_mask_render_golden.py 10 cases block-mean drift 1.2–4.3 on ubuntu (codec, not mask) → fixed b532e432 (numpy lossless source; testsrc2 differs between ffmpeg 7.1/8.1); CI run 35185364341 Python ✓ vectors ✓, TS + oracle pending
@@ -91,6 +94,10 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
+
+- MK6 key parity (run 35300279316, real GPU): ≤ 1/255 on 1296 values, all four encodings ✓; CPU twin exact 0/255
+- MK5 oracle (run 35295665259): 249/249 checks; effect-kinds-masked min PSNR 68.52 dB, max channel error 2/255, 100% within tolerance
+- Open, written down not implied: preview key finesse morphology capped at 16 px (export uncapped); no playback budget yet for a key's finesse chain (PX5)
 
 - MK7 tracking (pack run 35294557292, both platforms): planar/translation median 0.0204 px, similarity 0.0771, perspective 0.0698 (gates ≤0.25 median / ≤1 p95 / ≤2 max) ✓; drift 2e-13 px per 300 frames ✓; recall 100% **by refusal** (`target_lost`), so the confidence number's own recall is unevidenced; real-clip row and the ≥95% correction rate open
 

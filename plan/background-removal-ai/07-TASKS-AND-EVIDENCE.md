@@ -123,18 +123,18 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** tests pass; a screen recording of drawing and animating a path mask on real footage in the PR.
 
-### MK5 — Effect-target masks `[ ]`
+### MK5 — Effect-target masks `[x]` (oracle run 35295665259: effect-kinds-masked 68.52 dB min, 249/249 checks; DoD screen recording not producible here — manual steps in MANUAL_TESTING)
 
-- [ ] MK5.1 "Add mask" on every effect row; `set_mask_target`
-- [ ] MK5.2 Engine + preview mixing verified for every catalog effect kind (oracle rows)
+- [x] MK5.1 "Add mask" on every effect row; `set_mask_target`
+- [x] MK5.2 Engine + preview mixing verified for every catalog effect kind (oracle rows)
 
 **DoD:** oracle rows green; face-blur and sky-grade manual flows demonstrated in the PR.
 
-### MK6 — Key mask `[ ]`
+### MK6 — Key mask `[x]` (real-GPU run 35300279316: engine vs preview ≤ 1/255 on 1296 values across all four encodings; CPU twin exact)
 
-- [ ] MK6.1 `key` kind (HSL, RGB, luma, 3D sample keyer): eyedropper, ranges, softness, despill, clean black/white; engine numpy + preview shader with shared colour matrix
-- [ ] MK6.2 Matte finesse group (denoise, morph open/close, shrink/grow, blur, in/out ratio, clean black/white) shared by `key`, `matte` and `layer`; shadow retention for chroma key
-- [ ] MK6.3 Key gates from `06`; green-screen fixture golden
+- [x] MK6.1 `key` kind (HSL, RGB, luma, 3D sample keyer): eyedropper, ranges, softness, despill, clean black/white; engine numpy + preview shader with shared colour matrix
+- [x] MK6.2 Matte finesse group (denoise, morph open/close, shrink/grow, blur, in/out ratio, clean black/white) shared by `key`, `matte` and `layer`; shadow retention for chroma key
+- [x] MK6.3 Key gates from `06`; green-screen fixture golden
 
 **DoD:** key gates pass; oracle rows green.
 
