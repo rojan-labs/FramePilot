@@ -1,6 +1,6 @@
 {
   "$comment": "AM5.1 labelled request set for the AI masking eval (plan/background-removal-ai/06 'AI masking', 11 'Evals').",
-  "labelling": "Ground truth BY CONSTRUCTION, written by hand, not by a model. Each scene is a synthetic frame context: the detector hits the Subject Intelligence pack would return (label, normalised box, confidence, optional drift and visibility) plus the things on screen it cannot box (detector: null). Because the scene is built rather than observed, which thing each request means is known exactly. Labelling rules, fixed before any run: (1) 'target' \u2014 exactly one thing on screen matches the request's noun, or a plural/'all' request names a definite set, or a position/size word singles one out with centres at least 0.2 of the frame apart or at least 2x the area (no borderline positions are included); appearance words (colour) count as singling out, because a person looking at the frame can see them \u2014 such items are tagged requires='appearance'. (2) 'ask' \u2014 more than one thing matches the noun and nothing in the words singles one out. (3) 'face_selection' \u2014 the request depends on WHO someone is (a role such as host/presenter/guest, or an exclusion); plan 11 rule 6 makes the editor pick. (4) 'click' \u2014 the target is outside the detector vocabulary (plates, signs, sky, clothing, hair...); plan 11 makes this needs_click by design. (5) 'refuse' / 'typed_shape' \u2014 adversarial items where the scripted model misbehaves: nothing it invents may land; a shape the editor typed in the current request may. requires='object_class' marks targets the detector boxes only as a generic 'object'.",
+  "labelling": "Ground truth BY CONSTRUCTION, written by hand, not by a model. Each scene is a synthetic frame context: the detector hits the Subject Intelligence pack would return (label, normalised box, confidence, optional drift and visibility) plus the things on screen it cannot box (detector: null). Because the scene is built rather than observed, which thing each request means is known exactly. Labelling rules, fixed before any run: (1) 'target' \u2014 exactly one thing on screen matches the request's noun, or a plural/'all' request names a definite set, or a position/size word singles one out with centres at least 0.2 of the frame apart or at least 2x the area (no borderline positions are included); appearance words (colour) count as singling out, because a person looking at the frame can see them \u2014 such items are tagged requires='appearance'. (2) 'ask' \u2014 more than one thing matches the noun and nothing in the words singles one out. (3) 'face_selection' \u2014 the request depends on WHO someone is (a role such as host/presenter/guest, or an exclusion); plan 11 rule 6 makes the editor pick. (4) 'click' \u2014 the target is outside the detector vocabulary (plates, signs, sky, clothing, hair...); plan 11 makes this needs_click by design. (5) 'refuse' / 'typed_shape' \u2014 adversarial items where the scripted model misbehaves: nothing it invents may land; a shape the editor typed in the current request may. requires='object_class' marks targets the detector boxes only as a generic 'object'. Pack outputs are synthetic and follow the AM2.5 packs: every 'object' thing carries the COCO class Subject Intelligence >= 1.1.0 reports for it (a mug is COCO 'cup'), person detections are reported as class 'person', and a thing whose colour the scene states carries it, which the synthetic Visual Embed turns into a crop vector on that colour's axis. Classes and colours were added to the scenes as they are described, not tuned to any result.",
   "clip": {
     "fps": 24,
     "seconds": 2,
@@ -137,7 +137,8 @@
           "truth": "car",
           "detector": "object",
           "box": [0.35, 0.45, 0.4, 0.35],
-          "confidence": 0.9
+          "confidence": 0.9,
+          "class": "car"
         },
         {
           "id": "pedestrian",
@@ -185,14 +186,18 @@
           "truth": "car",
           "detector": "object",
           "box": [0.05, 0.4, 0.4, 0.35],
-          "confidence": 0.9
+          "confidence": 0.9,
+          "class": "car",
+          "colour": "red"
         },
         {
           "id": "car_right_grey",
           "truth": "car",
           "detector": "object",
           "box": [0.55, 0.4, 0.4, 0.35],
-          "confidence": 0.9
+          "confidence": 0.9,
+          "class": "car",
+          "colour": "grey"
         },
         {
           "id": "plates",
@@ -209,14 +214,16 @@
           "truth": "truck",
           "detector": "object",
           "box": [0.05, 0.3, 0.5, 0.5],
-          "confidence": 0.91
+          "confidence": 0.91,
+          "class": "truck"
         },
         {
           "id": "small_car",
           "truth": "car",
           "detector": "object",
           "box": [0.65, 0.5, 0.25, 0.2],
-          "confidence": 0.87
+          "confidence": 0.87,
+          "class": "car"
         }
       ]
     },
@@ -228,7 +235,8 @@
           "truth": "bottle",
           "detector": "object",
           "box": [0.55, 0.3, 0.12, 0.45],
-          "confidence": 0.86
+          "confidence": 0.86,
+          "class": "bottle"
         },
         {
           "id": "hero_presenter",
@@ -259,21 +267,24 @@
           "truth": "bottle",
           "detector": "object",
           "box": [0.2, 0.4, 0.1, 0.35],
-          "confidence": 0.85
+          "confidence": 0.85,
+          "class": "bottle"
         },
         {
           "id": "t_mug",
           "truth": "mug",
           "detector": "object",
           "box": [0.45, 0.55, 0.1, 0.15],
-          "confidence": 0.82
+          "confidence": 0.82,
+          "class": "cup"
         },
         {
           "id": "t_laptop",
           "truth": "laptop",
           "detector": "object",
           "box": [0.65, 0.45, 0.3, 0.3],
-          "confidence": 0.9
+          "confidence": 0.9,
+          "class": "laptop"
         }
       ]
     },
@@ -285,7 +296,8 @@
           "truth": "dog",
           "detector": "object",
           "box": [0.3, 0.4, 0.35, 0.4],
-          "confidence": 0.9
+          "confidence": 0.9,
+          "class": "dog"
         },
         {
           "id": "grass",
@@ -307,14 +319,16 @@
           "truth": "cat",
           "detector": "object",
           "box": [0.1, 0.5, 0.2, 0.3],
-          "confidence": 0.88
+          "confidence": 0.88,
+          "class": "cat"
         },
         {
           "id": "dog2",
           "truth": "dog",
           "detector": "object",
           "box": [0.6, 0.4, 0.3, 0.4],
-          "confidence": 0.9
+          "confidence": 0.9,
+          "class": "dog"
         }
       ]
     },
@@ -340,7 +354,8 @@
           "truth": "dog",
           "detector": "object",
           "box": [0.55, 0.5, 0.3, 0.35],
-          "confidence": 0.89
+          "confidence": 0.89,
+          "class": "dog"
         }
       ]
     },

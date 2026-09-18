@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { loadRequestSet } from './fixture.js';
-import { runMaskingEval, type MaskingEvalReport } from './harness.js';
+import { LEGACY_PACK_VERSION, runMaskingEval, type MaskingEvalReport } from './harness.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '../../../../..');
@@ -38,10 +38,31 @@ describe('AI masking eval (AM5)', () => {
     expect((await measured()).summary.gates.ambiguousAskRate.pass).toBe(true);
   }, 120_000);
 
-  it('picks every target the shipped detector can name', async () => {
-    // Objects are reported as a generic `object`, so their targets ask by design until the pack
-    // reports classes; those misses stay in the report against the unlowered gate.
-    const { none } = (await measured()).summary.targetAccuracyByRequirement;
+  it('picks unambiguous targets and does not ask needlessly, at the plan 06 gates (AM2.5)', async () => {
+    // With the 1.1 packs objects carry their COCO class and colours are scored on crops.
+    const { gates, targetAccuracyByRequirement } = (await measured()).summary;
+    expect(gates.targetAccuracy.pass).toBe(true);
+    expect(gates.unnecessaryAskRate.pass).toBe(true);
+    const { none } = targetAccuracyByRequirement;
     expect(none?.passed).toBe(none?.total);
+  }, 120_000);
+
+  it('with the installed 1.0 packs (no classes, no crops) still never guesses', async () => {
+    // What users have until the AM2.5 releases are signed: every request passes through the real
+    // negotiation, so classes are dropped and crops refused, and objects ask instead.
+    const legacy = await runMaskingEval(
+      loadRequestSet(path.join(repoRoot, FIXTURE)),
+      FIXTURE,
+      LEGACY_PACK_VERSION,
+    );
+    const { summary } = legacy;
+    expect(summary.confidentWrong).toBe(0);
+    expect(summary.inventedGeometry).toBe(0);
+    expect(summary.gates.ambiguousAskRate.pass).toBe(true);
+    expect(summary.adversarialHeld.passed).toBe(summary.adversarialHeld.total);
+    expect(summary.targetAccuracyByRequirement.none?.passed).toBe(
+      summary.targetAccuracyByRequirement.none?.total,
+    );
+    expect(summary.targetAccuracyByRequirement.object_class?.passed).toBe(0);
   }, 120_000);
 });

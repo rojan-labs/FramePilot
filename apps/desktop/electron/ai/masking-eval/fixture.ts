@@ -8,6 +8,8 @@
  * silently skips a bad label would report a gate on fewer items than it claims.
  */
 import { readFileSync } from 'node:fs';
+import { COLOUR_WORDS } from '@framepilot/ai-sdk';
+import { COCO_CLASS_NAMES, type CocoClassName } from '@framepilot/capability-packs';
 
 export type DetectorLabel = 'face' | 'person' | 'object';
 
@@ -24,6 +26,14 @@ export interface SceneThing {
   readonly drift?: readonly [number, number];
   /** Clip-relative frames `[first, lastExclusive)` the detector sees it on; absent = every frame. */
   readonly frames?: readonly [number, number];
+  /**
+   * The COCO class a Subject Intelligence >= 1.1 pack reports for an `object` thing (AM2.5).
+   * Required on every `object` thing, because the real pack classes every YOLOX box; a `person`
+   * thing is reported as `person` without saying so here.
+   */
+  readonly class?: CocoClassName;
+  /** Its colour, by construction, when the scene says so: what a crop re-rank would see. */
+  readonly colour?: string;
 }
 
 export interface Scene {
@@ -107,6 +117,18 @@ function checkThing(sceneId: string, thing: SceneThing): void {
   const where = `scene ${sceneId}, thing ${String(thing.id)}`;
   if (typeof thing.id !== 'string' || thing.id.length === 0) fail(where, 'needs an id');
   if (typeof thing.truth !== 'string') fail(where, 'needs a truth label');
+  if (thing.colour !== undefined && !COLOUR_WORDS.includes(thing.colour)) {
+    fail(where, `colour ${thing.colour} is not one the re-ranker scores`);
+  }
+  if (thing.class !== undefined) {
+    if (thing.detector !== 'object') fail(where, 'only an object thing names its class');
+    if (!(COCO_CLASS_NAMES as readonly string[]).includes(thing.class)) {
+      fail(where, `class ${thing.class} is not one of the detector's COCO classes`);
+    }
+  }
+  if (thing.detector === 'object' && thing.class === undefined) {
+    fail(where, 'an object thing needs the COCO class the pack reports for it');
+  }
   if (thing.detector === null) return;
   if (!['face', 'person', 'object'].includes(thing.detector)) fail(where, 'unknown detector label');
   const box = thing.box;

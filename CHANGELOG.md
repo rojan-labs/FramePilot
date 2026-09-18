@@ -8,6 +8,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The assistant can find "the car", "the dog" or "the red car".** Ask it to mask an object and
+  it now knows what the object is: the Subject Intelligence pack names each detected object's
+  kind (car, truck, dog, bottle, laptop and the other everyday things it recognises), so "the
+  dog" in a shot with a person and a dog picks the dog, and "the truck" never picks the car.
+  When two things could both be meant ("the pet" with a cat and a dog, "the car" with two cars)
+  it still shows you the choices and waits. With the Visual Embed pack installed, a colour can
+  settle it: "the red car" next to a grey one picks the red car, and when neither car is red it
+  asks instead of picking the closer colour. Something it has no name for ("the wheelbarrow",
+  "the sky") still asks you to click it once. This needs the next signed releases of both packs
+  (Subject Intelligence 1.1.0 and Visual Embed 1.1.0); until you update them, object requests
+  ask you to pick exactly as before.
 - **Ask the assistant for a mask.** In the AI sidebar you can now say "remove the background",
   "hide her face", "darken everything but the presenter" or "put the title behind him", and the
   assistant uses the same masks, the same packs and the same review list as the Mask tab. It
