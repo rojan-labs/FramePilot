@@ -52,6 +52,8 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import threading
+import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,7 +62,8 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from framepilot_engine.media.ffmpeg import find_ffmpeg
+from framepilot_engine.media.ffmpeg import find_ffmpeg, find_ffprobe
+from framepilot_engine.media.untrusted import FORMAT_WHITELIST
 from framepilot_engine.render.mask_raster import FloatArray
 from framepilot_engine.render.masks import mask_scalar_at
 from framepilot_engine.render.matte_edges import clean_levels, resample_taps
@@ -70,11 +73,9 @@ from framepilot_engine.render.mattes import (
     FRAMES_FILE,
     MATTE_FILE,
     MATTE_PIXEL_FORMATS,
-    MatteReader,
-    PreparedMatte,
+    StreamInfo,
     artifact_directory,
     file_sha256,
-    probe_stream,
     read_frames_file,
 )
 from framepilot_engine.safety import PathTraversalError, resolve_within
@@ -102,8 +103,134 @@ PLANE_ORDER = ("weight", "r", "g", "b")
 PLANE_LAYOUT = "u16-hi-lo-bytes"
 
 
+#: Largest picture a decoder may allocate while a tier is made (8K x 8K; a lying header cannot
+#: exhaust memory), and decoder threads per ffmpeg call (BR4.12 M3, as ``frame_hashes``).
+MAX_PIXELS = 8192 * 8192
+DECODE_THREADS = 2
+#: Wall-clock bound for one probe.
+PROBE_TIMEOUT_SECONDS = 60
+
+
 class MatteTierError(ValueError):
     """A tier cannot be made from this artifact (missing, changed, or not what it claims)."""
+
+
+class MatteTierChanged(MatteTierError):
+    """A master's digest is not the one the mask pins (PX5.9: the route refuses with 409)."""
+
+
+class MatteTierDeadline(MatteTierError):
+    """The tier's deadline passed before every frame was written (PX5.9)."""
+
+
+# --- Reading the masters as untrusted media (BR4.12 M3) ----------------------------------------
+
+
+def _master_input_args() -> list[str]:
+    """Hardened input options for an artifact master: the ``file`` protocol only, the media
+    demuxer whitelist, the Matroska demuxer forced (the contract's container), bounded
+    pictures and threads. A playlist or ffconcat file named ``matte.mkv`` cannot open another
+    file on the engine's behalf."""
+    return [
+        "-protocol_whitelist",
+        "file",
+        "-format_whitelist",
+        FORMAT_WHITELIST,
+        "-max_pixels",
+        str(MAX_PIXELS),
+        "-threads",
+        str(DECODE_THREADS),
+        "-f",
+        "matroska",
+    ]
+
+
+def probe_master(path: Path) -> StreamInfo:
+    """``mattes.probe_stream`` of a master, with the hardened input options.
+
+    :raises MatteTierError: The file is not a readable Matroska video stream.
+    """
+    argv = validate_safe_argv(
+        [
+            find_ffprobe(),
+            "-v",
+            "error",
+            *_master_input_args(),
+            "-select_streams",
+            "v:0",
+            "-count_packets",
+            "-show_entries",
+            "stream=width,height,pix_fmt,nb_read_packets",
+            "-of",
+            "json",
+            "-i",
+            str(path),
+        ]
+    )
+    try:
+        completed = subprocess.run(
+            argv, capture_output=True, check=False, timeout=PROBE_TIMEOUT_SECONDS
+        )
+        streams = json.loads(completed.stdout or b"{}").get("streams") or []
+        stream = streams[0]
+        return StreamInfo(
+            width=int(stream["width"]),
+            height=int(stream["height"]),
+            pixel_format=str(stream["pix_fmt"]),
+            frame_count=int(stream.get("nb_read_packets") or 0),
+        )
+    except (subprocess.SubprocessError, ValueError, IndexError, KeyError, TypeError) as exc:
+        raise MatteTierError(f"{path.name} is not a readable matte file.") from exc
+
+
+class _MasterFrames:
+    """Every frame of one master, forward, as raw pixels from one hardened ffmpeg pipe."""
+
+    def __init__(self, path: Path, pixel_format: str, shape: tuple[int, ...], dtype: Any) -> None:
+        argv = validate_safe_argv(
+            [
+                find_ffmpeg(),
+                "-nostdin",
+                "-v",
+                "error",
+                *_master_input_args(),
+                "-i",
+                str(path),
+                "-map",
+                "0:v:0",
+                "-fps_mode",
+                "passthrough",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                pixel_format,
+                "-",
+            ]
+        )
+        self.name = path.name
+        self._shape = shape
+        self._dtype = np.dtype(dtype)
+        self._bytes = int(np.prod(shape)) * self._dtype.itemsize
+        self._process = subprocess.Popen(
+            argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL
+        )
+
+    def next(self) -> npt.NDArray[Any]:
+        assert self._process.stdout is not None
+        data = self._process.stdout.read(self._bytes)
+        if len(data) != self._bytes:
+            raise MatteTierError(f"{self.name} ended before its last frame.")
+        return np.frombuffer(data, dtype=self._dtype).reshape(self._shape)
+
+    def kill(self) -> None:
+        if self._process.poll() is None:
+            self._process.kill()
+
+    def close(self) -> None:
+        self.kill()
+        if self._process.stdout is not None:
+            self._process.stdout.close()
+        self._process.wait(timeout=60)
 
 
 # --- The resample, limited to the band ---------------------------------------------------------
@@ -354,6 +481,12 @@ class GrayEncoder:
                 "-v",
                 "error",
                 "-y",
+                # The input is this process's own bytes on stdin (``pipe``; ffmpeg 8 names it
+                # ``fd``) as raw video: nothing else can be opened on that side either.
+                "-protocol_whitelist",
+                "pipe,fd",
+                "-format_whitelist",
+                "rawvideo",
                 "-f",
                 "rawvideo",
                 "-pix_fmt",
@@ -401,6 +534,11 @@ class GrayEncoder:
                 f"The tier encode failed: {stderr.decode(errors='replace')[-300:]}"
             )
         return self.count
+
+    def kill(self) -> None:
+        """Stop ffmpeg now (a deadline passed); :meth:`abort` then reaps it."""
+        if self._process.poll() is None:
+            self._process.kill()
 
     def abort(self) -> None:
         """Stop ffmpeg after a failure elsewhere (the partial file is discarded by the caller)."""
@@ -490,14 +628,14 @@ def tier_manifest(
     }
 
 
-def _verified_source(directory: Path, artifact: Mapping[str, Any]) -> dict[str, Any]:
+def verified_source(directory: Path, artifact: Mapping[str, Any]) -> dict[str, Any]:
     """The masters' pinned digests, after checking the files on disk still have them."""
     pinned = {str(entry["name"]): str(entry["sha256"]) for entry in artifact["files"]}
     for name in (MATTE_FILE, FOREGROUND_FILE, FRAMES_FILE):
         if name not in pinned or not (directory / name).is_file():
             raise MatteTierError(f"The artifact has no {name}; a tier needs the foreground.")
         if file_sha256(directory / name) != pinned[name]:
-            raise MatteTierError(f"{name} changed since the mask pinned it.")
+            raise MatteTierChanged(f"{name} changed since the mask pinned it.")
     return {
         "width": int(artifact["width"]),
         "height": int(artifact["height"]),
@@ -512,6 +650,7 @@ def write_monitor_tier(
     *,
     artifact_dir: Path | None = None,
     tier_dir: Path | None = None,
+    deadline: float | None = None,
 ) -> MonitorTier:
     """Make the monitor tier of a pinned artifact at ``size`` (the monitor's decoded size).
 
@@ -525,6 +664,8 @@ def write_monitor_tier(
     :param artifact_dir: Read the masters from here instead of the project's artifact directory
         (a test harness serving a copy); the digests are checked all the same.
     :param tier_dir: Write the tier here instead of the project's tier directory.
+    :param deadline: ``time.monotonic()`` by which it must be done; every ffmpeg it started is
+        killed then, and :class:`MatteTierDeadline` raised (PX5.9: the sidecar route's bound).
     :raises MatteTierError: The artifact is missing, changed, or not readable as pinned.
     """
     key = str(artifact["key"])
@@ -535,10 +676,10 @@ def write_monitor_tier(
     out_dir = tier_dir if tier_dir is not None else tier_directory(base_dir, key)
     if directory is None or out_dir is None or not directory.is_dir():
         raise MatteTierError("The matte artifact is missing.")
-    source = _verified_source(directory, artifact)
+    source = verified_source(directory, artifact)
     frames = read_frames_file(directory / FRAMES_FILE)
-    matte = probe_stream(directory / MATTE_FILE)
-    foreground = probe_stream(directory / FOREGROUND_FILE)
+    matte = probe_master(directory / MATTE_FILE)
+    foreground = probe_master(directory / FOREGROUND_FILE)
     if matte.pixel_format not in MATTE_PIXEL_FORMATS or (
         foreground.pixel_format not in FOREGROUND_PIXEL_FORMATS
     ):
@@ -547,49 +688,67 @@ def write_monitor_tier(
     for stream in (matte, foreground):
         if (stream.width, stream.height) != expected or stream.frame_count != frames.count:
             raise MatteTierError("The artifact's files disagree with frames.json.")
+    if deadline is not None and time.monotonic() >= deadline:
+        raise MatteTierDeadline("The monitor tier ran out of time.")
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / TIER_FILE).unlink(missing_ok=True)
-    reader = MatteReader(
-        PreparedMatte(
-            mask_id="monitor-tier",
-            clip_id="monitor-tier",
-            directory=directory,
-            frames=frames,
-            width=expected[0],
-            height=expected[1],
-            matte_pixel_format=matte.pixel_format,
-            matte_maximum=MATTE_PIXEL_FORMATS[matte.pixel_format][1],
-            has_foreground=True,
-        ),
-        want_foreground=True,
-        lru_frames=1,
+    matte_format, maximum = MATTE_PIXEL_FORMATS[matte.pixel_format]
+    samples = _MasterFrames(
+        directory / MATTE_FILE,
+        matte_format,
+        (expected[1], expected[0]),
+        np.dtype("<u2") if maximum > 255 else np.uint8,
+    )
+    colours = _MasterFrames(
+        directory / FOREGROUND_FILE, "rgb24", (expected[1], expected[0], 3), np.uint8
     )
     partial = out_dir / f"{PLANES_FILE}.partial"
     alpha_partial = out_dir / f"{ALPHA_FILE}.partial"
     # One pass over the masters feeds both streams: the planes and (PX5.8) the alpha plane.
     planes = GrayEncoder(partial, width, 8 * height)
     alphas = GrayEncoder(alpha_partial, width, 2 * height)
+    expired = threading.Event()
+
+    def expire() -> None:
+        # A pipe read or write can block; killing the processes is what bounds the wait.
+        expired.set()
+        for process in (samples, colours, planes, alphas):
+            process.kill()
+
+    timer = (
+        None if deadline is None else threading.Timer(max(0.0, deadline - time.monotonic()), expire)
+    )
+    if timer is not None:
+        timer.daemon = True
+        timer.start()
     try:
-        for index in range(frames.count):
-            frame = reader.frame(index)
-            assert frame.foreground is not None
-            planes.write(
-                split_bytes(
-                    tier_planes(frame.alpha, frame.maximum, frame.foreground, width, height)
-                )
-            )
-            alphas.write(split_plane_bytes(alpha_plane(frame.alpha, frame.maximum, width, height)))
+        for _index in range(frames.count):
+            if expired.is_set():
+                raise MatteTierDeadline("The monitor tier ran out of time.")
+            alpha = samples.next()
+            foreground_frame = colours.next()
+            planes.write(split_bytes(tier_planes(alpha, maximum, foreground_frame, width, height)))
+            alphas.write(split_plane_bytes(alpha_plane(alpha, maximum, width, height)))
         count = planes.finish()
         if alphas.finish() != count:
             raise MatteTierError("The tier alpha has a different frame count.")
-    except BaseException:
+    except BaseException as exc:
         planes.abort()
         alphas.abort()
         partial.unlink(missing_ok=True)
         alpha_partial.unlink(missing_ok=True)
+        if expired.is_set() and not isinstance(exc, MatteTierDeadline):
+            raise MatteTierDeadline("The monitor tier ran out of time.") from None
         raise
     finally:
-        reader.close()
+        if timer is not None:
+            timer.cancel()
+        samples.close()
+        colours.close()
+    if expired.is_set():
+        partial.unlink(missing_ok=True)
+        alpha_partial.unlink(missing_ok=True)
+        raise MatteTierDeadline("The monitor tier ran out of time.")
     partial.replace(out_dir / PLANES_FILE)
     alpha_partial.replace(out_dir / ALPHA_FILE)
     manifest = tier_manifest(

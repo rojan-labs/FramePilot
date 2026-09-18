@@ -26,7 +26,11 @@ import {
   type MatteProgress,
   type MatteRunContext,
 } from './matte.js';
-import type { MatteVideoTiming } from './matte-media-inspector.js';
+import {
+  MatteInspectorError,
+  type MatteMediaInspector,
+  type MatteVideoTiming,
+} from './matte-media-inspector.js';
 import { encodeGrayPng } from './matte-png.js';
 import { matteArtifactDirectory, matteStagingRoot } from './matte-staging.js';
 import { readMatteRecord, saveMatteInput } from './matte-store.js';
@@ -459,5 +463,76 @@ describe('unmeasured media (BR4.12 L3)', () => {
     };
     expect(await h.service.run(h.intent(), unmeasured)).toMatchObject({ status: 'failed', code: 'media_unreadable', retryable: true });
     expect(h.worker).not.toHaveBeenCalled();
+  });
+});
+
+describe('the monitor tier (PX5.9)', () => {
+  const TIER = { status: 'written' as const, width: 32, height: 18, frameCount: 30, alpha: true };
+
+  async function withProxy(proxyPath: string | null, rotation = 0) {
+    const h = await harness();
+    const derive = vi.fn<NonNullable<MatteMediaInspector['deriveMonitorTier']>>(async () => TIER);
+    (h.inspector as MatteMediaInspector).deriveMonitorTier = derive;
+    h.setProject({
+      id: 'p',
+      assets: [
+        {
+          id: 'asset-1',
+          path: h.mediaPath,
+          kind: 'video',
+          media: { width: 64, height: 36, rotation, ...(proxyPath === null ? {} : { proxyPath }) },
+        },
+      ],
+      timeline: { tracks: [], revision: 4 },
+    } as unknown as Project);
+    return { h, derive };
+  }
+
+  it('asks for the committed artifact’s tier with its pins, proxy and frame count', async () => {
+    // 180: a turn that keeps the display size the fake worker writes.
+    const { h, derive } = await withProxy('demo/proxies/shot.mp4', 180);
+    const outcome = await h.service.run(h.intent({ foreground: true }), h.context());
+    await h.service.settleMonitorTiers();
+    expect(outcome.status).toBe('completed');
+    if (outcome.status !== 'completed') return;
+    expect(derive).toHaveBeenCalledTimes(1);
+    expect(derive.mock.calls[0]![0]).toEqual({
+      projectDir: h.projectDir,
+      artifact: {
+        key: outcome.artifact.key,
+        files: outcome.artifact.files.map(({ name, sha256 }) => ({ name, sha256 })),
+        width: 64,
+        height: 36,
+      },
+      proxyPath: 'demo/proxies/shot.mp4',
+      rotation: 180,
+      frameCount: 30,
+    });
+    // A cache hit asks again (the route answers "current" when nothing changed).
+    await h.service.run(h.intent({ requestId: 'again', foreground: true }), h.context());
+    await h.service.settleMonitorTiers();
+    expect(derive).toHaveBeenCalledTimes(2);
+  });
+
+  it('never fails or delays the job when the tier fails', async () => {
+    const { h, derive } = await withProxy('demo/proxies/shot.mp4');
+    derive.mockRejectedValue(
+      new MatteInspectorError('tool_unavailable', 'The engine is not running.'),
+    );
+    const outcome = await h.service.run(h.intent({ foreground: true }), h.context());
+    await h.service.settleMonitorTiers();
+    expect(outcome.status).toBe('completed');
+    expect(derive).toHaveBeenCalledTimes(1);
+  });
+
+  it('makes no tier without a proxy or without a foreground', async () => {
+    const noProxy = await withProxy(null);
+    await noProxy.h.service.run(noProxy.h.intent({ foreground: true }), noProxy.h.context());
+    const noForeground = await withProxy('demo/proxies/shot.mp4');
+    await noForeground.h.service.run(noForeground.h.intent(), noForeground.h.context());
+    await noProxy.h.service.settleMonitorTiers();
+    await noForeground.h.service.settleMonitorTiers();
+    expect(noProxy.derive).not.toHaveBeenCalled();
+    expect(noForeground.derive).not.toHaveBeenCalled();
   });
 });

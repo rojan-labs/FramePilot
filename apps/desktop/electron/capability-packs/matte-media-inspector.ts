@@ -10,7 +10,9 @@
  * - **The Python sidecar** (BR4.13), which carries ffmpeg: decoded-frame sha256 by exact pts,
  *   and locked-frame comparison. A packaged build ships no desktop ffmpeg, so these go through
  *   `/mattes/frame-hashes` and `/mattes/locked-frames`. When the sidecar is down or refuses, the
- *   error is typed and every caller fails closed.
+ *   error is typed and every caller fails closed. PX5.9: it also makes a committed artifact's
+ *   monitor tier (`/mattes/monitor-tier`, ADR 0181), which is an accelerator: its caller treats
+ *   any failure as "the monitor decodes the masters".
  *
  * Paths are only ever passed as their own argv element or JSON field; nothing is interpolated
  * into a filter graph or shell.
@@ -38,6 +40,32 @@ export interface LockedFrameVerdicts {
   readonly carried: readonly boolean[];
 }
 
+/** PX5.9: what `/mattes/monitor-tier` needs: the committed artifact, pinned, and its picture. */
+export interface MonitorTierRequest {
+  /** The project folder (the artifact lives in `.framepilot-derived/mattes/<key>`). */
+  readonly projectDir: string;
+  /** What the mask pins: the tier is made only from exactly these masters. */
+  readonly artifact: {
+    readonly key: string;
+    readonly files: readonly { readonly name: string; readonly sha256: string }[];
+    readonly width: number;
+    readonly height: number;
+  };
+  /** The asset's proxy as stored (the picture the monitor decodes, sized by the engine). */
+  readonly proxyPath: string;
+  readonly rotation: 0 | 90 | 180 | 270;
+  /** The artifact's frame count, which sizes the request's deadline. */
+  readonly frameCount: number;
+}
+
+export interface MonitorTierResult {
+  readonly status: 'written' | 'current';
+  readonly width: number;
+  readonly height: number;
+  readonly frameCount: number;
+  readonly alpha: boolean;
+}
+
 export interface MatteMediaInspector {
   probeVideo(file: string, signal?: AbortSignal): Promise<MatteVideoProbe>;
   videoTiming(file: string, signal?: AbortSignal): Promise<MatteVideoTiming>;
@@ -56,6 +84,11 @@ export interface MatteMediaInspector {
     previous: { readonly file: string; readonly carried: readonly { readonly index: number; readonly previousIndex: number }[] } | undefined,
     signal?: AbortSignal,
   ): Promise<LockedFrameVerdicts>;
+  /**
+   * PX5.9: make (or confirm) the artifact's monitor tier beside it. Optional: an inspector
+   * without it (a test double, an older host) simply makes no tier.
+   */
+  deriveMonitorTier?(request: MonitorTierRequest, signal?: AbortSignal): Promise<MonitorTierResult>;
 }
 
 export class MatteInspectorError extends Error {
@@ -94,6 +127,8 @@ export interface MatteMediaInspectorOptions {
   readonly run?: CommandRunner;
   /** Backoff between 503 busy retries; injectable for tests. */
   readonly retryDelaysMs?: readonly number[];
+  /** PX5.9: backoff between busy retries of `/mattes/monitor-tier`; injectable for tests. */
+  readonly tierRetryDelaysMs?: readonly number[];
   readonly sleep?: (ms: number, signal: AbortSignal | undefined) => Promise<void>;
 }
 
@@ -198,14 +233,61 @@ export class DesktopMatteMediaInspector implements MatteMediaInspector {
     return { expected: booleans(verdicts.expected, expected.length), carried: booleans(verdicts.carried, carried.length) };
   }
 
+  public async deriveMonitorTier(request: MonitorTierRequest, signal?: AbortSignal): Promise<MonitorTierResult> {
+    if (!Number.isSafeInteger(request.frameCount) || request.frameCount < 0) {
+      throw new RangeError('frameCount must be a non-negative integer');
+    }
+    const body = await this.post(
+      '/mattes/monitor-tier',
+      {
+        project_dir: request.projectDir,
+        artifact: {
+          key: request.artifact.key,
+          files: request.artifact.files.map((file) => ({ name: file.name, sha256: file.sha256 })),
+          width: request.artifact.width,
+          height: request.artifact.height,
+        },
+        proxy_path: request.proxyPath,
+        rotation: request.rotation,
+      },
+      signal,
+      monitorTierTimeoutMs(request.frameCount),
+      this.options.tierRetryDelaysMs ?? MONITOR_TIER_BUSY_RETRY_DELAYS_MS,
+    );
+    const answer = body as Record<string, unknown>;
+    const size = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0;
+    if (
+      (answer.status !== 'written' && answer.status !== 'current') ||
+      !size(answer.width) ||
+      !size(answer.height) ||
+      !Number.isSafeInteger(answer.frame_count) ||
+      typeof answer.alpha !== 'boolean'
+    ) {
+      throw new MatteInspectorError('probe_failed', 'The engine returned a malformed monitor tier answer.');
+    }
+    return {
+      status: answer.status,
+      width: answer.width,
+      height: answer.height,
+      frameCount: answer.frame_count as number,
+      alpha: answer.alpha,
+    };
+  }
+
   /** POST JSON to the sidecar. Down, refused or malformed → a typed error; callers fail closed. */
   /**
    * POST JSON to the sidecar. A 503 "busy" (one check per route at a time) is retried with bounded
    * backoff; down, refused, still busy after the retries, or malformed answers are typed errors and
    * callers fail closed.
    */
-  private async post(route: string, payload: unknown, signal: AbortSignal | undefined, timeoutMs: number): Promise<unknown> {
-    const delays = this.options.retryDelaysMs ?? SIDECAR_BUSY_RETRY_DELAYS_MS;
+  private async post(
+    route: string,
+    payload: unknown,
+    signal: AbortSignal | undefined,
+    timeoutMs: number,
+    busyDelaysMs: readonly number[] = this.options.retryDelaysMs ?? SIDECAR_BUSY_RETRY_DELAYS_MS,
+  ): Promise<unknown> {
+    const delays = busyDelaysMs;
     for (let attempt = 0; ; attempt += 1) {
       if (isAborted(signal)) throw new MatteInspectorError('cancelled', 'Media check cancelled.');
       const timeout = AbortSignal.timeout(timeoutMs);
@@ -248,6 +330,26 @@ export class DesktopMatteMediaInspector implements MatteMediaInspector {
 
 /** Retries for a 503 busy route: 5 attempts over about 15 s. */
 export const SIDECAR_BUSY_RETRY_DELAYS_MS: readonly number[] = [500, 1_000, 2_000, 4_000, 8_000];
+
+/**
+ * PX5.9: retries for a busy `/mattes/monitor-tier`, 7 attempts over about 8 minutes. Longer than
+ * the checks' schedule because the route is busy for as long as another artifact's tier takes (a
+ * 3-minute 4K clip: 8-18 minutes); a tier still not started after that is simply not made, and
+ * the monitor decodes the masters.
+ */
+export const MONITOR_TIER_BUSY_RETRY_DELAYS_MS: readonly number[] = [
+  2_000, 5_000, 15_000, 30_000, 60_000, 120_000, 240_000,
+];
+
+/**
+ * PX5.9: the client-side budget for one tier, a minute beyond the engine's own deadline
+ * (`matte_tier_deadline` in service.py: 600 s + 0.5 s per frame, capped at 6 h), so the engine
+ * always answers first with a typed 504.
+ */
+export function monitorTierTimeoutMs(frameCount: number): number {
+  const engineSeconds = Math.min(6 * 60 * 60, 600 + 0.5 * Math.max(0, frameCount));
+  return Math.ceil((engineSeconds + 60) * 1_000);
+}
 
 /**
  * The client-side budget for one sidecar check, a minute beyond the engine's own deadline

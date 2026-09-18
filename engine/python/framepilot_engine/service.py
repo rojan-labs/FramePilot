@@ -253,6 +253,17 @@ from framepilot_engine.render.frame_hashes import (
     compare_locked_frames,
     frame_hashes_by_pts,
 )
+from framepilot_engine.render.matte_tier import (
+    MatteTierChanged,
+    MatteTierDeadline,
+    MatteTierError,
+)
+from framepilot_engine.render.matte_tier_job import (
+    MatteTierMissing,
+    MatteTierUnsafePath,
+    make_monitor_tier,
+    monitor_tier_size,
+)
 from framepilot_engine.render.mattes import MATTE_FILE
 from framepilot_engine.render.pipeline import RenderJob, RenderOptions, render
 from framepilot_engine.render.preview_text import (
@@ -447,6 +458,68 @@ def matte_route_deadline(pts_count: int = 0, highest_frame: int = 0) -> float:
         + MATTE_DEADLINE_PER_FRAME_SECONDS * highest_frame
     )
     return min(MATTE_DEADLINE_MAX_SECONDS, budget)
+
+
+#: PX5.9: a monitor tier decodes both masters and encodes two streams for every frame (84-205 ms
+#: planes + 24-84 ms alpha per 4K frame on an M1 Pro), so its budget grows with the frame count:
+#: a 3-minute 4K clip (5,400 frames) gets 600 + 2,700 s.
+MATTE_TIER_DEADLINE_PER_FRAME_SECONDS = 0.5
+
+
+def matte_tier_deadline(frame_count: int) -> float:
+    """Seconds ``POST /mattes/monitor-tier`` may take for an artifact of ``frame_count`` frames."""
+    budget = MATTE_ROUTE_DEADLINE_SECONDS + MATTE_TIER_DEADLINE_PER_FRAME_SECONDS * frame_count
+    return min(MATTE_DEADLINE_MAX_SECONDS, budget)
+
+
+class MatteTierFile(BaseModel):
+    """One file the mask pins, by name and digest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: Literal[
+        "matte.mkv",
+        "foreground.mkv",
+        "frames.json",
+        "report.json",
+        "preview.webm",
+        "foreground.preview.webm",
+    ]
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class MatteTierArtifact(BaseModel):
+    """What the mask pins of its artifact: the tier is made only from exactly these masters."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    files: list[MatteTierFile] = Field(min_length=1, max_length=8)
+    width: int = Field(ge=1, le=16384)
+    height: int = Field(ge=1, le=16384)
+
+
+class MatteMonitorTierRequest(BaseModel):
+    """Request body for ``POST /mattes/monitor-tier`` (PX5.9, ADR 0181)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project_dir: str = Field(description="The project folder, inside the projects root.")
+    artifact: MatteTierArtifact
+    proxy_path: str = Field(
+        description="The picture the monitor decodes (the asset's proxy), inside the projects root."
+    )
+    rotation: Literal[0, 90, 180, 270] = 0
+
+
+class MatteMonitorTierResponse(BaseModel):
+    """Whether a tier was written or was already current, and at what size."""
+
+    status: Literal["written", "current"]
+    width: int
+    height: int
+    frame_count: int
+    alpha: bool
 
 
 class MatteFrameHashesRequest(BaseModel):
@@ -6234,6 +6307,7 @@ def create_app(
     matte_route_locks = {
         "frame-hashes": threading.BoundedSemaphore(1),
         "locked-frames": threading.BoundedSemaphore(1),
+        "monitor-tier": threading.BoundedSemaphore(1),
     }
 
     def matte_path(candidate: str) -> Path:
@@ -6318,6 +6392,61 @@ def create_app(
         finally:
             lock.release()
         return MatteLockedFramesResponse(expected=result.expected, carried=result.carried)
+
+    @app.post("/mattes/monitor-tier", response_model=MatteMonitorTierResponse)
+    def matte_monitor_tier_route(req: MatteMonitorTierRequest) -> MatteMonitorTierResponse:
+        """Make a committed artifact's monitor tier beside it (PX5.9, ADR 0181).
+
+        One request at a time (503 busy), one total deadline sized from the frame count (504),
+        hardened decodes, real folders only, digests against the pins before and after the
+        pixels (409 when they differ), staged and renamed into place. No path is ever echoed.
+        """
+        project = matte_path(req.project_dir)
+        proxy = matte_path(req.proxy_path)
+        lock = matte_route_locks["monitor-tier"]
+        if not lock.acquire(blocking=False):
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "A monitor tier is already being made."
+            )
+        try:
+            size = monitor_tier_size(proxy, req.rotation)
+            result = make_monitor_tier(
+                project,
+                req.artifact.model_dump(),
+                size,
+                budget_seconds=matte_tier_deadline,
+            )
+        except MatteTierUnsafePath:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "The matte folder is not a plain folder."
+            ) from None
+        except MatteTierMissing:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, "The background removal data is missing."
+            ) from None
+        except MatteTierChanged:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "The background removal data is not what the mask pins.",
+            ) from None
+        except MatteTierDeadline:
+            raise HTTPException(
+                status.HTTP_504_GATEWAY_TIMEOUT, "The monitor tier ran out of time."
+            ) from None
+        except (MatteTierError, OSError, subprocess.SubprocessError, ValueError) as exc:
+            _log.info("matte monitor tier refused: %s", type(exc).__name__)
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "The monitor tier could not be made."
+            ) from None
+        finally:
+            lock.release()
+        return MatteMonitorTierResponse(
+            status=result.status,
+            width=result.width,
+            height=result.height,
+            frame_count=result.frame_count,
+            alpha=result.alpha,
+        )
 
     @app.post("/references/analyze", response_model=ReferenceAnalysisResponse)
     def references_analyze_route(req: ReferenceAnalysisRequest) -> ReferenceAnalysisResponse:

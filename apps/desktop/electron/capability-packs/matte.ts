@@ -76,6 +76,8 @@ import {
 import { compareSemver, resolveInside } from './pack-paths.js';
 
 const log = createLogger('desktop:capability-packs:matte');
+/** Display rotations the monitor turns a decoded picture by (`Asset.media.rotation`). */
+const MONITOR_ROTATIONS = [0, 90, 180, 270] as const;
 
 export const SMART_MASK_PACK_ID = 'framepilot.smart-mask';
 export const MATTE_CAPABILITIES = ['subject.matte', 'subject.segment_frame'] as const;
@@ -276,6 +278,8 @@ interface ResolvedMedia {
 export class CapabilityPackMatteService {
   private readonly jobs = new Map<string, AbortController>();
   private readonly previousKeys = new Map<string, string>();
+  /** PX5.9: monitor tiers being made in the background. */
+  private readonly tierJobs = new Set<Promise<void>>();
 
   public constructor(private readonly options: CapabilityPackMatteServiceOptions) {}
 
@@ -404,6 +408,8 @@ export class CapabilityPackMatteService {
     addPhase(phases, 'cache', Date.now() - tCache);
     if (hit !== undefined) {
       log.action('matteCacheHit', {});
+      // A hit made before PX5.9 (or whose tier failed) gets its tier now; a current one is cheap.
+      this.requestMonitorTier(context.projectDir, hit, media);
       return completed(hit, true, context.projectRevision);
     }
 
@@ -477,12 +483,64 @@ export class CapabilityPackMatteService {
       const record = await this.commit(context.projectDir, staging, key, intent, media, pack.record, result, prompts, verified.files, signal);
       committed = true;
       addPhase(phases, 'commit', Date.now() - tCommit);
+      this.requestMonitorTier(context.projectDir, record, media);
       return completed(record, false, context.projectRevision);
     } catch (error) {
       return classifyFailure(error, signal);
     } finally {
       if (!committed) await staging.discard();
     }
+  }
+
+  /**
+   * PX5.9 (ADR 0181): ask the sidecar to make the committed artifact's monitor tier at the size
+   * the monitor decodes the asset's proxy at, in the background. The tier is an accelerator: it
+   * never delays or fails the job, and without it the monitor decodes the masters. Skipped for
+   * an asset without a proxy (the monitor's decode size is then the canvas's, not one file's) and
+   * for an artifact without a foreground (a tier is made from the foreground too).
+   */
+  private requestMonitorTier(projectDir: string, record: MatteArtifactRecord, media: ResolvedMedia): void {
+    const derive = this.options.inspector.deriveMonitorTier?.bind(this.options.inspector);
+    const proxyPath = media.asset.media?.proxyPath;
+    if (derive === undefined || media.asset.kind !== 'video' || proxyPath == null || proxyPath === '') return;
+    if (!record.files.some((file) => file.name === 'foreground.mkv')) return;
+    const rotation = MONITOR_ROTATIONS.find((value) => value === (media.asset.media?.rotation ?? 0)) ?? 0;
+    const started = Date.now();
+    const job = derive({
+      projectDir,
+      artifact: {
+        key: record.key,
+        files: record.files.map((file) => ({ name: file.name, sha256: file.sha256 })),
+        width: record.width,
+        height: record.height,
+      },
+      proxyPath,
+      rotation,
+      frameCount: media.frameCount,
+    })
+      .then((tier) => {
+        log.action('matteMonitorTier', {
+          status: tier.status,
+          width: tier.width,
+          height: tier.height,
+          alpha: tier.alpha,
+          elapsedMs: Date.now() - started,
+        });
+      })
+      .catch((error: unknown) => {
+        // Codes only: a message could carry a path.
+        log.warn('matteMonitorTierFailed', {
+          code: error instanceof MatteInspectorError ? error.code : 'error',
+          elapsedMs: Date.now() - started,
+        });
+      })
+      .finally(() => this.tierJobs.delete(job));
+    this.tierJobs.add(job);
+  }
+
+  /** Wait for every monitor tier this service started (tests, and an orderly shutdown). */
+  public async settleMonitorTiers(): Promise<void> {
+    await Promise.all([...this.tierJobs]);
   }
 
   /** Refuse to start when the estimate (BR0 storage per minute × 1.2) exceeds free space. */

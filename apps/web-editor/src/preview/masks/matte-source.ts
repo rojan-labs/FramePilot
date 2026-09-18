@@ -52,6 +52,12 @@ const log = createLogger('web-editor:preview:matte-source');
 const TIER_JSON_MAX_BYTES = 64 * 1024;
 /** Largest side a monitor tier may claim (a texture the GPU can hold everywhere). */
 const TIER_MAX_SIDE = 8192;
+/**
+ * PX5.9: how long a tier that was not there is taken as absent. The desktop makes a tier in the
+ * background after the artifact commits (minutes for a long 4K clip), so a monitor that asked
+ * before it existed asks again, at most this often, until it does.
+ */
+export const TIER_RECHECK_MS = 30_000;
 /** Decode sizes remembered per artifact: a clip shown at a few sizes at once, no more. */
 const DECODED_SIZES_KEPT = 4;
 /** Largest `frames.json` / `report.json` read (`FRAMES_MAX_BYTES` of the engine). */
@@ -253,6 +259,8 @@ interface ArtifactState {
   tier: Promise<MatteTier | null> | null;
   /** The tier once it matched the pinned masters; `null` without one, or after it failed. */
   tierInfo: MatteTier | null;
+  /** PX5.9: when `tier.json` was last found missing (`null` otherwise): re-asked after a while. */
+  tierMissingAt: number | null;
   /** `WxH` decode sizes lookups reported, newest last: which planes a prefetch should fetch. */
   sizes: string[];
   /** 255 or 65535, once `matte.mkv` is open: a frame's maximum without decoding its samples. */
@@ -269,10 +277,8 @@ interface FrameWants {
   readonly alphaPlane: boolean;
 }
 
-const sourceIdOf = (
-  key: string,
-  file: 'matte' | 'foreground' | 'planes' | 'alpha-tier',
-): string => `matte:${key}:${file}`;
+const sourceIdOf = (key: string, file: 'matte' | 'foreground' | 'planes' | 'alpha-tier'): string =>
+  `matte:${key}:${file}`;
 const sizeKey = (width: number, height: number): string => `${width}x${height}`;
 
 /**
@@ -356,6 +362,8 @@ export interface MatteSourceOptions {
   readonly onFrameDecoded?: (ms: number) => void;
   /** PX5.3: where monitor tiers are read from; none by default (the masters are decoded). */
   readonly locateTier?: () => MatteTierLocator | null;
+  /** Clock for {@link TIER_RECHECK_MS}; `performance.now` by default. */
+  readonly now?: () => number;
 }
 
 export class MatteSource {
@@ -566,6 +574,11 @@ export class MatteSource {
    * not an error: the monitor decodes the masters, as it did before tiers existed.
    */
   private loadTier(state: ArtifactState): void {
+    const now = this.options.now ?? (() => performance.now());
+    if (state.tierMissingAt !== null && now() - state.tierMissingAt >= TIER_RECHECK_MS) {
+      state.tier = null;
+      state.tierMissingAt = null;
+    }
     if (state.tier !== null || state.frames === null) return;
     const frames = state.frames;
     state.tier = (async () => {
@@ -575,7 +588,10 @@ export class MatteSource {
       if (manifestUrl === null || planesUrl === null) return null;
       try {
         const bytes = await this.fetchBytes(manifestUrl);
-        if (bytes === null) return null;
+        if (bytes === null) {
+          state.tierMissingAt = now();
+          return null;
+        }
         if (bytes.length > TIER_JSON_MAX_BYTES) throw new Error('tier.json is too large.');
         const document = JSON.parse(
           new TextDecoder('utf-8', { fatal: true }).decode(bytes),
@@ -717,6 +733,7 @@ export class MatteSource {
       flagged: null,
       tier: null,
       tierInfo: null,
+      tierMissingAt: null,
       sizes: [],
       maximum: null,
     };

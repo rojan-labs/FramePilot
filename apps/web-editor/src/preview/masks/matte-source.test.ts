@@ -10,6 +10,7 @@ import { MaskLayerSchema } from '@framepilot/timeline-schema';
 import { MatteDecodeCancelled } from '../decode/matte-decode-pool';
 import {
   MatteSource,
+  TIER_RECHECK_MS,
   flaggedFromReport,
   matteFrameAligned,
   parseMatteFrames,
@@ -551,5 +552,95 @@ describe('the tier alpha plane (PX5.8)', () => {
     expect(source.debugState(soft).tier).toBeNull();
     expect(decoded).toContain('matte@1');
     expect(decoded).toContain('foreground@1');
+  });
+});
+
+describe('a tier made after the monitor first looked (PX5.9)', () => {
+  it('is looked for again, at most every TIER_RECHECK_MS, and then used', async () => {
+    const { mask: base, files } = artifactFiles();
+    const artifact = {
+      ...base.artifact,
+      files: [...base.artifact.files, { name: 'foreground.mkv', sha256: 'f'.repeat(64) }],
+    };
+    const mask = { ...base, artifact, decontaminate: true } as MatteMask;
+    const pinned = (name: string) => artifact.files.find((file) => file.name === name)!.sha256;
+    let clock = 0;
+    const fetched: string[] = [];
+    const client = {
+      loadMatte: vi.fn(async (sourceId: string) => ({
+        type: 'matteLoaded' as const,
+        requestId: 0,
+        sourceId,
+        ...(sourceId.endsWith(':planes')
+          ? { width: 4, height: 16 }
+          : sourceId.endsWith(':alpha-tier')
+            ? { width: 4, height: 4 }
+            : { width: 8, height: 4 }),
+        format: sourceId.endsWith(':foreground') ? ('rgb24' as const) : ('gray8' as const),
+        frameCount: FRAMES.pts.length,
+        intraOnly: true,
+      })),
+      // Frames stay pending: this test is about the manifest, not the pixels.
+      decodeMatte: vi.fn(() => new Promise(() => undefined)),
+      unloadSource: vi.fn(async () => undefined),
+    };
+    const source = new MatteSource(
+      client as never,
+      () => (key, name) => `mem://${key}/${name}`,
+      { get: () => undefined, put: () => undefined },
+      async (url) => {
+        const name = url.split('/').pop()!;
+        fetched.push(name);
+        return files.get(name) ?? null;
+      },
+      { locateTier: () => (key, name) => `tier://${key}/${name}`, now: () => clock },
+    );
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    source.prepare([mask]);
+    for (let step = 0; step < 4; step += 1) await settle();
+    expect(source.debugState(mask).tier).toBeNull();
+    const asked = () => fetched.filter((name) => name === 'tier.json').length;
+    expect(asked()).toBe(1);
+    // The host writes the tier in the background...
+    files.set(
+      'tier.json',
+      encoder.encode(
+        JSON.stringify({
+          version: 1,
+          kind: 'framepilot.matte-monitor-tier',
+          width: 4,
+          height: 2,
+          frameCount: FRAMES.pts.length,
+          planes: {
+            file: 'planes.mkv',
+            bytes: 1,
+            order: ['weight', 'r', 'g', 'b'],
+            weightScale: 65535,
+            colourScale: 257,
+            layout: 'u16-hi-lo-bytes',
+          },
+          alpha: { file: 'alpha.mkv', bytes: 1, layout: 'u16-hi-lo-bytes', scale: 65535 },
+          source: {
+            width: 8,
+            height: 4,
+            files: {
+              'matte.mkv': pinned('matte.mkv'),
+              'foreground.mkv': pinned('foreground.mkv'),
+              'frames.json': pinned('frames.json'),
+            },
+          },
+        }),
+      ),
+    );
+    // ...but a lookup before the re-check interval does not ask again.
+    clock = TIER_RECHECK_MS - 1;
+    source.lookup(mask, 10, null, { width: 4, height: 2 });
+    await settle();
+    expect(asked()).toBe(1);
+    clock = TIER_RECHECK_MS;
+    source.lookup(mask, 10, null, { width: 4, height: 2 });
+    for (let step = 0; step < 4; step += 1) await settle();
+    expect(asked()).toBe(2);
+    expect(source.debugState(mask)).toMatchObject({ tier: '4x2', alphaTier: true });
   });
 });
