@@ -14,13 +14,20 @@ import { describe, expect, it } from 'vitest';
 import { KeyMaskSchema } from '@framepilot/timeline-schema';
 
 import {
+  MASK_BOX_FRAGMENT,
+  MASK_DENOISE_FRAGMENT,
   MASK_DESPILL_FRAGMENT,
   MASK_KEY_FRAGMENT,
+  MASK_LEVELS_FRAGMENT,
+  MASK_MIX_ALPHA_FRAGMENT,
+  MASK_MORPH_FRAGMENT,
+  MAX_KEY_MORPH_PX,
   MAX_KEY_RANGES,
   MAX_KEY_SAMPLES,
   despillingKeys,
   keyAlphaAt,
   keyExceedsPass,
+  keyMorphExceedsPass,
   keyUniforms,
   type KeyMask,
 } from './key-mask';
@@ -89,6 +96,35 @@ describe('key qualifier vs the export, on colour charts', () => {
   });
 });
 
+describe('the finesse shaders', () => {
+  it('are structurally closed and bound to the pass limit', () => {
+    for (const source of [
+      MASK_DENOISE_FRAGMENT,
+      MASK_MORPH_FRAGMENT,
+      MASK_MIX_ALPHA_FRAGMENT,
+      MASK_BOX_FRAGMENT,
+      MASK_LEVELS_FRAGMENT,
+    ]) {
+      expect(source.startsWith('#version 300 es')).toBe(true);
+      expect(source.split('{').length).toBe(source.split('}').length);
+    }
+    expect(MASK_MORPH_FRAGMENT).toContain(String(MAX_KEY_MORPH_PX));
+  });
+
+  it('flags a morphology radius no single pass can carry', () => {
+    const base = {
+      id: 'k',
+      kind: 'key',
+      model: 'hsl',
+      ranges: [{ channel: 'hue', low: 0.2, high: 0.4 }],
+    };
+    expect(keyMorphExceedsPass(parse({ ...base, finesse: { blurPx: 40 } }))).toBe(false);
+    expect(keyMorphExceedsPass(parse({ ...base, finesse: { morphOpenPx: 20 } }))).toBe(true);
+    expect(keyMorphExceedsPass(parse({ ...base, finesse: { shrinkGrowPx: -20 } }))).toBe(true);
+    expect(keyMorphExceedsPass(parse({ ...base, finesse: { morphClosePx: 16 } }))).toBe(false);
+  });
+});
+
 describe('the shader and the twin stay in step', () => {
   it('declares every uniform the packer fills', () => {
     for (const name of [
@@ -99,10 +135,6 @@ describe('the shader and the twin stay in step', () => {
       'u_samples',
       'u_tolerance',
       'u_shadow',
-      'u_cleanBlack',
-      'u_cleanWhite',
-      'u_invert',
-      'u_opacity',
       'u_picture',
     ]) {
       expect(MASK_KEY_FRAGMENT).toContain(`uniform`);

@@ -42,8 +42,13 @@ import {
 import { maskSourceTime } from '@framepilot/editor-core';
 import { decontaminate } from '../masks/matte-edges.js';
 import {
+  MASK_BOX_FRAGMENT,
+  MASK_DENOISE_FRAGMENT,
   MASK_DESPILL_FRAGMENT,
   MASK_KEY_FRAGMENT,
+  MASK_LEVELS_FRAGMENT,
+  MASK_MIX_ALPHA_FRAGMENT,
+  MASK_MORPH_FRAGMENT,
   despillingKeys,
   keyUniforms,
   type KeyMask,
@@ -69,7 +74,7 @@ import {
   SWS_VERTICAL_ONE,
   type SwsFilter,
 } from './raster/swscale.js';
-import { GlResources, type RenderTarget } from './gl/gl-resources.js';
+import { GlResources, type Program, type RenderTarget } from './gl/gl-resources.js';
 import { pilBoxWeights, pilGaussianBoxRadius, pilRotationMatrix } from './raster/pil.js';
 import {
   ALPHA_FRAGMENT,
@@ -734,11 +739,14 @@ export class LayerCompositor {
     return quantised.texture;
   }
 
-  /** One `key` layer's alpha, qualified from the picture (`key_mask.py`). */
+  /**
+   * One `key` layer's alpha: the qualifier on the picture, then the finesse group, then invert
+   * and opacity — `key_alpha` → `apply_finesse` → `layer_alpha`, in that order (MK6.1, MK6.2).
+   */
   private keyLayer(mask: KeyMask, picture: RenderTarget, opacity: number): WebGLTexture {
     const r = this.resources;
     const gl = this.gl;
-    const out = r.target(picture.width, picture.height, 'rgba32f');
+    const qualified = r.target(picture.width, picture.height, 'rgba32f');
     const program = r.program('mask-key', MASK_KEY_FRAGMENT);
     gl.useProgram(program.handle);
     r.bind(program, 'u_picture', 0, picture.texture);
@@ -750,12 +758,127 @@ export class LayerCompositor {
     gl.uniform4fv(program.location('u_samples'), uniforms.samples);
     gl.uniform1f(program.location('u_tolerance'), uniforms.tolerance);
     gl.uniform1f(program.location('u_shadow'), uniforms.shadowRetention);
+    r.draw(qualified, qualified.width, qualified.height);
+    return this.keyFinesse(qualified, mask.finesse, uniforms).texture;
+  }
+
+  /** One pass over the key's alpha, into a fresh float target. */
+  private alphaPass(
+    source: RenderTarget,
+    name: string,
+    fragment: string,
+    setup: (program: Program) => void,
+    second: RenderTarget | null = null,
+  ): RenderTarget {
+    const r = this.resources;
+    const out = r.target(source.width, source.height, 'rgba32f');
+    const program = r.program(name, fragment);
+    this.gl.useProgram(program.handle);
+    r.bind(program, second === null ? 'u_alpha' : 'u_low', 0, source.texture);
+    if (second !== null) r.bind(program, 'u_high', 1, second.texture);
+    setup(program);
+    r.draw(out, out.width, out.height);
+    return out;
+  }
+
+  /** `_morphology_at`: one integer radius, or the mix of the two a fractional radius sits between. */
+  private morphology(source: RenderTarget, radius: number, grow: boolean): RenderTarget {
+    const magnitude = Math.abs(radius);
+    if (magnitude <= 0) return source;
+    const low = Math.floor(magnitude);
+    const high = Math.ceil(magnitude);
+    const at = (size: number): RenderTarget =>
+      size <= 0
+        ? source
+        : this.alphaPass(source, 'mask-morph', MASK_MORPH_FRAGMENT, (program) => {
+            program.int('u_radius', size);
+            program.int('u_grow', grow ? 1 : 0);
+          });
+    const lowTarget = at(low);
+    if (high === low) return lowTarget;
+    return this.alphaPass(
+      lowTarget,
+      'mask-mix-alpha',
+      MASK_MIX_ALPHA_FRAGMENT,
+      (program) => this.gl.uniform1f(program.location('u_fraction'), magnitude - low),
+      at(high),
+    );
+  }
+
+  /** `blur`: three box passes of `round(radius / 3)`, each separable. */
+  private blurAlpha(source: RenderTarget, radius: number): RenderTarget {
+    if (radius <= 0) return source;
+    const box = Math.max(1, Math.round(radius / 3));
+    let current = source;
+    for (let pass = 0; pass < 3; pass += 1) {
+      for (const axis of [0, 1]) {
+        current = this.alphaPass(current, 'mask-box', MASK_BOX_FRAGMENT, (program) => {
+          program.int('u_radius', box);
+          program.int('u_axis', axis);
+        });
+      }
+    }
+    return current;
+  }
+
+  /** `apply_finesse` then `layer_alpha`, in the order `key_mask_alpha` chains them. */
+  private keyFinesse(
+    qualified: RenderTarget,
+    finesse: KeyMask['finesse'],
+    uniforms: ReturnType<typeof keyUniforms>,
+  ): RenderTarget {
+    let current = qualified;
+    if (finesse.denoise > 0) {
+      current = this.alphaPass(current, 'mask-denoise', MASK_DENOISE_FRAGMENT, (program) =>
+        this.gl.uniform1f(program.location('u_amount'), Math.min(finesse.denoise, 1)),
+      );
+    }
+    const levels = uniforms.cleanBlack !== 0 || uniforms.cleanWhite !== 1;
+    if (levels) {
+      current = this.alphaPass(current, 'mask-levels', MASK_LEVELS_FRAGMENT, (program) =>
+        this.levelsUniforms(program, uniforms, { levels: true, ratio: 0, layer: false }),
+      );
+    }
+    if (finesse.morphOpenPx > 0) {
+      current = this.morphology(
+        this.morphology(current, finesse.morphOpenPx, false),
+        finesse.morphOpenPx,
+        true,
+      );
+    }
+    if (finesse.morphClosePx > 0) {
+      current = this.morphology(
+        this.morphology(current, finesse.morphClosePx, true),
+        finesse.morphClosePx,
+        false,
+      );
+    }
+    if (finesse.shrinkGrowPx !== 0) {
+      current = this.morphology(current, Math.abs(finesse.shrinkGrowPx), finesse.shrinkGrowPx > 0);
+    }
+    current = this.blurAlpha(current, finesse.blurPx);
+    return this.alphaPass(current, 'mask-levels', MASK_LEVELS_FRAGMENT, (program) =>
+      this.levelsUniforms(program, uniforms, {
+        levels: false,
+        ratio: finesse.inOutRatio,
+        layer: true,
+      }),
+    );
+  }
+
+  /** The pointwise tail's uniforms; `layer` false leaves invert and opacity for the last pass. */
+  private levelsUniforms(
+    program: Program,
+    uniforms: ReturnType<typeof keyUniforms>,
+    stage: { levels: boolean; ratio: number; layer: boolean },
+  ): void {
+    const gl = this.gl;
     gl.uniform1f(program.location('u_cleanBlack'), uniforms.cleanBlack);
     gl.uniform1f(program.location('u_cleanWhite'), uniforms.cleanWhite);
-    gl.uniform1f(program.location('u_invert'), uniforms.invert);
-    gl.uniform1f(program.location('u_opacity'), uniforms.opacity);
-    r.draw(out, out.width, out.height);
-    return out.texture;
+    gl.uniform1f(program.location('u_ratio'), stage.ratio);
+    gl.uniform1f(program.location('u_invert'), stage.layer ? uniforms.invert : 0);
+    gl.uniform1f(program.location('u_opacity'), stage.layer ? uniforms.opacity : 1);
+    program.int('u_levels', stage.levels ? 1 : 0);
   }
 
   /** The despill limiter on the picture, where `_apply_key_despill` applies it. */

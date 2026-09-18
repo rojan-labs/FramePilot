@@ -239,8 +239,8 @@ def test_matte_keyframed_edge_shift_reads_the_source_clock() -> None:
 
 def test_matte_refusals_before_rendering() -> None:
     assert_renderable(_matte(), _clip(), frozenset())
-    with pytest.raises(MaskStackRefusal, match="finesse"):
-        assert_renderable(_matte(finesse={"denoise": 0.2}), _clip(), frozenset())
+    # MK6.2: the whole finesse group renders now, so it is no longer a refusal.
+    assert_renderable(_matte(finesse={"denoise": 0.2}), _clip(), frozenset())
     with pytest.raises(MaskStackRefusal, match="Distance"):
         assert_renderable(_matte(featherModel="gaussian-legacy"), _clip(), frozenset())
     unbound = clip_mask_stacks(_clip([_matte().model_dump(by_alias=True)]), (W, H))

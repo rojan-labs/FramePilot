@@ -53,13 +53,13 @@ const isqrt = (value: number): number => {
  * `_disc_morphology`: grey dilation (`grow`) or erosion by the disc `dx² + dy² <= r²`, edges
  * replicated. Row windows are built incrementally, one half-width at a time.
  */
-export function discMorphology(
-  values: MatteSamples,
+export function discMorphology<T extends MatteSamples | Float64Array>(
+  values: T,
   width: number,
   height: number,
   radius: number,
   grow: boolean,
-): MatteSamples {
+): T {
   if (radius <= 0) return values;
   const pick = grow ? Math.max : Math.min;
   const byWidth = new Map<number, number[]>();
@@ -69,13 +69,11 @@ export function discMorphology(
     list.push(dy);
     byWidth.set(half, list);
   }
-  const result = values.slice();
-  let window: MatteSamples = values;
+  const result = values.slice() as T;
+  let window: MatteSamples | Float64Array = values;
   for (let half = 0; half <= radius; half += 1) {
     if (half > 0) {
-      const next = new (values.constructor as { new (length: number): MatteSamples })(
-        width * height,
-      );
+      const next = new (values.constructor as { new (length: number): T })(width * height);
       for (let y = 0; y < height; y += 1) {
         const row = y * width;
         for (let x = 0; x < width; x += 1) {
@@ -424,12 +422,14 @@ export interface MatteFrameData {
 /**
  * The matte's alpha on the clip's frame before invert/opacity (`matte_alpha` up to `to_frame`).
  *
+ * @param finesse - The mask's finesse group (MK6.2).
  * @param shiftPx - `edgeShiftPx` at the instant.
  * @param feather - The base expansion/feathers at the instant (feathers clamped at 0).
  */
 export function matteFrameAlpha(
   frame: MatteFrameData,
   levels: readonly [number, number],
+  finesse: MaskFinesseValues,
   shiftPx: number,
   feather: MatteFeather,
   crop: CropFractions | null | undefined,
@@ -439,7 +439,9 @@ export function matteFrameAlpha(
   decodedHeight: number,
 ): Float64Array {
   let alpha = edgeShift(frame.alpha, frame.width, frame.height, frame.maximum, shiftPx);
-  alpha = applyCleanLevels(alpha, levels[0], levels[1]);
+  // MK6.2: the finesse group sits between the artifact's own edge shift and the mask's base
+  // expansion/feather, as `matte_alpha` orders them.
+  alpha = applyFinesse(alpha, frame.width, frame.height, finesse, levels);
   alpha = distanceFeather(alpha, frame.width, frame.height, feather);
   return toFrame(
     { width: frame.width, height: frame.height, channels: 1, data: alpha },
@@ -505,4 +507,259 @@ export function decontaminate(
       picture[i * channels + ch] = Math.min(Math.max(roundHalfEven(mixed), 0), 255);
     }
   }
+}
+
+// --- The matte finesse group (MK6.2) ----------------------------------------------------------
+//
+// The TypeScript twin of `render/matte_edges.py`'s finesse chain, byte for byte. One clean-up
+// chain shared by every kind whose alpha is a RASTER — `matte`, `key` and, when it ships,
+// `layer` — in the order a matte artist works in:
+//
+//   denoise → clean black → clean white → morph open → morph close → shrink/grow → blur →
+//   in/out ratio
+//
+// Denoising after the levels would re-introduce the haze they removed, and blurring before the
+// morphology would smear the specks the morphology deletes; the order is what makes each
+// control do what its name says.
+
+/** `_clamped_index`: the index `offset` away, replicating at the edges. */
+function clampedIndex(length: number, offset: number): Int32Array {
+  const indices = new Int32Array(length);
+  for (let i = 0; i < length; i += 1) indices[i] = Math.min(Math.max(i + offset, 0), length - 1);
+  return indices;
+}
+
+/** `denoise`: blend toward the 3x3 box mean by `amount`; edges replicate. */
+export function denoise(
+  alpha: Float64Array,
+  width: number,
+  height: number,
+  amount: number,
+): Float64Array {
+  if (amount <= 0) return alpha;
+  const strength = Math.min(amount, 1);
+  const rows = new Float64Array(width * height);
+  const left = clampedIndex(width, -1);
+  const right = clampedIndex(width, 1);
+  for (let y = 0; y < height; y += 1) {
+    const row = y * width;
+    for (let x = 0; x < width; x += 1) {
+      rows[row + x] = alpha[row + left[x]!]! + alpha[row + x]! + alpha[row + right[x]!]!;
+    }
+  }
+  const up = clampedIndex(height, -1);
+  const down = clampedIndex(height, 1);
+  const out = new Float64Array(width * height);
+  for (let y = 0; y < height; y += 1) {
+    const row = y * width;
+    const above = up[y]! * width;
+    const below = down[y]! * width;
+    for (let x = 0; x < width; x += 1) {
+      const mean = (rows[above + x]! + rows[row + x]! + rows[below + x]!) / 9;
+      const value = alpha[row + x]!;
+      out[row + x] = value + (mean - value) * strength;
+    }
+  }
+  return out;
+}
+
+/** `_morphology_at`: dilate (`grow`) or erode by a disc, mixing the two integer radii. */
+function morphologyAt(
+  alpha: Float64Array,
+  width: number,
+  height: number,
+  radius: number,
+  grow: boolean,
+): Float64Array {
+  const magnitude = Math.abs(radius);
+  if (magnitude <= 0) return alpha;
+  const low = Math.floor(magnitude);
+  const high = Math.ceil(magnitude);
+  const lowAlpha = discMorphology(alpha, width, height, low, grow);
+  if (high === low) return lowAlpha;
+  const highAlpha = discMorphology(alpha, width, height, high, grow);
+  const fraction = magnitude - low;
+  const out = new Float64Array(alpha.length);
+  for (let i = 0; i < out.length; i += 1) {
+    out[i] = lowAlpha[i]! + (highAlpha[i]! - lowAlpha[i]!) * fraction;
+  }
+  return out;
+}
+
+/** `morph_open`: erode then dilate — deletes specks outside the subject. */
+export function morphOpen(
+  alpha: Float64Array,
+  width: number,
+  height: number,
+  radius: number,
+): Float64Array {
+  if (radius <= 0) return alpha;
+  return morphologyAt(
+    morphologyAt(alpha, width, height, radius, false),
+    width,
+    height,
+    radius,
+    true,
+  );
+}
+
+/** `morph_close`: dilate then erode — fills pinholes inside it. */
+export function morphClose(
+  alpha: Float64Array,
+  width: number,
+  height: number,
+  radius: number,
+): Float64Array {
+  if (radius <= 0) return alpha;
+  return morphologyAt(
+    morphologyAt(alpha, width, height, radius, true),
+    width,
+    height,
+    radius,
+    false,
+  );
+}
+
+/** `shrink_grow`: move the whole edge out (+) or in (−). */
+export function shrinkGrow(
+  alpha: Float64Array,
+  width: number,
+  height: number,
+  pixels: number,
+): Float64Array {
+  if (pixels === 0) return alpha;
+  return morphologyAt(alpha, width, height, Math.abs(pixels), pixels > 0);
+}
+
+/** `_box_pass`: one separable box blur of integer `radius`, summed in index order. */
+function boxPass(alpha: Float64Array, width: number, height: number, radius: number): Float64Array {
+  if (radius <= 0) return alpha;
+  const horizontal = alpha.slice();
+  for (let offset = 1; offset <= radius; offset += 1) {
+    const left = clampedIndex(width, -offset);
+    const right = clampedIndex(width, offset);
+    for (let y = 0; y < height; y += 1) {
+      const row = y * width;
+      for (let x = 0; x < width; x += 1) {
+        horizontal[row + x] = horizontal[row + x]! + alpha[row + left[x]!]!;
+      }
+      for (let x = 0; x < width; x += 1) {
+        horizontal[row + x] = horizontal[row + x]! + alpha[row + right[x]!]!;
+      }
+    }
+  }
+  const divisor = 2 * radius + 1;
+  for (let i = 0; i < horizontal.length; i += 1) horizontal[i] = horizontal[i]! / divisor;
+  const vertical = horizontal.slice();
+  for (let offset = 1; offset <= radius; offset += 1) {
+    const up = clampedIndex(height, -offset);
+    const down = clampedIndex(height, offset);
+    for (let y = 0; y < height; y += 1) {
+      const row = y * width;
+      const above = up[y]! * width;
+      for (let x = 0; x < width; x += 1) {
+        vertical[row + x] = vertical[row + x]! + horizontal[above + x]!;
+      }
+    }
+    for (let y = 0; y < height; y += 1) {
+      const row = y * width;
+      const below = down[y]! * width;
+      for (let x = 0; x < width; x += 1) {
+        vertical[row + x] = vertical[row + x]! + horizontal[below + x]!;
+      }
+    }
+  }
+  for (let i = 0; i < vertical.length; i += 1) vertical[i] = vertical[i]! / divisor;
+  return vertical;
+}
+
+/** `blur`: three box passes of `round(radius / 3)`, the cheap gaussian both sides agree on. */
+export function blurAlpha(
+  alpha: Float64Array,
+  width: number,
+  height: number,
+  radius: number,
+): Float64Array {
+  if (radius <= 0) return alpha;
+  const box = Math.max(1, Math.round(radius / 3));
+  return boxPass(
+    boxPass(boxPass(alpha, width, height, box), width, height, box),
+    width,
+    height,
+    box,
+  );
+}
+
+/** `in_out_ratio`: move the 50% crossing out (+) or in (−), keeping 0 and 1 fixed. */
+export function inOutRatio(alpha: Float64Array, ratio: number): Float64Array {
+  if (ratio === 0) return alpha;
+  const clamped = Math.min(1, Math.max(-1, ratio));
+  const mid = 0.5 - clamped * 0.5;
+  const out = new Float64Array(alpha.length);
+  if (mid <= 0) {
+    for (let i = 0; i < out.length; i += 1) out[i] = alpha[i]! > 0 ? 1 : 0;
+    return out;
+  }
+  if (mid >= 1) {
+    for (let i = 0; i < out.length; i += 1) out[i] = alpha[i]! >= 1 ? 1 : 0;
+    return out;
+  }
+  for (let i = 0; i < out.length; i += 1) {
+    const value = alpha[i]!;
+    const mapped = value <= mid ? (value * 0.5) / mid : 0.5 + ((value - mid) * 0.5) / (1 - mid);
+    out[i] = Math.min(1, Math.max(0, mapped));
+  }
+  return out;
+}
+
+/** The finesse controls of a `matte` or `key` mask, already read at the instant. */
+export interface MaskFinesseValues {
+  readonly denoise: number;
+  readonly morphOpenPx: number;
+  readonly morphClosePx: number;
+  readonly shrinkGrowPx: number;
+  readonly blurPx: number;
+  readonly inOutRatio: number;
+  readonly cleanBlack: number;
+  readonly cleanWhite: number;
+}
+
+/**
+ * `apply_finesse`: the whole group in order, on an alpha already in `[0, 1]`.
+ *
+ * The input is copied first. `applyCleanLevels` rewrites the array it is handed — which is safe
+ * where it was written, because its caller owns a fresh one — and a chain that sometimes passes
+ * its input straight through would otherwise edit the caller's alpha behind its back.
+ */
+export function applyFinesse(
+  alpha: Float64Array,
+  width: number,
+  height: number,
+  finesse: MaskFinesseValues,
+  levels: readonly [number, number],
+): Float64Array {
+  let result = denoise(alpha.slice(), width, height, finesse.denoise);
+  result = applyCleanLevels(result, levels[0], levels[1]);
+  result = morphOpen(result, width, height, finesse.morphOpenPx);
+  result = morphClose(result, width, height, finesse.morphClosePx);
+  result = shrinkGrow(result, width, height, finesse.shrinkGrowPx);
+  result = blurAlpha(result, width, height, finesse.blurPx);
+  return inOutRatio(result, finesse.inOutRatio);
+}
+
+/** `finesse_is_identity`: whether the group changes nothing, so a caller can skip the chain. */
+export function finesseIsIdentity(
+  finesse: MaskFinesseValues,
+  levels: readonly [number, number],
+): boolean {
+  return (
+    finesse.denoise === 0 &&
+    levels[0] === 0 &&
+    levels[1] === 1 &&
+    finesse.morphOpenPx === 0 &&
+    finesse.morphClosePx === 0 &&
+    finesse.shrinkGrowPx === 0 &&
+    finesse.blurPx === 0 &&
+    finesse.inOutRatio === 0
+  );
 }

@@ -263,17 +263,17 @@ Easing types (PRD §6.3): `linear`, `ease-in`, `ease-out`, `ease-in-out`, `hold`
 v21 `mask` effect type. Read them through `masksOf(owner)`; the field is optional and absent means
 no masks.
 
-| Field | Meaning |
-| --- | --- |
-| `id`, `name`, `color`, `enabled`, `locked` | Identity, overlay colour (never rendered), bypass, edit lock |
-| `target` | `{ kind: 'alpha' }` or `{ kind: 'effect', effectId }` (an effect on the same clip) |
-| `mode`, `opacity`, `invert` | `add`/`subtract`/`intersect`/`difference`/`lighten`/`darken` |
-| `expansionPx`, `featherInnerPx`, `featherOuterPx`, `falloff` | Edge controls, pixels |
-| `featherModel` | `distance`, or `gaussian-legacy` for masks migrated from v21 |
-| `space` | `source` (display-corrected source pixels, before crop) or `frame` (output pixels) |
-| `units` | Only `'normalized'`, on v21 masks whose media was never measured |
-| `keyframes` | `{ id, sourceTime, property, value, easing, handles? }`; `sourceTime` is ASSET source seconds |
-| `tracking` | `{ artifact: { key, sha256 }, method, referenceSourceTime, constraints, review }` |
+| Field                                                        | Meaning                                                                                       |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `id`, `name`, `color`, `enabled`, `locked`                   | Identity, overlay colour (never rendered), bypass, edit lock                                  |
+| `target`                                                     | `{ kind: 'alpha' }` or `{ kind: 'effect', effectId }` (an effect on the same clip)            |
+| `mode`, `opacity`, `invert`                                  | `add`/`subtract`/`intersect`/`difference`/`lighten`/`darken`                                  |
+| `expansionPx`, `featherInnerPx`, `featherOuterPx`, `falloff` | Edge controls, pixels                                                                         |
+| `featherModel`                                               | `distance`, or `gaussian-legacy` for masks migrated from v21                                  |
+| `space`                                                      | `source` (display-corrected source pixels, before crop) or `frame` (output pixels)            |
+| `units`                                                      | Only `'normalized'`, on v21 masks whose media was never measured                              |
+| `keyframes`                                                  | `{ id, sourceTime, property, value, easing, handles? }`; `sourceTime` is ASSET source seconds |
+| `tracking`                                                   | `{ artifact: { key, sha256 }, method, referenceSourceTime, constraints, review }`             |
 
 Kinds: `rectangle` (`cx, cy, width, height, rotation, roundness`), `ellipse` (`cx, cy, rx, ry,
 rotation`), `path` (`firstVertex`, `pathKeyframes[]` of `{ id, sourceTime, easing, points,
@@ -301,10 +301,10 @@ either form and decode to a number array on parse (`decodeFloat64Array` in TS,
 Source-space mask pixels are measured against the picture as players show it. `Asset.media`
 records the probe's **coded** `width`/`height` (v21) and, since v22, two optional fields:
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `pixelAspectRatio` | number > 0? | ffprobe `sample_aspect_ratio` as a float (like `fps`). Absent or `null` ≡ square. Only non-square ratios are recorded. |
-| `rotation` | `0 \| 90 \| 180 \| 270`? | Clockwise display rotation: the negated display-matrix `rotation`, else the legacy `rotate` tag. Absent or `null` ≡ 0. A non-quarter-turn matrix is ignored (logged), as ffmpeg's autorotate does. |
+| Field              | Type                     | Notes                                                                                                                                                                                              |
+| ------------------ | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pixelAspectRatio` | number > 0?              | ffprobe `sample_aspect_ratio` as a float (like `fps`). Absent or `null` ≡ square. Only non-square ratios are recorded.                                                                             |
+| `rotation`         | `0 \| 90 \| 180 \| 270`? | Clockwise display rotation: the negated display-matrix `rotation`, else the legacy `rotate` tag. Absent or `null` ≡ 0. A non-quarter-turn matrix is ignored (logged), as ffmpeg's autorotate does. |
 
 Display size = coded width × PAR, then width and height swap for 90/270. An anamorphic HDV clip
 (1440×1080, SAR 4:3) measures 1920×1080; a portrait phone clip coded 1920×1080 with a −90°
@@ -327,20 +327,20 @@ footage. No version bump: v22 was unreleased when the fields were added.
 rasteriser `render/mask_raster.py`. The TypeScript preview rasteriser (MK3) must match it byte for
 byte against `tests/fixtures/mask-raster`.
 
-| Rule | Behaviour |
-| --- | --- |
-| Geometry | Source pixels mapped through the clip's crop onto the decoded frame; expansion and feathers scale by the smaller axis scale |
-| `rotation` | Degrees, clockwise on screen, about the centre; quarter turns are exact |
-| `roundness` | Corner radius `roundness × min(width, height) / 2` |
-| Path keyframes | Every number `a + (b − a) × p`, `p` the earlier keyframe's eased progress (ADR 0089, incl. two-sided bezier handles); vertex `i` pairs with vertex `i` |
-| Hard edge | Zero expansion and feathers: exact area coverage |
-| Feather | `s` = signed distance to the edge (outside positive) − expansion; alpha `falloff((outer − s) / (inner + outer))`; with no feather but an expansion, a one-pixel linear edge |
-| `featherPx` | When present, the per-vertex OUTER feather, interpolated along each segment (replaces `featherOuterPx`) |
-| `falloff` | `linear` x · `smooth` 3x² − 2x³ · `gaussian` from the shipped 4096-entry table |
-| Layer | invert (`1 − a`), then × opacity |
-| `mode` | The stack starts at zero: `add` min(1, a + m) · `subtract` max(0, a − m) · `intersect` a × m · `difference` \|a − m\| · `lighten` max · `darken` min |
-| Quantisation | Once, after the stack: `round(a × 255)`, ties to even |
-| `target: effect` | That effect (today `color_grade`, `lut`) runs on the whole frame and is mixed with the input by the stack's alpha |
+| Rule              | Behaviour                                                                                                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Geometry          | Source pixels mapped through the clip's crop onto the decoded frame; expansion and feathers scale by the smaller axis scale                                                    |
+| `rotation`        | Degrees, clockwise on screen, about the centre; quarter turns are exact                                                                                                        |
+| `roundness`       | Corner radius `roundness × min(width, height) / 2`                                                                                                                             |
+| Path keyframes    | Every number `a + (b − a) × p`, `p` the earlier keyframe's eased progress (ADR 0089, incl. two-sided bezier handles); vertex `i` pairs with vertex `i`                         |
+| Hard edge         | Zero expansion and feathers: exact area coverage                                                                                                                               |
+| Feather           | `s` = signed distance to the edge (outside positive) − expansion; alpha `falloff((outer − s) / (inner + outer))`; with no feather but an expansion, a one-pixel linear edge    |
+| `featherPx`       | When present, the per-vertex OUTER feather, interpolated along each segment (replaces `featherOuterPx`)                                                                        |
+| `falloff`         | `linear` x · `smooth` 3x² − 2x³ · `gaussian` from the shipped 4096-entry table                                                                                                 |
+| Layer             | invert (`1 − a`), then × opacity                                                                                                                                               |
+| `mode`            | The stack starts at zero: `add` min(1, a + m) · `subtract` max(0, a − m) · `intersect` a × m · `difference` \|a − m\| · `lighten` max · `darken` min                           |
+| Quantisation      | Once, after the stack: `round(a × 255)`, ties to even                                                                                                                          |
+| `target: effect`  | That effect (today `color_grade`, `lut`) runs on the whole frame and is mixed with the input by the stack's alpha                                                              |
 | `gaussian-legacy` | The v21 blur, byte-identical for migrated masks; rotation, roundness, curves, expansion, inner or per-vertex feather refuse with "Switch the mask's feather model to Distance" |
 
 Refused before rendering, with "Disable the mask to export now": `key`, `linear`, `band`,
@@ -395,30 +395,37 @@ frame) is at or before `t`; picture and matte use this same rule. The frame plan
 
 **Per layer, in order** (source pixels of the artifact, then the clip's frame):
 
-| Step | Rule |
-| --- | --- |
-| Decontaminate | When `decontaminate`, before any effect or alpha: inside the band (`0 < alpha < max`) the picture's colour becomes `foreground.mkv`'s. Band weight and band-premultiplied colour are resampled and cropped separately: `out = picture + (colour − picture × weight)` |
-| Alpha | stored value / format maximum (255 or 65535) |
-| `edgeShiftPx` | Positive grows, negative shrinks: grey dilation/erosion of the stored integers by the disc `dx² + dy² ≤ r²` (edge pixels replicate) for `floor(|r|)` and `ceil(|r|)`, mixed `a + (b − a) × frac` |
-| `edgeMode` → finesse | `smooth` (default) changes nothing. `sharp` sets clean black 0.25 and clean white 0.75 when `finesse.cleanBlack`/`cleanWhite` are at their defaults (0/1); explicit finesse values win. Levels: `(a − black) / (white − black)` clamped (a threshold at `black` when `white ≤ black`). This compresses the soft band to its middle half around the 50 % edge, keeping the edge where the matte put it (Premiere's Object Mask "Sharp") |
-| `expansionPx`, feathers | All zero: the matte's own soft alpha. Otherwise the 50 % contour (`a ≥ 0.5`) is redrawn with the shape feather formula, `s` = (distance to the nearest pixel centre on the other side − ½, negative inside) − expansion |
-| To the frame | The picture's own path (BR2.7): resample to the size the source was decoded at (fit, decode cap or anamorphic stretch) with swscale's bicubic geometry (B = 0, C = 0.6; centre `(i + ½)·s − ½`, kernel stretched by `s` when shrinking, edges clamped, weights normalised tap by tap, horizontal then vertical, clamped to range), then MoviePy's integer crop of the clip's `crop` fractions. Same size: untouched. Deterministic and reproducible from this rule; not bit-identical to swscale's fixed-point filter |
-| Layer, mode | invert, opacity, combine mode and the stack's single quantisation, as for every kind |
+| Step                    | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Decontaminate           | When `decontaminate`, before any effect or alpha: inside the band (`0 < alpha < max`) the picture's colour becomes `foreground.mkv`'s. Band weight and band-premultiplied colour are resampled and cropped separately: `out = picture + (colour − picture × weight)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Alpha                   | stored value / format maximum (255 or 65535)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `edgeShiftPx`           | Positive grows, negative shrinks: grey dilation/erosion of the stored integers by the disc `dx² + dy² ≤ r²` (edge pixels replicate) for `floor(                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | r   | )`and`ceil( | r   | )`, mixed `a + (b − a) × frac` |
+| `edgeMode` → finesse    | `smooth` (default) changes nothing. `sharp` sets clean black 0.25 and clean white 0.75 when `finesse.cleanBlack`/`cleanWhite` are at their defaults (0/1); explicit finesse values win. Those two levels then enter the finesse chain below at their step, so `edgeMode` is a preset over the group rather than a second mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Finesse group (MK6.2)   | In order: **denoise** (blend toward the 3×3 box mean by the amount, edges replicating) → **clean black/white** (`(a − black) / (white − black)` clamped; a threshold at `black` when `white ≤ black`) → **morph open** (erode then dilate by the disc, deleting specks outside the subject) → **morph close** (dilate then erode, filling pinholes inside it) → **shrink/grow** (the whole edge out (+) or in (−) by the disc) → **blur** (three box passes of `round(radius / 3)`, each separable, summed centre-outward) → **in/out ratio** (two straight segments through a midpoint at `0.5 − ratio/2`, so 0 and 1 stay put and the 50 % crossing moves). Every radius takes a disc of `floor` and `ceil` mixed by the fraction, as `edgeShiftPx` does. Denoising after the levels would put back the haze they removed, and blurring before the morphology would smear the specks it deletes — the order is what makes each control do what its name says |
+| `expansionPx`, feathers | All zero: the matte's own soft alpha. Otherwise the 50 % contour (`a ≥ 0.5`) is redrawn with the shape feather formula, `s` = (distance to the nearest pixel centre on the other side − ½, negative inside) − expansion                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| To the frame            | The picture's own path (BR2.7): resample to the size the source was decoded at (fit, decode cap or anamorphic stretch) with swscale's bicubic geometry (B = 0, C = 0.6; centre `(i + ½)·s − ½`, kernel stretched by `s` when shrinking, edges clamped, weights normalised tap by tap, horizontal then vertical, clamped to range), then MoviePy's integer crop of the clip's `crop` fractions. Same size: untouched. Deterministic and reproducible from this rule; not bit-identical to swscale's fixed-point filter                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Layer, mode             | invert, opacity, combine mode and the stack's single quantisation, as for every kind                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
-Other `finesse` controls (denoise, open/close, shrink/grow, blur, in/out ratio) refuse until the
-finesse renderer ships (MK6.2); `gaussian-legacy` on a matte refuses.
+The same finesse group runs on a `key` mask's alpha, between its qualifier and the layer's
+invert/opacity. `gaussian-legacy` on a matte or a key refuses.
+
+On a matte both implementations run the group on the CPU and are float64-byte-exact
+(`tests/fixtures/mask-raster/finesse.json`). On a key the preview runs it as shader passes,
+because the key's alpha only exists on the GPU; a morphology radius above 16 px costs more
+fetches per pixel than one pass can carry, so the monitor refuses it with a remedy while the
+export renders any radius.
 
 **Refusals** (before rendering; the export error shows the remedy exactly; codes are stable):
 
-| Code | Clip state | Shown |
-| --- | --- | --- |
-| `matte_missing` | BROKEN | Background removal data is missing — run Remove background again. |
-| `matte_digest_mismatch` | BROKEN | Background removal data was changed outside FramePilot — run Remove background again. |
-| `matte_unreadable` | BROKEN | Background removal data is damaged — run Remove background again. |
-| `matte_unsupported_pixel_format` | BROKEN | Background removal data uses a format this version cannot read — update FramePilot or run Remove background again. |
-| `matte_size_mismatch` | STALE | Media changed since background removal ran — run Remove background again. |
-| `matte_out_of_coverage` | STALE | Background removal does not cover the clip's whole range — update the background removal for the new range. |
-| `matte_frame_misaligned` | STALE | Background removal frames do not line up with the media — run Remove background again. |
+| Code                             | Clip state | Shown                                                                                                              |
+| -------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| `matte_missing`                  | BROKEN     | Background removal data is missing — run Remove background again.                                                  |
+| `matte_digest_mismatch`          | BROKEN     | Background removal data was changed outside FramePilot — run Remove background again.                              |
+| `matte_unreadable`               | BROKEN     | Background removal data is damaged — run Remove background again.                                                  |
+| `matte_unsupported_pixel_format` | BROKEN     | Background removal data uses a format this version cannot read — update FramePilot or run Remove background again. |
+| `matte_size_mismatch`            | STALE      | Media changed since background removal ran — run Remove background again.                                          |
+| `matte_out_of_coverage`          | STALE      | Background removal does not cover the clip's whole range — update the background removal for the new range.        |
+| `matte_frame_misaligned`         | STALE      | Background removal frames do not line up with the media — run Remove background again.                             |
 
 Digests of `matte.mkv`, `frames.json` and (when decontaminating) `foreground.mkv` must equal the
 mask's `artifact.files[].sha256`. Coverage uses the validator's ±½ project frame.

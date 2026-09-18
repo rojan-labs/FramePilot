@@ -868,6 +868,80 @@ _FRAME_LAYER_CASES: list[dict[str, Any]] = [
 ]
 
 
+# --- The matte finesse group (MK6.2) -------------------------------------------------------
+
+#: Finesse settings covering every control, alone and in combination, including fractional radii
+#: (which mix two integer discs) and the clean levels an ``edgeMode`` supplies.
+_FINESSE_CASES: list[dict[str, Any]] = [
+    {"id": "identity", "finesse": {}, "levels": [0.0, 1.0]},
+    {"id": "denoise", "finesse": {"denoise": 0.65}, "levels": [0.0, 1.0]},
+    {"id": "clean-levels", "finesse": {}, "levels": [0.25, 0.75]},
+    {"id": "open", "finesse": {"morphOpenPx": 2.0}, "levels": [0.0, 1.0]},
+    {"id": "close", "finesse": {"morphClosePx": 2.0}, "levels": [0.0, 1.0]},
+    {"id": "open-fractional", "finesse": {"morphOpenPx": 1.4}, "levels": [0.0, 1.0]},
+    {"id": "grow", "finesse": {"shrinkGrowPx": 2.5}, "levels": [0.0, 1.0]},
+    {"id": "shrink", "finesse": {"shrinkGrowPx": -1.5}, "levels": [0.0, 1.0]},
+    {"id": "blur", "finesse": {"blurPx": 5.0}, "levels": [0.0, 1.0]},
+    {"id": "ratio-out", "finesse": {"blurPx": 4.0, "inOutRatio": 0.55}, "levels": [0.0, 1.0]},
+    {"id": "ratio-in", "finesse": {"blurPx": 4.0, "inOutRatio": -0.7}, "levels": [0.0, 1.0]},
+    {
+        "id": "everything",
+        "finesse": {
+            "denoise": 0.4,
+            "morphOpenPx": 1.0,
+            "morphClosePx": 2.0,
+            "shrinkGrowPx": -1.25,
+            "blurPx": 3.0,
+            "inOutRatio": 0.3,
+        },
+        "levels": [0.15, 0.85],
+    },
+]
+
+FINESSE_SIZE = (40, 28)
+
+
+def finesse_alpha() -> np.ndarray:
+    """A matte-shaped alpha: a soft disc, a pinhole inside it, a speck outside, and a ramp."""
+    width, height = FINESSE_SIZE
+    y, x = np.mgrid[0:height, 0:width].astype(np.float64)
+    disc = np.clip(9.0 - np.hypot(x - 14.0, y - 14.0), 0.0, 1.0)
+    ramp = np.clip((x - 28.0) / 10.0, 0.0, 1.0) * np.clip((y - 4.0) / 8.0, 0.0, 1.0)
+    alpha = np.maximum(disc, ramp)
+    alpha[14, 14] = 0.0
+    alpha[2, 3] = 1.0
+    alpha[3, 2] = 0.6
+    return alpha
+
+
+def _finesse_document() -> dict[str, Any]:
+    from framepilot_engine.render.matte_edges import apply_finesse, finesse_is_identity
+    from framepilot_engine.timeline.models import MaskFinesse
+
+    alpha = finesse_alpha()
+    width, height = FINESSE_SIZE
+    cases = []
+    for case in _FINESSE_CASES:
+        finesse = MaskFinesse.model_validate(case["finesse"])
+        levels = (float(case["levels"][0]), float(case["levels"][1]))
+        result = apply_finesse(alpha, finesse, levels)
+        cases.append(
+            {
+                **case,
+                "identity": finesse_is_identity(finesse, levels),
+                "digest": _digest(result),
+            }
+        )
+    return {
+        "area": "finesse",
+        "spec": "engine/python/tests/mask_stack_vectors.py; render/matte_edges.py apply_finesse",
+        "width": width,
+        "height": height,
+        "alpha": [float(value) for value in alpha.reshape(-1)],
+        "cases": cases,
+    }
+
+
 def _frame_layer_document() -> dict[str, Any]:
     cases = []
     for case in _FRAME_LAYER_CASES:
@@ -901,6 +975,7 @@ DOCUMENTS = {
     "stack-clips": _clip_document,
     "matte-clips": _matte_document,
     "frame-layers": _frame_layer_document,
+    "finesse": _finesse_document,
 }
 
 

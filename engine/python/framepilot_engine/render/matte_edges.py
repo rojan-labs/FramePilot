@@ -315,3 +315,167 @@ def decontaminate(
     base = picture.astype(np.float64)
     mixed = base + (colour - base * weight[:, :, None])
     return np.clip(np.rint(mixed), 0, 255).astype(np.uint8)
+
+
+# --- The matte finesse group (MK6.2) ------------------------------------------------------
+#
+# One clean-up chain, shared by every kind whose alpha is a RASTER rather than a shape: `matte`
+# (a delivered AI matte), `key` (a qualifier's output) and, when it ships, `layer`. A shape mask
+# needs none of it — its edge is exact by construction — which is why the group lives on those
+# kinds and not on `MaskLayerBase`.
+#
+# The order is the order a matte artist works in, and it is the order both twins evaluate:
+#
+#   1. denoise        soften isolated speckle before anything measures the edge;
+#   2. clean black    crush the near-transparent haze to nothing;
+#   3. clean white    lift the near-opaque haze to solid;
+#   4. morph open     erode then dilate: removes specks OUTSIDE the subject;
+#   5. morph close    dilate then erode: fills pinholes INSIDE it;
+#   6. shrink/grow    move the whole edge in or out;
+#   7. blur           soften what is left;
+#   8. in/out ratio   move the 50% crossing of that softened edge.
+#
+# Denoising after the levels would re-introduce the haze they removed, and blurring before the
+# morphology would smear the specks the morphology is there to delete — so the order is not a
+# preference, it is what makes each control do what its name says.
+
+#: Radius (px) beyond which the preview's key shader cannot run an op in one pass; the export
+#: has no such limit, so the monitor refuses rather than drawing a different edge (MK6.2).
+PREVIEW_MORPH_LIMIT_PX = 16.0
+
+
+def denoise(alpha: FloatArray, amount: float) -> FloatArray:
+    """Blend toward the 3x3 box mean by ``amount``; edges replicate, as morphology does.
+
+    A box of exactly 3 is deliberate: the control is for speckle, and a wider kernel would move
+    the edge, which is what shrink/grow and blur are for.
+    """
+    if amount <= 0.0:
+        return alpha
+    height, width = alpha.shape
+    left, right = _clamped_index(width, -1), _clamped_index(width, 1)
+    up, down = _clamped_index(height, -1), _clamped_index(height, 1)
+    rows = alpha[:, left] + alpha + alpha[:, right]
+    mean = (rows[up, :] + rows + rows[down, :]) / 9.0
+    return alpha + (mean - alpha) * min(float(amount), 1.0)
+
+
+def _morphology_at(alpha: FloatArray, radius: float, grow: bool) -> FloatArray:
+    """Dilate (``grow``) or erode by a disc of ``radius``, mixing the two integer radii."""
+    magnitude = abs(float(radius))
+    if magnitude <= 0.0:
+        return alpha
+    low = math.floor(magnitude)
+    high = math.ceil(magnitude)
+    scaled = alpha * 1.0
+    low_alpha: FloatArray = _disc_morphology(scaled, low, grow)
+    if high == low:
+        return low_alpha
+    high_alpha: FloatArray = _disc_morphology(scaled, high, grow)
+    mixed: FloatArray = low_alpha + (high_alpha - low_alpha) * (magnitude - float(low))
+    return mixed
+
+
+def morph_open(alpha: FloatArray, radius: float) -> FloatArray:
+    """Erode then dilate: deletes specks smaller than the disc, outside the subject."""
+    if radius <= 0.0:
+        return alpha
+    return _morphology_at(_morphology_at(alpha, radius, grow=False), radius, grow=True)
+
+
+def morph_close(alpha: FloatArray, radius: float) -> FloatArray:
+    """Dilate then erode: fills pinholes smaller than the disc, inside the subject."""
+    if radius <= 0.0:
+        return alpha
+    return _morphology_at(_morphology_at(alpha, radius, grow=True), radius, grow=False)
+
+
+def shrink_grow(alpha: FloatArray, pixels: float) -> FloatArray:
+    """Move the whole edge out (+) or in (-) by a disc of ``pixels``."""
+    if pixels == 0.0:
+        return alpha
+    return _morphology_at(alpha, abs(pixels), grow=pixels > 0.0)
+
+
+def _box_pass(alpha: FloatArray, radius: int) -> FloatArray:
+    """One separable box blur of integer ``radius``, edges replicating.
+
+    Summed left to right along each axis, which is the accumulation order a twin must repeat.
+    """
+    if radius <= 0:
+        return alpha
+    height, width = alpha.shape
+    horizontal = alpha.copy()
+    for offset in range(1, radius + 1):
+        horizontal = horizontal + alpha[:, _clamped_index(width, -offset)]
+        horizontal = horizontal + alpha[:, _clamped_index(width, offset)]
+    horizontal = horizontal / float(2 * radius + 1)
+    vertical = horizontal.copy()
+    for offset in range(1, radius + 1):
+        vertical = vertical + horizontal[_clamped_index(height, -offset), :]
+        vertical = vertical + horizontal[_clamped_index(height, offset), :]
+    result: FloatArray = vertical / float(2 * radius + 1)
+    return result
+
+
+def blur(alpha: FloatArray, radius: float) -> FloatArray:
+    """Three box passes, the standard cheap gaussian, as the effect passes approximate one.
+
+    An exact gaussian would need a table and a normalisation both sides had to agree on to the
+    last bit; three boxes of ``round(radius / 3)`` are integer-radius sums that agree by
+    construction, and at these radii the shapes are indistinguishable.
+    """
+    if radius <= 0.0:
+        return alpha
+    box = max(1, round(float(radius) / 3.0))
+    return _box_pass(_box_pass(_box_pass(alpha, box), box), box)
+
+
+def in_out_ratio(alpha: FloatArray, ratio: float) -> FloatArray:
+    """Move the 50% crossing of a soft edge out (+) or in (-), keeping 0 and 1 fixed.
+
+    Two straight segments through a moved midpoint, so a fully transparent pixel stays
+    transparent and a fully opaque one stays opaque: the control changes where the edge SITS,
+    never how far it reaches.
+    """
+    if ratio == 0.0:
+        return alpha
+    clamped = min(1.0, max(-1.0, float(ratio)))
+    mid = 0.5 - clamped * 0.5
+    if mid <= 0.0:
+        return np.where(alpha > 0.0, 1.0, 0.0)
+    if mid >= 1.0:
+        return np.where(alpha >= 1.0, 1.0, 0.0)
+    below = alpha * 0.5 / mid
+    above = 0.5 + (alpha - mid) * 0.5 / (1.0 - mid)
+    result: FloatArray = np.where(alpha <= mid, below, above)
+    return np.minimum(np.maximum(result, 0.0), 1.0)
+
+
+def apply_finesse(alpha: FloatArray, finesse: Any, levels: tuple[float, float]) -> FloatArray:
+    """The whole group in order, on an alpha already in ``[0, 1]``.
+
+    :param finesse: The mask's ``MaskFinesse``.
+    :param levels: The effective ``(clean black, clean white)`` — a matte's ``edgeMode`` can
+        supply them, so the caller resolves them rather than reading the group twice.
+    """
+    result = denoise(alpha, float(finesse.denoise))
+    result = apply_clean_levels(result, levels[0], levels[1])
+    result = morph_open(result, float(finesse.morph_open_px))
+    result = morph_close(result, float(finesse.morph_close_px))
+    result = shrink_grow(result, float(finesse.shrink_grow_px))
+    result = blur(result, float(finesse.blur_px))
+    return in_out_ratio(result, float(finesse.in_out_ratio))
+
+
+def finesse_is_identity(finesse: Any, levels: tuple[float, float]) -> bool:
+    """Whether the group changes nothing, so a caller can skip the whole chain."""
+    return (
+        float(finesse.denoise) == 0.0
+        and levels == (0.0, 1.0)
+        and float(finesse.morph_open_px) == 0.0
+        and float(finesse.morph_close_px) == 0.0
+        and float(finesse.shrink_grow_px) == 0.0
+        and float(finesse.blur_px) == 0.0
+        and float(finesse.in_out_ratio) == 0.0
+    )

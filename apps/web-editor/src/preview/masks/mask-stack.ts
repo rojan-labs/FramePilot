@@ -66,6 +66,7 @@ import {
 import { TRACK_REMEDIES } from './track-source.js';
 import { previewIdentity } from '../semantic-signature.js';
 import { cleanLevels, matteFrameAlpha, type MatteFrameData } from './matte-edges.js';
+import { keyExceedsPass, keyMorphExceedsPass } from './key-mask.js';
 
 const log = createLogger('web-editor:preview:mask-stack');
 
@@ -222,6 +223,9 @@ function refusalFor(
     const matte = matteRefusal(clip, mask);
     if (matte !== null) return matte;
   }
+  if (mask.kind === 'key' && keyRefusal(mask) !== null) {
+    return refusal(clip, mask, null, keyRefusal(mask)!);
+  }
   const shape = mask as ShapeMask;
   if (isLegacy(mask) && mask.tracking !== undefined) {
     return refusal(
@@ -258,33 +262,25 @@ function refusalFor(
   return null;
 }
 
-/** Finesse controls the matte renderer draws (`_DRAWN_FINESSE`). */
-const DRAWN_FINESSE = new Set(['cleanBlack', 'cleanWhite']);
-const DEFAULT_FINESSE: Readonly<Record<string, number>> = {
-  denoise: 0,
-  morphOpenPx: 0,
-  morphClosePx: 0,
-  shrinkGrowPx: 0,
-  blurPx: 0,
-  inOutRatio: 0,
-  cleanBlack: 0,
-  cleanWhite: 1,
-};
-
-/** `_assert_matte_drawable`: edge shift, clean levels, expansion and distance feather only. */
-function matteRefusal(clip: Clip, mask: MatteMask): MaskPreviewRefusal | null {
-  const finesse = mask.finesse as unknown as Record<string, number>;
-  const undrawn = Object.keys(DEFAULT_FINESSE).some(
-    (name) => !DRAWN_FINESSE.has(name) && finesse[name] !== DEFAULT_FINESSE[name],
-  );
-  if (undrawn) {
-    return refusal(
-      clip,
-      mask,
-      'MK6',
-      'Mask not previewed yet: matte finesse other than clean black and clean white previews once the matte finesse renderer ships.',
-    );
+/**
+ * What the monitor cannot do to a key that the export can (MK6.2).
+ *
+ * The key's alpha only exists on the GPU, so its finesse runs as shader passes, and a disc of
+ * radius r costs (2r+1)² fetches — bounded, or the shader would not compile. 16 px is far past
+ * any real matte edge. Saying so is better than drawing a smaller disc than the export renders.
+ */
+function keyRefusal(mask: KeyMask): string | null {
+  if (keyMorphExceedsPass(mask)) {
+    return 'The monitor cannot preview a matte morphology this wide. Reduce open, close or shrink/grow to 16 px or less.';
   }
+  if (keyExceedsPass(mask)) {
+    return 'The monitor cannot preview a key with this many ranges or sampled colours. Remove some of them.';
+  }
+  return null;
+}
+
+/** `_assert_matte_drawable`: edge shift, the whole finesse group, expansion and feather. */
+function matteRefusal(clip: Clip, mask: MatteMask): MaskPreviewRefusal | null {
   if (isLegacy(mask)) {
     return refusal(
       clip,
@@ -458,6 +454,7 @@ function matteAlpha(
   const alpha = matteFrameAlpha(
     frame,
     cleanLevels(mask),
+    mask.finesse,
     maskScalar(mask, 'edgeShiftPx', s),
     {
       expansion: maskScalar(mask, 'expansionPx', s),

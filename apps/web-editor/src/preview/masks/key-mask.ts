@@ -224,10 +224,6 @@ uniform int u_sampleCount;
 uniform vec4 u_samples[${String(MAX_KEY_SAMPLES)}];
 uniform float u_tolerance;
 uniform float u_shadow;
-uniform float u_cleanBlack;
-uniform float u_cleanWhite;
-uniform float u_invert;
-uniform float u_opacity;
 out vec4 o_color;
 
 float sm(float x) { return x * x * (3.0 - 2.0 * x); }
@@ -269,13 +265,6 @@ float membership(float value, float low, float high, float softness, bool circul
   return sm(clamp(1.0 - distance / softness, 0.0, 1.0));
 }
 
-// apply_clean_levels()
-float cleanLevels(float alpha) {
-  if (u_cleanBlack == 0.0 && u_cleanWhite == 1.0) return alpha;
-  if (u_cleanWhite <= u_cleanBlack) return alpha >= u_cleanBlack ? 1.0 : 0.0;
-  return clamp((alpha - u_cleanBlack) / (u_cleanWhite - u_cleanBlack), 0.0, 1.0);
-}
-
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec3 rgb = texelFetch(u_picture, p, 0).rgb;
@@ -308,10 +297,9 @@ void main() {
   }
   // apply_shadow_retention(): dark pixels come back out of the key.
   if (u_shadow > 0.0) matched *= sm(clamp(lum / u_shadow, 0.0, 1.0));
-  matched = cleanLevels(clamp(matched, 0.0, 1.0));
-  // layer_alpha(): invert, then opacity.
-  float alpha = (u_invert == 1.0 ? 1.0 - matched : matched) * u_opacity;
-  o_color = vec4(alpha, 0.0, 0.0, 1.0);
+  // The qualifier stops here. The finesse group cleans this alpha up and layer_alpha inverts
+  // and scales it, in that order, exactly as key_mask_alpha chains them.
+  o_color = vec4(clamp(matched, 0.0, 1.0), 0.0, 0.0, 1.0);
 }`;
 
 /** The despill limiter, applied to the picture where the engine's `despill` applies it. */
@@ -329,3 +317,172 @@ void main() {
   else if (u_colour == 2) rgb.b = min(rgb.b, (rgb.r + rgb.g) * 0.5);
   o_color = vec4(floor(rgb * 255.0 + 0.5) / 255.0, texel.a);
 }`;
+
+// --- The matte finesse group on the GPU (MK6.2) ------------------------------------------------
+//
+// The same chain `apply_finesse` runs in numpy, as passes over the key's float alpha:
+//
+//   denoise → clean black/white → morph open → morph close → shrink/grow → blur → in/out ratio
+//
+// A matte's finesse runs on the CPU in both implementations and is byte-exact; a key's cannot,
+// because its alpha only exists on the GPU. These passes are written to evaluate each formula in
+// the same order as the numpy one, so the residual is float32 rounding — inside the 1/255 the
+// plan's key gate allows.
+
+/**
+ * How large a morphology radius one pass carries.
+ *
+ * A disc of radius r costs (2r+1)² fetches per pixel, so the loop has to be bounded for a
+ * shader to compile at all. 16 px is far past any real matte edge; above it the monitor
+ * refuses with a remedy rather than drawing a smaller disc than the export renders.
+ */
+export const MAX_KEY_MORPH_PX = 16;
+
+/** `denoise`: blend toward the 3x3 box mean; edges replicate. */
+export const MASK_DENOISE_FRAGMENT = `#version 300 es
+precision highp float;
+uniform sampler2D u_alpha;
+uniform float u_amount;
+out vec4 o_color;
+float at(ivec2 size, int x, int y) {
+  return texelFetch(u_alpha, ivec2(clamp(x, 0, size.x - 1), clamp(y, 0, size.y - 1)), 0).r;
+}
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  ivec2 size = textureSize(u_alpha, 0);
+  float rows = 0.0;
+  for (int dy = -1; dy <= 1; dy++) {
+    rows += at(size, p.x - 1, p.y + dy) + at(size, p.x, p.y + dy) + at(size, p.x + 1, p.y + dy);
+  }
+  float value = at(size, p.x, p.y);
+  o_color = vec4(value + (rows / 9.0 - value) * u_amount, 0.0, 0.0, 1.0);
+}`;
+
+/**
+ * `_disc_morphology` at one integer radius, and the mix of two (`_morphology_at`): the pass is
+ * run once per integer radius and the caller mixes, so a fractional radius costs two passes
+ * rather than a branch per pixel.
+ */
+export const MASK_MORPH_FRAGMENT = `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D u_alpha;
+uniform int u_radius;
+/** 1 dilates (max), 0 erodes (min). */
+uniform int u_grow;
+out vec4 o_color;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  ivec2 size = textureSize(u_alpha, 0);
+  float best = texelFetch(u_alpha, p, 0).r;
+  for (int dy = -${String(MAX_KEY_MORPH_PX)}; dy <= ${String(MAX_KEY_MORPH_PX)}; dy++) {
+    if (dy < -u_radius || dy > u_radius) continue;
+    for (int dx = -${String(MAX_KEY_MORPH_PX)}; dx <= ${String(MAX_KEY_MORPH_PX)}; dx++) {
+      if (dx < -u_radius || dx > u_radius) continue;
+      if (dx * dx + dy * dy > u_radius * u_radius) continue;
+      ivec2 q = ivec2(clamp(p.x + dx, 0, size.x - 1), clamp(p.y + dy, 0, size.y - 1));
+      float value = texelFetch(u_alpha, q, 0).r;
+      best = u_grow == 1 ? max(best, value) : min(best, value);
+    }
+  }
+  o_color = vec4(best, 0.0, 0.0, 1.0);
+}`;
+
+/** `a + (b - a) * fraction` per pixel: the mix between two integer morphology radii. */
+export const MASK_MIX_ALPHA_FRAGMENT = `#version 300 es
+precision highp float;
+uniform sampler2D u_low;
+uniform sampler2D u_high;
+uniform float u_fraction;
+out vec4 o_color;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float low = texelFetch(u_low, p, 0).r;
+  float high = texelFetch(u_high, p, 0).r;
+  o_color = vec4(low + (high - low) * u_fraction, 0.0, 0.0, 1.0);
+}`;
+
+/** `_box_pass` along one axis, summed centre-outward as the numpy accumulation is. */
+export const MASK_BOX_FRAGMENT = `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D u_alpha;
+uniform int u_radius;
+/** 0 horizontal, 1 vertical. */
+uniform int u_axis;
+out vec4 o_color;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  ivec2 size = textureSize(u_alpha, 0);
+  float total = texelFetch(u_alpha, p, 0).r;
+  for (int offset = 1; offset <= 64; offset++) {
+    if (offset > u_radius) break;
+    ivec2 back = u_axis == 0 ? ivec2(p.x - offset, p.y) : ivec2(p.x, p.y - offset);
+    ivec2 fore = u_axis == 0 ? ivec2(p.x + offset, p.y) : ivec2(p.x, p.y + offset);
+    back = ivec2(clamp(back.x, 0, size.x - 1), clamp(back.y, 0, size.y - 1));
+    fore = ivec2(clamp(fore.x, 0, size.x - 1), clamp(fore.y, 0, size.y - 1));
+    total += texelFetch(u_alpha, back, 0).r;
+    total += texelFetch(u_alpha, fore, 0).r;
+  }
+  o_color = vec4(total / float(2 * u_radius + 1), 0.0, 0.0, 1.0);
+}`;
+
+/**
+ * The pointwise tail: `apply_clean_levels`, `in_out_ratio` and `layer_alpha`.
+ *
+ * They are one pass because each is a handful of arithmetic ops, and splitting them would cost
+ * two more full-frame targets for nothing.
+ */
+export const MASK_LEVELS_FRAGMENT = `#version 300 es
+precision highp float;
+uniform sampler2D u_alpha;
+uniform float u_cleanBlack;
+uniform float u_cleanWhite;
+uniform float u_ratio;
+uniform float u_invert;
+uniform float u_opacity;
+/** 1 applies the clean levels here (they run before the morphology, so usually 0). */
+uniform int u_levels;
+out vec4 o_color;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float alpha = texelFetch(u_alpha, p, 0).r;
+  if (u_levels == 1) {
+    if (u_cleanWhite <= u_cleanBlack) alpha = alpha >= u_cleanBlack ? 1.0 : 0.0;
+    else if (u_cleanBlack != 0.0 || u_cleanWhite != 1.0) {
+      alpha = clamp((alpha - u_cleanBlack) / (u_cleanWhite - u_cleanBlack), 0.0, 1.0);
+    }
+  }
+  if (u_ratio != 0.0) {
+    float mid = 0.5 - clamp(u_ratio, -1.0, 1.0) * 0.5;
+    if (mid <= 0.0) alpha = alpha > 0.0 ? 1.0 : 0.0;
+    else if (mid >= 1.0) alpha = alpha >= 1.0 ? 1.0 : 0.0;
+    else {
+      float mapped = alpha <= mid ? alpha * 0.5 / mid : 0.5 + (alpha - mid) * 0.5 / (1.0 - mid);
+      alpha = clamp(mapped, 0.0, 1.0);
+    }
+  }
+  o_color = vec4((u_invert == 1.0 ? 1.0 - alpha : alpha) * u_opacity, 0.0, 0.0, 1.0);
+}`;
+
+/** A key's finesse group, read at the instant, as the compositor's passes need it. */
+export interface KeyFinesse {
+  readonly denoise: number;
+  readonly cleanBlack: number;
+  readonly cleanWhite: number;
+  readonly morphOpenPx: number;
+  readonly morphClosePx: number;
+  readonly shrinkGrowPx: number;
+  readonly blurPx: number;
+  readonly inOutRatio: number;
+}
+
+/** Whether a key's finesse asks for a morphology radius no single pass can carry. */
+export function keyMorphExceedsPass(mask: KeyMask): boolean {
+  const { morphOpenPx, morphClosePx, shrinkGrowPx } = mask.finesse;
+  return (
+    morphOpenPx > MAX_KEY_MORPH_PX ||
+    morphClosePx > MAX_KEY_MORPH_PX ||
+    Math.abs(shrinkGrowPx) > MAX_KEY_MORPH_PX
+  );
+}

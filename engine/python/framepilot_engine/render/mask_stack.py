@@ -61,7 +61,7 @@ from framepilot_engine.render.masks import (
     rasterize_mask,
 )
 from framepilot_engine.render.matte_edges import (
-    apply_clean_levels,
+    apply_finesse,
     clean_levels,
     distance_feather,
     edge_shift,
@@ -375,7 +375,10 @@ def matte_alpha(
     contour), then the clip's crop and frame size, then the base invert and opacity.
     """
     alpha = edge_shift(frame.alpha, frame.maximum, _scalar(mask, "edgeShiftPx", source_time))
-    alpha = apply_clean_levels(alpha, *clean_levels(mask))
+    # The finesse group (MK6.2) sits between the artifact's own edge shift and the mask's base
+    # expansion/feather: the shift says where the delivered edge belongs, finesse cleans that
+    # edge up, and the base controls are the shape rules every kind shares.
+    alpha = apply_finesse(alpha, mask.finesse, clean_levels(mask))
     alpha = distance_feather(
         alpha,
         expansion=_scalar(mask, "expansionPx", source_time),
@@ -394,12 +397,14 @@ def key_mask_alpha(mask: Any, picture: Any, source_time: float) -> FloatArray:
     """One ``key`` layer's alpha (after clean levels, invert and opacity) on ``picture`` (MK6.1).
 
     The qualifier reads the picture the clip composites at this instant, so the key follows the
-    footage without a keyframe; the mask's own scalars (opacity, and the clean levels of its
-    finesse group) are read on the source clock like every other kind.
+    footage without a keyframe; the matte finesse group then cleans the edge it produced, and
+    the mask's own scalars (opacity) are read on the source clock like every other kind.
     """
     matched = key_alpha(mask, picture)
-    matched = apply_clean_levels(
-        matched, float(mask.finesse.clean_black), float(mask.finesse.clean_white)
+    matched = apply_finesse(
+        matched,
+        mask.finesse,
+        (float(mask.finesse.clean_black), float(mask.finesse.clean_white)),
     )
     return layer_alpha(
         matched, invert=bool(mask.invert), opacity=_scalar(mask, "opacity", source_time)
@@ -552,26 +557,8 @@ def assert_renderable(mask: Any, clip: Any, effect_ids: frozenset[str]) -> None:
         path_keyframe_at(mask, mask.path_keyframes[0].source_time if mask.path_keyframes else 0.0)
 
 
-#: Finesse controls the matte renderer draws; the rest land with the finesse group (MK6.2).
-_DRAWN_FINESSE = frozenset({"clean_black", "clean_white"})
-
-
 def _assert_matte_drawable(mask: Any, clip_id: str) -> None:
-    """A matte draws edge shift, clean levels, expansion and distance feather; nothing else."""
-    finesse = mask.finesse
-    defaults = type(finesse)()
-    undrawn = [
-        name
-        for name in type(finesse).model_fields
-        if name not in _DRAWN_FINESSE and getattr(finesse, name) != getattr(defaults, name)
-    ]
-    if undrawn:
-        raise _refuse(
-            mask,
-            clip_id,
-            "matte finesse other than clean black and clean white renders once the matte "
-            "finesse renderer ships",
-        )
+    """A matte draws edge shift, the whole finesse group (MK6.2), expansion and feather."""
     if _is_legacy(mask):
         raise MaskStackRefusal(
             f"Mask {mask.id!r} on clip {clip_id!r} uses the legacy blur feather, which only "
@@ -580,21 +567,7 @@ def _assert_matte_drawable(mask: Any, clip_id: str) -> None:
 
 
 def _assert_key_drawable(mask: Any, clip_id: str) -> None:
-    """A key draws its qualifier, despill and clean levels; the rest of finesse lands in MK6.2."""
-    finesse = mask.finesse
-    defaults = type(finesse)()
-    undrawn = [
-        name
-        for name in type(finesse).model_fields
-        if name not in _DRAWN_FINESSE and getattr(finesse, name) != getattr(defaults, name)
-    ]
-    if undrawn:
-        raise _refuse(
-            mask,
-            clip_id,
-            "key finesse other than clean black and clean white renders once the matte finesse "
-            "renderer ships",
-        )
+    """A key draws its qualifier, the finesse group and despill; only the legacy feather is out."""
     if _is_legacy(mask):
         raise MaskStackRefusal(
             f"Mask {mask.id!r} on clip {clip_id!r} uses the legacy blur feather, which only "

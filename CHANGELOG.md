@@ -22,6 +22,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   texture the tracker should follow (T) and drag out a region it must ignore (X) — a hand passing
   in front, a reflection — before the track runs.
 
+- **Clean up a matte's edge.** Mattes and colour keys share one clean-up group: denoise the
+  speckle, crush the near-transparent haze and lift the near-opaque, delete specks outside the
+  subject and fill pinholes inside it, move the whole edge in or out, soften it, then slide the
+  softened edge back where you want it. "Sharp" edge mode is now a preset over the same group
+  rather than a separate switch, so the two never disagree.
+
 - **Key out a colour.** A new mask kind qualifies the picture itself: pull a green or blue
   screen, or isolate a hue for a secondary grade, with hue/saturation/luma, RGB, luma or sampled
   colours. Click the eyedropper and pick the backing off the monitor (Shift adds a second colour

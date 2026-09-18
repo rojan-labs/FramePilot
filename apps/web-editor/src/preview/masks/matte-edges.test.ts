@@ -8,7 +8,13 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ClipSchema } from '@framepilot/timeline-schema';
 
-import { decontaminate, type MatteFrameData } from './matte-edges';
+import {
+  applyFinesse,
+  decontaminate,
+  finesseIsIdentity,
+  type MaskFinesseValues,
+  type MatteFrameData,
+} from './matte-edges';
 import {
   clipMaskStack,
   stackAlphaAt,
@@ -153,11 +159,72 @@ describe('matte layer vectors (float64-exact vs the export)', () => {
     expect(stackAlphaAt(alone, { kind: 'alpha' }, 34, 20, 0, processing)).toBeNull();
   });
 
-  it('refuses matte finesse the export cannot draw', () => {
+  it('draws matte finesse rather than refusing it (MK6.2)', () => {
     const vector = document.cases[0]!;
     const raw = structuredClone(vector.clip) as { masks: Record<string, unknown>[] };
     raw.masks[0]!.finesse = { blurPx: 2 };
     const stack = clipMaskStack(ClipSchema.parse(raw), vector.media)!;
-    expect(stack.refusal?.task).toBe('MK6');
+    expect(stack.refusal).toBeNull();
+  });
+});
+
+// --- The finesse group (MK6.2) ----------------------------------------------------------------
+
+describe('matte finesse vs the export', () => {
+  interface FinesseCase {
+    id: string;
+    finesse: Partial<MaskFinesseValues>;
+    levels: [number, number];
+    identity: boolean;
+    digest: string;
+  }
+  const document = JSON.parse(
+    readFileSync(path.join(REPO, 'tests', 'fixtures', 'mask-raster', 'finesse.json'), 'utf8'),
+  ) as { width: number; height: number; alpha: number[]; cases: FinesseCase[] };
+
+  const DEFAULTS: MaskFinesseValues = {
+    denoise: 0,
+    morphOpenPx: 0,
+    morphClosePx: 0,
+    shrinkGrowPx: 0,
+    blurPx: 0,
+    inOutRatio: 0,
+    cleanBlack: 0,
+    cleanWhite: 1,
+  };
+
+  it('reproduces every case float64-byte-exactly', () => {
+    const source = Float64Array.from(document.alpha);
+    for (const vectorCase of document.cases) {
+      const finesse = { ...DEFAULTS, ...vectorCase.finesse };
+      const result = applyFinesse(
+        source,
+        document.width,
+        document.height,
+        finesse,
+        vectorCase.levels,
+      );
+      expect(digest(result), vectorCase.id).toBe(vectorCase.digest);
+      expect(finesseIsIdentity(finesse, vectorCase.levels), vectorCase.id).toBe(
+        vectorCase.identity,
+      );
+    }
+    expect(document.cases.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it('covers every control of the group', () => {
+    const touched = new Set(document.cases.flatMap((entry) => Object.keys(entry.finesse)));
+    expect([...touched].sort()).toEqual([
+      'blurPx',
+      'denoise',
+      'inOutRatio',
+      'morphClosePx',
+      'morphOpenPx',
+      'shrinkGrowPx',
+    ]);
+    // Clean levels ride on `levels`, which an `edgeMode` can supply instead of the group.
+    expect(document.cases.some((entry) => entry.levels[0] !== 0 || entry.levels[1] !== 1)).toBe(
+      true,
+    );
   });
 });
