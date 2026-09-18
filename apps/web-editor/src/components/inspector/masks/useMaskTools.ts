@@ -21,8 +21,21 @@ import type { MaskTarget } from '@framepilot/timeline-schema';
  * measurement — texture the tracker should follow, and regions it must ignore — rather than
  * editing the mask, so they never change the project.
  */
+/**
+ * `ai-object` and `ai-brush` are SUBJECT tools (BR6.3): they say which subject the next background
+ * removal should keep — a click, or a stroke across it — and, like the tracking hints, they change
+ * nothing in the project until a run produces an artifact.
+ */
 export type MaskTool =
-  'select' | 'rectangle' | 'ellipse' | 'pen' | 'freehand' | 'feature-point' | 'exclude';
+  | 'select'
+  | 'rectangle'
+  | 'ellipse'
+  | 'pen'
+  | 'freehand'
+  | 'feature-point'
+  | 'exclude'
+  | 'ai-object'
+  | 'ai-brush';
 
 /** Monitor zoom while masking: fit, or screen pixels per source pixel in percent. */
 export type MaskZoom = 'fit' | '100' | '200' | '400' | '800';
@@ -191,10 +204,14 @@ export class MaskToolStore {
   }
 
   /**
-   * Add an AI Object click, or remove the one already there (BR6.3).
+   * Add an AI Object pick, flip the one already there, or take it back (BR6.3).
    *
-   * Toggling rather than only adding, for the same reason as a feature point: clicking the wrong
-   * thing is the common mistake, and taking it back must not clear the others.
+   * Three outcomes rather than two, because "keep this" and "not this" land in the same place and
+   * an editor correcting themselves means the second one. Clicking the same spot with the SAME
+   * meaning removes the pick; clicking it with the OTHER meaning flips it; anywhere else adds one.
+   *
+   * @param point - The pick, in fractions of the picture, at a source instant.
+   * @param within - How close counts as the same spot, as a fraction of the picture.
    */
   public toggleSubjectPoint(point: SubjectPoint, within = 0.02): void {
     const nearest = this.state.subjectPoints.findIndex(
@@ -203,11 +220,18 @@ export class MaskToolStore {
         Math.abs(candidate.y - point.y) <= within &&
         Math.abs(candidate.sourceTime - point.sourceTime) <= 1e-3,
     );
+    if (nearest < 0) {
+      this.update({ subjectPoints: [...this.state.subjectPoints, point] });
+      return;
+    }
+    const existing = this.state.subjectPoints[nearest]!;
     this.update({
       subjectPoints:
-        nearest >= 0
+        existing.label === point.label
           ? this.state.subjectPoints.filter((_value, index) => index !== nearest)
-          : [...this.state.subjectPoints, point],
+          : this.state.subjectPoints.map((candidate, index) =>
+              index === nearest ? point : candidate,
+            ),
     });
   }
 

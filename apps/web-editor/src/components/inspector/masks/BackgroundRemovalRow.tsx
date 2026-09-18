@@ -83,6 +83,9 @@ export function BackgroundRemovalRow({
   const tools = useMaskTools(store);
   const { job, start } = useClipMatteJob(clip.id, jobs);
   const [subject, setSubject] = useState<SubjectMode>('auto');
+  // RD0 parity control (Premiere Object Mask): the delivered matte is the precise one either way;
+  // this is which edge treatment the mask carries.
+  const [edgeMode, setEdgeMode] = useState<'sharp' | 'smooth'>('smooth');
   const [message, setMessage] = useState<string | null>(null);
 
   const copy = packToolCopy(status, {
@@ -121,6 +124,7 @@ export function BackgroundRemovalRow({
       sourceStart: coverage.sourceStart,
       sourceEnd: coverage.sourceEnd,
       prompts: subject === 'auto' ? [] : subjectPrompts(tools.subjectPoints),
+      edgeMode,
       timelineRevision: editor.state.timeline.revision ?? 0,
     }).then((refusal) => setMessage(refusal));
   };
@@ -154,6 +158,34 @@ export function BackgroundRemovalRow({
                 onChange={() => setSubject('pick')}
               />
               Click to pick
+            </label>
+          </fieldset>
+          {subject === 'pick' && (
+            <p className="inspector-empty">
+              {tools.subjectPoints.length === 0
+                ? 'Pick AI Object on the monitor, then click the subject.'
+                : `${String(tools.subjectPoints.length)} point(s) picked.`}
+            </p>
+          )}
+          <fieldset className="background-removal-subject">
+            <legend>Edges</legend>
+            <label>
+              <input
+                type="radio"
+                name={`edges-${clip.id}`}
+                checked={edgeMode === 'smooth'}
+                onChange={() => setEdgeMode('smooth')}
+              />
+              Smooth (hair and soft edges)
+            </label>
+            <label>
+              <input
+                type="radio"
+                name={`edges-${clip.id}`}
+                checked={edgeMode === 'sharp'}
+                onChange={() => setEdgeMode('sharp')}
+              />
+              Sharp (hard edges)
             </label>
           </fieldset>
           <p className="inspector-empty">

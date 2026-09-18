@@ -1228,6 +1228,21 @@ input[type='checkbox']:focus-visible {
   stroke: #fff;
   stroke-width: 1px;
 }
+/* Subject picks (BR6.3). Include and exclude differ by the SIGN drawn inside, not only by
+   colour, so the two read apart without relying on hue. */
+.mask-canvas-subject-point {
+  fill: rgba(59, 130, 246, 0.35);
+  stroke: #fff;
+  stroke-width: 1.5px;
+}
+.mask-canvas-subject-point[data-label='exclude'] {
+  fill: rgba(220, 38, 38, 0.35);
+}
+.mask-canvas-subject-sign {
+  stroke: #fff;
+  stroke-width: 1.5px;
+  fill: none;
+}
 .mask-canvas-exclusion {
   fill: rgba(220, 38, 38, 0.14);
   stroke: rgb(220, 38, 38);
@@ -1301,6 +1316,22 @@ input[type='checkbox']:focus-visible {
   color: var(--text-secondary);
   font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
+}
+/* The one-line "how to pick" hint under the monitor while an AI subject tool is active. */
+.mask-canvas-hint {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--space-2) + 28px);
+  z-index: 5;
+  transform: translateX(-50%);
+  max-width: calc(100% - 2 * var(--space-2));
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
 }
 .mask-canvas-message {
   position: absolute;

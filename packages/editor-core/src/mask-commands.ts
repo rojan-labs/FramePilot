@@ -455,6 +455,8 @@ export interface AddMatteMaskCommand extends MaskCommandBase {
   readonly artifact: MatteArtifactRef;
   readonly prompts?: readonly MattePromptRefInput[];
   readonly review?: MaskReviewInput;
+  /** Edge quality the editor chose before running (RD0's Sharp/Smooth parity control). */
+  readonly edgeMode?: 'sharp' | 'smooth';
   readonly name?: string;
   /** Replace this matte's artifact instead of adding a mask (a re-run after a fix). */
   readonly maskId?: string;
@@ -1089,6 +1091,7 @@ function buildAddMatte(input: CompileMaskCommandInput, command: AddMatteMaskComm
           changes: {
             artifact: command.artifact,
             ...(command.prompts === undefined ? {} : { prompts: command.prompts }),
+            ...(command.edgeMode === undefined ? {} : { edgeMode: command.edgeMode }),
             review,
           },
         },
@@ -1104,6 +1107,7 @@ function buildAddMatte(input: CompileMaskCommandInput, command: AddMatteMaskComm
     kind: 'matte',
     artifact: command.artifact,
     prompts: command.prompts ?? [],
+    ...(command.edgeMode === undefined ? {} : { edgeMode: command.edgeMode }),
     review,
   } as MaskLayerInput;
   return {

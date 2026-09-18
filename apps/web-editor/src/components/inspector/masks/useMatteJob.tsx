@@ -95,6 +95,7 @@ export function useMatteJobCommits(editor: UseEditor, store: MatteJobStore = mat
           ...(outcome.maskId === null ? {} : { maskId: outcome.maskId }),
           artifact: outcome.artifact,
           prompts: outcome.prompts,
+          ...(outcome.edgeMode === null ? {} : { edgeMode: outcome.edgeMode }),
           review: {
             flagged: outcome.needsReview.map((range) => ({ start: range.start, end: range.end })),
             approved: [],

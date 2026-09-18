@@ -66,6 +66,7 @@ export interface MatteJobState {
   readonly etaSeconds: number | null;
   readonly startedAt: number;
   readonly cancelling: boolean;
+  readonly edgeMode: 'sharp' | 'smooth' | null;
 }
 
 /** What a finished run left for the committer. Exactly one per finished job. */
@@ -83,6 +84,7 @@ export type MatteOutcome =
       }[];
       readonly verifiedFrames: number;
       readonly cacheHit: boolean;
+      readonly edgeMode: 'sharp' | 'smooth' | null;
     }
   | { readonly kind: 'cancelled'; readonly clipId: string }
   | { readonly kind: 'needs_prompt'; readonly clipId: string }
@@ -132,6 +134,13 @@ function newRequestId(): string {
 
 export type MatteStartIntent = Omit<MatteRunIntentWire, 'requestId'> & {
   readonly maskId?: string | null;
+  /**
+   * Edge quality the editor chose before running (RD0's Sharp/Smooth control).
+   *
+   * Carried with the JOB rather than sent on the wire: it is a look on the delivered matte, not an
+   * instruction to the pack, and it must land on the mask the run creates.
+   */
+  readonly edgeMode?: 'sharp' | 'smooth';
 };
 
 export class MatteJobStore {
@@ -211,7 +220,7 @@ export class MatteJobStore {
     const clipId = intent.clipId ?? intent.assetId;
     if (this.state.jobs[clipId] !== undefined) return 'This clip is already being processed.';
     const requestId = newRequestId();
-    const { maskId, ...wire } = intent;
+    const { maskId, edgeMode, ...wire } = intent;
     const job: MatteJobState = {
       requestId,
       clipId,
@@ -226,6 +235,7 @@ export class MatteJobStore {
       etaSeconds: null,
       startedAt: Date.now(),
       cancelling: false,
+      edgeMode: edgeMode ?? null,
     };
     const outcomes = { ...this.state.outcomes };
     delete outcomes[clipId];
@@ -238,7 +248,10 @@ export class MatteJobStore {
       const result: MatteRunResultWire = await bridge.capabilityPackMatte({ ...wire, requestId });
       // The job may have been cancelled and forgotten while the invoke was in flight.
       if (this.jobOf(clipId)?.requestId !== requestId) return null;
-      this.finish(clipId, this.outcomeOf(clipId, maskId ?? null, wire.prompts, result));
+      this.finish(
+        clipId,
+        this.outcomeOf(clipId, maskId ?? null, edgeMode ?? null, wire.prompts, result),
+      );
     } catch (cause) {
       if (this.jobOf(clipId)?.requestId !== requestId) return null;
       this.finish(clipId, {
@@ -255,6 +268,7 @@ export class MatteJobStore {
   private outcomeOf(
     clipId: string,
     maskId: string | null,
+    edgeMode: 'sharp' | 'smooth' | null,
     prompts: MatteRunIntentWire['prompts'],
     result: MatteRunResultWire,
   ): MatteOutcome {
@@ -268,6 +282,7 @@ export class MatteJobStore {
         needsReview: result.needsReview,
         verifiedFrames: result.summary.verifiedFrames,
         cacheHit: result.cacheHit,
+        edgeMode,
       };
     }
     // `code` is a plain string on the general refusal arm, so it cannot discriminate the union;

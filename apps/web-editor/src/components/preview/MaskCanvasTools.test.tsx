@@ -5,7 +5,7 @@
  * The test frame is 1920×1080 showing a 3840×2160 clip, so one frame pixel is two source pixels
  * and the canvas's client rect is pinned to the frame, making `clientX` a frame pixel.
  */
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   MaskLayerSchema,
@@ -21,6 +21,29 @@ import { useEditor, type UseEditor } from '../../editor/useEditor.js';
 import { MaskToolStore } from '../inspector/masks/useMaskTools.js';
 import { MaskCanvasTools } from './MaskCanvasTools.js';
 import { maskToolTelemetry } from './mask-tool-telemetry.js';
+
+// AI Object and AI Brush need the Smart Mask pack, and the toolbar disables them without it
+// (BR6.2). These tests are about the tools themselves, so the pack is ready here.
+const bridge = vi.hoisted(() => ({
+  capabilityPackStatus: vi.fn(async () => ({
+    state: 'ready' as const,
+    capability: 'subject.matte',
+    pack: {
+      id: 'smart-mask',
+      version: '1.0.0',
+      releaseDigest: 'a'.repeat(64),
+      artifactDigest: 'b'.repeat(64),
+      os: 'darwin' as const,
+      arch: 'arm64' as const,
+    },
+  })),
+  onCapabilityPackInstalled: vi.fn(() => () => {}),
+}));
+
+vi.mock('../../editor/bridge.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../editor/bridge.js')>()),
+  getBridge: () => bridge,
+}));
 
 const RESOLUTION = { width: 1920, height: 1080 };
 const ASSETS: Asset[] = [
@@ -437,5 +460,98 @@ describe('view', () => {
     expect(maskToolTelemetry.samples('commit').length).toBeGreaterThan(0);
     expect(maskToolTelemetry.samples('pointerToPaint').length).toBeGreaterThan(0);
     vi.unstubAllGlobals();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AI Object and AI Brush (BR6.3)
+// ---------------------------------------------------------------------------
+
+describe('the AI subject tools', () => {
+  it('records a click as a keep point and an Alt-click as a leave-out point', async () => {
+    mount(timeline());
+    await waitFor(() => expect(store.getState().tool).toBe('select'));
+    act(() => store.setTool('ai-object'));
+
+    click(960, 540);
+    click(480, 270, { altKey: true });
+
+    const picked = store.getState().subjectPoints;
+    expect(picked).toHaveLength(2);
+    // Fractions of the picture, which is what the pack's prompt takes.
+    expect(picked[0]).toMatchObject({ x: 0.5, y: 0.5, label: 'include', sourceTime: 0 });
+    expect(picked[1]).toMatchObject({ x: 0.25, y: 0.25, label: 'exclude' });
+    // Picking the subject changes nothing in the project until a run produces an artifact.
+    expect(historyLength()).toBe(0);
+    expect(masks()).toHaveLength(0);
+  });
+
+  it('takes a click on an existing point back instead of stacking a second one', async () => {
+    mount(timeline());
+    act(() => store.setTool('ai-object'));
+    click(960, 540);
+    click(960, 540);
+    expect(store.getState().subjectPoints).toHaveLength(0);
+  });
+
+  it('samples a brush stroke into evenly spaced points rather than one per move', async () => {
+    mount(timeline());
+    act(() => store.setTool('ai-brush'));
+
+    // 200 source pixels of stroke, sampled 50 times: 4 source pixels between moves.
+    drag([400, 540], [500, 540], {}, 50);
+
+    const picked = store.getState().subjectPoints;
+    expect(picked.length).toBeGreaterThan(1);
+    // At 24 source pixels apart, 200 pixels of stroke is ~9 points, not one per move.
+    expect(picked.length).toBeLessThanOrEqual(10);
+    expect(picked.every((point) => point.label === 'include')).toBe(true);
+    expect(historyLength()).toBe(0);
+  });
+
+  it('marks an Alt-drag as leave-out', async () => {
+    mount(timeline());
+    act(() => store.setTool('ai-brush'));
+    drag([400, 540], [900, 540], { altKey: true }, 10);
+    expect(store.getState().subjectPoints.every((point) => point.label === 'exclude')).toBe(true);
+  });
+
+  it('picks the subject from the keyboard and clears with Escape', async () => {
+    mount(timeline());
+    act(() => store.setTool('ai-object'));
+    const target = canvas();
+
+    fireEvent.keyDown(target, { key: 'ArrowRight', shiftKey: true });
+    fireEvent.keyDown(target, { key: 'Enter' });
+    expect(store.getState().subjectPoints).toHaveLength(1);
+    expect(store.getState().subjectPoints[0]!.label).toBe('include');
+
+    // Shift+Enter on the same spot is a correction, not a second pick: it flips the meaning.
+    fireEvent.keyDown(target, { key: 'Enter', shiftKey: true });
+    expect(store.getState().subjectPoints).toHaveLength(1);
+    expect(store.getState().subjectPoints[0]!.label).toBe('exclude');
+
+    for (let step = 0; step < 20; step += 1) {
+      fireEvent.keyDown(target, { key: 'ArrowDown', shiftKey: true });
+    }
+    fireEvent.keyDown(target, { key: 'Enter' });
+    expect(store.getState().subjectPoints).toHaveLength(2);
+
+    fireEvent.keyDown(target, { key: 'Escape' });
+    expect(store.getState().subjectPoints).toHaveLength(0);
+  });
+
+  it('keeps the AI tools in the toolbar, disabled, when the pack is missing', async () => {
+    bridge.capabilityPackStatus.mockResolvedValueOnce({
+      state: 'missing',
+      capability: 'subject.matte',
+      proposal: { ok: false, code: 'offline', error: 'no catalog' },
+    } as never);
+    mount(timeline());
+
+    const button = await screen.findByRole('button', { name: 'AI Object tool' });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(true));
+    // Visible, not hidden: an editor must be able to see the capability exists.
+    expect(screen.getByRole('button', { name: 'AI Brush tool' })).toBeTruthy();
   });
 });

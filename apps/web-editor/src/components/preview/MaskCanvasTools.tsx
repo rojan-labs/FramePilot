@@ -80,11 +80,15 @@ import {
   ICON_SIZE,
   Magnet,
   MousePointer2,
+  Sparkles,
+  Wand2,
   Pencil,
   PenTool,
   Square,
 } from '../icons.js';
 import { Tooltip } from '../Tooltip.js';
+import { packToolCopy, SMART_MASK_PACK } from '../inspector/masks/packToolCopy.js';
+import { SUBJECT_MATTE_CAPABILITY, usePackStatus } from '../inspector/masks/usePackStatus.js';
 import {
   BOX_HANDLES,
   boxHandlePoint,
@@ -129,7 +133,12 @@ const TOOL_KEYS: Readonly<Record<string, MaskTool>> = {
   e: 'ellipse',
   p: 'pen',
   f: 'freehand',
+  o: 'ai-object',
+  b: 'ai-brush',
 };
+
+/** How far apart the points sampled along an AI Brush stroke are, source pixels. */
+const BRUSH_SAMPLE_SPACING_PX = 24;
 
 const TOOLS: readonly { readonly tool: MaskTool; readonly label: string; readonly key: string }[] =
   [
@@ -138,6 +147,9 @@ const TOOLS: readonly { readonly tool: MaskTool; readonly label: string; readonl
     { tool: 'ellipse', label: 'Ellipse tool', key: 'E' },
     { tool: 'pen', label: 'Pen tool', key: 'P' },
     { tool: 'freehand', label: 'Freehand tool', key: 'F' },
+    // Subject hints (BR6.3): they say which subject the next background removal keeps.
+    { tool: 'ai-object', label: 'AI Object tool', key: 'O' },
+    { tool: 'ai-brush', label: 'AI Brush tool', key: 'B' },
     // Tracking hints (MK7.4): they steer the next measurement and never change the project.
     { tool: 'feature-point', label: 'Feature point tool', key: 'T' },
     { tool: 'exclude', label: 'Exclude region tool', key: 'X' },
@@ -151,6 +163,8 @@ const TOOL_ICONS = {
   freehand: Pencil,
   'feature-point': Diamond,
   exclude: Ban,
+  'ai-object': Sparkles,
+  'ai-brush': Wand2,
 } as const;
 
 type EdgeProperty = 'expansionPx' | 'featherOuterPx' | 'featherInnerPx';
@@ -220,6 +234,12 @@ type Gesture =
       current: PixelPoint;
     }
   | { readonly kind: 'freehand'; readonly pointerId: number; readonly samples: PixelPoint[] }
+  | {
+      readonly kind: 'ai-brush';
+      readonly pointerId: number;
+      readonly label: 'include' | 'exclude';
+      readonly samples: PixelPoint[];
+    }
   | { readonly kind: 'pen-drag'; readonly pointerId: number; readonly index: number }
   | {
       readonly kind: 'pan';
@@ -299,6 +319,13 @@ export function MaskCanvasTools({
   const [announcement, setAnnouncement] = useState('');
   const [screenPerFrame, setScreenPerFrame] = useState(1);
   const [spaceHeld, setSpaceHeld] = useState(false);
+  // AI Object and AI Brush need the Smart Mask pack. They stay in the toolbar without it —
+  // disabled, with the reason in the tooltip — so the editor can see the capability exists (BR6.2).
+  const subjectPack = usePackStatus(SUBJECT_MATTE_CAPABILITY);
+  const subjectCopy = packToolCopy(subjectPack.status, {
+    pack: SMART_MASK_PACK,
+    tool: 'Background removal',
+  });
 
   const { playhead, timeline } = editor.state;
   const sourceTime = clipSourceTimeAt(clip, playhead);
@@ -716,6 +743,45 @@ export function MaskCanvasTools({
     }
   };
 
+  /**
+   * Record one "keep this" / "not this" click for the next background removal (BR6.3).
+   *
+   * Stored as fractions of the picture, because that is what the pack's prompt takes, and at the
+   * playhead's SOURCE instant, because the pack is prompted at a frame — the same clock the mask's
+   * own keyframes use, so re-speeding or trimming the clip cannot move the frame the editor picked.
+   */
+  const addSubjectPoint = (point: PixelPoint, label: 'include' | 'exclude'): void => {
+    if (!(space.sourceWidth > 0) || !(space.sourceHeight > 0)) return;
+    const x = point.x / space.sourceWidth;
+    const y = point.y / space.sourceHeight;
+    if (x < 0 || x > 1 || y < 0 || y > 1) {
+      report('Click inside the picture to pick the subject.');
+      return;
+    }
+    store.toggleSubjectPoint({ x, y, label, sourceTime });
+    setAnnouncement(label === 'include' ? 'Subject point added' : 'Excluded point added');
+  };
+
+  /** Sample a brush stroke into evenly spaced subject points. Returns how many it added. */
+  const addSubjectStroke = (
+    samples: readonly PixelPoint[],
+    label: 'include' | 'exclude',
+  ): number => {
+    const spacing = Math.max(1, BRUSH_SAMPLE_SPACING_PX);
+    let added = 0;
+    let last: PixelPoint | null = null;
+    for (const sample of samples) {
+      if (last !== null && Math.hypot(sample.x - last.x, sample.y - last.y) < spacing) continue;
+      last = sample;
+      const x = sample.x / space.sourceWidth;
+      const y = sample.y / space.sourceHeight;
+      if (x < 0 || x > 1 || y < 0 || y > 1) continue;
+      store.toggleSubjectPoint({ x, y, label, sourceTime }, 0);
+      added += 1;
+    }
+    return added;
+  };
+
   const onPointerDown = (event: React.PointerEvent<SVGSVGElement>): void => {
     if (event.button === 1 || (event.button === 0 && spaceHeld)) {
       event.preventDefault();
@@ -747,6 +813,20 @@ export function MaskCanvasTools({
         // wrong texture is the common mistake and undoing it must not clear the others.
         store.toggleFeaturePoint({ x: point.x, y: point.y });
         setAnnouncement('Feature point toggled');
+        return;
+      case 'ai-object':
+        // Click = keep this, Alt-click = not this (BR6.3). Nothing runs on the click: the
+        // points are what the NEXT background removal is prompted with.
+        addSubjectPoint(point, event.altKey ? 'exclude' : 'include');
+        return;
+      case 'ai-brush':
+        gesture.current = {
+          kind: 'ai-brush',
+          pointerId: event.pointerId,
+          label: event.altKey ? 'exclude' : 'include',
+          samples: [point],
+        };
+        setDraft({ stroke: [point] });
         return;
       case 'exclude':
         gesture.current = {
@@ -918,6 +998,7 @@ export function MaskCanvasTools({
         return;
       }
       case 'freehand':
+      case 'ai-brush':
         active.samples.push(point);
         setDraft({ stroke: [...active.samples] });
         return;
@@ -1136,6 +1217,17 @@ export function MaskCanvasTools({
         commitBox(active.shape, active.start, active.current, event);
         return;
       }
+      case 'ai-brush': {
+        // A stroke is sampled into points at a fixed spacing, because the pack is prompted with
+        // points at an instant; a denser stroke must not mean a heavier prompt.
+        const added = addSubjectStroke(active.samples, active.label);
+        setAnnouncement(
+          added === 0
+            ? 'Stroke too short — draw across the subject.'
+            : `${String(added)} subject point(s) added`,
+        );
+        return;
+      }
       case 'draw-exclusion': {
         const region = rectFromCorners(active.start, active.current);
         store.addExclusion(region);
@@ -1290,7 +1382,9 @@ export function MaskCanvasTools({
         y: space.crop.y + space.crop.height / 2,
       };
       setCursor(at);
-      if (tools.tool === 'pen') {
+      if (tools.tool === 'ai-object' || tools.tool === 'ai-brush') {
+        addSubjectPoint(at, event.shiftKey ? 'exclude' : 'include');
+      } else if (tools.tool === 'pen') {
         addPenPoint(at, { shiftKey: false, altKey: true });
       } else if (tools.tool === 'rectangle' || tools.tool === 'ellipse') {
         if (boxAnchor === null) {
@@ -1305,12 +1399,31 @@ export function MaskCanvasTools({
       }
       return;
     }
+    if (event.key === 'Enter' && (tools.tool === 'ai-object' || tools.tool === 'ai-brush')) {
+      handled();
+      const at = cursor ?? {
+        x: space.crop.x + space.crop.width / 2,
+        y: space.crop.y + space.crop.height / 2,
+      };
+      setCursor(at);
+      addSubjectPoint(at, event.shiftKey ? 'exclude' : 'include');
+      return;
+    }
     if (event.key === 'Enter' && tools.tool === 'pen') {
       handled();
       closePen(penPoints);
       return;
     }
     if (event.key === 'Escape') {
+      if (
+        (tools.tool === 'ai-object' || tools.tool === 'ai-brush') &&
+        tools.subjectPoints.length > 0
+      ) {
+        handled();
+        store.clearSubjectPoints();
+        setAnnouncement('Subject points cleared');
+        return;
+      }
       if (penPoints.length > 0 || boxAnchor !== null || gesture.current !== null) {
         handled();
         setPenPoints([]);
@@ -1410,13 +1523,17 @@ export function MaskCanvasTools({
       <div className="mask-canvas-toolbar" role="toolbar" aria-label="Mask tools">
         {TOOLS.map(({ tool, label, key }) => {
           const Icon = TOOL_ICONS[tool];
+          const needsPack = tool === 'ai-object' || tool === 'ai-brush';
+          const blocked = needsPack && subjectCopy.blocked;
           return (
-            <Tooltip key={tool} label={`${label} (${key})`}>
+            <Tooltip key={tool} label={blocked ? subjectCopy.tooltip : `${label} (${key})`}>
               <button
                 type="button"
                 className="mask-canvas-tool"
                 aria-label={label}
                 aria-pressed={tools.tool === tool}
+                disabled={blocked}
+                aria-disabled={blocked}
                 onClick={() => {
                   store.setTool(tool);
                   setPenPoints([]);
@@ -1457,6 +1574,15 @@ export function MaskCanvasTools({
           </select>
         </label>
       </div>
+      {(tools.tool === 'ai-object' || tools.tool === 'ai-brush') && (
+        <p className="mask-canvas-hint" role="status">
+          {tools.tool === 'ai-object'
+            ? 'Click the subject to keep it. Alt-click anything to leave out. Esc clears.'
+            : 'Drag across the subject to keep it. Alt-drag over anything to leave out. Esc clears.'}{' '}
+          {tools.subjectPoints.length > 0 &&
+            `${String(tools.subjectPoints.length)} point(s) picked.`}
+        </p>
+      )}
       {tools.message !== null && (
         <p className="mask-canvas-message" role="status">
           {tools.message}
@@ -1584,6 +1710,28 @@ export function MaskCanvasTools({
               vectorEffect="non-scaling-stroke"
             />
           ))}
+          {tools.subjectPoints.map((point) => (
+            <g key={`subject-${String(point.x)}-${String(point.y)}-${point.label}`}>
+              <circle
+                className="mask-canvas-subject-point"
+                data-label={point.label}
+                cx={point.x * space.sourceWidth}
+                cy={point.y * space.sourceHeight}
+                r={px(5)}
+                vectorEffect="non-scaling-stroke"
+              />
+              {/* A plus or a minus, so include and exclude are told apart without colour. */}
+              <path
+                className="mask-canvas-subject-sign"
+                d={
+                  point.label === 'include'
+                    ? `M ${String(point.x * space.sourceWidth - px(3))} ${String(point.y * space.sourceHeight)} h ${String(px(6))} M ${String(point.x * space.sourceWidth)} ${String(point.y * space.sourceHeight - px(3))} v ${String(px(6))}`
+                    : `M ${String(point.x * space.sourceWidth - px(3))} ${String(point.y * space.sourceHeight)} h ${String(px(6))}`
+                }
+                vectorEffect="non-scaling-stroke"
+              />
+            </g>
+          ))}
           {tools.featurePoints.map((point) => (
             <circle
               key={`feature-${point.x}-${point.y}`}
@@ -1669,8 +1817,9 @@ export function MaskCanvasTools({
         </g>
       </svg>
       <p id="mask-canvas-help" className="sr-only">
-        V, R, E, P and F choose a tool. Arrow keys move the crosshair or nudge the selection; hold
-        Shift for 10 pixels. Space adds a point, Enter closes a path, Escape cancels. Delete removes
+        V, R, E, P and F choose a shape tool; O is AI Object and B is AI Brush. Arrow keys move the
+        crosshair or nudge the selection; hold Shift for 10 pixels. Space adds a point, Enter picks
+        the subject under the crosshair and Shift+Enter excludes it, Escape cancels. Delete removes
         the selected points or mask.
       </p>
       <p className="sr-only" role="status" aria-live="polite">
