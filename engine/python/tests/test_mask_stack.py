@@ -84,8 +84,6 @@ def test_nothing_enabled_means_no_stack() -> None:
 @pytest.mark.parametrize(
     ("mask", "reason"),
     [
-        ({"kind": "linear", "id": "l", "originX": 1, "originY": 1, "angle": 0}, "split masks"),
-        ({"kind": "band", "id": "b", "originX": 1, "originY": 1, "angle": 0, "widthPx": 4}, "band"),
         (
             {
                 "kind": "gradient",
@@ -95,8 +93,19 @@ def test_nothing_enabled_means_no_stack() -> None:
                 "startY": 0,
                 "endX": 1,
                 "endY": 1,
+                "featherOuterPx": 3,
             },
-            "gradient",
+            "no edge to grow or soften",
+        ),
+        (
+            {
+                "kind": "linear",
+                "id": "l",
+                "originX": 1,
+                "originY": 1,
+                "featherModel": "gaussian-legacy",
+            },
+            "Switch the mask's feather model",
         ),
         ({"kind": "layer", "id": "y", "source": {"kind": "track", "trackId": "v2"}}, "track matte"),
         (_rect(space="frame"), "frame-space"),
@@ -122,6 +131,31 @@ def test_masks_export_cannot_draw_yet_are_refused_with_a_remedy(
         clip_mask_stacks(_clip(mask), _SIZE)
     # Guard-key rule: no measured magnitudes in the text (ids are the only variable part).
     assert "0.0" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "mask",
+    [
+        {"kind": "linear", "id": "l", "originX": 30, "originY": 20, "angle": 15, "softnessPx": 4},
+        {"kind": "band", "id": "b", "originX": 30, "originY": 20, "angle": 0, "widthPx": 8},
+        {
+            "kind": "gradient",
+            "id": "g",
+            "shape": "radial",
+            "startX": 30,
+            "startY": 20,
+            "endX": 50,
+            "endY": 20,
+        },
+    ],
+)
+def test_the_analytic_kinds_render(mask: dict[str, Any]) -> None:
+    """MK8.1: split, band and gradient draw through the stack, no refusal."""
+    stacks = clip_mask_stacks(_clip(mask), _SIZE)
+    assert stacks is not None
+    alpha = stacks.alpha_at(0.0, 32, 24)
+    assert alpha is not None
+    assert float(alpha.max()) > 0.0 and float(alpha.min()) < 1.0
 
 
 def test_a_tracked_shape_mask_is_renderable(tmp_path: Any) -> None:

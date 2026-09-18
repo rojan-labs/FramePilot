@@ -80,6 +80,49 @@ export interface PathMaskGeometry {
 
 export type MaskGeometry = RectangleMaskGeometry | EllipseMaskGeometry | PathMaskGeometry;
 
+/**
+ * A split (half-plane) mask's placement, source pixels (MK8.1). The line passes through the
+ * origin at `angle` degrees clockwise (0 = left to right); the mask keeps the side on the LEFT
+ * of that direction of travel, so angle 0 keeps the part above the line.
+ */
+export interface LinearMaskGeometry {
+  readonly kind: 'linear';
+  readonly originX: number;
+  readonly originY: number;
+  readonly angle: number;
+  readonly softnessPx: number;
+}
+
+/** A band (mirror / filmstrip) mask: `widthPx` wide, centred on the line through the origin. */
+export interface BandMaskGeometry {
+  readonly kind: 'band';
+  readonly originX: number;
+  readonly originY: number;
+  readonly angle: number;
+  readonly widthPx: number;
+  readonly softnessPx: number;
+}
+
+/** A gradient mask: opaque at the start, clear at the end (radial: at the distance to it). */
+export interface GradientMaskGeometry {
+  readonly kind: 'gradient';
+  readonly shape: 'linear' | 'radial';
+  readonly startX: number;
+  readonly startY: number;
+  readonly endX: number;
+  readonly endY: number;
+  readonly curve: 'linear' | 'smooth' | 'gaussian';
+}
+
+/** The analytic kinds: drawn from a line or a centre, edited by their own handles (MK8.1). */
+export type AnalyticMaskGeometry = LinearMaskGeometry | BandMaskGeometry | GradientMaskGeometry;
+
+/** Whether a mask kind is one of the analytic kinds. */
+export const isAnalyticMask = (
+  mask: MaskLayer,
+): mask is Extract<MaskLayer, { kind: AnalyticMaskGeometry['kind'] }> =>
+  mask.kind === 'linear' || mask.kind === 'band' || mask.kind === 'gradient';
+
 /** The shape kinds the hand tools draw and edit. */
 export type EditableMaskKind = MaskGeometry['kind'];
 
@@ -235,7 +278,8 @@ interface MaskCommandBase {
 /** Draw a new rectangle, ellipse or path mask. */
 export interface DrawMaskCommand extends MaskCommandBase {
   readonly type: 'draw_mask';
-  readonly geometry: MaskGeometry;
+  /** A hand-drawn shape, or a split, band or gradient placed with its tool (MK8.1). */
+  readonly geometry: MaskGeometry | AnalyticMaskGeometry;
   /** Source instant a path's first keyframe sits at (the playhead's source time). */
   readonly sourceTime: number;
   readonly name?: string;
@@ -660,7 +704,7 @@ function scalarWrite(
   ];
 }
 
-function assertFiniteGeometry(geometry: MaskGeometry): void {
+function assertFiniteGeometry(geometry: MaskGeometry | AnalyticMaskGeometry): void {
   const numbers =
     geometry.kind === 'path'
       ? geometry.vertices.flatMap((vertex) => [
@@ -690,10 +734,13 @@ function geometryFields(geometry: MaskGeometry): Record<string, number> {
   return {};
 }
 
-const KIND_NAMES: Readonly<Record<EditableMaskKind, string>> = {
+const KIND_NAMES: Readonly<Record<EditableMaskKind | AnalyticMaskGeometry['kind'], string>> = {
   rectangle: 'Rectangle',
   ellipse: 'Ellipse',
   path: 'Path',
+  linear: 'Split',
+  band: 'Mirror',
+  gradient: 'Gradient',
 };
 
 // ---------------------------------------------------------------------------
@@ -712,12 +759,26 @@ function buildDraw(input: CompileMaskCommandInput, command: DrawMaskCommand): Bu
   const id = nextMaskId(clip);
   const base = {
     id,
-    name: command.name ?? `Mask ${String(masksOf(clip).length + 1)}`,
+    name:
+      command.name ??
+      (isAnalyticGeometry(command.geometry)
+        ? `${KIND_NAMES[command.geometry.kind]} ${String(masksOf(clip).length + 1)}`
+        : `Mask ${String(masksOf(clip).length + 1)}`),
     color: nextMaskColor(clip),
     ...(command.target === undefined ? {} : { target: assertTarget(clip, command.target) }),
   };
   const { geometry } = command;
   let mask: MaskLayerInput;
+  if (geometry.kind === 'band' && !(geometry.widthPx > 0)) {
+    throw new Rejection('not_editable', 'A mirror band needs a width above zero.');
+  }
+  if (
+    geometry.kind === 'gradient' &&
+    geometry.startX === geometry.endX &&
+    geometry.startY === geometry.endY
+  ) {
+    throw new Rejection('not_editable', 'Drag the gradient from where it starts to where it ends.');
+  }
   if (geometry.kind === 'path') {
     mask = {
       ...base,
@@ -745,6 +806,11 @@ function buildDraw(input: CompileMaskCommandInput, command: DrawMaskCommand): Bu
     reason: `Draw ${KIND_NAMES[geometry.kind].toLowerCase()} mask on "${clip.id}"`,
   };
 }
+
+const isAnalyticGeometry = (
+  geometry: MaskGeometry | AnalyticMaskGeometry,
+): geometry is AnalyticMaskGeometry =>
+  geometry.kind === 'linear' || geometry.kind === 'band' || geometry.kind === 'gradient';
 
 function buildSetGeometry(input: CompileMaskCommandInput, command: SetMaskGeometryCommand): Built {
   const clip = findClip(input.timeline, command.clipId);

@@ -8,6 +8,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Split, mirror and gradient masks.** Three new tools on the monitor's mask toolbar: **Split**
+  (S) cuts the picture along a line you drag — the classic split screen; **Mirror** (M) keeps a
+  band between two parallel lines, for filmstrip and mirror looks; **Gradient** (G) fades the
+  clip (or an effect limited to it) from where you press to where you let go, and Alt-drag makes
+  it radial for a vignette or a spotlight grade. Each has its own handles — move the line, turn
+  it (Shift in 15° steps), widen the band, soften the edge — typed fields in the Mask tab, and
+  keyframes like every other mask. They combine with shapes in the same stack (add, subtract,
+  intersect…), limit effects, work on adjustment lanes, and the monitor draws exactly the pixels
+  the export writes: every byte of 21 new test cases at three sizes matches between the two.
+
 - **The assistant can find "the car", "the dog" or "the red car".** Ask it to mask an object and
   it now knows what the object is: the Subject Intelligence pack names each detected object's
   kind (car, truck, dog, bottle, laptop and the other everyday things it recognises), so "the

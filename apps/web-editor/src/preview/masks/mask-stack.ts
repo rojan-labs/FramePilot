@@ -50,6 +50,7 @@ import {
 } from './legacy-mask.js';
 import {
   MaskRasterError,
+  analyticAlpha,
   applyLayerAlpha,
   combineInto,
   ellipsePath,
@@ -60,6 +61,7 @@ import {
   scaleFeathers,
   shapeAlpha,
   toRaster,
+  type AnalyticShape,
   type BezierPath,
   type MaskCombineMode,
 } from './mask-raster.js';
@@ -78,8 +80,45 @@ const RASTER_CACHE_ENTRIES = 48;
 type ShapeMask = Extract<MaskLayer, { kind: 'rectangle' | 'ellipse' | 'path' }>;
 type PathMask = Extract<MaskLayer, { kind: 'path' }>;
 export type MatteMask = Extract<MaskLayer, { kind: 'matte' }>;
+/** A split, band or gradient: drawn from a distance to a line or a centre (MK8.1). */
+export type AnalyticMask = Extract<MaskLayer, { kind: 'linear' | 'band' | 'gradient' }>;
 /** A mask kind the preview draws. */
-export type DrawnMask = ShapeMask | MatteMask;
+export type DrawnMask = ShapeMask | MatteMask | AnalyticMask;
+
+/** The kinds `analyticAlpha` draws (`ANALYTIC_KINDS`). */
+export const ANALYTIC_KINDS: ReadonlySet<MaskLayer['kind']> = new Set([
+  'linear',
+  'band',
+  'gradient',
+]);
+
+const isAnalytic = (mask: MaskLayer): mask is AnalyticMask => ANALYTIC_KINDS.has(mask.kind);
+
+/**
+ * `gradient_has_edge_controls`: a gradient has no edge, so expansion and feathers on one would
+ * be controls that do nothing; the export refuses them and so does the monitor.
+ */
+export function gradientHasEdgeControls(mask: MaskLayer): boolean {
+  return (
+    mask.expansionPx !== 0 ||
+    mask.featherInnerPx !== 0 ||
+    mask.featherOuterPx !== 0 ||
+    mask.keyframes.some((keyframe) =>
+      ['expansionPx', 'featherInnerPx', 'featherOuterPx'].includes(keyframe.property),
+    )
+  );
+}
+
+/** `assert_analytic_drawable`: why the monitor cannot draw a split, band or gradient, or `null`. */
+export function analyticRefusal(mask: MaskLayer): string | null {
+  if (isLegacy(mask)) {
+    return "A mask uses the legacy blur feather, which only migrated shapes have. Switch the mask's feather model to Distance.";
+  }
+  if (mask.kind === 'gradient' && gradientHasEdgeControls(mask)) {
+    return 'A gradient mask has expansion or feather set, and a gradient has no edge to grow or soften. Set them to 0 and shape the ramp with its start, end and curve.';
+  }
+  return null;
+}
 /** A `key` layer: qualified from the PICTURE on the GPU, never rastered from geometry. */
 export type KeyMask = Extract<MaskLayer, { kind: 'key' }>;
 /** Anything a stack may hold: the CPU-drawable kinds, plus the key the compositor qualifies. */
@@ -136,9 +175,6 @@ export type MaskStackTarget =
 const KIND_REFUSALS: Partial<
   Record<MaskLayer['kind'], { task: MaskPreviewRefusal['task']; what: string }>
 > = {
-  linear: { task: 'MK8', what: 'split masks preview once the analytic mask renderer ships' },
-  band: { task: 'MK8', what: 'band masks preview once the analytic mask renderer ships' },
-  gradient: { task: 'MK8', what: 'gradient masks preview once the analytic mask renderer ships' },
   layer: { task: 'MK8', what: 'track matte masks preview once the layer mask renderer ships' },
 };
 
@@ -225,6 +261,10 @@ function refusalFor(
   }
   if (mask.kind === 'key' && keyRefusal(mask) !== null) {
     return refusal(clip, mask, null, keyRefusal(mask)!);
+  }
+  if (isAnalytic(mask)) {
+    const analytic = analyticRefusal(mask);
+    return analytic === null ? null : refusal(clip, mask, null, analytic);
   }
   const shape = mask as ShapeMask;
   if (isLegacy(mask) && mask.tracking !== undefined) {
@@ -491,6 +531,34 @@ function maskPathAt(mask: ShapeMask, s: number): BezierPath {
   return pathFromPoints(points, feathers, Math.trunc(mask.firstVertex));
 }
 
+/** `analytic_shape_at`: a split, band or gradient's geometry at source instant `s` (MK8.1). */
+export function analyticShapeAt(mask: AnalyticMask, s: number): AnalyticShape {
+  const value = (name: string): number => maskScalar(mask, name, s);
+  if (mask.kind === 'gradient') {
+    return {
+      kind: 'gradient',
+      shape: mask.shape,
+      startX: value('startX'),
+      startY: value('startY'),
+      endX: value('endX'),
+      endY: value('endY'),
+      curve: mask.curve,
+    };
+  }
+  return {
+    kind: mask.kind,
+    originX: value('originX'),
+    originY: value('originY'),
+    angle: value('angle'),
+    bandWidth: mask.kind === 'band' ? value('widthPx') : 0.0,
+    softness: value('softnessPx'),
+    expansion: value('expansionPx'),
+    featherInner: value('featherInnerPx'),
+    featherOuter: value('featherOuterPx'),
+    falloff: mask.falloff,
+  };
+}
+
 // --- The legacy spec ------------------------------------------------------------------------------
 
 const FLOAT_VIEW = new DataView(new ArrayBuffer(8));
@@ -667,8 +735,24 @@ export function singleMaskAlpha(
     }
     return matteAlpha(drawn, stack, width, height, s, mattes);
   }
-  const mask = drawn;
   const { clip, size } = stack;
+  if (isAnalytic(drawn)) {
+    const crop = clip.crop;
+    const normalized = drawn.units === 'normalized';
+    const sourceW = normalized ? 1.0 : size!.width;
+    const sourceH = normalized ? 1.0 : size!.height;
+    const scaleX = width / ((crop?.width ?? 1.0) * sourceW);
+    const scaleY = height / ((crop?.height ?? 1.0) * sourceH);
+    const alpha = analyticAlpha(analyticShapeAt(drawn, s), width, height, {
+      scaleX,
+      scaleY,
+      offsetX: -((crop?.x ?? 0.0) * sourceW) * scaleX,
+      offsetY: -((crop?.y ?? 0.0) * sourceH) * scaleY,
+      distanceScale: Math.min(scaleX, scaleY),
+    });
+    return applyLayerAlpha(alpha, drawn.invert, maskScalar(drawn, 'opacity', s));
+  }
+  const mask = drawn;
   if (isLegacy(mask)) return legacyMaskAlpha(legacySpec(mask, clip, size, s), width, height);
   const crop = clip.crop;
   const normalized = mask.units === 'normalized';

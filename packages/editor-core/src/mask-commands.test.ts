@@ -192,6 +192,106 @@ describe('draw_mask', () => {
     ).toMatchObject({ code: 'not_editable' });
   });
 
+  it('places a split, a mirror band and a gradient (MK8.1), keyframing them like any mask', () => {
+    let tl = applied(timeline(), {
+      type: 'draw_mask',
+      sourceTime: 2,
+      geometry: { kind: 'linear', originX: 1920, originY: 1080, angle: 30, softnessPx: 12 },
+    });
+    expect(masksOn(tl)[0]).toMatchObject({ kind: 'linear', name: 'Split 1', angle: 30 });
+    tl = applied(tl, {
+      type: 'draw_mask',
+      sourceTime: 2,
+      geometry: {
+        kind: 'band',
+        originX: 1920,
+        originY: 1080,
+        angle: 0,
+        widthPx: 400,
+        softnessPx: 0,
+      },
+    });
+    tl = applied(tl, {
+      type: 'draw_mask',
+      sourceTime: 2,
+      geometry: {
+        kind: 'gradient',
+        shape: 'linear',
+        startX: 0,
+        startY: 0,
+        endX: 0,
+        endY: 2160,
+        curve: 'smooth',
+      },
+    });
+    expect(masksOn(tl).map((mask) => mask.kind)).toEqual(['gradient', 'band', 'linear']);
+    const split = masksOn(tl)[2]!;
+    tl = applied(tl, {
+      type: 'toggle_mask_keyframe',
+      maskId: split.id,
+      property: 'angle',
+      sourceTime: 2,
+    });
+    tl = applied(tl, {
+      type: 'set_mask_properties',
+      maskId: split.id,
+      sourceTime: 4,
+      changes: { angle: 90, originX: 100 },
+    });
+    const keyed = masksOn(tl)[2]!;
+    expect(keyed.keyframes.map((keyframe) => [keyframe.property, keyframe.value])).toEqual([
+      ['angle', 30],
+      ['angle', 90],
+    ]);
+    expect(keyed).toMatchObject({ originX: 100 });
+  });
+
+  it('refuses a zero-width band, a gradient with no length and edge controls on a gradient', () => {
+    expect(
+      compile(timeline(), {
+        type: 'draw_mask',
+        sourceTime: 2,
+        geometry: { kind: 'band', originX: 1, originY: 1, angle: 0, widthPx: 0, softnessPx: 0 },
+      }),
+    ).toMatchObject({ code: 'not_editable' });
+    expect(
+      compile(timeline(), {
+        type: 'draw_mask',
+        sourceTime: 2,
+        geometry: {
+          kind: 'gradient',
+          shape: 'radial',
+          startX: 5,
+          startY: 5,
+          endX: 5,
+          endY: 5,
+          curve: 'linear',
+        },
+      }),
+    ).toMatchObject({ code: 'not_editable' });
+    const gradient = applied(timeline(), {
+      type: 'draw_mask',
+      sourceTime: 2,
+      geometry: {
+        kind: 'gradient',
+        shape: 'linear',
+        startX: 0,
+        startY: 0,
+        endX: 10,
+        endY: 0,
+        curve: 'linear',
+      },
+    });
+    const result = compile(gradient, {
+      type: 'set_mask_properties',
+      maskId: 'c1__mask',
+      sourceTime: 2,
+      changes: { featherOuterPx: 8 },
+    });
+    expect(result).toMatchObject({ status: 'rejected' });
+    expect(JSON.stringify(result)).toMatch(/no edge to grow or soften/);
+  });
+
   it('refuses a stale timeline revision and a missing clip', () => {
     const result = compileMaskCommand({
       timeline: timeline(),

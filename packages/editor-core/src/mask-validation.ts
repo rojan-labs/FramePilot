@@ -197,6 +197,18 @@ function structuralIssues(owner: Owner, index: number): Issue[] {
       );
     }
     if (mask.kind === 'path') issues.push(...pathIssues(mask, owner, index));
+    if (
+      mask.kind === 'gradient' &&
+      (mask.expansionPx !== 0 || mask.featherInnerPx !== 0 || mask.featherOuterPx !== 0)
+    ) {
+      issues.push(
+        error(
+          'invalid_mask',
+          `Gradient mask '${mask.id}' on ${owner.label} has expansion or feather set, and a gradient has no edge to grow or soften. Set them to 0 and shape the ramp with its start, end and curve.`,
+          index,
+        ),
+      );
+    }
   }
   return issues;
 }

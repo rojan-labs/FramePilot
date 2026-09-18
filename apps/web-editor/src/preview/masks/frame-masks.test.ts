@@ -103,7 +103,14 @@ describe('frame-space mask refusals', () => {
         },
       ]),
     );
-    expect(gradient?.refusal?.task).toBe('MK8');
+    // MK8.1: the analytic kinds draw on an adjustment lane like any shape.
+    expect(gradient?.refusal ?? null).toBeNull();
+    const matte = effectLayerMaskStack(
+      layerWith([
+        { id: 'm1', kind: 'layer', space: 'frame', source: { kind: 'track', trackId: 'v' } },
+      ]),
+    );
+    expect(matte?.refusal?.message).toContain('adjustment lane cannot');
   });
 
   it('refuses a matte, a source-space mask and an effect target on an adjustment lane', () => {

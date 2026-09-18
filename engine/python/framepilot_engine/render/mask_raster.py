@@ -1098,3 +1098,299 @@ def quantize_alpha(alpha: FloatArray) -> npt.NDArray[np.uint8]:
     """The one quantisation: ``rint(clamp(a, 0, 1) * 255)``, ties to even."""
     clamped = np.minimum(np.maximum(alpha, 0.0), 1.0)
     return np.rint(clamped * 255.0).astype(np.uint8)
+
+
+# --- Analytic kinds: split, band, gradient (MK8.1) ------------------------------------------
+#
+# WHY analytic: a split, a mirror band and a gradient are a distance to a line or a centre, so
+# they need no path, no flattening and no coverage sweep. They follow the same determinism rules
+# as the shapes (float64, elementwise, sqrt only, the shipped falloff table) and are pinned by the
+# same vectors (``tests/fixtures/mask-raster/analytic.json``).
+#
+# Geometry arrives in SOURCE units with the raster mapping ``X = x * scale_x + offset_x``; lengths
+# (softness, width, expansion, feathers) scale by ``distance_scale``, as a shape's feathers do.
+#
+# A hard edge (no feather, no softness) is EXACT area coverage: the part of the pixel square on
+# the kept side of a straight line. Projected onto the line's unit normal ``(nx, ny)``, the square
+# is the sum of two uniform widths ``|nx|`` and ``|ny|``, so the covered fraction is that
+# trapezoid's CDF (:func:`_footprint_cdf`) — a closed form of ``+ - * /`` only.
+
+
+def _footprint_cdf(x: FloatArray, u: float, v: float) -> FloatArray:
+    """Fraction of a unit pixel whose projection onto a unit normal lies below ``x``.
+
+    ``x`` is measured from the pixel centre along the normal; ``u <= v`` are ``|nx|, |ny|``
+    sorted. Evaluated branch by branch in this order (the TypeScript twin does the same)::
+
+        x <= -half            0
+        x >= half             1
+        u == 0 or |x| <= lo   0.5 + x / v
+        x < -lo               (x + half)^2 / (2 u v)
+        x > lo                1 - (half - x)^2 / (2 u v)
+
+    with ``half = (u + v) * 0.5`` and ``lo = (v - u) * 0.5``.
+    """
+    half = (u + v) * 0.5
+    middle = 0.5 + x / v
+    if u == 0.0:
+        result = middle
+    else:
+        lo = (v - u) * 0.5
+        two_uv = 2.0 * u * v
+        below = x + half
+        above = half - x
+        result = np.where(
+            x < -lo,
+            (below * below) / two_uv,
+            np.where(x > lo, 1.0 - (above * above) / two_uv, middle),
+        )
+    return np.where(x <= -half, 0.0, np.where(x >= half, 1.0, result))
+
+
+def _pixel_centres(width: int, height: int) -> tuple[FloatArray, FloatArray]:
+    """Pixel-centre coordinates as a row ``(1, width)`` and a column ``(height, 1)``."""
+    xs = (np.arange(width, dtype=np.float64) + 0.5).reshape(1, width)
+    ys = (np.arange(height, dtype=np.float64) + 0.5).reshape(height, 1)
+    return xs, ys
+
+
+def raster_line_normal(angle: float, scale_x: float, scale_y: float) -> tuple[float, float]:
+    """The unit normal, in RASTER pixels, of a line at ``angle`` degrees (clockwise, y down).
+
+    The line's direction in source units is ``(cos, sin)``; mapped to the raster it is
+    ``(cos * scale_x, sin * scale_y)``, whose normal is ``(-sin * scale_y, cos * scale_x)``.
+    The normal points to the side the line CUTS AWAY; ``(0, 0)`` for a degenerate raster.
+    """
+    cos_a, sin_a = _cos_sin(angle)
+    nx = -sin_a * scale_y
+    ny = cos_a * scale_x
+    length = math.sqrt(nx * nx + ny * ny)
+    if length == 0.0:
+        return (0.0, 0.0)
+    return (nx / length, ny / length)
+
+
+@dataclass(frozen=True)
+class AnalyticEdge:
+    """A straight edge's softness in raster px: ``softness / 2`` joins each feather side."""
+
+    expansion: float
+    feather_inner: float
+    feather_outer: float
+    falloff: str
+
+    @property
+    def hard(self) -> bool:
+        return self.feather_inner + self.feather_outer == 0.0
+
+
+def analytic_edge(
+    distance_scale: float,
+    *,
+    expansion: float,
+    feather_inner: float,
+    feather_outer: float,
+    softness: float,
+    falloff: str,
+) -> AnalyticEdge:
+    """Edge parameters of a split or band in raster px (``max(., 0)`` on every width)."""
+    half_soft = max(softness, 0.0) * 0.5
+    return AnalyticEdge(
+        expansion=expansion * distance_scale,
+        feather_inner=(max(feather_inner, 0.0) + half_soft) * distance_scale,
+        feather_outer=(max(feather_outer, 0.0) + half_soft) * distance_scale,
+        falloff=falloff,
+    )
+
+
+def _signed_line_distance(
+    width: int, height: int, origin_x: float, origin_y: float, nx: float, ny: float
+) -> FloatArray:
+    """``(centre - origin) . normal`` per pixel, raster px, positive on the cut-away side."""
+    xs, ys = _pixel_centres(width, height)
+    return (xs - origin_x) * nx + (ys - origin_y) * ny
+
+
+def _soft_edge_alpha(signed: FloatArray, edge: AnalyticEdge) -> FloatArray:
+    """The distance feather of the shapes: ``x = (w_o - s) / (w_i + w_o)``, then the falloff."""
+    denominator = edge.feather_inner + edge.feather_outer
+    x = (edge.feather_outer - signed) / denominator
+    x = np.minimum(np.maximum(x, 0.0), 1.0)
+    return apply_falloff(x, edge.falloff)
+
+
+def linear_alpha(
+    width: int,
+    height: int,
+    origin_x: float,
+    origin_y: float,
+    normal: tuple[float, float],
+    edge: AnalyticEdge,
+) -> FloatArray:
+    """A split: the half-plane on the side AGAINST ``normal`` (raster px origin and normal).
+
+    ``t`` is the signed distance of a pixel centre from the line. Hard: the exact covered area
+    of ``t < expansion``. Soft: ``s = t - expansion`` through :func:`_soft_edge_alpha`.
+    """
+    nx, ny = normal
+    if nx == 0.0 and ny == 0.0:
+        return np.zeros((height, width), dtype=np.float64)
+    t = _signed_line_distance(width, height, origin_x, origin_y, nx, ny)
+    if edge.hard:
+        u = min(abs(nx), abs(ny))
+        v = max(abs(nx), abs(ny))
+        return _footprint_cdf(edge.expansion - t, u, v)
+    return _soft_edge_alpha(t - edge.expansion, edge)
+
+
+def band_alpha(
+    width: int,
+    height: int,
+    origin_x: float,
+    origin_y: float,
+    normal: tuple[float, float],
+    half_width: float,
+    edge: AnalyticEdge,
+) -> FloatArray:
+    """A band ``half_width`` either side of the line (a mirror / filmstrip strip), raster px.
+
+    Hard: the exact covered area of ``|t| < half_width + expansion`` (zero when that is not
+    positive). Soft: ``s = |t| - half_width - expansion`` through :func:`_soft_edge_alpha`.
+    """
+    nx, ny = normal
+    if nx == 0.0 and ny == 0.0:
+        return np.zeros((height, width), dtype=np.float64)
+    t = _signed_line_distance(width, height, origin_x, origin_y, nx, ny)
+    if edge.hard:
+        reach = half_width + edge.expansion
+        if reach <= 0.0:
+            return np.zeros((height, width), dtype=np.float64)
+        u = min(abs(nx), abs(ny))
+        v = max(abs(nx), abs(ny))
+        return _footprint_cdf(reach - t, u, v) - _footprint_cdf(-reach - t, u, v)
+    return _soft_edge_alpha(np.abs(t) - half_width - edge.expansion, edge)
+
+
+def linear_gradient_alpha(
+    width: int,
+    height: int,
+    start_x: float,
+    start_y: float,
+    end_x: float,
+    end_y: float,
+    curve: str,
+) -> FloatArray:
+    """Opaque at ``start``, clear at ``end`` (raster px), across the line joining them.
+
+    ``p = ((c - start) . (end - start)) / |end - start|^2`` per pixel centre, then
+    ``curve(clamp(1 - p, 0, 1))``. A gradient with no length draws nothing.
+    """
+    dx = end_x - start_x
+    dy = end_y - start_y
+    length2 = dx * dx + dy * dy
+    if length2 == 0.0:
+        return np.zeros((height, width), dtype=np.float64)
+    xs, ys = _pixel_centres(width, height)
+    p = ((xs - start_x) * dx + (ys - start_y) * dy) / length2
+    x = np.minimum(np.maximum(1.0 - p, 0.0), 1.0)
+    return apply_falloff(x, curve)
+
+
+def radial_gradient_alpha(
+    width: int,
+    height: int,
+    centre_x: float,
+    centre_y: float,
+    radius_x: float,
+    radius_y: float,
+    curve: str,
+) -> FloatArray:
+    """Opaque at the centre, clear at the radius (raster px; the radii differ only when the
+    raster is scaled unevenly, so the gradient stays round in the SOURCE).
+
+    ``p = sqrt(qx^2 + qy^2)`` with ``q = (c - centre) / radius`` per axis, then
+    ``curve(clamp(1 - p, 0, 1))``. A gradient with no radius draws nothing.
+    """
+    if radius_x <= 0.0 or radius_y <= 0.0:
+        return np.zeros((height, width), dtype=np.float64)
+    xs, ys = _pixel_centres(width, height)
+    qx = (xs - centre_x) / radius_x
+    qy = (ys - centre_y) / radius_y
+    p = np.sqrt(qx * qx + qy * qy)
+    x = np.minimum(np.maximum(1.0 - p, 0.0), 1.0)
+    return apply_falloff(x, curve)
+
+
+@dataclass(frozen=True)
+class AnalyticShape:
+    """One analytic mask in SOURCE units, ready to rasterise through a raster mapping.
+
+    ``kind`` is ``linear``, ``band`` or ``gradient``. Linear and band read ``origin_*``,
+    ``angle``, ``softness`` (and band ``band_width``) plus the edge fields; a gradient reads
+    ``gradient_shape``, ``start_*``, ``end_*`` and ``curve``.
+    """
+
+    kind: str
+    origin_x: float = 0.0
+    origin_y: float = 0.0
+    angle: float = 0.0
+    band_width: float = 0.0
+    softness: float = 0.0
+    expansion: float = 0.0
+    feather_inner: float = 0.0
+    feather_outer: float = 0.0
+    falloff: str = "smooth"
+    gradient_shape: str = "linear"
+    start_x: float = 0.0
+    start_y: float = 0.0
+    end_x: float = 0.0
+    end_y: float = 0.0
+    curve: str = "linear"
+
+
+def analytic_alpha(
+    shape: AnalyticShape,
+    width: int,
+    height: int,
+    *,
+    scale_x: float,
+    scale_y: float,
+    offset_x: float,
+    offset_y: float,
+    distance_scale: float,
+) -> FloatArray:
+    """An analytic mask's alpha (before invert and opacity) on a ``width`` x ``height`` raster."""
+    if width <= 0 or height <= 0:
+        return np.zeros((max(height, 0), max(width, 0)), dtype=np.float64)
+    if shape.kind == "gradient":
+        sx = shape.start_x * scale_x + offset_x
+        sy = shape.start_y * scale_y + offset_y
+        if shape.gradient_shape == "radial":
+            ddx = shape.end_x - shape.start_x
+            ddy = shape.end_y - shape.start_y
+            radius = math.sqrt(ddx * ddx + ddy * ddy)
+            return radial_gradient_alpha(
+                width, height, sx, sy, radius * scale_x, radius * scale_y, shape.curve
+            )
+        ex = shape.end_x * scale_x + offset_x
+        ey = shape.end_y * scale_y + offset_y
+        return linear_gradient_alpha(width, height, sx, sy, ex, ey, shape.curve)
+    edge = analytic_edge(
+        distance_scale,
+        expansion=shape.expansion,
+        feather_inner=shape.feather_inner,
+        feather_outer=shape.feather_outer,
+        softness=shape.softness,
+        falloff=shape.falloff,
+    )
+    ox = shape.origin_x * scale_x + offset_x
+    oy = shape.origin_y * scale_y + offset_y
+    normal = raster_line_normal(shape.angle, scale_x, scale_y)
+    if shape.kind == "linear":
+        return linear_alpha(width, height, ox, oy, normal, edge)
+    if shape.kind == "band":
+        half_width = max(shape.band_width, 0.0) * distance_scale * 0.5
+        return band_alpha(width, height, ox, oy, normal, half_width, edge)
+    raise MaskRasterError(
+        "A mask uses an analytic kind this renderer does not know. Update FramePilot."
+    )

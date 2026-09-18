@@ -29,7 +29,9 @@ from typing import Any
 
 from framepilot_engine.render.mask_raster import FloatArray
 from framepilot_engine.render.mask_stack import (
+    ANALYTIC_KINDS,
     MaskStackRefusal,
+    assert_analytic_drawable,
     path_keyframe_at,
     stack_alpha,
 )
@@ -41,10 +43,7 @@ _log = logging.getLogger(__name__)
 #: adjustment lane has no source, so there is nothing to read it against.
 _KIND_REFUSALS = {
     "key": "colour key masks render once the key renderer ships",
-    "linear": "split masks render once the analytic mask renderer ships",
-    "band": "band masks render once the analytic mask renderer ships",
-    "gradient": "gradient masks render once the analytic mask renderer ships",
-    "layer": "track matte masks render once the layer mask renderer ships",
+    "layer": "a track matte reads another clip's picture, which an adjustment lane cannot",
     "matte": "an AI matte belongs to a clip's own picture, not to an adjustment lane",
 }
 
@@ -80,6 +79,8 @@ def assert_frame_renderable(mask: Any, layer_id: str) -> None:
             "only shapes migrated from older projects have. Switch the mask's feather model to "
             "Distance."
         )
+    if mask.kind in ANALYTIC_KINDS:
+        assert_analytic_drawable(mask, f"effect layer {layer_id!r}")
     if mask.kind == "path":
         # Raises when the path keyframes disagree about how many vertices they have.
         path_keyframe_at(mask, mask.path_keyframes[0].source_time if mask.path_keyframes else 0.0)

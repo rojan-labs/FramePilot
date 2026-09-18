@@ -121,6 +121,10 @@ export {
   Circle,
   PenTool,
   GripVertical,
+  // Analytic mask tools (MK8.1): split, mirror band, gradient.
+  SquareSplitHorizontal,
+  FlipVertical2,
+  Blend,
 } from 'lucide-react';
 export type { LucideIcon } from 'lucide-react';
 

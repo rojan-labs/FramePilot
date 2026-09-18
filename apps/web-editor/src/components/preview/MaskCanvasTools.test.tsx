@@ -555,3 +555,63 @@ describe('the AI subject tools', () => {
     expect(screen.getByRole('button', { name: 'AI Brush tool' })).toBeTruthy();
   });
 });
+
+describe('analytic mask tools (MK8.1)', () => {
+  it('Split: one drag places the line and commits one mask; its handles then rotate it', () => {
+    mount(timeline());
+    fireEvent.click(screen.getByRole('button', { name: 'Split tool' }));
+    drag([960, 540], [1060, 540]);
+    expect(historyLength()).toBe(1);
+    expect(masks()[0]).toMatchObject({
+      kind: 'linear',
+      originX: 1920,
+      originY: 1080,
+      angle: 0,
+      name: 'Split 1',
+    });
+    expect(store.getState()).toMatchObject({ tool: 'select', selectedMaskId: 'c1__mask' });
+    // The angle handle sits along the line; dragging it straight down turns the split to 90°.
+    const handle = canvas().querySelector('[data-handle="rotate"]')!;
+    const hx = Number(handle.getAttribute('x')) + Number(handle.getAttribute('width')) / 2;
+    const hy = Number(handle.getAttribute('y')) + Number(handle.getAttribute('height')) / 2;
+    drag([hx / 2, hy / 2], [960, 740]);
+    expect(historyLength()).toBe(2);
+    expect(masks()[0]).toMatchObject({ kind: 'linear', angle: 90 });
+    act(() => editor.undo());
+    expect(masks()[0]).toMatchObject({ angle: 0 });
+  });
+
+  it('Mirror and Gradient: a band a quarter of the picture wide, a radial ramp on Alt-drag', () => {
+    mount(timeline());
+    act(() => store.setTool('mirror'));
+    drag([960, 540], [960, 540], {}, 1);
+    expect(masks()[0]).toMatchObject({ kind: 'band', widthPx: 540 });
+    act(() => store.setTool('gradient'));
+    drag([100, 100], [400, 100], { altKey: true });
+    expect(masks()[0]).toMatchObject({
+      kind: 'gradient',
+      shape: 'radial',
+      startX: 200,
+      startY: 200,
+      endX: 800,
+      endY: 200,
+    });
+    act(() => store.setTool('gradient'));
+    click(50, 50);
+    expect(store.getState().message).toMatch(/Drag from where the gradient/);
+    expect(historyLength()).toBe(2);
+  });
+
+  it('dragging a split line moves it; arrows nudge it; Delete removes it', () => {
+    mount(
+      timeline([{ kind: 'linear', id: 'c1__mask', originX: 1920, originY: 1080, angle: 0 }]),
+    );
+    act(() => store.selectMask('c1__mask'));
+    drag([700, 540], [700, 600]);
+    expect(masks()[0]).toMatchObject({ originX: 1920, originY: 1200 });
+    fireEvent.keyDown(canvas(), { key: 'ArrowRight' });
+    expect(masks()[0]).toMatchObject({ originX: 1921 });
+    fireEvent.keyDown(canvas(), { key: 'Delete' });
+    expect(masks()).toHaveLength(0);
+  });
+});

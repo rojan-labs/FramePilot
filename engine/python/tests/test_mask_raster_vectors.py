@@ -266,3 +266,174 @@ def measure_distance_errors() -> dict[str, float]:
 def test_distance_feather_matches_the_analytic_reference_in_the_band() -> None:
     errors = measure_distance_errors()
     assert all(value <= _GATE for value in errors.values()), errors
+
+
+# --- Analytic kinds (MK8.1) ---------------------------------------------------------------
+
+
+def _hard_analytic_layers() -> list[tuple[str, dict[str, Any]]]:
+    """Single-layer split and band vector cases whose edge is hard (exact coverage applies)."""
+    picked = []
+    for case in vectors.CASES["analytic"]:
+        if len(case["layers"]) != 1:
+            continue
+        layer = case["layers"][0]
+        shape = layer["shape"]
+        soft = (
+            shape.get("softnessPx", 0.0) + layer["featherInnerPx"] + layer["featherOuterPx"]
+        ) != 0
+        if shape["kind"] in ("linear", "band") and not soft:
+            picked.append((case["id"], layer))
+    return picked
+
+
+def _half_planes(layer: dict[str, Any], width: int, height: int) -> list[tuple[float, ...]]:
+    """The kept region of a hard split or band as half-planes ``a x + b y <= c`` (raster px)."""
+    shape = layer["shape"]
+    scale_x = width / vectors.SOURCE[0]
+    scale_y = height / vectors.SOURCE[1]
+    distance = min(scale_x, scale_y)
+    nx, ny = mr.raster_line_normal(shape["angle"], scale_x, scale_y)
+    ox = shape["originX"] * scale_x
+    oy = shape["originY"] * scale_y
+    base = ox * nx + oy * ny
+    expansion = layer["expansionPx"] * distance
+    if shape["kind"] == "linear":
+        return [(nx, ny, base + expansion)]
+    reach = shape["widthPx"] * distance * 0.5 + expansion
+    return [(nx, ny, base + reach), (-nx, -ny, -(base - reach))]
+
+
+def _clipped_square(planes: list[tuple[float, ...]], px: int, py: int) -> float:
+    """Exact area of the unit pixel ``(px, py)`` inside every half-plane (Sutherland-Hodgman)."""
+    points = [(px, py), (px + 1.0, py), (px + 1.0, py + 1.0), (px, py + 1.0)]
+    for a, b, c in planes:
+        clipped: list[tuple[float, float]] = []
+        for index, q in enumerate(points):
+            p = points[index - 1]
+            p_in = a * p[0] + b * p[1] <= c
+            q_in = a * q[0] + b * q[1] <= c
+            if p_in != q_in:
+                fp = a * p[0] + b * p[1] - c
+                fq = a * q[0] + b * q[1] - c
+                t = fp / (fp - fq)
+                clipped.append((p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])))
+            if q_in:
+                clipped.append(q)
+        points = clipped
+        if not points:
+            return 0.0
+    twice = 0.0
+    for index, q in enumerate(points):
+        p = points[index - 1]
+        twice += p[0] * q[1] - q[0] * p[1]
+    return abs(twice) / 2.0
+
+
+def _supersampled_planes(planes: list[tuple[float, ...]], width: int, height: int) -> np.ndarray:
+    """Fraction of a 256 x 256 grid of sample points per pixel inside every half-plane."""
+    n = _SUPERSAMPLE
+    offsets = (np.arange(n, dtype=np.float64) + 0.5) / n
+    counts = np.zeros((height, width), dtype=np.int64)
+    sx = (np.arange(width, dtype=np.float64)[:, None] + offsets[None, :]).reshape(-1)
+    for row in range(height):
+        sy = row + offsets
+        inside = np.ones((n, sx.shape[0]), dtype=np.bool_)
+        for a, b, c in planes:
+            inside &= a * sx[None, :] + b * sy[:, None] <= c
+        counts[row] = inside.reshape(n, width, n).sum(axis=(0, 2))
+    return counts.astype(np.float64) / float(n * n)
+
+
+def measure_analytic_errors() -> dict[str, float]:
+    """Max |hard split/band coverage - exact clipped area| and |.. - 256x256 reference|."""
+    exact_worst = 0.0
+    sampled_worst = 0.0
+    for _case_id, layer in _hard_analytic_layers():
+        for width, height in vectors.RESOLUTIONS:
+            alpha = vectors.layer_float(layer, width, height)
+            planes = _half_planes(layer, width, height)
+            exact = np.array(
+                [
+                    [_clipped_square(planes, col, row) for col in range(width)]
+                    for row in range(height)
+                ]
+            )
+            exact_worst = max(exact_worst, float(np.abs(alpha - exact).max()))
+            sampled = _supersampled_planes(planes, width, height)
+            sampled_worst = max(sampled_worst, float(np.abs(alpha - sampled).max()))
+    return {"exact": exact_worst, "supersampled": sampled_worst}
+
+
+def test_hard_split_and_band_coverage_is_exact_area() -> None:
+    assert len(_hard_analytic_layers()) >= 8
+    errors = measure_analytic_errors()
+    assert errors["exact"] <= 1e-9, errors
+    assert errors["supersampled"] <= _GATE, errors
+
+
+def test_soft_split_matches_the_analytic_distance_feather() -> None:
+    width, height = 120, 90
+    ys, xs = np.mgrid[0:height, 0:width].astype(np.float64) + 0.5
+    for angle, inner, outer, softness, falloff in (
+        (0.0, 0.0, 9.0, 0.0, "linear"),
+        (30.0, 4.0, 6.0, 5.0, "smooth"),
+        (-120.0, 7.5, 0.0, 2.0, "gaussian"),
+    ):
+        alpha = mr.analytic_alpha(
+            mr.AnalyticShape(
+                kind="linear",
+                origin_x=60.2,
+                origin_y=44.9,
+                angle=angle,
+                softness=softness,
+                feather_inner=inner,
+                feather_outer=outer,
+                falloff=falloff,
+            ),
+            width,
+            height,
+            scale_x=1.0,
+            scale_y=1.0,
+            offset_x=0.0,
+            offset_y=0.0,
+            distance_scale=1.0,
+        )
+        radians = math.radians(angle)
+        signed = (xs - 60.2) * -math.sin(radians) + (ys - 44.9) * math.cos(radians)
+        w_i = inner + softness / 2
+        w_o = outer + softness / 2
+        analytic = _falloff((w_o - signed) / (w_i + w_o), falloff)
+        assert float(np.abs(alpha - analytic).max()) <= _GATE, (angle, falloff)
+
+
+def test_gradients_ramp_from_start_to_end() -> None:
+    def draw(shape: str, curve: str = "linear") -> np.ndarray:
+        return mr.analytic_alpha(
+            mr.AnalyticShape(
+                kind="gradient",
+                gradient_shape=shape,
+                start_x=10.0,
+                start_y=0.0,
+                end_x=90.0,
+                end_y=0.0,
+                curve=curve,
+            ),
+            100,
+            4,
+            scale_x=1.0,
+            scale_y=1.0,
+            offset_x=0.0,
+            offset_y=0.0,
+            distance_scale=1.0,
+        )
+
+    linear = draw("linear")
+    assert linear[0, 5] == 1.0 and linear[0, 95] == 0.0
+    assert linear[0, 49] == pytest.approx(1.0 - (49.5 - 10.0) / 80.0)
+    radial = draw("radial")
+    assert radial[0, 10] == pytest.approx(1.0 - math.hypot(0.5, 0.5) / 80.0)
+    assert radial[0, 99] == pytest.approx(0.0)
+    smooth = draw("linear", "smooth")
+    x = 1.0 - (49.5 - 10.0) / 80.0
+    assert smooth[0, 49] == pytest.approx(x * x * (3 - 2 * x))

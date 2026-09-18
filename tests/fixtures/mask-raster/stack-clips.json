@@ -6226,6 +6226,208 @@
      "effect:grade1": "d8881fd416ac5a7703bc0800ea38a3fa9c41e79dfb1fd5a9e56a8d6ff7bdab0c"
     }
    ]
+  },
+  {
+   "id": "stack/analytic-split-band-cropped",
+   "clip": {
+    "id": "an",
+    "assetId": "port",
+    "trackId": "v1",
+    "start": 0.0,
+    "end": 2.0,
+    "sourceStart": 2.0,
+    "sourceEnd": 4.0,
+    "effects": [],
+    "keyframes": [],
+    "masks": [
+     {
+      "id": "split",
+      "kind": "linear",
+      "originX": 540,
+      "originY": 960,
+      "angle": 20,
+      "softnessPx": 30,
+      "keyframes": [
+       {
+        "id": "a0",
+        "sourceTime": 2.0,
+        "property": "angle",
+        "value": 20,
+        "easing": "ease-in-out"
+       },
+       {
+        "id": "a1",
+        "sourceTime": 3.5,
+        "property": "angle",
+        "value": 160,
+        "easing": "linear"
+       }
+      ]
+     },
+     {
+      "id": "strip",
+      "kind": "band",
+      "mode": "subtract",
+      "originX": 540,
+      "originY": 1100,
+      "angle": -8,
+      "widthPx": 180,
+      "opacity": 0.8
+     }
+    ],
+    "crop": {
+     "x": 0.1,
+     "y": 0.05,
+     "width": 0.8,
+     "height": 0.7
+    },
+    "speed": 1.5
+   },
+   "media": {
+    "width": 1080,
+    "height": 1920
+   },
+   "sizes": [
+    [
+     324,
+     538
+    ],
+    [
+     81,
+     134
+    ]
+   ],
+   "times": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "expected": [
+    {
+     "width": 324,
+     "height": 538,
+     "time": 0.0,
+     "alpha": "8ed660192c6cea223ea276e16d0ed94b909cab3310e65dada2aff4d2d1ea2be3"
+    },
+    {
+     "width": 324,
+     "height": 538,
+     "time": 0.5,
+     "alpha": "021c3ad19ce291d26b7e8597617566b1b99143893d7c67e861edd1dd90edbdcd"
+    },
+    {
+     "width": 324,
+     "height": 538,
+     "time": 1.0,
+     "alpha": "bf83ffa2844d9ea4cd39a29e4f1cbc469f525620a4c8b9847e3f9922f9212d87"
+    },
+    {
+     "width": 81,
+     "height": 134,
+     "time": 0.0,
+     "alpha": "020bff53d8a2fd3aa5837fca68b9bdb88b998bb924cb169afcd9d865ee9be2e5"
+    },
+    {
+     "width": 81,
+     "height": 134,
+     "time": 0.5,
+     "alpha": "4db4cbc8fe9908a240fe03c34d638463cc6b1e6797ffe66805e8a7aa1378114d"
+    },
+    {
+     "width": 81,
+     "height": 134,
+     "time": 1.0,
+     "alpha": "a65226249d12d096e8b203b85219d4d0f24a29c60468ac7fcdbe7dc6278531ca"
+    }
+   ]
+  },
+  {
+   "id": "stack/analytic-gradient-effect-target",
+   "clip": {
+    "id": "gr",
+    "assetId": "port",
+    "trackId": "v1",
+    "start": 0.0,
+    "end": 2.0,
+    "sourceStart": 2.0,
+    "sourceEnd": 4.0,
+    "effects": [
+     {
+      "id": "grade1",
+      "type": "color_grade",
+      "params": {
+       "exposure": -0.6
+      }
+     }
+    ],
+    "keyframes": [],
+    "masks": [
+     {
+      "id": "sky",
+      "kind": "gradient",
+      "shape": "linear",
+      "target": {
+       "kind": "effect",
+       "effectId": "grade1"
+      },
+      "startX": 540,
+      "startY": 0,
+      "endX": 540,
+      "endY": 900,
+      "curve": "smooth"
+     },
+     {
+      "id": "spot",
+      "kind": "gradient",
+      "shape": "radial",
+      "mode": "lighten",
+      "target": {
+       "kind": "effect",
+       "effectId": "grade1"
+      },
+      "startX": 300,
+      "startY": 1400,
+      "endX": 520,
+      "endY": 1400,
+      "curve": "gaussian",
+      "invert": true,
+      "opacity": 0.5
+     },
+     {
+      "id": "half",
+      "kind": "linear",
+      "originX": 0,
+      "originY": 960,
+      "angle": 90,
+      "expansionPx": -40
+     }
+    ]
+   },
+   "media": {
+    "width": 1080,
+    "height": 1920
+   },
+   "sizes": [
+    [
+     406,
+     720
+    ]
+   ],
+   "times": [
+    0.0
+   ],
+   "effects": [
+    "grade1"
+   ],
+   "expected": [
+    {
+     "width": 406,
+     "height": 720,
+     "time": 0.0,
+     "alpha": "38e91bad2e7d98eff371bf9cf152cb6095a219cc68d1221bf263e9afa5605a54",
+     "effect:grade1": "8504fac08301935a0314b6e7ab941229510e3fca80dee4bc8d18f7f58ba88b44"
+    }
+   ]
   }
  ]
 }

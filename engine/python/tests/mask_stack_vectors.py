@@ -471,6 +471,94 @@ STACK_CASES: list[dict[str, Any]] = [
         "times": [0.0],
         "effects": ["grade1"],
     },
+    {
+        # MK8.1: a keyframed split and a subtracted band through the crop, speed and source
+        # clock, the analytic kinds' mapping onto a cropped decode.
+        "id": "stack/analytic-split-band-cropped",
+        "clip": _clip(
+            "an",
+            [
+                _mask(
+                    id="split",
+                    kind="linear",
+                    originX=540,
+                    originY=960,
+                    angle=20,
+                    softnessPx=30,
+                    keyframes=[
+                        {
+                            "id": "a0",
+                            "sourceTime": 2.0,
+                            "property": "angle",
+                            "value": 20,
+                            "easing": "ease-in-out",
+                        },
+                        {
+                            "id": "a1",
+                            "sourceTime": 3.5,
+                            "property": "angle",
+                            "value": 160,
+                            "easing": "linear",
+                        },
+                    ],
+                ),
+                _mask(
+                    id="strip",
+                    kind="band",
+                    mode="subtract",
+                    originX=540,
+                    originY=1100,
+                    angle=-8,
+                    widthPx=180,
+                    opacity=0.8,
+                ),
+            ],
+            crop={"x": 0.1, "y": 0.05, "width": 0.8, "height": 0.7},
+            speed=1.5,
+        ),
+        "media": _PORT,
+        "sizes": [[324, 538], [81, 134]],
+        "times": [0.0, 0.5, 1.0],
+    },
+    {
+        "id": "stack/analytic-gradient-effect-target",
+        "clip": _clip(
+            "gr",
+            [
+                _mask(
+                    id="sky",
+                    kind="gradient",
+                    shape="linear",
+                    target={"kind": "effect", "effectId": "grade1"},
+                    startX=540,
+                    startY=0,
+                    endX=540,
+                    endY=900,
+                    curve="smooth",
+                ),
+                _mask(
+                    id="spot",
+                    kind="gradient",
+                    shape="radial",
+                    mode="lighten",
+                    target={"kind": "effect", "effectId": "grade1"},
+                    startX=300,
+                    startY=1400,
+                    endX=520,
+                    endY=1400,
+                    curve="gaussian",
+                    invert=True,
+                    opacity=0.5,
+                ),
+                _mask(id="half", kind="linear", originX=0, originY=960, angle=90, expansionPx=-40),
+            ],
+            effects=[{"id": "grade1", "type": "color_grade", "params": {"exposure": -0.6}}],
+        ),
+        "media": _PORT,
+        "sizes": [[406, 720]],
+        "times": [0.0],
+        "effects": ["grade1"],
+    },
 ]
 
 
@@ -865,6 +953,46 @@ _FRAME_LAYER_CASES: list[dict[str, Any]] = [
         },
         "sizes": [[256, 144]],
         "times": [0.0, 0.5, 1.0, 2.0],
+    },
+    {
+        # MK8.1: a vignette-style radial gradient intersected with a split, on the frame.
+        "id": "frame-analytic",
+        "layer": {
+            "id": "fx-analytic",
+            "effectId": "soft-veil",
+            "kind": "blur-gaussian",
+            "start": 0.0,
+            "end": 2.0,
+            "params": {},
+            "keyframes": [],
+            "masks": [
+                _mask(
+                    id="m1",
+                    kind="gradient",
+                    space="frame",
+                    shape="radial",
+                    startX=128.0,
+                    startY=72.0,
+                    endX=250.0,
+                    endY=72.0,
+                    curve="smooth",
+                    invert=True,
+                ),
+                _mask(
+                    id="m2",
+                    kind="linear",
+                    space="frame",
+                    mode="intersect",
+                    originX=0.0,
+                    originY=40.0,
+                    angle=0.0,
+                    softnessPx=24.0,
+                    invert=True,
+                ),
+            ],
+        },
+        "sizes": [[256, 144], [128, 72]],
+        "times": [0.0],
     },
 ]
 

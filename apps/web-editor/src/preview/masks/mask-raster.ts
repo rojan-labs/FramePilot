@@ -1063,3 +1063,211 @@ export function stackAlpha(
   }
   return accumulated;
 }
+
+// --- Analytic kinds: split, band, gradient (MK8.1) --------------------------------------------
+//
+// The twin of the engine's analytic section (`mask_raster.py`): a split, a mirror band and a
+// gradient are a distance to a line or a centre, evaluated per pixel centre with the same
+// expressions in the same order. A hard edge is the EXACT covered area of the pixel square on the
+// kept side of a straight line (`footprintCdf`); a soft one reuses the shapes' distance feather.
+
+/** `_footprint_cdf`: fraction of a unit pixel whose projection onto a unit normal is below `x`. */
+function footprintCdf(x: number, u: number, v: number): number {
+  const half = (u + v) * 0.5;
+  if (x <= -half) return 0.0;
+  if (x >= half) return 1.0;
+  const middle = 0.5 + x / v;
+  if (u === 0.0) return middle;
+  const lo = (v - u) * 0.5;
+  const twoUV = 2.0 * u * v;
+  if (x < -lo) {
+    const below = x + half;
+    return (below * below) / twoUV;
+  }
+  if (x > lo) {
+    const above = half - x;
+    return 1.0 - (above * above) / twoUV;
+  }
+  return middle;
+}
+
+/** `raster_line_normal`: the unit normal in raster px of a line at `angle` degrees (clockwise). */
+export function rasterLineNormal(
+  angle: number,
+  scaleX: number,
+  scaleY: number,
+): readonly [number, number] {
+  const [cosA, sinA] = cosSin(angle);
+  const nx = -sinA * scaleY;
+  const ny = cosA * scaleX;
+  const length = Math.sqrt(nx * nx + ny * ny);
+  if (length === 0.0) return [0.0, 0.0];
+  return [nx / length, ny / length];
+}
+
+/** `AnalyticEdge`: a straight edge's expansion and feathers in raster px. */
+interface AnalyticEdge {
+  readonly expansion: number;
+  readonly featherInner: number;
+  readonly featherOuter: number;
+  readonly falloff: MaskFalloff;
+}
+
+/** `analytic_edge`: softness / 2 joins each feather side; widths clamp at zero. */
+function analyticEdge(
+  distanceScale: number,
+  expansion: number,
+  featherInner: number,
+  featherOuter: number,
+  softness: number,
+  falloff: MaskFalloff,
+): AnalyticEdge {
+  const halfSoft = Math.max(softness, 0.0) * 0.5;
+  return {
+    expansion: expansion * distanceScale,
+    featherInner: (Math.max(featherInner, 0.0) + halfSoft) * distanceScale,
+    featherOuter: (Math.max(featherOuter, 0.0) + halfSoft) * distanceScale,
+    falloff,
+  };
+}
+
+/** `_soft_edge_alpha` for one signed distance. */
+function softEdge(signed: number, edge: AnalyticEdge, table: Float64Array): number {
+  const denominator = edge.featherInner + edge.featherOuter;
+  let x = (edge.featherOuter - signed) / denominator;
+  x = Math.min(Math.max(x, 0.0), 1.0);
+  return applyFalloff(x, edge.falloff, table);
+}
+
+/** One analytic mask in SOURCE units (`AnalyticShape`). */
+export type AnalyticShape =
+  | {
+      readonly kind: 'linear' | 'band';
+      readonly originX: number;
+      readonly originY: number;
+      readonly angle: number;
+      /** Band only (`widthPx`); ignored by a split. */
+      readonly bandWidth: number;
+      readonly softness: number;
+      readonly expansion: number;
+      readonly featherInner: number;
+      readonly featherOuter: number;
+      readonly falloff: MaskFalloff;
+    }
+  | {
+      readonly kind: 'gradient';
+      readonly shape: 'linear' | 'radial';
+      readonly startX: number;
+      readonly startY: number;
+      readonly endX: number;
+      readonly endY: number;
+      readonly curve: MaskFalloff;
+    };
+
+/** Source → raster mapping for an analytic mask (`RasterFrame`). */
+export interface AnalyticMapping {
+  readonly scaleX: number;
+  readonly scaleY: number;
+  readonly offsetX: number;
+  readonly offsetY: number;
+  readonly distanceScale: number;
+}
+
+function gradientAlpha(
+  shape: Extract<AnalyticShape, { kind: 'gradient' }>,
+  width: number,
+  height: number,
+  map: AnalyticMapping,
+): Float64Array {
+  const alpha = new Float64Array(width * height);
+  const table = shape.curve === 'gaussian' ? gaussianFalloffTable() : new Float64Array(0);
+  const sx = shape.startX * map.scaleX + map.offsetX;
+  const sy = shape.startY * map.scaleY + map.offsetY;
+  if (shape.shape === 'radial') {
+    const ddx = shape.endX - shape.startX;
+    const ddy = shape.endY - shape.startY;
+    const radius = Math.sqrt(ddx * ddx + ddy * ddy);
+    const radiusX = radius * map.scaleX;
+    const radiusY = radius * map.scaleY;
+    if (radiusX <= 0.0 || radiusY <= 0.0) return alpha;
+    for (let row = 0; row < height; row += 1) {
+      const qy = (row + 0.5 - sy) / radiusY;
+      for (let col = 0; col < width; col += 1) {
+        const qx = (col + 0.5 - sx) / radiusX;
+        const p = Math.sqrt(qx * qx + qy * qy);
+        const x = Math.min(Math.max(1.0 - p, 0.0), 1.0);
+        alpha[row * width + col] = applyFalloff(x, shape.curve, table);
+      }
+    }
+    return alpha;
+  }
+  const ex = shape.endX * map.scaleX + map.offsetX;
+  const ey = shape.endY * map.scaleY + map.offsetY;
+  const dx = ex - sx;
+  const dy = ey - sy;
+  const length2 = dx * dx + dy * dy;
+  if (length2 === 0.0) return alpha;
+  for (let row = 0; row < height; row += 1) {
+    const along = (row + 0.5 - sy) * dy;
+    for (let col = 0; col < width; col += 1) {
+      const p = ((col + 0.5 - sx) * dx + along) / length2;
+      const x = Math.min(Math.max(1.0 - p, 0.0), 1.0);
+      alpha[row * width + col] = applyFalloff(x, shape.curve, table);
+    }
+  }
+  return alpha;
+}
+
+/**
+ * `analytic_alpha`: a split, band or gradient's alpha (before invert and opacity) on a
+ * `width`×`height` raster. The engine evaluates `(xs - ox) * nx + (ys - oy) * ny` per pixel; the
+ * row term is hoisted here, which is the same two products and one sum in the same order.
+ */
+export function analyticAlpha(
+  shape: AnalyticShape,
+  width: number,
+  height: number,
+  map: AnalyticMapping,
+): Float64Array {
+  if (width <= 0 || height <= 0) return new Float64Array(0);
+  if (shape.kind === 'gradient') return gradientAlpha(shape, width, height, map);
+  const alpha = new Float64Array(width * height);
+  const edge = analyticEdge(
+    map.distanceScale,
+    shape.expansion,
+    shape.featherInner,
+    shape.featherOuter,
+    shape.softness,
+    shape.falloff,
+  );
+  const ox = shape.originX * map.scaleX + map.offsetX;
+  const oy = shape.originY * map.scaleY + map.offsetY;
+  const [nx, ny] = rasterLineNormal(shape.angle, map.scaleX, map.scaleY);
+  if (nx === 0.0 && ny === 0.0) return alpha;
+  const hard = edge.featherInner + edge.featherOuter === 0.0;
+  const u = Math.min(Math.abs(nx), Math.abs(ny));
+  const v = Math.max(Math.abs(nx), Math.abs(ny));
+  const table = !hard && edge.falloff === 'gaussian' ? gaussianFalloffTable() : new Float64Array(0);
+  const band = shape.kind === 'band';
+  const halfWidth = Math.max(shape.bandWidth, 0.0) * map.distanceScale * 0.5;
+  const reach = halfWidth + edge.expansion;
+  if (band && hard && reach <= 0.0) return alpha;
+  for (let row = 0; row < height; row += 1) {
+    const rowTerm = (row + 0.5 - oy) * ny;
+    for (let col = 0; col < width; col += 1) {
+      const t = (col + 0.5 - ox) * nx + rowTerm;
+      let value: number;
+      if (!band) {
+        value = hard
+          ? footprintCdf(edge.expansion - t, u, v)
+          : softEdge(t - edge.expansion, edge, table);
+      } else if (hard) {
+        value = footprintCdf(reach - t, u, v) - footprintCdf(-reach - t, u, v);
+      } else {
+        value = softEdge(Math.abs(t) - halfWidth - edge.expansion, edge, table);
+      }
+      alpha[row * width + col] = value;
+    }
+  }
+  return alpha;
+}

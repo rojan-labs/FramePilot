@@ -51,6 +51,7 @@ import {
   transformVertices,
   verticesBounds,
   verticesInRect,
+  type AnalyticMaskGeometry,
   type MaskGeometry,
   type MaskPathVertex,
   type PixelPoint,
@@ -75,7 +76,10 @@ import {
 } from '../inspector/masks/useMaskTools.js';
 import {
   Ban,
+  Blend,
   Circle,
+  FlipVertical2,
+  SquareSplitHorizontal,
   Diamond,
   ICON_SIZE,
   Magnet,
@@ -109,6 +113,18 @@ import {
 import { keySampleChanges, sampleCanvasColour } from '../../preview/masks/eyedropper.js';
 import { affineAttribute, applyAffine, monitorPictureSpace } from './mask-monitor-space.js';
 import { maskToolTelemetry } from './mask-tool-telemetry.js';
+import {
+  analyticDrawGeometry,
+  analyticGuides,
+  analyticHandlePoints,
+  analyticValuesAt,
+  dragAnalyticHandle,
+  hitsAnalyticMask,
+  isAnalyticLayer,
+  type AnalyticHandle,
+  type AnalyticMaskLayer,
+  type AnalyticValues,
+} from './analytic-mask-handles.js';
 
 /** Handle sizes and hit radii, screen pixels. */
 const VERTEX_HANDLE_PX = 7;
@@ -133,6 +149,9 @@ const TOOL_KEYS: Readonly<Record<string, MaskTool>> = {
   e: 'ellipse',
   p: 'pen',
   f: 'freehand',
+  s: 'split',
+  m: 'mirror',
+  g: 'gradient',
   o: 'ai-object',
   b: 'ai-brush',
 };
@@ -147,6 +166,10 @@ const TOOLS: readonly { readonly tool: MaskTool; readonly label: string; readonl
     { tool: 'ellipse', label: 'Ellipse tool', key: 'E' },
     { tool: 'pen', label: 'Pen tool', key: 'P' },
     { tool: 'freehand', label: 'Freehand tool', key: 'F' },
+    // Analytic masks (MK8.1): one drag places the line (split, mirror) or the ramp (gradient).
+    { tool: 'split', label: 'Split tool', key: 'S' },
+    { tool: 'mirror', label: 'Mirror band tool', key: 'M' },
+    { tool: 'gradient', label: 'Gradient tool (Alt-drag for radial)', key: 'G' },
     // Subject hints (BR6.3): they say which subject the next background removal keeps.
     { tool: 'ai-object', label: 'AI Object tool', key: 'O' },
     { tool: 'ai-brush', label: 'AI Brush tool', key: 'B' },
@@ -161,6 +184,9 @@ const TOOL_ICONS = {
   ellipse: Circle,
   pen: PenTool,
   freehand: Pencil,
+  split: SquareSplitHorizontal,
+  mirror: FlipVertical2,
+  gradient: Blend,
   'feature-point': Diamond,
   exclude: Ban,
   'ai-object': Sparkles,
@@ -236,6 +262,27 @@ type Gesture =
       readonly start: PixelPoint;
       current: PixelPoint;
     }
+  | {
+      /** Placing a split, mirror band or gradient with its tool (MK8.1). */
+      readonly kind: 'draw-analytic';
+      readonly pointerId: number;
+      readonly tool: 'split' | 'mirror' | 'gradient';
+      readonly start: PixelPoint;
+      current: PixelPoint;
+      readonly radial: boolean;
+    }
+  | {
+      /** Dragging a handle of a split, mirror band or gradient (MK8.1). */
+      readonly kind: 'analytic';
+      readonly maskId: string;
+      readonly maskKind: AnalyticMaskLayer['kind'];
+      readonly pointerId: number;
+      readonly handle: AnalyticHandle;
+      readonly start: PixelPoint;
+      readonly startClient: PixelPoint;
+      readonly base: AnalyticValues;
+      latest: Record<string, number> | null;
+    }
   | { readonly kind: 'freehand'; readonly pointerId: number; readonly samples: PixelPoint[] }
   | {
       readonly kind: 'correction-brush';
@@ -267,6 +314,8 @@ interface Draft {
     readonly height: number;
   };
   readonly stroke?: readonly PixelPoint[];
+  /** A split, mirror band or gradient being placed. */
+  readonly analytic?: AnalyticMaskGeometry | null;
   readonly guideX?: number | null;
   readonly guideY?: number | null;
 }
@@ -345,6 +394,14 @@ export function MaskCanvasTools({
     [timeline, assets, playhead, resolution, clip.id],
   );
   const masks = useMemo(() => editableMasks(clip), [clip]);
+  // Splits, mirror bands and gradients (MK8.1): edited by their own handles, not a box.
+  const analyticLayers = useMemo(
+    () =>
+      masksOf(clip).filter(
+        (mask): mask is AnalyticMaskLayer => isAnalyticLayer(mask) && mask.units !== 'normalized',
+      ),
+    [clip],
+  );
   const selectedMask = masks.find((mask) => mask.id === tools.selectedMaskId) ?? null;
   // The selected mask WHATEVER its kind: `masks` holds only the kinds the hand tools draw, and
   // the eyedropper edits a key, which they do not.
@@ -354,8 +411,8 @@ export function MaskCanvasTools({
   // Keep a selection on this clip: the first editable mask when the selection is elsewhere.
   useEffect(() => {
     const onClip = masksOf(clip).some((mask) => mask.id === tools.selectedMaskId);
-    if (!onClip) store.selectMask(masks[0]?.id ?? null);
-  }, [clip, masks, store, tools.selectedMaskId]);
+    if (!onClip) store.selectMask(masks[0]?.id ?? analyticLayers[0]?.id ?? null);
+  }, [clip, masks, analyticLayers, store, tools.selectedMaskId]);
 
   // Screen pixels per project-frame pixel: handles are sized in screen pixels.
   useLayoutEffect(() => {
@@ -447,7 +504,7 @@ export function MaskCanvasTools({
    * The pending target is consumed on success only: a refused draw leaves the effect row's
    * request armed, so the editor can simply draw a bigger shape and still get the effect mask.
    */
-  const drawMask = (geometry: MaskGeometry): boolean => {
+  const drawMask = (geometry: MaskGeometry | AnalyticMaskGeometry): boolean => {
     const target = tools.pendingTarget;
     const drawn = run({
       type: 'draw_mask',
@@ -510,6 +567,79 @@ export function MaskCanvasTools({
 
   const setLive = (maskId: string, geometry: MaskGeometry): void => {
     store.update({ live: { clipId: clip.id, maskId, geometry } });
+  };
+
+  // --- Analytic masks (MK8.1) ------------------------------------------------------------------
+
+  /** An analytic mask's values at the playhead, with an uncommitted drag laid over them. */
+  const analyticValues = (mask: AnalyticMaskLayer): AnalyticValues => {
+    const live = tools.liveScalars;
+    return analyticValuesAt(
+      mask,
+      sourceTime,
+      live !== null && live.clipId === clip.id && live.maskId === mask.id ? live.values : null,
+    );
+  };
+
+  /** Half-length of a guide line: the picture's diagonal crosses the whole picture at any angle. */
+  const guideReach = Math.hypot(space.sourceWidth, space.sourceHeight) * 2;
+
+  /**
+   * Start dragging a split, band or gradient handle (or its line) under the pointer: the selected
+   * one's handles first, then any analytic mask's line, which selects it. `true` when one was hit.
+   */
+  const beginAnalytic = (event: React.PointerEvent<SVGSVGElement>, point: PixelPoint): boolean => {
+    const tolerance = px(HIT_RADIUS_PX);
+    const client = { x: event.clientX, y: event.clientY };
+    const start = (mask: AnalyticMaskLayer, handle: AnalyticHandle): void => {
+      gesture.current = {
+        kind: 'analytic',
+        maskId: mask.id,
+        maskKind: mask.kind,
+        pointerId: event.pointerId,
+        handle,
+        start: point,
+        startClient: client,
+        base: analyticValues(mask),
+        latest: null,
+      };
+    };
+    const selected =
+      selectedLayer !== null && isAnalyticLayer(selectedLayer) ? selectedLayer : null;
+    if (selected !== null) {
+      if (selected.locked) {
+        report('This mask is locked. Unlock it in the mask list to edit it.');
+        return true;
+      }
+      const values = analyticValues(selected);
+      for (const { handle, point: at } of analyticHandlePoints(
+        selected.kind,
+        values,
+        px(ROTATE_STALK_PX * 3),
+      )) {
+        if (Math.hypot(at.x - point.x, at.y - point.y) <= tolerance) {
+          start(selected, handle);
+          return true;
+        }
+      }
+      if (hitsAnalyticMask(selected.kind, values, point, tolerance, guideReach)) {
+        start(selected, 'body');
+        return true;
+      }
+    }
+    for (const mask of analyticLayers) {
+      if (mask.id === selected?.id) continue;
+      if (!hitsAnalyticMask(mask.kind, analyticValues(mask), point, tolerance, guideReach))
+        continue;
+      store.selectMask(mask.id);
+      if (mask.locked) {
+        report('This mask is locked. Unlock it in the mask list to edit it.');
+        return true;
+      }
+      start(mask, 'body');
+      return true;
+    }
+    return false;
   };
 
   // --- Transform boxes -----------------------------------------------------------------------
@@ -575,6 +705,7 @@ export function MaskCanvasTools({
   };
 
   const beginSelect = (event: React.PointerEvent<SVGSVGElement>, point: PixelPoint): void => {
+    if (beginAnalytic(event, point)) return;
     const tolerance = px(HIT_RADIUS_PX);
     const client = { x: event.clientX, y: event.clientY };
     const base = (mask: MaskLayer): MaskGeometry | null => geometryOf(mask);
@@ -875,6 +1006,20 @@ export function MaskCanvasTools({
         gesture.current = { kind: 'freehand', pointerId: event.pointerId, samples: [point] };
         setDraft({ stroke: [point] });
         return;
+      case 'split':
+      case 'mirror':
+      case 'gradient': {
+        const start = snapped(point, { altKey: false }, null).point;
+        gesture.current = {
+          kind: 'draw-analytic',
+          pointerId: event.pointerId,
+          tool: tools.tool,
+          start,
+          current: start,
+          radial: event.altKey,
+        };
+        return;
+      }
       case 'pen':
         addPenPoint(point, event);
         gesture.current = { kind: 'pen-drag', pointerId: event.pointerId, index: penPoints.length };
@@ -976,6 +1121,45 @@ export function MaskCanvasTools({
             maskId: active.maskId,
             values: { [active.property]: value },
           },
+        });
+        return;
+      }
+      case 'analytic': {
+        const moved = Math.hypot(
+          event.clientX - active.startClient.x,
+          event.clientY - active.startClient.y,
+        );
+        if (active.latest === null && moved < CLICK_SLOP_PX) return;
+        // Positions snap like any mask point; an angle, a width or a softness does not.
+        const positional =
+          active.handle === 'origin' ||
+          active.handle === 'start' ||
+          active.handle === 'end' ||
+          active.handle === 'body';
+        const target = positional ? snapped(point, event, active.maskId) : null;
+        const values = dragAnalyticHandle(
+          active.maskKind,
+          active.handle,
+          active.base,
+          active.start,
+          target?.point ?? point,
+          event.shiftKey,
+        );
+        active.latest = values;
+        store.update({ liveScalars: { clipId: clip.id, maskId: active.maskId, values } });
+        setDraft({ guideX: target?.guideX ?? null, guideY: target?.guideY ?? null });
+        return;
+      }
+      case 'draw-analytic': {
+        active.current = point;
+        setDraft({
+          analytic: analyticDrawGeometry(
+            active.tool,
+            active.start,
+            point,
+            { width: space.sourceWidth, height: space.sourceHeight },
+            { constrain: event.shiftKey, radial: active.radial },
+          ),
         });
         return;
       }
@@ -1225,6 +1409,44 @@ export function MaskCanvasTools({
         });
         return;
       }
+      case 'analytic': {
+        store.update({ liveScalars: null });
+        if (active.latest === null) return;
+        run({
+          type: 'set_mask_properties',
+          clipId: clip.id,
+          maskId: active.maskId,
+          sourceTime,
+          changes: active.latest,
+          allKeyframes: tools.allKeyframes,
+        });
+        return;
+      }
+      case 'draw-analytic': {
+        const geometry = analyticDrawGeometry(
+          active.tool,
+          active.start,
+          active.current,
+          { width: space.sourceWidth, height: space.sourceHeight },
+          { constrain: event.shiftKey, radial: active.radial },
+        );
+        if (geometry === null) {
+          report('Drag from where the gradient is opaque to where it is clear.');
+          return;
+        }
+        const id = nextMaskId(clip);
+        if (drawMask(geometry)) {
+          store.update({ selectedMaskId: id, selectedVertices: [], tool: 'select' });
+          setAnnouncement(
+            active.tool === 'split'
+              ? 'Split mask added'
+              : active.tool === 'mirror'
+                ? 'Mirror band mask added'
+                : 'Gradient mask added',
+          );
+        }
+        return;
+      }
       case 'marquee': {
         if (selectedMask === null || selectedMask.kind !== 'path') return;
         const geometry = geometryOf(selectedMask);
@@ -1341,6 +1563,35 @@ export function MaskCanvasTools({
   // --- Keyboard -------------------------------------------------------------------------------
 
   const nudge = (dx: number, dy: number): void => {
+    if (selectedMask === null && selectedLayer !== null && isAnalyticLayer(selectedLayer)) {
+      if (selectedLayer.locked) {
+        report('This mask is locked. Unlock it in the mask list to edit it.');
+        return;
+      }
+      const values = analyticValues(selectedLayer);
+      const changes =
+        selectedLayer.kind === 'gradient'
+          ? {
+              startX: values.startX! + dx,
+              startY: values.startY! + dy,
+              endX: values.endX! + dx,
+              endY: values.endY! + dy,
+            }
+          : { originX: values.originX! + dx, originY: values.originY! + dy };
+      if (
+        run({
+          type: 'set_mask_properties',
+          clipId: clip.id,
+          maskId: selectedLayer.id,
+          sourceTime,
+          changes,
+          allKeyframes: tools.allKeyframes,
+        })
+      ) {
+        setAnnouncement(`Moved ${String(Math.abs(dx || dy))} px`);
+      }
+      return;
+    }
     if (selectedMask === null) return;
     if (selectedMask.locked) {
       report('This mask is locked. Unlock it in the mask list to edit it.');
@@ -1422,6 +1673,28 @@ export function MaskCanvasTools({
         addSubjectPoint(at, event.shiftKey ? 'exclude' : 'include');
       } else if (tools.tool === 'pen') {
         addPenPoint(at, { shiftKey: false, altKey: true });
+      } else if (tools.tool === 'split' || tools.tool === 'mirror' || tools.tool === 'gradient') {
+        if (boxAnchor === null) {
+          setBoxAnchor(at);
+          setAnnouncement(
+            `Start set at ${describePoint(at)}. Move the crosshair and press Space again.`,
+          );
+        } else {
+          const geometry = analyticDrawGeometry(
+            tools.tool,
+            boxAnchor,
+            at,
+            { width: space.sourceWidth, height: space.sourceHeight },
+            { constrain: false, radial: event.altKey },
+          );
+          setBoxAnchor(null);
+          if (geometry === null)
+            report('Move the crosshair away from the start, then press Space.');
+          else if (drawMask(geometry)) {
+            store.update({ selectedMaskId: nextMaskId(clip), tool: 'select' });
+            setAnnouncement('Mask added');
+          }
+        }
       } else if (tools.tool === 'rectangle' || tools.tool === 'ellipse') {
         if (boxAnchor === null) {
           setBoxAnchor(at);
@@ -1478,6 +1751,13 @@ export function MaskCanvasTools({
       handled();
       if (tools.tool === 'pen' && penPoints.length > 0) {
         setPenPoints((points) => points.slice(0, -1));
+        return;
+      }
+      if (selectedMask === null && selectedLayer !== null && isAnalyticLayer(selectedLayer)) {
+        if (run({ type: 'remove_mask', clipId: clip.id, maskId: selectedLayer.id })) {
+          store.selectMask(null);
+          setAnnouncement('Mask deleted');
+        }
         return;
       }
       if (selectedMask === null) return;
@@ -1692,6 +1972,20 @@ export function MaskCanvasTools({
               />
             );
           })}
+          {analyticLayers.map((mask) => (
+            <AnalyticMaskGuides
+              key={mask.id}
+              mask={mask}
+              values={analyticValues(mask)}
+              selected={mask.id === tools.selectedMaskId}
+              reach={guideReach}
+              strokeWidth={strokeWidth}
+              px={px}
+            />
+          ))}
+          {draft.analytic !== undefined && draft.analytic !== null && (
+            <AnalyticDraft geometry={draft.analytic} reach={guideReach} />
+          )}
           {selectedMask !== null && selectedGeometry !== null && (
             <SelectedMaskHandles
               mask={selectedMask}
@@ -1887,6 +2181,151 @@ export function MaskCanvasTools({
       </p>
       {chromeHost ? createPortal(chrome, chromeHost) : chrome}
     </>
+  );
+}
+
+interface AnalyticMaskGuidesProps {
+  readonly mask: AnalyticMaskLayer;
+  readonly values: AnalyticValues;
+  readonly selected: boolean;
+  readonly reach: number;
+  readonly strokeWidth: number;
+  readonly px: (screen: number) => number;
+}
+
+/**
+ * A split's line, a mirror band's two edges or a gradient's axis (MK8.1), with dashed softness
+ * bounds; the selected mask adds its handles. Handles are round for positions, square for the
+ * angle and the widths, so they read apart without colour.
+ */
+function AnalyticMaskGuides({
+  mask,
+  values,
+  selected,
+  reach,
+  strokeWidth,
+  px,
+}: AnalyticMaskGuidesProps): JSX.Element {
+  const radial = mask.kind === 'gradient' && mask.shape === 'radial';
+  const { lines, circle } = analyticGuides(mask.kind, values, reach, radial);
+  const handles = selected ? analyticHandlePoints(mask.kind, values, px(ROTATE_STALK_PX * 3)) : [];
+  const size = px(BOX_HANDLE_PX);
+  return (
+    <g
+      className="mask-canvas-analytic"
+      data-mask-id={mask.id}
+      data-kind={mask.kind}
+      data-selected={selected || undefined}
+      data-enabled={mask.enabled || undefined}
+    >
+      {lines.map((line, index) => (
+        <line
+          key={`${line.role}-${String(index)}`}
+          className={
+            line.role === 'soft' ? 'mask-canvas-analytic-soft' : 'mask-canvas-analytic-edge'
+          }
+          x1={line.x1}
+          y1={line.y1}
+          x2={line.x2}
+          y2={line.y2}
+          stroke={mask.color}
+          strokeWidth={selected ? strokeWidth * 1.5 : strokeWidth}
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+      {circle !== null && (
+        <circle
+          className="mask-canvas-analytic-edge"
+          cx={circle.cx}
+          cy={circle.cy}
+          r={circle.r}
+          stroke={mask.color}
+          strokeWidth={strokeWidth}
+          vectorEffect="non-scaling-stroke"
+          fill="none"
+        />
+      )}
+      {handles.map(({ handle, point, label }) =>
+        handle === 'rotate' || handle === 'edge-near' || handle === 'edge-far' ? (
+          <rect
+            key={handle}
+            className="mask-canvas-box-handle"
+            data-handle={handle}
+            x={point.x - size / 2}
+            y={point.y - size / 2}
+            width={size}
+            height={size}
+            aria-label={label}
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : (
+          <circle
+            key={handle}
+            className={handle === 'softness' ? 'mask-canvas-knob' : 'mask-canvas-vertex-dot'}
+            data-handle={handle}
+            cx={point.x}
+            cy={point.y}
+            r={size / 2}
+            aria-label={label}
+            vectorEffect="non-scaling-stroke"
+          />
+        ),
+      )}
+    </g>
+  );
+}
+
+/** A split, band or gradient being placed: its guides, dashed. */
+function AnalyticDraft({
+  geometry,
+  reach,
+}: {
+  readonly geometry: AnalyticMaskGeometry;
+  readonly reach: number;
+}): JSX.Element {
+  const values: AnalyticValues =
+    geometry.kind === 'gradient'
+      ? {
+          startX: geometry.startX,
+          startY: geometry.startY,
+          endX: geometry.endX,
+          endY: geometry.endY,
+        }
+      : {
+          originX: geometry.originX,
+          originY: geometry.originY,
+          angle: geometry.angle,
+          softnessPx: geometry.softnessPx,
+          widthPx: geometry.kind === 'band' ? geometry.widthPx : 0,
+        };
+  const { lines, circle } = analyticGuides(
+    geometry.kind,
+    values,
+    reach,
+    geometry.kind === 'gradient' && geometry.shape === 'radial',
+  );
+  return (
+    <g className="mask-canvas-draft" data-testid="mask-analytic-draft">
+      {lines.map((line, index) => (
+        <line
+          key={String(index)}
+          x1={line.x1}
+          y1={line.y1}
+          x2={line.x2}
+          y2={line.y2}
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+      {circle !== null && (
+        <circle
+          cx={circle.cx}
+          cy={circle.cy}
+          r={circle.r}
+          vectorEffect="non-scaling-stroke"
+          fill="none"
+        />
+      )}
+    </g>
   );
 }
 

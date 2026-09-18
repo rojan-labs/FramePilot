@@ -13,7 +13,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   FALLOFF_TABLE_SIZE,
+  analyticAlpha,
+  applyLayerAlpha,
+  combineInto,
   ellipsePath,
+  shapeAlpha,
   flattenPath,
   gaussianFalloffTable,
   pathFromPoints,
@@ -23,6 +27,7 @@ import {
   scaleFeathers,
   stackAlpha,
   toRaster,
+  type AnalyticShape,
   type BezierPath,
   type MaskCombineMode,
   type MaskFalloff,
@@ -31,10 +36,10 @@ import {
 
 const REPO = path.resolve(__dirname, '../../../../..');
 const FIXTURE_DIR = path.join(REPO, 'tests', 'fixtures', 'mask-raster');
-const AREAS = ['coverage', 'feather', 'stack'] as const;
+const AREAS = ['coverage', 'feather', 'analytic', 'stack'] as const;
 
 interface VectorShape {
-  kind: 'rectangle' | 'ellipse' | 'path';
+  kind: 'rectangle' | 'ellipse' | 'path' | 'linear' | 'band' | 'gradient';
   cx: number;
   cy: number;
   width: number;
@@ -46,6 +51,18 @@ interface VectorShape {
   points: number[];
   featherPx?: number[];
   firstVertex?: number;
+  /** Analytic kinds (MK8.1). */
+  originX: number;
+  originY: number;
+  angle: number;
+  widthPx?: number;
+  softnessPx: number;
+  shape: 'linear' | 'radial';
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  curve: MaskFalloff;
 }
 
 interface VectorLayer {
@@ -110,6 +127,62 @@ function rasterLayers(
   }));
 }
 
+const isAnalytic = (shape: VectorShape): boolean =>
+  shape.kind === 'linear' || shape.kind === 'band' || shape.kind === 'gradient';
+
+/** `analytic_shape` of the vector generator. */
+function analyticShape(layer: VectorLayer): AnalyticShape {
+  const shape = layer.shape;
+  if (shape.kind === 'gradient') {
+    return {
+      kind: 'gradient',
+      shape: shape.shape,
+      startX: shape.startX,
+      startY: shape.startY,
+      endX: shape.endX,
+      endY: shape.endY,
+      curve: shape.curve,
+    };
+  }
+  return {
+    kind: shape.kind as 'linear' | 'band',
+    originX: shape.originX,
+    originY: shape.originY,
+    angle: shape.angle,
+    bandWidth: shape.widthPx ?? 0,
+    softness: shape.softnessPx,
+    expansion: layer.expansionPx,
+    featherInner: layer.featherInnerPx,
+    featherOuter: layer.featherOuterPx,
+    falloff: layer.falloff,
+  };
+}
+
+/** `stack_float` of the vector generator: shapes and analytic kinds in one stack. */
+function vectorStack(
+  layers: VectorLayer[],
+  source: [number, number],
+  width: number,
+  height: number,
+): Float64Array {
+  const accumulated = new Float64Array(width * height);
+  const scaleX = width / source[0];
+  const scaleY = height / source[1];
+  for (const layer of layers) {
+    const alpha = isAnalytic(layer.shape)
+      ? analyticAlpha(analyticShape(layer), width, height, {
+          scaleX,
+          scaleY,
+          offsetX: 0.0,
+          offsetY: 0.0,
+          distanceScale: Math.min(scaleX, scaleY),
+        })
+      : shapeAlpha(rasterLayers([layer], source, width, height)[0]!.shape, width, height);
+    combineInto(accumulated, applyLayerAlpha(alpha, layer.invert, layer.opacity), layer.mode);
+  }
+  return accumulated;
+}
+
 function load(area: string): VectorDocument {
   return JSON.parse(readFileSync(path.join(FIXTURE_DIR, `${area}.json`), 'utf8')) as VectorDocument;
 }
@@ -123,8 +196,15 @@ describe('mask-raster vectors (byte-exact vs the engine)', () => {
       for (const vectorCase of document.cases) {
         for (const expected of vectorCase.expected) {
           const { width, height } = expected;
-          const layers = rasterLayers(vectorCase.layers, document.sourceSize, width, height);
-          const actual = quantizeAlpha(stackAlpha(layers, width, height));
+          const actual = vectorCase.layers.some((layer) => isAnalytic(layer.shape))
+            ? quantizeAlpha(vectorStack(vectorCase.layers, document.sourceSize, width, height))
+            : quantizeAlpha(
+                stackAlpha(
+                  rasterLayers(vectorCase.layers, document.sourceSize, width, height),
+                  width,
+                  height,
+                ),
+              );
           const stored = Buffer.from(expected.alpha, 'base64');
           expect(stored.length).toBe(width * height);
           let differing = 0;
@@ -150,7 +230,7 @@ describe('mask-raster vectors (byte-exact vs the engine)', () => {
         cases += 1;
       }
     }
-    expect(cases).toBeGreaterThanOrEqual(36);
+    expect(cases).toBeGreaterThanOrEqual(57);
     expect(checked).toBe(cases * 3);
   });
 });

@@ -40,10 +40,12 @@ import numpy as np
 from framepilot_engine.effects.keyframes import segment_progress
 from framepilot_engine.render.key_mask import key_alpha
 from framepilot_engine.render.mask_raster import (
+    AnalyticShape,
     BezierPath,
     FloatArray,
     MaskRasterError,
     ShapeRaster,
+    analytic_alpha,
     combine,
     ellipse_path,
     flatten_path,
@@ -78,6 +80,8 @@ SHAPE_KINDS = frozenset({"rectangle", "ellipse", "path"})
 RASTER_KINDS = frozenset({"matte"})
 #: Kinds whose alpha is read from the PICTURE rather than from geometry (MK6.1).
 PICTURE_KINDS = frozenset({"key"})
+#: Kinds drawn from a distance to a line or a centre, no path (MK8.1).
+ANALYTIC_KINDS = frozenset({"linear", "band", "gradient"})
 
 #: A matte layer's decoded frame at the instant being drawn (bound per clip by the compiler).
 MatteFrameSource = Callable[[Any], MatteFrame]
@@ -88,9 +92,6 @@ PictureSource = Callable[[], Any]
 
 #: Why each other kind is refused, with the remedy. Keyed by kind; no numbers in the text.
 _KIND_REFUSALS = {
-    "linear": "split masks render once the analytic mask renderer ships",
-    "band": "band masks render once the analytic mask renderer ships",
-    "gradient": "gradient masks render once the analytic mask renderer ships",
     "layer": "track matte masks render once the layer mask renderer ships",
 }
 
@@ -411,6 +412,60 @@ def key_mask_alpha(mask: Any, picture: Any, source_time: float) -> FloatArray:
     )
 
 
+def analytic_shape_at(mask: Any, source_time: float) -> AnalyticShape:
+    """A ``linear``, ``band`` or ``gradient`` mask's geometry at a source instant (MK8.1).
+
+    Every animatable scalar is read on the source clock like a shape's; a gradient has no edge,
+    so its expansion and feathers are not read (the validator refuses them on a gradient).
+    """
+    if mask.kind == "gradient":
+        return AnalyticShape(
+            kind="gradient",
+            gradient_shape=str(mask.shape),
+            start_x=_scalar(mask, "startX", source_time),
+            start_y=_scalar(mask, "startY", source_time),
+            end_x=_scalar(mask, "endX", source_time),
+            end_y=_scalar(mask, "endY", source_time),
+            curve=str(mask.curve.value),
+        )
+    return AnalyticShape(
+        kind=str(mask.kind),
+        origin_x=_scalar(mask, "originX", source_time),
+        origin_y=_scalar(mask, "originY", source_time),
+        angle=_scalar(mask, "angle", source_time),
+        band_width=_scalar(mask, "widthPx", source_time) if mask.kind == "band" else 0.0,
+        softness=_scalar(mask, "softnessPx", source_time),
+        expansion=_scalar(mask, "expansionPx", source_time),
+        feather_inner=_scalar(mask, "featherInnerPx", source_time),
+        feather_outer=_scalar(mask, "featherOuterPx", source_time),
+        falloff=str(mask.falloff.value),
+    )
+
+
+def _analytic_mask_alpha(
+    mask: Any,
+    clip: Any,
+    media_size: tuple[float, float] | None,
+    width: int,
+    height: int,
+    source_time: float,
+) -> FloatArray:
+    frame = raster_frame(mask, clip, media_size, width, height)
+    alpha = analytic_alpha(
+        analytic_shape_at(mask, source_time),
+        width,
+        height,
+        scale_x=frame.scale_x,
+        scale_y=frame.scale_y,
+        offset_x=frame.offset_x,
+        offset_y=frame.offset_y,
+        distance_scale=frame.distance_scale,
+    )
+    return layer_alpha(
+        alpha, invert=bool(mask.invert), opacity=_scalar(mask, "opacity", source_time)
+    )
+
+
 def mask_alpha(
     mask: Any,
     clip: Any,
@@ -445,6 +500,8 @@ def mask_alpha(
                 "Export again; if it repeats, report it."
             )
         return matte_alpha(mask, clip, matte_frame(mask), width, height, source_time, decoded_size)
+    if mask.kind in ANALYTIC_KINDS:
+        return _analytic_mask_alpha(mask, clip, media_size, width, height, source_time)
     if _is_legacy(mask):
         spec = _legacy_spec(mask, clip, media_size, source_time)
         return rasterize_mask(spec, width, height)
@@ -544,6 +601,9 @@ def assert_renderable(mask: Any, clip: Any, effect_ids: frozenset[str]) -> None:
         _assert_matte_drawable(mask, clip.id)
     if mask.kind == "key":
         _assert_key_drawable(mask, clip.id)
+    if mask.kind in ANALYTIC_KINDS:
+        assert_analytic_drawable(mask, f"clip {clip.id!r}")
+        return
     if _is_legacy(mask):
         if mask.tracking is not None:
             raise _refuse(
@@ -573,6 +633,32 @@ def _assert_key_drawable(mask: Any, clip_id: str) -> None:
             f"Mask {mask.id!r} on clip {clip_id!r} uses the legacy blur feather, which only "
             "shapes migrated from older projects have. Switch the mask's feather model to Distance."
         )
+
+
+def assert_analytic_drawable(mask: Any, owner_label: str) -> None:
+    """A split, band or gradient draws with the distance feather only; a gradient has no edge."""
+    if _is_legacy(mask):
+        raise MaskStackRefusal(
+            f"Mask {mask.id!r} on {owner_label} uses the legacy blur feather, which only "
+            "shapes migrated from older projects have. Switch the mask's feather model to Distance."
+        )
+    if mask.kind == "gradient" and gradient_has_edge_controls(mask):
+        raise MaskStackRefusal(
+            f"Gradient mask {mask.id!r} on {owner_label} has expansion or feather set, and a "
+            "gradient has no edge to grow or soften. Set them to 0 and shape the ramp with its "
+            "start, end and curve."
+        )
+
+
+def gradient_has_edge_controls(mask: Any) -> bool:
+    """Whether a gradient carries expansion or feather (static or keyframed), which it ignores."""
+    edge = ("expansionPx", "featherInnerPx", "featherOuterPx")
+    return (
+        mask.expansion_px != 0
+        or mask.feather_inner_px != 0
+        or mask.feather_outer_px != 0
+        or any(keyframe.property.value in edge for keyframe in mask.keyframes)
+    )
 
 
 def _assert_legacy_drawable(mask: Any, clip_id: str) -> None:

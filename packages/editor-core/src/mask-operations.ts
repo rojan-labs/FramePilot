@@ -350,7 +350,8 @@ export const MASK_ANIMATABLE_PROPERTIES: Readonly<Record<MaskKind, readonly Mask
     key: BASE_ANIMATABLE,
     linear: [...BASE_ANIMATABLE, 'originX', 'originY', 'angle', 'softnessPx'],
     band: [...BASE_ANIMATABLE, 'originX', 'originY', 'angle', 'widthPx', 'softnessPx'],
-    gradient: [...BASE_ANIMATABLE, 'startX', 'startY', 'endX', 'endY'],
+    // A gradient has no edge: expansion and feathers would be controls that do nothing.
+    gradient: ['opacity', 'startX', 'startY', 'endX', 'endY'],
     layer: BASE_ANIMATABLE,
   };
 

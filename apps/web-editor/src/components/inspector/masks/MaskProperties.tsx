@@ -46,7 +46,9 @@ const EDGE_ROWS: readonly NumberRow[] = [
   { property: 'featherInnerPx', label: 'Inner feather', step: 1, min: 0, unit: 'px' },
 ];
 
-const GEOMETRY_ROWS: Readonly<Record<'rectangle' | 'ellipse', readonly NumberRow[]>> = {
+type RowKind = 'rectangle' | 'ellipse' | 'linear' | 'band' | 'gradient';
+
+const GEOMETRY_ROWS: Readonly<Record<RowKind, readonly NumberRow[]>> = {
   rectangle: [
     { property: 'cx', label: 'Centre X', step: 1, unit: 'px' },
     { property: 'cy', label: 'Centre Y', step: 1, unit: 'px' },
@@ -62,7 +64,43 @@ const GEOMETRY_ROWS: Readonly<Record<'rectangle' | 'ellipse', readonly NumberRow
     { property: 'ry', label: 'Radius Y', step: 1, min: 0, unit: 'px' },
     { property: 'rotation', label: 'Rotation', step: 1, unit: '°' },
   ],
+  // MK8.1: the analytic kinds, typed in source pixels like the shapes.
+  linear: [
+    { property: 'originX', label: 'Line X', step: 1, unit: 'px' },
+    { property: 'originY', label: 'Line Y', step: 1, unit: 'px' },
+    { property: 'angle', label: 'Angle', step: 1, unit: '°' },
+    { property: 'softnessPx', label: 'Softness', step: 1, min: 0, unit: 'px' },
+  ],
+  band: [
+    { property: 'originX', label: 'Centre X', step: 1, unit: 'px' },
+    { property: 'originY', label: 'Centre Y', step: 1, unit: 'px' },
+    { property: 'angle', label: 'Angle', step: 1, unit: '°' },
+    { property: 'widthPx', label: 'Width', step: 1, min: 0, unit: 'px' },
+    { property: 'softnessPx', label: 'Softness', step: 1, min: 0, unit: 'px' },
+  ],
+  gradient: [
+    { property: 'startX', label: 'Start X', step: 1, unit: 'px' },
+    { property: 'startY', label: 'Start Y', step: 1, unit: 'px' },
+    { property: 'endX', label: 'End X', step: 1, unit: 'px' },
+    { property: 'endY', label: 'End Y', step: 1, unit: 'px' },
+  ],
 };
+
+/** Kinds whose geometry is a row list above (the path has its own point editor). */
+const hasGeometryRows = (kind: MaskLayer['kind']): kind is RowKind =>
+  kind === 'rectangle' ||
+  kind === 'ellipse' ||
+  kind === 'linear' ||
+  kind === 'band' ||
+  kind === 'gradient';
+
+/** A gradient has no edge, so it shows neither expansion nor feathers nor a falloff (MK8.1). */
+const GRADIENT_EDGE_ROWS: readonly NumberRow[] = EDGE_ROWS.filter(
+  (row) => row.property === 'opacity',
+);
+
+const GRADIENT_SHAPES = ['linear', 'radial'] as const;
+const GRADIENT_SHAPE_LABELS = ['Linear', 'Radial'] as const;
 
 const FALLOFFS = ['linear', 'smooth', 'gaussian'] as const;
 const FALLOFF_LABELS = ['Linear', 'Smooth', 'Gaussian'] as const;
@@ -226,23 +264,61 @@ export function MaskProperties({
           })
         }
       />
-      {EDGE_ROWS.map(numberRow)}
-      <LabeledSelect
-        caption="Falloff"
-        label={`${name} falloff`}
-        value={mask.falloff}
-        options={FALLOFFS}
-        labels={FALLOFF_LABELS}
-        onChange={(value) =>
-          run({
-            type: 'set_mask_properties',
-            clipId: clip.id,
-            maskId: mask.id,
-            sourceTime,
-            changes: { falloff: value },
-          })
-        }
-      />
+      {(mask.kind === 'gradient' ? GRADIENT_EDGE_ROWS : EDGE_ROWS).map(numberRow)}
+      {mask.kind === 'gradient' && (
+        <>
+          <LabeledSelect
+            caption="Shape"
+            label={`${name} gradient shape`}
+            value={mask.shape}
+            options={GRADIENT_SHAPES}
+            labels={GRADIENT_SHAPE_LABELS}
+            onChange={(value) =>
+              run({
+                type: 'set_mask_properties',
+                clipId: clip.id,
+                maskId: mask.id,
+                sourceTime,
+                changes: { shape: value },
+              })
+            }
+          />
+          <LabeledSelect
+            caption="Curve"
+            label={`${name} gradient curve`}
+            value={mask.curve}
+            options={FALLOFFS}
+            labels={FALLOFF_LABELS}
+            onChange={(value) =>
+              run({
+                type: 'set_mask_properties',
+                clipId: clip.id,
+                maskId: mask.id,
+                sourceTime,
+                changes: { curve: value },
+              })
+            }
+          />
+        </>
+      )}
+      {mask.kind !== 'gradient' && (
+        <LabeledSelect
+          caption="Falloff"
+          label={`${name} falloff`}
+          value={mask.falloff}
+          options={FALLOFFS}
+          labels={FALLOFF_LABELS}
+          onChange={(value) =>
+            run({
+              type: 'set_mask_properties',
+              clipId: clip.id,
+              maskId: mask.id,
+              sourceTime,
+              changes: { falloff: value },
+            })
+          }
+        />
+      )}
       {mask.kind === 'key' && (
         <MaskKeyControls
           editor={editor}
@@ -254,8 +330,7 @@ export function MaskProperties({
           store={store}
         />
       )}
-      {(mask.kind === 'rectangle' || mask.kind === 'ellipse') &&
-        GEOMETRY_ROWS[mask.kind].map(numberRow)}
+      {hasGeometryRows(mask.kind) && GEOMETRY_ROWS[mask.kind].map(numberRow)}
       {mask.kind === 'path' && geometry?.kind === 'path' && (
         <>
           <InspectorRow

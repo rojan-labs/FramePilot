@@ -17,6 +17,8 @@
 import type { EffectLayer, MaskLayer } from '@framepilot/timeline-schema';
 import { masksOf } from '@framepilot/timeline-schema';
 import {
+  ANALYTIC_KINDS,
+  analyticRefusal,
   stackAlphaAt,
   type DrawnMask,
   type MaskPreviewRefusal,
@@ -29,10 +31,10 @@ const KIND_REFUSALS: Partial<
   Record<MaskLayer['kind'], { task: MaskPreviewRefusal['task']; what: string }>
 > = {
   key: { task: 'MK6', what: 'colour key masks preview once the key renderer ships' },
-  linear: { task: 'MK8', what: 'split masks preview once the analytic mask renderer ships' },
-  band: { task: 'MK8', what: 'band masks preview once the analytic mask renderer ships' },
-  gradient: { task: 'MK8', what: 'gradient masks preview once the analytic mask renderer ships' },
-  layer: { task: 'MK8', what: 'track matte masks preview once the layer mask renderer ships' },
+  layer: {
+    task: null,
+    what: "a track matte reads another clip's picture, which an adjustment lane cannot",
+  },
   matte: {
     task: null,
     what: "an AI matte belongs to a clip's own picture, not to an adjustment lane",
@@ -94,6 +96,10 @@ function refusalFor(layerId: string, mask: MaskLayer): MaskPreviewRefusal | null
       null,
       "A mask uses the legacy blur feather, which only migrated shapes have. Switch the mask's feather model to Distance.",
     );
+  }
+  if (ANALYTIC_KINDS.has(mask.kind)) {
+    const analytic = analyticRefusal(mask);
+    if (analytic !== null) return refusal(layerId, mask, null, analytic);
   }
   if (mask.kind === 'path') {
     const first = mask.pathKeyframes[0];

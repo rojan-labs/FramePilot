@@ -15,6 +15,13 @@ resolutions. A layer's ``shape`` is one of::
     {"kind": "ellipse", "cx", "cy", "rx", "ry", "rotation"}
     {"kind": "path", "points": [x, y, inX, inY, outX, outY, ...], "featherPx"?: [...],
      "firstVertex"?: n}
+    {"kind": "linear", "originX", "originY", "angle", "softnessPx"}            (MK8.1)
+    {"kind": "band", "originX", "originY", "angle", "widthPx", "softnessPx"}
+    {"kind": "gradient", "shape": "linear" | "radial", "startX", "startY", "endX", "endY",
+     "curve"}
+
+The analytic kinds (split, band, gradient) are drawn by ``analytic_alpha`` with the same
+mapping; their expansion and feathers come from the layer like a shape's.
 
 Rasterising a case at a resolution ``{width, height}`` uses ``scaleX = width / sourceW``,
 ``scaleY = height / sourceH``, zero offsets, and ``distanceScale = min(scaleX, scaleY)`` for
@@ -145,6 +152,40 @@ _FIGURE_EIGHT = _poly(
 _TINY_LOOP = _poly(10, 60, 40.2, 30.3, 40.8, 30.9, 40.3, 30.8, 40.6, 30.2, 86, 12, 80, 66)
 _BOWTIE = _poly(10, 10, 86, 62, 86, 10, 10, 62)
 
+
+def _split(ox: float, oy: float, angle: float = 0.0, softness: float = 0.0) -> dict[str, Any]:
+    return {"kind": "linear", "originX": ox, "originY": oy, "angle": angle, "softnessPx": softness}
+
+
+def _band(
+    ox: float, oy: float, angle: float, width: float, softness: float = 0.0
+) -> dict[str, Any]:
+    return {
+        "kind": "band",
+        "originX": ox,
+        "originY": oy,
+        "angle": angle,
+        "widthPx": width,
+        "softnessPx": softness,
+    }
+
+
+def _gradient(
+    shape: str, sx: float, sy: float, ex: float, ey: float, curve: str = "linear"
+) -> dict[str, Any]:
+    return {
+        "kind": "gradient",
+        "shape": shape,
+        "startX": sx,
+        "startY": sy,
+        "endX": ex,
+        "endY": ey,
+        "curve": curve,
+    }
+
+
+ANALYTIC_KINDS = frozenset({"linear", "band", "gradient"})
+
 CASES: dict[str, list[dict[str, Any]]] = {
     "coverage": [
         {"id": "rect-integer", "layers": [_layer(_rect(48, 36, 40, 30))]},
@@ -210,6 +251,72 @@ CASES: dict[str, list[dict[str, Any]]] = {
                     featherOuterPx=4,
                     falloff="linear",
                 )
+            ],
+        },
+    ],
+    "analytic": [
+        {"id": "split-horizontal", "layers": [_layer(_split(48, 36.3))]},
+        {"id": "split-vertical-integer", "layers": [_layer(_split(40, 36, 90))]},
+        {"id": "split-diagonal", "layers": [_layer(_split(47.2, 35.9, 33.7))]},
+        {"id": "split-steep-negative", "layers": [_layer(_split(30.4, 20.1, -71.25))]},
+        {"id": "split-expanded", "layers": [_layer(_split(48, 36, 212, 0), expansionPx=5.5)]},
+        {
+            "id": "split-soft-smooth",
+            "layers": [_layer(_split(48, 36, 17, 12))],
+        },
+        {
+            "id": "split-soft-feathers-gaussian",
+            "layers": [
+                _layer(
+                    _split(52, 30, -40, 4),
+                    featherInnerPx=3,
+                    featherOuterPx=6,
+                    expansionPx=-2,
+                    falloff="gaussian",
+                )
+            ],
+        },
+        {"id": "split-off-frame", "layers": [_layer(_split(48, -500, 0))]},
+        {"id": "band-horizontal", "layers": [_layer(_band(48, 36, 0, 20.5))]},
+        {"id": "band-rotated", "layers": [_layer(_band(46.7, 37.2, 58, 18))]},
+        {"id": "band-thin", "layers": [_layer(_band(48, 36, 123, 0.6))]},
+        {"id": "band-collapsed", "layers": [_layer(_band(48, 36, 30, 4), expansionPx=-3)]},
+        {
+            "id": "band-soft-linear",
+            "layers": [_layer(_band(48, 36, -15, 16, 10), falloff="linear")],
+        },
+        {
+            "id": "band-soft-narrow",
+            "layers": [_layer(_band(48, 36, 80, 2, 0), featherOuterPx=7, featherInnerPx=5)],
+        },
+        {"id": "gradient-linear", "layers": [_layer(_gradient("linear", 10, 20, 80, 50))]},
+        {
+            "id": "gradient-linear-smooth",
+            "layers": [_layer(_gradient("linear", 90, 5, 20, 60, "smooth"))],
+        },
+        {
+            "id": "gradient-radial",
+            "layers": [_layer(_gradient("radial", 48.3, 35.6, 78.1, 49.9))],
+        },
+        {
+            "id": "gradient-radial-gaussian",
+            "layers": [_layer(_gradient("radial", 20, 60, 60, 10, "gaussian"))],
+        },
+        {"id": "gradient-zero-length", "layers": [_layer(_gradient("linear", 40, 40, 40, 40))]},
+        {
+            "id": "split-screen-stack",
+            "layers": [
+                _layer(_split(48, 36, 90)),
+                _layer(_ellipse(60, 36, 20, 16), mode="add", featherOuterPx=3),
+                _layer(_band(48, 36, 0, 10, 4), mode="subtract", opacity=0.7),
+            ],
+        },
+        {
+            "id": "gradient-over-shape",
+            "layers": [
+                _layer(_rect(48, 36, 70, 50, 0, 0.3)),
+                _layer(_gradient("linear", 48, 10, 48, 62, "smooth"), mode="intersect"),
+                _layer(_split(48, 36, 45), mode="lighten", invert=True, opacity=0.25),
             ],
         },
     ],
@@ -286,11 +393,56 @@ def layer_raster(layer: dict[str, Any], width: int, height: int) -> mr.ShapeRast
     )
 
 
+def analytic_shape(layer: dict[str, Any]) -> mr.AnalyticShape:
+    """A vector layer of an analytic kind as a source-unit :class:`~mr.AnalyticShape`."""
+    shape = layer["shape"]
+    if shape["kind"] == "gradient":
+        return mr.AnalyticShape(
+            kind="gradient",
+            gradient_shape=shape["shape"],
+            start_x=shape["startX"],
+            start_y=shape["startY"],
+            end_x=shape["endX"],
+            end_y=shape["endY"],
+            curve=shape["curve"],
+        )
+    return mr.AnalyticShape(
+        kind=shape["kind"],
+        origin_x=shape["originX"],
+        origin_y=shape["originY"],
+        angle=shape["angle"],
+        band_width=shape.get("widthPx", 0.0),
+        softness=shape["softnessPx"],
+        expansion=layer["expansionPx"],
+        feather_inner=layer["featherInnerPx"],
+        feather_outer=layer["featherOuterPx"],
+        falloff=layer["falloff"],
+    )
+
+
+def layer_float(layer: dict[str, Any], width: int, height: int) -> np.ndarray:
+    """One vector layer's alpha before invert and opacity."""
+    if layer["shape"]["kind"] in ANALYTIC_KINDS:
+        scale_x = width / SOURCE[0]
+        scale_y = height / SOURCE[1]
+        return mr.analytic_alpha(
+            analytic_shape(layer),
+            width,
+            height,
+            scale_x=scale_x,
+            scale_y=scale_y,
+            offset_x=0.0,
+            offset_y=0.0,
+            distance_scale=min(scale_x, scale_y),
+        )
+    return mr.shape_alpha(layer_raster(layer, width, height), width, height)
+
+
 def stack_float(layers: list[dict[str, Any]], width: int, height: int) -> np.ndarray:
     """The unquantised combined alpha of a case at one resolution."""
     accumulated = np.zeros((height, width), dtype=np.float64)
     for layer in layers:
-        alpha = mr.shape_alpha(layer_raster(layer, width, height), width, height)
+        alpha = layer_float(layer, width, height)
         alpha = mr.layer_alpha(alpha, invert=layer["invert"], opacity=layer["opacity"])
         accumulated = mr.combine(accumulated, alpha, layer["mode"])
     return accumulated

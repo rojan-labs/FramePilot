@@ -29,6 +29,37 @@ the clip, on both sides — which is what limits any of the 40 catalog render ki
 `tests/fixtures/mask-raster/frame-layers.json` pins the two implementations float64-byte-exact,
 and the `effects/effect-kinds-masked` oracle case exercises every kind with a mask in CI.
 
+## Split, mirror band and gradient (MK8.1)
+
+The analytic kinds are a distance to a line or a centre, so they need no path, no flattening and
+no coverage sweep. `analytic_alpha` (`render/mask_raster.py`) and `analyticAlpha`
+(`preview/masks/mask-raster.ts`) evaluate them per pixel centre with the same expressions in the
+same order, under the same determinism rules as the shapes (float64, elementwise, `sqrt` only,
+the shipped falloff table):
+
+- **Mapping.** Geometry is in source pixels like every mask; the origin (or start/end) maps
+  through the clip's crop onto the raster, and the line's normal is taken in RASTER space
+  (`(-sin·scaleY, cos·scaleX)`, normalised once), so an unevenly scaled raster still gets a
+  straight edge at the right place. Lengths scale by `min(scaleX, scaleY)` like a shape's
+  feathers.
+- **Split (`linear`).** Keeps the side on the LEFT of the line's direction of travel (angle 0 =
+  left to right, keeps the part above). A hard edge is the **exact area** of the pixel square on
+  the kept side: projected onto the unit normal, the square is two uniform widths `|nx|` and
+  `|ny|`, whose sum has a trapezoid CDF (`_footprint_cdf`: `+ - * /` only). Expansion shifts the
+  line; softness joins each feather side by half (`w_i + s/2`, `w_o + s/2`) and the soft edge is
+  the shapes' distance feather.
+- **Mirror band (`band`).** `widthPx` centred on the line; the hard band is the difference of two
+  exact half-plane areas, and a soft one feathers `|t| - width/2`.
+- **Gradient.** Opaque at the start, clear at the end: linear projects the pixel centre onto the
+  start→end axis, radial measures the distance from the start (in SOURCE units, so it stays round
+  when the raster is scaled unevenly) over the start–end length; either goes through the `curve`
+  falloff. A gradient has no edge, so expansion and feathers on one are refused (validator,
+  export and monitor), and one with no length draws nothing.
+
+A hard split or band is certified against exact polygon clipping (error ≤ 1e-9) and a 256×256
+supersampled reference (≤ 1/255) in `test_mask_raster_vectors.py`; the soft split against the
+analytic distance feather (≤ 1/255).
+
 ## The key mask, and why its gate is 1/255
 
 Every other kind is rastered from geometry on the CPU, identically on both sides. A `key` is not:
@@ -98,7 +129,7 @@ at engine start). Both modes are tested.
 
 | File                                                                     | Asserted by                            |
 | ------------------------------------------------------------------------ | -------------------------------------- |
-| `tests/fixtures/mask-raster/{coverage,feather,stack}.json`               | `mask-raster.test.ts` (and the engine) |
+| `tests/fixtures/mask-raster/{coverage,feather,analytic,stack}.json`      | `mask-raster.test.ts` (and the engine) |
 | `tests/fixtures/mask-raster/legacy.json`                                 | `legacy-mask.test.ts`                  |
 | `tests/fixtures/mask-raster/stack-clips.json` (SHA-256 of float64 alpha) | `mask-stack.test.ts`                   |
 
@@ -115,8 +146,8 @@ does not match, a matte frame whose pts is not the picture's) draws the clip unm
 export's own remedy sentence as the tooltip.
 
 Kinds and settings the export refuses before rendering are refused on the monitor too, never
-drawn approximately and never silently skipped: `key` (MK6), `linear`/`band`/
-`gradient`/`layer` (MK8), tracked masks (MK7), frame-space masks (MK9), plus project problems the
+drawn approximately and never silently skipped: `layer` (MK8.2), a gradient with expansion or
+feather set, tracked masks (MK7), frame-space masks (MK9), plus project problems the
 export also rejects (media never measured, an effect target that is not on the clip). The clip is
 drawn unmasked and the monitor shows "Mask not previewed yet" with the reason as its tooltip.
 

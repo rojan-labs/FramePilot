@@ -32,6 +32,10 @@ export type MaskTool =
   | 'ellipse'
   | 'pen'
   | 'freehand'
+  // Analytic kinds (MK8.1): a split line, a mirror band and a gradient, placed by one drag.
+  | 'split'
+  | 'mirror'
+  | 'gradient'
   | 'feature-point'
   | 'exclude'
   | 'ai-object'

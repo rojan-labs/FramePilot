@@ -104,8 +104,13 @@ class TestStack:
         [
             ({"id": "m1", "kind": "key", "space": "frame", "model": "hsl"}, "key renderer"),
             (
-                {"id": "m1", "kind": "linear", "space": "frame", "originX": 0.0, "originY": 0.0},
-                "analytic mask renderer",
+                {
+                    "id": "m1",
+                    "kind": "layer",
+                    "space": "frame",
+                    "source": {"kind": "track", "trackId": "v1"},
+                },
+                "adjustment lane cannot",
             ),
             (_rectangle(space="source"), "fixed to the frame"),
             (

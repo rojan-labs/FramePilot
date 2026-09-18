@@ -128,7 +128,7 @@ describe('mask stack refusals', () => {
     clipMaskStack(parseClip({ ...base, ...extra, masks: [mask] }), media)?.refusal ?? null;
 
   it.each([
-    [{ id: 'l', kind: 'linear', originX: 0, originY: 0, angle: 0, softnessPx: 0 }, 'MK8'],
+    [{ id: 'y', kind: 'layer', source: { kind: 'clip', clipId: 'x' } }, 'MK8'],
     [{ id: 'r', kind: 'rectangle', cx: 10, cy: 10, width: 5, height: 5, space: 'frame' }, 'MK9'],
   ])('names the task that ships %j', (mask, task) => {
     let refused;
@@ -140,6 +140,48 @@ describe('mask stack refusals', () => {
     }
     expect(refused?.task).toBe(task);
     expect(refused?.message).toMatch(/^Mask not previewed yet/);
+  });
+
+  it('draws split, band and gradient masks (MK8.1), and refuses a gradient with edge controls', () => {
+    const drawn = [
+      { id: 'l', kind: 'linear', originX: 960, originY: 540, angle: 30, softnessPx: 4 },
+      {
+        id: 'b',
+        kind: 'band',
+        originX: 960,
+        originY: 540,
+        angle: 0,
+        widthPx: 200,
+        mode: 'subtract',
+      },
+      {
+        id: 'g',
+        kind: 'gradient',
+        shape: 'radial',
+        startX: 960,
+        startY: 540,
+        endX: 1400,
+        endY: 540,
+        mode: 'intersect',
+      },
+    ];
+    const stack = clipMaskStack(parseClip({ ...base, masks: drawn }), media);
+    expect(stack?.refusal ?? null).toBeNull();
+    const alpha = stackAlphaAt(stack!, { kind: 'alpha' }, 48, 27, 0);
+    expect(alpha).not.toBeNull();
+    expect(alpha!.some((value) => value > 0 && value < 1)).toBe(true);
+    const feathered = refusalOf({
+      id: 'g',
+      kind: 'gradient',
+      shape: 'linear',
+      startX: 0,
+      startY: 0,
+      endX: 10,
+      endY: 0,
+      featherOuterPx: 4,
+    });
+    expect(feathered?.task).toBeNull();
+    expect(feathered?.message).toMatch(/no edge to grow or soften/);
   });
 
   it('does not refuse a key — the compositor qualifies it from the picture (MK6.1)', () => {

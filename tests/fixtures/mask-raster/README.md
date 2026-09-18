@@ -8,6 +8,7 @@ Byte-exact expected alpha for the deterministic mask rasteriser
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `coverage.json` | hard shapes: exact Q16.16 area coverage (rectangles, roundness, rotation, ellipses, curved/concave/self-crossing paths, subpixel, off-frame, degenerate) |
 | `feather.json`  | distance feather: inner/outer, the three falloffs, expansion, per-vertex feather                                                                         |
+| `analytic.json` | MK8.1 split, mirror band and gradient (linear/radial): exact hard edges at any angle, softness, expansion, feathers, curves, stacks with shapes          |
 | `stack.json`    | the six combine modes, a subtract-first stack, invert + opacity, three layers                                                                            |
 
 Each case holds layers in source units of a 96x72 source (format in the generator's docstring)
