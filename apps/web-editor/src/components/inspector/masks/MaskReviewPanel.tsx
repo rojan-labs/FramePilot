@@ -252,6 +252,7 @@ export function MaskReviewPanel({
         <ul
           className="mask-review-list"
           aria-label="Moments to review"
+          aria-keyshortcuts="J K"
           ref={listRef}
           tabIndex={0}
           onKeyDown={onKeyDown}

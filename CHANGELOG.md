@@ -8,6 +8,24 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Remove the background from a shot.** Inspector → Mask → **Remove background** cuts the subject
+  out so something else can sit behind it. It runs entirely on your computer, through the Smart
+  Mask pack, and nothing downloads until you approve the exact offer on screen — its size and its
+  licences included. Before you start, the row tells you roughly how long it will take on *this*
+  computer and how much disk it needs; a long job asks you to confirm. While it runs it says which
+  stage it is in, how far through it is and how long is left, and you can keep editing: selecting
+  another clip does not lose the job, and the result still lands on the right clip. Finished parts
+  show cut out in the monitor as they arrive, and the timeline draws a striped band over the part
+  still being processed, so a half-finished clip never looks finished. When it is done, the
+  moments it was not sure about are listed with a reason in plain words; **Looks right** clears
+  one, `J` and `K` step between them, and Keep and Remove brushes fix a moment and re-run only
+  that part. **VERIFIED** appears only when every frame has been checked — never just because a
+  job finished. **Put text behind subject** builds the shot in one undoable step, and the
+  Inspector warns you when there is nothing behind the clip, because the removed area would
+  export as black. Export counts anything you have not checked and says so, and never blocks.
+  Without the pack, every AI masking tool stays visible and disabled with the reason attached, so
+  you can see the capability exists and what would enable it.
+
 - **Track a mask.** A mask can now follow what it covers. Pick how it should move — position;
   position, scale and rotation; perspective, for a sign or a screen on a wall; or shape, which
   follows a path's own points for something that bends — and which way to go: forward to the clip

@@ -240,4 +240,32 @@ describe('MaskReviewPanel', () => {
     expect(edge.disabled).toBe(true);
     expect(edge.title).toContain('pack update');
   });
+  it('offers a mouse-free way through every correction (BR6.9)', () => {
+    mount(timeline({ flagged: [{ start: 1, end: 1.5 }] }));
+    const list = screen.getByRole('list', { name: 'Moments to review' });
+    // The keys are declared, not folklore.
+    expect(list.getAttribute('aria-keyshortcuts')).toBe('J K');
+    expect((list as HTMLElement).tabIndex).toBe(0);
+    // Approving, locking and stepping are all buttons or keys; the brush is never the only route.
+    expect(screen.getByRole('button', { name: 'Looks right' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Lock this frame' })).toBeTruthy();
+    expect(screen.getByText(/J and K step through the moments/)).toBeTruthy();
+  });
+
+  it('marks the moment being reviewed, so the list says where you are', () => {
+    mount(
+      timeline({
+        flagged: [
+          { start: 1, end: 1.5 },
+          { start: 3, end: 3.2 },
+        ],
+      }),
+    );
+    const ranges = screen.getAllByRole('button', { name: /s – / });
+    expect(ranges[0]!.getAttribute('aria-current')).toBe('true');
+    fireEvent.keyDown(screen.getByRole('list', { name: 'Moments to review' }), { key: 'j' });
+    expect(screen.getAllByRole('button', { name: /s – / })[1]!.getAttribute('aria-current')).toBe(
+      'true',
+    );
+  });
 });

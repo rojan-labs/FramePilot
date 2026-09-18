@@ -543,4 +543,54 @@ describe('BackgroundRemovalRow', () => {
       await screen.findByText(/The first run on this computer also prepares the models/),
     ).toBeTruthy();
   });
+  it('reports a failed install and offers Retry, without pretending it worked (BR6.9)', async () => {
+    bridge.capabilityPackStatus.mockResolvedValue(MISSING);
+    bridge.capabilityPackPropose.mockResolvedValue({ ok: true, proposal: PROPOSAL });
+    bridge.capabilityPackInstall.mockResolvedValue({
+      ok: false,
+      error: 'The download did not match its checksum.',
+    });
+    render(<Harness jobs={jobs} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Install 1.1 GB' }));
+    expect(await screen.findByText('The download did not match its checksum.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+    // Still blocked: a failed install must not unlock the tool.
+    expect(
+      (screen.getByRole('button', { name: 'Remove background' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('says the capability could not be checked when main cannot answer (BR6.9)', async () => {
+    bridge.capabilityPackStatus.mockRejectedValue(new Error('the main process is not responding'));
+    render(<Harness jobs={jobs} />);
+
+    expect(await screen.findByText('Background removal could not be checked.')).toBeTruthy();
+    expect(
+      (screen.getByRole('button', { name: 'Remove background' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('shows the licences behind Details rather than in the first sentence (BR6.9)', async () => {
+    bridge.capabilityPackStatus.mockResolvedValue(MISSING);
+    render(<Harness jobs={jobs} />);
+
+    const details = await screen.findByRole('button', { name: 'Details' });
+    expect(details.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(details);
+    expect(details.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText(/Removes backgrounds on this computer/)).toBeTruthy();
+  });
+
+  it('keeps every control reachable and labelled from the keyboard (BR6.9)', async () => {
+    render(<Harness jobs={jobs} />);
+    // Radios are labelled by their own text, not by position.
+    expect(await screen.findByLabelText('Auto (main subject)')).toBeTruthy();
+    expect(screen.getByLabelText('Click to pick')).toBeTruthy();
+    expect(screen.getByLabelText('Smooth (hair and soft edges)')).toBeTruthy();
+    expect(screen.getByLabelText('Sharp (hard edges)')).toBeTruthy();
+    // The two fieldsets say what their choices are about.
+    expect(screen.getByRole('group', { name: 'Subject' })).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Edges' })).toBeTruthy();
+  });
 });
