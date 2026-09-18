@@ -9,7 +9,9 @@
  * 2. `matteRecheckMedia({ assetIds })`: main re-reads the project and compares every matte on
  *    those assets against the frames recorded when it was made. For an asset whose file main
  *    just chose, the check uses that file even if the renderer's commit has not reached disk
- *    yet. Changed media comes back STALE with the export's own sentence.
+ *    yet. Changed media comes back STALE with the export's own sentence, and an artifact that
+ *    fails the quick file check (deleted, resized, unparseable) comes back BROKEN with its own:
+ *    this channel is the only way the Inspector and the export dialog learn either.
  */
 import { lstat } from 'node:fs/promises';
 import path from 'node:path';
@@ -24,6 +26,7 @@ import { IpcChannels } from '../ipc/contract.js';
 import type { MatteIpcMain } from './matte-ipc.js';
 import type { MatteMediaInspector } from './matte-media-inspector.js';
 import { recheckProjectMatteMedia } from './matte-media-recheck.js';
+import { matteMasksOf, validateProjectMattes, type MatteValidationIssue } from './matte-validation.js';
 
 const log = createLogger('desktop:capability-packs:matte-relink');
 
@@ -80,9 +83,34 @@ export function registerRelinkIpc(dependencies: RelinkIpcDependencies): void {
     // A choice covers only the re-check that follows it; after that (an undo, a later edit) the
     // saved project is the authority again.
     for (const assetId of parsed.data.assetIds) chosen.delete(`${projectPath}\0${assetId}`);
-    const issues = await recheckProjectMatteMedia(path.dirname(projectPath), project, await dependencies.inspector(), {
+    const projectDir = path.dirname(projectPath);
+    const broken = await artifactIssues(projectDir, project, parsed.data.assetIds);
+    const changed = await recheckProjectMatteMedia(projectDir, project, await dependencies.inspector(), {
       assetIds: parsed.data.assetIds,
     });
-    return { ok: true, issues };
+    // A mask whose artifact is already unusable reports that first and only: the remedy is the
+    // same re-run, and the file problem is the one the export refuses with.
+    const reported = new Set(broken.map((issue) => `${issue.clipId}|${issue.maskId}`));
+    return { ok: true, issues: [...broken, ...changed.filter((issue) => !reported.has(`${issue.clipId}|${issue.maskId}`))] };
   });
+}
+
+/**
+ * The quick file check the project got on open (missing, resized or unparseable artifact), for
+ * the matte masks on `assetIds` only.
+ */
+async function artifactIssues(
+  projectDir: string,
+  project: Project,
+  assetIds: readonly string[],
+): Promise<MatteValidationIssue[]> {
+  const wanted = new Set(assetIds);
+  const scoped = new Set(
+    matteMasksOf(project)
+      .filter((mask) => mask.assetId !== undefined && wanted.has(mask.assetId))
+      .map((mask) => `${mask.clipId}|${mask.maskId}`),
+  );
+  if (scoped.size === 0) return [];
+  const issues = await validateProjectMattes(projectDir, project, { mode: 'quick' });
+  return issues.filter((issue) => scoped.has(`${issue.clipId}|${issue.maskId}`));
 }

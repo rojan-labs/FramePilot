@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -81,6 +81,14 @@ async function setup(options: { chosen?: string | undefined; licensed?: boolean 
   const call = (channel: string, ...args: unknown[]) => handlers.get(channel)!(event, ...args);
   return {
     projectDir,
+    artifact: made.artifact,
+    // The mask as the editor stores it: on a clip of the asset (the artifact has no foreground).
+    placeOnAsset: () => {
+      saved = {
+        ...saved,
+        timeline: { tracks: [{ clips: [{ id: 'clip-1', assetId: 'asset-1', masks: [{ id: 'm1', kind: 'matte', decontaminate: false, artifact: made.artifact }] }] }] },
+      } as unknown as Project;
+    },
     original,
     replacement,
     call,
@@ -123,6 +131,28 @@ describe('relink and matte re-check IPC', () => {
     expect(((await h.call(IpcChannels.matteRecheckMedia, { assetIds: ['asset-1'] })) as { issues: unknown[] }).issues).toHaveLength(1);
     h.commit(h.original);
     expect(await h.call(IpcChannels.matteRecheckMedia, { assetIds: ['asset-1'] })).toEqual({ ok: true, issues: [] });
+  });
+
+  it('reports a deleted artifact as BROKEN with the missing remedy, not as changed media', async () => {
+    const h = await setup();
+    h.placeOnAsset();
+    expect(await h.call(IpcChannels.matteRecheckMedia, { assetIds: ['asset-1'] })).toEqual({ ok: true, issues: [] });
+    await rm(path.join(h.projectDir, '.framepilot-derived', 'mattes', h.artifact.key, h.artifact.files[0]!.name));
+    expect(await h.call(IpcChannels.matteRecheckMedia, { assetIds: ['asset-1'] })).toEqual({
+      ok: true,
+      issues: [
+        {
+          clipId: 'clip-1',
+          maskId: 'm1',
+          artifactKey: h.artifact.key,
+          code: 'matte_missing',
+          status: 'broken',
+          remedy: 'Background removal data is missing — run Remove background again.',
+        },
+      ],
+    });
+    // Scoped to the assets asked about.
+    expect(await h.call(IpcChannels.matteRecheckMedia, { assetIds: ['other'] })).toEqual({ ok: true, issues: [] });
   });
 
   it('refuses unknown assets, cancelled dialogs, folders and links, bad requests and unlicensed callers', async () => {
