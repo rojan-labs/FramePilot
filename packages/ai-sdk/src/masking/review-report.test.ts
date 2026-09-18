@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { MaskTargetsResult } from './contracts.js';
-import { maskReviewSentence, maskTargetsDigest, maskTargetsForRecall } from './review-report.js';
+import {
+  claimsMaskVerified,
+  maskReviewSentence,
+  maskTargetsDigest,
+  maskTargetsForRecall,
+} from './review-report.js';
 
 const candidate = (candidateId: string, x: number) => ({
   candidateId,
@@ -89,5 +94,35 @@ describe('maskReviewSentence', () => {
       '1 moment needs a look',
     );
     expect(maskReviewSentence({ maskId: 'm1', flaggedCount: 0 })).toContain('flagged nothing');
+  });
+});
+
+describe('claimsMaskVerified', () => {
+  it('catches a claim and lets the honest phrasings through', () => {
+    expect(claimsMaskVerified('The background is removed and verified.')).toBe(true);
+    expect(claimsMaskVerified('Done! The mask is Verified on every frame.')).toBe(true);
+    expect(claimsMaskVerified('3 moments need a look. I have not verified the mask.')).toBe(false);
+    expect(claimsMaskVerified('It is never verified until you review it.')).toBe(false);
+    expect(claimsMaskVerified('The mask is unverified; 2 moments need a look.')).toBe(false);
+    expect(
+      claimsMaskVerified('I removed the background. 2 moments need a look in the Inspector.'),
+    ).toBe(false);
+  });
+
+  it('judges each sentence on its own, so a later claim is still a claim', () => {
+    expect(claimsMaskVerified('I did not change the audio. The cut-out is verified.')).toBe(true);
+  });
+
+  it('passes every sentence the tools themselves write', () => {
+    for (const flaggedCount of [0, 2]) {
+      for (const verdict of ['yes', 'unsure'] as const) {
+        const sentence = maskReviewSentence({
+          maskId: 'm',
+          flaggedCount,
+          spotCheck: { verdict, reason: 'r', frames: [] },
+        });
+        expect(claimsMaskVerified(sentence)).toBe(false);
+      }
+    }
   });
 });

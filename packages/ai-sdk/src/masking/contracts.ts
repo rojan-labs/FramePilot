@@ -189,5 +189,18 @@ export interface MaskReviewReport {
     readonly worstResidualPx: number;
     readonly flaggedCount: number;
   };
+  /** Frames the pack vouched for and flagged, for a cut-out. */
+  readonly frames?: { readonly verified: number; readonly flagged: number };
+  /** Non-blocking validator warnings ride along; an error would have refused the edit. */
   readonly validator: { readonly valid: boolean; readonly issues: readonly string[] };
+  /**
+   * The one visual look, where the numbers could not decide (AM3.2). `yes` is a second
+   * opinion, not a verification; `unsure` put `frames` on the review list; `not_run` is a fact
+   * about the check. There is no `no` here: a `no` means the mask was never applied.
+   */
+  readonly spotCheck?: {
+    readonly verdict: 'yes' | 'unsure' | 'not_run';
+    readonly reason: string;
+    readonly frames: readonly number[];
+  };
 }

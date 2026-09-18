@@ -7,7 +7,12 @@ import { describe, expect, it } from 'vitest';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import type { ContextInput } from '../context-builder.js';
 import type { AiEvent } from '../events.js';
-import { Orchestrator, evidencePayload, type StreamOptions } from '../orchestrator.js';
+import {
+  Orchestrator,
+  evidencePayload,
+  type StreamOptions,
+  type VisionRunReviewControls,
+} from '../orchestrator.js';
 import type { AiCompletionRequest, AiProvider, AiResponse } from '../providers/types.js';
 import type { HostToolExecutor, HostToolOutcome } from '../tool-executor.js';
 
@@ -312,5 +317,174 @@ describe('what the run can recall about its targets', () => {
     });
     expect(JSON.stringify(stored)).toContain(FACE.candidateId);
     expect(JSON.stringify(stored)).not.toContain('box');
+  });
+});
+
+describe('the visual spot check (AM3.2)', () => {
+  const sha = (c: string): string => c.repeat(64);
+  /** A face the detector was only fairly sure of: the numbers leave the question open. */
+  const UNSURE_FACE = { ...FACE, score: 0.6 };
+  const measured = (
+    candidate: typeof FACE,
+    needsReview: { start: number; end: number }[] = [],
+  ): HostToolExecutor =>
+    host({
+      status: 'completed',
+      summary: 'Cut out the face.',
+      data: {
+        kind: 'create_mask',
+        precision: 'cutout',
+        clipId: 'shot',
+        candidate,
+        artifact: {
+          key: sha('a'),
+          files: [{ name: 'matte.mkv', sha256: sha('b') }],
+          width: 1920,
+          height: 1080,
+          coverage: { sourceStart: 0, sourceEnd: 5 },
+          packId: 'framepilot.smart-mask',
+          packVersion: '1.0.0',
+          modelDigests: [],
+        },
+        needsReview,
+        verifiedFrames: 90,
+        flaggedFrames: needsReview.length,
+      },
+    });
+  const args = {
+    clipId: 'shot',
+    candidateId: FACE.candidateId,
+    precision: 'cutout',
+    purpose: 'cutout',
+  };
+
+  function vision(
+    verdict: 'pass' | 'fail' | 'cannot_tell',
+  ): VisionRunReviewControls & { asked: string[] } {
+    const asked: string[] = [];
+    return {
+      asked,
+      acquire: async (_project, request) =>
+        request.frames.map((frame) => ({
+          frame,
+          imageBase64: 'AAAA',
+          mediaType: 'image/jpeg' as const,
+        })),
+      judge: async ({ objective }) => {
+        asked.push(objective);
+        return { verdict, reason: 'The kept region is the man on the right.' };
+      },
+      reviewer: {
+        transport: 'local_pack',
+        provider: 'framepilot',
+        model: 'smolvlm2',
+        promptVersion: 'v1',
+        packVersion: '1.0.0',
+      },
+    };
+  }
+
+  async function runWith(
+    executor: HostToolExecutor,
+    review: VisionRunReviewControls | undefined,
+    prompt = 'cut out her face',
+  ): Promise<AiEvent[]> {
+    const events: AiEvent[] = [];
+    const provider = new ScriptedProvider([call('create_mask', args), done]);
+    const stream = new Orchestrator(provider, { executor }).streamAgent(
+      { project: project(), userPrompt: prompt },
+      opts(),
+      {},
+      {},
+      undefined,
+      review === undefined ? {} : { visionReview: review },
+    );
+    for await (const event of stream) events.push(event);
+    return events;
+  }
+
+  const diffOf = (events: readonly AiEvent[]) =>
+    events.find((e): e is Extract<AiEvent, { type: 'diff' }> => e.type === 'diff');
+
+  it('yes: the mask lands and the result records a second opinion, never a verification', async () => {
+    const review = vision('pass');
+    const events = await runWith(measured(UNSURE_FACE), review);
+    expect(statusOf(events)).toBe('completed');
+    expect(review.asked).toHaveLength(1);
+    expect(review.asked[0]).toContain('Is the masked region the face?');
+    expect(results(events)[0]?.result).toMatchObject({
+      spotCheck: { verdict: 'yes' },
+      flaggedCount: 0,
+    });
+    expect(JSON.stringify(results(events)[0]?.result)).not.toMatch(/"verified"\s*:\s*true/);
+  });
+
+  it('no: the mask is never applied, and the model is told to re-resolve or ask', async () => {
+    const events = await runWith(measured(UNSURE_FACE), vision('fail'));
+    expect(statusOf(events)).toBe('failed');
+    expect(diffOf(events)).toBeUndefined();
+    const summary = results(events)[0]?.summary ?? '';
+    expect(summary).toContain('not the face');
+    expect(summary).toContain('find_mask_targets again');
+    expect(summary).toContain('ask the editor');
+  });
+
+  it('unsure: the mask lands and the frames looked at go on its review list', async () => {
+    const events = await runWith(measured(UNSURE_FACE), vision('cannot_tell'));
+    expect(statusOf(events)).toBe('completed');
+    const operations = diffOf(events)?.edit.patch.operations ?? [];
+    expect(operations.map((operation) => operation.type)).toContain('review_mask');
+    const result = results(events)[0]?.result as {
+      flaggedCount: number;
+      spotCheck: { verdict: string };
+    };
+    expect(result.spotCheck.verdict).toBe('unsure');
+    expect(result.flaggedCount).toBeGreaterThan(0);
+  });
+
+  it('does not look when the numbers already decided, or when the editor chose', async () => {
+    const confident = vision('fail');
+    expect(statusOf(await runWith(measured(FACE), confident))).toBe('completed');
+    expect(confident.asked).toEqual([]);
+
+    const pick = `pick.${FACE.candidateId}`;
+    const chosen = vision('fail');
+    const events: AiEvent[] = [];
+    const provider = new ScriptedProvider([
+      call('create_mask', { ...args, candidateId: pick }),
+      done,
+    ]);
+    const stream = new Orchestrator(provider, {
+      executor: measured({ ...UNSURE_FACE, candidateId: pick }),
+    }).streamAgent(
+      { project: project(), userPrompt: `Use ${pick} on clip shot.` },
+      opts(),
+      {},
+      {},
+      undefined,
+      { visionReview: chosen },
+    );
+    for await (const event of stream) events.push(event);
+    expect(statusOf(events)).toBe('completed');
+    expect(chosen.asked).toEqual([]);
+  });
+
+  it('looks when the pack flagged something, however confident the detector was', async () => {
+    const review = vision('pass');
+    const events = await runWith(measured(FACE, [{ start: 1, end: 1.5 }]), review);
+    expect(review.asked).toHaveLength(1);
+    expect(results(events)[0]?.result).toMatchObject({
+      flaggedCount: 1,
+      frames: { verified: 90, flagged: 1 },
+    });
+  });
+
+  it('without a reviewer the deterministic report stands on its own', async () => {
+    const events = await runWith(measured(UNSURE_FACE), undefined);
+    expect(statusOf(events)).toBe('completed');
+    expect(results(events)[0]?.result).toMatchObject({
+      spotCheck: { verdict: 'not_run' },
+      validator: { valid: true },
+    });
   });
 });

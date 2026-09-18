@@ -220,9 +220,23 @@ export function preflightMaskingCall(toolName: string, rawArgs: unknown, ctx: To
 /** A host-measured masking result, ready for the orchestrator to assemble. */
 export interface MaskingMeasuredEdit {
   readonly operations: Operation[];
+  readonly clipId: string;
   readonly maskId: string;
   readonly needsReview: MaskReviewReport['needsReview'];
   readonly trackConfidence?: MaskReviewReport['trackConfidence'];
+  /** Frames the pack vouched for and flagged, for a cut-out. */
+  readonly frames?: MaskReviewReport['frames'];
+  /**
+   * What a visual spot check would ask, when this edit put a mask ON something. Absent for a
+   * track of an existing mask: there is no "is it the right thing?" left to ask.
+   */
+  readonly target?: {
+    readonly label: string;
+    readonly purpose: 'cutout' | 'hide' | 'effect';
+    readonly candidateScore?: number;
+    /** The editor picked the candidate or typed the shape: never second-guessed. */
+    readonly editorChose: boolean;
+  };
 }
 
 /** Thrown when a host payload does not survive its schema. */
@@ -257,7 +271,9 @@ export function maskingOpsFromMeasurement(
       );
     }
     const built = buildTrackMaskOps(ctx.project, args.clipId, args.maskId, parsed.data.track);
-    return measuredEdit(built, parsed.data.track.flagged, parsed.data.track);
+    return {
+      ...measuredEdit(args.clipId, built, parsed.data.track.flagged, parsed.data.track),
+    };
   }
   const intent =
     toolName === REMOVE_BACKGROUND_TOOL_NAME
@@ -266,11 +282,33 @@ export function maskingOpsFromMeasurement(
   const parsed = CreateMaskMeasurementSchema.safeParse(payload);
   if (!parsed.success) throw new UnusableMaskingPayloadError();
   const built = buildCreateMaskOps(ctx.project, intent, parsed.data);
-  if (parsed.data.precision === 'cutout') return measuredEdit(built, parsed.data.needsReview);
-  return measuredEdit(built, parsed.data.track?.flagged ?? [], parsed.data.track);
+  const candidate = parsed.data.candidate;
+  const target: NonNullable<MaskingMeasuredEdit['target']> = {
+    label:
+      candidate?.label ??
+      (intent.userShape === undefined ? 'main subject' : 'area the editor described'),
+    purpose: intent.purpose,
+    ...(candidate === undefined ? {} : { candidateScore: candidate.score }),
+    editorChose:
+      intent.userShape !== undefined ||
+      (intent.candidateId !== undefined &&
+        parseCandidateId(intent.candidateId)?.pickRequired === true),
+  };
+  if (parsed.data.precision === 'cutout') {
+    return {
+      ...measuredEdit(intent.clipId, built, parsed.data.needsReview),
+      frames: { verified: parsed.data.verifiedFrames, flagged: parsed.data.flaggedFrames },
+      target,
+    };
+  }
+  return {
+    ...measuredEdit(intent.clipId, built, parsed.data.track?.flagged ?? [], parsed.data.track),
+    target,
+  };
 }
 
 function measuredEdit(
+  clipId: string,
   built: BuiltMask,
   needsReview: MaskReviewReport['needsReview'],
   track?: {
@@ -281,6 +319,7 @@ function measuredEdit(
 ): MaskingMeasuredEdit {
   return {
     operations: built.operations,
+    clipId,
     maskId: built.maskId,
     needsReview: needsReview.map((range) => ({ start: range.start, end: range.end })),
     ...(track === undefined
@@ -293,6 +332,41 @@ function measuredEdit(
           },
         }),
   };
+}
+
+/**
+ * Put ranges nobody could vouch for on the mask's own review list (AM3.2 `unsure`).
+ *
+ * A matte and a tracked shape each carry a review list the Inspector shows; an untracked shape
+ * has none, and gets no operation — the ranges are still reported in the result.
+ *
+ * @param project - The project WITH the new mask applied.
+ */
+export function flagMaskForReviewOps(
+  project: ToolContext['project'],
+  clipId: string,
+  maskId: string,
+  ranges: readonly { readonly start: number; readonly end: number }[],
+): Operation[] {
+  if (ranges.length === 0) return [];
+  const mask = maskOnClip(clipWithSize(project, clipId).clip, maskId);
+  const review = mask.kind === 'matte' ? mask.review : mask.tracking?.review;
+  if (review === undefined) return [];
+  const next = {
+    flagged: [
+      ...review.flagged,
+      ...ranges.map((range) => ({ start: range.start, end: range.end })),
+    ],
+    approved: review.approved.map((range) => ({ ...range })),
+    locked: [...review.locked],
+  };
+  const chain = new MaskCommandChain(project);
+  chain.run(
+    mask.kind === 'matte'
+      ? { type: 'review_matte', clipId, maskId, review: next }
+      : { type: 'review_mask_track', clipId, maskId, review: next },
+  );
+  return chain.operations;
 }
 
 const HOST_MEASURED = {

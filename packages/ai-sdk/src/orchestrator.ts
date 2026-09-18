@@ -272,10 +272,19 @@ import { MAX_IDENTITY_KEY_CHARS, boundedKeySegment } from './stable-key.js';
 import type { ToolContext } from './tool-context.js';
 import { stockCutawayCapRefusal } from './domain-tools/timeline.js';
 import {
+  flagMaskForReviewOps,
   maskingOpsFromMeasurement,
   preflightMaskingCall,
   UnusableMaskingPayloadError,
+  type MaskingMeasuredEdit,
 } from './domain-tools/masking.js';
+import {
+  framesToSourceRanges,
+  spotCheckIsWarranted,
+  spotCheckMask,
+  type MaskSpotCheckControls,
+  type MaskSpotCheckResult,
+} from './masking/spot-check.js';
 import { MASKING_HOST_MUTATION_TOOL_NAMES, type MaskReviewReport } from './masking/contracts.js';
 import { assertMaskGeometrySourced, numbersIn } from './masking/geometry-provenance.js';
 import { candidateIdsIn } from './masking/candidate-id.js';
@@ -1764,6 +1773,8 @@ export interface OrchestratorOptions {
 
 /** Per-call host context threaded through {@link Orchestrator.runAgentCall}. */
 interface HostCallContext {
+  /** The run's vision reviewer, for the one look an AI mask may get (masking/spot-check.ts). */
+  readonly maskSpotCheck?: MaskSpotCheckControls;
   /** The run's abort signal — Stop cancels an in-flight host tool too. */
   readonly signal?: AbortSignal;
   /** The sole execution boundary for host I/O, deduplication, and durable observation. */
@@ -5140,7 +5151,13 @@ export class Orchestrator {
       // Inspector dispatches. A malformed payload, a measurement for another clip or a
       // compiler refusal never becomes a fabricated mask.
       if (MASKING_HOST_MUTATION_TOOL_NAMES.includes(call.name) && outcome.status === 'completed') {
-        return maskingOutcomeFromMeasurement(call, outcome, ctx);
+        return await maskingOutcomeFromMeasurement(
+          call,
+          outcome,
+          ctx,
+          host.maskSpotCheck,
+          host.signal,
+        );
       }
       // A cached replay reports the call itself (`desc`), not the original outcome's
       // summary text — the summary can be data-derived ("No silent ranges") and would
@@ -6902,6 +6919,8 @@ export class Orchestrator {
      * twice). The refusal now says which it is.
      */
     stageWithheld?: boolean,
+    /** The run's vision reviewer, for an AI mask's spot check. Absent ⇒ the check is `not_run`. */
+    maskSpotCheck?: MaskSpotCheckControls,
   ): AsyncGenerator<
     AiEvent,
     {
@@ -6977,6 +6996,7 @@ export class Orchestrator {
       loadedToolDomains,
       ...(askUser ? { askUser } : {}),
       ...(rememberDecision ? { rememberDecision } : {}),
+      ...(maskSpotCheck ? { maskSpotCheck } : {}),
       // `analysisBudget` is created once up front (always truthy) and threaded
       // through every turn of this loop — see `HostCallContext.analysisBudget`.
       analysisBudget,
@@ -9426,6 +9446,9 @@ export class Orchestrator {
           // A recovery turn is a latch (next turn is different); anything else narrowed here
           // is the stage rule, and stays narrowed until the stage changes.
           !effect.actionRecovery,
+          // The same reviewer picture verification uses; a mask's spot check is one more
+          // bounded question to it, never a second reviewer.
+          review.visionReview,
         );
         // Some calls survived the stream and some did not. The survivors already ran, so the
         // turn is usable — but the model must be told which of its asks never arrived, or it
@@ -10180,67 +10203,117 @@ function withheldCallOutcome(
  * is one thing the run could not do.
  *
  * The result's `data` is the deterministic review report (AM3.1): the pack's flagged ranges,
- * the track's residual and the validator verdict. It never says "verified" — the Inspector's
- * review list is the only place that word is earned (plan 11 rule 3).
+ * the track's residual and the validator verdict, plus the one visual spot check where those
+ * numbers could not decide (AM3.2). It never says "verified" — the Inspector's review list is
+ * the only place that word is earned (plan 11 rule 3).
  */
-function maskingOutcomeFromMeasurement(
+async function maskingOutcomeFromMeasurement(
   call: ToolCall,
   outcome: HostToolOutcome,
   ctx: ToolContext,
-): AgentCallOutcome {
+  spotCheck: MaskSpotCheckControls | undefined,
+  signal: AbortSignal | undefined,
+): Promise<AgentCallOutcome> {
+  const reason = MASKING_PATCH_REASON[call.name] ?? call.name;
   try {
     const edit = maskingOpsFromMeasurement(call.name, call.arguments, outcome.data, ctx);
     assertMaskGeometrySourced(edit.operations);
-    const probe = assembleEdit(
-      ctx.project,
-      edit.operations,
-      MASKING_PATCH_REASON[call.name] ?? call.name,
-      'agent',
-    );
+    const probe = assembleEdit(ctx.project, edit.operations, reason, 'agent');
     if (!probe.validation.valid) {
       return hostBackedValidatorRejection(call.name, probe.validation.issues, edit.operations);
     }
+    const masked = applyProjectPatch(ctx.project, probe.patch);
+    const looked = await maskSpotCheckFor(edit, masked, spotCheck, signal);
+    if (looked?.verdict === 'no') {
+      // NOT deterministic: a judge's opinion, which a more specific target can change. The
+      // mask never reaches the timeline — "remove the mask" by never applying it.
+      const note =
+        `Rejected "${call.name}" — a spot check of the result says the masked region is not the ` +
+        `${edit.target?.label ?? 'target'} (${looked.reason}). Nothing was applied. Call ` +
+        'find_mask_targets again with a more specific description, or ask the editor which ' +
+        'one they mean; do not apply the same candidate again.';
+      return { ops: [], note, summary: note, status: 'failed', data: note, rejectedOpCount: 1 };
+    }
+    // `unsure`: the mask stands, and the frames nobody could vouch for go on its review list.
+    const unsureRanges =
+      looked?.verdict === 'unsure' ? framesToSourceRanges(masked, edit.clipId, looked.frames) : [];
+    const reviewOps = flagMaskForReviewOps(masked, edit.clipId, edit.maskId, unsureRanges);
+    const operations = [...edit.operations, ...reviewOps];
+    const final =
+      reviewOps.length === 0 ? probe : assembleEdit(ctx.project, operations, reason, 'agent');
+    if (!final.validation.valid) {
+      return hostBackedValidatorRejection(call.name, final.validation.issues, operations);
+    }
+    const needsReview = [...edit.needsReview, ...unsureRanges];
     const report: MaskReviewReport = {
       maskId: edit.maskId,
-      needsReview: edit.needsReview,
-      flaggedCount: edit.needsReview.length,
+      needsReview,
+      flaggedCount: needsReview.length,
       ...(edit.trackConfidence === undefined ? {} : { trackConfidence: edit.trackConfidence }),
-      validator: { valid: true, issues: [] },
+      ...(edit.frames === undefined ? {} : { frames: edit.frames }),
+      validator: {
+        valid: true,
+        issues: final.validation.issues.map((issue) => issue.message),
+      },
+      // `no` returned above: a mask the look rejected was never applied.
+      ...(looked === undefined
+        ? {}
+        : { spotCheck: { verdict: looked.verdict, reason: looked.reason, frames: looked.frames } }),
     };
     const note = `${outcome.summary} ${maskReviewSentence(report)}`;
     return {
-      ops: edit.operations,
+      ops: operations,
       note,
       summary: outcome.summary,
       status: 'completed',
-      project: applyProjectPatch(ctx.project, probe.patch),
-      data: { kind: 'mask_review', tool: call.name, ...report },
+      project: reviewOps.length === 0 ? masked : applyProjectPatch(ctx.project, final.patch),
+      data: { kind: 'mask_review', tool: call.name, clipId: edit.clipId, ...report },
     };
   } catch (cause) {
     if (cause instanceof UnusableMaskingPayloadError) {
       const note = unusableHostPayload(call.name);
       return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
     }
-    const reason = cause instanceof Error ? cause.message : String(cause);
-    const note = `Rejected "${call.name}" — ${reason}`;
+    const why = cause instanceof Error ? cause.message : String(cause);
+    const note = `Rejected "${call.name}" — ${why}`;
     return {
       ops: [],
       note,
       summary: note,
       status: 'failed',
-      data: reason,
+      data: why,
       deterministicFailure: true,
       rejectedOpCount: 1,
     };
   }
 }
 
-/** Everything the editor has written in this conversation, the current request included. */
-function editorWords(input: Pick<ContextInput, 'userPrompt' | 'history'>): string {
-  const earlier = (input.history ?? [])
-    .filter((message) => message.role === 'user')
-    .map((message) => message.content);
-  return [...earlier, input.userPrompt].join('\n');
+/** The one look, only where the numbers left the question open (AM3.2). */
+async function maskSpotCheckFor(
+  edit: MaskingMeasuredEdit,
+  masked: Project,
+  controls: MaskSpotCheckControls | undefined,
+  signal: AbortSignal | undefined,
+): Promise<MaskSpotCheckResult | undefined> {
+  if (edit.target === undefined) return undefined;
+  const warranted = spotCheckIsWarranted({
+    flaggedCount: edit.needsReview.length,
+    editorChose: edit.target.editorChose,
+    ...(edit.target.candidateScore === undefined
+      ? {}
+      : { candidateScore: edit.target.candidateScore }),
+  });
+  if (!warranted) return undefined;
+  return await spotCheckMask({
+    project: masked,
+    clipId: edit.clipId,
+    maskId: edit.maskId,
+    label: edit.target.label,
+    purpose: edit.target.purpose,
+    flagged: edit.needsReview,
+    ...(controls === undefined ? {} : { controls }),
+    ...(signal === undefined ? {} : { signal }),
+  });
 }
 
 /** Patch reasons for the host-measured masking tools, in the editor's words. */
@@ -10249,6 +10322,14 @@ const MASKING_PATCH_REASON: Readonly<Record<string, string>> = {
   remove_background: 'Remove background',
   track_mask: 'Track mask',
 };
+
+/** Everything the editor has written in this conversation, the current request included. */
+function editorWords(input: Pick<ContextInput, 'userPrompt' | 'history'>): string {
+  const earlier = (input.history ?? [])
+    .filter((message) => message.role === 'user')
+    .map((message) => message.content);
+  return [...earlier, input.userPrompt].join('\n');
+}
 
 /**
  * The outcome for a HOST-BACKED tool whose built operations the validator refused.
