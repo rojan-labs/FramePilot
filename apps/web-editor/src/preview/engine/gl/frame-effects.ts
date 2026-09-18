@@ -17,6 +17,7 @@
 import type { EffectRenderKind } from '@framepilot/timeline-schema';
 import { clampParamsForKind } from '@framepilot/timeline-schema/effect-params';
 import type { MaskStackRaster } from '../../masks/mask-stack.js';
+import { createLogger } from '@framepilot/shared-types';
 import type { GlResources, Program, RenderTarget } from './gl-resources.js';
 
 /** One live effect layer at the frame being drawn. */
@@ -109,6 +110,8 @@ float valueNoise01(float x, float y, uint seed, float cell) {
   return top + (bottom - top) * sy;
 }
 `;
+
+const log = createLogger('web-editor:preview:frame-effects');
 
 /** The one-pixel stand-in an unmasked layer binds, so the integer sampler is never empty. */
 const OPAQUE_COVERAGE = new Uint8Array([255]);
@@ -701,6 +704,20 @@ export class FrameEffectRenderer {
       if (strength <= 0) continue;
       const body = KIND_BODIES[effect.kind];
       if (body === undefined) continue;
+      // A mask whose raster is not the frame's size cannot be sampled per texel. Applying the
+      // adjustment to the whole frame instead would be a picture the export never writes and
+      // nothing on screen would say so, so the layer is skipped: an adjustment that is missing
+      // is at least visibly wrong. `frameEffectsAt` builds the raster at the plan's size, so
+      // this is a caller bug if it ever fires.
+      const mask = effect.mask ?? null;
+      if (mask !== null && (mask.width !== current.width || mask.height !== current.height)) {
+        log.warn('a masked effect layer was skipped: its mask is not the frame size', {
+          kind: effect.kind,
+          mask: `${String(mask.width)}x${String(mask.height)}`,
+          frame: `${String(current.width)}x${String(current.height)}`,
+        });
+        continue;
+      }
       const params = clampParamsForKind(effect.kind, effect.params);
       const result = this.kind(effect, params, current, body);
       if (result === null) continue;
@@ -709,14 +726,6 @@ export class FrameEffectRenderer {
       this.gl.useProgram(program.handle);
       this.resources.bind(program, 'u_src', 0, current.texture);
       this.resources.bind(program, 'u_result', 1, result.texture);
-      // A mask whose raster is not the frame's size cannot be sampled per texel; it is a
-      // caller bug, and drawing the adjustment everywhere would be worse than skipping it.
-      const mask =
-        effect.mask != null &&
-        effect.mask.width === current.width &&
-        effect.mask.height === current.height
-          ? effect.mask
-          : null;
       // An integer sampler must always see an integer texture, even when the branch skips it.
       this.resources.bind(
         program,
