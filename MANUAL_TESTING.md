@@ -766,12 +766,12 @@ effect (ADR 0113).
 
 `UI+AI` · `desktop+browser` for authoring; the AI's tracking runs deterministically
 
-> **Read this before testing.** Only **manual** mask tracking exists. `professional_tracking_mask`
-> "tracks the existing bounded rectangle/ellipse mask on the selected shot using deterministic
-> manual corrections" and explicitly says **automatic face/object/planar/segmentation tracking is
-> unavailable until a real CV engine is installed.** `detect_faces` and `generate_mask` are
-> registered as `available: false` on purpose (`domain-tools/tracking-mask.ts`) — the orchestrator
-> refuses them rather than fabricating a result. See §20.
+> **Read this before testing.** Masks are drawn by hand (16.1), tracked through the Tracking Lite
+> pack, and cut out through the Smart Mask pack (16.4, 16.5). The assistant masks through the
+> `masking` tools (`find_mask_targets`, `create_mask`, `remove_background`, `track_mask`, …), which
+> run the same pack jobs and land on the same Inspector review list (16.8). `generate_mask` and
+> the model's fixed-bounds `add_mask` no longer exist; `create_shape_mask` and `mask_with_layer`
+> are registered unavailable because neither renderer draws their mask kinds yet.
 
 - [ ] **16.1 Draw and edit masks on the monitor** — `UI` · desktop
   - Setup: a project with a real camera clip (4K if you have one). Select it, open Inspector → Mask.
@@ -893,6 +893,22 @@ effect (ADR 0113).
     downloaded.**
   - Fail if: the AI claims it tracked something. That is exactly the fabrication the registry is
     built to prevent.
+  - Result: **/**/____ · PASS / FAIL · notes:
+
+- [ ] **16.8 The assistant masks a subject** — `AI` · desktop · **needs Subject Intelligence; Smart Mask for cut-outs**
+  - Do: with no packs installed, ask _"Remove the background of this clip."_
+  - Expect: the pack install card with the signed proposal. Nothing downloads until you approve.
+  - Do: with the packs, ask the same on a short clip, then on a long one.
+  - Expect: the short clip gets its cut-out as ONE Undo, and the reply says how many moments need
+    a look, with **Open review list**. The long one shows a card to start the Inspector's own
+    job instead of starting it silently.
+  - Do: on a shot with two people, ask _"Mask the person."_
+  - Expect: thumbnails of both and a question; nothing is masked until you pick one.
+  - Do: ask _"Darken everyone except the host."_
+  - Expect: the face picker, with the face recognition line (off by default) and, once on,
+    **Delete identity data**.
+  - Fail if: the reply calls a mask verified, a mask lands without a pick when two things match,
+    or a mask appears where you gave no numbers and nothing was detected.
   - Result: **/**/____ · PASS / FAIL · notes:
 
 ---
@@ -1122,7 +1138,6 @@ reachable, move it up.
 
 | Capability                                                 | Where it exists                                                                                              | Why it is not testable                                                                                                                                                                                                                                                                                    |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Subject mask generation** (`generate_mask`)              | `domain-tools/tracking-mask.ts`, `available: false`                                                          | **Permanently unavailable by design, not a gap.** Segmentation produces a bitmap; the timeline mask model steers by rectangle bounds. The measured path that exists is `track_subject_automatically` with `subject="silhouette"` — see §22.                                                               |
 | **Text behind object** (PRD §6.6)                          | `engine/python/.../masking/mask.py`                                                                          | Segmentation now exists (§22), but no user path composites text behind the returned matte. Engine ✓, no entry point.                                                                                                                                                                                      |
 | **Local semantic vision review pack**                      | `VisionRunReviewControls`, temporal/vision review                                                            | The Subject Intelligence worker now exists and installs locally (§22), but its adoption by `VisionRunReviewControls` is unconfirmed. Cloud review is consent-gated only.                                                                                                                                  |
 | **Mask geometry authoring**                                | `addMaskPatch`                                                                                               | `bounds` is **hardcoded** to the centre 60%; no handles, no numeric fields. Engine ✓, UI not operable. Masking is only _partly_ testable — see §16.1.                                                                                                                                                     |
