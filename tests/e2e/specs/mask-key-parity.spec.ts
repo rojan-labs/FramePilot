@@ -19,9 +19,10 @@
  * workspace packages; `key-mask.test.ts` asserts that the TypeScript packer produces the same
  * numbers, which is what keeps the two descriptions of a mask in step.
  *
- * Runs in the default `chromium` project. On a machine (or CI runner) whose Chromium has no
- * WebGL2 or no float render targets, the test FAILS rather than skipping: a gate that quietly
- * disappears is not a gate. CPU GL (SwiftShader) is fine — it supports both.
+ * Runs in the `mask-key-parity` Playwright project, which launches with
+ * `--enable-unsafe-swiftshader` so a GPU-less CI runner still has WebGL2 with float render
+ * targets. Without them the test FAILS rather than skipping: a gate that quietly disappears is
+ * not a gate. It renders into its own canvas on `about:blank`, so it needs no app and no media.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -64,7 +65,11 @@ interface Charts {
   readonly cases: {
     readonly mask: { readonly id: string };
     readonly uniforms: KeyUniforms;
-    readonly expected: { readonly matrix: string; readonly range: string; readonly alpha8: number[] }[];
+    readonly expected: {
+      readonly matrix: string;
+      readonly range: string;
+      readonly alpha8: number[];
+    }[];
   }[];
 }
 
@@ -119,7 +124,9 @@ test.describe('MK6.3 key gate: engine vs preview keyed alpha', () => {
 
     // Recorded in the run log whether it passes or not: a gate's number is the evidence.
     for (const [encoding, delta] of [...measuredPerEncoding].sort()) {
-      test.info().annotations.push({ type: 'key-gate', description: `${encoding}: ≤ ${String(delta)}/255` });
+      test
+        .info()
+        .annotations.push({ type: 'key-gate', description: `${encoding}: ≤ ${String(delta)}/255` });
     }
     expect(checked).toBe(vectors.cases.length * 4 * vectors.charts[0]!.colours.length);
     expect(

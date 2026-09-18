@@ -5,7 +5,7 @@
   "description": "End-to-end tests for FramePilot critical user flows (Playwright)",
   "type": "module",
   "scripts": {
-    "test": "playwright test --project=chromium --grep-invert @visual --workers=1",
+    "test": "playwright test --project=chromium --project=mask-key-parity --grep-invert @visual --workers=1",
     "test:all": "playwright test --project=chromium",
     "test:visual": "playwright test --project=chromium --grep @visual",
     "test:visual:update": "playwright test --project=chromium --grep @visual --update-snapshots",
@@ -13,6 +13,7 @@
     "test:ui": "playwright test --project=chromium --ui",
     "test:preview-spike": "playwright test --project=preview-spike",
     "test:parity": "playwright test --project=preview-parity",
+    "test:key-parity": "playwright test --project=mask-key-parity",
     "report": "playwright show-report ../../reports/e2e",
     "install:browsers": "playwright install --with-deps chromium"
   },

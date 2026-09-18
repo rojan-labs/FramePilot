@@ -57,7 +57,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: /preview-(spike|webcodecs-p[0-9]+|parity-oracle)\.spec\.ts/,
+      testIgnore: /(preview-(spike|webcodecs-p[0-9]+|parity-oracle)|mask-key-parity)\.spec\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
     // P0 WebCodecs feasibility spike (plan PREVIEW-WEBCODECS-COMPOSITOR.md).
@@ -115,6 +115,23 @@ export default defineConfig({
             '--enable-unsafe-swiftshader',
           ],
         },
+      },
+    },
+    // MK6.3 key gate (plan/background-removal-ai/06-PRECISION-AND-EVAL.md): the shipped key
+    // shader on a real GPU, measured against the engine's colour charts. A project of its own
+    // because it needs WebGL2 with float render targets, and a GPU-less runner only provides
+    // them through SwiftShader, which newer Chromium admits only with the flag below. The spec
+    // FAILS rather than skips without them: a gate that quietly disappears is not a gate.
+    // It needs no page of its own (it renders into a canvas on `about:blank`), so it is fast
+    // and safe to run next to the smoke suite.
+    {
+      name: 'mask-key-parity',
+      testMatch: /mask-key-parity\.spec\.ts/,
+      // Deterministic by construction; a retry would only hide a driver flake.
+      retries: 0,
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: { args: ['--enable-unsafe-swiftshader'] },
       },
     },
   ],
