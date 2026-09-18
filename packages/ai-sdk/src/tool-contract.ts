@@ -110,6 +110,17 @@ export const TOOL_CONTRACT_DECLARATIONS: Readonly<Record<string, ToolContract>> 
     stateDependency: 'asset_content',
     cacheScope: 'none',
   },
+  // MK8: resolves a subject, then draws a preset shape into its box — the same
+  // measure-then-edit contract as `create_mask`. Without it the default contract would let a
+  // read-only question turn advertise it and a cached placement replay as a fresh edit.
+  create_shape_mask: {
+    executionPlane: 'host',
+    effectClass: 'mutation',
+    permissions: ['analysis', 'write'],
+    concurrency: 'serial',
+    stateDependency: 'asset_content',
+    cacheScope: 'none',
+  },
   remove_background: {
     executionPlane: 'host',
     effectClass: 'mutation',

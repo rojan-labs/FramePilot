@@ -136,6 +136,8 @@ describe('analysis-kind tools are exhaustively classified by project-state effec
     'transcribe',
     // The masking domain's measure-then-edit tools (plan 11).
     'create_mask',
+    // MK8: a preset shape drawn into a resolved subject's box — measure, then edit.
+    'create_shape_mask',
     'remove_background',
     'track_mask',
   ];
