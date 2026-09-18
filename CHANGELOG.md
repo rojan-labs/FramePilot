@@ -142,6 +142,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   timeline and can be dragged. Copy masks between clips and save them as presets in the project.
   Every edit is one undo.
 
+- **A Jobs tab for long-running work.** On desktop, the right rail's new **Jobs** tab lists every
+  background removal and mask track in the project — running, waiting, paused or finished — with
+  its clip, progress and time left, and Pause, Resume, Cancel and Show clip. Show clip takes you
+  straight to the clip in the Inspector.
+
 - **Background removal shows on the preview exactly as it exports.** A clip with a removed
   background now previews cut out, with the same edge, edge shift, feather and clean-edge colour
   the export uses, including sped-up, reversed, rotated and variable-frame-rate clips. While

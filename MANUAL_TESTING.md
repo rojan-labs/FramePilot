@@ -860,6 +860,17 @@ effect (ADR 0113).
   - Expect: "Stopped. Nothing changed." and no new mask.
   - Result: **/**/____ · PASS / FAIL · notes:
 
+- [ ] **16.5b The Jobs tab** — `UI` · desktop · **needs the pack for a live job**
+  - Do: open the right rail's **Jobs** tab (Tab to it and press Enter works too). Start a
+    background removal, then look at the tab; press **Pause**, then **Resume**; press **Show clip**.
+  - Expect: the job's row names the clip by its media file, shows the phase, progress bar and time
+    left; Pause/Resume change its state within a second; Show clip selects the clip, moves the
+    playhead to it and switches to the Inspector. With no jobs: "No background jobs." The browser
+    build has no Jobs tab at all.
+  - Fail if: the tab shows a job that is not running (or misses one that is), or Show clip lands on
+    a different clip.
+  - Result: **/**/____ · PASS / FAIL · notes:
+
 - [ ] **16.6 Reviewing the moments it was unsure about** — `UI` · desktop · **needs the pack**
   - Do: with moments flagged, press `J` and `K` in the review list; press **Looks right** on one;
     draw with the **Remove** brush over a mistake and press **Apply fix**; press **Lock this

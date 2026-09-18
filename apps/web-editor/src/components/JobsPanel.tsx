@@ -9,6 +9,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@framepilot/ui';
 import type { CapabilityPackJobWire, FramePilotBridge } from '@framepilot/shared-types';
+import type { Asset, Timeline } from '@framepilot/timeline-schema';
+import { getBridge } from '../editor/bridge.js';
 
 const STATE_LABEL: Readonly<Record<CapabilityPackJobWire['state'], string>> = {
   queued: 'Waiting',
@@ -44,9 +46,11 @@ export interface JobsPanelProps {
   readonly onAction: (jobId: string, action: JobActionName) => void;
   /** Select the job's clip on the timeline; the button is hidden without it. */
   readonly onShowClip?: (clipId: string) => void;
+  /** A readable name for a clip (its media file); the raw id is shown without it. */
+  readonly clipLabel?: (clipId: string) => string | undefined;
 }
 
-export function JobsPanel({ jobs, onAction, onShowClip }: JobsPanelProps): JSX.Element {
+export function JobsPanel({ jobs, onAction, onShowClip, clipLabel }: JobsPanelProps): JSX.Element {
   const live = jobs.filter((job) => LIVE.has(job.state)).length;
   return (
     <section className="jobs-panel" aria-labelledby="jobs-panel-title">
@@ -59,7 +63,13 @@ export function JobsPanel({ jobs, onAction, onShowClip }: JobsPanelProps): JSX.E
       ) : (
         <ul className="jobs-list">
           {jobs.map((job) => (
-            <JobRow key={job.id} job={job} onAction={onAction} {...(onShowClip === undefined ? {} : { onShowClip })} />
+            <JobRow
+              key={job.id}
+              job={job}
+              onAction={onAction}
+              {...(onShowClip === undefined ? {} : { onShowClip })}
+              {...(clipLabel === undefined ? {} : { clipLabel })}
+            />
           ))}
         </ul>
       )}
@@ -67,7 +77,12 @@ export function JobsPanel({ jobs, onAction, onShowClip }: JobsPanelProps): JSX.E
   );
 }
 
-function JobRow({ job, onAction, onShowClip }: { readonly job: CapabilityPackJobWire } & Omit<JobsPanelProps, 'jobs'>): JSX.Element {
+function JobRow({
+  job,
+  onAction,
+  onShowClip,
+  clipLabel,
+}: { readonly job: CapabilityPackJobWire } & Omit<JobsPanelProps, 'jobs'>): JSX.Element {
   const progress = job.progress;
   const percent = progress === undefined || progress.total === 0 ? undefined : Math.round((progress.completed / progress.total) * 100);
   const phase = progress === undefined ? undefined : (PHASE_LABEL[progress.phase] ?? progress.phase);
@@ -77,7 +92,9 @@ function JobRow({ job, onAction, onShowClip }: { readonly job: CapabilityPackJob
     <li className="jobs-row" data-state={job.state} aria-label={`${job.label}: ${STATE_LABEL[job.state]}`}>
       <div className="jobs-row-head">
         <span className="jobs-row-name">{job.label}</span>
-        {job.clipId !== undefined && <span className="jobs-row-clip">Clip {job.clipId}</span>}
+        {job.clipId !== undefined && (
+          <span className="jobs-row-clip">{clipLabel?.(job.clipId) ?? `Clip ${job.clipId}`}</span>
+        )}
       </div>
       <div className="jobs-row-status">
         <span>{STATE_LABEL[job.state]}</span>
@@ -163,4 +180,46 @@ export function useCapabilityPackJobs(
     [bridge],
   );
   return { jobs, act };
+}
+
+/** The media file a clip plays, by name, for the jobs list ("interview.mov"). */
+export function jobClipLabel(timeline: Timeline, assets: readonly Asset[], clipId: string): string | undefined {
+  for (const track of timeline.tracks) {
+    const clip = track.clips.find((candidate) => candidate.id === clipId);
+    if (clip === undefined) continue;
+    const asset = assets.find((candidate) => candidate.id === clip.assetId);
+    const name = asset?.path.split(/[\\/]/u).pop();
+    return name === undefined || name === '' ? undefined : name;
+  }
+  return undefined;
+}
+
+export interface JobsRailProps {
+  readonly timeline: Timeline;
+  readonly assets: readonly Asset[];
+  /** Select the clip, move the playhead to it and show it in the Inspector. */
+  readonly onShowClip: (clipId: string) => void;
+  /** Injected in tests; the desktop bridge otherwise. */
+  readonly bridge?: Parameters<typeof useCapabilityPackJobs>[0];
+}
+
+/**
+ * The Jobs panel as the right rail mounts it (BR6.12): the host's live job list, clip names from
+ * the open timeline, and "Show clip" that lands on the clip. A job whose clip was deleted keeps
+ * its row (it may still be running); Show clip then leaves the selection alone.
+ */
+export function JobsRail({ timeline, assets, onShowClip, bridge }: JobsRailProps): JSX.Element {
+  const [source] = useState(() => (bridge === undefined ? getBridge() : bridge));
+  const { jobs, act } = useCapabilityPackJobs(source);
+  const clipLabel = useCallback(
+    (clipId: string) => jobClipLabel(timeline, assets, clipId),
+    [timeline, assets],
+  );
+  const showClip = useCallback(
+    (clipId: string) => {
+      if (timeline.tracks.some((track) => track.clips.some((clip) => clip.id === clipId))) onShowClip(clipId);
+    },
+    [timeline, onShowClip],
+  );
+  return <JobsPanel jobs={jobs} onAction={act} onShowClip={showClip} clipLabel={clipLabel} />;
 }

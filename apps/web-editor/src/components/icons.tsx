@@ -127,6 +127,8 @@ export {
   Blend,
   // Shape presets (MK8.3).
   Shapes,
+  // The Jobs rail tab (BR6.12).
+  ListChecks,
 } from 'lucide-react';
 export type { LucideIcon } from 'lucide-react';
 

@@ -63,6 +63,7 @@ import {
 import { isDesktop } from '../editor/bridge.js';
 import { Toasts } from './Toasts.js';
 import { HistoryPanel } from './HistoryPanel.js';
+import { JobsRail } from './JobsPanel.js';
 import { FootageUnderstandingPanel } from './FootageUnderstandingPanel.js';
 import { TranscriptionPanel } from './TranscriptionPanel.js';
 import { Tooltip } from './Tooltip.js';
@@ -77,6 +78,7 @@ import {
   Folder,
   ICON_SIZE,
   ImagePlus,
+  ListChecks,
   type LucideIcon,
   SlidersHorizontal,
   Sparkles,
@@ -138,7 +140,7 @@ const LEFT_TAB_IDS = [
   'sounds',
   'stock',
 ] as const;
-const RIGHT_TAB_IDS = ['ai', 'inspector'] as const;
+const RIGHT_TAB_IDS = ['ai', 'inspector', 'jobs'] as const;
 
 type LeftTab = (typeof LEFT_TAB_IDS)[number];
 type RightTab = (typeof RIGHT_TAB_IDS)[number];
@@ -182,7 +184,14 @@ function visibleLeftTabs(): readonly { id: LeftTab; label: string; icon: LucideI
 }
 
 const isLeftTab = oneOf<LeftTab>(LEFT_TAB_IDS);
-const coerceRightTab = oneOf<RightTab>(RIGHT_TAB_IDS);
+const isRightTab = oneOf<RightTab>(RIGHT_TAB_IDS);
+
+/** Jobs are pack jobs the desktop host schedules; a browser build has none, so no tab. */
+function coerceRightTab(raw: unknown): RightTab | undefined {
+  const tab = isRightTab(raw);
+  if (tab === undefined) return undefined;
+  return tab !== 'jobs' || isDesktop() ? tab : undefined;
+}
 
 /**
  * Restore a left tab only if THIS build actually renders it.
@@ -203,7 +212,15 @@ function coerceLeftTab(raw: unknown): LeftTab | undefined {
 const RIGHT_TABS: readonly { id: RightTab; label: string; icon: LucideIcon }[] = [
   { id: 'ai', label: 'AI', icon: Wand2 },
   { id: 'inspector', label: 'Inspector', icon: SlidersHorizontal },
+  // BR6.12 (plan 05 "Jobs panel"): every background pack job in the project — background
+  // removal, mask tracking — with pause, cancel and Show clip. Beside the Inspector because
+  // Show clip lands there, and a tab (not an overlay) so it is one Tab/Enter away.
+  { id: 'jobs', label: 'Jobs', icon: ListChecks },
 ];
+
+function visibleRightTabs(): readonly { id: RightTab; label: string; icon: LucideIcon }[] {
+  return isDesktop() ? RIGHT_TABS : RIGHT_TABS.filter((tab) => tab.id !== 'jobs');
+}
 
 interface RailTabsProps<T extends string> {
   readonly label: string;
@@ -356,6 +373,18 @@ export function Editor({
     setMonitorTab('source');
   }, []);
   const [rightTab, setRightTab] = useViewPreference<RightTab>('rightTab', 'ai', coerceRightTab);
+  const showJobClip = useCallback(
+    (clipId: string) => {
+      const clip = editor.state.timeline.tracks
+        .flatMap((track) => track.clips)
+        .find((candidate) => candidate.id === clipId);
+      if (clip === undefined) return;
+      editor.select(clipId);
+      editor.seek(clip.start);
+      setRightTab('inspector');
+    },
+    [editor, setRightTab],
+  );
   const dockLayout = useDockHeight();
 
   // Mirror live editable slices upward without turning restart serialization into
@@ -904,7 +933,7 @@ export function Editor({
             <div className="rail-head">
               <RailTabs
                 label="rail tabs"
-                tabs={RIGHT_TABS}
+                tabs={visibleRightTabs()}
                 active={rightTab}
                 onSelect={setRightTab}
               />
@@ -931,6 +960,13 @@ export function Editor({
                   fps={project.fps}
                   selectedEffectLayerIds={selectedEffectLayerIds}
                   onClearEffectLayers={() => setSelectedEffectLayerIds([])}
+                />
+              )}
+              {rightTab === 'jobs' && (
+                <JobsRail
+                  timeline={editor.state.timeline}
+                  assets={editor.state.assets}
+                  onShowClip={showJobClip}
                 />
               )}
             </div>

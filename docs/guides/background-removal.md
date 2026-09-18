@@ -78,6 +78,17 @@ looking at.
 Finished windows show matted in the monitor while the rest runs, so the timeline draws a striped
 band over the part not reached yet — otherwise a half-processed clip looks finished.
 
+### The Jobs tab
+
+On desktop the right rail has a **Jobs** tab beside AI and Inspector (BR6.12). It lists every pack
+job in the project — background removals and mask tracks, running, waiting, paused, paused for an
+export, or finished — with the clip's media file, the phase, progress and ETA, and **Pause**,
+**Resume**, **Cancel** and **Show clip**. Show clip selects the clip, moves the playhead to it and
+opens the Inspector, where the job's row is. A job resumed after a restart says so.
+
+The list is a view over the desktop host's scheduler (`capabilityPackJobs`), so it can never
+disagree with what is actually running. The browser build has no pack jobs, so it has no tab.
+
 ## Reviewing what it was unsure about
 
 The pipeline checks every frame and flags the moments it could not verify. **VERIFIED** appears
@@ -125,6 +136,7 @@ rather than paraphrased.
 | Brush fixes → the host's PNG           | `.../masks/matteCorrectionPng.ts`                                                                     |
 | AI Object / AI Brush on the monitor    | `apps/web-editor/src/components/preview/MaskCanvasTools.tsx`                                          |
 | Export's notice                        | `apps/web-editor/src/editor/matteReview.ts`, `.../ExportDialog.tsx`                                   |
+| The Jobs tab                           | `apps/web-editor/src/components/JobsPanel.tsx` (`JobsRail`), mounted in `.../Editor.tsx`              |
 | Typed operations                       | `packages/editor-core/src/mask-commands.ts` (`add_matte_mask`, `review_matte`, `text_behind_subject`) |
 | The host                               | `apps/desktop/electron/capability-packs/matte*.ts`                                                    |
 
