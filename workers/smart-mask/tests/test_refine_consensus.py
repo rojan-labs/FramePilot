@@ -189,3 +189,16 @@ def test_birefnet_never_votes_on_topology() -> None:
     result = consensus([sam, sam], None, birefnet, None, edge_radius(180))
     assert not result.majority[120, 40]
     assert result.score["hardDisagreementFraction"] > 0, "but the disagreement is measured"
+
+
+def test_dark_crops_are_brightened_for_matting_and_normal_ones_are_not() -> None:
+    from framepilot_smart_mask.refine import MAX_GAIN, normalise_exposure
+
+    normal = np.full((32, 32, 3), 180, np.uint8)
+    assert normalise_exposure(normal) is normal
+    dark = np.full((32, 32, 3), 40, np.uint8)
+    dark[:4] = 80  # the brightest 12% of pixels: p99 = 80/255
+    bright = normalise_exposure(dark)
+    assert bright[0, 0, 0] == round(80 * 0.9 * 255 / 80) and bright[10, 10, 0] > 40
+    black = np.full((8, 8, 3), 5, np.uint8)
+    assert normalise_exposure(black).max() <= 5 * MAX_GAIN + 1, "the gain is bounded"

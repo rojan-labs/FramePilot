@@ -39,6 +39,13 @@ CROP_MARGIN_PX: Final = 32
 TILE_OVERLAP_FRACTION: Final = 0.125
 GATE_DILATE_FRACTION: Final = 0.03
 GATE_MIN_PX: Final = 8
+#: An under-exposed crop (99th-percentile luma below DARK_P99) is brightened before matting so
+#: its 99th percentile reaches TARGET_P99, by at most MAX_GAIN. BR7.4 it0: BiRefNet's IoU on the
+#: two dark pilot categories (crop p99 0.32-0.36) was 0.81 and 0.93 against SAM's 0.96 and 0.97,
+#: while every normally exposed category (p99 >= 0.7) matted at 0.95-0.997.
+DARK_P99: Final = 0.5
+TARGET_P99: Final = 0.9
+MAX_GAIN: Final = 3.0
 
 Float = npt.NDArray[Any]
 
@@ -139,8 +146,24 @@ class RefineRecord:
         return self.mode == "resized" and side > self.tile
 
 
+def normalise_exposure(crop: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    """Brighten an under-exposed crop for the matting model (the delivered pixels never change)."""
+    if crop.size == 0:
+        return crop
+    luma = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY)
+    p99 = float(np.percentile(luma, 99)) / 255.0
+    if p99 >= DARK_P99 or p99 <= 0.0:
+        return crop
+    gain = min(TARGET_P99 / p99, MAX_GAIN)
+    out: npt.NDArray[np.uint8] = np.clip(crop.astype(np.float32) * gain + 0.5, 0, 255).astype(
+        np.uint8
+    )
+    return out
+
+
 def matte_region(model: MattingModel, crop: npt.NDArray[np.uint8]) -> tuple[Float, str, int]:
     """Alpha for a crop: one resized pass when it fits, else overlapping full-resolution tiles."""
+    crop = normalise_exposure(crop)
     tile = model.tile
     crop_h, crop_w = crop.shape[:2]
     if max(crop_h, crop_w) <= RESIZE_UP_TO * tile:
@@ -197,6 +220,7 @@ __all__ = [
     "blend_weight",
     "choose_tile",
     "matte_region",
+    "normalise_exposure",
     "refine_frame",
     "square_crop",
     "tiles_1d",
