@@ -3,7 +3,7 @@
 ``tests/fixtures/mask-key/charts.json`` is the engine's side of the plan-06 gate. The preview is
 measured against it on the CPU (``key-mask.test.ts``) and on a real GPU (the ``mask-key-parity``
 Playwright spec), so a stale file would quietly weaken both. Regenerate with
-``cd engine/python && uv run python -m tests.key_mask_vectors``.
+``pnpm key-mask:vectors``.
 """
 
 from __future__ import annotations
@@ -32,9 +32,7 @@ def test_the_masks_cover_every_model_and_the_edge_controls() -> None:
     assert any(mask.get("invert") for mask in vectors.MASKS)
     # A wrapping hue range is the case an axis-aligned implementation gets wrong.
     assert any(
-        entry["low"] > entry["high"]
-        for mask in vectors.MASKS
-        for entry in mask.get("ranges", [])
+        entry["low"] > entry["high"] for mask in vectors.MASKS for entry in mask.get("ranges", [])
     )
 
 

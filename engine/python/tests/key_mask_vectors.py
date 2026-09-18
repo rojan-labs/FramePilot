@@ -12,8 +12,9 @@ the same light. Each chart patch is therefore taken to YUV in that encoding, qua
 as a decoded frame is, and brought back to RGB — so the colours keyed here are colours that
 actually come out of a decoder, including the ones limited range cannot represent.
 
-The media is generated deterministically from these numbers (numpy, never ``testsrc``: its output
-differs between FFmpeg versions and has broken a golden before).
+Regenerate with ``pnpm key-mask:vectors``. Every number here is generated deterministically in
+numpy — never from ``testsrc``, whose output differs between FFmpeg versions and has moved a
+golden on CI before.
 """
 
 from __future__ import annotations
@@ -44,18 +45,42 @@ MATRICES = {
 #: A 36-patch chart: primaries and secondaries, a grey ramp, skin tones, and a green/blue-screen
 #: sweep (the colours a key is actually pointed at, including badly lit corners of a backing).
 CHART: list[tuple[int, int, int]] = [
-    (255, 0, 0), (0, 255, 0), (0, 0, 255),
-    (255, 255, 0), (0, 255, 255), (255, 0, 255),
-    (255, 255, 255), (0, 0, 0), (128, 128, 128),
-    (16, 16, 16), (235, 235, 235), (64, 64, 64),
-    (192, 192, 192), (32, 32, 32), (96, 96, 96),
-    (222, 170, 135), (180, 120, 90), (120, 80, 60),
-    (245, 210, 190), (90, 60, 45), (60, 40, 30),
-    (0, 177, 64), (30, 190, 90), (10, 140, 50),
-    (60, 200, 110), (0, 120, 40), (20, 90, 35),
-    (0, 71, 187), (40, 110, 210), (20, 60, 150),
-    (80, 140, 230), (0, 40, 110), (30, 80, 170),
-    (200, 230, 210), (140, 170, 150), (70, 100, 80),
+    (255, 0, 0),
+    (0, 255, 0),
+    (0, 0, 255),
+    (255, 255, 0),
+    (0, 255, 255),
+    (255, 0, 255),
+    (255, 255, 255),
+    (0, 0, 0),
+    (128, 128, 128),
+    (16, 16, 16),
+    (235, 235, 235),
+    (64, 64, 64),
+    (192, 192, 192),
+    (32, 32, 32),
+    (96, 96, 96),
+    (222, 170, 135),
+    (180, 120, 90),
+    (120, 80, 60),
+    (245, 210, 190),
+    (90, 60, 45),
+    (60, 40, 30),
+    (0, 177, 64),
+    (30, 190, 90),
+    (10, 140, 50),
+    (60, 200, 110),
+    (0, 120, 40),
+    (20, 90, 35),
+    (0, 71, 187),
+    (40, 110, 210),
+    (20, 60, 150),
+    (80, 140, 230),
+    (0, 40, 110),
+    (30, 80, 170),
+    (200, 230, 210),
+    (140, 170, 150),
+    (70, 100, 80),
 ]
 
 
@@ -72,16 +97,16 @@ def _rgb_through(rgb: tuple[int, int, int], matrix: str, full: bool) -> tuple[in
     cb = (blue - y) / (2.0 * (1.0 - kb))
     cr = (red - y) / (2.0 * (1.0 - kr))
     if full:
-        y8 = int(round(y * 255.0))
-        cb8 = int(round(cb * 255.0 + 128.0))
-        cr8 = int(round(cr * 255.0 + 128.0))
+        y8 = round(y * 255.0)
+        cb8 = round(cb * 255.0 + 128.0)
+        cr8 = round(cr * 255.0 + 128.0)
         y_back = y8 / 255.0
         cb_back = (cb8 - 128.0) / 255.0
         cr_back = (cr8 - 128.0) / 255.0
     else:
-        y8 = int(round(y * 219.0 + 16.0))
-        cb8 = int(round(cb * 224.0 + 128.0))
-        cr8 = int(round(cr * 224.0 + 128.0))
+        y8 = round(y * 219.0 + 16.0)
+        cb8 = round(cb * 224.0 + 128.0)
+        cr8 = round(cr * 224.0 + 128.0)
         y_back = (y8 - 16.0) / 219.0
         cb_back = (cb8 - 128.0) / 224.0
         cr_back = (cr8 - 128.0) / 224.0
@@ -174,6 +199,54 @@ def encodings() -> list[dict[str, Any]]:
     return charts
 
 
+#: How many ranges and samples one preview pass carries (``MAX_KEY_RANGES``/``MAX_KEY_SAMPLES``
+#: in ``preview/masks/key-mask.ts``); the packed arrays below are that long, so the GPU harness
+#: can upload them without knowing the mask schema.
+MAX_RANGES = 8
+MAX_SAMPLES = 8
+
+#: The channel order the shader indexes by (``KEY_CHANNELS``).
+CHANNELS = ("hue", "saturation", "luma", "red", "green", "blue")
+
+
+def packed_uniforms(mask: Any) -> dict[str, Any]:
+    """``keyUniforms`` in Python: the numbers the preview's shader reads.
+
+    Emitted with the vectors so the Playwright harness that runs the real shader needs no mask
+    schema at all, and so the TypeScript packer can be asserted against them.
+    """
+    extra = max(float(mask.softness), 0.0)
+    ranges = [0.0] * (MAX_RANGES * 4)
+    used = list(mask.ranges)[:MAX_RANGES]
+    for index, entry in enumerate(used):
+        ranges[index * 4] = float(entry.low)
+        ranges[index * 4 + 1] = float(entry.high)
+        ranges[index * 4 + 2] = max(float(entry.softness), 0.0) + extra
+        ranges[index * 4 + 3] = float(CHANNELS.index(str(entry.channel)))
+    samples = [0.0] * (MAX_SAMPLES * 4)
+    picked = list(mask.samples3d)[:MAX_SAMPLES]
+    for index, sample in enumerate(picked):
+        samples[index * 4] = float(sample[0])
+        samples[index * 4 + 1] = float(sample[1])
+        samples[index * 4 + 2] = float(sample[2])
+    sampled = str(mask.model) == "3d"
+    opacity = float(mask.opacity)
+    return {
+        "sampled": 1 if sampled else 0,
+        "rangeCount": 0 if sampled else len(used),
+        "ranges": ranges,
+        "sampleCount": len(picked) if sampled else 0,
+        "samples": samples,
+        "tolerance": max(float(mask.softness), 0.0),
+        "shadowRetention": max(float(mask.shadow_retention), 0.0),
+        "cleanBlack": float(mask.finesse.clean_black),
+        "cleanWhite": float(mask.finesse.clean_white),
+        "invert": 1.0 if mask.invert else 0.0,
+        "opacity": 0.0 if opacity <= 0.0 else 1.0 if opacity >= 1.0 else opacity,
+        "inOutRatio": float(mask.finesse.in_out_ratio),
+    }
+
+
 def document() -> dict[str, Any]:
     """The vectors: per mask, per encoding, the keyed alpha of every patch as a byte."""
     charts = encodings()
@@ -195,7 +268,7 @@ def document() -> dict[str, Any]:
                     "alpha8": [int(value) for value in np.rint(alpha * 255.0).astype(np.int64)],
                 }
             )
-        cases.append({"mask": raw, "expected": per_chart})
+        cases.append({"mask": raw, "uniforms": packed_uniforms(mask), "expected": per_chart})
     return {
         "area": "mask-key",
         "spec": "engine/python/tests/key_mask_vectors.py; render/key_mask.py",

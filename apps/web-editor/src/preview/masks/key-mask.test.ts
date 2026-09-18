@@ -38,6 +38,7 @@ interface Charts {
   charts: { matrix: string; range: string; colours: [number, number, number][] }[];
   cases: {
     mask: unknown;
+    uniforms: Record<string, number | number[]>;
     expected: { matrix: string; range: string; alpha8: number[] }[];
   }[];
 }
@@ -84,6 +85,30 @@ describe('key qualifier vs the export, on colour charts', () => {
     // The CPU twin runs the same float64 arithmetic, so the gate here is exact, not 1/255.
     expect(`${worst.where} delta ${String(worst.delta)}`).toBe('none delta 0');
     expect(checked).toBe(vectors.cases.length * 4 * vectors.charts[0]!.colours.length);
+  });
+
+  it('packs the same uniforms the engine says the shader should read', () => {
+    // The Playwright harness that runs the real shader uploads the stored numbers, so this is
+    // what keeps the TypeScript packer and that harness describing one mask.
+    for (const vectorCase of vectors.cases) {
+      const packed = keyUniforms(parse(vectorCase.mask), (vectorCase.mask as { opacity?: number }).opacity ?? 1);
+      const stored = vectorCase.uniforms;
+      expect(packed.sampled).toBe(stored.sampled);
+      expect(packed.rangeCount).toBe(stored.rangeCount);
+      expect(packed.sampleCount).toBe(stored.sampleCount);
+      expect([...packed.ranges]).toEqual((stored.ranges as number[]).map((value) => Math.fround(value)));
+      expect([...packed.samples]).toEqual((stored.samples as number[]).map((value) => Math.fround(value)));
+      for (const field of [
+        'tolerance',
+        'shadowRetention',
+        'cleanBlack',
+        'cleanWhite',
+        'invert',
+        'opacity',
+      ] as const) {
+        expect(packed[field], field).toBeCloseTo(stored[field] as number, 12);
+      }
+    }
   });
 
   it('covers both matrices and both ranges', () => {

@@ -51,6 +51,8 @@
     "mask-raster:vectors": "cd engine/python && uv run python -m tests.mask_raster_vectors && uv run python -m tests.mask_stack_vectors",
     "mask-track:vectors": "cd engine/python && uv run python -m tests.mask_track_vectors",
     "mask-render:goldens": "cd engine/python && uv run python -m tests.mask_render_goldens",
+    "key-render:goldens": "cd engine/python && uv run python -m tests.key_render_goldens",
+    "key-mask:vectors": "cd engine/python && uv run python -m tests.key_mask_vectors",
     "matte-render:goldens": "cd engine/python && uv run python -m tests.matte_render_goldens",
     "px4:frames": "cd engine/python && uv run python -m tests.px4_parity_frames",
     "license:scan": "node scripts/license-scan.mjs",

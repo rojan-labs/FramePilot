@@ -29,6 +29,40 @@ the clip, on both sides — which is what limits any of the 40 catalog render ki
 `tests/fixtures/mask-raster/frame-layers.json` pins the two implementations float64-byte-exact,
 and the `effects/effect-kinds-masked` oracle case exercises every kind with a mask in CI.
 
+## The key mask, and why its gate is 1/255
+
+Every other kind is rastered from geometry on the CPU, identically on both sides. A `key` is not:
+it reads the PICTURE, so its alpha changes every frame, the raster cache buys nothing, and a
+per-frame read-back of a 4K picture into JavaScript would cost more than the whole composite. The
+preview therefore runs the qualifier as a fragment shader over the decoded RGB the compositor
+already holds — RGB that PX2.7 produced with the export's own colour matrix and range, which is
+what makes both sides qualify the same numbers.
+
+A fragment shader is float32 with no control over the order inside a `length()` or a division, so
+byte-equality is not available. Every formula is written to be evaluated the same way in both
+languages — polynomials, one `sqrt`, no tables, no `pow` — and the residual is float32 rounding.
+The plan's gate is therefore **engine vs preview keyed alpha ≤ 1/255 on colour charts in BT.601
+and BT.709, full and limited range** (`06`), measured two ways:
+
+| Where                                     | What it measures                 | How                                                                                          |
+| ----------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------- |
+| `preview/masks/key-mask.test.ts`          | the CPU twin the eyedropper uses | float64, against `tests/fixtures/mask-key/charts.json` — **exact**, not within 1/255         |
+| `tests/e2e/specs/mask-key-parity.spec.ts` | the shader the monitor runs      | the shipped GLSL on a real GPU, read back through the same quantise pass the compositor uses |
+
+The charts are not arbitrary RGB. Each patch was taken to Y'CbCr in that encoding, quantised to
+8 bits as a decoded frame is, and brought back — so they are colours that actually come out of a
+decoder, including the ones limited range cannot represent.
+
+A stack that holds a key is combined on the GPU (one float accumulator, quantised once at the
+end, as `stack_alpha` quantises once) into `R8UI`, which is the format an uploaded CPU raster
+lands in — so the alpha cut, the effect mix and the debug views never learn where the coverage
+came from. Stacks without a key keep the byte-exact CPU path untouched.
+
+**The one asymmetry, recorded rather than hidden:** a key's finesse morphology runs as shader
+passes, and a disc of radius `r` costs `(2r+1)²` fetches, so the pass is bounded at 16 px. Above
+that the monitor refuses with a remedy while the export renders any radius. A matte's finesse
+runs on the CPU on both sides and is byte-exact at any radius.
+
 ## Why it is byte-exact, and the rules that keep it so
 
 The TypeScript follows the engine's determinism rules: float64 only, plain indexed loops, integer
