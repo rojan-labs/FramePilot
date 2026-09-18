@@ -274,5 +274,8 @@ turned off. `scale/proxy` fails it on real hardware today, which is the truth.
    Halves `maskRaster` and `composite` samples per second. Needs a maintainer decision (above).
 3. **GL pools never shrink** — 190 MB after a key with finesse. Release targets of a size not
    used for N frames. Guard: the `glPoolBytes` gauge.
-4. **Export matte alpha** — `apply_clean_levels` is dense at 4K (28 ms/frame); the same exact-box
+4. **Export, the last 5–10%** — two more exact cuts, neither taken here: at source size mix only
+   the band's own pixels (boolean index) instead of its box (~30 → ~2 ms; the disc's band is 1%
+   of the frame, its box 22%), and
+   `apply_clean_levels` is dense at 4K (28 ms/frame); the same exact-box
    argument applies outside the band, where alpha is exactly 0 or 1.
