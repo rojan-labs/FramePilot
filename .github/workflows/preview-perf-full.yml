@@ -1,0 +1,96 @@
+name: Preview performance — full export row (PX5.11)
+
+# The P13 export budget (plan/background-removal-ai/06-PRECISION-AND-EVAL.md, "Production
+# budgets"): exporting the Scale row with masks + a 4K matte costs <= 1.5x the same timeline
+# without. CI's `preview-perf` job (ci.yml) measures a 4-second window because that job is
+# capped at 60 minutes; the whole 3-minute row is ~60 min plain + ~80 min with the matte on a
+# GitHub runner, so it runs here, on demand only. It is evidence, not a gate: it never runs on a
+# push or a pull request, and a ratio over budget is reported, not failed.
+#
+# The fixture is generated in the job, deterministically, by the same script the PR job uses
+# (engine/python/tests/px5_scale_fixture.py); nothing is committed or downloaded.
+on:
+  workflow_dispatch:
+    inputs:
+      window_seconds:
+        description: 'Seconds of the Scale row to export (180 = the whole row)'
+        required: false
+        default: '180'
+      note:
+        description: 'Optional note recorded in the job summary'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-perf-full-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  export-ratio-full:
+    name: Export ratio, full Scale row (P13)
+    runs-on: ubuntu-latest
+    # GitHub-hosted jobs stop at 360 minutes. Two full 4K exports plus the fixture measured
+    # ~2.5 h from CI's 4 s windows (78.7 s plain, 106.1 s matte per 4 s in run 35366379149).
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Sync engine dependencies
+        working-directory: engine/python
+        run: uv sync --extra dev
+      - name: Record the runner
+        run: |
+          {
+            echo "### Runner"
+            echo ""
+            echo "- note: ${NOTE:-none}"
+            echo "- cores: $(nproc), memory: $(free -g | awk '/Mem:/ {print $2}') GiB"
+            echo "- cpu: $(lscpu | awk -F: '/Model name/ {gsub(/^ +/, "", $2); print $2}')"
+            echo "- ffmpeg: $(ffmpeg -version | head -1)"
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          NOTE: ${{ inputs.note }}
+      - name: Generate the Scale fixture (3 min, 4K, 4 sources + a 4K matte)
+        working-directory: engine/python
+        run: uv run python -m tests.px5_scale_fixture
+      - name: Export with masks and a 4K matte vs without (the requested window)
+        working-directory: engine/python
+        env:
+          WINDOW_SECONDS: ${{ inputs.window_seconds }}
+        run: |
+          uv run python -m tests.px5_export_ratio --window-seconds "$WINDOW_SECONDS"
+          cp ../../tests/e2e/.tmp-px5-scale/results/export-ratio.json \
+            "../../tests/e2e/.tmp-px5-scale/results/export-ratio-${WINDOW_SECONDS}s.json"
+      - name: Summarise
+        if: always()
+        run: |
+          shopt -s nullglob
+          for result in tests/e2e/.tmp-px5-scale/results/export-ratio-*.json; do
+            {
+              echo "### $(basename "$result")"
+              echo ""
+              echo '```json'
+              cat "$result"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: preview-perf-full-results
+          include-hidden-files: true
+          path: tests/e2e/.tmp-px5-scale/results
