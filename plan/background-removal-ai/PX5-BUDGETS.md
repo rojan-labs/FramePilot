@@ -331,6 +331,15 @@ their pool).
   alpha-target stack built on the GPU was drawn wrong — a key's since MK6.1, unseen because no
   PX4 row carries a key. The spec now fails on any WebGL error.
 
+**Also fixed (asked of PX5.3 while it ran): the MK4.6 pointer budget.** `mask-tools.spec.ts`'s
+`work` p95 (handler entry to the overlay's layout effect, budget 16 ms) had risen from 6.3–8.8 ms
+at MK4.6 to 15.3–17.1 ms on CI, before PX5.3 as well as during it. The cause was a render storm:
+BR6.6 made `Editor` and `Inspector` read `reviewRequest` through the whole-store mask-tools hook,
+so both re-rendered on every drag move. `useMaskToolValue` subscribes to the one value; E2E smoke
+at `c4bcd41a` (run 35334743544): `work` p95 **9.0 ms**, first attempt, 99 passed, none flaky. The
+monitor's own `offsetWidth` read during render (also per move) was moved to a layout effect +
+ResizeObserver first; alone it did not move the number (17.1 / 15.8 ms, run 35332742842).
+
 **Attribution: the tier is needed for the dropped-frame budget on this machine.** The final code
 with the tier withheld (`PX5_TIER=0`, masters only): 51/609 (8.4%) dropped, seek 75.2 / 90.6 ms,
 composite 13.6 / 27.5 ms, matte decode 49.3 / 96.9 ms, picture decode 232 ms p50, footprint

@@ -157,6 +157,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Dragging a mask on the monitor is responsive again.** Every pointer move re-rendered the whole
+  editor (a review shortcut subscribed it to all mask-tool state), roughly doubling the monitor's
+  work per move; only the parts that follow the drag re-render now.
 - **A colour-key mask draws correctly in the monitor.** A key limiting a clip's picture (not one
   limiting an effect) was drawn with the wrong GPU program, so the monitor could show the clip
   wrongly cut or not cut at all. The export was never affected.
