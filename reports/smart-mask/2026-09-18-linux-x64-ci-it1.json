@@ -1,0 +1,4868 @@
+{
+  "date": "2026-09-18",
+  "platform": "linux-x64",
+  "releaseGatePlatform": false,
+  "platformNote": "06's matte gates are specified for darwin-arm64 and win32-x64 (release platforms; MO-9, MO-13 are maintainer hardware). linux-x64 numbers are evidence of the pipeline's accuracy, not the release gate.",
+  "harness": "workers/smart-mask/eval/run_eval.py (installed entrypoint, BR7.2)",
+  "groundTruth": {
+    "kinds": [
+      "construction"
+    ],
+    "constructionTrueOnly": true,
+    "humanLabelledFixtures": [],
+    "machineLabelsIgnored": {},
+    "note": "MO-8's human-labelled set does not exist yet; every gate below is judged on construction-true clips only."
+  },
+  "fixtures": {
+    "run": [
+      "crossing__calibration",
+      "crossing__scored",
+      "fast_motion__calibration",
+      "fast_motion__scored",
+      "hair_busy__calibration",
+      "hair_busy__scored",
+      "leave_reenter__calibration",
+      "leave_reenter__scored",
+      "low_light__calibration",
+      "low_light__scored",
+      "product_table__calibration",
+      "product_table__scored",
+      "similar_colour__calibration",
+      "similar_colour__scored",
+      "talking_head__calibration",
+      "talking_head__scored",
+      "twin_distractor__calibration",
+      "twin_distractor__scored",
+      "walk_pan__calibration",
+      "walk_pan__scored"
+    ],
+    "failed": [],
+    "notRun": [],
+    "refused": [],
+    "oneClickRuns": [],
+    "ablationRuns": {
+      "band_off": [],
+      "stab_off": [],
+      "fp32": []
+    },
+    "variantFailures": {}
+  },
+  "definitions": {
+    "wrongFrame": {
+      "iou": 0.98,
+      "bf": 0.95
+    },
+    "recallGate": 0.995,
+    "reviewLoadGate": 0.1
+  },
+  "gates": [
+    {
+      "id": "mean_iou_auto",
+      "gate": "Mean IoU, auto prompt, every category",
+      "threshold": ">= 0.98",
+      "status": "fail",
+      "value": 0.8978,
+      "worstCategory": "crossing",
+      "failingCategories": [
+        "crossing",
+        "fast_motion",
+        "leave_reenter",
+        "low_light",
+        "twin_distractor",
+        "walk_pan"
+      ],
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "worst_category_iou_click",
+      "gate": "Worst-category mean IoU, one click",
+      "threshold": ">= 0.97",
+      "status": "not_measured",
+      "value": null,
+      "note": "No one-click runs: `run --prompt click` was not run for these fixtures."
+    },
+    {
+      "id": "p5_iou_click",
+      "gate": "5th-percentile per-frame IoU, one click",
+      "threshold": ">= 0.95",
+      "status": "not_measured",
+      "value": null,
+      "note": "No one-click runs: `run --prompt click` was not run for these fixtures."
+    },
+    {
+      "id": "bf_every_category",
+      "gate": "BF@2px, every category",
+      "threshold": ">= 0.95",
+      "status": "fail",
+      "value": 0.659,
+      "worstCategory": "leave_reenter",
+      "failingCategories": [
+        "crossing",
+        "fast_motion",
+        "leave_reenter",
+        "low_light",
+        "twin_distractor",
+        "walk_pan"
+      ],
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "band_sad_grad_hair",
+      "gate": "Band SAD / Grad, hair category",
+      "threshold": ">= 25% lower than band alpha disabled; within 2% of the fp32 reference",
+      "status": "not_measured",
+      "value": {
+        "bandSAD": 0.965,
+        "bandGrad": 0.785
+      },
+      "note": "no band-alpha-off run; no fp32 reference run"
+    },
+    {
+      "id": "foreground_delta_e",
+      "gate": "Foreground colour error",
+      "threshold": "mean \u0394E2000 <= 2.0 in the band",
+      "status": "fail",
+      "value": 8.278,
+      "byCategory": {
+        "crossing": 6.383,
+        "fast_motion": 7.527,
+        "hair_busy": 4.093,
+        "leave_reenter": 17.472,
+        "low_light": 13.125,
+        "product_table": 1.575,
+        "similar_colour": 5.875,
+        "talking_head": 8.718,
+        "twin_distractor": 6.957,
+        "walk_pan": 7.187
+      },
+      "pixels": 4169400,
+      "background": "magenta (1, 0, 1)",
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "dtssd",
+      "gate": "dtSSD",
+      "threshold": ">= 30% lower than stabilisation disabled; no visible crawl (blind review)",
+      "status": "not_measured",
+      "value": {
+        "crossing": 5.623,
+        "fast_motion": 4.381,
+        "hair_busy": 1.772,
+        "leave_reenter": 4.466,
+        "low_light": 5.167,
+        "product_table": 0.977,
+        "similar_colour": 2.238,
+        "talking_head": 4.031,
+        "twin_distractor": 3.708,
+        "walk_pan": 3.417
+      },
+      "note": "Needs a stabilisation-disabled ablation run and a blind side-by-side review; absolute dtSSD per category is recorded."
+    },
+    {
+      "id": "leak_rate",
+      "gate": "Leak rate",
+      "threshold": "<= 0.5% of frames before review",
+      "status": "fail",
+      "value": 0.2281,
+      "leakFrames": 73,
+      "frames": 320,
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "error_detection_recall",
+      "gate": "Error-detection recall",
+      "threshold": ">= 99.5%",
+      "status": "pass",
+      "value": 1.0,
+      "wilson95Lower": 0.9745,
+      "wrongFrames": 147,
+      "caught": 147,
+      "thresholds": "calibrated on the calibration split, frozen",
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "review_load",
+      "gate": "Review load",
+      "threshold": "<= 10% of frames on medium categories",
+      "status": "fail",
+      "value": 0.7219,
+      "actuallyWrongFraction": 0.4594,
+      "note": "06 does not define 'medium'; judged on every scored category. No honest detector can flag fewer frames than are actually wrong.",
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "correction_convergence",
+      "gate": "Correction convergence",
+      "threshold": "<= 3 actions -> IoU >= 0.995, BF@2px >= 0.98",
+      "status": "not_measured",
+      "value": null,
+      "note": "No replay was run."
+    },
+    {
+      "id": "locked_frames",
+      "gate": "Locked frames",
+      "threshold": "100% bit-identical after any later re-run",
+      "status": "not_measured",
+      "value": null,
+      "note": "No replay was run."
+    },
+    {
+      "id": "frame_alignment",
+      "gate": "Frame alignment",
+      "threshold": "100%",
+      "status": "pass",
+      "value": "320/320",
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "preview_export",
+      "gate": "Preview <-> export",
+      "threshold": "the matte and text-behind-subject rows of the 09 oracle pass",
+      "status": "not_measured",
+      "value": null,
+      "note": "Not measured by this harness. BR5.3's oracle rows (8 matte rows, 7 bit-identical) pass in CI run 35281873504; they judge rendering, not the pack."
+    }
+  ],
+  "attribution": {
+    "estimates": [
+      "fwd",
+      "bwd",
+      "birefnet",
+      "prestab",
+      "final"
+    ],
+    "note": "Per estimate vs ground truth: SAM forward/backward, BiRefNet (gated, a >= 0.5), the consensus before stabilisation, and the delivered matte.",
+    "scored": {
+      "crossing": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.8927,
+          "meanBF": 0.887,
+          "leakRate": 0.1875,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.8923,
+          "meanBF": 0.8832,
+          "leakRate": 0.1875,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.8342,
+          "meanBF": 0.8303,
+          "leakRate": 0.5938,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.8981,
+          "meanBF": 0.8976,
+          "leakRate": 0.1562,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.8978,
+          "meanBF": 0.8983,
+          "leakRate": 0.1562,
+          "frames": 32
+        }
+      },
+      "fast_motion": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9715,
+          "meanBF": 0.9255,
+          "leakRate": 0.25,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9718,
+          "meanBF": 0.9279,
+          "leakRate": 0.2188,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9346,
+          "meanBF": 0.8283,
+          "leakRate": 0.6562,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9687,
+          "meanBF": 0.8977,
+          "leakRate": 0.375,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.969,
+          "meanBF": 0.9041,
+          "leakRate": 0.3438,
+          "frames": 32
+        }
+      },
+      "hair_busy": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9922,
+          "meanBF": 0.9415,
+          "leakRate": 0.1562,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9937,
+          "meanBF": 0.9682,
+          "leakRate": 0.125,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9967,
+          "meanBF": 0.9895,
+          "leakRate": 0.125,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9966,
+          "meanBF": 0.9857,
+          "leakRate": 0.0938,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9967,
+          "meanBF": 0.9866,
+          "leakRate": 0.0312,
+          "frames": 32
+        }
+      },
+      "leave_reenter": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9078,
+          "meanBF": 0.6494,
+          "leakRate": 0.5625,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9115,
+          "meanBF": 0.666,
+          "leakRate": 0.5,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.8154,
+          "meanBF": 0.63,
+          "leakRate": 0.5625,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9106,
+          "meanBF": 0.659,
+          "leakRate": 0.5,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9106,
+          "meanBF": 0.659,
+          "leakRate": 0.5,
+          "frames": 32
+        }
+      },
+      "low_light": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9582,
+          "meanBF": 0.8374,
+          "leakRate": 0.4688,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9587,
+          "meanBF": 0.841,
+          "leakRate": 0.4688,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.8073,
+          "meanBF": 0.5788,
+          "leakRate": 0.9688,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9584,
+          "meanBF": 0.8352,
+          "leakRate": 0.5,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9584,
+          "meanBF": 0.8357,
+          "leakRate": 0.5,
+          "frames": 32
+        }
+      },
+      "product_table": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9913,
+          "meanBF": 0.9989,
+          "leakRate": 0.1562,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9913,
+          "meanBF": 0.9986,
+          "leakRate": 0.0938,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9948,
+          "meanBF": 1.0,
+          "leakRate": 0.0,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9948,
+          "meanBF": 1.0,
+          "leakRate": 0.0,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9951,
+          "meanBF": 1.0,
+          "leakRate": 0.0,
+          "frames": 32
+        }
+      },
+      "similar_colour": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9673,
+          "meanBF": 0.9076,
+          "leakRate": 0.125,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.967,
+          "meanBF": 0.9073,
+          "leakRate": 0.0625,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9848,
+          "meanBF": 0.9844,
+          "leakRate": 0.0,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9833,
+          "meanBF": 0.9748,
+          "leakRate": 0.0,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9827,
+          "meanBF": 0.9741,
+          "leakRate": 0.0,
+          "frames": 32
+        }
+      },
+      "talking_head": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9934,
+          "meanBF": 0.9494,
+          "leakRate": 0.0938,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9946,
+          "meanBF": 0.9757,
+          "leakRate": 0.0625,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9477,
+          "meanBF": 0.683,
+          "leakRate": 0.875,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9947,
+          "meanBF": 0.9713,
+          "leakRate": 0.0625,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9946,
+          "meanBF": 0.9713,
+          "leakRate": 0.0625,
+          "frames": 32
+        }
+      },
+      "twin_distractor": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9624,
+          "meanBF": 0.9033,
+          "leakRate": 0.3438,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9637,
+          "meanBF": 0.9148,
+          "leakRate": 0.3438,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9279,
+          "meanBF": 0.8181,
+          "leakRate": 0.75,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.966,
+          "meanBF": 0.8906,
+          "leakRate": 0.5312,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9658,
+          "meanBF": 0.8928,
+          "leakRate": 0.5312,
+          "frames": 32
+        }
+      },
+      "walk_pan": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9755,
+          "meanBF": 0.918,
+          "leakRate": 0.2188,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9757,
+          "meanBF": 0.9167,
+          "leakRate": 0.25,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9597,
+          "meanBF": 0.9114,
+          "leakRate": 0.375,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.979,
+          "meanBF": 0.9287,
+          "leakRate": 0.1875,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9787,
+          "meanBF": 0.9291,
+          "leakRate": 0.1562,
+          "frames": 32
+        }
+      }
+    },
+    "calibration": {
+      "crossing": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9158,
+          "meanBF": 0.8909,
+          "leakRate": 0.1875,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9161,
+          "meanBF": 0.8946,
+          "leakRate": 0.1562,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.8405,
+          "meanBF": 0.81,
+          "leakRate": 0.6562,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9209,
+          "meanBF": 0.8961,
+          "leakRate": 0.25,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9206,
+          "meanBF": 0.8963,
+          "leakRate": 0.25,
+          "frames": 32
+        }
+      },
+      "fast_motion": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9683,
+          "meanBF": 0.9109,
+          "leakRate": 0.4688,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9686,
+          "meanBF": 0.9077,
+          "leakRate": 0.5,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9408,
+          "meanBF": 0.8473,
+          "leakRate": 0.6875,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.969,
+          "meanBF": 0.8968,
+          "leakRate": 0.4688,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9691,
+          "meanBF": 0.9015,
+          "leakRate": 0.3438,
+          "frames": 32
+        }
+      },
+      "hair_busy": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9936,
+          "meanBF": 0.9717,
+          "leakRate": 0.1875,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9943,
+          "meanBF": 0.9807,
+          "leakRate": 0.125,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9968,
+          "meanBF": 0.9898,
+          "leakRate": 0.0938,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9967,
+          "meanBF": 0.9898,
+          "leakRate": 0.0625,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9969,
+          "meanBF": 0.9916,
+          "leakRate": 0.0312,
+          "frames": 32
+        }
+      },
+      "leave_reenter": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.901,
+          "meanBF": 0.6211,
+          "leakRate": 0.5625,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9049,
+          "meanBF": 0.6445,
+          "leakRate": 0.5625,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.8259,
+          "meanBF": 0.6593,
+          "leakRate": 0.5625,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9024,
+          "meanBF": 0.6278,
+          "leakRate": 0.5625,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9024,
+          "meanBF": 0.6278,
+          "leakRate": 0.5625,
+          "frames": 32
+        }
+      },
+      "low_light": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9607,
+          "meanBF": 0.853,
+          "leakRate": 0.4688,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9618,
+          "meanBF": 0.8598,
+          "leakRate": 0.5,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.8157,
+          "meanBF": 0.6081,
+          "leakRate": 0.9688,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.961,
+          "meanBF": 0.8511,
+          "leakRate": 0.5,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9611,
+          "meanBF": 0.8519,
+          "leakRate": 0.5,
+          "frames": 32
+        }
+      },
+      "product_table": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9912,
+          "meanBF": 0.9984,
+          "leakRate": 0.0,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9911,
+          "meanBF": 0.998,
+          "leakRate": 0.0312,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9941,
+          "meanBF": 1.0,
+          "leakRate": 0.0,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9941,
+          "meanBF": 1.0,
+          "leakRate": 0.0,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9942,
+          "meanBF": 1.0,
+          "leakRate": 0.0,
+          "frames": 32
+        }
+      },
+      "similar_colour": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9717,
+          "meanBF": 0.9281,
+          "leakRate": 0.0,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9717,
+          "meanBF": 0.9281,
+          "leakRate": 0.0,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9836,
+          "meanBF": 0.9778,
+          "leakRate": 0.0,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9836,
+          "meanBF": 0.978,
+          "leakRate": 0.0,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9827,
+          "meanBF": 0.9738,
+          "leakRate": 0.0,
+          "frames": 32
+        }
+      },
+      "talking_head": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9941,
+          "meanBF": 0.9652,
+          "leakRate": 0.1875,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9944,
+          "meanBF": 0.9748,
+          "leakRate": 0.125,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9555,
+          "meanBF": 0.7252,
+          "leakRate": 0.7812,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9953,
+          "meanBF": 0.9737,
+          "leakRate": 0.125,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9953,
+          "meanBF": 0.9738,
+          "leakRate": 0.125,
+          "frames": 32
+        }
+      },
+      "twin_distractor": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9736,
+          "meanBF": 0.9367,
+          "leakRate": 0.125,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9753,
+          "meanBF": 0.9449,
+          "leakRate": 0.0938,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9393,
+          "meanBF": 0.842,
+          "leakRate": 0.8438,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9758,
+          "meanBF": 0.916,
+          "leakRate": 0.3125,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9758,
+          "meanBF": 0.9178,
+          "leakRate": 0.3125,
+          "frames": 32
+        }
+      },
+      "walk_pan": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9752,
+          "meanBF": 0.9125,
+          "leakRate": 0.2188,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9765,
+          "meanBF": 0.914,
+          "leakRate": 0.1875,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9734,
+          "meanBF": 0.9276,
+          "leakRate": 0.2188,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9806,
+          "meanBF": 0.93,
+          "leakRate": 0.0938,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9803,
+          "meanBF": 0.9308,
+          "leakRate": 0.0938,
+          "frames": 32
+        }
+      }
+    }
+  },
+  "oneClickAccuracy": {},
+  "accuracy": {
+    "calibration": {
+      "meanIoU": 0.9678,
+      "p5IoU": 0.8919,
+      "meanBF": 0.9065,
+      "wrongFraction": 0.5,
+      "byCategory": {
+        "crossing": {
+          "frames": 32,
+          "meanIoU": 0.9206,
+          "p5IoU": 0.6235,
+          "meanBF": 0.8963,
+          "wrong": 21
+        },
+        "fast_motion": {
+          "frames": 32,
+          "meanIoU": 0.9691,
+          "p5IoU": 0.9575,
+          "meanBF": 0.9015,
+          "wrong": 29
+        },
+        "hair_busy": {
+          "frames": 32,
+          "meanIoU": 0.9969,
+          "p5IoU": 0.9944,
+          "meanBF": 0.9916,
+          "wrong": 1
+        },
+        "leave_reenter": {
+          "frames": 32,
+          "meanIoU": 0.9024,
+          "p5IoU": 0.6955,
+          "meanBF": 0.6278,
+          "wrong": 20
+        },
+        "low_light": {
+          "frames": 32,
+          "meanIoU": 0.9611,
+          "p5IoU": 0.9474,
+          "meanBF": 0.8519,
+          "wrong": 32
+        },
+        "product_table": {
+          "frames": 32,
+          "meanIoU": 0.9942,
+          "p5IoU": 0.9933,
+          "meanBF": 1.0,
+          "wrong": 0
+        },
+        "similar_colour": {
+          "frames": 32,
+          "meanIoU": 0.9827,
+          "p5IoU": 0.978,
+          "meanBF": 0.9738,
+          "wrong": 8
+        },
+        "talking_head": {
+          "frames": 32,
+          "meanIoU": 0.9953,
+          "p5IoU": 0.9928,
+          "meanBF": 0.9738,
+          "wrong": 3
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "meanIoU": 0.9758,
+          "p5IoU": 0.9608,
+          "meanBF": 0.9178,
+          "wrong": 23
+        },
+        "walk_pan": {
+          "frames": 32,
+          "meanIoU": 0.9803,
+          "p5IoU": 0.9685,
+          "meanBF": 0.9308,
+          "wrong": 23
+        }
+      }
+    },
+    "scored": {
+      "meanIoU": 0.965,
+      "p5IoU": 0.8938,
+      "meanBF": 0.9051,
+      "wrongFraction": 0.4594,
+      "byCategory": {
+        "crossing": {
+          "frames": 32,
+          "meanIoU": 0.8978,
+          "p5IoU": 0.1796,
+          "meanBF": 0.8983,
+          "wrong": 16
+        },
+        "fast_motion": {
+          "frames": 32,
+          "meanIoU": 0.969,
+          "p5IoU": 0.9559,
+          "meanBF": 0.9041,
+          "wrong": 28
+        },
+        "hair_busy": {
+          "frames": 32,
+          "meanIoU": 0.9967,
+          "p5IoU": 0.9936,
+          "meanBF": 0.9866,
+          "wrong": 1
+        },
+        "leave_reenter": {
+          "frames": 32,
+          "meanIoU": 0.9106,
+          "p5IoU": 0.7731,
+          "meanBF": 0.659,
+          "wrong": 20
+        },
+        "low_light": {
+          "frames": 32,
+          "meanIoU": 0.9584,
+          "p5IoU": 0.9475,
+          "meanBF": 0.8357,
+          "wrong": 32
+        },
+        "product_table": {
+          "frames": 32,
+          "meanIoU": 0.9951,
+          "p5IoU": 0.9937,
+          "meanBF": 1.0,
+          "wrong": 0
+        },
+        "similar_colour": {
+          "frames": 32,
+          "meanIoU": 0.9827,
+          "p5IoU": 0.9713,
+          "meanBF": 0.9741,
+          "wrong": 6
+        },
+        "talking_head": {
+          "frames": 32,
+          "meanIoU": 0.9946,
+          "p5IoU": 0.9934,
+          "meanBF": 0.9713,
+          "wrong": 3
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "meanIoU": 0.9658,
+          "p5IoU": 0.9082,
+          "meanBF": 0.8928,
+          "wrong": 24
+        },
+        "walk_pan": {
+          "frames": 32,
+          "meanIoU": 0.9787,
+          "p5IoU": 0.9661,
+          "meanBF": 0.9291,
+          "wrong": 17
+        }
+      }
+    }
+  },
+  "shippedThresholds": {
+    "thresholds": {
+      "a_rewarp_mismatch": 0.05,
+      "b_components": true,
+      "c_edge_corr": 0.2,
+      "c2_unexplained": 0.5,
+      "d_area_logratio": 0.15,
+      "d_centroid_frac": 0.25,
+      "e_sam_pair_iou": 0.98,
+      "e_sam_birefnet_iou": 0.98,
+      "e_hard_disagreement": 0.02,
+      "e_band_frac": 0.4,
+      "f_object_score": true,
+      "g_single_estimate": false,
+      "h_presence_window": 3,
+      "m_flow_px": null,
+      "m_band_frac": null,
+      "a_either": false,
+      "n_dilate": 0,
+      "version": "br0-attempt-4"
+    },
+    "calibration": {
+      "frames": 320,
+      "wrongFrames": 160,
+      "caught": 160,
+      "flagged": 309,
+      "recall": 1.0,
+      "recallWilson95Lower": 0.9765529633499672,
+      "reviewLoad": 0.965625,
+      "perCategory": {
+        "crossing": {
+          "frames": 32,
+          "wrong": 21,
+          "caught": 21,
+          "flagged": 28,
+          "meanIoU": 0.9206,
+          "p5IoU": 0.6235,
+          "meanBF": 0.8963
+        },
+        "fast_motion": {
+          "frames": 32,
+          "wrong": 29,
+          "caught": 29,
+          "flagged": 32,
+          "meanIoU": 0.9691,
+          "p5IoU": 0.9575,
+          "meanBF": 0.9015
+        },
+        "hair_busy": {
+          "frames": 32,
+          "wrong": 1,
+          "caught": 1,
+          "flagged": 32,
+          "meanIoU": 0.9969,
+          "p5IoU": 0.9944,
+          "meanBF": 0.9916
+        },
+        "leave_reenter": {
+          "frames": 32,
+          "wrong": 20,
+          "caught": 20,
+          "flagged": 26,
+          "meanIoU": 0.9024,
+          "p5IoU": 0.6955,
+          "meanBF": 0.6278
+        },
+        "low_light": {
+          "frames": 32,
+          "wrong": 32,
+          "caught": 32,
+          "flagged": 32,
+          "meanIoU": 0.9611,
+          "p5IoU": 0.9474,
+          "meanBF": 0.8519
+        },
+        "product_table": {
+          "frames": 32,
+          "wrong": 0,
+          "caught": 0,
+          "flagged": 32,
+          "meanIoU": 0.9942,
+          "p5IoU": 0.9933,
+          "meanBF": 1.0
+        },
+        "similar_colour": {
+          "frames": 32,
+          "wrong": 8,
+          "caught": 8,
+          "flagged": 32,
+          "meanIoU": 0.9827,
+          "p5IoU": 0.978,
+          "meanBF": 0.9738
+        },
+        "talking_head": {
+          "frames": 32,
+          "wrong": 3,
+          "caught": 3,
+          "flagged": 32,
+          "meanIoU": 0.9953,
+          "p5IoU": 0.9928,
+          "meanBF": 0.9738
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "wrong": 23,
+          "caught": 23,
+          "flagged": 32,
+          "meanIoU": 0.9758,
+          "p5IoU": 0.9608,
+          "meanBF": 0.9178
+        },
+        "walk_pan": {
+          "frames": 32,
+          "wrong": 23,
+          "caught": 23,
+          "flagged": 31,
+          "meanIoU": 0.9803,
+          "p5IoU": 0.9685,
+          "meanBF": 0.9308
+        }
+      },
+      "missed": []
+    },
+    "scored": {
+      "frames": 320,
+      "wrongFrames": 147,
+      "caught": 147,
+      "flagged": 309,
+      "recall": 1.0,
+      "recallWilson95Lower": 0.9745322245322244,
+      "reviewLoad": 0.965625,
+      "perCategory": {
+        "crossing": {
+          "frames": 32,
+          "wrong": 16,
+          "caught": 16,
+          "flagged": 27,
+          "meanIoU": 0.8978,
+          "p5IoU": 0.1796,
+          "meanBF": 0.8983
+        },
+        "fast_motion": {
+          "frames": 32,
+          "wrong": 28,
+          "caught": 28,
+          "flagged": 32,
+          "meanIoU": 0.969,
+          "p5IoU": 0.9559,
+          "meanBF": 0.9041
+        },
+        "hair_busy": {
+          "frames": 32,
+          "wrong": 1,
+          "caught": 1,
+          "flagged": 32,
+          "meanIoU": 0.9967,
+          "p5IoU": 0.9936,
+          "meanBF": 0.9866
+        },
+        "leave_reenter": {
+          "frames": 32,
+          "wrong": 20,
+          "caught": 20,
+          "flagged": 26,
+          "meanIoU": 0.9106,
+          "p5IoU": 0.7731,
+          "meanBF": 0.659
+        },
+        "low_light": {
+          "frames": 32,
+          "wrong": 32,
+          "caught": 32,
+          "flagged": 32,
+          "meanIoU": 0.9584,
+          "p5IoU": 0.9475,
+          "meanBF": 0.8357
+        },
+        "product_table": {
+          "frames": 32,
+          "wrong": 0,
+          "caught": 0,
+          "flagged": 32,
+          "meanIoU": 0.9951,
+          "p5IoU": 0.9937,
+          "meanBF": 1.0
+        },
+        "similar_colour": {
+          "frames": 32,
+          "wrong": 6,
+          "caught": 6,
+          "flagged": 32,
+          "meanIoU": 0.9827,
+          "p5IoU": 0.9713,
+          "meanBF": 0.9741
+        },
+        "talking_head": {
+          "frames": 32,
+          "wrong": 3,
+          "caught": 3,
+          "flagged": 32,
+          "meanIoU": 0.9946,
+          "p5IoU": 0.9934,
+          "meanBF": 0.9713
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "wrong": 24,
+          "caught": 24,
+          "flagged": 32,
+          "meanIoU": 0.9658,
+          "p5IoU": 0.9082,
+          "meanBF": 0.8928
+        },
+        "walk_pan": {
+          "frames": 32,
+          "wrong": 17,
+          "caught": 17,
+          "flagged": 32,
+          "meanIoU": 0.9787,
+          "p5IoU": 0.9661,
+          "meanBF": 0.9291
+        }
+      },
+      "missed": []
+    }
+  },
+  "calibratedThresholds": {
+    "thresholds": {
+      "a_rewarp_mismatch": 0.02,
+      "b_components": false,
+      "c_edge_corr": 0.3,
+      "c2_unexplained": null,
+      "d_area_logratio": 0.08,
+      "d_centroid_frac": null,
+      "e_sam_pair_iou": null,
+      "e_sam_birefnet_iou": 0.9,
+      "e_hard_disagreement": null,
+      "e_band_frac": null,
+      "f_object_score": false,
+      "g_single_estimate": false,
+      "h_presence_window": 0,
+      "m_flow_px": null,
+      "m_band_frac": null,
+      "a_either": false,
+      "n_dilate": 2,
+      "version": "br7.3-calibrated"
+    },
+    "fittedOn": "calibration",
+    "trace": {
+      "chosen": "forward",
+      "coordinate": {
+        "trace": [
+          {
+            "step": "start",
+            "recall": 1.0,
+            "reviewLoad": 0.965625
+          },
+          {
+            "step": "sweep0:h_presence_window=0",
+            "recallGap": 0.0,
+            "reviewLoad": 0.953125
+          }
+        ],
+        "calibration": {
+          "recall": 1.0,
+          "reviewLoad": 0.953125
+        }
+      },
+      "forward": {
+        "trace": [
+          {
+            "add": "e_sam_pair_iou=0.98",
+            "caught": 20,
+            "extraFlags": 0
+          },
+          {
+            "add": "e_sam_birefnet_iou=0.9",
+            "caught": 47,
+            "extraFlags": 2
+          },
+          {
+            "add": "n_dilate=1",
+            "caught": 22,
+            "extraFlags": 3
+          },
+          {
+            "add": "d_area_logratio=0.08",
+            "caught": 36,
+            "extraFlags": 9
+          },
+          {
+            "add": "n_dilate=2",
+            "caught": 24,
+            "extraFlags": 7
+          },
+          {
+            "add": "c_edge_corr=0.2",
+            "caught": 2,
+            "extraFlags": 5
+          },
+          {
+            "add": "a_rewarp_mismatch=0.05",
+            "caught": 2,
+            "extraFlags": 9
+          },
+          {
+            "add": "a_rewarp_mismatch=0.02",
+            "caught": 4,
+            "extraFlags": 22
+          },
+          {
+            "add": "c_edge_corr=0.3",
+            "caught": 2,
+            "extraFlags": 14
+          },
+          {
+            "drop": "e_sam_pair_iou",
+            "reviewLoad": 0.728125
+          }
+        ],
+        "calibration": {
+          "recall": 1.0,
+          "reviewLoad": 0.728125
+        }
+      }
+    },
+    "calibration": {
+      "frames": 320,
+      "wrongFrames": 160,
+      "caught": 160,
+      "flagged": 233,
+      "recall": 1.0,
+      "recallWilson95Lower": 0.9765529633499672,
+      "reviewLoad": 0.728125,
+      "perCategory": {
+        "crossing": {
+          "frames": 32,
+          "wrong": 21,
+          "caught": 21,
+          "flagged": 32,
+          "meanIoU": 0.9206,
+          "p5IoU": 0.6235,
+          "meanBF": 0.8963
+        },
+        "fast_motion": {
+          "frames": 32,
+          "wrong": 29,
+          "caught": 29,
+          "flagged": 32,
+          "meanIoU": 0.9691,
+          "p5IoU": 0.9575,
+          "meanBF": 0.9015
+        },
+        "hair_busy": {
+          "frames": 32,
+          "wrong": 1,
+          "caught": 1,
+          "flagged": 3,
+          "meanIoU": 0.9969,
+          "p5IoU": 0.9944,
+          "meanBF": 0.9916
+        },
+        "leave_reenter": {
+          "frames": 32,
+          "wrong": 20,
+          "caught": 20,
+          "flagged": 26,
+          "meanIoU": 0.9024,
+          "p5IoU": 0.6955,
+          "meanBF": 0.6278
+        },
+        "low_light": {
+          "frames": 32,
+          "wrong": 32,
+          "caught": 32,
+          "flagged": 32,
+          "meanIoU": 0.9611,
+          "p5IoU": 0.9474,
+          "meanBF": 0.8519
+        },
+        "product_table": {
+          "frames": 32,
+          "wrong": 0,
+          "caught": 0,
+          "flagged": 0,
+          "meanIoU": 0.9942,
+          "p5IoU": 0.9933,
+          "meanBF": 1.0
+        },
+        "similar_colour": {
+          "frames": 32,
+          "wrong": 8,
+          "caught": 8,
+          "flagged": 32,
+          "meanIoU": 0.9827,
+          "p5IoU": 0.978,
+          "meanBF": 0.9738
+        },
+        "talking_head": {
+          "frames": 32,
+          "wrong": 3,
+          "caught": 3,
+          "flagged": 20,
+          "meanIoU": 0.9953,
+          "p5IoU": 0.9928,
+          "meanBF": 0.9738
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "wrong": 23,
+          "caught": 23,
+          "flagged": 24,
+          "meanIoU": 0.9758,
+          "p5IoU": 0.9608,
+          "meanBF": 0.9178
+        },
+        "walk_pan": {
+          "frames": 32,
+          "wrong": 23,
+          "caught": 23,
+          "flagged": 32,
+          "meanIoU": 0.9803,
+          "p5IoU": 0.9685,
+          "meanBF": 0.9308
+        }
+      },
+      "missed": []
+    },
+    "scored": {
+      "frames": 320,
+      "wrongFrames": 147,
+      "caught": 147,
+      "flagged": 231,
+      "recall": 1.0,
+      "recallWilson95Lower": 0.9745322245322244,
+      "reviewLoad": 0.721875,
+      "perCategory": {
+        "crossing": {
+          "frames": 32,
+          "wrong": 16,
+          "caught": 16,
+          "flagged": 32,
+          "meanIoU": 0.8978,
+          "p5IoU": 0.1796,
+          "meanBF": 0.8983
+        },
+        "fast_motion": {
+          "frames": 32,
+          "wrong": 28,
+          "caught": 28,
+          "flagged": 32,
+          "meanIoU": 0.969,
+          "p5IoU": 0.9559,
+          "meanBF": 0.9041
+        },
+        "hair_busy": {
+          "frames": 32,
+          "wrong": 1,
+          "caught": 1,
+          "flagged": 4,
+          "meanIoU": 0.9967,
+          "p5IoU": 0.9936,
+          "meanBF": 0.9866
+        },
+        "leave_reenter": {
+          "frames": 32,
+          "wrong": 20,
+          "caught": 20,
+          "flagged": 26,
+          "meanIoU": 0.9106,
+          "p5IoU": 0.7731,
+          "meanBF": 0.659
+        },
+        "low_light": {
+          "frames": 32,
+          "wrong": 32,
+          "caught": 32,
+          "flagged": 32,
+          "meanIoU": 0.9584,
+          "p5IoU": 0.9475,
+          "meanBF": 0.8357
+        },
+        "product_table": {
+          "frames": 32,
+          "wrong": 0,
+          "caught": 0,
+          "flagged": 0,
+          "meanIoU": 0.9951,
+          "p5IoU": 0.9937,
+          "meanBF": 1.0
+        },
+        "similar_colour": {
+          "frames": 32,
+          "wrong": 6,
+          "caught": 6,
+          "flagged": 32,
+          "meanIoU": 0.9827,
+          "p5IoU": 0.9713,
+          "meanBF": 0.9741
+        },
+        "talking_head": {
+          "frames": 32,
+          "wrong": 3,
+          "caught": 3,
+          "flagged": 17,
+          "meanIoU": 0.9946,
+          "p5IoU": 0.9934,
+          "meanBF": 0.9713
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "wrong": 24,
+          "caught": 24,
+          "flagged": 24,
+          "meanIoU": 0.9658,
+          "p5IoU": 0.9082,
+          "meanBF": 0.8928
+        },
+        "walk_pan": {
+          "frames": 32,
+          "wrong": 17,
+          "caught": 17,
+          "flagged": 32,
+          "meanIoU": 0.9787,
+          "p5IoU": 0.9661,
+          "meanBF": 0.9291
+        }
+      },
+      "missed": []
+    }
+  },
+  "correctionReplays": [],
+  "secondsPerClip": {
+    "crossing__calibration": 2117.7,
+    "crossing__scored": 3632.4,
+    "fast_motion__calibration": 2865.2,
+    "fast_motion__scored": 3002.2,
+    "hair_busy__calibration": 2605.6,
+    "hair_busy__scored": 2256.6,
+    "leave_reenter__calibration": 2034.6,
+    "leave_reenter__scored": 2040.8,
+    "low_light__calibration": 3574.3,
+    "low_light__scored": 3110.0,
+    "product_table__calibration": 2821.5,
+    "product_table__scored": 2020.6,
+    "similar_colour__calibration": 2561.1,
+    "similar_colour__scored": 2111.0,
+    "talking_head__calibration": 3103.4,
+    "talking_head__scored": 3208.2,
+    "twin_distractor__calibration": 2975.5,
+    "twin_distractor__scored": 2996.1,
+    "walk_pan__calibration": 3183.0,
+    "walk_pan__scored": 2941.3
+  },
+  "perFrame": {
+    "crossing__scored": [
+      {
+        "iou": 0.9855504532012598,
+        "bf": 0.9920643114427957,
+        "leak": false,
+        "checks": [
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9690524508273494,
+        "bf": 0.9133867727946836,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9871011791625915,
+        "bf": 0.9830627661190354,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9903423737428748,
+        "bf": 0.9940951490432427,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9937752598152425,
+        "bf": 0.998582565556343,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9944962737066243,
+        "bf": 0.9982238010657194,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9906132324316458,
+        "bf": 0.9998172180588558,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9901895330291903,
+        "bf": 0.9991993455520164,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9816806755618253,
+        "bf": 0.9325306586799755,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9782733951121141,
+        "bf": 0.9690211440646571,
+        "leak": false,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.971420329731289,
+        "bf": 0.9271709114326175,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.987253262687021,
+        "bf": 0.9786527297158863,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9929747957286758,
+        "bf": 0.9955135773317592,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9930289599380352,
+        "bf": 0.9993095512082855,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9915816216681738,
+        "bf": 0.9958448753462603,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9923181788674182,
+        "bf": 0.9957386363636365,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9908162820121286,
+        "bf": 0.9980184200808969,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9727311366127553,
+        "bf": 0.9039358726387555,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9809528367351822,
+        "bf": 0.9674116293104088,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9698270768503565,
+        "bf": 0.9037118092694266,
+        "leak": false,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9583315526304543,
+        "bf": 0.8660096112038062,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9548887424603376,
+        "bf": 0.9244911823747446,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9570932831431597,
+        "bf": 0.9542609756292411,
+        "leak": false,
+        "checks": [
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9534825604226911,
+        "bf": 0.9436034506819897,
+        "leak": false,
+        "checks": [
+          "a",
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.16759283761136104,
+        "bf": 0.3869066363071159,
+        "leak": true,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.0157683268895459,
+        "bf": 0.21311440568612747,
+        "leak": true,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.18939415061198317,
+        "bf": 0.40550535170186724,
+        "leak": true,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9450020234722785,
+        "bf": 0.8815673180791516,
+        "leak": false,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9525747797445304,
+        "bf": 0.866536236976817,
+        "leak": true,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9696805375456796,
+        "bf": 0.9407170562477178,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.981812794858354,
+        "bf": 0.96505240937952,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9810273021749191,
+        "bf": 0.9512935096075912,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      }
+    ],
+    "fast_motion__scored": [
+      {
+        "iou": 0.9813477737665464,
+        "bf": 0.9711003712709452,
+        "leak": false,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9721244181852533,
+        "bf": 0.9032103242823164,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9489450291624671,
+        "bf": 0.8606345975418849,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9753819894634915,
+        "bf": 0.9687604827340385,
+        "leak": false,
+        "checks": [
+          "c",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9653406786535081,
+        "bf": 0.8624531289304604,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.971957065017002,
+        "bf": 0.8753829554804695,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9672708757637475,
+        "bf": 0.9087689031228524,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9752872658586494,
+        "bf": 0.9696726272614695,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9776123799611163,
+        "bf": 0.9801958443664731,
+        "leak": false,
+        "checks": [
+          "c",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9732821405953135,
+        "bf": 0.9666868564506359,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9612286829669201,
+        "bf": 0.8122577255047883,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9675142784386482,
+        "bf": 0.8204857140111289,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9625594294770206,
+        "bf": 0.8598400063198111,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9620541525644364,
+        "bf": 0.9201799514523157,
+        "leak": false,
+        "checks": [
+          "c",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9609137223766044,
+        "bf": 0.8485089461746586,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9581250867694017,
+        "bf": 0.7933180151835045,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9687459724191262,
+        "bf": 0.8553879050197445,
+        "leak": true,
+        "checks": [
+          "a",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9614033679224454,
+        "bf": 0.8278684278004869,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9730699112238428,
+        "bf": 0.9474388320779382,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9701430107955225,
+        "bf": 0.9121464891367586,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9724150529777128,
+        "bf": 0.9301620779870715,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.98108585301258,
+        "bf": 0.966939893798223,
+        "leak": false,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9704854302716159,
+        "bf": 0.8893019873155982,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9679695892901413,
+        "bf": 0.950430759875812,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9532512315270936,
+        "bf": 0.8482224976689922,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9668082082861058,
+        "bf": 0.8665048157040717,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9804287240952999,
+        "bf": 0.9631703180708252,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9607942973523421,
+        "bf": 0.8468466438738093,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9706315705638738,
+        "bf": 0.9201531865375169,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9783389937603665,
+        "bf": 0.9818732987665861,
+        "leak": false,
+        "checks": [
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9725632347345443,
+        "bf": 0.9418890581222723,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9802549521172018,
+        "bf": 0.9621295014438871,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      }
+    ],
+    "hair_busy__scored": [
+      {
+        "iou": 0.9879392317916909,
+        "bf": 0.7637824907269769,
+        "leak": true,
+        "checks": [
+          "c",
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9927018501150994,
+        "bf": 0.9511831446149163,
+        "leak": false,
+        "checks": [
+          "c",
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9951181343448604,
+        "bf": 0.9991597323862561,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9952787655035132,
+        "bf": 0.9991521139111921,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.996369756492469,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9968353080669788,
+        "bf": 0.9894736842105264,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9972065368745675,
+        "bf": 0.9964912280701755,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9980890821181692,
+        "bf": 0.9973821989528796,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9984695295299575,
+        "bf": 0.997149520601192,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9992433892740812,
+        "bf": 0.9913705583756346,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.999328913566632,
+        "bf": 0.9923625254582484,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9992648001709767,
+        "bf": 0.9950840879689521,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9990209449377723,
+        "bf": 0.9986907567426028,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9976602594208716,
+        "bf": 0.976998904709748,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9975882631653086,
+        "bf": 0.988876529477197,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9978787969321514,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9964941462478408,
+        "bf": 0.998311215348848,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9951577665251332,
+        "bf": 0.9966234154981607,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9943437230210473,
+        "bf": 0.9988768427753982,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9950787694373733,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9949915250997234,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.995062011455454,
+        "bf": 0.9973516949152543,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9954429433574423,
+        "bf": 0.9976128151704237,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9960915428634547,
+        "bf": 0.9962944572924206,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9965287219578518,
+        "bf": 0.9866900363124512,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9961495798962171,
+        "bf": 0.9777432712215322,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.997400840579217,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.997993077819258,
+        "bf": 0.9978139421909157,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9987799019670361,
+        "bf": 0.9942252165543792,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9993877577051118,
+        "bf": 0.9959281437125748,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9994300491688926,
+        "bf": 0.9992744860943168,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9992640552681732,
+        "bf": 0.9987693822298794,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      }
+    ],
+    "leave_reenter__scored": [
+      {
+        "iou": 0.9379928059267729,
+        "bf": 0.6392169703371181,
+        "leak": true,
+        "checks": [
+          "a",
+          "c",
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9091983920548593,
+        "bf": 0.49180381918580374,
+        "leak": true,
+        "checks": [
+          "a",
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8939875604699378,
+        "bf": 0.45981637394892594,
+        "leak": true,
+        "checks": [
+          "a",
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8782813358988455,
+        "bf": 0.381978589994101,
+        "leak": true,
+        "checks": [
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8895660138086515,
+        "bf": 0.4068769868794329,
+        "leak": true,
+        "checks": [
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8895605087520464,
+        "bf": 0.26121167351252256,
+        "leak": true,
+        "checks": [
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8790442543696542,
+        "bf": 0.3019334477113741,
+        "leak": true,
+        "checks": [
+          "a",
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8688524590163934,
+        "bf": 0.616856700409527,
+        "leak": true,
+        "checks": [
+          "a",
+          "b",
+          "c",
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.37589928057553956,
+        "bf": 0.0,
+        "leak": false,
+        "checks": [
+          "a",
+          "c",
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "d",
+          "e",
+          "h"
+        ]
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "h"
+        ]
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "h"
+        ]
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "h"
+        ]
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "h"
+        ]
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "d",
+          "h"
+        ]
+      },
+      {
+        "iou": 0.678407350689127,
+        "bf": 0.4882017900732303,
+        "leak": false,
+        "checks": [
+          "a",
+          "c",
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8505367464905037,
+        "bf": 0.5462887032070747,
+        "leak": false,
+        "checks": [
+          "a",
+          "c",
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9353780864197531,
+        "bf": 0.8393373387968527,
+        "leak": false,
+        "checks": [
+          "a",
+          "b",
+          "c",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9035565645100265,
+        "bf": 0.5667834007729855,
+        "leak": true,
+        "checks": [
+          "a",
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8752575011195701,
+        "bf": 0.39370988958424685,
+        "leak": true,
+        "checks": [
+          "a",
+          "c",
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8943459915611814,
+        "bf": 0.4344480109825322,
+        "leak": true,
+        "checks": [
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8677023509482296,
+        "bf": 0.23317258538192098,
+        "leak": true,
+        "checks": [
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.899414593351453,
+        "bf": 0.43663643551788883,
+        "leak": true,
+        "checks": [
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8994492362049257,
+        "bf": 0.5034866801104937,
+        "leak": true,
+        "checks": [
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8892275986432527,
+        "bf": 0.5416181992196129,
+        "leak": true,
+        "checks": [
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9245089783563577,
+        "bf": 0.5457616495960658,
+        "leak": true,
+        "checks": [
+          "c",
+          "c2",
+          "d",
+          "e"
+        ]
+      }
+    ],
+    "low_light__scored": [
+      {
+        "iou": 0.9648777619467626,
+        "bf": 0.8704392266290513,
+        "leak": false,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9507503660322109,
+        "bf": 0.7112628091695194,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9487891884475543,
+        "bf": 0.7854033921007272,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9588740968691464,
+        "bf": 0.8881984170011957,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9602815734989648,
+        "bf": 0.8969231802868541,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9617785873975325,
+        "bf": 0.9178326450971434,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9634947021980421,
+        "bf": 0.9160055523721078,
+        "leak": false,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9544554455445544,
+        "bf": 0.8302150888423255,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9478648633769475,
+        "bf": 0.7411384651880913,
+        "leak": true,
+        "checks": [
+          "a",
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9671570846536894,
+        "bf": 0.8769727100235909,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9475533197522139,
+        "bf": 0.7494114174966554,
+        "leak": true,
+        "checks": [
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9523963665054928,
+        "bf": 0.7930803079946498,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.96485156437545,
+        "bf": 0.9105146545167297,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9695171565222569,
+        "bf": 0.9290743490693155,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.968533343928167,
+        "bf": 0.9349737076474802,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9616081562755132,
+        "bf": 0.8533782538601302,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.950347446670976,
+        "bf": 0.7473882736310844,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9436193734095365,
+        "bf": 0.7038167635458048,
+        "leak": true,
+        "checks": [
+          "a",
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9633136893247559,
+        "bf": 0.8280301088950741,
+        "leak": false,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9485446796109431,
+        "bf": 0.6858943205242077,
+        "leak": true,
+        "checks": [
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9473431525522539,
+        "bf": 0.7748636585845888,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9569992368691729,
+        "bf": 0.806198331784821,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.968400033280639,
+        "bf": 0.9404343187662645,
+        "leak": false,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9676850666090109,
+        "bf": 0.9301355019764885,
+        "leak": false,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9614820063774865,
+        "bf": 0.9010691277043431,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9502623222421649,
+        "bf": 0.8076810671353061,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9527765470388421,
+        "bf": 0.7320230789661148,
+        "leak": true,
+        "checks": [
+          "a",
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.967440170746106,
+        "bf": 0.8413301058012799,
+        "leak": false,
+        "checks": [
+          "a",
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9526815839042868,
+        "bf": 0.7962787822242513,
+        "leak": true,
+        "checks": [
+          "a",
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9603253082558069,
+        "bf": 0.8407686155959979,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.966675318970509,
+        "bf": 0.8862402197699024,
+        "leak": false,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9686211544560736,
+        "bf": 0.916369565295345,
+        "leak": false,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      }
+    ],
+    "product_table__scored": [
+      {
+        "iou": 0.9942026109512537,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9958059991215269,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9939191200442246,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9935647564104382,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9937348509546556,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9970670331694461,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9958201680434136,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9937348509546556,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9938765964081702,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9938765964081702,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9972653980758605,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9955934652932258,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9969536817943523,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9965144452158635,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9937490255000071,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9962594046219023,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9938198982267644,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9968544993411451,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9938907709535216,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.993805723681413,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9938482473174672,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9938198982267644,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9936923273186012,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9965711209034105,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.99718038454454,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9936498036825469,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9970528642475595,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9961318843249217,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9937632000453586,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9958768437309605,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9971378777788799,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.994998370573983,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      }
+    ],
+    "similar_colour__scored": [
+      {
+        "iou": 0.9638897535978544,
+        "bf": 0.8329129703516261,
+        "leak": false,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9772936183528583,
+        "bf": 0.9339199076317475,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9796768190444605,
+        "bf": 0.9564064008552899,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9859854596878003,
+        "bf": 0.9927255271223366,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9843854119765871,
+        "bf": 0.9966760789579343,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9860811005473927,
+        "bf": 0.9981578363227236,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9831223628691983,
+        "bf": 0.9864304838708959,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9794572566453644,
+        "bf": 0.9667774344420285,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9781973876326902,
+        "bf": 0.9543760913510654,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9853430556914946,
+        "bf": 0.9966957427281357,
+        "leak": false,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9809447307941183,
+        "bf": 0.9651337179029884,
+        "leak": false,
+        "checks": [
+          "a",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9837891942467959,
+        "bf": 0.9878505739981529,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9855428435998534,
+        "bf": 0.9970987584335215,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9873009733771675,
+        "bf": 0.9988035415171094,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9879841218753352,
+        "bf": 0.9985673352435529,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9876394072092672,
+        "bf": 0.9978149663607192,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9802590190250993,
+        "bf": 0.9765644930961225,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9818332326554355,
+        "bf": 0.9746519682398456,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9876181954487195,
+        "bf": 0.972003099381798,
+        "leak": false,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9631201550387597,
+        "bf": 0.8472388365722218,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9804445591271012,
+        "bf": 0.9811395151845798,
+        "leak": false,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9843681996228058,
+        "bf": 0.9927338443102001,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9854258879412717,
+        "bf": 0.9924061278552458,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9854491168747077,
+        "bf": 0.993512836505992,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9843361466557764,
+        "bf": 0.9863757824356146,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9823429037762446,
+        "bf": 0.9642789897570515,
+        "leak": false,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9826239090240363,
+        "bf": 0.9693319830232,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9888995309315062,
+        "bf": 0.9883091766689914,
+        "leak": false,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9870750273455812,
+        "bf": 0.9980613285966663,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.982132001736865,
+        "bf": 0.9781601579617027,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9866804603646709,
+        "bf": 0.997348758737045,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9861722457217701,
+        "bf": 0.9981041236587812,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      }
+    ],
+    "talking_head__scored": [
+      {
+        "iou": 0.9840469870585841,
+        "bf": 0.6151059974943933,
+        "leak": true,
+        "checks": [
+          "b",
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9948604992657856,
+        "bf": 0.9429048222440051,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9945216862742081,
+        "bf": 0.9576998485393065,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.993713524583853,
+        "bf": 0.9855699292602198,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9953248713761976,
+        "bf": 0.9847699229950015,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9945611980771601,
+        "bf": 0.9937533131518294,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9953642511704976,
+        "bf": 0.9923979415277793,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9991831356033429,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9992026409149214,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9993759894611554,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.998867597496389,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9955553672599263,
+        "bf": 0.9960267839135171,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9943841863618156,
+        "bf": 0.9943755261028021,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9948505782515827,
+        "bf": 0.9943382451299723,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9933418467432361,
+        "bf": 0.9906938078713253,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.994242403277756,
+        "bf": 0.9788585898237151,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9944382775560685,
+        "bf": 0.9715627244604522,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9934409745276466,
+        "bf": 0.9575149422649658,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.993558282208589,
+        "bf": 0.9719923213639942,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9943364486697552,
+        "bf": 0.9855755193588925,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9940795092043335,
+        "bf": 0.9872280247631529,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9942168656253708,
+        "bf": 0.9865067678497518,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9948583167873661,
+        "bf": 0.9827659285497474,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9939908121774986,
+        "bf": 0.9851969838671967,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9939518442858126,
+        "bf": 0.9797688042354562,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9946555569582965,
+        "bf": 0.9794794712123466,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9942748456772406,
+        "bf": 0.9797158292850979,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9938733233009003,
+        "bf": 0.97847821258006,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9944178383969963,
+        "bf": 0.9905876685874916,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9948774381055723,
+        "bf": 0.9910625073905587,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.993567823767582,
+        "bf": 0.9902088437747849,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9934981892476257,
+        "bf": 0.9388464106289972,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      }
+    ],
+    "twin_distractor__scored": [
+      {
+        "iou": 0.9662112391588452,
+        "bf": 0.8851123316466474,
+        "leak": false,
+        "checks": [
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9610856269113149,
+        "bf": 0.7788262870562085,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.970031746031746,
+        "bf": 0.9497833642830796,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9753599657430371,
+        "bf": 0.9598961487947802,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9921320802275755,
+        "bf": 0.9981644600670037,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9882044560943644,
+        "bf": 0.9808144009546222,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9871604759665811,
+        "bf": 0.9895143100265406,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9623171698249153,
+        "bf": 0.8006881995726439,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9646458814472672,
+        "bf": 0.7788576099410074,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9746269017729724,
+        "bf": 0.8918058198055399,
+        "leak": false,
+        "checks": [
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9742793596265222,
+        "bf": 0.8865646615873539,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9726030327009859,
+        "bf": 0.836275327760858,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9903123721771329,
+        "bf": 0.9953782534663099,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9932832447094788,
+        "bf": 0.9954599761051374,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9942492838527645,
+        "bf": 0.9968712394705175,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9897304512573201,
+        "bf": 0.9906479656175964,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9703167072701628,
+        "bf": 0.8052977856418624,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9723801966230217,
+        "bf": 0.8486668096361427,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9837153922016694,
+        "bf": 0.9413658287300574,
+        "leak": false,
+        "checks": [
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9691308346746379,
+        "bf": 0.81713195783131,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9669012813571557,
+        "bf": 0.8289079610211784,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.98380195599022,
+        "bf": 0.9715137127878973,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9781698882780635,
+        "bf": 0.9492244115146022,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9608226203143261,
+        "bf": 0.9303676586392623,
+        "leak": true,
+        "checks": [
+          "b",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9555274306104871,
+        "bf": 0.9220557275860454,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9627200115652896,
+        "bf": 0.9178156104427091,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.961726841544865,
+        "bf": 0.8328988934919404,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9412010978276039,
+        "bf": 0.7503606639808923,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.966274267288027,
+        "bf": 0.8876737036308978,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9296645572238077,
+        "bf": 0.8445897411347666,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8819590848754587,
+        "bf": 0.796834827904839,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8666023604176123,
+        "bf": 0.811675425697082,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      }
+    ],
+    "walk_pan__scored": [
+      {
+        "iou": 0.9863640461593941,
+        "bf": 0.9295499021526419,
+        "leak": false,
+        "checks": [
+          "c2",
+          "d"
+        ]
+      },
+      {
+        "iou": 0.9715559290451049,
+        "bf": 0.9201857160466124,
+        "leak": false,
+        "checks": [
+          "c",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9737029743311151,
+        "bf": 0.904948426947293,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.983242935583233,
+        "bf": 0.962286719779236,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9863233037560878,
+        "bf": 0.9643654784643719,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.987082130280221,
+        "bf": 0.964596472391004,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9819326535054671,
+        "bf": 0.9654215844497592,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9727246529131562,
+        "bf": 0.8910348157020272,
+        "leak": false,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9742818850291592,
+        "bf": 0.8718365833050141,
+        "leak": false,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9844441434119028,
+        "bf": 0.9379276872235692,
+        "leak": false,
+        "checks": [
+          "a",
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9667960238238529,
+        "bf": 0.8158534140217322,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9847967857214965,
+        "bf": 0.9686932075371911,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9860025522411868,
+        "bf": 0.9673902424306858,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9868462946748389,
+        "bf": 0.9703755540004666,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9872534202990774,
+        "bf": 0.9715079916608756,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9863853232986645,
+        "bf": 0.9748057452319284,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9747009654111599,
+        "bf": 0.9220855042442336,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9646764613941857,
+        "bf": 0.8111186237191977,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9877203185112284,
+        "bf": 0.9758920286377715,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9685789617237931,
+        "bf": 0.8574083042299516,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9747412434025636,
+        "bf": 0.948835978099325,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9857575099045486,
+        "bf": 0.9728732092928878,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9831216632954206,
+        "bf": 0.9575544236698575,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9802568111506603,
+        "bf": 0.9529840404540991,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9759934053362942,
+        "bf": 0.9539299588306152,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9735147236094369,
+        "bf": 0.9377881600786869,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9667054456816797,
+        "bf": 0.8605490588703615,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9731738922863573,
+        "bf": 0.8886956264804519,
+        "leak": false,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.965413875795915,
+        "bf": 0.8177629697920982,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9723421424248537,
+        "bf": 0.9276639562244433,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9846883847043343,
+        "bf": 0.9808235655928826,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9863965842518121,
+        "bf": 0.9829812239415733,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      }
+    ]
+  },
+  "job": {
+    "ablations": [],
+    "backend": "onnxruntime-1.30.0:birefnet=cpu:sam=cpu",
+    "frameCount": 32,
+    "memory": {
+      "breach": null,
+      "ceilingBytes": 64424509440,
+      "peakFootprintBytes": 13121355776
+    },
+    "memoryCeilingBytes": 64424509440,
+    "promptFrames": 1,
+    "providers": {
+      "chosen": {
+        "birefnet": "cpu",
+        "sam": "cpu"
+      },
+      "fallbacks": [],
+      "skipped": {
+        "birefnet": [],
+        "sam": []
+      }
+    },
+    "reusedFrames": 0,
+    "selfCorrectionRounds": 1,
+    "size": [
+      1280,
+      720
+    ],
+    "thresholds": {
+      "a_either": false,
+      "a_rewarp_mismatch": 0.05,
+      "b_components": true,
+      "c2_unexplained": 0.5,
+      "c_edge_corr": 0.2,
+      "d_area_logratio": 0.15,
+      "d_centroid_frac": 0.25,
+      "e_band_frac": 0.4,
+      "e_hard_disagreement": 0.02,
+      "e_sam_birefnet_iou": 0.98,
+      "e_sam_pair_iou": 0.98,
+      "f_object_score": true,
+      "g_single_estimate": false,
+      "h_presence_window": 3,
+      "m_band_frac": null,
+      "m_flow_px": null,
+      "n_dilate": 0,
+      "version": "br0-attempt-4"
+    },
+    "tile": {
+      "ceilingBytes": 64424509440,
+      "reason": "configured",
+      "size": 2048
+    },
+    "timeBase": [
+      1,
+      1000
+    ],
+    "timingsSeconds": {
+      "consensus": 0.992,
+      "decode": 0.431,
+      "encode": 0.286,
+      "foreground": 2.865,
+      "matte": 1.539,
+      "refine": 1521.305,
+      "segment": 503.704,
+      "self_correct": 80.871,
+      "stabilise": 1.6,
+      "verify": 3.255,
+      "windows": 2117.277
+    },
+    "tools": {
+      "approved": true,
+      "ffmpeg": "ffmpeg version 7.1.1 Copyright (c) 2000-2025 the FFmpeg developers",
+      "licence": "LGPL-2.1-or-later",
+      "origin": "override",
+      "reasons": []
+    },
+    "windowSecondsPerFrame": 600.0,
+    "windows": {
+      "frames": 300,
+      "overlap": 60
+    }
+  },
+  "provenance": {
+    "graphs": {
+      "files": {
+        "sam21l_image_encoder.fp32.onnx": {
+          "pinned": "320ed56abe3142d383aecf5f55aeea7b76cf60fb7e7ffe10ca654b834d695e86",
+          "runner": "320ed56abe3142d383aecf5f55aeea7b76cf60fb7e7ffe10ca654b834d695e86",
+          "identical": true
+        },
+        "sam21l_decoder_multi_n1.fp32.onnx": {
+          "pinned": "e2dde51052f71db13bc8a247b9012c03537b783835a2d3b692328f0265be7c0c",
+          "runner": "e2dde51052f71db13bc8a247b9012c03537b783835a2d3b692328f0265be7c0c",
+          "identical": true
+        },
+        "sam21l_decoder_points.fp32.onnx": {
+          "pinned": "290b4746cfb966bd224b2bebdd7244083a21d9d25469ff39b7eda97f52ab1136",
+          "runner": "290b4746cfb966bd224b2bebdd7244083a21d9d25469ff39b7eda97f52ab1136",
+          "identical": true
+        },
+        "sam21l_decoder_mask.fp32.onnx": {
+          "pinned": "aa2f74b50555f9109b20b3063c6d7273360ff865e4353474ad250a7735552d8e",
+          "runner": "aa2f74b50555f9109b20b3063c6d7273360ff865e4353474ad250a7735552d8e",
+          "identical": true
+        },
+        "sam21l_memory_attention.fp32.onnx": {
+          "pinned": "e5d6c81df8fb2005f2b2a95dacff181ce00231dd666baba43b0a04226ba48960",
+          "runner": "388bec2bef75b3c49f21dc0254bbfc561f96eb1ab375b876ff453c807bc63c9b",
+          "identical": false
+        },
+        "sam21l_memory_encoder.fp32.onnx": {
+          "pinned": "c2b48f90b9970d06f313ac6fdf0b427573decde1b3e81483caccf76fe26cf0f3",
+          "runner": "c2b48f90b9970d06f313ac6fdf0b427573decde1b3e81483caccf76fe26cf0f3",
+          "identical": true
+        },
+        "sam21l_constants.npz": {
+          "pinned": "60f9f947605a1c054034a8933ed2aa6568c2a56b6024e558db5960bb2a2722b6",
+          "runner": "60f9f947605a1c054034a8933ed2aa6568c2a56b6024e558db5960bb2a2722b6",
+          "identical": true
+        },
+        "birefnet_hr_matting_768.fp16s.onnx": {
+          "pinned": "37738f15337ff1c11cdf49cdcfdc9e4d57b91a4c3a8f911582c1597bf1f38ef4",
+          "runner": null,
+          "identical": null
+        },
+        "birefnet_hr_matting_1024.fp16s.onnx": {
+          "pinned": "ea5d48fc2e6795e317b351caa3da164a2b6a8c85231193c34d7ebbefb58ab41d",
+          "runner": "813e639f495e285884505c7fbd0bf317f0515b868facedaf082b31f0dd492132",
+          "identical": false
+        },
+        "birefnet_hr_matting_2048.fp16s.onnx": {
+          "pinned": "b6c710045302a90f0e5c87a65a42768a9bbaa3394d80a5167cfe459e54a4d3b5",
+          "runner": "daf1275f462933fa7ccb581fdbcfc5c02bf42937d9b71d1b8b3549d506040775",
+          "identical": false
+        }
+      },
+      "allPresentIdentical": false,
+      "missing": [
+        "birefnet_hr_matting_768.fp16s.onnx"
+      ],
+      "note": "exported on ubuntu-latest (linux-x64) by eval/ci_export_graphs.sh from the pinned checkpoints"
+    },
+    "ci-run": {
+      "workflowRunId": "35394205635",
+      "scoredInRun": "35394205635",
+      "commit": "6f4d7fdc9c75540b1a96f2de669b591bc1a01b76",
+      "scoringCommit": "6f4d7fdc9c75540b1a96f2de669b591bc1a01b76",
+      "label": "it1",
+      "tileRequested": 2048,
+      "runner": {
+        "image": "ubuntu-latest",
+        "vcpus": 4,
+        "memGiB": 15,
+        "cpu": "AMD EPYC 9V74 80-Core Processor"
+      },
+      "windowSecondsPerFrame": "600",
+      "memoryCeilingMiB": "61440",
+      "jobs": [
+        {
+          "variant": "auto",
+          "clip": "crossing__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12814608"
+        },
+        {
+          "variant": "auto",
+          "clip": "crossing__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12749900"
+        },
+        {
+          "variant": "auto",
+          "clip": "fast_motion__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12702612"
+        },
+        {
+          "variant": "auto",
+          "clip": "fast_motion__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12761100"
+        },
+        {
+          "variant": "auto",
+          "clip": "hair_busy__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12826400"
+        },
+        {
+          "variant": "auto",
+          "clip": "hair_busy__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12773432"
+        },
+        {
+          "variant": "auto",
+          "clip": "leave_reenter__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12692140"
+        },
+        {
+          "variant": "auto",
+          "clip": "leave_reenter__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12756236"
+        },
+        {
+          "variant": "auto",
+          "clip": "low_light__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12715948"
+        },
+        {
+          "variant": "auto",
+          "clip": "low_light__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12773500"
+        },
+        {
+          "variant": "auto",
+          "clip": "product_table__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12763296"
+        },
+        {
+          "variant": "auto",
+          "clip": "product_table__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12727512"
+        },
+        {
+          "variant": "auto",
+          "clip": "similar_colour__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12623208"
+        },
+        {
+          "variant": "auto",
+          "clip": "similar_colour__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12671440"
+        },
+        {
+          "variant": "auto",
+          "clip": "talking_head__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12752052"
+        },
+        {
+          "variant": "auto",
+          "clip": "talking_head__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12747956"
+        },
+        {
+          "variant": "auto",
+          "clip": "twin_distractor__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12688496"
+        },
+        {
+          "variant": "auto",
+          "clip": "twin_distractor__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12609324"
+        },
+        {
+          "variant": "auto",
+          "clip": "walk_pan__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12722412"
+        },
+        {
+          "variant": "auto",
+          "clip": "walk_pan__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12761476"
+        }
+      ]
+    },
+    "pilot-provenance": {
+      "generator": "workers/smart-mask/eval/pilot.py",
+      "backgrounds": {
+        "bg_000110": {
+          "timestamp": "00:01:10",
+          "fetched": true,
+          "pixelsSha256": "a733fc88aa3863e1cb7b6e4e8a6163ab853e7236e71befb517580bf557e31ca9",
+          "matchesBR73": false
+        },
+        "bg_000330": {
+          "timestamp": "00:03:30",
+          "fetched": true,
+          "pixelsSha256": "1d8a9061bd68018b45b1fb32b68ba04828de107debb53b6e66765595205f4b27",
+          "matchesBR73": false
+        },
+        "bg_000440": {
+          "timestamp": "00:04:40",
+          "fetched": true,
+          "pixelsSha256": "c8e14dc1f002df08f2dcc59b66a98cc2509f5f0728a77b50c04a78cfb5e05439",
+          "matchesBR73": false
+        },
+        "bg_000550": {
+          "timestamp": "00:05:50",
+          "fetched": true,
+          "pixelsSha256": "8d07147e204aeeae6a062034dbec5102eecdca561eb6d7b3a04c8a7267039e52",
+          "matchesBR73": false
+        },
+        "bg_000920": {
+          "timestamp": "00:09:20",
+          "fetched": true,
+          "pixelsSha256": "d8811c8b402b4f6067f8b8af259b3ec005de0dd608c6cd469dfee823e669f710",
+          "matchesBR73": false
+        },
+        "bg_001130": {
+          "timestamp": "00:11:30",
+          "fetched": true,
+          "pixelsSha256": "4dcd613c1bba7181491ebfb57ac25808d069b0308a619d272707ca2bda10fd20",
+          "matchesBR73": false
+        }
+      },
+      "allBackgroundsMatchBR73": false
+    }
+  },
+  "contactSheet": "reports/smart-mask/2026-09-18-linux-x64-ci-it1-contact-sheet.jpg"
+}
