@@ -111,6 +111,11 @@ export interface MatteNotice {
   readonly message: string;
   /** Present when the run refused because the pack is not installed. */
   readonly packMissing?: boolean;
+  /**
+   * Present when the run refused for want of disk space (BR6.8): what it needed and what is
+   * free, so the estimate line can become a blocking message instead of a hopeful one.
+   */
+  readonly disk?: { readonly requiredBytes: number; readonly freeBytes: number };
 }
 
 export interface MatteJobsState {

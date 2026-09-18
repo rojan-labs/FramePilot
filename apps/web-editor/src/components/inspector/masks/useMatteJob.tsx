@@ -67,6 +67,9 @@ export function matteNoticeFor(outcome: MatteOutcome, refusal: string | null): M
       return {
         tone: 'alert',
         message: outcome.retryable ? `${outcome.message} You can try again.` : outcome.message,
+        ...(outcome.requiredBytes === undefined || outcome.freeBytes === undefined
+          ? {}
+          : { disk: { requiredBytes: outcome.requiredBytes, freeBytes: outcome.freeBytes } }),
       };
   }
 }

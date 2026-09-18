@@ -16,6 +16,7 @@ import type {
 import { useEditor } from '../../../editor/useEditor.js';
 import { BackgroundRemovalRow } from './BackgroundRemovalRow.js';
 import { MatteJobStore } from './matteJobStore.js';
+import { useMatteJobCommits } from './useMatteJob.js';
 import { MaskToolStore } from './useMaskTools.js';
 
 const bridge = vi.hoisted(() => ({
@@ -142,6 +143,13 @@ const timelineWithMatte: Timeline = {
     },
   ],
 } as unknown as Timeline;
+
+/** The shell-level committer, which is what turns an outcome into a notice. */
+function Committer({ jobs }: { readonly jobs: MatteJobStore }): null {
+  const editor = useEditor(timeline, { assets });
+  useMatteJobCommits(editor, jobs);
+  return null;
+}
 
 function Harness({
   jobs,
@@ -489,6 +497,50 @@ describe('BackgroundRemovalRow', () => {
       await screen.findByText(
         'Media changed since background removal ran — run Remove background again.',
       ),
+    ).toBeTruthy();
+  });
+  it('turns the estimate into a blocking disk-space message, with a way out (BR6.8)', async () => {
+    bridge.capabilityPackMatte.mockResolvedValue({
+      ok: false,
+      code: 'insufficient_disk',
+      error: 'Not enough space.',
+      retryable: true,
+      requiredBytes: 4_000_000_000,
+      freeBytes: 900_000_000,
+    });
+    render(
+      <>
+        <Committer jobs={jobs} />
+        <Harness jobs={jobs} />
+      </>,
+    );
+    const button = await screen.findByRole('button', { name: 'Remove background' });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+
+    const blocked = await screen.findByText(/Not enough disk space/);
+    // Both numbers, so the editor knows how much to free rather than guessing.
+    expect(blocked.textContent).toContain('4.0 GB');
+    expect(blocked.textContent).toContain('900 MB');
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Remove background' }) as HTMLButtonElement).disabled,
+      ).toBe(true),
+    );
+
+    // Freeing space must not need a restart.
+    fireEvent.click(screen.getByRole('button', { name: 'check again' }));
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Remove background' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+  });
+
+  it('says the first run also prepares the models, so the wait is never unexplained', async () => {
+    render(<Harness jobs={jobs} />);
+    expect(
+      await screen.findByText(/The first run on this computer also prepares the models/),
     ).toBeTruthy();
   });
 });

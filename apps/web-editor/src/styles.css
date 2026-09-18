@@ -1230,6 +1230,27 @@ input[type='checkbox']:focus-visible {
 }
 /* Subject picks (BR6.3). Include and exclude differ by the SIGN drawn inside, not only by
    colour, so the two read apart without relying on hue. */
+/* BR6.8: the unprocessed tail of a clip whose background removal is still running. Stripes,
+   not a tint, so it reads as "work in progress" at any clip colour and in both themes. */
+.clip-processing-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.16) 0 6px,
+    rgba(255, 255, 255, 0) 6px 12px
+  );
+  border-left: 1px solid rgba(255, 255, 255, 0.35);
+}
+.mask-canvas-subject-hover {
+  fill: rgba(59, 130, 246, 0.18);
+  stroke: rgba(255, 255, 255, 0.8);
+  stroke-width: 1px;
+  pointer-events: none;
+}
 .mask-canvas-subject-point {
   fill: rgba(59, 130, 246, 0.35);
   stroke: #fff;

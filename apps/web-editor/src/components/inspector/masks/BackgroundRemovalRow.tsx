@@ -214,17 +214,38 @@ export function BackgroundRemovalRow({
           <p className="inspector-empty">
             Covers this clip plus {String(MATTE_HANDLE_SECONDS)} s of handles.
           </p>
+          {notice?.disk === undefined ? (
+            <p className="inspector-empty">
+              About {formatDuration(estimate.computeSeconds)} on this computer ·{' '}
+              {formatBytes(estimate.bytes)} on disk.
+            </p>
+          ) : (
+            // BR6.8: with too little room the estimate stops being advice and becomes the
+            // blocker, with the two numbers that matter.
+            <p className="inspector-empty" role="alert">
+              Not enough disk space: this needs about {formatBytes(notice.disk.requiredBytes)} and{' '}
+              {formatBytes(notice.disk.freeBytes)} is free. Free some space, then{' '}
+              <button
+                type="button"
+                className="inspector-text-button"
+                onClick={() => jobs.setNotice(clip.id, null)}
+              >
+                check again
+              </button>
+              .
+            </p>
+          )}
           <p className="inspector-empty">
-            About {formatDuration(estimate.computeSeconds)} on this computer ·{' '}
-            {formatBytes(estimate.bytes)} on disk.
+            The first run on this computer also prepares the models, which takes longer than later
+            runs.
           </p>
         </>
       )}
       <Button
         variant="primary"
         type="button"
-        disabled={copy.blocked || running}
-        aria-disabled={copy.blocked || running}
+        disabled={copy.blocked || running || notice?.disk !== undefined}
+        aria-disabled={copy.blocked || running || notice?.disk !== undefined}
         {...(copy.blocked ? { 'aria-describedby': WARNING_ID, title: copy.tooltip } : {})}
         onClick={run}
       >

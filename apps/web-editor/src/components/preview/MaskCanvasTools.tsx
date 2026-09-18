@@ -324,6 +324,8 @@ export function MaskCanvasTools({
   const [draft, setDraft] = useState<Draft>({});
   const [penPoints, setPenPoints] = useState<MaskPathVertex[]>([]);
   const [cursor, setCursor] = useState<PixelPoint | null>(null);
+  /** Where the pointer is while an AI subject tool is armed, source pixels (BR6.8). */
+  const [hover, setHover] = useState<PixelPoint | null>(null);
   const [boxAnchor, setBoxAnchor] = useState<PixelPoint | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [screenPerFrame, setScreenPerFrame] = useState(1);
@@ -921,6 +923,9 @@ export function MaskCanvasTools({
 
   const onPointerMove = (event: React.PointerEvent<SVGSVGElement>): void => {
     const active = gesture.current;
+    // The AI subject tools show what a click would pick BEFORE the click (BR6.8), so the
+    // pointer is tracked even with no gesture in flight.
+    if (tools.tool === 'ai-object' || tools.tool === 'ai-brush') setHover(toSource(event));
     if (active === null || active.pointerId !== event.pointerId) return;
     // Browsers stamp events on the performance clock; an environment that stamps on another
     // clock (a future value) falls back to handler entry, which under-reports only input delay.
@@ -1640,6 +1645,7 @@ export function MaskCanvasTools({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
+        onPointerLeave={() => setHover(null)}
         onWheel={onWheel}
         onKeyDown={onKeyDown}
         onKeyUp={onKeyUp}
@@ -1741,6 +1747,19 @@ export function MaskCanvasTools({
               vectorEffect="non-scaling-stroke"
             />
           ))}
+          {/* BR6.8: what a click would pick, shown before the click. The pack's per-frame
+              segmentation (`subject.segment_frame`) is what would tint the OBJECT under the
+              pointer; until that capability exists the monitor shows where the pick lands,
+              rather than tinting a shape nothing has measured. */}
+          {(tools.tool === 'ai-object' || tools.tool === 'ai-brush') && hover !== null && (
+            <circle
+              className="mask-canvas-subject-hover"
+              cx={hover.x}
+              cy={hover.y}
+              r={tools.tool === 'ai-brush' ? tools.brushRadiusPx : px(10)}
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
           {tools.correctionStrokes.map((stroke, index) => (
             <path
               key={`fix-${String(index)}`}
