@@ -1,7 +1,7 @@
 ---
 name: broll-and-layering
 description: Source footage the user never filmed (stock clips and photos, via search_stock/add_stock — explained here and nowhere else) and place it as b-roll, overlays, or a whole montage that clarifies narration and preserves visual hierarchy without decorative clutter.
-tools: [list_assets, get_timeline, get_mapped_transcript, search_visual, search_stock, add_stock, add_clip, add_clips, trim_clip, set_clip_blend_mode, add_mask, add_keyframes, set_track_flags]
+tools: [list_assets, get_timeline, get_mapped_transcript, search_visual, search_stock, add_stock, add_clip, add_clips, trim_clip, set_clip_blend_mode, add_keyframes, set_track_flags]
 ---
 
 # B-roll and layering

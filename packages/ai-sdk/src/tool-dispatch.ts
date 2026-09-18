@@ -11,6 +11,7 @@ import type { ToolCall } from './providers/types.js';
 import { withToolInputContract } from './tool-input-contract.js';
 import { ToolRefusalError, type RefusalCause } from './tool-refusal.js';
 import { TOOL_REGISTRY, type ToolSpec, getTool } from './tool-registry.js';
+import { UNSOURCED_MASK_GEOMETRY, unsourcedMaskGeometry } from './masking/geometry-provenance.js';
 import type { ToolContext } from './tool-context.js';
 
 const log = createLogger('ai-sdk:tool-dispatch');
@@ -351,6 +352,12 @@ export function operationsForCall(call: ToolCall, ctx: ToolContext): AnyOperatio
   try {
     validateSemanticToolArgs(call);
     const ops = tool.buildOps(sanitizeToolArgs(tool, call.arguments), ctx);
+    // The AI never invents mask geometry (plan 11 rule 1, AM1.4). Every builder that derives
+    // a shape from a candidate, a measurement, the frame or the editor's numbers attests its
+    // operations; anything else that places or moves a mask is refused HERE, at the one
+    // boundary every in-process mutation crosses — the agent loop, the autonomous proposal
+    // compiler and the MCP session alike — so a new tool fails closed by default.
+    if (unsourcedMaskGeometry(ops).length > 0) throw new ToolRefusalError(UNSOURCED_MASK_GEOMETRY);
     log.action('operationsForCall → dispatched', { tool: call.name, opCount: ops.length });
     return ops;
   } catch (cause) {

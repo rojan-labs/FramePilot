@@ -20,6 +20,7 @@ import {
 import type { ToolContext } from '../tool-context.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { validateProfessionalOperationBatch } from './professional-batch.js';
+import { attestMaskGeometry } from '../masking/geometry-provenance.js';
 
 /** The registry name; also the executor routing key on the desktop host. */
 export const AUTOMATIC_TRACKING_TOOL_NAME = 'track_subject_automatically';
@@ -206,9 +207,16 @@ export function automaticTrackingOpsFromMeasurement(
       `${AUTOMATIC_TRACKING_TOOL_NAME} compiler rejected ${result.code}: ${result.detail}`,
     );
   }
-  return validateProfessionalOperationBatch(ctx, AUTOMATIC_TRACKING_TOOL_NAME, [
-    ...result.patch.operations,
-  ]);
+  // Measured by the pack worker: the geometry-provenance gate (AM1.4) admits these because
+  // they are attested to that engine, never because of what they look like.
+  return validateProfessionalOperationBatch(
+    ctx,
+    AUTOMATIC_TRACKING_TOOL_NAME,
+    attestMaskGeometry([...result.patch.operations], {
+      kind: 'measurement',
+      engine: measurement.engine,
+    }),
+  );
 }
 
 /** Measured by an isolated pack worker; geometry always comes from a drawn mask. */

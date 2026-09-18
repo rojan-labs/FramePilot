@@ -5047,6 +5047,7 @@ export class Orchestrator {
         }
         try {
           const ops = automaticTrackingOpsFromMeasurement(parsedMeasurement.data, ctx);
+          assertMaskGeometrySourced(ops);
           const probe = assembleEdit(ctx.project, ops, 'Track subject automatically', 'agent');
           if (!probe.validation.valid) {
             return hostBackedValidatorRejection(call.name, probe.validation.issues, ops);
