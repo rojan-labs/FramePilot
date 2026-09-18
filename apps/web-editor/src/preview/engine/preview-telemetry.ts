@@ -26,7 +26,11 @@
  * - `keyStack` — a key mask's GPU stack (qualifier + finesse chain) inside a composite. GL
  *   submission time only; the chain's GPU cost is the difference between `composite` (GPU sync
  *   on) or `exactComposite` with and without it.
+ * - `matteStack` — a matte's GPU passes (PX5.3: the stack's alpha, or a decontamination) inside
+ *   a composite. Submission time, like `keyStack`; a matte that fell back to the float64 twin
+ *   shows under `maskRaster` instead, which is how a fallback is seen.
  * - `decode` — one decode-ahead window, request to pictures in the cache.
+ * - `matteDecode` — one matte artifact frame, request to decoded planes (queueing included).
  *
  * **Dropped frames** are counted, not timed: the project frame index due on every tick is
  * compared with the last index presented. An index that was due and never shown is one dropped
@@ -50,7 +54,9 @@ export type PreviewTelemetryChannel =
   | 'exactComposite'
   | 'maskRaster'
   | 'keyStack'
-  | 'decode';
+  | 'matteStack'
+  | 'decode'
+  | 'matteDecode';
 
 const CHANNELS: readonly PreviewTelemetryChannel[] = [
   'frameInterval',
@@ -59,7 +65,9 @@ const CHANNELS: readonly PreviewTelemetryChannel[] = [
   'exactComposite',
   'maskRaster',
   'keyStack',
+  'matteStack',
   'decode',
+  'matteDecode',
 ];
 
 /** Byte and occupancy gauges: the current value and the highest seen since the last reset. */

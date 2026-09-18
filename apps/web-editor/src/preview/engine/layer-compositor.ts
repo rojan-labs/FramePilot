@@ -37,19 +37,15 @@ import {
   maskScalar,
   singleMaskAlpha,
   stackReadsPicture,
+  type MatteMask,
   type StackMask,
   type MatteStackInputs,
 } from '../masks/mask-stack.js';
 import { maskSourceTime } from '@framepilot/editor-core';
-import { decontaminate } from '../masks/matte-edges.js';
+import { decontaminate, type MatteFrameData } from '../masks/matte-edges.js';
 import {
-  MASK_BOX_FRAGMENT,
-  MASK_DENOISE_FRAGMENT,
   MASK_DESPILL_FRAGMENT,
   MASK_KEY_FRAGMENT,
-  MASK_LEVELS_FRAGMENT,
-  MASK_MIX_ALPHA_FRAGMENT,
-  MASK_MORPH_FRAGMENT,
   despillingKeys,
   keyUniforms,
   type KeyMask,
@@ -75,7 +71,9 @@ import {
   SWS_VERTICAL_ONE,
   type SwsFilter,
 } from './raster/swscale.js';
-import { GlResources, type Program, type RenderTarget } from './gl/gl-resources.js';
+import { GlResources, type RenderTarget } from './gl/gl-resources.js';
+import { AlphaPasses } from './gl/alpha-passes.js';
+import { MattePass, type MatteFrameGeometry } from './gl/matte-pass.js';
 import { pilBoxWeights, pilGaussianBoxRadius, pilRotationMatrix } from './raster/pil.js';
 import {
   ALPHA_FRAGMENT,
@@ -170,11 +168,16 @@ export class LayerCompositor {
   readonly canvas: HTMLCanvasElement | OffscreenCanvas;
   private readonly gl: WebGL2RenderingContext;
   private readonly resources: GlResources;
+  /** The finesse passes a `key` layer's alpha runs through (shared with the matte pass). */
+  private readonly keyPasses: AlphaPasses;
+  /** PX5.3: a `matte` layer's alpha and decontamination as float passes. */
+  private readonly mattePass: MattePass;
   private readonly failedTransitions = new Set<string>();
   /** Exact mask stack rasters (`masks/mask-stack.ts`), cached by semantic signature. */
   private readonly maskRasters = new MaskStackRasterCache();
   private frameEffects: FrameEffectRenderer | null = null;
   private effectsUnavailable = false;
+  private floatTargets: boolean | null = null;
   private readonly lutTextures = new Map<CubeLut, WebGLTexture>();
   private luts: ReadonlyMap<string, CubeLut> = new Map();
   private telemetry: PreviewTelemetry | null = null;
@@ -212,6 +215,8 @@ export class LayerCompositor {
     if (!gl) throw new LayerCompositorUnavailableError('WebGL2 is unavailable for the preview.');
     this.gl = gl;
     this.resources = new GlResources(gl);
+    this.keyPasses = new AlphaPasses(this.resources, 'rgba32f');
+    this.mattePass = new MattePass(this.resources);
   }
 
   /**
@@ -605,7 +610,10 @@ export class LayerCompositor {
   /**
    * `_apply_matte_decontamination`: each decontaminating matte (bottom of the stack first)
    * replaces the edge band's colour with its foreground estimate, before any effect or alpha.
-   * Exact float64 arithmetic, so it runs on the CPU over a read-back of the cropped picture.
+   *
+   * PX5.3: on the GPU, because the float64 twin over a read-back of the picture cost 324 ms a
+   * frame for a 4K matte. The twin stays for a GPU without float targets and for a plane the
+   * shader's resample loop cannot carry, so neither case loses the decontamination.
    */
   private decontaminate(
     source: RenderTarget,
@@ -617,8 +625,22 @@ export class LayerCompositor {
       .reverse()
       .filter((mask) => mask.decontaminate)
       .map((mask) => mattes.frames.get(mask.id) ?? null)
-      .filter((frame) => frame !== null && frame.foreground !== null);
+      .filter((frame): frame is MatteFrameData => frame !== null && frame.foreground !== null);
     if (cleaning.length === 0) return source;
+    const geometry = this.matteGeometry(stack, source.width, source.height, mattes);
+    // Not `floatTargetsAvailable`: that one refuses a key; a matte keeps its CPU twin instead.
+    const onGpu =
+      this.floatTargetsSupported() &&
+      cleaning.every((frame) => this.mattePass.carriesFrame(frame, geometry));
+    if (onGpu) {
+      const started = performance.now();
+      let current = source;
+      for (const frame of cleaning)
+        current = this.mattePass.decontaminate(current, frame, geometry);
+      this.telemetry?.record('matteStack', performance.now() - started);
+      return current;
+    }
+    const started = performance.now();
     const gl = this.gl;
     const pixels = new Uint8Array(source.width * source.height * 4);
     gl.bindFramebuffer(gl.FRAMEBUFFER, source.framebuffer);
@@ -630,13 +652,30 @@ export class LayerCompositor {
         source.width,
         source.height,
         4,
-        frame!,
+        frame,
         stack.clip.crop,
         mattes.decodedWidth,
         mattes.decodedHeight,
       );
     }
+    this.telemetry?.record('maskRaster', performance.now() - started);
     return this.resources.bytesTarget(pixels, source.width, source.height);
+  }
+
+  /** Where a matte plane of `stack`'s clip lands: its crop, its frame and its decode size. */
+  private matteGeometry(
+    stack: ClipMaskStack,
+    width: number,
+    height: number,
+    mattes: MatteStackInputs,
+  ): MatteFrameGeometry {
+    return {
+      crop: stack.clip.crop,
+      width,
+      height,
+      decodedWidth: mattes.decodedWidth,
+      decodedHeight: mattes.decodedHeight,
+    };
   }
 
   private alpha(
@@ -703,7 +742,14 @@ export class LayerCompositor {
     if (stack.refusal !== null || width <= 0 || height <= 0) return null;
     const masks = drawnMasks(stack, target, mattes);
     if (masks.length === 0) return null;
-    if (!stackReadsPicture(masks)) {
+    const readsPicture = stackReadsPicture(masks);
+    // PX5.3: a stack holding a matte is combined on the GPU like one holding a key, so the
+    // float64 twin (170 ms of main thread for a 4K matte) never runs during playback. Only a
+    // layer whose radii the shaders cannot carry, or a GPU without float targets, keeps it.
+    const matteOnGpu =
+      !readsPicture &&
+      this.mattesCarried(stack, masks, width, height, maskSourceTime(stack.clip, clipTime), mattes);
+    if (!readsPicture && !matteOnGpu) {
       const drawsBefore = this.maskRasters.drawCount;
       const started = performance.now();
       const raster = this.maskRasters.raster(stack, target, width, height, clipTime, mattes);
@@ -716,15 +762,61 @@ export class LayerCompositor {
         ? null
         : { texture: this.resources.plane(width, height, raster.alpha8), scale: raster.scale };
     }
-    if (picture === null || picture.width !== width || picture.height !== height) return null;
-    // The GPU stack accumulates in float, so it needs the same extension the effect layers do.
-    if (!this.floatTargetsAvailable()) return null;
+    if (readsPicture) {
+      if (picture === null || picture.width !== width || picture.height !== height) return null;
+      // The GPU stack accumulates in float, so it needs the same extension the effect layers do.
+      if (!this.floatTargetsAvailable()) return null;
+    }
     const started = performance.now();
-    const texture = this.keyStack(stack, masks, width, height, clipTime, mattes, picture);
+    const texture = this.gpuStack(stack, masks, width, height, clipTime, mattes, picture);
     // Submission time: the GPU runs the chain later. Its real cost is read from the composite
     // channels with and without the chain (`PX5-BUDGETS.md`), not from this sample.
-    this.telemetry?.record('keyStack', performance.now() - started);
+    this.telemetry?.record(readsPicture ? 'keyStack' : 'matteStack', performance.now() - started);
     return { texture, scale: 1 };
+  }
+
+  /**
+   * Whether `masks` holds a matte and every matte in it can be drawn by the GPU pass now: float
+   * targets exist and each layer's radii fit the shaders (`MattePass.carries`).
+   */
+  private mattesCarried(
+    stack: ClipMaskStack,
+    masks: readonly StackMask[],
+    width: number,
+    height: number,
+    sourceTime: number,
+    mattes: MatteStackInputs | null,
+  ): boolean {
+    if (mattes === null || !masks.some((mask) => mask.kind === 'matte')) return false;
+    if (!this.floatTargetsSupported()) return false;
+    const geometry = this.matteGeometry(stack, width, height, mattes);
+    return masks.every((mask) => {
+      if (mask.kind !== 'matte') return true;
+      const frame = mattes.frames.get(mask.id) ?? null;
+      return frame !== null && this.mattePass.carries(mask, frame, geometry, sourceTime);
+    });
+  }
+
+  /** One matte layer on the GPU when the pass carries it, `null` for the CPU twin. */
+  private matteLayer(
+    mask: MatteMask,
+    stack: ClipMaskStack,
+    width: number,
+    height: number,
+    sourceTime: number,
+    mattes: MatteStackInputs | null,
+  ): WebGLTexture | null {
+    const frame = mattes?.frames.get(mask.id) ?? null;
+    if (mattes === null || frame === null) return null;
+    const geometry = this.matteGeometry(stack, width, height, mattes);
+    if (!this.mattePass.carries(mask, frame, geometry, sourceTime)) return null;
+    return this.mattePass.layer(mask, frame, geometry, sourceTime);
+  }
+
+  /** Whether float render targets exist (`EXT_color_buffer_float`), asked once. */
+  private floatTargetsSupported(): boolean {
+    this.floatTargets ??= FrameEffectRenderer.supported(this.gl);
+    return this.floatTargets;
   }
 
   /**
@@ -734,7 +826,7 @@ export class LayerCompositor {
    */
   private floatTargetsAvailable(): boolean {
     if (this.effectsUnavailable) return false;
-    if (!FrameEffectRenderer.supported(this.gl)) {
+    if (!this.floatTargetsSupported()) {
       this.effectsUnavailable = true;
       log.warn('key masks need float render targets, which this GPU lacks; the mask is skipped');
       return false;
@@ -742,15 +834,19 @@ export class LayerCompositor {
     return true;
   }
 
-  /** `stack_alpha` for a stack that reads the picture: combine in float, quantise once. */
-  private keyStack(
+  /**
+   * `stack_alpha` for a stack built on the GPU: each layer into a float accumulator, quantised
+   * once. A key is qualified from `picture`, a matte runs the matte pass (PX5.3), and a shape
+   * (or a matte the pass cannot carry) comes from the exact rasteriser as a float plane.
+   */
+  private gpuStack(
     stack: ClipMaskStack,
     masks: readonly StackMask[],
     width: number,
     height: number,
     clipTime: number,
     mattes: MatteStackInputs | null,
-    picture: RenderTarget,
+    picture: RenderTarget | null,
   ): WebGLTexture {
     const r = this.resources;
     const gl = this.gl;
@@ -760,12 +856,16 @@ export class LayerCompositor {
     for (const mask of masks) {
       const layer =
         mask.kind === 'key'
-          ? this.keyLayer(mask, picture, maskScalar(mask, 'opacity', s))
-          : r.floatPlane(
+          ? // `stackCoverage` only builds a key stack with the picture it qualifies in hand.
+            this.keyLayer(mask, picture!, maskScalar(mask, 'opacity', s))
+          : ((mask.kind === 'matte'
+              ? this.matteLayer(mask, stack, width, height, s, mattes)
+              : null) ??
+            r.floatPlane(
               width,
               height,
               Float32Array.from(singleMaskAlpha(mask, stack, width, height, s, mattes)),
-            );
+            ));
       const out = r.target(width, height, 'rgba32f');
       const program = r.program('mask-combine', MASK_COMBINE_FRAGMENT);
       gl.useProgram(program.handle);
@@ -808,123 +908,23 @@ export class LayerCompositor {
     return this.keyFinesse(qualified, mask.finesse, uniforms).texture;
   }
 
-  /** One pass over the key's alpha, into a fresh float target. */
-  private alphaPass(
-    source: RenderTarget,
-    name: string,
-    fragment: string,
-    setup: (program: Program) => void,
-    second: RenderTarget | null = null,
-  ): RenderTarget {
-    const r = this.resources;
-    const out = r.target(source.width, source.height, 'rgba32f');
-    const program = r.program(name, fragment);
-    this.gl.useProgram(program.handle);
-    r.bind(program, second === null ? 'u_alpha' : 'u_low', 0, source.texture);
-    if (second !== null) r.bind(program, 'u_high', 1, second.texture);
-    setup(program);
-    r.draw(out, out.width, out.height);
-    return out;
-  }
-
-  /** `_morphology_at`: one integer radius, or the mix of the two a fractional radius sits between. */
-  private morphology(source: RenderTarget, radius: number, grow: boolean): RenderTarget {
-    const magnitude = Math.abs(radius);
-    if (magnitude <= 0) return source;
-    const low = Math.floor(magnitude);
-    const high = Math.ceil(magnitude);
-    const at = (size: number): RenderTarget =>
-      size <= 0
-        ? source
-        : this.alphaPass(source, 'mask-morph', MASK_MORPH_FRAGMENT, (program) => {
-            program.int('u_radius', size);
-            program.int('u_grow', grow ? 1 : 0);
-          });
-    const lowTarget = at(low);
-    if (high === low) return lowTarget;
-    return this.alphaPass(
-      lowTarget,
-      'mask-mix-alpha',
-      MASK_MIX_ALPHA_FRAGMENT,
-      (program) => this.gl.uniform1f(program.location('u_fraction'), magnitude - low),
-      at(high),
-    );
-  }
-
-  /** `blur`: three box passes of `round(radius / 3)`, each separable. */
-  private blurAlpha(source: RenderTarget, radius: number): RenderTarget {
-    if (radius <= 0) return source;
-    const box = Math.max(1, Math.round(radius / 3));
-    let current = source;
-    for (let pass = 0; pass < 3; pass += 1) {
-      for (const axis of [0, 1]) {
-        current = this.alphaPass(current, 'mask-box', MASK_BOX_FRAGMENT, (program) => {
-          program.int('u_radius', box);
-          program.int('u_axis', axis);
-        });
-      }
-    }
-    return current;
-  }
-
   /** `apply_finesse` then `layer_alpha`, in the order `key_mask_alpha` chains them. */
   private keyFinesse(
     qualified: RenderTarget,
     finesse: KeyMask['finesse'],
     uniforms: ReturnType<typeof keyUniforms>,
   ): RenderTarget {
-    let current = qualified;
-    if (finesse.denoise > 0) {
-      current = this.alphaPass(current, 'mask-denoise', MASK_DENOISE_FRAGMENT, (program) =>
-        this.gl.uniform1f(program.location('u_amount'), Math.min(finesse.denoise, 1)),
-      );
-    }
-    const levels = uniforms.cleanBlack !== 0 || uniforms.cleanWhite !== 1;
-    if (levels) {
-      current = this.alphaPass(current, 'mask-levels', MASK_LEVELS_FRAGMENT, (program) =>
-        this.levelsUniforms(program, uniforms, { levels: true, ratio: 0, layer: false }),
-      );
-    }
-    if (finesse.morphOpenPx > 0) {
-      current = this.morphology(
-        this.morphology(current, finesse.morphOpenPx, false),
-        finesse.morphOpenPx,
-        true,
-      );
-    }
-    if (finesse.morphClosePx > 0) {
-      current = this.morphology(
-        this.morphology(current, finesse.morphClosePx, true),
-        finesse.morphClosePx,
-        false,
-      );
-    }
-    if (finesse.shrinkGrowPx !== 0) {
-      current = this.morphology(current, Math.abs(finesse.shrinkGrowPx), finesse.shrinkGrowPx > 0);
-    }
-    current = this.blurAlpha(current, finesse.blurPx);
-    return this.alphaPass(current, 'mask-levels', MASK_LEVELS_FRAGMENT, (program) =>
-      this.levelsUniforms(program, uniforms, {
-        levels: false,
-        ratio: finesse.inOutRatio,
-        layer: true,
-      }),
-    );
-  }
-
-  /** The pointwise tail's uniforms; `layer` false leaves invert and opacity for the last pass. */
-  private levelsUniforms(
-    program: Program,
-    uniforms: ReturnType<typeof keyUniforms>,
-    stage: { levels: boolean; ratio: number; layer: boolean },
-  ): void {
-    const gl = this.gl;
-    gl.uniform1f(program.location('u_cleanBlack'), uniforms.cleanBlack);
-    gl.uniform1f(program.location('u_cleanWhite'), uniforms.cleanWhite);
-    gl.uniform1f(program.location('u_ratio'), stage.ratio);
-    gl.uniform1f(program.location('u_invert'), stage.layer ? uniforms.invert : 0);
-    gl.uniform1f(program.location('u_opacity'), stage.layer ? uniforms.opacity : 1);
-    program.int('u_levels', stage.levels ? 1 : 0);
+    const passes = this.keyPasses;
+    const cleaned = passes.finesse(qualified, finesse, [uniforms.cleanBlack, uniforms.cleanWhite]);
+    return passes.tail(cleaned, {
+      cleanBlack: uniforms.cleanBlack,
+      cleanWhite: uniforms.cleanWhite,
+      levels: false,
+      ratio: finesse.inOutRatio,
+      invert: uniforms.invert,
+      opacity: uniforms.opacity,
+      layer: true,
+    });
   }
 
   /** The despill limiter on the picture, where `_apply_key_despill` applies it. */

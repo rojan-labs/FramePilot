@@ -71,7 +71,9 @@ interface Telemetry {
     | 'exactComposite'
     | 'maskRaster'
     | 'keyStack'
-    | 'decode',
+    | 'matteStack'
+    | 'decode'
+    | 'matteDecode',
     ChannelSummary
   >;
   playback: {
@@ -282,7 +284,9 @@ test.describe('PX5 Scale row', () => {
         composite: played.channels.composite,
         maskRaster: played.channels.maskRaster,
         keyStack: played.channels.keyStack,
+        matteStack: played.channels.matteStack,
         decode: played.channels.decode,
+        matteDecode: played.channels.matteDecode,
         gauges: played.gauges,
         glPoolBytesMidway: midway.gauges.glPoolBytes.current,
         renderScaleChangesMidway: midway.playback.renderScaleChanges,
