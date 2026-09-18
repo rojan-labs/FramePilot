@@ -11,7 +11,13 @@
 import { masksOf, type Clip, type Effect } from '@framepilot/timeline-schema';
 import { ICON_SIZE, Scan } from '../../icons.js';
 
-/** How an effect's row names it: the instance's type, which is what the schema stores. */
+/**
+ * How the "Add mask" button names an effect out loud.
+ *
+ * Spoken, not shown: the row still prints `effect.type` verbatim, because that is the string the
+ * schema stores and the one an editor matches against a patch or a bug report. An underscore
+ * read aloud by a screen reader is noise, so only the accessible name is softened.
+ */
 export function effectRowLabel(effect: Effect): string {
   return effect.type.replace(/_/gu, ' ');
 }
@@ -44,7 +50,7 @@ export function ClipEffectList({
         );
         return (
           <li key={effect.id}>
-            <span>{effectRowLabel(effect)}</span>
+            <span>{effect.type}</span>
             <code title={effect.id}>{effect.id}</code>
             {limiting.length > 0 && (
               <span className="inspector-effect-masked">
