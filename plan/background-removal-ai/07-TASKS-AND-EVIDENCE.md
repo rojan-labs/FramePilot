@@ -236,16 +236,20 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** oracle rows green in CI.
 
-### BR6 — Background removal row, AI Object/Brush, review `[ ]`
+### BR6 — Background removal row, AI Object/Brush, review `[~]` (BR6.1–BR6.9 shipped, CI run 35304699655 all green; four follow-ups below)
 
-- [ ] BR6.1 `BackgroundRemovalRow` + `usePackStatus`: warning with disabled tools when Smart Mask is missing; install; refresh without restart
-- [ ] BR6.2 PACK_UNHEALTHY / UNSUPPORTED_PLATFORM / browser UNAVAILABLE for every pack-backed tool
-- [ ] BR6.3 AI Object (click include/exclude, auto main subject, Sharp/Smooth edge mode per RD0) and AI Brush in `MaskCanvasTools`
-- [ ] BR6.4 Running progress with phases and rounds, ETA, cancel, selection-change survival
-- [ ] BR6.5 `MaskReviewPanel` (shared with tracking): review list, Looks right, J/K, Keep/Remove/Edge brush, Apply fix, Lock, VERIFIED badge
-- [ ] BR6.6 Put text behind subject; export-dialog unchecked-moments notice; STALE/BROKEN remedy text shared with export validation
-- [ ] BR6.8 Hover highlight for AI Object; progressive results with processing bands; production states from `05` (build can't download, hardware minimum, preparing models, media changed, HDR notice, disk space)
-- [ ] BR6.9 Component tests for every state; copy pass (lead-prompt-engineer + unslop); a11y check
+- [x] BR6.1 `BackgroundRemovalRow` + `usePackStatus`: warning with disabled tools when Smart Mask is missing; install; refresh without restart
+- [x] BR6.2 PACK_UNHEALTHY / UNSUPPORTED_PLATFORM / browser UNAVAILABLE for every pack-backed tool
+- [x] BR6.3 AI Object (click include/exclude, auto main subject, Sharp/Smooth edge mode per RD0) and AI Brush in `MaskCanvasTools`
+- [x] BR6.4 Running progress with phases and rounds, ETA, cancel, selection-change survival
+- [x] BR6.5 `MaskReviewPanel` (shared with tracking): review list, Looks right, J/K, Keep/Remove/Edge brush, Apply fix, Lock, VERIFIED badge
+- [x] BR6.6 Put text behind subject; export-dialog unchecked-moments notice; STALE/BROKEN remedy text shared with export validation
+- [~] BR6.8 (HDR notice needs MO-15; hover tints the pick, not the object — see BR6.11) Hover highlight for AI Object; progressive results with processing bands; production states from `05` (build can't download, hardware minimum, preparing models, media changed, HDR notice, disk space)
+- [x] BR6.9 Component tests for every state; copy pass (lead-prompt-engineer + unslop); a11y check
+
+- [ ] BR6.10 Edge brush end to end: the correction format is keep/remove/untouched only, so the Edge brush ships disabled with its reason. Extend the format, the worker's handling and host verification, then enable it
+- [ ] BR6.11 Hover highlight tints the object, not the pick: needs `subject.segment_frame` (BR3.13) exposed on the desktop bridge
+- [ ] BR6.12 Mount the `JobsPanel` in the editor layout (BR4.9 built it; nothing renders it)
 
 **DoD:** component tests pass; screenshots of every state in the PR.
 

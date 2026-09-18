@@ -8,7 +8,7 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-**Resumed 2026-09-18 01:59.** BR6 (background-removal UI + review) running. MK5, MK6 done; MK7 done bar MK7.6 (MO-14). BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
+**Resumed 2026-09-18 01:59.** AM1–AM3 (AI masking) and PX5 (perf) starting. BR6 done. MK5, MK6 done; MK7 done bar MK7.6 (MO-14). BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
 On resume, read ONLY this file first, then the specific plan file for the task you start. Don't re-read 00–12 wholesale.
 
 1. CI: `gh run list --branch plan/background-removal-ai --workflow CI -L 3`. Runs 35245865537 (6ec24d91), 35245714147 and 35245248405 were in flight. Fix any red before new work.
@@ -20,6 +20,8 @@ Next after those: MK5 (effect-target masks), MK6 (key), MK7 (tracking) → BR6 (
 Agent rules to paste into every prompt: single-file tests with `--no-file-parallelism`; no local Playwright or oracle (CI only; poll CI yourself in bounded rounds, never end a turn "waiting"); watchdog for model runs; explicit `git add`; no stash, force-push or trailers; don't edit plan files.
 
 ## Done
+
+- BR6 (3a45148d…2dde0422): background-removal row with every pack state and its copy, AI Object + AI Brush, progress with phases/ETA/cancel, review panel shared with tracking, text behind subject, export notice, processing bands. **CI green, run 35304699655.** Found a real product bug: the sticky inspector statusbar covered the bottom of its own scroll port, so controls scrolled flush to it were unclickable for anyone
 
 - MK5 + MK6 (c6a8092a…71bbbcf7): "Add mask" on every effect row (one op, no invented bounds), adjustment-lane mask rendering (twin evaluators, byte-exact), the `key` kind (HSL/RGB/luma/3D, despill after attach, shadow retention), the finesse chain shared by key and matte, key gates on a real GPU. Caught a shader bug (R8UI sampled as sampler2D) that corrupted whole frames
 
@@ -82,7 +84,7 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## CI reds
 
-- E2E visual (`mask-panel.png` stale) and `mask-tools.spec.ts` rectangle flow (keyframe diamond under the sticky inspector statusbar) — the Mask tab grew with MK7.4 + BR6 rows; BR6 agent owns both
+- none open (run 35304699655 at 2dde0422: 11/11 green)
 - (earlier) none open (run 35285412166 at c46d104d: 11/11 green)
 - Tip: `gh workflow run CI --ref plan/background-removal-ai` lands in a different concurrency group than PR pushes, so long jobs aren't cancelled by peers' pushes
 
