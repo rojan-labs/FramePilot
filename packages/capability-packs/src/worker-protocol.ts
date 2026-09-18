@@ -19,6 +19,98 @@ export const CAPABILITY_PACK_WORKER_MAX_TEXTS = 64;
  */
 export const CAPABILITY_PACK_WORKER_MAX_DESCRIBE_SHOTS = 16;
 
+/**
+ * The pinned object detector's 80 COCO class names, in its output order (AM2.5).
+ *
+ * Subject Intelligence >= 1.1.0 names each person/object detection's class from this list when
+ * the request sets `classes: true`. Mirrors `workers/subject-intelligence/.../coco_classes.py`;
+ * provenance (YOLOX / OpenCV Zoo, Apache-2.0; COCO 2017 category names, CC BY 4.0) is in that
+ * pack's `LICENSES.md`.
+ */
+export const COCO_CLASS_NAMES = [
+  'person',
+  'bicycle',
+  'car',
+  'motorcycle',
+  'airplane',
+  'bus',
+  'train',
+  'truck',
+  'boat',
+  'traffic light',
+  'fire hydrant',
+  'stop sign',
+  'parking meter',
+  'bench',
+  'bird',
+  'cat',
+  'dog',
+  'horse',
+  'sheep',
+  'cow',
+  'elephant',
+  'bear',
+  'zebra',
+  'giraffe',
+  'backpack',
+  'umbrella',
+  'handbag',
+  'tie',
+  'suitcase',
+  'frisbee',
+  'skis',
+  'snowboard',
+  'sports ball',
+  'kite',
+  'baseball bat',
+  'baseball glove',
+  'skateboard',
+  'surfboard',
+  'tennis racket',
+  'bottle',
+  'wine glass',
+  'cup',
+  'fork',
+  'knife',
+  'spoon',
+  'bowl',
+  'banana',
+  'apple',
+  'sandwich',
+  'orange',
+  'broccoli',
+  'carrot',
+  'hot dog',
+  'pizza',
+  'donut',
+  'cake',
+  'chair',
+  'couch',
+  'potted plant',
+  'bed',
+  'dining table',
+  'toilet',
+  'tv',
+  'laptop',
+  'mouse',
+  'remote',
+  'keyboard',
+  'cell phone',
+  'microwave',
+  'oven',
+  'toaster',
+  'sink',
+  'refrigerator',
+  'book',
+  'clock',
+  'vase',
+  'scissors',
+  'teddy bear',
+  'hair drier',
+  'toothbrush',
+] as const;
+export type CocoClassName = (typeof COCO_CLASS_NAMES)[number];
+
 const RequestIdSchema = z
   .string()
   .min(1)
@@ -422,6 +514,12 @@ export const CapabilityPackWorkerRequestSchema = z.discriminatedUnion('capabilit
           .min(1)
           .max(3),
         maxDetections: z.number().int().positive().max(100).default(20),
+        /**
+         * Ask for each person/object detection's COCO class (AM2.5). Additive: a pack older
+         * than {@link SUBJECT_DETECT_CLASSES_MIN_PACK_VERSION} refuses the key, so the host
+         * sends it only through {@link negotiatePackRequest}.
+         */
+        classes: z.boolean().optional(),
       })
       .strict(),
   }).strict(),
@@ -576,8 +674,22 @@ const DetectionSchema = z
     label: z.enum(['face', 'person', 'object']),
     box: NormalizedBoxSchema,
     confidence: z.number().finite().min(0).max(1),
+    /**
+     * The detector's COCO class name and its conditional class probability (AM2.5). Present
+     * only when the request asked (`classes: true`) and the pack is new enough; absent means
+     * "not measured", and the host falls back to the label alone.
+     */
+    class: z.enum(COCO_CLASS_NAMES).optional(),
+    classScore: z.number().finite().min(0).max(1).optional(),
   })
-  .strict();
+  .strict()
+  .refine((detection) => (detection.class === undefined) === (detection.classScore === undefined), {
+    message: 'a detection class needs both a name and a score',
+  })
+  // Faces come from YuNet, which has no classes: a classed face is a worker bug, not a fact.
+  .refine((detection) => detection.label !== 'face' || detection.class === undefined, {
+    message: 'a face detection cannot carry a class',
+  });
 const MaskSampleSchema = z
   .object({
     frame: z.number().int().nonnegative(),
@@ -869,6 +981,53 @@ export function negotiateCapabilityPackCapability(
   return offer.capabilities.includes(capability)
     ? { status: 'supported' }
     : { status: 'unsupported', reason: 'capability_absent' };
+}
+
+/** The first Subject Intelligence release that understands `subject.detect` `classes`. */
+export const SUBJECT_DETECT_CLASSES_MIN_PACK_VERSION = '1.1.0';
+
+/** Whether `version` is at least `minimum`, by the numeric `major.minor.patch` core. */
+export function packVersionAtLeast(version: string, minimum: string): boolean {
+  const core = (value: string): number[] =>
+    value
+      .split('-', 1)[0]!
+      .split('.')
+      .map((part) => Number(part));
+  const have = core(version);
+  const need = core(minimum);
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (have[index] ?? 0) - (need[index] ?? 0);
+    if (difference !== 0) return difference > 0;
+  }
+  return true;
+}
+
+export type CapabilityPackRequestNegotiation =
+  | { readonly status: 'ready'; readonly request: CapabilityPackWorkerRequest }
+  | { readonly status: 'pack_outdated'; readonly detail: string };
+
+/**
+ * Fit a request to the exact installed pack release that will answer it.
+ *
+ * Additive request fields are refused by a pack that predates them (its parser is strict), so the
+ * host — the one side that knows both — drops or refuses them here:
+ *
+ * - `subject.detect` `classes` is an ENRICHMENT: an older pack answers the same request without
+ *   it, and the result simply carries no class (the resolver's pre-AM2.5 behaviour).
+ */
+export function negotiatePackRequest(
+  request: CapabilityPackWorkerRequest,
+  packVersion: string,
+): CapabilityPackRequestNegotiation {
+  if (
+    request.capability === 'subject.detect' &&
+    request.parameters.classes !== undefined &&
+    !packVersionAtLeast(packVersion, SUBJECT_DETECT_CLASSES_MIN_PACK_VERSION)
+  ) {
+    const { classes: _classes, ...parameters } = request.parameters;
+    return { status: 'ready', request: { ...request, parameters } };
+  }
+  return { status: 'ready', request };
 }
 
 export type MatteOutputHandle = z.infer<typeof MatteOutputHandleSchema>;

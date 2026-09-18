@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  COCO_CLASS_NAMES,
+  SUBJECT_DETECT_CLASSES_MIN_PACK_VERSION,
+  negotiatePackRequest,
+  packVersionAtLeast,
   CAPABILITY_PACK_OUTPUT_HANDLE_CAPABILITIES,
   CapabilityPackWorkerFailureSchema,
   CapabilityPackWorkerInputSchema,
@@ -631,6 +635,119 @@ describe('Capability Pack worker protocol', () => {
         negotiateCapabilityPackCapability({ protocolVersion: 2, capabilities: ['subject.matte'] }, 'subject.matte'),
       ).toEqual({ status: 'unsupported', reason: 'protocol_mismatch' });
       expect([...CAPABILITY_PACK_OUTPUT_HANDLE_CAPABILITIES]).toEqual(['subject.matte']);
+    });
+  });
+
+  describe('AM2.5: object classes on subject.detect (additive under v1)', () => {
+    const detectResult = (detections: readonly Record<string, unknown>[]) => ({
+      type: 'result',
+      protocolVersion: 1,
+      requestId: base.requestId,
+      projectRevision: base.projectRevision,
+      capability: 'subject.detect',
+      backend: 'opencv',
+      modelDigests: {},
+      detections,
+    });
+    const box = { x: 0.1, y: 0.2, width: 0.3, height: 0.4 };
+
+    it('carries the pinned model\'s 80 COCO names in its output order', () => {
+      expect(COCO_CLASS_NAMES).toHaveLength(80);
+      expect(new Set(COCO_CLASS_NAMES).size).toBe(80);
+      expect([COCO_CLASS_NAMES[0], COCO_CLASS_NAMES[2], COCO_CLASS_NAMES[7], COCO_CLASS_NAMES[79]]).toEqual([
+        'person',
+        'car',
+        'truck',
+        'toothbrush',
+      ]);
+    });
+
+    it('old pack, new host: a detection without a class still parses', () => {
+      expect(
+        CapabilityPackWorkerResultSchema.parse(
+          detectResult([{ frame: 30, label: 'object', box, confidence: 0.9 }]),
+        ),
+      ).toMatchObject({ detections: [{ label: 'object' }] });
+    });
+
+    it('new pack, new host: a classed detection parses with its class and score', () => {
+      const parsed = CapabilityPackWorkerResultSchema.parse(
+        detectResult([
+          { frame: 30, label: 'object', box, confidence: 0.9, class: 'car', classScore: 0.95 },
+          { frame: 30, label: 'person', box, confidence: 0.9, class: 'person', classScore: 0.97 },
+        ]),
+      );
+      expect(parsed).toMatchObject({ detections: [{ class: 'car' }, { class: 'person' }] });
+    });
+
+    it.each([
+      [{ class: 'car' }, /both a name and a score/],
+      [{ classScore: 0.5 }, /both a name and a score/],
+      [{ class: 'sky', classScore: 0.5 }, /class/],
+      [{ class: 'car', classScore: 1.5 }, /classScore|too big|<=/i],
+    ])('refuses a malformed class %j', (extra, message) => {
+      expect(() =>
+        CapabilityPackWorkerResultSchema.parse(
+          detectResult([{ frame: 30, label: 'object', box, confidence: 0.9, ...extra }]),
+        ),
+      ).toThrow(message);
+    });
+
+    it('refuses a class on a face: YuNet has none', () => {
+      expect(() =>
+        CapabilityPackWorkerResultSchema.parse(
+          detectResult([
+            { frame: 30, label: 'face', box, confidence: 0.9, class: 'person', classScore: 0.9 },
+          ]),
+        ),
+      ).toThrow(/face detection cannot carry a class/);
+    });
+
+    it('accepts the classes request flag, and only a boolean', () => {
+      const detect = { ...base, capability: 'subject.detect' };
+      expect(
+        CapabilityPackWorkerRequestSchema.parse({
+          ...detect,
+          parameters: { labels: ['object'], classes: true },
+        }),
+      ).toMatchObject({ parameters: { classes: true } });
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse({
+          ...detect,
+          parameters: { labels: ['object'], classes: 'yes' },
+        }),
+      ).toThrow();
+    });
+
+    it('negotiates the flag away for a pack that predates it, and keeps it for one that does not', () => {
+      const request = CapabilityPackWorkerRequestSchema.parse({
+        ...base,
+        capability: 'subject.detect',
+        parameters: { labels: ['object'], maxDetections: 12, classes: true },
+      });
+      const old = negotiatePackRequest(request, '1.0.0');
+      expect(old.status).toBe('ready');
+      expect(old.status === 'ready' && old.request.parameters).toEqual({
+        labels: ['object'],
+        maxDetections: 12,
+      });
+      const current = negotiatePackRequest(request, SUBJECT_DETECT_CLASSES_MIN_PACK_VERSION);
+      expect(current).toEqual({ status: 'ready', request });
+      // A request that never asked is passed through untouched, whatever the pack.
+      const plain = CapabilityPackWorkerRequestSchema.parse({
+        ...base,
+        capability: 'subject.detect',
+        parameters: { labels: ['face'] },
+      });
+      expect(negotiatePackRequest(plain, '1.0.0')).toEqual({ status: 'ready', request: plain });
+    });
+
+    it('compares pack versions by their numeric core', () => {
+      expect(packVersionAtLeast('1.1.0', '1.1.0')).toBe(true);
+      expect(packVersionAtLeast('1.10.0', '1.9.0')).toBe(true);
+      expect(packVersionAtLeast('2.0.0', '1.1.0')).toBe(true);
+      expect(packVersionAtLeast('1.0.9', '1.1.0')).toBe(false);
+      expect(packVersionAtLeast('1.1.0-rc.1', '1.1.0')).toBe(true);
     });
   });
 });

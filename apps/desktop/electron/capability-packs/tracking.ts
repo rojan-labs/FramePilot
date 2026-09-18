@@ -17,6 +17,7 @@
  * Work is never faked, and a missing pack never silently downloads.
  */
 import { lstat } from 'node:fs/promises';
+import { negotiatePackRequest } from '@framepilot/capability-packs';
 import {
   runCapabilityPackWorker,
   CapabilityPackWorkerRuntimeError,
@@ -122,6 +123,8 @@ export type TrackingFailureCode =
   | 'stale_revision'
   | 'pack_unhealthy'
   | 'pack_incomplete'
+  /** The installed release predates a request field the host needs (AM2.5 negotiation). */
+  | 'pack_outdated'
   | 'media_rejected'
   | 'worker_failed'
   | 'timed_out';
@@ -171,6 +174,18 @@ export class CapabilityPackTrackingService {
       }
       return { status: 'pack_missing', proposal: await this.options.propose(request.capability) };
     }
+    // Fit the request to THIS release: an older pack's strict parser refuses a field it
+    // predates, so an enrichment is dropped and a requirement is refused before any spawn.
+    const negotiated = negotiatePackRequest(request, record.identity.version);
+    if (negotiated.status === 'pack_outdated') {
+      return failed('pack_outdated', negotiated.detail, false);
+    }
+    if (negotiated.request !== request) {
+      log.debug('requestNegotiated', {
+        capability: request.capability,
+        pack: record.identity.version,
+      });
+    }
     let entrypoint: string;
     let installRoot: string;
     try {
@@ -196,10 +211,11 @@ export class CapabilityPackTrackingService {
             : { extraEnvironment: binding.extraEnvironment(installRoot) }),
           ...(onProgress === undefined ? {} : { onProgress }),
         });
+      const sent = negotiated.request;
       const result =
-        request.capability === 'subject.segment'
-          ? await runSegmentationInChunks(request, runOne, options.onProgress)
-          : await runOne(request, options.onProgress);
+        sent.capability === 'subject.segment'
+          ? await runSegmentationInChunks(sent, runOne, options.onProgress)
+          : await runOne(sent, options.onProgress);
       log.action('trackingComplete', {
         capability: request.capability,
         pack: record.identity.version,

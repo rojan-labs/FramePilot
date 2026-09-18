@@ -451,6 +451,34 @@ Tracking and segmentation results are compiled into typed reversible project ope
 that inferred a path is recorded as provenance, but ordinary project rendering consumes the baked
 track/mask data rather than rerunning hidden inference.
 
+## Additive request fields and per-release negotiation (AM2.5)
+
+The protocol version stays 1 for additive fields, but every pack parser is strict: a pack refuses
+a request key it predates, and a host refuses a result key it predates. So an additive field is
+**opt-in by the host, per installed release**, never always-on:
+
+- The new field is optional in `worker-protocol.ts` and absent from anything an older host sends.
+- A pack emits the matching result field **only when the request asked**. Without the flag its
+  output is byte-for-byte the previous shape, so an older host never sees an unknown key.
+- The desktop host fits each request to the exact release that will answer it
+  (`negotiatePackRequest`, called in `CapabilityPackTrackingService.run` after the release is
+  resolved). An enrichment is dropped for an older release, which then answers as before; a field
+  the host cannot do without is refused as `pack_outdated` before anything spawns.
+
+| Field                                                                                     | Since                          | Older release                                 |
+| ----------------------------------------------------------------------------------------- | ------------------------------ | --------------------------------------------- |
+| `subject.detect` `parameters.classes` → `class`, `classScore` on person/object detections | Subject Intelligence **1.1.0** | Flag dropped; detections carry the label only |
+
+`class` is one of the pinned YOLOX-S model's 80 COCO names (`COCO_CLASS_NAMES`, mirrored by the
+worker's `coco_classes.py`; provenance in that pack's `LICENSES.md`), and `classScore` is the model's
+conditional probability for it (`confidence` stays the joint objectness × class score). A face never
+carries a class; a class without a score, a score without a class, or a name off the list is refused
+on both sides.
+
+**Installed users get classes only after a new signed Subject Intelligence release (1.1.0).** Signing
+and publishing it is a maintainer action (MO-1..MO-5); until then every installed pack is 1.0.0,
+the flag is negotiated away, and object requests keep asking the editor to pick.
+
 ## Background removal: `subject.matte` and `subject.segment_frame`
 
 Plan: `plan/background-removal-ai/03-PROTOCOL-AND-HOST.md`. Decisions MD-3 (one host-created

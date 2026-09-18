@@ -473,4 +473,41 @@ describe('CapabilityPackTrackingService', () => {
     expect(propose).toHaveBeenCalledWith('subject.segment');
     expect(leases.acquired).toBe(0);
   });
+
+  describe('AM2.5 negotiation: subject.detect classes', () => {
+    const detect = (): CapabilityPackWorkerRequest =>
+      request({
+        capability: 'subject.detect',
+        parameters: { labels: ['object', 'person'], maxDetections: 12, classes: true },
+      } as Partial<CapabilityPackWorkerRequest>);
+    const subjectAt = (version: string): InstalledCapabilityPack => ({
+      ...installedSubject(),
+      identity: { ...installedSubject().identity, version },
+      installRelativePath: `${SUBJECT_PACK_ID}/${version}/darwin-arm64`,
+    });
+    const sentBy = async (version: string): Promise<Record<string, unknown>> => {
+      let sent: Record<string, unknown> = {};
+      const { service } = harness({
+        records: [subjectAt(version)],
+        runWorker: async (input) => {
+          sent = (input as { request: { parameters: Record<string, unknown> } }).request.parameters;
+          return result();
+        },
+      });
+      const outcome = await service.run(detect(), { projectRevision: 12, mediaRoot: MEDIA_ROOT });
+      expect(outcome.status).toBe('completed');
+      return sent;
+    };
+
+    it('new host, old pack: the 1.0 pack is asked without `classes`, which it would refuse', async () => {
+      const sent = await sentBy('1.0.0');
+      expect(sent).not.toHaveProperty('classes');
+      expect(sent).toMatchObject({ labels: ['object', 'person'], maxDetections: 12 });
+    });
+
+    it('new host, new pack: a 1.1 pack is asked for classes', async () => {
+      expect(await sentBy('1.1.0')).toMatchObject({ classes: true });
+      expect(await sentBy('2.0.0')).toMatchObject({ classes: true });
+    });
+  });
 });
