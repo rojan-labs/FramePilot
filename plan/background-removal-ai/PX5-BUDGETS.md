@@ -344,7 +344,17 @@ composite 13.6 / 27.5 ms, matte decode 49.3 / 96.9 ms, picture decode 232 ms p50
 fix): 59/59 rows pass; the eight matte rows as before — seven bit-identical (PSNR ∞, 100% within
 8/255), text-behind-subject 53.68 dB / 100% (its burned text). They judged the GPU pass: CI's
 SwiftShader has float targets (the same run's PX5 job recorded `matteStack` samples and no
-`maskRaster`). The tier path: see "Oracle on the tier" below.
+`maskRaster`).
+
+**Oracle on the tier.** CI run 35329323404 (`93e456f5`: everything above, the generator writing
+each artifact's tier at the size the export decoded its picture at): 59/59 rows pass at the
+unchanged gates. Each matte sample now records which path it drew (`sample.mattes`):
+`matte-decontaminate` drew its decontaminating mask from the 1280x720 tier (97.78 dB and ∞,
+100% within 8/255) and `matte-text-behind-subject` from its 1280x720 tier (53.68 dB, 100% — the
+same figure as before, the burned text). `matte-shape-stack` has a 1920x1080 tier but drew from
+the masters (∞): its planes were not decoded by the time its samples were drawn; the oracle's
+media route ignores `Range`, so a file is fetched whole before its index opens — likely the
+cause, not verified. The other five rows do not decontaminate, so they have no tier path.
 
 **Honest limits.**
 
