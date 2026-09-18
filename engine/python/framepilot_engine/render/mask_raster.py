@@ -1077,14 +1077,19 @@ def combine(accumulated: FloatArray, mask: FloatArray, mode: str) -> FloatArray:
     ``add`` min(1, a + m) · ``subtract`` max(0, a - m) · ``intersect`` a * m ·
     ``difference`` |a - m| · ``lighten`` max(a, m) · ``darken`` min(a, m).
     """
+    # The two-step modes clamp in place (PX5.4): the same ufuncs in the same order, one frame-
+    # sized array instead of two per mask at 4K (``tests/test_mask_stack_tail_exact.py``).
     if mode == "add":
-        return np.minimum(accumulated + mask, 1.0)
+        added: FloatArray = np.add(accumulated, mask)
+        return np.minimum(added, 1.0, out=added)
     if mode == "subtract":
-        return np.maximum(accumulated - mask, 0.0)
+        taken: FloatArray = np.subtract(accumulated, mask)
+        return np.maximum(taken, 0.0, out=taken)
     if mode == "intersect":
         return accumulated * mask
     if mode == "difference":
-        return np.abs(accumulated - mask)
+        apart: FloatArray = np.subtract(accumulated, mask)
+        return np.abs(apart, out=apart)
     if mode == "lighten":
         return np.maximum(accumulated, mask)
     if mode == "darken":
@@ -1095,9 +1100,16 @@ def combine(accumulated: FloatArray, mask: FloatArray, mode: str) -> FloatArray:
 
 
 def quantize_alpha(alpha: FloatArray) -> npt.NDArray[np.uint8]:
-    """The one quantisation: ``rint(clamp(a, 0, 1) * 255)``, ties to even."""
-    clamped = np.minimum(np.maximum(alpha, 0.0), 1.0)
-    return np.rint(clamped * 255.0).astype(np.uint8)
+    """The one quantisation: ``rint(clamp(a, 0, 1) * 255)``, ties to even.
+
+    Written into one working array (PX5.4): the same four ufuncs in the same order as the
+    expression, so the same bits, without three more frame-sized float arrays per 4K frame.
+    """
+    scaled: FloatArray = np.maximum(alpha, 0.0)
+    np.minimum(scaled, 1.0, out=scaled)
+    np.multiply(scaled, 255.0, out=scaled)
+    np.rint(scaled, out=scaled)
+    return scaled.astype(np.uint8)
 
 
 # --- Analytic kinds: split, band, gradient (MK8.1) ------------------------------------------
