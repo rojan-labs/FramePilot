@@ -733,3 +733,86 @@ describe('effect-target masks', () => {
     ).toMatchObject({ code: 'missing_effect' });
   });
 });
+
+// ---------------------------------------------------------------------------
+// MK7.3 — the track, its constraints and its review
+// ---------------------------------------------------------------------------
+
+describe('tracking commands', () => {
+  const KEY = 'a'.repeat(64);
+  const TRACKING = {
+    artifact: { key: KEY, sha256: 'b'.repeat(64) },
+    method: 'position' as const,
+    referenceSourceTime: 3,
+  };
+  const RECT: MaskLayerInput = {
+    id: 'm1',
+    kind: 'rectangle',
+    cx: 200,
+    cy: 200,
+    width: 100,
+    height: 100,
+  };
+
+  function tracked(): Timeline {
+    return applied(timeline([RECT]), {
+      type: 'set_mask_track',
+      maskId: 'm1',
+      tracking: TRACKING,
+    });
+  }
+
+  it('attaches a measured track, reversibly', () => {
+    const after = tracked();
+    expect(masksOf(after.tracks[0]!.clips[0]!)[0]!.tracking).toMatchObject({
+      artifact: { key: KEY },
+      method: 'position',
+    });
+  });
+
+  it('records the frame the editor fixed as a constraint', () => {
+    const after = applied(tracked(), {
+      type: 'add_track_constraint',
+      maskId: 'm1',
+      sourceTime: 3.5,
+    });
+    expect(masksOf(after.tracks[0]!.clips[0]!)[0]!.tracking?.constraints).toEqual([
+      { sourceTime: 3.5 },
+    ]);
+  });
+
+  it('refuses a constraint on an untracked mask, and a duplicate one', () => {
+    expect(
+      compile(timeline([RECT]), { type: 'add_track_constraint', maskId: 'm1', sourceTime: 3 }),
+    ).toMatchObject({ status: 'rejected', code: 'missing_track' });
+    const once = applied(tracked(), {
+      type: 'add_track_constraint',
+      maskId: 'm1',
+      sourceTime: 3.5,
+    });
+    expect(
+      compile(once, { type: 'add_track_constraint', maskId: 'm1', sourceTime: 3.5 }),
+    ).toMatchObject({ status: 'rejected', code: 'nothing_to_change' });
+  });
+
+  it('stores the review the editor left on the track', () => {
+    const after = applied(tracked(), {
+      type: 'review_mask_track',
+      maskId: 'm1',
+      review: { flagged: [], approved: [{ start: 3, end: 4 }], locked: [3.5] },
+    });
+    expect(masksOf(after.tracks[0]!.clips[0]!)[0]!.tracking?.review).toMatchObject({
+      approved: [{ start: 3, end: 4 }],
+      locked: [3.5],
+    });
+  });
+
+  it('detaches a track, and refuses to detach one that is not there', () => {
+    const after = applied(tracked(), { type: 'clear_mask_track', maskId: 'm1' });
+    expect(masksOf(after.tracks[0]!.clips[0]!)[0]!.tracking).toBeUndefined();
+    expect(compile(timeline([RECT]), { type: 'clear_mask_track', maskId: 'm1' })).toMatchObject({
+      status: 'rejected',
+      code: 'nothing_to_change',
+    });
+  });
+});

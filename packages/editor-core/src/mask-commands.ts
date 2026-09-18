@@ -21,7 +21,9 @@ import {
   type MaskKeyframeInput,
   type MaskLayer,
   type MaskLayerInput,
+  type MaskReviewInput,
   type MaskScalarProperty,
+  type MaskTrackingInput,
   type MaskTarget,
   type PathMask,
   type Timeline,
@@ -35,6 +37,7 @@ import {
   type DisplaySize,
   type MaskPathVertex,
 } from './mask-geometry.js';
+import { withConstraint } from './mask-track-review.js';
 import {
   MASK_ANIMATABLE_PROPERTIES,
   MIN_MASK_PATH_VERTICES,
@@ -347,7 +350,50 @@ export interface RemoveMaskPresetCommand extends MaskCommandBase {
   readonly presetId: string;
 }
 
+/**
+ * Attach (or replace) a mask's transform track after a track job finished (MK7.3).
+ *
+ * The host measures and writes the artifact; this is where that measurement becomes a
+ * reversible edit, so undo takes the mask back to the track it had — never to "no track" when
+ * it had one before.
+ */
+export interface SetMaskTrackCommand extends MaskCommandBase {
+  readonly type: 'set_mask_track';
+  readonly maskId: string;
+  readonly tracking: MaskTrackingInput;
+}
+
+/** Detach a mask's track; the mask keeps its own animation. */
+export interface ClearMaskTrackCommand extends MaskCommandBase {
+  readonly type: 'clear_mask_track';
+  readonly maskId: string;
+}
+
+/**
+ * Mark the frame the editor just fixed as a hard constraint (MK7.3).
+ *
+ * The constraint is a source instant, the same clock the mask's keyframes use, so trimming or
+ * re-speeding the clip cannot move the frame the editor confirmed. Re-measuring from it is a
+ * separate job; this only records the promise the re-track has to keep.
+ */
+export interface AddTrackConstraintCommand extends MaskCommandBase {
+  readonly type: 'add_track_constraint';
+  readonly maskId: string;
+  readonly sourceTime: number;
+}
+
+/** Replace a track's review state — approving a range, locking an instant (MK7.3). */
+export interface ReviewMaskTrackCommand extends MaskCommandBase {
+  readonly type: 'review_mask_track';
+  readonly maskId: string;
+  readonly review: MaskReviewInput;
+}
+
 export type MaskCommand =
+  | SetMaskTrackCommand
+  | ClearMaskTrackCommand
+  | AddTrackConstraintCommand
+  | ReviewMaskTrackCommand
   | SaveMaskPresetCommand
   | ApplyMaskPresetCommand
   | RemoveMaskPresetCommand
@@ -368,6 +414,7 @@ export type MaskCommandRejectionCode =
   | 'stale_timeline'
   | 'missing_clip'
   | 'missing_mask'
+  | 'missing_track'
   | 'missing_effect'
   | 'needs_media_dimensions'
   | 'not_editable'
@@ -928,6 +975,80 @@ function buildPaste(input: CompileMaskCommandInput, command: PasteMasksCommand):
 function build(input: CompileMaskCommandInput): Built {
   const { command } = input;
   switch (command.type) {
+    case 'set_mask_track': {
+      const clip = findClip(input.timeline, command.clipId);
+      const mask = findMask(clip, command.maskId);
+      return {
+        operations: [
+          {
+            type: 'apply_mask_tracking',
+            clipId: clip.id,
+            maskId: mask.id,
+            tracking: command.tracking,
+          },
+        ],
+        reason: `Track mask "${mask.name || mask.id}"`,
+      };
+    }
+    case 'clear_mask_track': {
+      const clip = findClip(input.timeline, command.clipId);
+      const mask = findMask(clip, command.maskId);
+      if (mask.tracking === undefined) {
+        throw new Rejection('nothing_to_change', 'This mask is not tracked.');
+      }
+      return {
+        operations: [{ type: 'clear_mask_tracking', clipId: clip.id, maskId: mask.id }],
+        reason: `Remove the track from mask "${mask.name || mask.id}"`,
+      };
+    }
+    case 'add_track_constraint': {
+      const clip = findClip(input.timeline, command.clipId);
+      const mask = findMask(clip, command.maskId);
+      const tracking = mask.tracking;
+      if (tracking === undefined) {
+        throw new Rejection(
+          'missing_track',
+          'This mask has no track to constrain. Track the mask first.',
+        );
+      }
+      const constraints = withConstraint(tracking.constraints, command.sourceTime);
+      if (constraints === tracking.constraints) {
+        throw new Rejection('nothing_to_change', 'This frame is already a constraint.');
+      }
+      return {
+        operations: [
+          {
+            type: 'apply_mask_tracking',
+            clipId: clip.id,
+            maskId: mask.id,
+            tracking: { ...tracking, constraints: [...constraints] },
+          },
+        ],
+        reason: `Lock the mask on this frame`,
+      };
+    }
+    case 'review_mask_track': {
+      const clip = findClip(input.timeline, command.clipId);
+      const mask = findMask(clip, command.maskId);
+      if (mask.tracking === undefined) {
+        throw new Rejection(
+          'missing_track',
+          'This mask has no track to review. Track the mask first.',
+        );
+      }
+      return {
+        operations: [
+          {
+            type: 'review_mask',
+            clipId: clip.id,
+            maskId: mask.id,
+            subject: 'tracking',
+            review: command.review,
+          },
+        ],
+        reason: `Review the track on mask "${mask.name || mask.id}"`,
+      };
+    }
     case 'draw_mask':
       return buildDraw(input, command);
     case 'set_mask_geometry':

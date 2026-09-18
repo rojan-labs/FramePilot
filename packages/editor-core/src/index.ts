@@ -53,6 +53,7 @@ export * from './mask-commands.js';
 // out of tracker measurements (MK7).
 export * from './mask-track.js';
 export * from './mask-track-solve.js';
+export * from './mask-track-review.js';
 export * from './track-samples.js';
 export * from './tracking-commands.js';
 export * from './audio-commands.js';
