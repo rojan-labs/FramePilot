@@ -84,12 +84,13 @@ the entry of the class its results name and leaves the others alone.
   by imageio-ffmpeg's macOS arm64 build, whose unscaled `yuv420p → rgb24` converter is libswscale's
   C one, while the monitor drew the x86 SIMD arithmetic (up to 3 levels apart); MK6.4 makes the
   monitor use the export host's converter. The per-renderer baseline fixed the second.
-  - **Open, engine side:** a variable-frame-rate clip is decoded by `PtsVideoReader`, which runs
-    `find_ffmpeg()` (`FRAMEPILOT_FFMPEG`, then `PATH`, then imageio-ffmpeg), not MoviePy's
-    imageio-ffmpeg — on that Mac, Homebrew's ffmpeg 8.1, whose converter matches neither. The VFR
-    rows still pass (`time/variable-frame-rate` 50.46 → 44.29 dB, `alpha/matte-vfr` 56.47 → 50.81
-    dB, both 100 % within 8/255 before and after), but the export decodes VFR and CFR clips with
-    different binaries on any machine with an ffmpeg on `PATH`.
+  - **Fixed, engine side (BR2.8):** a variable-frame-rate clip was decoded by `PtsVideoReader`
+    through `find_ffmpeg()` (`FRAMEPILOT_FFMPEG`, then `PATH`, then imageio-ffmpeg), not MoviePy's
+    imageio-ffmpeg; on that Mac, Homebrew's ffmpeg 8.1, whose converter matches neither. The VFR
+    rows passed but fell (`time/variable-frame-rate` 50.46 → 44.29 dB, `alpha/matte-vfr` 56.47 →
+    50.81 dB). Every export decode now runs `find_export_ffmpeg()` (MoviePy's binary); with frames
+    regenerated on that Mac both rows are bit-identical to the monitor (PSNR ∞ on every sample,
+    100 % within 8/255).
 
 ## Per case
 
