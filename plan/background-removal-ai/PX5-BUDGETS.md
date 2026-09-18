@@ -2,8 +2,8 @@
 
 Budgets from [`09`](./09-PREVIEW-EXPORT-PARITY.md) ("PX5 — performance evidence") and
 [`06`](./06-PRECISION-AND-EVAL.md) ("Production budgets"). Measured 2026-09-18. **No budget was
-lowered.** Without the matte the preview budgets hold; with it they miss, and the export budget
-misses narrowly; the misses are recorded with the hot path and what would fix them.
+lowered.** Without the matte the preview budgets hold; with it they missed until PX5.3; the export
+budget missed narrowly until PX5.4 and holds on CI's windows since (the full row is unmeasured).
 
 ## Verdicts
 
@@ -11,15 +11,15 @@ Scale row = a 3-minute 4K timeline, 4 picture layers + text + a decontaminating 
 "Desktop path" = the monitor plays the 540p proxies `media/derive.py` makes (what the desktop app
 does); the matte is always the 4K artifact.
 
-| Budget                                                         | Measured (M1 Pro, real GPU)                                                              | Verdict                                               |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Playback ≤ 1% dropped frames, Scale row **without** the matte  | 1 / 600 (0.17%); 0–0.17% with an animated 200-vertex path or a key + finesse on top      | **holds**                                             |
-| Playback ≤ 1% dropped frames, Scale row **with** the 4K matte  | 600 / 601 (99.8%) before PX5.3; **1 / 601 (0.17%)** after, with the matte's monitor tier | **holds** since PX5.3 (tier needed; see "PX5.3")      |
-| Seek-to-present ≤ 100 ms p95, without the matte                | 35.7 ms (56.3 ms with the path, 50.2 ms with key + finesse)                              | **holds**                                             |
-| Seek-to-present ≤ 100 ms p95, with the 4K matte                | 617 ms (p50 592 ms) before PX5.3; **49.9–52.5 ms** (p50 37 ms) after                     | **holds** since PX5.3                                 |
-| Memory bounded by the decoder pool                             | live decoders peak 6 of 6; picture cache peak 401–407 MB (676 MB with the matte)         | **bounded**, above the nominal 384 MB (below)         |
-| Export with masks + 4K matte ≤ 1.5× without (P13)              | 1.98× before; after the optimisation below **1.49×** here and **1.56×** on the CI runner | **misses narrowly** (at the line here, over it on CI) |
-| Desktop path **without proxies** (4K originals in the monitor) | 603 / 604 dropped; seek p95 161 ms                                                       | misses; the desktop app does not take this path       |
+| Budget                                                         | Measured (M1 Pro, real GPU)                                                                                | Verdict                                                  |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Playback ≤ 1% dropped frames, Scale row **without** the matte  | 1 / 600 (0.17%); 0–0.17% with an animated 200-vertex path or a key + finesse on top                        | **holds**                                                |
+| Playback ≤ 1% dropped frames, Scale row **with** the 4K matte  | 600 / 601 (99.8%) before PX5.3; **1 / 601 (0.17%)** after, with the matte's monitor tier                   | **holds** since PX5.3 (tier needed; see "PX5.3")         |
+| Seek-to-present ≤ 100 ms p95, without the matte                | 35.7 ms (56.3 ms with the path, 50.2 ms with key + finesse)                                                | **holds**                                                |
+| Seek-to-present ≤ 100 ms p95, with the 4K matte                | 617 ms (p50 592 ms) before PX5.3; **49.9–52.5 ms** (p50 37 ms) after                                       | **holds** since PX5.3                                    |
+| Memory bounded by the decoder pool                             | live decoders peak 6 of 6; picture cache peak 401–407 MB (676 MB with the matte)                           | **bounded**, above the nominal 384 MB (below)            |
+| Export with masks + 4K matte ≤ 1.5× without (P13)              | 1.98× before; 1.49× here / 1.56× CI after PX5.2; after PX5.4 **1.32–1.45×** on the CI runner (4 s windows) | **holds on CI's windows; full row not measured** (PX5.4) |
+| Desktop path **without proxies** (4K originals in the monitor) | 603 / 604 dropped; seek p95 161 ms                                                                         | misses; the desktop app does not take this path          |
 
 ## What is measured where, and what is not
 
@@ -42,8 +42,10 @@ does); the matte is always the 4K artifact.
     barely cares; a software decoder does. FFV1 cost is per pixel, but the matte here is a disc
     and the foreground a flat colour, which is FFV1's best case.
   - _Cold storage._ The pts probe and every file read ran on files just written (page cache).
-  - _The whole 3-minute export._ The ratio is from a 6-second window (180 4K frames) of a
-    timeline that is uniform by construction; the full row is ~40 min + ~60 min on this machine.
+  - _The whole 3-minute export._ PX5.4 tried it once under the watchdog: aborted after 58 s
+    (system swap +1.08 GiB at a 5 GiB footprint, other agents' jobs running). A 60 s and a 20 s
+    window were aborted the same way (19 and 6.5 minutes in). The ratio is from 4-6-second windows
+    of a timeline that is uniform by construction (see "PX5.4").
   - _Long playback._ 20 seconds per run. A leak that needs minutes would not show; the GL pools
     and cache are asserted flat between the 10 s and 20 s marks only.
 
@@ -235,6 +237,54 @@ subject filling the shot) gains less than this disc (its box is 22% of the frame
 per frame: the stack's matte alpha ~51 ms (`apply_clean_levels` 28 ms), two FFV1 reads ~46 ms.
 The preview's TypeScript twin was not changed; its cost is the resample, not the mix.
 
+### PX5.4 — the two exact cuts, and the stack's tail
+
+Three commits, each byte-identical to the code it replaces (no budget lowered, no tolerance
+widened, no dependency):
+
+| Commit                 | What                                                                                                                                                                                                                                                                                                                                                                   | Proof of equality                                                                                                                                                                                                                                                  |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `a676977c`             | `decontaminate` at source size is a **selection**: where the band weight is 1 the definition is `picture + (fg − picture·1)`, the `uint8` foreground exactly; where it is 0 the picture. The band's own pixels are copied by flat index (26–31 → 5 ms per 4K frame, quiet). `apply_clean_levels` writes its four ufuncs into one array; `edge_shift` divides in place. | the 39 `test_matte_decontaminate_exact.py` cases now run the selection against `decontaminate_dense`; `test_matte_clean_levels_exact.py`: bit-for-bit (`tobytes`) on 0, −0.0, 1, subnormals, ±inf, NaN, strided views, float32, 9 level pairs; one plane allocated |
+| `fb1df9c5`             | the stack's tail: `combine` (add/subtract/difference) and `quantize_alpha` clamp and scale in one working array (35–47 ms per 4K frame for the tail, quiet)                                                                                                                                                                                                            | `test_mask_stack_tail_exact.py`: bit-for-bit against the verbatim expressions, six modes, float64 and float32, the quantisation ties; rasteriser vectors, stack vectors and render goldens unchanged                                                               |
+| `90036351`, `d830f426` | the ratio script records each arm's CPU seconds and load, and prints each arm when it lands                                                                                                                                                                                                                                                                            | measurement only                                                                                                                                                                                                                                                   |
+
+**The matte pass, interleaved in one process on a real frame** (source frame 100 of `scale-d`, its
+4K matte and foreground; old and new alternated 15 times; the picture and the alpha asserted
+byte-identical): **249 → 120 ms p50 per 4K frame** (fastest 79 → 52 ms). The machine's load was
+~170 during it (other agents), which is why the p50s are far above the fastest; the interleaving
+is what makes the two comparable. The two FFV1 reads per frame are not in this number and did not
+change.
+
+**The export ratio.**
+
+| Where                     | Engine                          | Window       | Plain  | With the matte | Ratio (wall) | Ratio (CPU) |
+| ------------------------- | ------------------------------- | ------------ | ------ | -------------- | ------------ | ----------- |
+| CI runner (PX5.2, before) | `decontaminate` boxed           | 4 s (120 fr) | 92.9 s | 144.6 s        | 1.56×        |             |
+| CI run 35353756815        | `5a0c795a` (first cuts)         | 4 s          | 83.2 s | 109.9 s        | **1.32×**    |             |
+| CI run 35357453091        | `fce9ea0c` (+ MK9, same cuts)   | 4 s          | 77.4 s | 112.3 s        | **1.45×**    | 1.26×       |
+| CI run 35366379149        | `b361595d` (+ the stack's tail) | 4 s          | 78.7 s | 106.1 s        | **1.35×**    | 1.20×       |
+
+The first two CI runs share the matte path and differ by 0.13 because the plain arm moved 7%
+(83.2 vs 77.4 s): the runner's noise is that size, so read the three as a range, not a trend.
+CPU time is steadier (1.26× and 1.20×).
+
+**Locally the ratio could not be measured today.** The full row, a 60 s and a 20 s window were each
+aborted by the watchdog (swap growth, above). At 6 s, three of seven attempts completed, all at
+load 10–25 with other agents' jobs running: before (`fa9cb2d8`) 1.54× and 0.87× wall (1.35×,
+1.10× CPU), after (`5a0c795a`) 1.71× and 1.65× wall (1.51×, 1.21× CPU). A plain arm running
+identical code took 138–436 s of wall and 165–252 s of CPU across attempts, and one matte arm
+finished faster than its plain arm: these numbers cannot resolve a 10% change either way, so they
+are recorded and not used. PX5.2's 1.49× (the same code as "before", 6 s, a quieter machine) is
+the last trustworthy local number.
+
+**Verdict.** On CI's 4-second windows the budget holds (1.32–1.45× after PX5.4, 1.56× before).
+The full 3-minute row was **not measured**: it does not fit this 16 GB machine's watchdog budget
+while other agents run (the matte export's footprint is 5-7 GiB, mostly MoviePy's per-clip 4K
+readers). What would measure it: the row on a quiet machine or a dedicated runner (about 45 min
+plain + 60 min matte here; CI's `preview-perf` job has a 60-minute limit and a 4 s window).
+What would move the ratio further: the rest of `stack_alpha` (zeroed accumulator, `astype / 255`),
+and the matte's two FFV1 reads (~45 ms per frame, a decode in ffmpeg).
+
 ## The BR2.5 pts probe on large files
 
 `pnpm px5:pts-probe`: `video_timing` demuxes every video packet once per export, then caches by
@@ -256,6 +306,9 @@ disk's sequential read of the whole file, because ffprobe reads every packet's p
 | `preview-telemetry.test.ts` (every run)                                       | dropped-frame ledger, percentiles, gauge peaks                                                                         | pure arithmetic on a tick sequence                                                |
 | `decoder-pool.test.ts` (every run)                                            | 40 sources round-robin never exceed the cap; the peak records a forced overshoot                                       | operation counts                                                                  |
 | `test_matte_decontaminate_exact.py` (every run)                               | boxed = dense bytes (38 cases); never one frame-sized float64 RGB plane for a small band                               | `tracemalloc` sizes are the algorithm's                                           |
+| `test_matte_clean_levels_exact.py`, `test_mask_stack_tail_exact.py` (PX5.4)   | in-place clean levels, edge shift, combine and quantisation = the definitions, bit for bit; one plane allocated        | `tobytes` equality and `tracemalloc` sizes                                        |
+| `test_export_frame_grid.py`, `project-frame.test.ts` (PX5.5)                  | the export reads `frame_plan_at(k / fps)`; playback presents that frame at every display tick inside frame `k`         | pure functions of the vectors                                                     |
+| `preview-scale-perf.spec.ts` invariant (PX5.5)                                | composites ≤ ⌈1.1 × presented frames⌉ + render-scale steps                                                             | counts, not timings; the reverted code gives 1.5-1.7                              |
 | `preview-scale-perf.spec.ts`, CI `preview-perf` job (`FRAMEPILOT_RUN_PERF=1`) | decoders ≤ cap, cache ≤ budget + pinned, GL pools flat when steady, 4 layers presented under load, every seek presents | invariants; no timing is gated on CI                                              |
 | same spec with `PX5_ASSERT=budgets` (real hardware, `px5-local-run.py`)       | dropped ≤ 1%, seek-to-present p95 ≤ 100 ms — the budgets, unrounded                                                    | margin on this machine: 0.17% vs 1%, 36–56 ms vs 100 ms; only meaningful on a GPU |
 | `*.perf.test.ts` (CI `preview-perf`, logged)                                  | mask raster, 4K matte decode, matte main-thread cost                                                                   | reported, not gated                                                               |
@@ -276,11 +329,9 @@ matte's monitor tier present; without it, it still fails on dropped frames).
    the project frame's own instant, the export's; one composite per presented frame.
 3. **GL pools never shrink** — 190 MB after a key with finesse. Release targets of a size not
    used for N frames. Guard: the `glPoolBytes` gauge.
-4. **Export, the last 5–10%** — two more exact cuts, neither taken here: at source size mix only
-   the band's own pixels (boolean index) instead of its box (~30 → ~2 ms; the disc's band is 1%
-   of the frame, its box 22%), and
-   `apply_clean_levels` is dense at 4K (28 ms/frame); the same exact-box
-   argument applies outside the band, where alpha is exactly 0 or 1.
+4. **Export, the last 5–10%** — DONE in PX5.4 (below), plus the stack's tail. Left: the rest
+   of `stack_alpha` in `mask_stack.py` (a zeroed accumulator and the final `astype / 255` are
+   still frame-sized float64 arrays per frame) and the whole-row measurement.
 
 ## PX5.3 — a 4K matte plays
 
