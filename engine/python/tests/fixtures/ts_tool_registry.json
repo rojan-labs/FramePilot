@@ -1194,6 +1194,13 @@
               "string"
             ]
           },
+          "count": {
+            "type": [
+              "integer"
+            ],
+            "minimum": 3,
+            "maximum": 64
+          },
           "direction": {
             "type": [
               "string"
@@ -1224,13 +1231,6 @@
               "desaturate",
               "grade_match_to"
             ]
-          },
-          "points": {
-            "type": [
-              "integer"
-            ],
-            "minimum": 3,
-            "maximum": 64
           },
           "preset": {
             "type": [

@@ -722,7 +722,7 @@ describe('create_shape_mask (MK8)', () => {
   it('draws path presets into a subject box and asks for a spot check of that subject', () => {
     const p = project();
     const edit = shapeCall(
-      { candidateId: FACE.candidateId, preset: 'star', points: 6, purpose: 'hide' },
+      { candidateId: FACE.candidateId, preset: 'star', count: 6, purpose: 'hide' },
       p,
       FACE,
     );

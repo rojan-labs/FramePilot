@@ -122,8 +122,11 @@ export const CreateShapeMaskArgsSchema = z
     side: z.enum(SHAPE_SIDES).optional(),
     /** mirror: which way the band runs. */
     direction: z.enum(SHAPE_DIRECTIONS).optional(),
-    /** star: points; polygon: sides (3–64). A count, never a coordinate. */
-    points: numeric(z.number().int().min(3).max(64)).optional(),
+    /**
+     * star: points; polygon: sides (3–64). A count, never a coordinate. Named `count`, not
+     * `points`, so the dispatch-boundary audit that bans vertex-list parameters stays strict.
+     */
+    count: numeric(z.number().int().min(3).max(64)).optional(),
     purpose: z.enum(MASK_PURPOSES).default('cutout'),
     effect: z.enum(MASK_EFFECT_INTENTS).optional(),
     edge: z.enum(MASK_EDGE_INTENTS).default('soft'),
@@ -237,7 +240,7 @@ export function createShapeMaskRequest(rawArgs: unknown): CreateShapeMaskIntent 
     ...(args.userBox === undefined ? {} : { userBox: args.userBox }),
     ...(args.side === undefined ? {} : { side: args.side }),
     ...(args.direction === undefined ? {} : { direction: args.direction }),
-    ...(args.points === undefined ? {} : { points: args.points }),
+    ...(args.count === undefined ? {} : { points: args.count }),
     purpose: args.purpose,
     ...(args.effect === undefined ? {} : { effect: args.effect }),
     edge: args.edge,
@@ -832,7 +835,7 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
       'bubble, arrow, rounded frame). Placed on a candidateId from find_mask_targets, on the ' +
       'frame (pass neither), or in a userBox ONLY with numbers the editor typed. side: which ' +
       'half a split keeps, or where a gradient is opaque; direction: a mirror band runs ' +
-      'horizontal or vertical; points: star points or polygon sides. purpose, effect and edge ' +
+      'horizontal or vertical; count: star points or polygon sides. purpose, effect and edge ' +
       'as in create_mask. You never give coordinates.',
     CreateShapeMaskArgsSchema,
     ['analysis', 'write'],
