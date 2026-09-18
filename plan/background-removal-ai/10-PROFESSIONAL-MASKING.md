@@ -166,7 +166,9 @@ transform (`use_track`), so a title can follow the subject the mask tracked.
   - The first `mask` effect → one `alpha` mask of the same shape, bounds → pixels, polygon → path
     with zero tangents, effect keyframes → source-time keyframes (through the clip's speed/ramp
     mapping), `featherModel: 'gaussian-legacy'` so **existing projects export byte-identically**
-    (render golden asserts it).
+    (render golden asserts it). The migrated mask also keeps the v21 spec verbatim (`legacySpec`,
+    MK2.5): pixel centre + size is not one-to-one with v21's fractions, so the export draws from the
+    stored spec while it still maps onto the geometry (ADR 0178 MK2.5 amendment).
   - Any further `mask` effects (never rendered today) → migrated as `enabled: false` with a migration
     note, so nothing that was invisible suddenly appears.
   - Tracked masks (`${clipId}__mask`, `apply_tracked_mask` bounds keyframes) → source-time keyframes

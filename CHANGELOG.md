@@ -237,6 +237,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Masks from older projects export exactly as before on clips that start later in the
+  timeline.** An animated mask from a project made before the mask stack could draw one edge a
+  pixel off on some frames when its clip did not start at 0 s. The upgrade now keeps the numbers
+  the old version drew with, so every frame is identical again. A project upgraded before this
+  fix picks it up when its `.v21.backup` copy is opened again.
 - **Dragging a mask on the monitor is responsive again.** Every pointer move re-rendered the whole
   editor (a review shortcut subscribed it to all mask-tool state), roughly doubling the monitor's
   work per move; only the parts that follow the drag re-render now.

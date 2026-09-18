@@ -244,6 +244,13 @@ arm64 and Windows x64. Pixel parity of whole frames is the PX4 oracle's `alpha/m
 (`pnpm mask-render:goldens`, numpy-synthesised lossless source) hold frame-space and edge style
 cases too.
 
+**Legacy masks draw v21's own numbers (MK2.5).** `legacySpec()` in `mask-stack.ts` mirrors the
+engine's `_legacy_spec`: a migrated mask's stored `legacySpec` draws whenever it maps bit for bit
+onto the stored geometry at that source instant, and only an edited mask falls back to
+`recoverFraction`. The recovery alone cannot be exact (x = 0.2 and 0.19999999999999996 store one
+centre), which E2E.5 found on a clip that starts mid-timeline. `stack-clips.json` samples its
+migrated cases at the export's real frame instants (`n / fps - start`).
+
 ## What the monitor refuses
 
 Matte finesse other than clean black/white is refused like the export (MK6). A matte artifact the

@@ -228,15 +228,12 @@ test.describe('E2E.5 a v21 project with masks opens, migrates and exports byte-i
   });
 
   test('a keyframed mask on a clip that starts mid-timeline', async ({ page }, testInfo) => {
-    // KNOWN FAILURE found by this spec (2026-09-18), reported for a plan task (MK1 follow-up):
-    // one frame in 30 differs by an edge pixel. The migration stores the v21 rectangle/ellipse
-    // as a centre and radius in source pixels, and the legacy rasteriser rebuilds its edges as
-    // `cx - rx`; v21 computed them as `x * width`. For some keyframed values the two differ by
-    // one ulp (e.g. x = 0.19999999999999996: 63.99999999999999 vs 64.0), which moves a hard
-    // edge by a pixel before the blur. MK2.4's per-frame vectors only sample clips that start at
-    // 0 s, where these values do not occur. `test.fail` keeps this honest: the day the geometry
-    // is made exact, this test passes, fails the run, and the marker must be removed.
-    test.fail(true, 'E2E.5 finding: keyframed legacy mask geometry is not bit-exact off t=0');
+    // Found by this spec (2026-09-18), fixed by MK2.5: off t = 0 the frame instants are not
+    // round, and one frame in 30 drew an edge a pixel off. The stored centre is not one-to-one
+    // with v21's fractions (x = 0.19999999999999996 and 0.2 store the same centre, yet v21 drew
+    // `x * width`: 63.99999999999999 vs 64.0), so the migration now keeps the v21 spec itself
+    // (`legacySpec`) and the export draws from it. `test_mask_legacy_render.py` pins this clip
+    // (`keyframed-ellipse-mid-timeline`) and 24 more mid-timeline timings at every frame.
     const { exportSha, referenceSha } = await migrateAndExport(
       page,
       testInfo,

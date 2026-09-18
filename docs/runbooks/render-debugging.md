@@ -62,6 +62,20 @@ outside Electron. Capture the failing project and assets.
 - **Update the golden fixture** if intended output changed (and only then).
 - Note recurring failure modes here so the next person is faster.
 
+## Recurring failure mode: a migrated (v21) mask is a pixel off on some frames
+
+Symptom: a project upgraded from schema v21 exports with a mask edge one pixel off on a few
+frames compared with the v21 reference (E2E.5 saw 1 frame in 30 on a clip starting at 4 s). The
+cause is the float round trip, not the rasteriser. v21 drew `x * width` from frame fractions, and
+the v22 mask stores a centre and a size in pixels, which is not one-to-one with those fractions
+(x = 0.2 and 0.19999999999999996 store the same centre). Check that the mask has `legacySpec`
+(written by the migration since MK2.5) and that `_stored_v21_spec` in `render/mask_stack.py`
+returned it for that frame. `None` means the stored geometry no longer maps from it (edited mask,
+or a different media size at render than at upgrade) and the frame used the best-effort recovery.
+Reproduce with `test_mask_legacy_render.py` (add the clip's start/fps to `timings` in
+`tests/fixtures/mask-render/legacy-v21.json`, then regenerate with
+`vitest -u src/mask-legacy-render-fixture.test.ts` in `packages/timeline-schema`).
+
 ## Recurring failure mode: "applies but doesn't render"
 
 A distinct class of bug from the checklist above — the op **validates and applies** (it

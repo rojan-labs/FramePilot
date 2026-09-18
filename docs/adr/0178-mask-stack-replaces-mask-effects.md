@@ -68,6 +68,43 @@ value exactly at its instant and recovers the v21 fraction exactly, so every mig
 exports bit-identically at every frame. Masks authored today through the v21 vocabulary
 (`maskLayerFromLegacyMaskEffect`, `add_mask_advanced`) keep re-timed, editable keyframes.
 
+## Amendment (2026-09-19, MK2.5): migrated masks keep the v21 spec they were drawn from
+
+The MK2 amendment's "recovers the v21 fraction exactly" was only true for the values the vectors
+sampled. E2E.5 exported a keyframed ellipse on a clip starting at 4 s and one frame in 30 drew an
+edge a pixel off. Off t = 0 the frame instants are not round (`144 / 30 - 4` is
+`0.7999999999999998`), so v21 read x = 0.19999999999999996, and the stored centre
+`(x + width / 2) * 320` is 144.0 for that x AND for x = 0.2. v21 drew the left edge at
+`x * width`: 63.99999999999999 vs 64.0, which Pillow truncates a pixel apart. The centre and size
+are not one-to-one with v21's fractions, so no inverse can be exact; the recovery's
+shortest-decimal tie-break picked 0.2. Measured on the new timing vectors: 6 of 1,584 rasters
+differed before the fix.
+
+The migration now writes `legacySpec` on each mask it converts: the v21 bounds, feather and
+polygon points verbatim, plus each animated v21 value at exactly the source instants the mask's
+own keyframes use (every rendered frame of a moving curve; runs of equal values collapse to their
+ends). It is an optional field, written only by the migration (not by the v21-vocabulary builders,
+which have no earlier export to reproduce). `_legacy_spec` (engine) and `legacySpec` (preview)
+draw from it whenever its values map, through the migration's own expressions, bit for bit onto
+the geometry stored at that instant, which holds for every rendered frame of an unedited mask. So
+the migrated mask draws v21's own numbers by construction, not by search. A mask edited since fails
+that check and falls back to the ulp recovery, so a stale `legacySpec` never draws. Values are read
+without arithmetic (static field, value at a keyframe instant, end values, or a hold between two
+equal values), so the engine and the preview read identical numbers.
+
+`test_mask_legacy_render.py` requires every frame of every fixture case, plus 24 mid-timeline
+timings (4 moving cases × starts 4 s, 1.37 s, 7.5 s, 3.1 s, 10.05 s and 0.7 s at 30, 30, 24,
+29.97, 60 and 23.976 fps, pinned in `legacy-v21.timings.migrated.json`) and the exact E2E.5 clip,
+to equal v21 bit for bit at two frame sizes. It also requires the stored spec, not the recovery,
+to have drawn every one of those frames. Every existing mask raster vector, mask and matte render
+golden, and stack-clips digest is unchanged. `stack-clips.json` gains `legacySpec` in its migrated
+clip inputs and the E2E.5 case.
+
+Known limit, unchanged: a ramped clip whose ramp runs past its source range renders its last
+source frame for several timeline frames while v21 kept animating the mask. Source-clock keyframes
+cannot hold two values at one instant, so that tail is not reproduced. No fixture or real project
+is known to have one.
+
 ## Amendment (2026-09-17, MK3): the preview draws the stack with the export's algorithm
 
 `clip-mask.ts` (one shape, canvas/SVG primitives) is deleted. The program monitor evaluates the

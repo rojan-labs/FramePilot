@@ -274,6 +274,7 @@ no masks.
 | `units`                                                      | Only `'normalized'`, on v21 masks whose media was never measured                              |
 | `keyframes`                                                  | `{ id, sourceTime, property, value, easing, handles? }`; `sourceTime` is ASSET source seconds |
 | `tracking`                                                   | `{ artifact: { key, sha256 }, method, referenceSourceTime, constraints, review }`             |
+| `legacySpec`                                                 | Only on masks migrated from v21: the v21 spec verbatim (MK2.5), see below                     |
 
 Kinds: `rectangle` (`cx, cy, width, height, rotation, roundness`), `ellipse` (`cx, cy, rx, ry,
 rotation`), `path` (`firstVertex`, `pathKeyframes[]` of `{ id, sourceTime, easing, points,
@@ -283,6 +284,13 @@ finesse`), `key` (`model, ranges, samples3d, softness, despill, shadowRetention,
 `linear`, `band`, `gradient`, and `layer` (`source: { kind: 'clip' | 'track' }, channel, finesse`).
 `editor-core` `encodeMaskPath`/`decodeMaskPath` convert paths; `maskLayerFromFrameShape` builds a
 mask from frame fractions. Operations are listed in `patch-format.md`.
+
+`legacySpec` is `{ x, y, width, height, feather, points?, keyframes: { sourceTime, property, value }[] }`
+in v21 terms (fractions of the cropped frame; `property` is `x`/`y`/`width`/`height`/`feather`).
+The v22 centre and size are not one-to-one with those fractions, so the export and the monitor draw
+a `gaussian-legacy` mask from `legacySpec` while it still maps onto the stored geometry, and
+recover fractions from the geometry once the mask has been edited. Only the v21 → v22 migration
+writes it.
 
 ### Mask presets and binary path arrays (schema v23, MK4)
 
