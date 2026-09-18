@@ -690,10 +690,27 @@ export class LayerCompositor {
         : { texture: this.resources.plane(width, height, raster.alpha8), scale: raster.scale };
     }
     if (picture === null || picture.width !== width || picture.height !== height) return null;
+    // The GPU stack accumulates in float, so it needs the same extension the effect layers do.
+    if (!this.floatTargetsAvailable()) return null;
     return {
       texture: this.keyStack(stack, masks, width, height, clipTime, mattes, picture),
       scale: 1,
     };
+  }
+
+  /**
+   * Whether float render targets exist. A key stack combines in float so it can quantise once,
+   * as the export does; without them there is no honest way to build it, and the clip draws
+   * uncut rather than with an alpha rounded seven times.
+   */
+  private floatTargetsAvailable(): boolean {
+    if (this.effectsUnavailable) return false;
+    if (!FrameEffectRenderer.supported(this.gl)) {
+      this.effectsUnavailable = true;
+      log.warn('key masks need float render targets, which this GPU lacks; the mask is skipped');
+      return false;
+    }
+    return true;
   }
 
   /** `stack_alpha` for a stack that reads the picture: combine in float, quantise once. */

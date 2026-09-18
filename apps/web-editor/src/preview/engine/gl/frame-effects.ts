@@ -40,6 +40,7 @@ const HEADER = `#version 300 es
 precision highp float;
 precision highp int;
 precision highp sampler2D;
+precision highp usampler2D;
 uniform sampler2D u_src;
 uniform ivec2 u_size;
 uniform float u_f[24];
@@ -108,6 +109,9 @@ float valueNoise01(float x, float y, uint seed, float cell) {
   return top + (bottom - top) * sy;
 }
 `;
+
+/** The one-pixel stand-in an unmasked layer binds, so the integer sampler is never empty. */
+const OPAQUE_COVERAGE = new Uint8Array([255]);
 
 /** A seed as `(frame * 0x9E3779B1 + salt) & 0xFFFFFFFF`, passed as a uint uniform. */
 function noiseSeed(frame: number, salt: number): number {
@@ -598,7 +602,12 @@ void main() {
  */
 const FINISH = `${HEADER}
 uniform sampler2D u_result;
-uniform sampler2D u_mask;
+/**
+ * INTEGER coverage, as every other mask shader samples it: GlResources.plane uploads R8UI,
+ * and reading an integer texture through a float sampler is undefined — it produced garbage
+ * over the whole frame, which the PX4 oracle caught at 6 dB.
+ */
+uniform highp usampler2D u_mask;
 uniform float u_strength;
 uniform float u_maskScale;
 void main() {
@@ -607,7 +616,7 @@ void main() {
   vec3 result = texelFetch(u_result, p, 0).rgb;
   if (u_strength < 1.0) result = source + (result - source) * u_strength;
   if (u_maskScale > 0.0) {
-    float alpha = texelFetch(u_mask, p, 0).r * u_maskScale;
+    float alpha = float(texelFetch(u_mask, p, 0).r) / 255.0 * u_maskScale;
     result = source + (result - source) * alpha;
   }
   result = clamp(result, 0.0, 1.0);
@@ -708,11 +717,14 @@ export class FrameEffectRenderer {
         effect.mask.height === current.height
           ? effect.mask
           : null;
+      // An integer sampler must always see an integer texture, even when the branch skips it.
       this.resources.bind(
         program,
         'u_mask',
         2,
-        mask === null ? result.texture : this.resources.plane(mask.width, mask.height, mask.alpha8),
+        mask === null
+          ? this.resources.plane(1, 1, OPAQUE_COVERAGE)
+          : this.resources.plane(mask.width, mask.height, mask.alpha8),
       );
       program.ivec2('u_size', current.width, current.height);
       this.gl.uniform1f(program.location('u_strength'), strength);
