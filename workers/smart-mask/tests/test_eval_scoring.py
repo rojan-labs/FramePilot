@@ -62,7 +62,7 @@ def test_calibration_fits_on_the_calibration_split_only() -> None:
                        d_area_logratio=None, d_centroid_frac=None, e_sam_birefnet_iou=None, e_hard_disagreement=None,
                        e_band_frac=None, b_components=False, f_object_score=False, h_presence_window=0)  # fmt: skip
     fitted, trace = run_eval.calibrate(calibration, start)
-    assert fitted.e_sam_pair_iou in (0.98, 0.99) and fitted.version == "br3.15-calibrated"
+    assert fitted.e_sam_pair_iou in (0.98, 0.99) and fitted.version == run_eval.CALIBRATED_VERSION
     result = run_eval.score(calibration, fitted)
     assert result["recall"] == 1.0 and result["reviewLoad"] == pytest.approx(2 / 6)
     assert trace[0]["step"] == "start"

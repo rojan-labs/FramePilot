@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -123,3 +124,37 @@ def test_report_is_compact_and_has_no_nan(tmp_path: Path) -> None:
     assert parsed["frames"][0]["score"] is None
     assert parsed["job"]["thresholds"]["version"] == "br0-attempt-4"
     assert b"NaN" not in path.read_bytes() and b", " not in path.read_bytes()
+
+
+def _signal(pair: float, rewarp: list[float] | None = None) -> dict:
+    return {
+        "area": 1000, "cx": 10.0, "cy": 10.0, "rewarp": rewarp or [0.0], "motionPx": 0.0,
+        "islands": 1, "holes": 0, "edgeCorr": 0.9, "unexplainedEdges": 0.0, "samPairIoU": pair,
+        "samBirefnetIoU": 1.0, "hardDisagreement": 0.0, "bandFrac": 0.1, "estimates": 4.0,
+        "fwdScore": 5.0, "bwdScore": 5.0,
+    }  # fmt: skip
+
+
+ONLY_PAIR = Thresholds(
+    a_rewarp_mismatch=None, b_components=False, c_edge_corr=None, c2_unexplained=None,
+    d_area_logratio=None, d_centroid_frac=None, e_sam_pair_iou=0.95, e_sam_birefnet_iou=None,
+    e_hard_disagreement=None, e_band_frac=None, f_object_score=False, h_presence_window=0,
+)  # fmt: skip
+
+
+def test_dilation_spreads_a_flag_to_its_neighbours_with_the_same_reason() -> None:
+    """BR7.3: errors come in runs, so ``n_dilate`` flags the frames beside a caught one."""
+    signals = [_signal(1.0)] * 3 + [_signal(0.5)] + [_signal(1.0)] * 3
+    assert [bool(f) for f in flag_frames(signals, ONLY_PAIR, set())] == [0, 0, 0, 1, 0, 0, 0]
+    wide = flag_frames(signals, replace(ONLY_PAIR, n_dilate=2), {5})
+    assert [bool(f) for f in wide] == [0, 1, 1, 1, 1, 0, 0], "locked frame 5 stays verified"
+    assert wide[2] == ["e", "n"] and primary_reason(wide[2]) == "estimates_disagree"
+    ranges = review_ranges(wide, list(range(0, 70, 10)))
+    assert [(r.start_pts, r.end_pts) for r in ranges] == [(10, 40)], "one range, one reason"
+
+
+def test_either_side_rewarp_fires_on_one_disagreeing_neighbour() -> None:
+    signals = [_signal(1.0, [0.0, 0.4])]
+    base = replace(ONLY_PAIR, e_sam_pair_iou=None, a_rewarp_mismatch=0.05)
+    assert flag_frames(signals, base, set()) == [[]], "both sides must disagree by default"
+    assert flag_frames(signals, replace(base, a_either=True), set()) == [["a"]]

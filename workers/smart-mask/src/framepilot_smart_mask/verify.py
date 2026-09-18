@@ -24,7 +24,12 @@ g      only one SAM estimate reached the frame                              esti
 h      empty matte next to non-empty frames (a presence transition)         subject_lost
 m      wide band under fast motion                                          motion_blur
 u      a check could not run (missing signal)                               estimates_disagree
+n      within ``n_dilate`` frames of a flagged frame (BR7.3: errors come    the neighbour's
+       in runs, so the frames beside a caught one are likely wrong too)
 =====  ===================================================================  ====================
+
+``a_either`` (BR7.3) makes check ``a`` fire when EITHER neighbour's re-warp disagrees rather than
+both; at a cut-in or a subject entering, only one side can agree.
 
 A frame the pipeline could not verify is flagged, never reported verified. Locked frames are
 editor-approved and never flagged.
@@ -61,6 +66,8 @@ REASON_BY_CHECK: Final[dict[str, ReviewReason]] = {
     "h": "subject_lost",
     "m": "motion_blur",
     "u": "estimates_disagree",
+    # Only ever added beside the neighbour's own checks, so the range keeps its reason.
+    "n": "estimates_disagree",
 }
 #: When a frame fails several checks, the range carries the most specific reason.
 REASON_PRIORITY: Final[tuple[ReviewReason, ...]] = (
@@ -93,6 +100,9 @@ class Thresholds:
     h_presence_window: int = 3
     m_flow_px: float | None = None
     m_band_frac: float | None = None
+    #: BR7.3 rules, off by default so the shipped behaviour is unchanged.
+    a_either: bool = False
+    n_dilate: int = 0
     version: str = "br0-attempt-4"
 
     def as_json(self) -> dict[str, Any]:
@@ -225,7 +235,7 @@ def flag_frames(
         if (
             t.a_rewarp_mismatch is not None
             and s["rewarp"]
-            and min(s["rewarp"]) > t.a_rewarp_mismatch
+            and (max(s["rewarp"]) if t.a_either else min(s["rewarp"])) > t.a_rewarp_mismatch
         ):
             why.add("a")
         if t.b_components:
@@ -306,6 +316,25 @@ def flag_frames(
         if any(_nan(s[key]) for key in ("samBirefnetIoU", "bandFrac")):
             why.add("u")
         out.append(sorted(why))
+    return _dilate(out, thresholds.n_dilate, locked)
+
+
+def _dilate(flags: list[list[str]], radius: int, locked: set[int]) -> list[list[str]]:
+    """Flag frames within ``radius`` of a flagged frame, inheriting the nearest one's checks."""
+    if radius <= 0:
+        return flags
+    out = [list(checks) for checks in flags]
+    for index, checks in enumerate(flags):
+        if checks or index in locked:
+            continue
+        near = [
+            k
+            for k in range(max(0, index - radius), min(len(flags), index + radius + 1))
+            if flags[k]
+        ]
+        if near:
+            nearest = min(near, key=lambda k: (abs(k - index), k))
+            out[index] = sorted({*flags[nearest], "n"})
     return out
 
 

@@ -36,7 +36,7 @@ rgb24 via `scale` bicubic), so `frames.json` pts and pixels agree with the expor
 pack/manifest.toml, pack/models.lock.toml, pack/sbom/
 src/framepilot_smart_mask/   protocol, sandbox, runtime, models, pipeline stages
 tools/                       fetch/verify models, SBOM + licence check, ONNX export (build time)
-eval/                        construction-true pilot and the accuracy harness (BR3.15)
+eval/                        construction-true pilot and the matte eval (BR3.15, BR7.2: run_eval.py; reports in reports/smart-mask/)
 tests/                       unit suite with injected fakes; `decoded_media` = real weights
 spike/                       BR0 verification spike (isolated env; PyTorch lives only there)
 ```
