@@ -267,32 +267,34 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 ## AM — AI masking ([`11`](./11-AI-MASKING.md)) (needs MK7 and BR6)
 
-### AM1 — Tools `[ ]`
+### AM1 — Tools `[x]` (verified by a second agent; fixes ea063932, 91cf6ddf, 791294d9)
 
-- [ ] AM1.1 `domain-tools/masking.ts`: `find_mask_targets`, `create_mask`, `remove_background`, `put_text_behind_subject`, `track_mask`, `refine_mask`, `get_masks`, `delete_mask`
-- [ ] AM1.2 `masking` domain in `DOMAIN_SUMMARY`; tool-domains shape test; delete `generate_mask` and the fixed-bounds model `add_mask`; fold or alias `detect_subjects`/`track_subject_automatically` after reading callers
-- [ ] AM1.3 Deterministic shape fitters (ellipse/rectangle from matte or box, contour → path with vertex budget) and intent tables (`edge`, `grow`, effect intents)
-- [ ] AM1.4 Validator: AI-authored geometry without a candidate/measurement/user source is rejected
-- [ ] AM1.5 `pack_missing` → `PackInstallInlineCard` for Smart Mask / Tracking Lite / Subject Intelligence
+- [x] AM1.1 `domain-tools/masking.ts`: `find_mask_targets`, `create_mask`, `remove_background`, `put_text_behind_subject`, `track_mask`, `refine_mask`, `get_masks`, `delete_mask`
+- [x] AM1.2 `masking` domain in `DOMAIN_SUMMARY`; tool-domains shape test; delete `generate_mask` and the fixed-bounds model `add_mask`; fold or alias `detect_subjects`/`track_subject_automatically` after reading callers
+- [x] AM1.3 Deterministic shape fitters (ellipse/rectangle from matte or box, contour → path with vertex budget) and intent tables (`edge`, `grow`, effect intents)
+- [x] AM1.4 Validator: AI-authored geometry without a candidate/measurement/user source is rejected
+- [x] AM1.5 `pack_missing` → `PackInstallInlineCard` for Smart Mask / Tracking Lite / Subject Intelligence
 
-### AM2 — Target resolution `[ ]` (needs MD-6)
+- [ ] AM1.6 Tighten the geometry-source rule: a typed shape counts as user-given only when its numbers are bound to geometry in the CURRENT request (units or shape words next to them), not merely present anywhere the editor wrote in the conversation (found in AM verification)
 
-- [ ] AM2.1 Host-side target resolution: detection + SigLIP re-ranking (when installed), `needs_click` for out-of-vocabulary targets; ranking with identity clusters, ledger facts, temporal persistence
-- [ ] AM2.2 `ambiguous_target` with thumbnails; sidebar picker; recalled candidate ids
-- [ ] AM2.3 Identity-aware requests ("everyone except the host") behind per-project face-recognition consent; `needs_face_selection` picker without consent; delete-identity-data action
-- [ ] AM2.4 `create_shape_mask`, `mask_with_layer`, `follow_subject` tools
+### AM2 — Target resolution `[~]` (needs MD-6; AM2.4 partial)
 
-### AM3 — Verification `[ ]`
+- [x] AM2.1 Host-side target resolution: detection + SigLIP re-ranking (when installed), `needs_click` for out-of-vocabulary targets; ranking with identity clusters, ledger facts, temporal persistence
+- [x] AM2.2 `ambiguous_target` with thumbnails; sidebar picker; recalled candidate ids
+- [x] AM2.3 Identity-aware requests ("everyone except the host") behind per-project face-recognition consent; `needs_face_selection` picker without consent; delete-identity-data action
+- [~] AM2.4 (mask half of follow_subject done; text half blocked on MO-14; create_shape_mask/mask_with_layer unavailable until MK8 renders them) `create_shape_mask`, `mask_with_layer`, `follow_subject` tools
 
-- [ ] AM3.1 Tool results carry `needsReview`, track confidence and validator results
-- [ ] AM3.2 Single-question visual spot check at ≤ 4 frames via `frame_grab` + vision-review; `no` → remove and re-resolve or ask; `unsure` → review list
-- [ ] AM3.3 Sidebar review card linking to the Inspector review list; the agent never claims Verified
+### AM3 — Verification `[x]` (no `verified` field reaches the model, e10fe4c7)
 
-### AM4 — Model surfaces, skill, goldens `[ ]`
+- [x] AM3.1 Tool results carry `needsReview`, track confidence and validator results
+- [x] AM3.2 Single-question visual spot check at ≤ 4 frames via `frame_grab` + vision-review; `no` → remove and re-resolve or ask; `unsure` → review list
+- [x] AM3.3 Sidebar review card linking to the Inspector review list; the agent never claims Verified
 
-- [ ] AM4.1 Compact mask facts in clip rows (zero delta without masks)
-- [ ] AM4.2 `skills/masking-and-compositing.md` (editing-skills-expert), description within the 300-char cap
-- [ ] AM4.3 Token-golden regeneration (3 commands) and review of the measured delta
+### AM4 — Model surfaces, skill, goldens `[x]` (+115 tokens per agent request with masking on; zero without masks)
+
+- [x] AM4.1 Compact mask facts in clip rows (zero delta without masks)
+- [x] AM4.2 `skills/masking-and-compositing.md` (editing-skills-expert), description within the 300-char cap
+- [x] AM4.3 Token-golden regeneration (3 commands) and review of the measured delta
 
 ### AM5 — AI masking eval `[ ]`
 
@@ -333,7 +335,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 ### RD2 — Flags, telemetry, beta `[ ]`
 
-- [~] RD2.1 (compositor flag 2c6f1e3f, mask-tools flag 9f2188f6; AM flag pending) Feature flags: new compositor (PX), mask stack UI (MK), AI masking tools (AM); defaults and kill switches
+- [x] RD2.1 (compositor 2c6f1e3f, mask tools 9f2188f6, AI masking c101aef5 + b90df70c enforced in every mode and both hosts) Feature flags: new compositor (PX), mask stack UI (MK), AI masking tools (AM); defaults and kill switches
 - [ ] RD2.2 Observability dashboards from logger events (job failures by code/EP, flagged ratio, export-time ratio); no media or prompts
 - [ ] RD2.3 Legal review of face-recognition consent copy, privacy docs
 - [ ] RD2.4 Closed beta: ≥ 10 real projects from working editors across macOS and Windows; issues triaged against the gates

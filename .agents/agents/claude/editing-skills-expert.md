@@ -38,7 +38,7 @@ checked against the source of truth in this repo:
   color grade params are `exposure/contrast/saturation/temperature/tint/`
   `shadows/highlights`, all signed offsets where 0 is identity (`render/color.py`);
   transitions/blends in `render/transitions.py`, `render/blend.py`.
-- **Unavailable tools**: `detect_faces` and `generate_mask` have no engine.
+- **Unavailable tools**: `detect_faces` has no engine. `generate_mask` was removed (AM1.2); masks come from the `masking` domain tools, which build geometry only from a detection, a measurement or a number the editor gave.
   NEVER reference them in a skill — a skill must not advertise a capability
   that does not exist (build-order invariant, ADR 0055 discipline).
 
