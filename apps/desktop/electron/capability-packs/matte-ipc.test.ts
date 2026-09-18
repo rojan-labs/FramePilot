@@ -90,6 +90,8 @@ describe('matte IPC channels', () => {
         IpcChannels.capabilityPackMatte,
         IpcChannels.capabilityPackCancelMatte,
         IpcChannels.matteSaveCorrection,
+        // BR6.11: hover highlight, read-only.
+        IpcChannels.matteSegmentFrame,
       ].sort(),
     );
   });
