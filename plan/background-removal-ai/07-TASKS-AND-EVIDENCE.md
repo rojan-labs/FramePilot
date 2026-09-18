@@ -150,7 +150,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** key gates pass; oracle rows green.
 
-- [ ] MK6.4 Key finesse on Metal: the local oracle on an M1 Pro (real GPU) gives `alpha/key-finesse` 99.494% within 8/255 (gate ≥ 99.5%) though it passes on CI's SwiftShader; find the drifting GPU stage and fix it at the unchanged gate. Also make the PX4 baseline renderer-aware (the bt709-limited WebGL known failure is SwiftShader-only and passes on Metal)
+- [x] MK6.4 (9463fef8, 57358449) Key finesse on Apple Silicon. Not a GPU drift: on arm64 the export decodes through imageio-ffmpeg's C swscale lookup tables, while the monitor copied the x86 converter — up to 3 levels apart on 80% of values, so the Apple Silicon monitor was a shade off from the export on every same-size clip. The monitor now uses the export host's converter; oracle 297/297 on Metal (key-finesse 99.494% → exact); PX4 baseline keyed by renderer class; CI green run 35397473824
 
 ### MK7 — Mask tracking `[~]` (MK7.1–MK7.5 shipped, pack run 35294557292 green on both platforms; MK7.6 → MO-14; two gate rows open, see `MK7-TRACKING-GATES.md`)
 
@@ -201,6 +201,8 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [x] BR2.5 Frame-exact decode for VFR sources in the export (decode by pts, not MoviePy's constant-rate resample), so VFR mattes render instead of refusing `matte_variable_frame_rate`
 - [x] BR2.6 Mattes on rotated and non-square-pixel sources (display-corrected space, MK1.9) instead of `matte_unsupported_media`
 - [x] BR2.7 Reduced-size export decodes resample the matte with the same deterministic filter as the picture; bit-exact edge test
+
+- [ ] BR2.8 Variable-frame-rate clips decode through the SAME ffmpeg as every other clip (today the pts reader uses whatever `ffmpeg` is on PATH — Homebrew 8.1 locally — not MoviePy's bundled build; locally time/variable-frame-rate 50.46 → 44.29 dB, matte-vfr 56.47 → 50.81 dB, both still within gates)
 
 **DoD:** engine tests for new modules pass; golden updated in the same PR.
 
