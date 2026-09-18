@@ -96,6 +96,7 @@ interface EngineHook {
   debugStats(): Record<string, number>;
   debugTelemetry(): Promise<Telemetry>;
   debugPresentedFrame(): { projectTimeSec: number; layers: unknown[] };
+  debugPresentedMattes?(): { tier?: string | null; fromTier?: boolean; state?: string }[];
   seek(t: number): Promise<void>;
   telemetry: { reset(): void; gpuSync: boolean };
 }
@@ -127,6 +128,8 @@ async function openScale(page: Page, variant: string, mode: MediaMode): Promise<
   const origin = new URL(test.info().project.use.baseURL ?? 'http://127.0.0.1:5173').origin;
   const manifest = JSON.parse(readFileSync(join(FIXTURE, 'manifest.json'), 'utf8')) as {
     matte: { key: string; root: string };
+    /** PX5.3: the matte's monitor tier, when the fixture has one. */
+    tier?: { root: string; size: [number, number] };
   };
   const project = JSON.parse(
     readFileSync(join(FIXTURE, 'projects', `${variant}.json`), 'utf8'),
@@ -140,11 +143,23 @@ async function openScale(page: Page, variant: string, mode: MediaMode): Promise<
     asset.path = fsUrl(origin, join(FIXTURE, asset.path));
   }
   const matteRoot = fsUrl(origin, join(FIXTURE, manifest.matte.root));
-  await page.addInitScript((root: string) => {
-    (
-      window as unknown as { __fpMatteArtifactUrl: (key: string, name: string) => string }
-    ).__fpMatteArtifactUrl = (key, name) => `${root}/${key}/${name}`;
-  }, matteRoot);
+  // PX5.3: the desktop reads a monitor tier beside the artifact when one exists. PX5_TIER=0
+  // measures the masters-only path (the "before" of the tier).
+  const tierRoot =
+    manifest.tier !== undefined && process.env.PX5_TIER !== '0'
+      ? fsUrl(origin, join(FIXTURE, manifest.tier.root))
+      : null;
+  await page.addInitScript(
+    ({ root, tiers }: { root: string; tiers: string | null }) => {
+      const host = window as unknown as {
+        __fpMatteArtifactUrl: (key: string, name: string) => string;
+        __fpMatteTierUrl?: (key: string, name: string) => string;
+      };
+      host.__fpMatteArtifactUrl = (key, name) => `${root}/${key}/${name}`;
+      if (tiers !== null) host.__fpMatteTierUrl = (key, name) => `${tiers}/${key}/${name}`;
+    },
+    { root: matteRoot, tiers: tierRoot },
+  );
   // A blank same-origin document to seed localStorage from, before the editor ever loads.
   await page.route('**/__px5-blank.html', (route) =>
     route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>px5</title>' }),
@@ -272,6 +287,13 @@ test.describe('PX5 Scale row', () => {
       const stillPlaying = await pause.isVisible();
       if (stillPlaying) await pause.click();
       const played = await snapshot(page);
+      // PX5.3: which path the last presented matte came from, so a run says what it measured.
+      const presentedMattes = await page.evaluate(
+        () =>
+          (
+            window as unknown as { __fpPreviewEngine: EngineHook }
+          ).__fpPreviewEngine.debugPresentedMattes?.() ?? [],
+      );
 
       const result = {
         variant: run.variant,
@@ -299,6 +321,7 @@ test.describe('PX5 Scale row', () => {
         glPoolBytesMidway: midway.gauges.glPoolBytes.current,
         renderScaleChangesMidway: midway.playback.renderScaleChanges,
         layersWhilePlaying,
+        mattes: presentedMattes.map(({ tier, fromTier, state }) => ({ tier, fromTier, state })),
         gpuSync: played.gpuSync,
         stillPlayingAtEnd: stillPlaying,
         problems: problems.slice(0, 20),

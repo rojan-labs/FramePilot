@@ -415,13 +415,25 @@ export const TIER_COLOUR_SCALE = 257;
 
 /**
  * PX5.3: a matte frame's decontamination planes from the artifact's monitor tier, already at the
- * decoded size (`resample` of the band weight and the band-premultiplied foreground, quantised).
- * One `width × 4·height` plane, rows top first: weight, then R, G, B.
+ * decoded size (`resample` of the band weight and the band-premultiplied foreground, quantised
+ * to 16 bits). As `render/matte_tier.py` stores them: one `width × 8·height` byte plane, rows
+ * top first, each 16-bit plane as its high-byte rows then its low-byte rows, in the order
+ * weight, R, G, B ({@link tierPlaneValue}).
  */
 export interface MattePlanes {
   readonly width: number;
   readonly height: number;
-  readonly data: Uint16Array;
+  readonly data: Uint8Array;
+}
+
+/**
+ * The 16-bit value of plane `plane` (0 weight, 1 R, 2 G, 3 B) at pixel `index` of a tier frame.
+ */
+export function tierPlaneValue(planes: MattePlanes, plane: number, index: number): number {
+  const pixels = planes.width * planes.height;
+  return (
+    (planes.data[2 * plane * pixels + index]! << 8) | planes.data[(2 * plane + 1) * pixels + index]!
+  );
 }
 
 /** One decoded matte frame at the artifact's source (display) resolution. */
@@ -562,9 +574,9 @@ export function decontaminateFromPlanes(
   const weightPlane = new Float64Array(pixels);
   const colourPlane = new Float64Array(pixels * 3);
   for (let i = 0; i < pixels; i += 1) {
-    weightPlane[i] = planes.data[i]! / TIER_WEIGHT_SCALE;
+    weightPlane[i] = tierPlaneValue(planes, 0, i) / TIER_WEIGHT_SCALE;
     for (let ch = 0; ch < 3; ch += 1) {
-      colourPlane[i * 3 + ch] = planes.data[(ch + 1) * pixels + i]! / TIER_COLOUR_SCALE;
+      colourPlane[i * 3 + ch] = tierPlaneValue(planes, ch + 1, i) / TIER_COLOUR_SCALE;
     }
   }
   const at = (data: Float64Array, count: number, ceiling: number): Float64Array =>

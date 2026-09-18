@@ -151,7 +151,7 @@ export class MattePass {
     geometry: MatteFrameGeometry,
   ): boolean {
     const limit = this.textureLimit();
-    if (frame.planes.width > limit || 4 * frame.planes.height > limit) return false;
+    if (frame.planes.width > limit || 8 * frame.planes.height > limit) return false;
     // The planes are at the decoded size: only the crop's resample can need taps.
     return geometryCarried(frame.planes.width, frame.planes.height, geometry);
   }
@@ -280,7 +280,7 @@ export class MattePass {
   /**
    * `decontaminate` from the monitor tier's planes (PX5.3): the planes the export would resample
    * to the decoded size, already resampled by the engine, then the same crop and mix as
-   * {@link decontaminate}. One 4 MB upload per frame at 540p instead of a 4K foreground.
+   * {@link decontaminate}. One 4 MB upload per frame at 540p instead of a 25 MB 4K foreground.
    *
    * @param picture - The cropped picture (`rgba8`), before any effect.
    */
@@ -295,8 +295,8 @@ export class MattePass {
     const stacked = r.keyedTexture(
       `${frame.id}|planes`,
       planes.width,
-      4 * planes.height,
-      'r16',
+      8 * planes.height,
+      'r8',
       planes.data,
     );
     const decoded = r.target(planes.width, planes.height, 'rgba32f');

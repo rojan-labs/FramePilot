@@ -17,6 +17,10 @@ What it writes (``tests/e2e/.tmp-px5-scale/``):
 * ``.framepilot-derived/mattes/<key>/`` - a 4K matte artifact to the contract of
   ``render/mattes.py`` (intra-only FFV1 ``matte.mkv`` + ``foreground.mkv`` + ``frames.json``)
   covering every frame of ``scale-d``.
+* ``.framepilot-derived/matte-tiers/<key>/`` - the artifact's monitor tier at the proxy size
+  (PX5.3, ``render/matte_tier.py``): the decontamination planes the monitor reads instead of
+  the 4K foreground. Additive: it is not part of the recipe hash, so adding it never
+  regenerates the sources; ``tier.json`` names the masters' digests it was made from.
 * ``projects/*.json`` - the Scale timeline and its A/B variants (see :func:`write_projects`).
 * ``manifest.json`` - paths, sizes and the recipe hash the consumers check.
 
@@ -358,6 +362,95 @@ def write_matte(ffmpeg: str, out_dir: Path, seconds: int) -> dict[str, Any]:
     }
 
 
+def _proxy_size(out_dir: Path) -> tuple[int, int]:
+    """The size the monitor decodes ``scale-d``'s proxy at (what ``media/derive.py`` made)."""
+    from framepilot_engine.render.mattes import probe_stream
+
+    stream = probe_stream(out_dir / "proxies" / f"scale-{MATTE_SOURCE}.mp4")
+    return stream.width, stream.height
+
+
+def write_matte_tier(ffmpeg: str, out_dir: Path, seconds: int, artifact: dict[str, Any]) -> Any:
+    """The matte's monitor tier at the proxy size (PX5.3), made the cheap way the masters are.
+
+    ``write_monitor_tier`` would decode 5,400 4K master pairs; the masters here are lossless
+    encodes of :func:`_matte_frames` over a flat foreground, looped with a 12-second period, so
+    the tier is :func:`~framepilot_engine.render.matte_tier.tier_planes` of those same pixels
+    for one period, looped the same way. ``tier.json`` names the masters' pinned digests, as a
+    real tier does; a changed artifact is simply not matched by the monitor.
+    """
+    import numpy as np
+
+    from framepilot_engine.render.matte_tier import (
+        PLANE_LAYOUT,
+        PLANES_FILE,
+        TIER_FILE,
+        encode_planes,
+        tier_directory,
+        tier_manifest,
+        tier_planes,
+    )
+    from framepilot_engine.render.mattes import FRAMES_FILE, MATTES_DIR, probe_stream
+
+    width, height = _proxy_size(out_dir)
+    directory = tier_directory(out_dir, str(artifact["key"]))
+    assert directory is not None
+    source = {
+        "width": WIDTH,
+        "height": HEIGHT,
+        "files": {entry["name"]: entry["sha256"] for entry in artifact["files"]},
+    }
+    manifest_path = directory / TIER_FILE
+    if manifest_path.exists():
+        existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+        current = (
+            existing.get("source"),
+            existing.get("width"),
+            existing.get("height"),
+            (existing.get("planes") or {}).get("layout"),
+        )
+        if current == (source, width, height, PLANE_LAYOUT):
+            return {"size": [width, height]}
+    started = time.monotonic()
+    directory.mkdir(parents=True, exist_ok=True)
+    manifest_path.unlink(missing_ok=True)
+    foreground = np.broadcast_to(np.asarray(FOREGROUND_RGB, dtype=np.uint8), (HEIGHT, WIDTH, 3))
+    period = directory / "planes.period.mkv"
+    period_frames = min(PERIOD_SECONDS, seconds) * FPS
+    encode_planes(
+        period,
+        (
+            tier_planes(frame, 255, foreground, width, height)
+            for frame in _matte_frames(period_frames)
+        ),
+        width,
+        height,
+    )
+    partial = directory / "planes.partial.mkv"
+    _loop_copy(ffmpeg, period, partial, seconds, [])
+    period.unlink()
+    planes = directory / PLANES_FILE
+    partial.rename(planes)
+    frames = json.loads(
+        (out_dir / MATTES_DIR / str(artifact["key"]) / FRAMES_FILE).read_text(encoding="utf-8")
+    )
+    count = probe_stream(planes).frame_count
+    if count != len(frames["pts"]):
+        raise RuntimeError(f"tier has {count} frames, the matte {len(frames['pts'])}")
+    manifest_path.write_text(
+        json.dumps(tier_manifest(width, height, count, source, planes.stat().st_size), indent=1),
+        encoding="utf-8",
+    )
+    _log.info(
+        "matte tier %dx%d: %.1f MB in %.0f s",
+        width,
+        height,
+        planes.stat().st_size / 1e6,
+        time.monotonic() - started,
+    )
+    return {"size": [width, height]}
+
+
 def _outline(radius: float, phase: float) -> list[float]:
     """A closed 200-vertex outline of real cubics in 4K source pixels (x, y, in, out)."""
     points: list[float] = []
@@ -534,6 +627,7 @@ def write_projects(out_dir: Path, seconds: int, artifact: dict[str, Any]) -> lis
 
 def generate(out_dir: Path, seconds: int) -> dict[str, Any]:
     from framepilot_engine.media.ffmpeg import find_ffmpeg
+    from framepilot_engine.render.matte_tier import MATTE_TIERS_DIR
     from framepilot_engine.render.mattes import MATTES_DIR
 
     ffmpeg = find_ffmpeg()
@@ -548,6 +642,7 @@ def generate(out_dir: Path, seconds: int) -> dict[str, Any]:
     for name in SOURCES:
         encode_source(ffmpeg, out_dir, name, seconds)
     artifact = write_matte(ffmpeg, out_dir, seconds)
+    tier = write_matte_tier(ffmpeg, out_dir, seconds, artifact)
     projects = write_projects(out_dir, seconds, artifact)
     files = sorted(p for p in out_dir.rglob("*") if p.is_file() and p.name != "manifest.json")
     manifest = {
@@ -556,6 +651,7 @@ def generate(out_dir: Path, seconds: int) -> dict[str, Any]:
         "fps": FPS,
         "resolution": [WIDTH, HEIGHT],
         "matte": {"key": artifact["key"], "root": MATTES_DIR},
+        "tier": {"root": MATTE_TIERS_DIR, **tier},
         "projects": projects,
         "bytes": {str(p.relative_to(out_dir)): p.stat().st_size for p in files},
     }

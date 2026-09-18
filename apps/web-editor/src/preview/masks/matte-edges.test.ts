@@ -275,12 +275,17 @@ describe('decontamination from the monitor tier (PX5.3)', () => {
     });
     const weight = resample(plane(band, 1), width, height, 1).data;
     const premultiplied = resample(plane(colour, 3), width, height, 255).data;
-    const data = new Uint16Array(width * height * 4);
+    // `split_bytes`: each 16-bit plane as its high-byte rows, then its low-byte rows.
+    const data = new Uint8Array(width * height * 8);
     const n = width * height;
+    const store = (plane: number, i: number, value: number): void => {
+      data[2 * plane * n + i] = value >> 8;
+      data[(2 * plane + 1) * n + i] = value & 0xff;
+    };
     for (let i = 0; i < n; i += 1) {
-      data[i] = Math.round(weight[i]! * TIER_WEIGHT_SCALE);
+      store(0, i, Math.round(weight[i]! * TIER_WEIGHT_SCALE));
       for (let ch = 0; ch < 3; ch += 1) {
-        data[(ch + 1) * n + i] = Math.round(premultiplied[i * 3 + ch]! * TIER_COLOUR_SCALE);
+        store(ch + 1, i, Math.round(premultiplied[i * 3 + ch]! * TIER_COLOUR_SCALE));
       }
     }
     return { width, height, data };

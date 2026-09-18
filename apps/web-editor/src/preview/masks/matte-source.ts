@@ -284,6 +284,7 @@ export function parseMatteTier(
     planes.file !== 'planes.mkv' ||
     planes.weightScale !== TIER_WEIGHT_SCALE ||
     planes.colourScale !== TIER_COLOUR_SCALE ||
+    planes.layout !== 'u16-hi-lo-bytes' ||
     JSON.stringify(planes.order) !== JSON.stringify(['weight', 'r', 'g', 'b'])
   ) {
     throw new Error('tier.json planes are not the documented layout.');
@@ -540,9 +541,9 @@ export class MatteSource {
           frames.pts.length,
         );
         if (
-          info.format !== 'gray16' ||
+          info.format !== 'gray8' ||
           info.width !== tier.width ||
-          info.height !== 4 * tier.height ||
+          info.height !== 8 * tier.height ||
           info.frameCount !== frames.pts.length
         ) {
           throw new Error('planes.mkv is not what tier.json describes.');
@@ -804,8 +805,8 @@ export class MatteSource {
         index,
         this.rankOf(state.key, index),
       );
-      if (message.format !== 'gray16') throw new Error('planes.mkv is not 16-bit.');
-      return { width: tier.width, height: tier.height, data: new Uint16Array(message.data) };
+      if (message.format !== 'gray8') throw new Error('planes.mkv is not the byte layout.');
+      return { width: tier.width, height: tier.height, data: new Uint8Array(message.data) };
     } catch (error) {
       if (error instanceof MatteDecodeCancelled) throw error;
       state.tierInfo = null;

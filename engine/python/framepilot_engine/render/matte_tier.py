@@ -19,8 +19,12 @@ can be made once, here, with the engine's own resample, and read by the monitor 
   most half a step: 1/131070 of the weight and 1/514 of a colour level, three orders of magnitude
   under the parity oracle's 8/255 gate (the mix then rounds to bytes, so only a value within
   ~0.004 of a rounding tie can move, by one level);
-* the four planes stacked into ONE ``gray16le`` frame (``W x 4H``: weight, R, G, B), intra-only
-  FFV1 - the one 16-bit layout the monitor's FFV1 decoder already reads.
+* each 16-bit plane split into its high and low BYTES, the eight byte planes stacked into ONE
+  ``gray`` frame (``W x 8H``: weight high, weight low, R high, R low, G..., B...), intra-only
+  FFV1 like the pack's masters. The values are the 16-bit ones exactly; the split is only the
+  container. WHY: ffmpeg codes 16-bit FFV1 with the range coder, which pays a symbol per sample
+  even across the zeros that are most of a band; an 8-bit plane gets Golomb-Rice run mode, and
+  the monitor's decoder reads the same frame in 12.4 ms instead of 28.6 ms (M1 Pro, PX5.3).
 
 Where it lives, and why not in the artifact: ``.framepilot-derived/matte-tiers/<key>/``, beside
 the artifact, never inside it. The artifact directory holds exactly the files the host verified
@@ -76,8 +80,10 @@ TIER_KIND = "framepilot.matte-monitor-tier"
 WEIGHT_SCALE = 65535
 #: A premultiplied colour in [0, 255] stored as round(colour * COLOUR_SCALE) (65535 / 255).
 COLOUR_SCALE = 257
-#: Planes stacked top to bottom in the one gray16 frame.
+#: Planes stacked top to bottom, each as its high-byte then its low-byte rows.
 PLANE_ORDER = ("weight", "r", "g", "b")
+#: How a 16-bit value is laid out in the 8-bit frame: high byte rows, then low byte rows.
+PLANE_LAYOUT = "u16-hi-lo-bytes"
 
 
 class MatteTierError(ValueError):
@@ -204,6 +210,28 @@ def tier_planes(
     return stacked
 
 
+def split_bytes(stacked: npt.NDArray[np.uint16]) -> npt.NDArray[np.uint8]:
+    """``(4H, W)`` 16-bit planes as the ``(8H, W)`` byte frame the tier stores (see the module)."""
+    height = stacked.shape[0] // 4
+    out = np.empty((8 * height, stacked.shape[1]), dtype=np.uint8)
+    for plane in range(4):
+        values = stacked[plane * height : (plane + 1) * height]
+        out[(2 * plane) * height : (2 * plane + 1) * height] = values >> 8
+        out[(2 * plane + 1) * height : (2 * plane + 2) * height] = values & 0xFF
+    return out
+
+
+def join_bytes(frame: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint16]:
+    """The inverse of :func:`split_bytes`."""
+    height = frame.shape[0] // 8
+    out = np.empty((4 * height, frame.shape[1]), dtype=np.uint16)
+    for plane in range(4):
+        high = frame[(2 * plane) * height : (2 * plane + 1) * height].astype(np.uint16)
+        low = frame[(2 * plane + 1) * height : (2 * plane + 2) * height].astype(np.uint16)
+        out[plane * height : (plane + 1) * height] = (high << 8) | low
+    return out
+
+
 # --- Writing a tier ----------------------------------------------------------------------------
 
 
@@ -230,8 +258,8 @@ def tier_directory(base_dir: Path, key: str) -> Path | None:
 def encode_planes(
     path: Path, frames: Iterable[npt.NDArray[np.uint16]], width: int, height: int
 ) -> int:
-    """Stream stacked planes into intra-only ``gray16le`` FFV1 (``-g 1``, slice CRCs), as the
-    pack writes its masters; returns the frame count."""
+    """Stream stacked 16-bit planes, split to bytes (:func:`split_bytes`), into intra-only
+    ``gray`` FFV1 (``-g 1``, slice CRCs) as the pack writes its masters; returns the count."""
     argv = validate_safe_argv(
         [
             find_ffmpeg(),
@@ -242,9 +270,9 @@ def encode_planes(
             "-f",
             "rawvideo",
             "-pix_fmt",
-            "gray16le",
+            "gray",
             "-s",
-            f"{width}x{4 * height}",
+            f"{width}x{8 * height}",
             "-r",
             "30",
             "-i",
@@ -258,7 +286,7 @@ def encode_planes(
             "-slicecrc",
             "1",
             "-pix_fmt",
-            "gray16le",
+            "gray",
             "-f",
             "matroska",
             str(path),
@@ -271,7 +299,7 @@ def encode_planes(
         for stacked in frames:
             if stacked.shape != (4 * height, width) or stacked.dtype != np.uint16:
                 raise MatteTierError("A tier frame has the wrong shape.")
-            process.stdin.write(np.ascontiguousarray(stacked, dtype="<u2").tobytes())
+            process.stdin.write(np.ascontiguousarray(split_bytes(stacked)).tobytes())
             count += 1
     finally:
         if process.stdin is not None:
@@ -301,6 +329,7 @@ def tier_manifest(
             "file": PLANES_FILE,
             "bytes": planes_bytes,
             "order": list(PLANE_ORDER),
+            "layout": PLANE_LAYOUT,
             "weightScale": WEIGHT_SCALE,
             "colourScale": COLOUR_SCALE,
         },

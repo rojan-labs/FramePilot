@@ -261,6 +261,7 @@ describe('the monitor tier (PX5.3)', () => {
         order: ['weight', 'r', 'g', 'b'],
         weightScale: 65535,
         colourScale: 257,
+        layout: 'u16-hi-lo-bytes',
       },
       resample: 'swscale-bicubic-b0-c0.6-float64',
       source: {
@@ -283,7 +284,7 @@ describe('the monitor tier (PX5.3)', () => {
         requestId: 0,
         sourceId,
         ...(sourceId.endsWith(':planes')
-          ? { width: 4, height: 8, format: 'gray16' as const }
+          ? { width: 4, height: 16, format: 'gray8' as const }
           : sourceId.endsWith(':foreground')
             ? { width: 8, height: 4, format: 'rgb24' as const }
             : { width: 8, height: 4, format: 'gray8' as const }),
@@ -300,13 +301,9 @@ describe('the monitor tier (PX5.3)', () => {
           sourceId,
           frame,
           width: planes ? 4 : 8,
-          height: planes ? 8 : 4,
-          format: planes
-            ? ('gray16' as const)
-            : foreground
-              ? ('rgb24' as const)
-              : ('gray8' as const),
-          data: planes ? new Uint16Array(32).fill(frame).buffer : new Uint8Array(96).buffer,
+          height: planes ? 16 : 4,
+          format: foreground ? ('rgb24' as const) : ('gray8' as const),
+          data: new Uint8Array(96).fill(frame).buffer,
         };
       }),
       unloadSource: vi.fn(async () => undefined),

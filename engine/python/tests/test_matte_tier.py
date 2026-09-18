@@ -28,6 +28,7 @@ from framepilot_engine.render.matte_tier import (
     TIER_FILE,
     WEIGHT_SCALE,
     MatteTierError,
+    join_bytes,
     resample_limited,
     tier_directory,
     tier_planes,
@@ -132,13 +133,14 @@ def _decode_planes(path: Path, width: int, height: int) -> np.ndarray:
             "-f",
             "rawvideo",
             "-pix_fmt",
-            "gray16le",
+            "gray",
             "-",
         ],
         capture_output=True,
         check=True,
     ).stdout
-    return np.frombuffer(raw, dtype="<u2").reshape(-1, 4 * height, width)
+    frames = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 8 * height, width)
+    return np.stack([join_bytes(frame) for frame in frames])
 
 
 def _artifact(project: Path, count: int = 3) -> dict[str, Any]:

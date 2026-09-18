@@ -195,22 +195,26 @@ void main() {
 
 /**
  * PX5.3: the monitor tier's planes (`render/matte_tier.py`) as the float planes
- * {@link MATTE_DECONTAMINATE_FRAGMENT} reads: one `W × 4H` 16-bit texture, rows top first
- * (weight, R, G, B), to `vec4(colour, weight)` at `W × H`. The tier is already at the decoded
- * size, so this replaces the band pass and the resample to it; the crop follows as for the
- * masters.
+ * {@link MATTE_DECONTAMINATE_FRAGMENT} reads: one `W × 8H` byte texture, rows top first, each
+ * 16-bit plane (weight, R, G, B) as its high-byte then its low-byte rows, to
+ * `vec4(colour, weight)` at `W × H`. The integers are rebuilt exactly (`hi * 256 + lo`) before
+ * the one division. The tier is already at the decoded size, so this replaces the band pass and
+ * the resample to it; the crop follows as for the masters.
  */
 export const MATTE_TIER_PLANES_FRAGMENT = `${HEADER}
 uniform usampler2D u_planes;
 uniform int u_height;
 out vec4 o_color;
+uint planeValue(ivec2 p, int plane) {
+  uint high = texelFetch(u_planes, ivec2(p.x, p.y + 2 * plane * u_height), 0).r;
+  uint low = texelFetch(u_planes, ivec2(p.x, p.y + (2 * plane + 1) * u_height), 0).r;
+  return high * 256u + low;
+}
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
-  float weight = float(texelFetch(u_planes, p, 0).r) / ${String(TIER_WEIGHT_SCALE)}.0;
-  float r = float(texelFetch(u_planes, ivec2(p.x, p.y + u_height), 0).r);
-  float g = float(texelFetch(u_planes, ivec2(p.x, p.y + 2 * u_height), 0).r);
-  float b = float(texelFetch(u_planes, ivec2(p.x, p.y + 3 * u_height), 0).r);
-  o_color = vec4(vec3(r, g, b) / ${String(TIER_COLOUR_SCALE)}.0, weight);
+  float weight = float(planeValue(p, 0)) / ${String(TIER_WEIGHT_SCALE)}.0;
+  vec3 colour = vec3(float(planeValue(p, 1)), float(planeValue(p, 2)), float(planeValue(p, 3)));
+  o_color = vec4(colour / ${String(TIER_COLOUR_SCALE)}.0, weight);
 }`;
 
 /** The clip's integer crop (`_crop_slices`), then optionally `layer_alpha` (invert, opacity). */

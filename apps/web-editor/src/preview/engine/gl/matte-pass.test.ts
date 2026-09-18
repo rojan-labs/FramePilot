@@ -207,7 +207,7 @@ describe('MattePass', () => {
     const picture = { texture: {}, framebuffer: {}, width: 96, height: 54, format: 'rgba8' };
     const tiered = {
       ...frame(384, 216),
-      planes: { width: 96, height: 54, data: new Uint16Array(96 * 54 * 4) },
+      planes: { width: 96, height: 54, data: new Uint8Array(96 * 54 * 8) },
     };
     const pass = new MattePass(resources);
     expect(pass.carriesPlanes(tiered, geometry())).toBe(true);
