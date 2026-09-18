@@ -85,10 +85,14 @@ def edge_shift(alpha_int: npt.NDArray[Any], maximum: int, shift_px: float) -> Fl
     high = math.ceil(magnitude)
     grow = shift_px > 0
     scale = float(maximum)
-    low_alpha = _disc_morphology(alpha_int, low, grow).astype(np.float64) / scale
+    # Divided in place (PX5.4): the same quotient bits as ``astype(...) / scale`` without a
+    # second frame-sized float64 array per frame.
+    low_alpha: FloatArray = _disc_morphology(alpha_int, low, grow).astype(np.float64)
+    low_alpha /= scale
     if high == low:
         return low_alpha
-    high_alpha = _disc_morphology(alpha_int, high, grow).astype(np.float64) / scale
+    high_alpha: FloatArray = _disc_morphology(alpha_int, high, grow).astype(np.float64)
+    high_alpha /= scale
     fraction = magnitude - float(low)
     return low_alpha + (high_alpha - low_alpha) * fraction
 
@@ -105,14 +109,41 @@ def clean_levels(mask: Any) -> tuple[float, float]:
     return black, white
 
 
-def apply_clean_levels(alpha: FloatArray, black: float, white: float) -> FloatArray:
-    """``(a - black) / (white - black)`` clamped to ``[0, 1]``; a threshold when they meet."""
+def apply_clean_levels_dense(alpha: FloatArray, black: float, white: float) -> FloatArray:
+    """:func:`apply_clean_levels` as four whole-frame array expressions: the definition.
+
+    Kept as the reference the in-place form is tested against byte for byte
+    (``tests/test_matte_clean_levels_exact.py``).
+    """
     if black == 0.0 and white == 1.0:
         return alpha
     if white <= black:
         return (alpha >= black).astype(np.float64)
     scaled = (alpha - black) / (white - black)
     return np.minimum(np.maximum(scaled, 0.0), 1.0)
+
+
+def apply_clean_levels(alpha: FloatArray, black: float, white: float) -> FloatArray:
+    """``(a - black) / (white - black)`` clamped to ``[0, 1]``; a threshold when they meet.
+
+    WHY in place (PX5.4, ``PX5-BUDGETS.md``): at 4K the definition
+    (:func:`apply_clean_levels_dense`) allocates four frame-sized float64 arrays (66 MB each)
+    per frame, and in a running export the cost is the fresh pages, not the arithmetic. The
+    same ufuncs on the same operands in the same order, written into one output array, give
+    the same bits (an elementwise IEEE operation does not depend on where it writes), so only
+    one array is allocated. The input is never written.
+    """
+    if black == 0.0 and white == 1.0:
+        return alpha
+    if white <= black:
+        return (alpha >= black).astype(np.float64)
+    if alpha.dtype != np.float64:
+        return apply_clean_levels_dense(alpha, black, white)
+    scaled: FloatArray = np.subtract(alpha, black)
+    np.divide(scaled, white - black, out=scaled)
+    np.maximum(scaled, 0.0, out=scaled)
+    np.minimum(scaled, 1.0, out=scaled)
+    return scaled
 
 
 # --- Distance feather ---------------------------------------------------------------------
@@ -338,6 +369,23 @@ def _mix(
     return out
 
 
+def _select_band(
+    picture: npt.NDArray[np.uint8],
+    foreground: npt.NDArray[np.uint8],
+    in_band: npt.NDArray[np.bool_],
+) -> npt.NDArray[np.uint8]:
+    """A copy of ``picture`` whose band pixels are ``foreground``'s.
+
+    Flat pixel indices, not ``np.copyto(where=...)``: a masked copy tests every element of the
+    frame (39 ms at 4K here), a gather/scatter of the band's own pixels takes 5 ms.
+    """
+    selected = picture.copy()
+    pixels = np.flatnonzero(in_band)
+    channels = picture.shape[2]
+    selected.reshape(-1, channels)[pixels] = foreground.reshape(-1, channels)[pixels]
+    return selected
+
+
 def decontaminate(
     picture: npt.NDArray[Any],
     alpha_int: npt.NDArray[Any],
@@ -361,7 +409,11 @@ def decontaminate(
     only inside the box that holds the band, and the bytes are the same:
 
     * no resample or crop between the artifact and the frame (the export at source size): the
-      box is taken on the band itself, before anything is converted to float;
+      band weight is exactly 0 or 1 per pixel, and where it is 1 the formula is
+      ``picture + (foreground - picture * 1)``, which is the ``uint8`` foreground exactly
+      (integers below 2**53 are exact in float64). So the result is the picture with the band's
+      own pixels replaced by the foreground: a selection, no float at all (PX5.4). A foreground
+      that is not ``uint8`` takes the box instead, where its values are clipped as defined;
     * otherwise the planes are resampled as before (a resample reads neighbours, so its input
       is not cut) and the box is taken on the resampled weight and colour.
     """
@@ -377,6 +429,8 @@ def decontaminate(
         and (rows, cols) == (slice(0, full_h), slice(0, full_w))
         and (width, height) == (source_w, source_h)
     )
+    if untouched and foreground.dtype == np.uint8 and foreground.shape == picture.shape:
+        return _select_band(picture, foreground, in_band)
     if untouched:
         box = _bounds(in_band)
         if box is None:
