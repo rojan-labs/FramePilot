@@ -258,6 +258,27 @@ refine and delete tools need anyway. No checkmark and no "verified": a mask with
 simply has no count. A project without masks gets its row facts back as the same object, so its
 prompt and cached prefix do not move; the three token-golden suites pass unregenerated.
 
+## The playbook and what it costs (AM4.2, AM4.3)
+
+`packages/ai-sdk/skills/masking-and-compositing.md` is the masking playbook: the tools in the
+order the work uses them, recipes (background removal, title behind a subject, spotlight with
+`refine_mask` `invert`, out-of-vocabulary targets via `needs_click`, hide, identity requests) and
+the review etiquette. It is grounded in what renders: a masked blur, split screen and the MK8
+shape kinds, a track matte, and a title that follows a subject are named as unavailable, and the
+body never recommends `blur_to_hide` or `grade_match_to` (a test pins both). Its description is
+284 of the 300 characters the manifest allows.
+
+A host that cannot offer any of a playbook's tools does not advertise it (`skillsOnOffer`): with
+the kill switch off the agent's manifest drops this skill, and the MCP server's `load_skill`
+never serves it, because every masking tool is `hostUiOnly` there. With nothing unroutable the
+bundled list is returned as the same array.
+
+Measured by the three token-golden regenerations: **+115 tokens** in the skills manifest on every
+agent request where masking is on (1,684 → 1,799), plus 1 token of estimator rounding, so a
+request moves by +115 or +116 (e.g. 12,177 → 12,293). A turn that follows a failed `load_skill`
+lists the skill names and moves by +122. Tool definitions and the `load_tools` index do not move,
+and AM4.1 adds nothing to a project without masks.
+
 ## Kill switch (RD2.1)
 
 `masking/feature-flag.ts`. The same mechanism as the compositor and mask-tools flags: one

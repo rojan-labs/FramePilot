@@ -31,10 +31,12 @@ import {
 } from '@framepilot/editor-core';
 import {
   BUNDLED_SKILLS,
+  TOOL_REGISTRY,
   type ToolContext,
   assembleEdit,
   getTool,
   skillsByName,
+  skillsOnOffer,
   withToolInputContract,
 } from '@framepilot/ai-sdk';
 import { TranscriptWordSchema, type Project } from '@framepilot/timeline-schema';
@@ -53,6 +55,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { resolveWithin } from './safety.js';
 import { servableOverMcp } from './tools.js';
+
+/** The bundled skills an MCP client can act on; see `EditorSession#context`. */
+const MCP_SKILLS = skillsByName(
+  skillsOnOffer(
+    BUNDLED_SKILLS,
+    new Set(TOOL_REGISTRY.filter((tool) => !servableOverMcp(tool)).map((tool) => tool.name)),
+  ),
+);
 
 /** Why a tool call could not be honoured — the tool boundary gate (PRD §8.3). */
 export type SessionErrorCode =
@@ -142,8 +152,10 @@ export class EditorSession {
 
   private context(open: OpenProject): ToolContext {
     // Bundled skills (ADR 0057) so `load_skill` serves the same playbooks over MCP
-    // as it does in the desktop/web orchestrator.
-    return { project: open.project, skills: skillsByName(BUNDLED_SKILLS) };
+    // as it does in the desktop/web orchestrator — less any playbook whose every tool this
+    // surface cannot serve (the masking one: all `hostUiOnly`), which would only send an MCP
+    // client to tools it cannot call.
+    return { project: open.project, skills: MCP_SKILLS };
   }
 
   /** Open a `project.fp.json` (sandbox-checked) and make it the active project. */

@@ -23,8 +23,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   sidebar says how many moments need a look and opens the Inspector's review list. A blur limited
   to a mask, split-screen and shape masks, and a title that follows a tracked subject are not
   available yet, and the assistant says so rather than approximating one. A grade the assistant
-  limits to a mask is the clip's ordinary grade, so the Inspector's sliders change it. Desktop
-  app only. Support can switch the whole feature off with `FRAMEPILOT_AI_MASKING=off` (desktop,
+  limits to a mask is the clip's ordinary grade, so the Inspector's sliders change it. It can
+  also see which clips already have masks and what they do, so it does not mask a clip twice.
+  Desktop app only. Support can switch the whole feature off with `FRAMEPILOT_AI_MASKING=off` (desktop,
   read at runtime) or `VITE_FRAMEPILOT_AI_MASKING=off` (browser build); it is on in development
   and off in packaged releases for now. Off, the assistant is not offered the masking tools in
   any mode, including Cmd+K and suggestions, and masks already in a project are untouched.

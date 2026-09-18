@@ -155,6 +155,23 @@ describe('EditorSession — runTool', () => {
     });
   });
 
+  it('serves no playbook whose every tool this surface cannot serve (AM4.2)', async () => {
+    const { session } = await openSession();
+    const grading = JSON.stringify(session.runTool('load_skill', { name: 'color-grading' }));
+    expect(grading).toContain('Color grading');
+    // Every masking tool is hostUiOnly, so the masking playbook would only point elsewhere.
+    const masking = JSON.stringify(
+      (() => {
+        try {
+          return session.runTool('load_skill', { name: 'masking-and-compositing' });
+        } catch (cause) {
+          return String(cause);
+        }
+      })(),
+    );
+    expect(masking).not.toContain('Masking and compositing');
+  });
+
   it('rejects unknown, unavailable, and invalid-arg tool calls', async () => {
     const { session } = await openSession();
     expect(() => session.runTool('no_such_tool', {})).toThrow(

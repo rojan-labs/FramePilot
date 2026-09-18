@@ -268,7 +268,7 @@ import {
   type ReviewFindingScope,
   type TouchedRegion,
 } from './review-findings.js';
-import { BUNDLED_SKILLS, skillsByName } from './skills.js';
+import { BUNDLED_SKILLS, skillsByName, skillsOnOffer } from './skills.js';
 import { rebaseEditorInteractionContext } from './editor-context/interaction-context.js';
 import { MAX_IDENTITY_KEY_CHARS, boundedKeySegment } from './stable-key.js';
 import type { ToolContext } from './tool-context.js';
@@ -3745,7 +3745,8 @@ export class Orchestrator {
    * {@link ContextInput.skills}.
    */
   private withSkills(input: ContextInput): ContextInput {
-    return input.skills ? input : { ...input, skills: BUNDLED_SKILLS };
+    if (input.skills) return input;
+    return { ...input, skills: skillsOnOffer(BUNDLED_SKILLS, this.unroutableToolNames()) };
   }
 
   /**

@@ -155,3 +155,31 @@ describe('the kill switch on a host with no executor (the browser without a side
     await expect(refused).rejects.toThrow('"delete_mask" is not available here');
   });
 });
+
+/** Records every prompt an agent run sends, and answers each with plain text. */
+class PromptRecorder implements AiProvider {
+  public readonly name = 'mock' as const;
+  public readonly prompts: string[] = [];
+  public async complete(request: AiCompletionRequest): Promise<AiResponse> {
+    this.prompts.push(request.messages.map((message) => message.content).join('\n'));
+    return { text: 'Nothing to change.' };
+  }
+}
+
+describe('the masking playbook follows the switch (AM4.2)', () => {
+  const run = async (disabledTools?: () => readonly string[]): Promise<string> => {
+    const provider = new PromptRecorder();
+    await new Orchestrator(provider, disabledTools ? { disabledTools } : {}).agent({
+      project: makeProject(),
+      userPrompt: 'remove the background of clip_a',
+    });
+    return provider.prompts[0] ?? '';
+  };
+
+  it('is in the skills manifest when the tools are on, and gone when they are off', async () => {
+    expect(await run()).toContain('- masking-and-compositing — ');
+    const off = await run(() => aiMaskingUnroutableTools({ explicit: 'off', development: true }));
+    expect(off).not.toContain('masking-and-compositing');
+    expect(off).toContain('- color-grading — ');
+  });
+});
