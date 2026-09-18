@@ -49,6 +49,7 @@ import numpy as np
 import numpy.typing as npt
 
 from framepilot_engine.media.ffmpeg import find_export_ffmpeg, find_ffprobe
+from framepilot_engine.media.untrusted import bounded_decode_input_options
 from framepilot_engine.render.pts_reader import VideoTiming
 from framepilot_engine.safety import PathTraversalError, resolve_within
 from framepilot_engine.subprocess_safety import validate_safe_argv
@@ -76,6 +77,17 @@ DEFAULT_LRU_FRAMES = 8
 FORWARD_READ_THROUGH = 48
 
 _KEY = re.compile(r"^[0-9a-f]{64}$")
+#: The container every artifact file is written in (plan 04); forced so no other demuxer runs.
+ARTIFACT_CONTAINER = "matroska"
+
+
+def _input_options(path: Path) -> list[str]:
+    """Hardened input options for a file the export did not write (BR4.16, as the frame-hash and
+    monitor-tier decodes): ``file`` protocol only, the media demuxer whitelist, bounded pictures
+    and threads, and Matroska forced for the artifact's own files. A playlist or ffconcat file
+    named ``matte.mkv`` cannot open another file on the engine's behalf."""
+    forced = ARTIFACT_CONTAINER if path.name in {MATTE_FILE, FOREGROUND_FILE} else None
+    return bounded_decode_input_options(forced)
 
 
 class MatteStatus(StrEnum):
@@ -332,6 +344,8 @@ def probe_stream(path: Path) -> StreamInfo:
             "stream=width,height,pix_fmt,nb_read_packets",
             "-of",
             "json",
+            *_input_options(path),
+            "-i",
             str(path),
         ]
     )
@@ -545,6 +559,7 @@ class _RawCursor:
         if seek_seconds is not None:
             argv += ["-ss", repr(seek_seconds)]
         argv += [
+            *_input_options(path),
             "-i",
             str(path),
             "-map",
@@ -671,6 +686,8 @@ def _packet_seconds(path: Path) -> list[float]:
             "packet=pts_time:format=start_time",
             "-of",
             "json",
+            *_input_options(path),
+            "-i",
             str(path),
         ]
     )

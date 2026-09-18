@@ -237,6 +237,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The export reads background-removal mattes as untrusted files.** The files a background
+  removal leaves in the project are written by a Capability Pack, so the export now opens them the
+  way it already opened them for frame checks and the monitor's copy: local files only, Matroska
+  only, a bounded picture size and two decoder threads. A file named `matte.mkv` that is really a
+  list of other files (a concat or playlist file) is refused instead of decoding whatever it names;
+  a real matte exports exactly as before (BR4.16).
+
 - **Variable-frame-rate clips export in the same colours as every other clip.** The export
   decoded phone and screen-recording (variable-frame-rate) clips with whatever ffmpeg was
   installed on the machine, and every other clip with the ffmpeg bundled with the render engine.

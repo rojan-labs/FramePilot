@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Literal
 
 from framepilot_engine.media.ffmpeg import find_ffmpeg, find_ffprobe
-from framepilot_engine.media.untrusted import FORMAT_WHITELIST
+from framepilot_engine.media.untrusted import FORMAT_WHITELIST, bounded_decode_input_options
 from framepilot_engine.render.pts_reader import video_timing
 from framepilot_engine.subprocess_safety import validate_safe_argv
 
@@ -45,10 +45,6 @@ _log = logging.getLogger(__name__)
 MAX_FRAMES_PER_CALL = 256
 #: Per-decode wall-clock bound, seconds (also capped by the request deadline).
 DECODE_TIMEOUT_SECONDS = 120
-#: Largest picture a decoder may allocate (8K x 8K), so a lying header cannot exhaust memory.
-MAX_PIXELS = 8192 * 8192
-#: Decoder and filter threads per ffmpeg call.
-DECODE_THREADS = 2
 #: Largest pts or index accepted (well inside int64 and float precision).
 MAX_ABS_PTS = 2**52
 
@@ -71,18 +67,7 @@ def _pixel_args(pixel_format: PixelFormat) -> list[str]:
 
 def _input_args(path: Path) -> list[str]:
     """Hardened input options for untrusted media; the path is its own argument."""
-    forced = ["-f", "matroska"] if path.name == "matte.mkv" else []
-    return [
-        "-protocol_whitelist",
-        "file",
-        "-format_whitelist",
-        FORMAT_WHITELIST,
-        "-max_pixels",
-        str(MAX_PIXELS),
-        "-threads",
-        str(DECODE_THREADS),
-        *forced,
-    ]
+    return bounded_decode_input_options("matroska" if path.name == "matte.mkv" else None)
 
 
 def _remaining(deadline: float | None) -> float:

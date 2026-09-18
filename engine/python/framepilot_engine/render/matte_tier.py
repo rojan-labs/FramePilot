@@ -63,7 +63,7 @@ import numpy as np
 import numpy.typing as npt
 
 from framepilot_engine.media.ffmpeg import find_export_ffmpeg, find_ffmpeg, find_ffprobe
-from framepilot_engine.media.untrusted import FORMAT_WHITELIST
+from framepilot_engine.media.untrusted import bounded_decode_input_options
 from framepilot_engine.render.mask_raster import FloatArray
 from framepilot_engine.render.masks import mask_scalar_at
 from framepilot_engine.render.matte_edges import clean_levels, resample_taps
@@ -103,10 +103,6 @@ PLANE_ORDER = ("weight", "r", "g", "b")
 PLANE_LAYOUT = "u16-hi-lo-bytes"
 
 
-#: Largest picture a decoder may allocate while a tier is made (8K x 8K; a lying header cannot
-#: exhaust memory), and decoder threads per ffmpeg call (BR4.12 M3, as ``frame_hashes``).
-MAX_PIXELS = 8192 * 8192
-DECODE_THREADS = 2
 #: Wall-clock bound for one probe.
 PROBE_TIMEOUT_SECONDS = 60
 
@@ -131,18 +127,7 @@ def _master_input_args() -> list[str]:
     demuxer whitelist, the Matroska demuxer forced (the contract's container), bounded
     pictures and threads. A playlist or ffconcat file named ``matte.mkv`` cannot open another
     file on the engine's behalf."""
-    return [
-        "-protocol_whitelist",
-        "file",
-        "-format_whitelist",
-        FORMAT_WHITELIST,
-        "-max_pixels",
-        str(MAX_PIXELS),
-        "-threads",
-        str(DECODE_THREADS),
-        "-f",
-        "matroska",
-    ]
+    return bounded_decode_input_options("matroska")
 
 
 def probe_master(path: Path) -> StreamInfo:

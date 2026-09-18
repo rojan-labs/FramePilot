@@ -162,7 +162,7 @@ def test_routes_refuse_without_a_projects_root(tmp_path: Path) -> None:
 
 
 def test_every_decode_is_hardened(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import framepilot_engine.render.frame_hashes as module
+    from framepilot_engine.media import untrusted
 
     matte = _matte(tmp_path, levels=[10, 20])
     seen: list[list[str]] = []
@@ -187,8 +187,8 @@ def test_every_decode_is_hardened(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert decodes
     for argv in decodes:
         joined = " ".join(argv)
-        assert f"-max_pixels {module.MAX_PIXELS}" in joined
-        assert f"-threads {module.DECODE_THREADS}" in joined
+        assert f"-max_pixels {untrusted.MAX_PIXELS}" in joined
+        assert f"-threads {untrusted.DECODE_THREADS}" in joined
         # matte.mkv is always read with the Matroska demuxer, never probed into something else.
         forced = [i for i in range(len(argv) - 1) if argv[i] == "-f" and argv[i + 1] == "matroska"]
         assert forced and forced[0] < argv.index("-i")
