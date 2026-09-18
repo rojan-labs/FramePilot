@@ -292,10 +292,37 @@ void main() { gl_Position = vec4(a_position, 0.0, 1.0); }`;
     gl.uniform1i(gl.getUniformLocation(program, 'u_alpha'), 0);
   });
 
-  const out = new Uint8Array(width * 4);
+  // Read back with the pair this implementation reports, not a guessed one: an R8UI
+  // attachment is only guaranteed to be readable as RGBA_INTEGER/UNSIGNED_BYTE on paper, and
+  // SwiftShader answers GL_INVALID_OPERATION to it (CI run 35297188530). The queried pair is
+  // always accepted, so the harness stops depending on a driver's reading of the spec.
   gl.bindFramebuffer(gl.FRAMEBUFFER, quantised.framebuffer);
-  gl.readPixels(0, 0, width, 1, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, out);
+  while (gl.getError() !== gl.NO_ERROR) {
+    // Drain anything a previous pass left, so the check below is about THIS read.
+  }
+  const format = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT) as number;
+  const type = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE) as number;
+  const components =
+    format === gl.RED_INTEGER || format === gl.RED
+      ? 1
+      : format === gl.RG_INTEGER || format === gl.RG
+        ? 2
+        : format === gl.RGB_INTEGER || format === gl.RGB
+          ? 3
+          : 4;
+  const make = (length: number): Uint8Array | Uint16Array | Uint32Array =>
+    type === gl.UNSIGNED_BYTE
+      ? new Uint8Array(length)
+      : type === gl.UNSIGNED_SHORT
+        ? new Uint16Array(length)
+        : new Uint32Array(length);
+  const out = make(width * components);
+  gl.readPixels(0, 0, width, 1, format, type, out);
   const error = gl.getError();
-  if (error !== gl.NO_ERROR) return { error: `GL error ${String(error)} after read-back` };
-  return { alpha8: Array.from({ length: width }, (_value, index) => out[index * 4]!) };
+  if (error !== gl.NO_ERROR) {
+    return {
+      error: `GL error ${String(error)} reading back as format ${String(format)} type ${String(type)}`,
+    };
+  }
+  return { alpha8: Array.from({ length: width }, (_value, index) => out[index * components]!) };
 }
