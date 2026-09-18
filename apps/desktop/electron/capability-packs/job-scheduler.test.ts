@@ -230,3 +230,21 @@ describe('FileJobJournal', () => {
     expect(await journal.load()).toEqual([]);
   });
 });
+
+describe('slotFree (BR6.11 hover gate)', () => {
+  it('is false while a job holds the slot or an export runs, true otherwise', async () => {
+    const scheduler = new CapabilityPackJobScheduler();
+    expect(scheduler.slotFree()).toBe(true);
+    let release: (() => void) | undefined;
+    const done = scheduler.submit(descriptor('a'), 'focused', () => new Promise<void>((resolve) => (release = resolve)));
+    await vi.waitFor(() => expect(release).toBeDefined());
+    expect(scheduler.slotFree()).toBe(false);
+    release!();
+    await done;
+    expect(scheduler.slotFree()).toBe(true);
+    scheduler.beginExport();
+    expect(scheduler.slotFree()).toBe(false);
+    scheduler.endExport();
+    expect(scheduler.slotFree()).toBe(true);
+  });
+});

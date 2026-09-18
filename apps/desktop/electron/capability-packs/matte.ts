@@ -610,6 +610,26 @@ export class CapabilityPackMatteService {
     };
   }
 
+  /**
+   * The installed, healthy Smart Mask worker, for the interactive warm session (BR6.11): the same
+   * pack resolution a job uses (newest healthy install, minimum version, signed entrypoint
+   * present), so hover never runs a pack a job would refuse.
+   */
+  public async resolveWorker(): Promise<
+    | { readonly status: 'ready'; readonly entrypoint: string; readonly installRoot: string; readonly packVersion: string }
+    | { readonly status: 'blocked'; readonly outcome: MatteRunOutcome }
+  > {
+    const pack = await this.resolvePack();
+    if (pack.status !== 'ready') return pack;
+    const installRoot = resolveInside(this.options.storageRoot, pack.record.installRelativePath);
+    return {
+      status: 'ready',
+      entrypoint: resolveInside(installRoot, ENTRYPOINT[this.options.platform.os]),
+      installRoot,
+      packVersion: pack.record.identity.version,
+    };
+  }
+
   private async resolvePack(): Promise<
     | { readonly status: 'ready'; readonly record: InstalledCapabilityPack }
     | { readonly status: 'blocked'; readonly outcome: MatteRunOutcome }
@@ -1027,7 +1047,8 @@ function lockedPtsOf(prompts: readonly MattePrompt[]): number[] {
   return [...new Set(prompts.flatMap((prompt) => (prompt.kind === 'lock' ? [prompt.pts] : [])))].sort((a, b) => a - b);
 }
 
-function displaySizeOf(asset: Project['assets'][number]): { width: number; height: number } | undefined {
+/** The picture size the monitor shows (pixel aspect and quarter-turn rotation applied). */
+export function displaySizeOf(asset: Project['assets'][number]): { width: number; height: number } | undefined {
   const width = asset.media?.width;
   const height = asset.media?.height;
   if (width == null || height == null) return undefined;

@@ -161,7 +161,8 @@ click. It never proposes a second download on its own.
 ## Production host behaviour (from the audit in [`12`](./12-PARITY-AND-PRODUCTION-AUDIT.md))
 
 **Interactive capability `subject.segment_frame`:** request `{ pts, points?, box?, hoverPoint? }` against
-a warm worker; result `{ maskPng (host-written to a temp inputs file), score }` at preview resolution.
+a warm worker; result `{ maskPng, score }` at preview resolution. (BR6.11: the host decodes the PNG in memory
+with the strict correction reader after checking pts and preview size, and returns pixels; nothing is written.)
 Latency budgets are in `06`. It never writes project state; it only feeds hover highlights and the first
 frame of an AI Object mask.
 

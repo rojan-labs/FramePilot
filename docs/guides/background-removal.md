@@ -51,6 +51,23 @@ is deliberate: hiding a capability teaches you it does not exist.
 - From the keyboard: `O` and `B` choose the tools, arrows move the crosshair, `Enter` keeps,
   `Shift+Enter` leaves out, `Esc` clears.
 
+**Hover highlight (BR6.11).** With **AI Object** armed on desktop and the pack installed, the
+object a click would select is tinted in the accent colour as the pointer moves over it — before
+you click. Nothing is added to the project by hovering; the click is still what picks. The tint
+comes from the pack's `subject.segment_frame`, answered by one warm worker process that keeps the
+segmentation model and the frame's image embedding loaded, so moving over the same frame costs a
+mask decoder call rather than a model load. The first hover on a new frame pays the image encode
+(seconds on the CPU); after that the budget is 100 ms (06). While a background removal, a mask
+track or an export is running, hover shows only the ring where the click lands: the warm model
+never loads beside a job. The worker process ends after a minute without a hover.
+
+What crosses the process boundary, and what the host checks: the renderer sends the asset id, the
+source instant and the pointer as picture fractions — no path. Main resolves the asset from the
+project on disk, the frame's pts from its decoded timing, and the pack as a job would. The
+worker's mask must name that pts and the preview size main computed itself; it is decoded by the
+same strict PNG reader as corrections (size at IHDR, every CRC, no ancillary chunks), and only the
+decoded pixels go back to the renderer. Nothing is written to disk.
+
 **Edges** is Sharp or Smooth. It is the edge treatment on the finished cut-out, not an instruction
 to the pack — the delivered matte is the precise one either way.
 
@@ -144,6 +161,8 @@ rather than paraphrased.
 | The review list (shared with tracking) | `.../masks/MaskReviewPanel.tsx`                                                                       |
 | Brush fixes → the host's PNG           | `.../masks/matteCorrectionPng.ts`                                                                     |
 | AI Object / AI Brush on the monitor    | `apps/web-editor/src/components/preview/MaskCanvasTools.tsx`                                          |
+| Hover highlight                        | `.../preview/useSubjectHover.ts`; host `apps/desktop/electron/capability-packs/segment-frame.ts`       |
+| The warm worker session                | `packages/capability-packs/src/node/warm-worker.ts`                                                   |
 | Export's notice                        | `apps/web-editor/src/editor/matteReview.ts`, `.../ExportDialog.tsx`                                   |
 | The Jobs tab                           | `apps/web-editor/src/components/JobsPanel.tsx` (`JobsRail`), mounted in `.../Editor.tsx`              |
 | Typed operations                       | `packages/editor-core/src/mask-commands.ts` (`add_matte_mask`, `review_matte`, `text_behind_subject`) |
@@ -154,8 +173,8 @@ rather than paraphrased.
 - **The Smart Mask pack is not installable yet.** There is no catalog entry, and its accuracy is
   not at gate (BR3.15). Everything above is built against the host contract and tested with a fake
   pack, exactly as BR4 was.
-- **Hover highlight** shows where a click will land, not a tint on the object under the pointer.
-  Tinting the object needs the pack's per-frame segmentation (`subject.segment_frame`, BR3.13).
+- **Hover highlight** tints only on desktop with the pack installed, and not while a job or export
+  runs; AI Brush still shows its ring only.
 - **No HDR notice.** Nothing in the schema records a clip's transfer function, so there is no
   honest way to know a clip is HDR without a probe field and a migration.
 - **Flag reasons do not survive a reopen.** A flagged range is stored as a time range and nothing

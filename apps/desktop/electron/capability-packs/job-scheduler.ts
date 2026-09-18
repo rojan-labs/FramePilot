@@ -206,6 +206,14 @@ export class CapabilityPackJobScheduler {
     this.pump();
   }
 
+  /**
+   * Nothing holds the inference slot and no export is running (BR6.11): interactive work such as
+   * hover highlight may load its model only then, so it never shares memory with a job.
+   */
+  public slotFree(): boolean {
+    return this.active === undefined && !this.exporting;
+  }
+
   public hasActiveJobs(): boolean {
     return this.entries.some((entry) => !TERMINAL.has(entry.state));
   }

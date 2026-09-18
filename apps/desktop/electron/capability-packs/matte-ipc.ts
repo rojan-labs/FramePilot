@@ -24,6 +24,7 @@ import {
   type MatteProgressWire,
   type MatteRunResultWire,
   type MatteSaveCorrectionResultWire,
+  type MatteSegmentFrameResultWire,
 } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import { IpcChannels } from '../ipc/contract.js';
@@ -37,6 +38,7 @@ import {
   type JobPriority,
 } from './job-scheduler.js';
 import { cleanUnusedMattes, MatteReferenceScanError, matteStorageSummary } from './matte-storage.js';
+import type { CapabilityPackSegmentFrameService } from './segment-frame.js';
 
 const log = createLogger('desktop:capability-packs:matte-ipc');
 
@@ -62,6 +64,10 @@ export interface MatteIpcDependencies {
   readonly referenceFiles?: readonly string[];
   /** One GPU job at a time, priorities, pause during export (BR4.9). Absent → runs directly. */
   readonly scheduler?: CapabilityPackJobScheduler;
+  /** Hover highlight / click preview (BR6.11). Absent → the channel answers `unavailable`. */
+  readonly segmentFrame?: () => Promise<Pick<CapabilityPackSegmentFrameService, 'segment'>>;
+  /** Size and mtime of the project file, so hover re-reads the project only when it changed. */
+  readonly projectStamp?: (projectPath: string) => Promise<string>;
 }
 
 /**
@@ -206,6 +212,27 @@ export function registerMatteIpc(dependencies: MatteIpcDependencies): void {
     if (typeof requestId !== 'string') return;
     dependencies.scheduler?.cancel(requestId);
     void dependencies.matte().then((service) => service.cancel(requestId));
+  });
+
+  // Hover highlight (BR6.11): read-only, answered from the pack's warm worker. The project is
+  // re-read only when its file changed, because a pointer asks several times a second.
+  let hoverProject: { readonly path: string; readonly stamp: string; readonly project: Project } | undefined;
+  ipcMain.handle(IpcChannels.matteSegmentFrame, async (_event, input: unknown): Promise<MatteSegmentFrameResultWire> => {
+    dependencies.requireLicense();
+    if (dependencies.segmentFrame === undefined) {
+      return { ok: false, code: 'unavailable', error: 'Hover highlight is not available in this build.' };
+    }
+    const projectPath = await dependencies.activeProjectPath();
+    if (projectPath === null) return { ok: false, code: 'no_project', error: 'No project is open.' };
+    const stamp = dependencies.projectStamp === undefined ? undefined : await dependencies.projectStamp(projectPath).catch(() => undefined);
+    let project: Project;
+    if (stamp !== undefined && hoverProject?.path === projectPath && hoverProject.stamp === stamp) {
+      project = hoverProject.project;
+    } else {
+      project = await dependencies.readProject(projectPath);
+      hoverProject = stamp === undefined ? undefined : { path: projectPath, stamp, project };
+    }
+    return (await dependencies.segmentFrame()).segment(input, { project, projectRevision: project.timeline.revision ?? 0 });
   });
 
   ipcMain.handle(IpcChannels.matteSaveCorrection, async (_event, input: unknown): Promise<MatteSaveCorrectionResultWire> => {

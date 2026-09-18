@@ -1474,6 +1474,46 @@ export type MatteSaveCorrectionResultWire =
   | { readonly ok: false; readonly code: string; readonly error: string };
 
 /**
+ * Hover highlight / click preview on one frame (BR6.11): what a click at `hoverPoint` would
+ * select, or what `points` select, on the asset's frame at `sourceTime`. Nothing is written.
+ */
+export interface MatteSegmentFrameIntentWire {
+  readonly requestId: string;
+  readonly assetId: string;
+  readonly sourceTime: number;
+  readonly hoverPoint?: { readonly x: number; readonly y: number };
+  readonly points?: readonly {
+    readonly x: number;
+    readonly y: number;
+    readonly label: 'include' | 'exclude';
+  }[];
+  readonly previewHeight?: number;
+}
+
+export type MatteSegmentFrameResultWire =
+  | {
+      readonly ok: true;
+      /** The frame's pts in the source stream (the worker's frame identity). */
+      readonly pts: number;
+      /** Preview-resolution mask, row-major 8-bit coverage (0 = not the object, 255 = object). */
+      readonly width: number;
+      readonly height: number;
+      readonly mask: Uint8Array;
+      /** The segmenter's own confidence, 0–1. */
+      readonly score: number;
+    }
+  | {
+      readonly ok: false;
+      /**
+       * `busy` (a background removal or export holds the model slot), `superseded` (a newer
+       * request replaced this one), `pack_missing`, `invalid_output` (the worker's answer
+       * failed host verification), and the matte job's failure codes.
+       */
+      readonly code: string;
+      readonly error: string;
+    };
+
+/**
  * One matte mask the export would refuse, with the engine's own code, status and remedy
  * sentence (`render/mattes.py` `MATTE_REMEDIES`), so the Inspector and export say the same.
  */
@@ -2073,6 +2113,11 @@ export interface FramePilotBridge {
   onCapabilityPackMatteProgress?(handler: (progress: MatteProgressWire) => void): () => void;
   /** Store a brush fix or locked frame as a project-owned input; returns its reference. */
   matteSaveCorrection?(correction: MatteSaveCorrectionWire): Promise<MatteSaveCorrectionResultWire>;
+  /**
+   * The object a click would select on one frame (hover highlight, BR6.11), from the Smart Mask
+   * pack's warm worker. Read-only; a newer call supersedes an older one still in flight.
+   */
+  matteSegmentFrame?(intent: MatteSegmentFrameIntentWire): Promise<MatteSegmentFrameResultWire>;
   /** Bytes the open project's mattes and corrections use, and which are unreferenced. */
   matteStorage?(request?: {
     readonly protectedKeys?: readonly string[];

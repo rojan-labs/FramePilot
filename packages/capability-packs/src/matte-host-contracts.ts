@@ -99,6 +99,29 @@ export const MatteSaveCorrectionSchema = z
   })
   .strict();
 
+/**
+ * Hover highlight / click preview on one frame (`subject.segment_frame`, BR6.11). Read-only: main
+ * answers with a preview-resolution mask and writes nothing, to the project or to disk. Exactly
+ * one of a hover point (what a click here would select) or include/exclude points.
+ */
+export const MatteSegmentFrameIntentSchema = z
+  .object({
+    /** The renderer's id for this request; a newer hover supersedes an older one in flight. */
+    requestId: MatteJobIdSchema,
+    assetId: z.string().min(1).max(256),
+    /** Asset source seconds of the frame on the monitor. */
+    sourceTime: SourceTimeSchema,
+    hoverPoint: z.object({ x: UnitSchema, y: UnitSchema }).strict().optional(),
+    points: z.array(PointSchema).min(1).max(64).optional(),
+    previewHeight: z.number().int().min(180).max(1080).default(360),
+  })
+  .strict()
+  .refine((intent) => (intent.hoverPoint === undefined) !== (intent.points === undefined), {
+    message: 'segment_frame takes a hover point or points, not both',
+  });
+
+export type MatteSegmentFrameIntent = z.infer<typeof MatteSegmentFrameIntentSchema>;
+
 export const MatteCleanRequestSchema = z
   .object({
     /** Exactly the keys the confirmation dialog listed; anything referenced is still refused. */

@@ -153,6 +153,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   timeline and can be dragged. Copy masks between clips and save them as presets in the project.
   Every edit is one undo.
 
+- **See what a click will pick.** With AI Object on the desktop app, the object under the pointer
+  is tinted before you click, so you know what the click will select. Hovering changes nothing in
+  your project; it pauses while a background removal or export is running.
+
 - **The Edge brush works.** When reviewing a background removal, paint over hair or a blurred edge
   with the **Edge brush** and press **Apply fix**: that band is matted again, so the edge comes back
   soft instead of chewed. It never paints the cut-out itself — only Keep and Remove do that.

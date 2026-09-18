@@ -541,6 +541,60 @@ describe('the AI subject tools', () => {
     expect(store.getState().subjectPoints).toHaveLength(0);
   });
 
+  it('tints the object a click would select, and adds nothing until the click (BR6.11)', async () => {
+    const segment = vi.fn(async (intent: { hoverPoint?: { x: number; y: number } }) => ({
+      ok: true as const,
+      pts: 0,
+      width: 4,
+      height: 2,
+      mask: Uint8Array.from([0, 255, 255, 0, 0, 255, 255, 0]),
+      score: 0.9,
+      point: intent.hoverPoint,
+    }));
+    (bridge as Record<string, unknown>).matteSegmentFrame = segment;
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      createImageData: (width: number, height: number) => ({
+        data: new Uint8ClampedArray(width * height * 4),
+      }),
+      putImageData: () => undefined,
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
+      'data:image/png;base64,AAAA',
+    );
+    try {
+      mount(timeline());
+      await waitFor(() => expect(store.getState().tool).toBe('select'));
+      act(() => store.setTool('ai-object'));
+      await waitFor(() =>
+        expect(screen.getByLabelText('AI Object tool')).not.toHaveProperty('disabled', true),
+      );
+      fireEvent.pointerMove(canvas(), at(960, 540));
+      await waitFor(() => expect(segment).toHaveBeenCalled());
+      // Picture fractions of the pointer, for the clip's asset at the source instant on screen.
+      expect(segment.mock.calls[0]![0]).toMatchObject({
+        assetId: 'a1',
+        sourceTime: 0,
+        hoverPoint: { x: 0.5, y: 0.5 },
+        previewHeight: 360,
+      });
+      const tint = await screen.findByTestId('subject-hover-object');
+      expect(tint.querySelector('image')?.getAttribute('href')).toBe('data:image/png;base64,AAAA');
+      expect(tint.querySelector('rect')?.getAttribute('mask')).toMatch(/^url\(#subject-hover-/u);
+      // Hovering is not editing.
+      expect(historyLength()).toBe(0);
+      expect(store.getState().subjectPoints).toHaveLength(0);
+      fireEvent.pointerLeave(canvas());
+      await waitFor(() => expect(screen.queryByTestId('subject-hover-object')).toBeNull());
+      // AI Brush keeps the ring only: the tint is AI Object's.
+      act(() => store.setTool('ai-brush'));
+      segment.mockClear();
+      fireEvent.pointerMove(canvas(), at(400, 300));
+      expect(segment).not.toHaveBeenCalled();
+    } finally {
+      delete (bridge as Record<string, unknown>).matteSegmentFrame;
+    }
+  });
+
   it('keeps the AI tools in the toolbar, disabled, when the pack is missing', async () => {
     bridge.capabilityPackStatus.mockResolvedValueOnce({
       state: 'missing',

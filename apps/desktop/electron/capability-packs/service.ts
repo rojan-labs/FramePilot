@@ -47,6 +47,7 @@ import { createLogger } from '@framepilot/shared-types';
 import { resolveCapabilityPackStatus } from './capability-status.js';
 import { CapabilityPackMatteService, type MatteAutoPrompt, type MatteJobReport } from './matte.js';
 import type { MatteMediaInspector } from './matte-media-inspector.js';
+import { CapabilityPackSegmentFrameService } from './segment-frame.js';
 import { compareSemver, resolveInside } from './pack-paths.js';
 import { CapabilityPackTrackingService, SUBJECT_PACK_ID } from './tracking.js';
 import { createSubjectDetectAutoPrompt } from './matte-auto-prompt.js';
@@ -129,6 +130,7 @@ export class CapabilityPackDesktopService {
   private relocating = false;
   private trackingService: CapabilityPackTrackingService | undefined;
   private matteService: CapabilityPackMatteService | undefined;
+  private segmentFrameService: CapabilityPackSegmentFrameService | undefined;
   private readonly onStoreChanged: ((event: CapabilityPackInstalledEventWire) => void) | undefined;
   private readonly matteMediaInspector: MatteMediaInspector | undefined;
   private readonly matteObserver: ((report: MatteJobReport) => void) | undefined;
@@ -347,6 +349,26 @@ export class CapabilityPackDesktopService {
         }),
     });
     return this.matteService;
+  }
+
+  /**
+   * Hover highlight / click preview (`subject.segment_frame`, BR6.11) over the same pack
+   * resolution as background removal. `slotFree` is the job scheduler's "nothing heavy is
+   * running" answer, so the warm model never shares memory with a matte job or an export.
+   *
+   * @throws When this build was started without a media inspector.
+   */
+  segmentFrame(slotFree: () => boolean): CapabilityPackSegmentFrameService {
+    const inspector = this.matteMediaInspector;
+    if (inspector === undefined) {
+      throw new Error('Hover highlight needs the app’s media tools; none were configured.');
+    }
+    this.segmentFrameService ??= new CapabilityPackSegmentFrameService({
+      matte: async () => this.matte(),
+      inspector,
+      slotFree,
+    });
+    return this.segmentFrameService;
   }
 
   async propose(capabilityIdInput: unknown): Promise<CapabilityPackProposalResultWire> {

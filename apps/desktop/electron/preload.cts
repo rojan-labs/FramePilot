@@ -81,6 +81,8 @@ import type {
   MatteProgressWire,
   MatteSaveCorrectionWire,
   MatteSaveCorrectionResultWire,
+  MatteSegmentFrameIntentWire,
+  MatteSegmentFrameResultWire,
   MatteStorageResultWire,
   MatteCleanRequestWire,
   MatteCleanResultWire,
@@ -175,6 +177,7 @@ const Channels = {
   capabilityPackCancelMatte: 'framepilot:capability-pack:cancel-matte',
   capabilityPackMatteProgress: 'framepilot:capability-pack:matte-progress',
   matteSaveCorrection: 'framepilot:capability-pack:matte-save-correction',
+  matteSegmentFrame: 'framepilot:capability-pack:matte-segment-frame',
   matteStorage: 'framepilot:capability-pack:matte-storage',
   matteCleanUnused: 'framepilot:capability-pack:matte-clean-unused',
   projectChooseRelinkFile: 'framepilot:project:choose-relink-file',
@@ -279,6 +282,8 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
       Channels.matteSaveCorrection,
       correction,
     ) as Promise<MatteSaveCorrectionResultWire>,
+  matteSegmentFrame: (intent: MatteSegmentFrameIntentWire) =>
+    ipcRenderer.invoke(Channels.matteSegmentFrame, intent) as Promise<MatteSegmentFrameResultWire>,
   matteStorage: (request?: { readonly protectedKeys?: readonly string[] }) =>
     ipcRenderer.invoke(Channels.matteStorage, request ?? {}) as Promise<MatteStorageResultWire>,
   capabilityPackExportDiagnostics: () =>

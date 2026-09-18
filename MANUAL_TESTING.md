@@ -852,6 +852,12 @@ effect (ADR 0113).
   - Expect: the clicks show as dots with a plus or a minus (not colour alone) and add **no** undo
     entries. The estimate line says roughly how long and how much disk. Over ten minutes, it asks
     you to confirm first.
+  - Do: with **AI Object** armed (before pressing Remove background), move the pointer slowly over
+    the subject, then over the background, then pause on one spot.
+  - Expect: the object under the pointer is tinted in the accent colour (the whole object, not a
+    circle), and the tint follows what a click would select; the first hover on a frame can take a
+    few seconds, later ones feel immediate. Hovering adds NO undo entries. With a background
+    removal running, only the small ring shows.
   - Do: while it runs, select another clip, then come back.
   - Expect: the job keeps running; the row reconnects to it rather than starting a second one; the
     timeline shows a striped band over the part not processed yet; the monitor says "Processing

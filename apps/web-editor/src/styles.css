@@ -1280,6 +1280,15 @@ g.mask-canvas-draft circle {
   stroke-width: 1px;
   pointer-events: none;
 }
+/* BR6.11: the object a click would select, tinted through the host's mask (luminance). */
+.mask-canvas-hover-object {
+  fill: var(--accent);
+  opacity: 0.45;
+  pointer-events: none;
+}
+.mask-canvas-hover-object-group {
+  pointer-events: none;
+}
 .mask-canvas-subject-point {
   fill: rgba(59, 130, 246, 0.35);
   stroke: #fff;

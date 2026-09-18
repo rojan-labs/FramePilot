@@ -124,6 +124,7 @@ import {
   monitorPictureSpace,
 } from './mask-monitor-space.js';
 import { maskToolTelemetry } from './mask-tool-telemetry.js';
+import { hoverMaskUrl, useSubjectHover } from './useSubjectHover.js';
 import {
   analyticDrawGeometry,
   analyticGuides,
@@ -441,6 +442,20 @@ export function MaskCanvasTools({
         ? frameMonitorSpace(resolution)
         : monitorPictureSpace(timeline, assets, playhead, resolution, clip.id),
     [onLane, timeline, assets, playhead, resolution, clip.id],
+  );
+  // BR6.11: with AI Object armed, the object a click would select is tinted before the click.
+  // The pack answers from its warm worker; nothing is added to the project until the click.
+  const hoverTarget = useMemo(
+    () =>
+      tools.tool === 'ai-object' && !onLane && !subjectCopy.blocked && space !== null
+        ? { assetId: clip.assetId, sourceTime }
+        : null,
+    [tools.tool, onLane, subjectCopy.blocked, space, clip.assetId, sourceTime],
+  );
+  const subjectHover = useSubjectHover(hoverTarget);
+  const hoverObjectUrl = useMemo(
+    () => (subjectHover.mask === null ? null : hoverMaskUrl(subjectHover.mask)),
+    [subjectHover.mask],
   );
   const masks = useMemo(() => editableMasks(clip, maskSpace), [clip, maskSpace]);
   // Splits, mirror bands and gradients (MK8.1): edited by their own handles, not a box.
@@ -1121,7 +1136,13 @@ export function MaskCanvasTools({
     const active = gesture.current;
     // The AI subject tools show what a click would pick BEFORE the click (BR6.8), so the
     // pointer is tracked even with no gesture in flight.
-    if (tools.tool === 'ai-object' || tools.tool === 'ai-brush') setHover(toSource(event));
+    if (tools.tool === 'ai-object' || tools.tool === 'ai-brush') {
+      const at = toSource(event);
+      setHover(at);
+      if (hoverTarget !== null) {
+        subjectHover.point({ x: at.x / space.sourceWidth, y: at.y / space.sourceHeight });
+      }
+    }
     if (active === null || active.pointerId !== event.pointerId) return;
     // Browsers stamp events on the performance clock; an environment that stamps on another
     // clock (a future value) falls back to handler entry, which under-reports only input delay.
@@ -2070,7 +2091,10 @@ export function MaskCanvasTools({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
-        onPointerLeave={() => setHover(null)}
+        onPointerLeave={() => {
+          setHover(null);
+          subjectHover.point(null);
+        }}
         onWheel={onWheel}
         onKeyDown={onKeyDown}
         onKeyUp={onKeyUp}
@@ -2196,10 +2220,41 @@ export function MaskCanvasTools({
               vectorEffect="non-scaling-stroke"
             />
           ))}
-          {/* BR6.8: what a click would pick, shown before the click. The pack's per-frame
-              segmentation (`subject.segment_frame`) is what would tint the OBJECT under the
-              pointer; until that capability exists the monitor shows where the pick lands,
-              rather than tinting a shape nothing has measured. */}
+          {/* BR6.11: the OBJECT a click would select, from the pack's per-frame segmentation
+              (`subject.segment_frame`), filled with the accent token through the host's mask.
+              Shown only for the frame and clip it was measured on; the ring below still marks
+              where the click lands (and is all AI Brush, or a busy pack, shows). */}
+          {hoverObjectUrl !== null && subjectHover.mask !== null && (
+            <g className="mask-canvas-hover-object-group" data-testid="subject-hover-object">
+              <defs>
+                <mask
+                  id={`subject-hover-${clip.id}`}
+                  maskUnits="userSpaceOnUse"
+                  x={0}
+                  y={0}
+                  width={space.sourceWidth}
+                  height={space.sourceHeight}
+                >
+                  <image
+                    href={hoverObjectUrl}
+                    x={0}
+                    y={0}
+                    width={space.sourceWidth}
+                    height={space.sourceHeight}
+                    preserveAspectRatio="none"
+                  />
+                </mask>
+              </defs>
+              <rect
+                className="mask-canvas-hover-object"
+                x={0}
+                y={0}
+                width={space.sourceWidth}
+                height={space.sourceHeight}
+                mask={`url(#subject-hover-${clip.id})`}
+              />
+            </g>
+          )}
           {(tools.tool === 'ai-object' || tools.tool === 'ai-brush') && hover !== null && (
             <circle
               className="mask-canvas-subject-hover"

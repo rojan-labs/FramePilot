@@ -1304,7 +1304,20 @@ function registerIpcHandlers(): void {
     matte: async () => (await capabilityPackService).matte(),
     activeProjectPath: async () => (await activeProject.current())?.path ?? null,
     readProject: (projectPath: string) => readProjectFile(projectPath),
+    // Hover highlight (BR6.11): the pack's warm worker, only while no job or export holds the slot.
+    segmentFrame: async () =>
+      (await capabilityPackService).segmentFrame(() => packJobScheduler.slotFree()),
+    projectStamp: async (projectPath: string) => {
+      const info = await stat(projectPath);
+      return `${String(info.size)}:${String(info.mtimeMs)}`;
+    },
   };
+  // The warm model is gigabytes: end it with the app, never leave it running.
+  app.on('will-quit', () => {
+    void capabilityPackService
+      .then((service) => service.segmentFrame(() => false).close())
+      .catch(() => undefined);
+  });
   registerMatteIpc(matteIpcDependencies);
   registerMatteStorageIpc(matteIpcDependencies);
   // Opt-in diagnostic bundle: written only where the editor chooses, never uploaded.

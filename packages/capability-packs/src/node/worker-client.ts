@@ -75,7 +75,8 @@ export class CapabilityPackWorkerRuntimeError extends Error {
   }
 }
 
-function defaultLauncher(
+/** Spawn a worker in its own process group with a clean stdio pipe (shared with the warm session). */
+export function defaultLauncher(
   entrypoint: string,
   args: readonly string[],
   env: Readonly<Record<string, string>>,
@@ -90,7 +91,8 @@ function defaultLauncher(
   });
 }
 
-function safeRuntimeEnvironment(
+/** The scrubbed worker environment: launch essentials plus FRAMEPILOT_ extras, nothing else. */
+export function safeRuntimeEnvironment(
   extraEnvironment?: Readonly<Record<string, string>>,
 ): Readonly<Record<string, string>> {
   const base: Record<string, string> = {
@@ -116,7 +118,8 @@ function safeRuntimeEnvironment(
  */
 const MEDIA_FREE_CAPABILITIES: ReadonlySet<string> = new Set(['visual.text']);
 
-async function assertMediaInsideRoot(mediaRoot: string, mediaPath: string): Promise<void> {
+/** Refuse a media path whose real location is outside the approved project root. */
+export async function assertMediaInsideRoot(mediaRoot: string, mediaPath: string): Promise<void> {
   const [root, media] = await Promise.all([realpath(mediaRoot), realpath(mediaPath)]);
   const relative = path.relative(root, media);
   if (relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))) return;
