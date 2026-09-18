@@ -42,7 +42,19 @@ import {
   type StackMask,
   type MatteStackInputs,
 } from '../masks/mask-stack.js';
-import { maskSourceTime } from '@framepilot/editor-core';
+import { maskSourceTime, type FramePlanEdgeStyle } from '@framepilot/editor-core';
+import {
+  EDGE_COLUMN_FRAGMENT,
+  EDGE_COMPOSITE_FRAGMENT,
+  EDGE_KIND_INDEX,
+  EDGE_MAX_STYLES,
+  EDGE_PREVIEW_MAX_REACH,
+  EDGE_ROW_FRAGMENT,
+  edgeDistanceScale,
+  edgeReach,
+  edgeShift,
+  edgeSize,
+} from '../masks/edge-styles.js';
 import {
   MASK_LAYER_FRAGMENT,
   layerMatteUniforms,
@@ -473,6 +485,11 @@ export class LayerCompositor {
     for (const mask of despilling) {
       current = this.despill(current, mask.despill as 'green' | 'blue');
     }
+    // MK9.2: the outline, glow and shadow go under the cut picture, after despill, as
+    // `_apply_edge_styles` draws them. Not in the mask views, which show the stack itself.
+    if (viewMode === 0 && step.edgeStyles.length > 0 && step.mask !== null) {
+      current = this.edgeStyles(current, step, mattes, keyed);
+    }
     for (const half of step.transitions) {
       current = this.transition(current, half);
     }
@@ -888,6 +905,93 @@ export class LayerCompositor {
     // channels with and without the chain (`PX5-BUDGETS.md`), not from this sample.
     this.telemetry?.record(readsPicture ? 'keyStack' : 'matteStack', performance.now() - started);
     return { texture, scale: 1 };
+  }
+
+  /**
+   * The clip's cut-out edge styles under its picture (MK9.2, `render/edge_styles.py`): per style a
+   * row and a column distance pass over the alpha stack's coverage, then one composite. Needs
+   * float targets; without them the picture is shown without its styles and the log says why.
+   */
+  private edgeStyles(
+    picture: RenderTarget,
+    step: PictureRasterStep,
+    mattes: MatteStackInputs | null,
+    keyed: RenderTarget,
+  ): RenderTarget {
+    const stack = step.mask!.stack;
+    if (stack.size === null || !this.floatTargetsAvailable()) return picture;
+    const { width, height } = picture;
+    const coverage = this.stackCoverage(
+      stack,
+      { kind: 'alpha' },
+      width,
+      height,
+      step.mask!.clipTime,
+      mattes,
+      keyed,
+    );
+    if (coverage === null) return picture;
+    const scale = edgeDistanceScale(stack.clip.crop, stack.size, width, height);
+    const r = this.resources;
+    const gl = this.gl;
+    const drawn: { style: FramePlanEdgeStyle; distance: RenderTarget }[] = [];
+    for (const style of step.edgeStyles.slice(0, EDGE_MAX_STYLES)) {
+      const reach = edgeReach(style, scale);
+      if (reach > EDGE_PREVIEW_MAX_REACH) {
+        log.warn('edge style too wide for the monitor; the export still draws it', {
+          clipId: stack.clip.id,
+          kind: style.kind,
+        });
+        continue;
+      }
+      const [dx, dy] = edgeShift(style, scale);
+      const row = r.target(width, height, 'r32f');
+      const rowProgram = r.program('edge-row', EDGE_ROW_FRAGMENT);
+      gl.useProgram(rowProgram.handle);
+      r.bind(rowProgram, 'u_mask', 0, coverage.texture);
+      gl.uniform1f(rowProgram.location('u_maskScale'), coverage.scale);
+      rowProgram.ivec2('u_shift', dx, dy);
+      rowProgram.int('u_reach', reach);
+      r.draw(row, width, height);
+      const column = r.target(width, height, 'r32f');
+      const columnProgram = r.program('edge-column', EDGE_COLUMN_FRAGMENT);
+      gl.useProgram(columnProgram.handle);
+      r.bind(columnProgram, 'u_row', 0, row.texture);
+      columnProgram.int('u_reach', reach);
+      r.draw(column, width, height);
+      drawn.push({ style, distance: column });
+    }
+    if (drawn.length === 0) return picture;
+    const out = r.target(width, height, 'rgba8');
+    const program = r.program('edge-composite', EDGE_COMPOSITE_FRAGMENT);
+    gl.useProgram(program.handle);
+    r.bind(program, 'u_picture', 0, picture.texture);
+    const kinds = [0, 0, 0];
+    const sizes = [0, 0, 0];
+    const opacities = [0, 0, 0];
+    drawn.forEach(({ style, distance }, index) => {
+      r.bind(program, `u_distance${String(index)}`, 1 + index, distance.texture);
+      kinds[index] = EDGE_KIND_INDEX[style.kind];
+      sizes[index] = edgeSize(style, scale);
+      opacities[index] = style.params.opacity ?? 1;
+      gl.uniform3f(
+        program.location(`u_colour${String(index)}`),
+        (style.params.red ?? 0) / 255,
+        (style.params.green ?? 0) / 255,
+        (style.params.blue ?? 0) / 255,
+      );
+    });
+    // Unused samplers still need a texture of the right kind bound.
+    for (let index = drawn.length; index < EDGE_MAX_STYLES; index += 1) {
+      r.bind(program, `u_distance${String(index)}`, 1 + index, drawn[0]!.distance.texture);
+    }
+    program.int('u_count', drawn.length);
+    gl.uniform3i(program.location('u_kind'), kinds[0]!, kinds[1]!, kinds[2]!);
+    gl.uniform3f(program.location('u_size'), sizes[0]!, sizes[1]!, sizes[2]!);
+    gl.uniform3f(program.location('u_opacity'), opacities[0]!, opacities[1]!, opacities[2]!);
+    gl.uniform1f(program.location('u_clipOpacity'), step.opacity ?? 1);
+    r.draw(out, width, height);
+    return out;
   }
 
   /**

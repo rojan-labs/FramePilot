@@ -40,6 +40,7 @@ const ACTION_LABELS: Record<string, string> = {
   set_clip_speed: 'Changed clip speed',
   set_clip_crop: 'Reframed clip',
   set_clip_blend_mode: 'Changed blend mode',
+  set_clip_edge_style: 'Styled the cut-out edge',
   set_transcript: 'Updated transcript',
   add_marker: 'Added marker',
   remove_marker: 'Removed marker',

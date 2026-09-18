@@ -36,6 +36,7 @@ import type {
   BlendMode,
   CaptionStyle,
   CropRect,
+  EdgeStyleKind,
   EffectLayer,
   Marker,
   SpeedPoint,
@@ -3141,6 +3142,29 @@ export function setClipBlendModePatch(
       ? `Set blend mode on "${clipId}" to ${blendMode}`
       : `Reset blend mode on "${clipId}"`,
     operations: [{ type: 'set_clip_blend_mode', clipId, blendMode }],
+  };
+}
+
+/**
+ * Set, edit or remove (`params: null`) one cut-out edge style on a clip (MK9.2): the outline,
+ * glow or shadow drawn around its alpha mask stack. Returns `null` when the clip is missing.
+ * One `set_clip_edge_style` operation, the same one the assistant compiles.
+ */
+export function setClipEdgeStylePatch(
+  timeline: Timeline,
+  clipId: string,
+  kind: EdgeStyleKind,
+  params: Readonly<Record<string, number>> | null,
+): Patch | null {
+  const found = findClip(timeline, clipId);
+  if (!found) return null;
+  const label = kind === 'stroke' ? 'outline' : kind;
+  return {
+    patchId: patchId(`edge_${clipId}_${kind}_${params === null ? 'off' : JSON.stringify(params)}`),
+    createdBy: 'user',
+    reason:
+      params === null ? `Remove the ${label} from "${clipId}"` : `Set the ${label} on "${clipId}"`,
+    operations: [{ type: 'set_clip_edge_style', clipId, kind, params }],
   };
 }
 

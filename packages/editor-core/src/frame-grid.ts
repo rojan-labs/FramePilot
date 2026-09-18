@@ -280,6 +280,7 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
     case 'restore_folders':
     case 'set_ai_memory':
     case 'set_effect_params':
+    case 'set_clip_edge_style':
     case 'set_track_flags':
     case 'set_track_caption_style':
     case 'set_caption_style':

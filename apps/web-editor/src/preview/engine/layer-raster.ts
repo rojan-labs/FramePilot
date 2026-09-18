@@ -11,7 +11,11 @@
  *
  * Pure: no GL, no decoding. `layer-compositor.ts` executes the steps.
  */
-import { readAlignment, type FramePlanLayer } from '@framepilot/editor-core';
+import {
+  readAlignment,
+  type FramePlanEdgeStyle,
+  type FramePlanLayer,
+} from '@framepilot/editor-core';
 import type { Asset, Clip } from '@framepilot/timeline-schema';
 import {
   affectsWipe,
@@ -106,6 +110,11 @@ export interface PictureRasterStep {
   readonly blendMode: string;
   /** Per-clip picture effects in export order (`color_grade`, then `lut`). */
   readonly effects: FramePlanLayer['effects'];
+  /**
+   * MK9.2: the clip's cut-out edge styles, bottom first, drawn under the picture after its alpha
+   * stack is attached (`_apply_edge_styles`). Empty unless the clip cuts its alpha.
+   */
+  readonly edgeStyles: readonly FramePlanEdgeStyle[];
 }
 
 export interface LayerMaskStack {
@@ -405,6 +414,7 @@ export function pictureRasterStep(
     y,
     blendMode: layer.blendMode,
     effects: layer.effects,
+    edgeStyles: alphaStack ? (layer.edgeStyles ?? []) : [],
   };
 }
 
@@ -485,5 +495,6 @@ export function textRasterStep(
     y,
     blendMode: layer.blendMode,
     effects: [],
+    edgeStyles: [],
   };
 }

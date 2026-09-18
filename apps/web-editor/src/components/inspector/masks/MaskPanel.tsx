@@ -19,6 +19,7 @@ import {
 } from '../../../editor/mask-editing.js';
 import { Circle, ICON_SIZE, Pencil, PenTool, Square } from '../../icons.js';
 import { BackgroundRemovalRow } from './BackgroundRemovalRow.js';
+import { EdgeStylePanel } from './EdgeStylePanel.js';
 import { MaskList, maskDisplayName } from './MaskList.js';
 import { MaskReviewPanel } from './MaskReviewPanel.js';
 import { MaskPresets } from './MaskPresets.js';
@@ -171,6 +172,8 @@ export function MaskPanel({ editor, clip, store = maskToolStore }: MaskPanelProp
           Duplicate mask
         </button>
       </div>
+      {/* MK9.2: the outline, glow and shadow around what the stack keeps. */}
+      <EdgeStylePanel editor={editor} clip={clip} />
       <MaskPresets
         presets={editor.state.timeline.maskPresets ?? []}
         canSave={selected !== null}

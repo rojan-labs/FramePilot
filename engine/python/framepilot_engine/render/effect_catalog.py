@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
 from importlib import resources
 from typing import Any
@@ -33,8 +33,11 @@ from typing import Any
 __all__ = [
     "CatalogEffect",
     "EffectParam",
+    "clamp_edge_style_params",
     "clamp_params",
     "default_params",
+    "edge_style_kinds",
+    "edge_style_params_issue",
     "get_effect",
     "known_kinds",
     "load_catalog",
@@ -83,6 +86,9 @@ class EffectCatalog:
     params: dict[str, tuple[EffectParam, ...]]
     effects: dict[str, CatalogEffect]
     categories: tuple[str, ...]
+    #: MK9.2: cut-out edge style kinds (bottom-to-top stacking order) and their params.
+    edge_kinds: tuple[str, ...] = ()
+    edge_params: dict[str, tuple[EffectParam, ...]] = field(default_factory=dict)
 
 
 def _param(raw: dict[str, Any]) -> EffectParam:
@@ -118,12 +124,16 @@ def load_catalog() -> EffectCatalog:
     """Load and cache the committed catalog artifact."""
     source = resources.files("framepilot_engine.render").joinpath("effect_catalog.json")
     raw = json.loads(source.read_text(encoding="utf-8"))
+    edge = raw.get("edgeStyles") or {}
     return EffectCatalog(
-        params={
-            kind: tuple(_param(p) for p in params) for kind, params in raw["params"].items()
-        },
+        params={kind: tuple(_param(p) for p in params) for kind, params in raw["params"].items()},
         effects={entry["id"]: _effect(entry) for entry in raw["effects"]},
         categories=tuple(category["id"] for category in raw["categories"]),
+        edge_kinds=tuple(edge.get("kinds") or ()),
+        edge_params={
+            kind: tuple(_param(p) for p in params)
+            for kind, params in (edge.get("params") or {}).items()
+        },
     )
 
 
@@ -184,3 +194,54 @@ def resolve_params(effect_id: str) -> dict[str, float]:
     if entry is None:
         return {}
     return {**default_params(entry.kind), **entry.params}
+
+
+# ---------------------------------------------------------------------------
+# Cut-out edge styles (MK9.2)
+# ---------------------------------------------------------------------------
+
+
+def edge_style_kinds() -> tuple[str, ...]:
+    """The edge style kinds, in the order they stack from the bottom up."""
+    return load_catalog().edge_kinds
+
+
+def clamp_edge_style_params(kind: str, params: dict[str, Any] | None) -> dict[str, float]:
+    """Merge ``params`` over an edge style kind's defaults, clamped (``clampEdgeStyleParams``)."""
+    descriptors = load_catalog().edge_params.get(kind, ())
+    out = {descriptor.name: descriptor.default for descriptor in descriptors}
+    for descriptor in descriptors:
+        raw = (params or {}).get(descriptor.name)
+        if isinstance(raw, bool) or not isinstance(raw, int | float) or math.isnan(raw):
+            continue
+        out[descriptor.name] = descriptor.clamp(float(raw))
+    return out
+
+
+def edge_style_params_issue(params: Any) -> str | None:
+    """Why stored edge style params are invalid, or ``None`` (TS ``edgeStyleParamsIssue``)."""
+    kinds = load_catalog().edge_kinds
+    if not isinstance(params, dict) or params.get("kind") not in kinds:
+        return (
+            "An edge style needs a kind (stroke, glow or shadow) and numeric settings. "
+            "Pick the style again."
+        )
+    declared = {d.name: d for d in load_catalog().edge_params.get(str(params["kind"]), ())}
+    for name, value in params.items():
+        if name == "kind":
+            continue
+        numeric = isinstance(value, int | float) and not isinstance(value, bool)
+        if not numeric or not math.isfinite(value):
+            return (
+                "An edge style needs a kind (stroke, glow or shadow) and numeric settings. "
+                "Pick the style again."
+            )
+        descriptor = declared.get(name)
+        if descriptor is None:
+            return f'An edge style has a setting "{name}" its kind does not use. Remove it.'
+        if value < descriptor.min or value > descriptor.max:
+            return (
+                f"An edge style's {descriptor.label.lower()} is outside its range. "
+                "Set it within the slider's range."
+            )
+    return None

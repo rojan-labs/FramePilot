@@ -2710,6 +2710,55 @@ def test_a_frame_space_clip_mask_stays_fixed_on_the_frame(
 
 
 @pytest.mark.usefixtures("require_ffprobe")
+def test_an_edge_style_outlines_the_cut_out_under_the_picture(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """MK9.2: a white outline traces the ellipse the stack keeps, outside it, over nothing.
+
+    The 320x240 picture fills the 1080-wide frame at 3.375x. The ellipse keeps source x 60..260
+    on the centre row; a 10 px outline therefore shows around source x 265 (frame ~894), the
+    subject stays red inside, and past the outline the frame is the empty background.
+    """
+    src = media_factory("r.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
+    (tmp_project_dir / "r.mp4").write_bytes(src.read_bytes())
+    clip = _clip("c1", "v", 0, 1, asset="a1")
+    clip["masks"] = [{"kind": "ellipse", "id": "e", "cx": 160, "cy": 120, "rx": 100, "ry": 80}]
+    clip["effects"] = [
+        {"id": "c1__edge_stroke", "type": "edge_style", "params": {"kind": "stroke", "widthPx": 10}}
+    ]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [clip]}],
+        assets=[
+            {"id": "a1", "path": "r.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
+        ],
+    )
+    composition = compile_timeline(project, _index(project, tmp_project_dir), REELS)
+    frame = np.asarray(composition.get_frame(0.5), dtype=np.int16)
+    assert frame[960, 540, 0] > 200 and frame[960, 540, 1] < 60, "the subject stays red"
+    assert frame[960, 894].min() > 200, "the outline is white just outside the ellipse"
+    assert frame[960, 1000].max() < 24, "past the outline there is nothing"
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_compile_refuses_a_malformed_edge_style(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    src = media_factory("r.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
+    (tmp_project_dir / "r.mp4").write_bytes(src.read_bytes())
+    clip = _clip("c1", "v", 0, 1, asset="a1")
+    clip["masks"] = [{"kind": "ellipse", "id": "e", "cx": 160, "cy": 120, "rx": 100, "ry": 80}]
+    clip["effects"] = [{"id": "x", "type": "edge_style", "params": {"kind": "glow", "widthPx": 3}}]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [clip]}],
+        assets=[
+            {"id": "a1", "path": "r.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
+        ],
+    )
+    with pytest.raises(CompileError, match="does not use"):
+        compile_timeline(project, _index(project, tmp_project_dir), REELS)
+
+
+@pytest.mark.usefixtures("require_ffprobe")
 def test_a_key_mask_cuts_the_backing_out_of_the_picture(
     tmp_project_dir: Path, media_factory: Callable[..., Path]
 ) -> None:

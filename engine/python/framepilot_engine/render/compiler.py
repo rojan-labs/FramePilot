@@ -114,6 +114,12 @@ from framepilot_engine.render.color import (
     color_grade_from_params,
     parse_cube_lut,
 )
+from framepilot_engine.render.edge_styles import (
+    EdgeStyleRefusal,
+    apply_edge_styles,
+    clip_edge_styles,
+    edge_distance_scale,
+)
 from framepilot_engine.render.frame_effects import apply_effect_layers
 from framepilot_engine.render.frame_masks import layer_mask_stack
 from framepilot_engine.render.frame_plan import (
@@ -882,6 +888,89 @@ def _apply_key_despill(source: VideoClip, stacks: ClipMaskStacks | None) -> Vide
     return source.transform(cleaned, keep_duration=True)
 
 
+def _refuse_unrenderable_edge_styles(clip: Clip, media_size: tuple[float, float] | None) -> None:
+    """Refuse a malformed edge style, or one whose lengths cannot be scaled (MK9.2)."""
+    try:
+        styles = clip_edge_styles(clip)
+    except EdgeStyleRefusal as exc:
+        raise CompileError(str(exc)) from exc
+    if styles and media_size is None:
+        raise CompileError(
+            f"Edge styles on clip {clip.id!r} are sized in source pixels but the media size is "
+            "unknown. Measure this media first."
+        )
+
+
+def _apply_edge_styles(
+    source: VideoClip,
+    clip: Clip,
+    stacks: ClipMaskStacks | None,
+    media_size: tuple[float, float] | None,
+    transition: transitions.Transition | None,
+) -> VideoClip:
+    """Draw the clip's cut-out edge styles (outline, glow, shadow) under its picture (MK9.2).
+
+    After the stack is attached and despilled: the styles read the alpha-target stack (the
+    cut-out) and the picture goes over them, so the picture keeps every pixel it had. A static
+    stack is evaluated once and reused.
+    """
+    styles = clip_edge_styles(clip)
+    if not styles or stacks is None or not stacks.alpha or media_size is None:
+        return source
+    width, height = source.size
+    scale = edge_distance_scale(clip, media_size, width, height)
+    existing_mask = source.mask
+    keyed = stacks.alpha_needs_picture
+    memo: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    # The cut-out is reused when the stack does not move; opacity is read per instant anyway.
+    static = not stacks.alpha_animated
+    static_cut: list[Any] = []
+
+    def evaluate(t: float, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        key = round(t * 1_000_000)
+        hit = memo.get(key)
+        if hit is not None:
+            return hit
+        alpha = (
+            np.ones((height, width), dtype=np.float64)
+            if existing_mask is None
+            else np.asarray(existing_mask.get_frame(t), dtype=np.float64)
+        )
+        if static and static_cut:
+            cut = static_cut[0]
+        else:
+            picture = (lambda: source.get_frame(t)) if keyed else None
+            cut = stacks.alpha_at(t, width, height, picture)
+            if static:
+                static_cut.append(cut)
+        result = apply_edge_styles(
+            np.asarray(frame, dtype=np.uint8),
+            alpha,
+            cut,
+            styles,
+            scale,
+            layer_opacity_at(clip, t, transition),
+        )
+        if len(memo) > 2:
+            memo.clear()
+        memo[key] = result
+        return result
+
+    def picture_at(get_frame: Callable[[float], np.ndarray], t: float) -> np.ndarray:
+        return evaluate(t, get_frame(t))[0]
+
+    styled = source.transform(picture_at, keep_duration=True)
+
+    def alpha_at(t: float) -> Any:
+        return evaluate(t, source.get_frame(t))[1]
+
+    from moviepy import VideoClip as _VideoClip
+
+    mask = _VideoClip(frame_function=alpha_at, is_mask=True).with_duration(source.duration)
+    _log.debug("edge styles on clip %s: %s", clip.id, ",".join(style.kind for style in styles))
+    return styled.with_mask(mask)
+
+
 def _refuse_unrenderable_masks(
     project: Project, base_dir: Path | None = None
 ) -> tuple[PreparedMattes, PreparedTracks]:
@@ -913,6 +1002,7 @@ def _refuse_unrenderable_masks(
             # Only video clips draw their stack (stills are placed without crop or mask).
             if clip.masks and kinds.get(clip.asset_id) == "video":
                 _clip_mask_stacks(clip, _asset_media_size(project, clip))
+                _refuse_unrenderable_edge_styles(clip, _asset_media_size(project, clip))
                 if base_dir is not None:
                     matte = _prepare_clip_mattes(project, clip, base_dir)
                     if matte:
@@ -1412,6 +1502,9 @@ def compile_timeline(
                             source, clip, transition, _asset_media_size(project, clip), stacks
                         )
                         source = _apply_key_despill(source, stacks)
+                        source = _apply_edge_styles(
+                            source, clip, stacks, _asset_media_size(project, clip), transition
+                        )
                         source = _apply_catalog_transition(source, clip, use_legacy)
                         placed = _place_video_clip(source, clip, target, transition)
                         # UNDER-LAYERS FIRST: a transition reveals the shot on the other side

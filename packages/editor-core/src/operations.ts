@@ -56,15 +56,15 @@ import {
   CaptionCueSchema,
   CaptionStyleSchema,
   CropRectSchema,
+  EDGE_STYLE_EFFECT_TYPE,
   EffectLayerSchema,
   SpeedPointSchema,
+  clampEdgeStyleParams,
+  edgeStyleParamsIssue,
   effectLayersOf,
+  type EdgeStyleKind,
 } from '@framepilot/timeline-schema';
-import {
-  applyMaskOperation,
-  invertMaskOperation,
-  type MaskOperation,
-} from './mask-operations.js';
+import { applyMaskOperation, invertMaskOperation, type MaskOperation } from './mask-operations.js';
 import {
   INVERSION_STEPS,
   clipTimelineDuration,
@@ -511,6 +511,21 @@ export interface SetClipBlendModeOp {
 }
 
 /**
+ * Set, replace or remove one cut-out edge style on a clip (MK9.2): an outline, outer glow or
+ * drop shadow drawn around the clip's alpha-target mask stack. A clip carries at most one style
+ * of each kind, stored as the `edge_style` effect `${clipId}__edge_${kind}`, so setting a kind
+ * again edits that style in place instead of stacking a second one. `params: null` removes it;
+ * missing settings take the kind's defaults. The inverse is the track snapshot, like
+ * `set_effect_params`.
+ */
+export interface SetClipEdgeStyleOp {
+  readonly type: 'set_clip_edge_style';
+  readonly clipId: string;
+  readonly kind: EdgeStyleKind;
+  readonly params: Readonly<Record<string, number>> | null;
+}
+
+/**
  * Set a track's editing/render flags (schema v4). Only the provided fields
  * change; omitted fields are left as-is. Operates on track metadata, not clips,
  * so its inverse is a same-shape `set_track_flags` carrying the prior values.
@@ -749,6 +764,7 @@ export type Operation =
   | SetClipSpeedRampOp
   | SetClipCropOp
   | SetClipBlendModeOp
+  | SetClipEdgeStyleOp
   | AddLayerOp
   | RemoveLayerOp
   | MoveLayerOp
@@ -1097,6 +1113,8 @@ function applyOperationInner(
       return applyColorGrade(timeline, op);
     case 'set_effect_params':
       return applySetEffectParams(timeline, op);
+    case 'set_clip_edge_style':
+      return applySetClipEdgeStyle(timeline, op);
     case 'adjust_audio':
       return applyAdjustAudio(timeline, op);
     case 'add_transition':
@@ -1951,7 +1969,11 @@ function truncateClip(
   const extendsTail = plainEnd > available + EPSILON;
   const extendsHead = headSource < -EPSILON;
   const endSource =
-    solveRamp && hasSpeedRamp(clip) && !extendsTail && !extendsHead && plainEnd < available - EPSILON
+    solveRamp &&
+    hasSpeedRamp(clip) &&
+    !extendsTail &&
+    !extendsHead &&
+    plainEnd < available - EPSILON
       ? solveEndSource(clip, headSource, duration)
       : plainEnd;
   // A HEAD trim has no room to grow the tail: `endSource` is already the end of the
@@ -2228,6 +2250,36 @@ function applySetEffectParams(timeline: Timeline, op: SetEffectParamsOp): Timeli
   }
   const effects = loc.clip.effects.slice();
   effects[index] = { ...clone(existing), params: mergedParams };
+  return replaceClipAt(timeline, loc, { ...loc.clip, effects });
+}
+
+/** The id a clip's edge style of one kind is stored under (one per kind). */
+export const edgeStyleEffectId = (clipId: string, kind: EdgeStyleKind): string =>
+  `${clipId}__edge_${kind}`;
+
+function applySetClipEdgeStyle(timeline: Timeline, op: SetClipEdgeStyleOp): Timeline {
+  const loc = findClip(timeline, op.clipId);
+  const isThisKind = (effect: Effect): boolean =>
+    effect.type === EDGE_STYLE_EFFECT_TYPE && effect.params.kind === op.kind;
+  const at = loc.clip.effects.findIndex(isThisKind);
+  const effects = loc.clip.effects.filter((effect) => !isThisKind(effect));
+  if (op.params !== null) {
+    const issue = edgeStyleParamsIssue({ ...op.params, kind: op.kind });
+    if (issue !== null) throw new OperationError('invalid_style', issue);
+    const style: Effect = {
+      id: edgeStyleEffectId(op.clipId, op.kind),
+      type: EDGE_STYLE_EFFECT_TYPE,
+      params: { kind: op.kind, ...clampEdgeStyleParams(op.kind, op.params) },
+      keyframes: [],
+    };
+    // Edited in place keeps the effect's position; a new style goes last.
+    effects.splice(at === -1 ? effects.length : at, 0, style);
+  } else if (at === -1) {
+    throw new OperationError(
+      'missing_effect',
+      `Clip ${op.clipId} has no ${op.kind} edge style to remove. Read the clip's effects first.`,
+    );
+  }
   return replaceClipAt(timeline, loc, { ...loc.clip, effects });
 }
 
@@ -3100,6 +3152,7 @@ export function invertOperation(
     case 'remove_keyframes':
     case 'apply_color_grade':
     case 'set_effect_params':
+    case 'set_clip_edge_style':
     case 'adjust_audio':
     case 'track_object':
       return [restoreFor(findClip(timelineBefore, op.clipId).track)];

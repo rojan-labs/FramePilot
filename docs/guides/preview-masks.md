@@ -56,6 +56,28 @@ is float64-exact with the engine (`frame-clips.json`); the compositor caches the
 placement, so a still clip under a static frame mask is drawn once. The legacy canvas and DOM
 monitors do not know where the picture lands and draw such a stack uncut.
 
+## Edge styles: outline, glow and shadow (MK9.2)
+
+The Mask tab's **Edge style** section (shown once a mask cuts the clip) adds an outline, an outer
+glow and a drop shadow around what the alpha stack keeps: a background removal, a drawn shape, a
+key. Each is a clip effect of type `edge_style` (`set_clip_edge_style`, one per kind) from the
+effect catalog's `edgeStyles` section; lengths are source pixels scaled like a mask's.
+
+| Piece                                   | Monitor                          | Export                           |
+| --------------------------------------- | -------------------------------- | -------------------------------- |
+| Rule, CPU twin (float64, byte-exact)    | `preview/masks/edge-styles.ts`   | `render/edge_styles.py`          |
+| Distance and composite passes (float32) | `layer-compositor.ts#edgeStyles` | `compiler.py#_apply_edge_styles` |
+
+The cut-out is the stack alpha ≥ ½. `d` is the exact Euclidean distance to it, bounded by the
+style's reach: a row pass finds the nearest cut-out column, a column pass takes
+`min g² + dy²`, all integers until one `sqrt`, so the GPU passes find the same distances as the
+engine. Stroke alpha is `clamp(w + 0.5 − d, 0, 1)`; glow and shadow `(1 − t)²` with
+`t = d / (r + 1)`, the shadow measured from the cut-out moved by its whole-pixel offset (round half
+to even). Shadow, glow and stroke stack bottom to top, times the clip's opacity, and the picture is
+composited over them after despill, before any transition. The styles draw inside the picture's
+raster, so a glow reaching past the picture's edge is clipped there. They need float targets on
+the monitor; without them the picture is shown without its styles.
+
 ## Split, mirror band and gradient (MK8.1)
 
 The analytic kinds are a distance to a line or a centre, so they need no path, no flattening and

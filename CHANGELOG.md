@@ -8,6 +8,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Outlines, glows and shadows for cut-outs.** Once a clip is cut out (background removal, a
+  drawn shape or a key), the Mask tab's new **Edge style** section adds a CapCut-style outline, an
+  outer glow or a drop shadow around the subject: pick a preset (White Outline, Sticker, Neon Glow,
+  Drop Shadow…) or set the width, colour, offset and softness yourself. The export draws exactly
+  what the monitor shows, and each change is one undo step.
 - **Masks on adjustment layers, and masks fixed to the frame.** Select an adjustment layer and
   open its new **Mask** tab to draw a rectangle, ellipse, pen or freehand path, split, mirror band
   or gradient on the monitor: the effect then applies only inside it (blur a face, grade the sky),

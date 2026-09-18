@@ -168,6 +168,7 @@ const SUPPORTED_OPERATIONS: ReadonlySet<OperationType> = new Set<OperationType>(
   'set_clip_speed_ramp',
   'set_clip_crop',
   'set_clip_blend_mode',
+  'set_clip_edge_style',
   'add_layer',
   'remove_layer',
   'move_layer',

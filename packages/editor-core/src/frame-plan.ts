@@ -18,8 +18,13 @@
  * integer rounding of resized frames are pixel concerns for the PX4 oracle, not the plan.
  */
 import {
+  EDGE_STYLE_EFFECT_TYPE,
+  EDGE_STYLE_KINDS,
   activeEffectLayersAt,
+  clampEdgeStyleParams,
+  edgeStyleParamsIssue,
   type Asset,
+  type EdgeStyleKind,
   type Clip,
   type Effect,
   type EffectLayer,
@@ -118,6 +123,17 @@ export interface FramePlanLayer {
    * matte). Present only when true, so plans without a track matte are unchanged.
    */
   readonly matteOnly?: true;
+  /**
+   * MK9.2: the clip's cut-out edge styles (outline, glow, shadow), bottom first, with clamped
+   * params. Present only when the clip has one, so plans without edge styles are unchanged.
+   */
+  readonly edgeStyles?: readonly FramePlanEdgeStyle[];
+}
+
+/** One cut-out edge style as the renderers read it (`render/edge_styles.py`). */
+export interface FramePlanEdgeStyle {
+  readonly kind: EdgeStyleKind;
+  readonly params: Readonly<Record<string, number>>;
 }
 
 export interface FramePlanMaskLayer {
@@ -866,7 +882,28 @@ function videoLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer {
     effects: effectsJson(clip),
     mask: maskPlan(clip, local, frame),
     transitions: transitionStates(clip, local),
+    ...edgeStylesPlan(clip),
   };
+}
+
+/**
+ * `_edge_styles_json`: the first edge style of each kind, bottom first, params clamped. A
+ * malformed one is left out here (the validator and the export refuse it).
+ */
+function edgeStylesPlan(clip: Clip): { edgeStyles?: readonly FramePlanEdgeStyle[] } {
+  const byKind = new Map<EdgeStyleKind, FramePlanEdgeStyle>();
+  for (const effect of clip.effects) {
+    if (effect.type !== EDGE_STYLE_EFFECT_TYPE) continue;
+    if (edgeStyleParamsIssue(effect.params) !== null) return {};
+    const kind = effect.params.kind as EdgeStyleKind;
+    if (!byKind.has(kind))
+      byKind.set(kind, { kind, params: clampEdgeStyleParams(kind, effect.params) });
+  }
+  const styles = EDGE_STYLE_KINDS.flatMap((kind) => {
+    const style = byKind.get(kind);
+    return style === undefined ? [] : [style];
+  });
+  return styles.length === 0 ? {} : { edgeStyles: styles };
 }
 
 function imageLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer {

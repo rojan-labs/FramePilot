@@ -36,6 +36,7 @@ from framepilot_engine.effects.speed_curve import has_speed_ramp, source_time_at
 from framepilot_engine.effects.transform import evaluate_clip_transform
 from framepilot_engine.render import transitions
 from framepilot_engine.render.captions import resolve_caption_cue
+from framepilot_engine.render.edge_styles import EdgeStyleRefusal, clip_edge_styles
 from framepilot_engine.render.text_overlay import text_overlay_layout
 from framepilot_engine.timeline.models import (
     Clip,
@@ -629,10 +630,15 @@ class PlanLayer:
     transitions: list[TransitionState] = field(default_factory=list)
     #: MK8.2: rendered only as another clip's track matte, never composited itself.
     matte_only: bool = False
+    #: MK9.2: the clip's cut-out edge styles, bottom first (``render/edge_styles.py``).
+    edge_styles: list[dict[str, Any]] = field(default_factory=list)
 
     def to_json(self) -> dict[str, Any]:
-        # ``matteOnly`` is written only when set, so plans without a track matte are unchanged.
+        # ``matteOnly`` and ``edgeStyles`` are written only when set, so plans without a track
+        # matte or an edge style are unchanged.
         extra: dict[str, Any] = {"matteOnly": True} if self.matte_only else {}
+        if self.edge_styles:
+            extra["edgeStyles"] = self.edge_styles
         return {
             **extra,
             "kind": self.kind,
@@ -792,7 +798,20 @@ def _video_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer:
         effects=_effects_json(clip),
         mask=_mask_plan_json(clip, local, frame),
         transitions=_transition_states(clip, local),
+        edge_styles=_edge_styles_json(clip),
     )
+
+
+def _edge_styles_json(clip: Clip) -> list[dict[str, Any]]:
+    """The clip's edge styles as the plan carries them: kind and clamped params, bottom first.
+
+    A malformed style is left out here; the compile refuses it before rendering.
+    """
+    try:
+        styles = clip_edge_styles(clip)
+    except EdgeStyleRefusal:
+        return []
+    return [{"kind": style.kind, "params": dict(style.params)} for style in styles]
 
 
 def _image_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer:

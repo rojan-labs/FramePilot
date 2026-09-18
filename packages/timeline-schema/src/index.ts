@@ -1941,3 +1941,4 @@ export { maskLayerFromLegacyMaskEffect } from './mask-migration.js';
 export * from './serialization.js';
 
 export * from './float-array-codec.js';
+export * from './edge-styles.js';

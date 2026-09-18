@@ -1,5 +1,5 @@
 import type { Clip, EffectLayer, MaskLayer, Timeline, Track } from '@framepilot/timeline-schema';
-import { effectLayersOf, masksOf } from '@framepilot/timeline-schema';
+import { edgeStyleParamsIssue, effectLayersOf, masksOf } from '@framepilot/timeline-schema';
 import { paramsForKind } from '@framepilot/timeline-schema/effect-params';
 import {
   AUDIO_FADE_CURVES,
@@ -285,6 +285,13 @@ export function assertOperationContract(timeline: Timeline, op: Operation): void
     case 'set_clip_blend_mode':
       assertClipUnlocked(timeline, op.clipId, op.type);
       return;
+    case 'set_clip_edge_style': {
+      assertClipUnlocked(timeline, op.clipId, op.type);
+      const issue =
+        op.params === null ? null : edgeStyleParamsIssue({ ...op.params, kind: op.kind });
+      if (issue !== null) throw new OperationContractError(issue);
+      return;
+    }
     case 'adjust_audio': {
       const found = findClip(timeline, op.clipId);
       assertUnlocked(found?.track, op.type);

@@ -307,3 +307,51 @@ def test_every_kind_clamps_a_hostile_param_bag(kind: str) -> None:
     assert set(clamped) == {p.name for p in params_for_kind(kind)}
     for p in params_for_kind(kind):
         assert p.min <= clamped[p.name] <= p.max
+
+
+# ---------------------------------------------------------------------------
+# Cut-out edge styles (MK9.2): the TS catalog's edgeStyles section, read by the engine
+# ---------------------------------------------------------------------------
+
+
+def test_edge_style_kinds_stack_shadow_glow_stroke() -> None:
+    from framepilot_engine.render.effect_catalog import edge_style_kinds
+
+    assert edge_style_kinds() == ("shadow", "glow", "stroke")
+
+
+def test_edge_style_params_clamp_like_the_ts_twin() -> None:
+    from framepilot_engine.render.effect_catalog import clamp_edge_style_params
+
+    clamped = clamp_edge_style_params("stroke", {"widthPx": 9999, "bogus": 1, "red": float("nan")})
+    assert clamped == {
+        "widthPx": 200.0,
+        "red": 255.0,
+        "green": 255.0,
+        "blue": 255.0,
+        "opacity": 1.0,
+    }
+
+
+def test_every_edge_style_entry_is_valid_for_its_kind() -> None:
+    import json
+
+    from framepilot_engine.render.effect_catalog import (
+        clamp_edge_style_params,
+        edge_style_params_issue,
+    )
+
+    raw = json.loads(_ENGINE_COPY.read_text(encoding="utf-8"))["edgeStyles"]
+    assert {entry["kind"] for entry in raw["styles"]} == set(raw["kinds"])
+    for entry in raw["styles"]:
+        params = {**clamp_edge_style_params(entry["kind"], {}), **entry.get("params", {})}
+        assert edge_style_params_issue({"kind": entry["kind"], **params}) is None, entry["id"]
+
+
+def test_edge_style_issues_name_the_remedy_without_numbers() -> None:
+    from framepilot_engine.render.effect_catalog import edge_style_params_issue
+
+    assert "needs a kind" in (edge_style_params_issue({"widthPx": 3}) or "")
+    assert "does not use" in (edge_style_params_issue({"kind": "glow", "widthPx": 3}) or "")
+    issue = edge_style_params_issue({"kind": "shadow", "softnessPx": -3})
+    assert issue is not None and "outside its range" in issue and "3" not in issue

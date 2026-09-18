@@ -94,6 +94,7 @@ export function postValidationScope(
     case 'set_caption_cue':
     case 'set_clip_crop':
     case 'set_clip_blend_mode':
+    case 'set_clip_edge_style':
     case 'add_layer':
     case 'remove_layer':
     case 'move_layer':

@@ -177,6 +177,30 @@ produce ordinary `path` masks (`mask-shape-presets.ts`); a rounded frame is an o
 subtracted inner one, because one path with a hole needs a bridge the feather would show. No kind,
 no schema change.
 
+### MK9 amendment (2026-09-18): frame space, adjustment-lane editing, edge styles
+
+**A frame-space clip mask is read through the track matte's mapping.** `space: 'frame'` on a clip
+mask is drawn on the output frame in frame pixels by the same rasteriser (invert and opacity
+included) and read back onto the clip's raster at the frame pixel each pixel centre lands on
+(`picture_placement_at` on export, the compositor step in the monitor). It stays put while the
+picture moves under it. Only geometry kinds can be frame-space; a frame-space key, matte, track
+matte, tracked or v21-migrated mask is refused. No schema change: the field existed since v22.
+
+**An adjustment lane is edited as a clip-shaped stand-in.** The panel, list, properties and monitor
+tools take `effectLayerMaskOwner(layer)` (clock = seconds from `start`, picture = the frame) and
+every command carries `owner: 'effect_layer'`; `compileMaskCommand` runs the clip builder on the
+stand-in and readdresses its operations to the lane. One builder, so lane and clip edits cannot
+drift; commands that need a clip picture are refused on a lane.
+
+**Edge styles are clip effects that read the stack, not mask kinds or lane kinds.** Outline, glow
+and shadow are three render kinds in the effect catalog (`edgeStyles` in `effect-catalog.json`),
+stored as `Clip.effects[]` of type `edge_style` and set by `set_clip_edge_style` (one per kind).
+They trace the alpha-target stack at alpha ≥ ½ with an exact, reach-bounded separable Euclidean
+distance (integers until one `sqrt`, so CPU twins are byte-exact and the GPU finds the same
+distances) and polynomial falloffs; the picture goes over them. An effect-layer kind was rejected:
+the composited frame has no cut-out to trace. A schema field was rejected: the open effect params
+already carry them, validated against the catalog vocabulary.
+
 ## Consequences
 
 - Keyframe curve math and the speed curve moved into `timeline-schema` (editor-core re-exports
