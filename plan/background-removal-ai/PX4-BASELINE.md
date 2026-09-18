@@ -7,8 +7,9 @@
 [35366379149](https://github.com/rojan-labs/FramePilot/actions/runs/35366379149) at `b361595d`
 (Google Chrome, ubuntu-latest, SwiftShader CPU GL), artifact `preview-parity-results`. This file and
 `tests/e2e/fixtures/preview-parity-baseline.json` were generated from that artifact with
-`node tests/e2e/scripts/px4-baseline.mjs [--write-baseline]`. Nothing here was run locally: a local
-full run exhausted a workstation's memory, and the harness documents that it is CI-only. The
+`node tests/e2e/scripts/px4-baseline.mjs [--write-baseline]`. The tables and the JSON come from CI
+only (a local full run once exhausted a workstation's memory); the one local measurement, on an
+Apple Silicon Mac under a memory guard, is labelled as such below. The
 first baseline (run 35140382484 at `700f4e7d`, today's preview before PX2) listed 42 failing
 cases; the layer compositor (PX2) brought it to 2, the exact mask stack pass (MK3) to 1, and the
 matte pass (BR5) to none. MK5.2 added `effects/effect-kinds-masked` — every catalog render kind
@@ -24,7 +25,11 @@ frame plan, back to front. A timeline the desktop monitor routes to the DOM `Pre
 **How CI stays honest:** every failing check below is a `test.fail()` in
 `preview-parity-oracle.spec.ts`, keyed off the baseline JSON. A listed check that starts passing
 fails the job ("expected to fail, but passed"), so the list can only shrink as PX2 lands; a check
-that newly fails is not listed and fails the job.
+that newly fails is not listed and fails the job. Since PX4's per-renderer baseline the JSON keeps
+one entry per **renderer class** the page reports (`swiftshader-subzero` on CI, `swiftshader-llvm`,
+`gpu` for any hardware GPU), and a run only applies the entry of its own class: a known failure is
+known only where it was measured. A class with no entry has no known failures. The script writes
+the entry of the class its results name and leaves the others alone.
 
 ## Summary
 
@@ -64,8 +69,27 @@ that newly fails is not listed and fails the job.
   "Preview text approximate".
 - **PX0.3 colour:** the compositor's shader path (canvas2d column) max error 0 for all four
   encodings. The harness's separate Chromium `VideoFrame`->WebGL texture measurement stays at 9/255
-  for BT.709 limited range (listed as `colour.bt709-limited: [webgl]`, the one entry left in the
-  baseline); the compositor does not use that path.
+  for BT.709 limited range (listed as `renderers.swiftshader-subzero.colour.bt709-limited: [webgl]`,
+  the one entry left in the baseline); the compositor does not use that path. It is a SwiftShader
+  Subzero property, not a colour-science one: the same row is within 1/255 on Metal and on
+  SwiftShader's LLVM JIT (yellow75 blue: Subzero 9, LLVM 0, engine 0), so it is listed for
+  `swiftshader-subzero` only.
+- **On an Apple Silicon Mac (local, MK6.4).** The maintainer allowed local runs, one job at a time
+  under a memory guard. On an M1 Pro (Chrome, Metal) with the engine frames rendered on that Mac
+  the whole project passes: 72/72 cases, 297/297 checks (min 44.29 dB, `time/variable-frame-rate`;
+  every sample ≥ 99.92 % within 8/255). Before MK6.4 two checks failed there: `alpha/key-finesse`
+  pixels (47.86 dB, 99.494 % within 8/255) and the bt709-limited WebGL row ("expected to fail, but
+  passed"). Neither was the GPU: the key's finesse chain on Metal matches numpy byte for byte, and
+  the same rows under SwiftShader on that Mac gave bit-identical numbers. The frames were decoded
+  by imageio-ffmpeg's macOS arm64 build, whose unscaled `yuv420p → rgb24` converter is libswscale's
+  C one, while the monitor drew the x86 SIMD arithmetic (up to 3 levels apart); MK6.4 makes the
+  monitor use the export host's converter. The per-renderer baseline fixed the second.
+  - **Open, engine side:** a variable-frame-rate clip is decoded by `PtsVideoReader`, which runs
+    `find_ffmpeg()` (`FRAMEPILOT_FFMPEG`, then `PATH`, then imageio-ffmpeg), not MoviePy's
+    imageio-ffmpeg — on that Mac, Homebrew's ffmpeg 8.1, whose converter matches neither. The VFR
+    rows still pass (`time/variable-frame-rate` 50.46 → 44.29 dB, `alpha/matte-vfr` 56.47 → 50.81
+    dB, both 100 % within 8/255 before and after), but the export decodes VFR and CFR clips with
+    different binaries on any machine with an ffmpeg on `PATH`.
 
 ## Per case
 

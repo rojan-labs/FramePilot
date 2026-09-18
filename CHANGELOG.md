@@ -243,6 +243,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   visibly different edge (up to 82/255 at the edge of a keyed gradient). The monitor now uses the
   same conversion as the export on the machine it runs on; on an M1 Pro the keyed frames match
   the export exactly. Other machines are unchanged.
+- **The preview/export parity check runs green on a Mac.** Its list of known failures is now kept
+  per graphics renderer, so a difference measured only on the CI machine's software renderer no
+  longer fails a run on a Mac's GPU, where it does not occur.
 - **Masks from older projects export exactly as before on clips that start later in the
   timeline.** An animated mask from a project made before the mask stack could draw one edge a
   pixel off on some frames when its clip did not start at 0 s. The upgrade now keeps the numbers

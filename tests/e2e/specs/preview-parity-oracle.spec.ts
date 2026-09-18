@@ -27,7 +27,11 @@
  * Known failures are listed in `tests/e2e/fixtures/preview-parity-baseline.json` and marked
  * `test.fail()` per case and check: CI stays green while the list is honest, and a listed
  * check that starts PASSING fails the run ("expected to fail, but passed"), which forces the
- * list to shrink. A new failure is never listed automatically.
+ * list to shrink. A new failure is never listed automatically. The list is kept PER RENDERER
+ * (`rendererClass`: SwiftShader's Subzero or LLVM JIT, or a hardware GPU), because a failure is
+ * only known where it was measured: the bt709-limited WebGL row is 9/255 off on CI's
+ * SwiftShader (Subzero) and within 1/255 on Metal and on SwiftShader's LLVM JIT, so one flat
+ * list either failed every Mac run or hid a regression on CI.
  *
  * **CI ONLY. Do not run this spec, or a full `pnpm px4:frames`, on a workstation.** A local run
  * (4 render workers holding a composition per clip, next to Chromium) once took a maintainer's
@@ -169,9 +173,26 @@ interface ManifestMatte {
   /** PX5.3: where the artifact's monitor tier is served from, when the generator made one. */
   tierRoot?: string;
 }
-interface Baseline {
+/** Known failures measured on one renderer class, and that run's summary. */
+interface RendererBaseline {
   cases: Record<string, Check[]>;
   colour: Record<string, ColourPath[]>;
+  summary?: Record<string, unknown>;
+}
+interface Baseline {
+  renderers: Record<string, RendererBaseline>;
+}
+
+/**
+ * The renderer class a baseline entry is keyed by, from the WebGL renderer string the page
+ * reports. SwiftShader is split by JIT because its two backends were measured to disagree
+ * (bt709-limited yellow: blue 9 under Subzero, 0 under LLVM); every hardware GPU is `gpu`.
+ * Mirrored in `scripts/px4-baseline.mjs`, which reads the class the results record.
+ */
+function rendererClass(glRenderer: string | null): string {
+  if (glRenderer === null || glRenderer === 'unknown') return 'unknown';
+  if (!/swiftshader/i.test(glRenderer)) return 'gpu';
+  return /subzero/i.test(glRenderer) ? 'swiftshader-subzero' : 'swiftshader-llvm';
 }
 
 interface SampleResult {
@@ -200,6 +221,9 @@ interface CaseResult {
   row: string;
   renderer: 'webcodecs' | 'dom' | 'error';
   rendererDetail: string | null;
+  /** The WebGL renderer the page reports, and its {@link rendererClass}. */
+  glRenderer: string | null;
+  rendererClass: string;
   samples: SampleResult[];
 }
 
@@ -280,6 +304,25 @@ function separateMediaVariants(cases: { kase: MatrixCase }[]): void {
 }
 
 const baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8')) as Baseline;
+const NO_KNOWN_FAILURES: RendererBaseline = { cases: {}, colour: {} };
+/** The known failures measured on `klass`; none for a renderer no run was recorded on. */
+const knownFailures = (klass: string): RendererBaseline =>
+  baseline.renderers[klass] ?? NO_KNOWN_FAILURES;
+
+let pageRenderer: string | null | undefined;
+/** The WebGL renderer the oracle's browser draws with, asked once per run. */
+async function gpuRenderer(page: Page): Promise<string | null> {
+  if (pageRenderer !== undefined) return pageRenderer;
+  pageRenderer = await page.evaluate(() => {
+    const context = document.createElement('canvas').getContext('webgl2');
+    if (context === null) return null;
+    const debug = context.getExtension('WEBGL_debug_renderer_info');
+    const renderer = debug ? String(context.getParameter(debug.UNMASKED_RENDERER_WEBGL)) : null;
+    context.getExtension('WEBGL_lose_context')?.loseContext();
+    return renderer;
+  });
+  return pageRenderer;
+}
 const manifest = existsSync(join(OUT_DIR, 'manifest.json')) ? loadManifest() : null;
 
 /** The file both sides read: the proxy when there is one (the generator's `engine_asset_path`). */
@@ -577,11 +620,15 @@ async function measureCase(
     row: kase.row,
     renderer: 'error',
     rendererDetail: null,
+    glRenderer: null,
+    rendererClass: 'unknown',
     samples: [],
   };
   const page = await oraclePage(browser);
   let attachedSamples = 0;
   try {
+    result.glRenderer = await gpuRenderer(page);
+    result.rendererClass = rendererClass(result.glRenderer);
     const origin = await openInEditor(page, kase.project, kase.burnCaptions, m.mattes ?? {});
     const { renderer, detail } = await waitForRenderer(page);
     result.renderer = renderer;
@@ -770,7 +817,7 @@ test.describe('PX4 preview/export parity oracle', () => {
         expect(distance, `${a.name} vs ${b.name}`).toBeGreaterThan(2 * SENTINEL_RADIUS);
       }
     }
-    const listed = Object.keys(baseline.cases);
+    const listed = Object.values(baseline.renderers).flatMap((entry) => Object.keys(entry.cases));
     const known = new Set(loadCases().map(({ area, kase }) => `${area}/${kase.id}`));
     expect(
       listed.filter((key) => !known.has(key)),
@@ -793,7 +840,11 @@ test.describe('PX4 preview/export parity oracle', () => {
 
       for (const check of CHECKS) {
         test(check, async () => {
-          if ((baseline.cases[key] ?? []).includes(check)) test.fail();
+          if (
+            (knownFailures(result?.rendererClass ?? 'unknown').cases[key] ?? []).includes(check)
+          ) {
+            test.fail();
+          }
           expect(result, 'run `pnpm px4:frames` before this spec').not.toBeNull();
           expect(failuresOf(result!, check), `${key} ${check} (${kase.row})`).toEqual([]);
         });
@@ -813,6 +864,8 @@ interface ColourMeasurement {
   webgl: Rgb[] | null;
   engine: Rgb[];
   error: string | null;
+  /** {@link rendererClass} of the browser that measured it. */
+  rendererClass: string;
 }
 
 test.describe('PX0.3 colour conversion (BT.601/709 x limited/full)', () => {
@@ -832,10 +885,12 @@ test.describe('PX0.3 colour conversion (BT.601/709 x limited/full)', () => {
         webgl: null,
         engine: facts.engine,
         error: null,
+        rendererClass: 'unknown',
       };
       measurements.set(encoding, measurement);
       const page = await oraclePage(browser);
       try {
+        measurement.rendererClass = rendererClass(await gpuRenderer(page));
         const origin = await openInEditor(page, facts.project);
         const { renderer, detail } = await waitForRenderer(page);
         const boxes = colour.patches.map((patch) => patch.box);
@@ -974,7 +1029,8 @@ test.describe('PX0.3 colour conversion (BT.601/709 x limited/full)', () => {
   for (const encoding of encodings) {
     for (const path of COLOUR_PATHS) {
       test(`${encoding} ${path} matches the engine within ${COLOUR_TOLERANCE}/255`, () => {
-        if ((baseline.colour[encoding] ?? []).includes(path)) test.fail();
+        const klass = measurements.get(encoding)?.rendererClass ?? 'unknown';
+        if ((knownFailures(klass).colour[encoding] ?? []).includes(path)) test.fail();
         expect(manifest, 'run `pnpm px4:frames` before this spec').not.toBeNull();
         const measured = measurements.get(encoding);
         expect(measured?.[path], measured?.error ?? `${encoding} not measured`).not.toBeNull();

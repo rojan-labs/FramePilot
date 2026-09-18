@@ -9,6 +9,11 @@
 // starts passing, so the list shrinks as PX2 lands; nothing adds to it except a deliberate,
 // reviewed regeneration.
 //
+// Known failures are kept per renderer class (the `rendererClass` every result records: the
+// spec's `rendererClass()`, `swiftshader-subzero` | `swiftshader-llvm` | `gpu`), because a
+// failure is only known where it was measured. A regeneration replaces the entry of the class
+// the run was measured on and leaves every other class as it was.
+//
 // Usage: node tests/e2e/scripts/px4-baseline.mjs [--write-baseline]
 
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -26,10 +31,36 @@ if (!existsSync(RESULTS)) {
   process.exit(1);
 }
 
+const readBaseline = () => {
+  if (!existsSync(BASELINE)) return { renderers: {} };
+  const parsed = JSON.parse(readFileSync(BASELINE, 'utf8'));
+  if (parsed.renderers === undefined) {
+    process.stderr.write(`${BASELINE} predates per-renderer entries; migrate it by hand first.\n`);
+    process.exit(1);
+  }
+  return parsed;
+};
+
 const cases = readdirSync(RESULTS)
   .filter((name) => name.endsWith('.json') && name !== 'px03-colour.json')
   .map((name) => JSON.parse(readFileSync(join(RESULTS, name), 'utf8')))
   .sort((a, b) => a.key.localeCompare(b.key));
+
+const colourPath = join(RESULTS, 'px03-colour.json');
+const colour = existsSync(colourPath) ? JSON.parse(readFileSync(colourPath, 'utf8')) : null;
+// One run is one browser: every result must name the same renderer class.
+const classes = new Set([
+  ...cases.map((result) => result.rendererClass),
+  ...(colour?.measurements ?? []).map((m) => m.rendererClass),
+]);
+if (classes.size !== 1 || classes.has(undefined)) {
+  process.stderr.write(
+    `Results name renderer classes ${JSON.stringify([...classes])}; expected exactly one. ` +
+      'Re-run the preview-parity project with the current spec.\n',
+  );
+  process.exit(1);
+}
+const [runClass] = classes;
 
 const fmt = (value, digits) =>
   value === null || value === undefined
@@ -83,11 +114,9 @@ for (const result of cases) {
   );
 }
 
-const colourPath = join(RESULTS, 'px03-colour.json');
 const baselineColour = {};
 const colourLines = [];
-if (existsSync(colourPath)) {
-  const colour = JSON.parse(readFileSync(colourPath, 'utf8'));
+if (colour !== null) {
   colourLines.push(
     '| Encoding | Patch | Authored | Engine | Preview canvas2d | WebGL texture | max err canvas2d | max err webgl |',
     '| --- | --- | --- | --- | --- | --- | --- | --- |',
@@ -126,13 +155,18 @@ if (existsSync(colourPath)) {
 }
 
 process.stdout.write(
-  `**${cases.length} cases:** ${passing} pass every check, ${cases.length - passing} fail at least one.\n\n${lines.join('\n')}\n\n${colourLines.join('\n')}\n`,
+  `**${cases.length} cases on \`${runClass}\`:** ${passing} pass every check, ${cases.length - passing} fail at least one.\n\n${lines.join('\n')}\n\n${colourLines.join('\n')}\n`,
 );
 
 if (process.argv.includes('--write-baseline')) {
-  writeFileSync(
-    BASELINE,
-    `${JSON.stringify({ cases: baselineCases, colour: baselineColour, summary }, null, 2)}\n`,
+  const baseline = readBaseline();
+  const renderers = { ...baseline.renderers };
+  renderers[runClass] = { cases: baselineCases, colour: baselineColour, summary };
+  const sorted = Object.fromEntries(
+    Object.keys(renderers)
+      .sort()
+      .map((klass) => [klass, renderers[klass]]),
   );
-  process.stderr.write(`wrote ${BASELINE}\n`);
+  writeFileSync(BASELINE, `${JSON.stringify({ renderers: sorted }, null, 2)}\n`);
+  process.stderr.write(`wrote ${BASELINE} (${runClass})\n`);
 }

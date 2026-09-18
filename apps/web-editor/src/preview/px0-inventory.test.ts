@@ -46,13 +46,18 @@ interface ParitySummary {
   readonly failing: readonly string[];
 }
 
+/** The renderer class CI's oracle runs on (the baseline keeps one entry per class). */
+const CI_RENDERER_CLASS = 'swiftshader-subzero';
+
 /** The pixel column: what the PX4 oracle measured for this case in CI, never typed by hand. */
 function pixelCell(caseKey: string): string {
   if (!existsSync(PARITY_BASELINE)) return 'PX4.3';
   const baseline = JSON.parse(readFileSync(PARITY_BASELINE, 'utf8')) as {
-    readonly summary?: Readonly<Record<string, ParitySummary>>;
+    readonly renderers?: Readonly<
+      Record<string, { readonly summary?: Readonly<Record<string, ParitySummary>> }>
+    >;
   };
-  const measured = baseline.summary?.[caseKey];
+  const measured = baseline.renderers?.[CI_RENDERER_CLASS]?.summary?.[caseKey];
   if (!measured) return 'not measured (PX4.3)';
   if (measured.renderer !== 'webcodecs') {
     return `not read back (${measured.renderer === 'dom' ? 'DOM renderer' : 'harness error'})`;
