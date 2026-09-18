@@ -132,6 +132,10 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         channel: 'chrome',
+        // The shared `video: retain-on-failure` records every run and only then discards it;
+        // a screen recorder next to the thing being timed is part of the measurement.
+        video: 'off',
+        trace: 'off',
         launchOptions: {
           args: [
             '--autoplay-policy=no-user-gesture-required',

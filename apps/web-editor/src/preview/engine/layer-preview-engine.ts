@@ -1129,8 +1129,11 @@ export class LayerPreviewEngine {
         ]);
         if (this.disposed || this.generation !== myGeneration) return;
         // Superseded seeks returned above, so a sample is always a seek that reached the monitor.
+        const compositeStarted = performance.now();
         if (this.present(current, clamped, true, true)) {
-          this.telemetry.record('seekToPresent', performance.now() - seekStarted);
+          const presentedAt = performance.now();
+          this.telemetry.record('exactComposite', presentedAt - compositeStarted);
+          this.telemetry.record('seekToPresent', presentedAt - seekStarted);
         }
         this.evict(
           new Set([
@@ -1220,11 +1223,12 @@ export class LayerPreviewEngine {
       const plan = this.planAt(nowSec, this.renderSize());
       if (plan) {
         const started = performance.now();
+        const drawsBefore = this.dbg.sourceDraws;
         const presented = this.present(plan, nowSec, false);
         if (presented) {
           const compositeMs = performance.now() - started;
           this.dbg.presented++;
-          this.telemetry.record('composite', compositeMs);
+          if (this.dbg.sourceDraws !== drawsBefore) this.telemetry.record('composite', compositeMs);
           this.adaptRenderScale(compositeMs);
         } else {
           this.dbg.missing++;

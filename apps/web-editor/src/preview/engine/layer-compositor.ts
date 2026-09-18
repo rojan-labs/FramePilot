@@ -178,6 +178,7 @@ export class LayerCompositor {
   private readonly lutTextures = new Map<CubeLut, WebGLTexture>();
   private luts: ReadonlyMap<string, CubeLut> = new Map();
   private telemetry: PreviewTelemetry | null = null;
+  private readonly syncPixel = new Uint8Array(4);
 
   /** Where this compositor reports mask raster, key stack and pool numbers (PX5.1). */
   setTelemetry(telemetry: PreviewTelemetry | null): void {
@@ -310,7 +311,12 @@ export class LayerCompositor {
       // The frame just drawn, not the last one the browser presented: `drawImage` of a WebGL
       // canvas can return the previous drawing buffer (measured on CI: every read lagged one
       // seek). `transferToImageBitmap` hands over exactly this buffer.
-      if (this.telemetry?.gpuSync === true) this.gl.finish();
+      // Measurement mode only: a one-pixel read-back is the round trip that really waits for
+      // the GPU. `gl.finish()` does not under Chrome's command buffer (measured on ANGLE/Metal:
+      // it returned in 0.0 ms with a dozen float passes queued).
+      if (this.telemetry?.gpuSync === true) {
+        this.gl.readPixels(0, 0, 1, 1, this.gl.RGBA, this.gl.UNSIGNED_BYTE, this.syncPixel);
+      }
       if (typeof OffscreenCanvas !== 'undefined' && this.canvas instanceof OffscreenCanvas) {
         return this.canvas.transferToImageBitmap();
       }
@@ -715,9 +721,8 @@ export class LayerCompositor {
     if (!this.floatTargetsAvailable()) return null;
     const started = performance.now();
     const texture = this.keyStack(stack, masks, width, height, clipTime, mattes, picture);
-    // Measurement mode only: wait for the GPU so the sample is the chain's cost, not its
-    // submission (see `preview-telemetry.ts`).
-    if (this.telemetry?.gpuSync === true) this.gl.finish();
+    // Submission time: the GPU runs the chain later. Its real cost is read from the composite
+    // channels with and without the chain (`PX5-BUDGETS.md`), not from this sample.
     this.telemetry?.record('keyStack', performance.now() - started);
     return { texture, scale: 1 };
   }

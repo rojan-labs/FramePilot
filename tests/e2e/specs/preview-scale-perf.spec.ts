@@ -65,7 +65,13 @@ interface ChannelSummary {
 }
 interface Telemetry {
   channels: Record<
-    'frameInterval' | 'composite' | 'seekToPresent' | 'maskRaster' | 'keyStack' | 'decode',
+    | 'frameInterval'
+    | 'composite'
+    | 'seekToPresent'
+    | 'exactComposite'
+    | 'maskRaster'
+    | 'keyStack'
+    | 'decode',
     ChannelSummary
   >;
   playback: {
@@ -106,6 +112,7 @@ const RUNS: readonly { variant: string; mode: MediaMode; gpuSync?: boolean }[] =
   { variant: 'scale', mode: 'proxy' },
   { variant: 'scale-plain', mode: 'proxy' },
   { variant: 'scale-path', mode: 'proxy' },
+  { variant: 'scale-path-full', mode: 'proxy' },
   { variant: 'scale-key', mode: 'proxy', gpuSync: true },
   { variant: 'scale-key-nofinesse', mode: 'proxy', gpuSync: true },
   { variant: 'scale-plain', mode: 'original' },
@@ -136,8 +143,11 @@ async function openScale(page: Page, variant: string, mode: MediaMode): Promise<
       window as unknown as { __fpMatteArtifactUrl: (key: string, name: string) => string }
     ).__fpMatteArtifactUrl = (key, name) => `${root}/${key}/${name}`;
   }, matteRoot);
-  await page.goto(`${origin}/favicon.ico`).catch(() => undefined);
-  await page.goto(origin);
+  // A blank same-origin document to seed localStorage from, before the editor ever loads.
+  await page.route('**/__px5-blank.html', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>px5</title>' }),
+  );
+  await page.goto(`${origin}/__px5-blank.html`);
   await page.evaluate((p) => {
     localStorage.clear();
     localStorage.setItem(`framepilot:project:${p.id}`, JSON.stringify(p));
@@ -173,11 +183,18 @@ test.describe('PX5 Scale row', () => {
 
   for (const run of RUNS) {
     test(`${run.variant}/${run.mode}`, async ({ page }, testInfo) => {
-      test.setTimeout((PLAY_SECONDS + 600) * 1000);
+      test.setTimeout((PLAY_SECONDS + 240) * 1000);
       expect(
         existsSync(join(FIXTURE, 'manifest.json')),
         'no Scale fixture: run `pnpm px5:fixture` first',
       ).toBe(true);
+      const problems: string[] = [];
+      page.on('console', (message) => {
+        if (message.type() === 'error' || message.type() === 'warning') {
+          problems.push(`${message.type()}: ${message.text().slice(0, 300)}`);
+        }
+      });
+      page.on('pageerror', (error) => problems.push(`pageerror: ${error.message.slice(0, 300)}`));
       const project = await openScale(page, run.variant, run.mode);
 
       // --- seek-to-present: deterministic targets spread over the whole timeline ------------
@@ -202,6 +219,24 @@ test.describe('PX5 Scale row', () => {
       );
       const seeking = await snapshot(page);
 
+      // --- frame stepping: consecutive frames, so decode is contiguous and what is left is the
+      // steady cost of ONE full-resolution composite of this timeline --------------------------
+      await page.evaluate(
+        async ({ fps }) => {
+          const engine = (window as unknown as { __fpPreviewEngine: EngineHook }).__fpPreviewEngine;
+          await engine.seek(60);
+          engine.telemetry.reset();
+          for (let i = 1; i <= 12; i++) await engine.seek(60 + (i + 0.5) / fps);
+        },
+        { fps: project.fps },
+      );
+      const stepping = await snapshot(page);
+      // What the row looks like, so a number is never reported for a monitor that drew nothing.
+      mkdirSync(RESULTS_DIR, { recursive: true });
+      await page
+        .locator('.webcodecs-preview-canvas')
+        .screenshot({ path: join(RESULTS_DIR, `${run.variant}.${run.mode}.png`) });
+
       // --- playback through the real transport ----------------------------------------------
       await page.evaluate(
         async ({ gpuSync }) => {
@@ -222,7 +257,10 @@ test.describe('PX5 Scale row', () => {
             window as unknown as { __fpPreviewEngine: EngineHook }
           ).__fpPreviewEngine.debugPresentedFrame().layers.length,
       );
-      await page.getByRole('button', { name: 'pause', exact: true }).click();
+      // Recorded, not assumed: a transport that stopped by itself under load is a finding.
+      const pause = page.getByRole('button', { name: 'pause', exact: true });
+      const stillPlaying = await pause.isVisible();
+      if (stillPlaying) await pause.click();
       const played = await snapshot(page);
 
       const result = {
@@ -235,6 +273,10 @@ test.describe('PX5 Scale row', () => {
           return gl && info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : 'unknown';
         }),
         seekToPresent: seeking.channels.seekToPresent,
+        seekExactComposite: seeking.channels.exactComposite,
+        stepToPresent: stepping.channels.seekToPresent,
+        stepExactComposite: stepping.channels.exactComposite,
+        stepMaskRaster: stepping.channels.maskRaster,
         playback: played.playback,
         frameInterval: played.channels.frameInterval,
         composite: played.channels.composite,
@@ -246,6 +288,8 @@ test.describe('PX5 Scale row', () => {
         renderScaleChangesMidway: midway.playback.renderScaleChanges,
         layersWhilePlaying,
         gpuSync: played.gpuSync,
+        stillPlayingAtEnd: stillPlaying,
+        problems: problems.slice(0, 20),
       };
       mkdirSync(RESULTS_DIR, { recursive: true });
       writeFileSync(

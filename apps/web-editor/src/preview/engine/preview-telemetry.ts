@@ -13,14 +13,19 @@
  * - `frameInterval` — one animation-frame tick to the next during playback. A GPU that cannot
  *   keep up shows here (the browser throttles `requestAnimationFrame`), which `composite` alone
  *   cannot see because GL calls return before the GPU has run them.
- * - `composite` — `present()` on a tick that drew: plan → raster work → GL submission → the 2D
- *   canvas copy. Main-thread time, not GPU time (unless GPU sync is on, below).
+ * - `composite` — `present()` on a tick that DREW: plan → raster work → GL submission → the 2D
+ *   canvas copy. Main-thread time, not GPU time (unless GPU sync is on, below). A tick whose
+ *   frame is unchanged (a 60 Hz display showing a 30 fps frame twice) draws nothing and is not
+ *   a sample, or half the samples would be zeros.
  * - `seekToPresent` — `seek()` entered to the frame being on the monitor's canvas. A paused
  *   frame is read back with `readPixels`, so this one includes the GPU's time.
+ * - `exactComposite` — the composite inside a seek (full resolution, read back). Seek-to-present
+ *   minus this is the wait for decoded pictures and mattes.
  * - `maskRaster` — one CPU mask-stack raster inside a composite (a cache miss; hits cost nothing
  *   and are counted, not timed).
  * - `keyStack` — a key mask's GPU stack (qualifier + finesse chain) inside a composite. GL
- *   submission time only, unless GPU sync is on.
+ *   submission time only; the chain's GPU cost is the difference between `composite` (GPU sync
+ *   on) or `exactComposite` with and without it.
  * - `decode` — one decode-ahead window, request to pictures in the cache.
  *
  * **Dropped frames** are counted, not timed: the project frame index due on every tick is
@@ -28,8 +33,9 @@
  * frame. It is a property of the tick sequence, so the accounting is unit-tested exactly.
  *
  * **GPU sync** (`gpuSync`) is a measurement mode, off unless a measurement turns it on: the
- * compositor calls `gl.finish()` at the end of a playback composite so `composite` and
- * `keyStack` include the GPU's work. It stalls the pipeline, so it is never on in a session.
+ * compositor reads one pixel back at the end of a playback composite, which waits for the GPU,
+ * so `composite` includes the GPU's work. It stalls the pipeline, so it is never on in a
+ * session. `keyStack` stays submission time either way.
  */
 
 /** Samples kept per channel; old ones are dropped. */
@@ -38,12 +44,19 @@ const RING_SIZE = 4096;
 const FRAME_INDEX_EPSILON = 1e-6;
 
 export type PreviewTelemetryChannel =
-  'frameInterval' | 'composite' | 'seekToPresent' | 'maskRaster' | 'keyStack' | 'decode';
+  | 'frameInterval'
+  | 'composite'
+  | 'seekToPresent'
+  | 'exactComposite'
+  | 'maskRaster'
+  | 'keyStack'
+  | 'decode';
 
 const CHANNELS: readonly PreviewTelemetryChannel[] = [
   'frameInterval',
   'composite',
   'seekToPresent',
+  'exactComposite',
   'maskRaster',
   'keyStack',
   'decode',
@@ -114,7 +127,7 @@ function summarise(samples: readonly number[]): ChannelSummary {
 }
 
 export class PreviewTelemetry {
-  /** See the module note: `gl.finish()` per playback composite. A measurement mode only. */
+  /** See the module note: a one-pixel read-back per playback composite. Measurement only. */
   gpuSync = false;
 
   private readonly rings = new Map<PreviewTelemetryChannel, number[]>();

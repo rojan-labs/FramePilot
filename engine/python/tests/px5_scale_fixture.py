@@ -395,15 +395,20 @@ def _inset(prefix: str, scale: float, x: float, y: float) -> list[dict[str, Any]
 
 
 def scale_project(seconds: int, artifact: dict[str, Any], variant: str) -> dict[str, Any]:
-    """The Scale timeline. Back to front: a, b (inset, graded), c (inset), d (matted), text.
+    """The Scale timeline. Back to front: a, d (matted), b (inset, graded), c (inset), text.
 
-    Variants (each differs from ``scale`` by exactly one thing, so an A/B isolates it):
+    Variants. ``scale`` is the row; every other one is ``scale-plain`` plus exactly ONE feature,
+    so its difference from ``scale-plain`` is that feature's cost and nothing else's:
 
-    * ``scale`` - the row: 4 picture layers + text + the 4K matte on the top layer.
-    * ``scale-plain`` - the same timeline with NO masks: the export budget's "without".
-    * ``scale-path`` - plus an animated, feathered 200-vertex path on layer b.
-    * ``scale-key`` - plus a key mask with the whole finesse chain on layer c.
-    * ``scale-key-nofinesse`` - the same key with finesse at its defaults (the chain's cost).
+    * ``scale`` - the row: 4 picture layers + text + the decontaminating 4K matte on layer d.
+    * ``scale-plain`` - the same timeline with NO masks: the baseline, and the export budget's
+      "without".
+    * ``scale-path`` - plain + an animated, feathered 200-vertex path on layer b (an inset, so
+      the raster is the inset's size).
+    * ``scale-path-full`` - plain + the same path on the full-frame layer d: the raster is the
+      whole monitor frame, the worst case for the CPU rasteriser.
+    * ``scale-key`` - plain + a key mask with the whole finesse chain on layer c.
+    * ``scale-key-nofinesse`` - plain + the same key with finesse at its defaults.
     """
     matte = {
         "id": "subject",
@@ -460,10 +465,12 @@ def scale_project(seconds: int, artifact: dict[str, Any], variant: str) -> dict[
         "c": _clip("c", seconds, keyframes=_inset("c", 0.5, 900.0, -500.0)),
         "d": _clip("d", seconds),
     }
-    if variant != "scale-plain":
+    if variant == "scale":
         clips["d"]["masks"] = [matte]
     if variant == "scale-path":
         clips["b"]["masks"] = [path]
+    if variant == "scale-path-full":
+        clips["d"]["masks"] = [path]
     if variant in ("scale-key", "scale-key-nofinesse"):
         clips["c"]["masks"] = [key]
     text = {
@@ -477,10 +484,12 @@ def scale_project(seconds: int, artifact: dict[str, Any], variant: str) -> dict[
         "effects": [{"id": "tx", "type": "text", "params": {"text": "SCALE ROW"}, "keyframes": []}],
         "keyframes": [],
     }
-    # Track order is front to back, as in the frame-plan fixtures (first track draws on top).
+    # Track order is front to back, as in the frame-plan fixtures (first track draws on top):
+    # the two insets sit over the matted subject, which sits over the full-frame background, so
+    # every layer is visible in every variant.
     tracks = [
         {"id": "words", "type": "overlay", "clips": [text]},
-        *({"id": f"v-{n}", "type": "video", "clips": [clips[n]]} for n in reversed(SOURCES)),
+        *({"id": f"v-{n}", "type": "video", "clips": [clips[n]]} for n in ("c", "b", "d", "a")),
     ]
     return {
         "id": f"fp-px5-{variant}",
@@ -503,7 +512,14 @@ def scale_project(seconds: int, artifact: dict[str, Any], variant: str) -> dict[
     }
 
 
-VARIANTS = ("scale", "scale-plain", "scale-path", "scale-key", "scale-key-nofinesse")
+VARIANTS = (
+    "scale",
+    "scale-plain",
+    "scale-path",
+    "scale-path-full",
+    "scale-key",
+    "scale-key-nofinesse",
+)
 
 
 def write_projects(out_dir: Path, seconds: int, artifact: dict[str, Any]) -> list[str]:
