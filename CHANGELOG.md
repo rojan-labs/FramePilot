@@ -22,6 +22,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   texture the tracker should follow (T) and drag out a region it must ignore (X) — a hand passing
   in front, a reflection — before the track runs.
 
+- **Key out a colour.** A new mask kind qualifies the picture itself: pull a green or blue
+  screen, or isolate a hue for a secondary grade, with hue/saturation/luma, RGB, luma or sampled
+  colours. Click the eyedropper and pick the backing off the monitor (Shift adds a second colour
+  for a hot spot or a shadow); set each range's softness, keep the shadows an actor casts, and
+  switch on despill to take the spill off the skin and hair. It shows on the monitor exactly as
+  it exports, and to cut a subject OUT of the backing you invert the mask, like any other.
+
 - **Mask an adjustment layer.** A mask drawn on an effect layer now limits that adjustment on
   both the monitor and the export, for every effect in the catalog — so a blur, a glitch or a
   grade on an adjustment lane can cover a region instead of the whole frame. The mask stays where

@@ -83,6 +83,7 @@ export {
   MessageSquare,
   ArrowLeftRight,
   Scan,
+  Pipette,
   Palette,
   MoreHorizontal,
   Headphones,

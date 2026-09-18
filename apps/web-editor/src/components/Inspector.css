@@ -739,6 +739,21 @@
   white-space: nowrap;
 }
 
+/* MK6.1: a key mask's qualifier rows and its eyedropper. */
+.inspector-pro .mask-key-range {
+  display: contents;
+}
+
+.inspector-pro .mask-eyedropper {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.inspector-pro .mask-eyedropper[aria-pressed='true'] {
+  color: var(--accent);
+}
+
 /* MK5.1: the effect row's mask affordance and the count of masks already limiting it. */
 .inspector-pro .inspector-effect-list code {
   flex: 1 1 auto;

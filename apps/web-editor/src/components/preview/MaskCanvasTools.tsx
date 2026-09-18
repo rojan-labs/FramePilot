@@ -102,6 +102,7 @@ import {
   withBox,
   type OrientedBox,
 } from './mask-canvas-geometry.js';
+import { keySampleChanges, sampleCanvasColour } from '../../preview/masks/eyedropper.js';
 import { affineAttribute, applyAffine, monitorPictureSpace } from './mask-monitor-space.js';
 import { maskToolTelemetry } from './mask-tool-telemetry.js';
 
@@ -307,6 +308,9 @@ export function MaskCanvasTools({
   );
   const masks = useMemo(() => editableMasks(clip), [clip]);
   const selectedMask = masks.find((mask) => mask.id === tools.selectedMaskId) ?? null;
+  // The selected mask WHATEVER its kind: `masks` holds only the kinds the hand tools draw, and
+  // the eyedropper edits a key, which they do not.
+  const selectedLayer = masksOf(clip).find((mask) => mask.id === tools.selectedMaskId) ?? null;
   const selectedVertices = useMemo(() => new Set(tools.selectedVertices), [tools.selectedVertices]);
 
   // Keep a selection on this clip: the first editable mask when the selection is elsewhere.
@@ -685,6 +689,33 @@ export function MaskCanvasTools({
     };
   };
 
+  /** Sample the monitor and fold the colour into the key (`keySampleChanges`). */
+  const pickKeyColour = (
+    mask: Extract<MaskLayer, { kind: 'key' }>,
+    clientX: number,
+    clientY: number,
+    add: boolean,
+  ): void => {
+    const canvas = document.querySelector<HTMLCanvasElement>('.webcodecs-preview-canvas');
+    const colour = canvas === null ? null : sampleCanvasColour(canvas, clientX, clientY);
+    if (colour === null) {
+      report('Move the playhead to a frame on the monitor, then pick again.');
+      return;
+    }
+    if (
+      run({
+        type: 'set_mask_properties',
+        clipId: clip.id,
+        maskId: mask.id,
+        sourceTime,
+        changes: keySampleChanges(mask, colour, add),
+      })
+    ) {
+      store.update({ eyedropper: false });
+      setAnnouncement(add ? 'Colour added to the key' : 'Key set from the sampled colour');
+    }
+  };
+
   const onPointerDown = (event: React.PointerEvent<SVGSVGElement>): void => {
     if (event.button === 1 || (event.button === 0 && spaceHeld)) {
       event.preventDefault();
@@ -704,6 +735,12 @@ export function MaskCanvasTools({
     capture(event);
     const point = toSource(event);
     setCursor(null);
+    // MK6.1: the eyedropper takes the colour under the pointer straight off the monitor's
+    // finished frame, so the key qualifies exactly what the editor pointed at.
+    if (tools.eyedropper && selectedLayer?.kind === 'key') {
+      pickKeyColour(selectedLayer, event.clientX, event.clientY, event.shiftKey);
+      return;
+    }
     switch (tools.tool) {
       case 'feature-point':
         // A click adds the point; a click on one removes it, because putting a point on the

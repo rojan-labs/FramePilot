@@ -79,6 +79,15 @@ type PathMask = Extract<MaskLayer, { kind: 'path' }>;
 export type MatteMask = Extract<MaskLayer, { kind: 'matte' }>;
 /** A mask kind the preview draws. */
 export type DrawnMask = ShapeMask | MatteMask;
+/** A `key` layer: qualified from the PICTURE on the GPU, never rastered from geometry. */
+export type KeyMask = Extract<MaskLayer, { kind: 'key' }>;
+/** Anything a stack may hold: the CPU-drawable kinds, plus the key the compositor qualifies. */
+export type StackMask = DrawnMask | KeyMask;
+
+/** Whether these masks read the picture, so the stack must be built by the compositor (MK6.1). */
+export function stackReadsPicture(masks: readonly StackMask[]): boolean {
+  return masks.some((mask) => mask.kind === 'key');
+}
 
 /**
  * What a stack with `matte` layers needs at one instant: the size the source was decoded at
@@ -106,8 +115,8 @@ export interface ClipMaskStack {
   readonly clip: Clip;
   /** Display-corrected source size, `null` when the media was never measured. */
   readonly size: DisplaySize | null;
-  readonly alpha: readonly DrawnMask[];
-  readonly byEffect: ReadonlyMap<string, readonly DrawnMask[]>;
+  readonly alpha: readonly StackMask[];
+  readonly byEffect: ReadonlyMap<string, readonly StackMask[]>;
   /** Every enabled matte layer, alpha target first (the decontamination order is its reverse). */
   readonly mattes: readonly MatteMask[];
   /** Set when the stack cannot be previewed; `alpha`/`byEffect` are then empty. */
@@ -126,7 +135,6 @@ export type MaskStackTarget =
 const KIND_REFUSALS: Partial<
   Record<MaskLayer['kind'], { task: MaskPreviewRefusal['task']; what: string }>
 > = {
-  key: { task: 'MK6', what: 'colour key masks preview once the key renderer ships' },
   linear: { task: 'MK8', what: 'split masks preview once the analytic mask renderer ships' },
   band: { task: 'MK8', what: 'band masks preview once the analytic mask renderer ships' },
   gradient: { task: 'MK8', what: 'gradient masks preview once the analytic mask renderer ships' },
@@ -327,8 +335,8 @@ export function clipMaskStack(
       return refuse(refusal(clip, mask, 'MK7', TRACK_REMEDIES.track_missing));
     }
   }
-  const shapes = enabled as DrawnMask[];
-  const byEffect = new Map<string, DrawnMask[]>();
+  const shapes = enabled as StackMask[];
+  const byEffect = new Map<string, StackMask[]>();
   for (const mask of shapes) {
     if (mask.target.kind !== 'effect') continue;
     const list = byEffect.get(mask.target.effectId) ?? [];
@@ -350,7 +358,7 @@ export function clipMaskStack(
 }
 
 /** The masks of `target`, top first (empty when the target is unmasked). */
-export function stackMasks(stack: ClipMaskStack, target: MaskStackTarget): readonly DrawnMask[] {
+export function stackMasks(stack: ClipMaskStack, target: MaskStackTarget): readonly StackMask[] {
   return target.kind === 'alpha' ? stack.alpha : (stack.byEffect.get(target.effectId) ?? []);
 }
 
@@ -365,7 +373,7 @@ export function drawnMasks(
   stack: ClipMaskStack,
   target: MaskStackTarget,
   mattes: MatteStackInputs | null,
-): readonly DrawnMask[] {
+): readonly StackMask[] {
   const masks = stackMasks(stack, target);
   if (!masks.some((mask) => mask.kind === 'matte')) return masks;
   return masks.filter((mask) => {
@@ -636,15 +644,26 @@ function warpPath(track: TrackArtifact, path: BezierPath, sourceTime: number): B
 
 // --- One mask, the stack ----------------------------------------------------------------------------
 
-/** `mask_alpha`: one mask's float alpha (after invert and opacity) on a `width`×`height` frame. */
-function maskAlpha(
-  drawn: DrawnMask,
+/**
+ * `mask_alpha`: one mask's float alpha (after invert and opacity) on a `width`×`height` frame.
+ *
+ * Exported because a stack that holds a key is combined on the GPU (MK6.1): its shape layers
+ * still come from this exact rasteriser, one at a time, and are uploaded as FLOAT so the stack
+ * is quantised once at the end rather than once per layer.
+ */
+export function singleMaskAlpha(
+  drawn: StackMask,
   stack: ClipMaskStack,
   width: number,
   height: number,
   s: number,
   mattes: MatteStackInputs | null,
 ): Float64Array {
+  if (drawn.kind === 'key') {
+    // A key is qualified from the picture by the compositor's GPU pass; reaching the CPU
+    // rasteriser with one means a caller skipped `stackReadsPicture`.
+    throw new MaskRasterError('A key mask is qualified on the GPU, not by the rasteriser.');
+  }
   if (drawn.kind === 'matte') {
     if (mattes === null) {
       throw new MaskRasterError('A matte frame was not decoded before its stack was drawn.');
@@ -684,7 +703,7 @@ function maskAlpha(
 }
 
 /** Whether a single `add` legacy mask keeps its v21 float alpha (no quantisation). */
-function isLegacyPassthrough(masks: readonly DrawnMask[]): masks is readonly [ShapeMask] {
+function isLegacyPassthrough(masks: readonly StackMask[]): masks is readonly [ShapeMask] {
   return masks.length === 1 && isLegacy(masks[0]!) && masks[0]!.mode === 'add';
 }
 
@@ -704,12 +723,12 @@ export function stackAlphaAt(
   const masks = drawnMasks(stack, target, mattes);
   if (masks.length === 0) return null;
   const s = maskSourceTime(stack.clip, clipTime);
-  if (isLegacyPassthrough(masks)) return maskAlpha(masks[0], stack, width, height, s, mattes);
+  if (isLegacyPassthrough(masks)) return singleMaskAlpha(masks[0], stack, width, height, s, mattes);
   const accumulated = new Float64Array(width * height);
   for (const mask of masks) {
     combineInto(
       accumulated,
-      maskAlpha(mask, stack, width, height, s, mattes),
+      singleMaskAlpha(mask, stack, width, height, s, mattes),
       mask.mode as MaskCombineMode,
     );
   }
@@ -730,10 +749,11 @@ export interface MaskStackRaster {
   readonly scale: number;
 }
 
-function isAnimated(masks: readonly DrawnMask[]): boolean {
+function isAnimated(masks: readonly StackMask[]): boolean {
   return masks.some(
     (mask) =>
       mask.kind === 'matte' ||
+      mask.kind === 'key' ||
       // A track gives a mask a new transform on every source frame.
       mask.tracking !== undefined ||
       mask.keyframes.length > 0 ||
@@ -742,7 +762,7 @@ function isAnimated(masks: readonly DrawnMask[]): boolean {
 }
 
 /** Which matte frames and decode geometry a raster depends on. */
-function matteKey(masks: readonly DrawnMask[], mattes: MatteStackInputs | null): string {
+function matteKey(masks: readonly StackMask[], mattes: MatteStackInputs | null): string {
   if (mattes === null || !masks.some((mask) => mask.kind === 'matte')) return '';
   const frames = masks
     .filter((mask) => mask.kind === 'matte')
@@ -777,6 +797,11 @@ export class MaskStackRasterCache {
     if (stack.refusal !== null || width <= 0 || height <= 0) return null;
     const masks = drawnMasks(stack, target, mattes);
     if (masks.length === 0) return null;
+    // A stack holding a key is qualified from the picture by the compositor's GPU passes; there
+    // is nothing for this cache to draw or to keep. Callers with no GL context (the DOM
+    // fallback monitor) therefore show the clip uncut, which is why the canvas monitor is the
+    // path a key mask is designed for.
+    if (stackReadsPicture(masks)) return null;
     const s = maskSourceTime(stack.clip, clipTime);
     const key = [
       previewIdentity(stack.clip),
@@ -801,7 +826,7 @@ export class MaskStackRasterCache {
 
   private draw(
     stack: ClipMaskStack,
-    masks: readonly DrawnMask[],
+    masks: readonly StackMask[],
     width: number,
     height: number,
     s: number,
@@ -821,7 +846,7 @@ export class MaskStackRasterCache {
       for (const mask of masks) {
         combineInto(
           accumulated,
-          maskAlpha(mask, stack, width, height, s, mattes),
+          singleMaskAlpha(mask, stack, width, height, s, mattes),
           mask.mode as MaskCombineMode,
         );
       }

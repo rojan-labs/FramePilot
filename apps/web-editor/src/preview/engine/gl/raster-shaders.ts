@@ -556,3 +556,60 @@ void main() {
   o_color = vec4(vec3(v & uvec3(255u)) / 255.0, texelFetch(u_source, p, 0).a);
 }
 `;
+
+// --- Mask stacks built on the GPU (MK6.1) -----------------------------------------------------
+//
+// A stack that holds a `key` cannot be rastered on the CPU: the key reads the picture, so its
+// alpha changes every frame and there is nothing to cache. Such a stack is combined on the GPU
+// instead — one float target accumulating layer by layer, quantised ONCE at the end, exactly as
+// `stack_alpha` quantises once — and the result is written to `R8UI` so it binds where an
+// uploaded CPU raster binds (`ALPHA_FRAGMENT`, `MASK_MIX_FRAGMENT`, `MASK_VIEW_FRAGMENT` all
+// sample `usampler2D u_mask`).
+
+/**
+ * `combine(accumulated, mask, mode)`: add 0 · subtract 1 · intersect 2 · difference 3 ·
+ * lighten 4 · darken 5. The stack starts all-zero, so a stack that begins with `subtract` is
+ * honestly empty.
+ */
+export const MASK_COMBINE_FRAGMENT = `${HEADER}
+uniform sampler2D u_accumulated;
+uniform sampler2D u_layer;
+uniform int u_mode;
+/** 1 for the first layer: the stack starts all-zero and there is nothing to sample yet. */
+uniform int u_first;
+out vec4 o_color;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float a = u_first == 1 ? 0.0 : texelFetch(u_accumulated, p, 0).r;
+  float m = texelFetch(u_layer, p, 0).r;
+  float result;
+  if (u_mode == 1) result = max(a - m, 0.0);
+  else if (u_mode == 2) result = a * m;
+  else if (u_mode == 3) result = abs(a - m);
+  else if (u_mode == 4) result = max(a, m);
+  else if (u_mode == 5) result = min(a, m);
+  else result = min(a + m, 1.0);
+  o_color = vec4(result, 0.0, 0.0, 1.0);
+}
+`;
+
+/**
+ * `quantize_alpha`: `rint(a * 255)` with numpy's round-half-EVEN, into the integer coverage
+ * texture the mask shaders sample. Round-half-up here would disagree with the export on every
+ * value that lands exactly between two bytes, which a flat qualifier produces by the thousand.
+ */
+export const MASK_QUANTIZE_FRAGMENT = `${HEADER}
+uniform sampler2D u_alpha;
+out uvec4 o_value;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float scaled = clamp(texelFetch(u_alpha, p, 0).r, 0.0, 1.0) * 255.0;
+  float low = floor(scaled);
+  float fraction = scaled - low;
+  float rounded;
+  if (fraction > 0.5) rounded = low + 1.0;
+  else if (fraction < 0.5) rounded = low;
+  else rounded = mod(low, 2.0) == 0.0 ? low : low + 1.0;
+  o_value = uvec4(uint(rounded), 0u, 0u, 255u);
+}
+`;

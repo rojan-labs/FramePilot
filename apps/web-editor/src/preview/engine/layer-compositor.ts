@@ -30,10 +30,24 @@ import { pilCoefficients } from './raster/pil.js';
 import type { CubeLut } from './raster/cube-lut.js';
 import {
   MaskStackRasterCache,
-  type MaskStackRaster,
+  drawnMasks,
+  type ClipMaskStack,
+  type MaskStackTarget,
+  maskScalar,
+  singleMaskAlpha,
+  stackReadsPicture,
+  type StackMask,
   type MatteStackInputs,
 } from '../masks/mask-stack.js';
+import { maskSourceTime } from '@framepilot/editor-core';
 import { decontaminate } from '../masks/matte-edges.js';
+import {
+  MASK_DESPILL_FRAGMENT,
+  MASK_KEY_FRAGMENT,
+  despillingKeys,
+  keyUniforms,
+  type KeyMask,
+} from '../masks/key-mask.js';
 import {
   FLAGGED_OUTLINE_PX,
   FLAGGED_RGB,
@@ -65,7 +79,9 @@ import {
   BLEND_MODE_INDEX,
   GRADE_FRAGMENT,
   LUT_FRAGMENT,
+  MASK_COMBINE_FRAGMENT,
   MASK_MIX_FRAGMENT,
+  MASK_QUANTIZE_FRAGMENT,
   MASK_VIEW_FRAGMENT,
   CHECKERBOARD_FRAGMENT,
   COMPOSITE_FRAGMENT,
@@ -86,6 +102,16 @@ const BACKGROUND: readonly [number, number, number, number] = [0, 0, 0, 1];
 /** Transition noise clock quantum — the effect chain's and the engine's. */
 const TRANSITION_TIME_QUANTUM = 1 / 60;
 const OPAQUE_COVERAGE = new Uint8Array([255]);
+
+/** Combine modes in the order `MASK_COMBINE_FRAGMENT` branches on (`combine`, `mask_raster`). */
+const MASK_COMBINE_MODES = [
+  'add',
+  'subtract',
+  'intersect',
+  'difference',
+  'lighten',
+  'darken',
+] as const;
 
 /** A picture the compositor can draw a {@link PictureRasterStep} from. */
 export type LayerSource =
@@ -315,29 +341,39 @@ export class LayerCompositor {
       // inside the effect application (`_masked_effect`), before any blur or alpha.
       const effectId = step.effectIds[index] ?? null;
       if (step.mask === null || effectId === null || current === input) return;
-      const raster = this.maskRasters.raster(
+      // A key limiting this effect qualifies the effect's INPUT, as `_masked_effect` does.
+      const coverage = this.stackCoverage(
         step.mask.stack,
         { kind: 'effect', effectId },
         input.width,
         input.height,
         step.mask.clipTime,
         mattes,
+        input,
       );
-      if (raster !== null) current = this.mixByMask(input, current, raster);
+      if (coverage !== null) current = this.mixByMask(input, current, coverage);
     });
     if (step.blurRadius > 0.5) current = this.pilGaussianBlur(current, step.blurRadius);
+    // The picture the alpha stack's key qualifies: the frame as it stands before the cut,
+    // which is the frame `_attach_mask` asks its source for.
+    const keyed = current;
     const viewMode = MASK_VIEW_MODE[view];
     if (viewMode !== 0 && step.mask !== null) {
       // Overlay and mask-only views draw the stack instead of cutting the picture with it.
-      const viewed = this.viewedStack(step, current.width, current.height, mattes);
+      const viewed = this.viewedStack(step, current.width, current.height, mattes, keyed);
       if (viewed !== null) {
-        current = this.maskView(current, viewed.raster, viewMode, viewed.color, flagged);
+        current = this.maskView(current, viewed.coverage, viewMode, viewed.color, flagged);
         if (step.opacity !== null || step.wipe !== null) {
           current = this.alpha(current, { ...step, mask: null }, null);
         }
       }
     } else if (step.opacity !== null || step.wipe !== null || hasAlphaMask(step)) {
-      current = this.alpha(current, step, mattes);
+      current = this.alpha(current, step, mattes, keyed);
+    }
+    // MK6.1: despill runs AFTER the stack is attached, because the qualifier has to read the
+    // colour the camera recorded (`_apply_key_despill`).
+    for (const mask of despillingKeys(step.mask?.stack ?? null)) {
+      current = this.despill(current, mask.despill as 'green' | 'blue');
     }
     for (const half of step.transitions) {
       current = this.transition(current, half);
@@ -582,6 +618,7 @@ export class LayerCompositor {
     source: RenderTarget,
     step: PictureRasterStep,
     mattes: MatteStackInputs | null,
+    picture: RenderTarget | null = null,
   ): RenderTarget {
     const r = this.resources;
     const out = r.target(source.width, source.height, 'rgba8');
@@ -599,22 +636,136 @@ export class LayerCompositor {
     const mask =
       step.mask === null || step.mask.stack.alpha.length === 0
         ? null
-        : this.maskRasters.raster(
+        : this.stackCoverage(
             step.mask.stack,
             { kind: 'alpha' },
             source.width,
             source.height,
             step.mask.clipTime,
             mattes,
+            picture,
           );
     gl.uniform1i(program.location('u_hasMask'), mask === null ? 0 : 1);
     gl.uniform1f(program.location('u_maskScale'), mask?.scale ?? 1);
     // An integer sampler must always see an integer texture, even when the branch skips it.
-    const texture =
-      mask === null
-        ? r.plane(1, 1, OPAQUE_COVERAGE)
-        : r.plane(source.width, source.height, mask.alpha8);
-    r.bind(program, 'u_mask', 1, texture);
+    r.bind(program, 'u_mask', 1, mask === null ? r.plane(1, 1, OPAQUE_COVERAGE) : mask.texture);
+    r.draw(out, out.width, out.height);
+    return out;
+  }
+
+  /**
+   * A stack's coverage as the integer texture every mask shader samples, plus its float scale.
+   *
+   * Two ways in, one way out. A stack of shapes and mattes is rastered on the CPU by the
+   * export's own algorithm and uploaded (the exact path, cached while nothing moves). A stack
+   * holding a `key` cannot be: the qualifier reads the picture, so it is combined on the GPU —
+   * each layer into a FLOAT accumulator, quantised once at the end, as `stack_alpha` quantises
+   * once — and lands in `R8UI`, which is the format an uploaded raster lands in too. That is
+   * why nothing downstream has to know which way the coverage was made.
+   *
+   * @param picture - The clip's decoded picture at this instant, which a key qualifies.
+   * @returns `null` when the target draws nothing, or when a key stack has no picture to read.
+   */
+  private stackCoverage(
+    stack: ClipMaskStack,
+    target: MaskStackTarget,
+    width: number,
+    height: number,
+    clipTime: number,
+    mattes: MatteStackInputs | null,
+    picture: RenderTarget | null,
+  ): { texture: WebGLTexture; scale: number } | null {
+    if (stack.refusal !== null || width <= 0 || height <= 0) return null;
+    const masks = drawnMasks(stack, target, mattes);
+    if (masks.length === 0) return null;
+    if (!stackReadsPicture(masks)) {
+      const raster = this.maskRasters.raster(stack, target, width, height, clipTime, mattes);
+      return raster === null
+        ? null
+        : { texture: this.resources.plane(width, height, raster.alpha8), scale: raster.scale };
+    }
+    if (picture === null || picture.width !== width || picture.height !== height) return null;
+    return {
+      texture: this.keyStack(stack, masks, width, height, clipTime, mattes, picture),
+      scale: 1,
+    };
+  }
+
+  /** `stack_alpha` for a stack that reads the picture: combine in float, quantise once. */
+  private keyStack(
+    stack: ClipMaskStack,
+    masks: readonly StackMask[],
+    width: number,
+    height: number,
+    clipTime: number,
+    mattes: MatteStackInputs | null,
+    picture: RenderTarget,
+  ): WebGLTexture {
+    const r = this.resources;
+    const gl = this.gl;
+    const s = maskSourceTime(stack.clip, clipTime);
+    let accumulated = r.target(width, height, 'rgba32f');
+    let first = true;
+    for (const mask of masks) {
+      const layer =
+        mask.kind === 'key'
+          ? this.keyLayer(mask, picture, maskScalar(mask, 'opacity', s))
+          : r.floatPlane(
+              width,
+              height,
+              Float32Array.from(singleMaskAlpha(mask, stack, width, height, s, mattes)),
+            );
+      const out = r.target(width, height, 'rgba32f');
+      const program = r.program('mask-combine', MASK_COMBINE_FRAGMENT);
+      gl.useProgram(program.handle);
+      r.bind(program, 'u_accumulated', 0, accumulated.texture);
+      r.bind(program, 'u_layer', 1, layer);
+      program.int('u_mode', MASK_COMBINE_MODES.indexOf(mask.mode));
+      program.int('u_first', first ? 1 : 0);
+      first = false;
+      r.draw(out, width, height);
+      accumulated = out;
+    }
+    const quantised = r.target(width, height, 'r8ui');
+    const program = r.program('mask-quantize', MASK_QUANTIZE_FRAGMENT);
+    gl.useProgram(program.handle);
+    r.bind(program, 'u_alpha', 0, accumulated.texture);
+    r.draw(quantised, width, height);
+    return quantised.texture;
+  }
+
+  /** One `key` layer's alpha, qualified from the picture (`key_mask.py`). */
+  private keyLayer(mask: KeyMask, picture: RenderTarget, opacity: number): WebGLTexture {
+    const r = this.resources;
+    const gl = this.gl;
+    const out = r.target(picture.width, picture.height, 'rgba32f');
+    const program = r.program('mask-key', MASK_KEY_FRAGMENT);
+    gl.useProgram(program.handle);
+    r.bind(program, 'u_picture', 0, picture.texture);
+    const uniforms = keyUniforms(mask, opacity);
+    program.int('u_sampled', uniforms.sampled);
+    program.int('u_rangeCount', uniforms.rangeCount);
+    program.int('u_sampleCount', uniforms.sampleCount);
+    gl.uniform4fv(program.location('u_ranges'), uniforms.ranges);
+    gl.uniform4fv(program.location('u_samples'), uniforms.samples);
+    gl.uniform1f(program.location('u_tolerance'), uniforms.tolerance);
+    gl.uniform1f(program.location('u_shadow'), uniforms.shadowRetention);
+    gl.uniform1f(program.location('u_cleanBlack'), uniforms.cleanBlack);
+    gl.uniform1f(program.location('u_cleanWhite'), uniforms.cleanWhite);
+    gl.uniform1f(program.location('u_invert'), uniforms.invert);
+    gl.uniform1f(program.location('u_opacity'), uniforms.opacity);
+    r.draw(out, out.width, out.height);
+    return out.texture;
+  }
+
+  /** The despill limiter on the picture, where `_apply_key_despill` applies it. */
+  private despill(source: RenderTarget, colour: 'green' | 'blue'): RenderTarget {
+    const r = this.resources;
+    const out = r.target(source.width, source.height, 'rgba8');
+    const program = r.program('mask-despill', MASK_DESPILL_FRAGMENT);
+    this.gl.useProgram(program.handle);
+    r.bind(program, 'u_picture', 0, source.texture);
+    program.int('u_colour', colour === 'green' ? 1 : 2);
     r.draw(out, out.width, out.height);
     return out;
   }
@@ -625,38 +776,32 @@ export class LayerCompositor {
     width: number,
     height: number,
     mattes: MatteStackInputs | null,
-  ): { raster: MaskStackRaster; color: string | undefined } | null {
+    picture: RenderTarget | null,
+  ): { coverage: { texture: WebGLTexture; scale: number }; color: string | undefined } | null {
     const mask = step.mask;
     if (mask === null) return null;
     const { stack, clipTime } = mask;
-    if (stack.alpha.length > 0) {
-      const raster = this.maskRasters.raster(
-        stack,
-        { kind: 'alpha' },
-        width,
-        height,
-        clipTime,
-        mattes,
-      );
-      return raster === null ? null : { raster, color: stack.alpha[0]?.color };
-    }
-    const [effectId, masks] = [...stack.byEffect][0] ?? [];
-    if (effectId === undefined) return null;
-    const raster = this.maskRasters.raster(
-      stack,
-      { kind: 'effect', effectId },
-      width,
-      height,
-      clipTime,
-      mattes,
-    );
-    return raster === null ? null : { raster, color: masks?.[0]?.color };
+    const target: MaskStackTarget =
+      stack.alpha.length > 0
+        ? { kind: 'alpha' }
+        : (() => {
+            const [effectId] = [...stack.byEffect][0] ?? [];
+            return effectId === undefined
+              ? { kind: 'alpha' }
+              : { kind: 'effect', effectId: effectId };
+          })();
+    if (stack.alpha.length === 0 && target.kind === 'alpha') return null;
+    const coverage = this.stackCoverage(stack, target, width, height, clipTime, mattes, picture);
+    if (coverage === null) return null;
+    const masks =
+      target.kind === 'alpha' ? stack.alpha : (stack.byEffect.get(target.effectId) ?? []);
+    return { coverage, color: masks[0]?.color };
   }
 
   /** MK3.3 overlay (`mode` 1) or mask-only (`mode` 2) view of a stack over its picture. */
   private maskView(
     source: RenderTarget,
-    mask: MaskStackRaster,
+    mask: { texture: WebGLTexture; scale: number },
     mode: number,
     color: string | undefined,
     flagged = false,
@@ -667,7 +812,7 @@ export class LayerCompositor {
     const gl = this.gl;
     gl.useProgram(program.handle);
     r.bind(program, 'u_source', 0, source.texture);
-    r.bind(program, 'u_mask', 1, r.plane(mask.width, mask.height, mask.alpha8));
+    r.bind(program, 'u_mask', 1, mask.texture);
     program.int('u_mode', mode);
     gl.uniform1f(program.location('u_scale'), mask.scale);
     const rgb = mode === 3 ? (flagged ? FLAGGED_RGB : UNFLAGGED_RGB) : maskColorRgb(color);
@@ -685,7 +830,7 @@ export class LayerCompositor {
   private mixByMask(
     original: RenderTarget,
     effected: RenderTarget,
-    mask: MaskStackRaster,
+    mask: { texture: WebGLTexture; scale: number },
   ): RenderTarget {
     const r = this.resources;
     const out = r.target(original.width, original.height, 'rgba8');
@@ -694,7 +839,7 @@ export class LayerCompositor {
     gl.useProgram(program.handle);
     r.bind(program, 'u_original', 0, original.texture);
     r.bind(program, 'u_effected', 1, effected.texture);
-    r.bind(program, 'u_mask', 2, r.plane(mask.width, mask.height, mask.alpha8));
+    r.bind(program, 'u_mask', 2, mask.texture);
     gl.uniform1f(program.location('u_scale'), mask.scale);
     r.draw(out, out.width, out.height);
     return out;

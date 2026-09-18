@@ -258,11 +258,22 @@ export interface SetMaskGeometryCommand extends MaskCommandBase {
 }
 
 /** Scalar and settings changes from the mask panel. */
+/**
+ * A value `set_mask_properties` can write.
+ *
+ * Numbers, strings and booleans are the scalars and settings; the structured values are the
+ * fields a kind carries whole — a key's `ranges` and `samples3d`, a finesse group (MK6.1).
+ * They are never keyframed, so they pass straight through to `update_mask`, where the schema
+ * parse refuses anything malformed.
+ */
+export type MaskPropertyValue =
+  number | string | boolean | readonly unknown[] | Readonly<Record<string, unknown>>;
+
 export interface SetMaskPropertiesCommand extends MaskCommandBase {
   readonly type: 'set_mask_properties';
   readonly maskId: string;
   readonly sourceTime: number;
-  readonly changes: Readonly<Record<string, number | string | boolean>>;
+  readonly changes: Readonly<Record<string, MaskPropertyValue>>;
   /** "Apply to all keyframes": an animated property changes by the same amount everywhere. */
   readonly allKeyframes?: boolean;
 }

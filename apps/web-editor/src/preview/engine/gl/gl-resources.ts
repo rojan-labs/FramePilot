@@ -8,7 +8,7 @@ import { FULLSCREEN_VERTEX } from './raster-shaders.js';
 /** A texture unit no pass samples from: allocations and uploads bind there (see useScratchUnit). */
 const SCRATCH_TEXTURE_UNIT = 15;
 
-export type TargetFormat = 'rgba8' | 'r16i' | 'rgba32f';
+export type TargetFormat = 'rgba8' | 'r16i' | 'rgba32f' | 'r8ui';
 
 /** A texture that can be drawn into. */
 export interface RenderTarget {
@@ -137,6 +137,10 @@ export class GlResources {
       gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, width, height);
     } else if (format === 'rgba32f') {
       gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, width, height);
+    } else if (format === 'r8ui') {
+      // The one integer coverage format the mask shaders sample (`usampler2D u_mask`), so a
+      // stack built on the GPU binds exactly where an uploaded CPU raster binds.
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8UI, width, height);
     } else {
       gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16I, width, height);
     }
@@ -188,6 +192,34 @@ export class GlResources {
       gl.bindTexture(gl.TEXTURE_2D, texture);
     }
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RED_INTEGER, gl.UNSIGNED_BYTE, data);
+    this.planeInUse.push(texture);
+    (texture as { __planeKey?: string }).__planeKey = key;
+    return texture;
+  }
+
+  /**
+   * A single-channel FLOAT texture holding `data`, for a mask layer that must not be quantised
+   * before the stack is combined (MK6.1: the export quantises the stack once, at the end).
+   * Pooled by size and released at {@link endFrame}.
+   */
+  floatPlane(width: number, height: number, data: Float32Array): WebGLTexture {
+    const gl = this.gl;
+    const key = `f${width}x${height}`;
+    const pooled = this.planeTextures.get(key)?.pop();
+    let texture = pooled;
+    if (!texture) {
+      const created = gl.createTexture();
+      if (!created) throw new Error('WebGL2 could not allocate a float plane texture.');
+      texture = created;
+      this.useScratchUnit();
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, width, height);
+      setNearest(gl);
+    } else {
+      this.useScratchUnit();
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+    }
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RED, gl.FLOAT, data);
     this.planeInUse.push(texture);
     (texture as { __planeKey?: string }).__planeKey = key;
     return texture;

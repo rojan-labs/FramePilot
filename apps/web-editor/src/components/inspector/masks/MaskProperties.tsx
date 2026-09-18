@@ -26,6 +26,7 @@ import { KeyframeButton } from '../KeyframeButton.js';
 import { LabeledSelect } from '../LabeledSelect.js';
 import { InspectorRow } from '../InspectorRow.js';
 import { keyframeStateAt } from '../keyframe-state.js';
+import { MaskKeyControls } from './MaskKeyControls.js';
 import { MaskNumberField } from './MaskNumberField.js';
 import { maskToolStore, useMaskTools, type MaskToolStore } from './useMaskTools.js';
 
@@ -242,6 +243,17 @@ export function MaskProperties({
           })
         }
       />
+      {mask.kind === 'key' && (
+        <MaskKeyControls
+          editor={editor}
+          clip={clip}
+          mask={mask}
+          name={name}
+          sourceTime={sourceTime}
+          locked={locked}
+          store={store}
+        />
+      )}
       {(mask.kind === 'rectangle' || mask.kind === 'ellipse') &&
         GEOMETRY_ROWS[mask.kind].map(numberRow)}
       {mask.kind === 'path' && geometry?.kind === 'path' && (

@@ -73,6 +73,13 @@ export interface MaskToolState {
    */
   readonly pendingTarget: MaskTarget | null;
   /**
+   * Whether the monitor is armed to sample a colour for the selected `key` mask (MK6.1).
+   *
+   * View state, like the active tool: the sample itself becomes a typed mask edit the moment it
+   * is taken. Disarmed after a pick, so the eyedropper never eats the next ordinary click.
+   */
+  readonly eyedropper: boolean;
+  /**
    * Extra texture the tracker should follow, display-corrected source pixels (MK7.4).
    *
    * Editor-owned hints, not project state: they steer the NEXT measurement and are meaningless
@@ -106,6 +113,7 @@ const INITIAL: MaskToolState = {
   liveScalars: null,
   clipboard: null,
   pendingTarget: null,
+  eyedropper: false,
   message: null,
 };
 
@@ -176,7 +184,7 @@ export class MaskToolStore {
   }
 
   public setTool(tool: MaskTool): void {
-    this.update({ tool, message: null });
+    this.update({ tool, eyedropper: false, message: null });
   }
 
   /**

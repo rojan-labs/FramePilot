@@ -15,6 +15,7 @@ import {
   clipMaskStack,
   pythonReprLength,
   stackAlphaAt,
+  stackReadsPicture,
   type MaskStackTarget,
 } from './mask-stack';
 
@@ -127,7 +128,6 @@ describe('mask stack refusals', () => {
     clipMaskStack(parseClip({ ...base, ...extra, masks: [mask] }), media)?.refusal ?? null;
 
   it.each([
-    [{ id: 'k', kind: 'key', model: 'hsl' }, 'MK6'],
     [{ id: 'l', kind: 'linear', originX: 0, originY: 0, angle: 0, softnessPx: 0 }, 'MK8'],
     [{ id: 'r', kind: 'rectangle', cx: 10, cy: 10, width: 5, height: 5, space: 'frame' }, 'MK9'],
   ])('names the task that ships %j', (mask, task) => {
@@ -140,6 +140,17 @@ describe('mask stack refusals', () => {
     }
     expect(refused?.task).toBe(task);
     expect(refused?.message).toMatch(/^Mask not previewed yet/);
+  });
+
+  it('does not refuse a key — the compositor qualifies it from the picture (MK6.1)', () => {
+    const stack = clipMaskStack(
+      parseClip({ ...base, masks: [{ id: 'k', kind: 'key', model: 'hsl' }] }),
+      media,
+    );
+    expect(stack?.refusal ?? null).toBeNull();
+    expect(stackReadsPicture(stack?.alpha ?? [])).toBe(true);
+    // The CPU cache draws nothing for it: the stack is built by the GPU passes instead.
+    expect(new MaskStackRasterCache().raster(stack!, { kind: 'alpha' }, 16, 16, 0)).toBeNull();
   });
 
   it('refuses a pixel mask on unmeasured media and a missing effect target', () => {
