@@ -8,6 +8,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The assistant can make split screens, gradients, shape masks and track mattes.** Ask for "a
+  split screen", "darken the top of the frame", "a heart around her face" or "put this video inside
+  the title" and it uses the same Split, Mirror, Gradient, Shapes and Track matte tools as the Mask
+  tab — placed on a subject it found, on the frame, or where you said in numbers, never at a
+  position it made up.
 - **Track mattes and text as a mask.** In the Mask tab, **Track matte** uses another clip or a
   whole track as this clip's mask: put a title above a clip, pick it, and the clip shows only
   through the letters ("video inside text"). Alpha uses the source's shape, Luma its brightness

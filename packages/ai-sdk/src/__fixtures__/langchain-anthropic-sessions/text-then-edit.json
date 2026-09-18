@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 12268,
+      "usedTokens": 12279,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -172,7 +172,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1799,
+            "tokenEstimate": 1811,
             "included": true
           },
           {
@@ -200,7 +200,7 @@
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 5,
+            "tokenEstimate": 4,
             "included": true
           },
           {
@@ -215,9 +215,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 12268,
+          "estimatedInputTokensBeforeSend": 12279,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 859732,
+          "estimatedRemainingCapacity": 859721,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -316,7 +316,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1799,
+            "tokenEstimate": 1811,
             "included": true
           },
           {
@@ -344,7 +344,7 @@
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 5,
+            "tokenEstimate": 4,
             "included": true
           },
           {
@@ -359,7 +359,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 12268,
+          "estimatedInputTokensBeforeSend": 12279,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -696,7 +696,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11899,
+      "usedTokens": 11910,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -750,7 +750,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1799,
+            "tokenEstimate": 1811,
             "included": true
           },
           {
@@ -778,7 +778,7 @@
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 25,
+            "tokenEstimate": 24,
             "included": true
           },
           {
@@ -793,9 +793,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11899,
+          "estimatedInputTokensBeforeSend": 11910,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860101,
+          "estimatedRemainingCapacity": 860090,
           "toolSchemaTokensRebilled": 7223,
           "calculationSource": "local_estimate"
         },
@@ -896,7 +896,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1799,
+            "tokenEstimate": 1811,
             "included": true
           },
           {
@@ -924,7 +924,7 @@
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 25,
+            "tokenEstimate": 24,
             "included": true
           },
           {
@@ -939,7 +939,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11899,
+          "estimatedInputTokensBeforeSend": 11910,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 7223,

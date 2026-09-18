@@ -26,6 +26,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { createLogger, estimateMatteJob, MATTE_HANDLE_SECONDS } from '@framepilot/shared-types';
 import {
+  CREATE_SHAPE_MASK_TOOL_NAME,
   FIND_MASK_TARGETS_TOOL_NAME,
   FindMaskTargetsArgsSchema,
   MASKING_HOST_TOOL_NAMES,
@@ -38,11 +39,13 @@ import {
   candidateIdMatches,
   candidatesOnFrame,
   createMaskRequest,
+  createShapeMaskRequest,
   parseCandidateId,
   rankCandidates,
   removeBackgroundRequest,
   resolveMaskTargets,
   type CreateMaskIntent,
+  type CreateShapeMaskIntent,
   type CreateMaskMeasurement,
   type HostExecutionContext,
   type HostToolExecutor,
@@ -147,6 +150,8 @@ export function createMaskingExecutor(options: MaskingExecutorOptions): HostTool
             return await run.trackMask(call.arguments);
           case REMOVE_BACKGROUND_TOOL_NAME:
             return await run.createMask(removeBackgroundRequest(call.arguments));
+          case CREATE_SHAPE_MASK_TOOL_NAME:
+            return await run.shapeMask(createShapeMaskRequest(call.arguments));
           default:
             return await run.createMask(createMaskRequest(call.arguments));
         }
@@ -383,6 +388,24 @@ class MaskingRun {
     const listed = { ...again, candidateId };
     this.measured.set(candidateId, listed);
     return listed;
+  }
+
+  /**
+   * `create_shape_mask` (MK8): the only measurement a preset needs is its candidate, re-resolved
+   * on its frame like `create_mask`'s. Placed on the frame or from the editor's numbers, nothing
+   * is measured and the clip is echoed; the orchestrator builds the preset either way.
+   */
+  public async shapeMask(intent: CreateShapeMaskIntent): Promise<HostToolOutcome> {
+    const resolved = this.resolveClip(intent.clipId);
+    const candidate =
+      intent.candidateId === undefined
+        ? undefined
+        : await this.resolveCandidate(resolved, intent.candidateId);
+    return completed(`Placed a ${intent.preset.replace('_', ' ')} mask on ${resolved.clip.id}`, {
+      kind: 'create_shape_mask' as const,
+      clipId: resolved.clip.id,
+      ...(candidate === undefined ? {} : { candidate }),
+    });
   }
 
   public async createMask(intent: CreateMaskIntent): Promise<HostToolOutcome> {

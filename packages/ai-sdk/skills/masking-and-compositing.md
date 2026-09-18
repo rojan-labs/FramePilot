@@ -1,7 +1,7 @@
 ---
 name: masking-and-compositing
-description: Masks and cut-outs on request — remove a background, hide or isolate a person or object, brighten, darken or desaturate only part of the picture, put a title behind someone, track a mask. The editor picks when the target is unclear; report flagged moments, never call a mask verified.
-tools: [find_mask_targets, create_mask, remove_background, track_mask, refine_mask, put_text_behind_subject, follow_subject, get_masks, delete_mask]
+description: Masks and cut-outs on request — remove a background, hide or isolate a subject, grade only part of the picture, split screen, gradients, heart/star shapes, video inside text, a title behind someone, tracking. The editor picks unclear targets; report flagged moments, never call a mask verified.
+tools: [find_mask_targets, create_mask, remove_background, track_mask, refine_mask, create_shape_mask, mask_with_layer, put_text_behind_subject, follow_subject, get_masks, delete_mask]
 ---
 
 # Masking and compositing
@@ -15,14 +15,15 @@ same review list.
 ## When to use
 
 "Remove the background", "cut her out", "hide the logo", "darken everything but the presenter",
-"desaturate the car", "put the title behind him", "make the mask follow him".
+"desaturate the car", "put the title behind him", "make the mask follow him", "split screen",
+"darken the top of the frame", "a heart around her face", "video inside the title".
 
 ## When not to use
 
 - A whole-clip look: use the color tools. A mask is for part of the picture.
-- Blurring a face or a plate, split screen, mirror, gradient or star/heart masks, a track matte,
-  or a title that follows a subject: none of these renders yet. Say so plainly; do not
-  approximate one (a darkened face is not a hidden one) and do not call anything else by its name.
+- Blurring a face or a plate, or a title that follows a subject: neither renders yet. Say so
+  plainly; do not approximate one (a darkened face is not a hidden one) and do not call anything
+  else by its name.
 - Filling a removed object with generated picture: not available. A hidden region shows whatever
   is on the layer below, or black.
 
@@ -55,6 +56,14 @@ coordinates. Every mask comes from a detection, a pack measurement, or numbers t
   it in one step. A cut-out needs no tracking: it is measured on every frame.
 - `refine_mask` adjusts by intent: `edge` (exact, soft, very_soft), `grow` (tighter, looser — one
   step per call), `mode`, `invert`. FramePilot picks the numbers.
+- `create_shape_mask` (preset, placement, purpose, edge): `split` (side it keeps), `mirror` band
+  (`direction`), `gradient` (side that stays opaque), `radial_gradient`, and the shapes `heart`,
+  `star` / `polygon` (`points`), `speech_bubble`, `arrow`, `rounded_frame`. Place it on a
+  candidateId, on the frame (no placement), or in a `userBox` only from numbers the editor typed.
+  `purpose` and `effect` work as in `create_mask`.
+- `mask_with_layer` (clipId, sourceClipId or sourceTrackId, channel): another clip or a whole
+  track becomes this clip's mask — a title for video inside text. `alpha` uses its shape, `luma`
+  its brightness, `inverted-*` the reverse. The source stops being drawn on its own.
 - `put_text_behind_subject` needs the background removed on that clip first.
 - `follow_subject` makes one mask reuse another mask's measured track. The source must be tracked.
 - `get_masks` lists a clip's masks with ids; `delete_mask` removes one.
@@ -74,6 +83,14 @@ coordinates. Every mask comes from a detection, a pack measurement, or numbers t
   `find_mask_targets` returns `needs_click`. The editor clicks it with the Inspector's subject tool.
 - **Hide a person or an object:** `create_mask` with `purpose: "hide"` and `track: true` if it
   moves. The region shows the layer below; if nothing is below, say it will export as black.
+- **Split screen:** `create_shape_mask` with `preset: "split"` and `side` on the top clip; the clip
+  below shows in the other half.
+- **Darken the sky / a graduated filter:** `create_shape_mask` with `preset: "gradient"`,
+  `side: "top"`, `purpose: "effect"`, `effect: "darken"`.
+- **A heart or star around someone:** `find_mask_targets` → `create_shape_mask` with the preset
+  and the candidateId.
+- **Video inside text:** put the title above the clip (titles tools), then `mask_with_layer` on the
+  clip with `sourceClipId` = the title and `channel: "alpha"`.
 - **Everyone except the host:** `find_mask_targets` returns `needs_face_selection`; the editor
   picks the faces. Face recognition is their choice per project, off by default.
 
@@ -96,7 +113,8 @@ composite) → cutout. Soft-edged treatment (a spotlight, a grade) → shape wit
 - Choosing between candidates yourself after an `ambiguous_target`.
 - Calling the same host tool again after `pack_missing` or a cut-out waiting for the editor.
 - Saying a mask is verified, done and checked, or omitting the flagged count.
-- Promising a masked blur, split screen or a title that follows a subject.
+- Promising a masked blur or a title that follows a subject.
+- Giving a split, a gradient or a shape coordinates: place it on a candidate or the frame.
 
 ## Verification checklist
 

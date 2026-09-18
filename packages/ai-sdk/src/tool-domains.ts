@@ -228,7 +228,7 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'get_masks',
     'delete_mask',
     'follow_subject',
-    // Registered unavailable until the renderers draw their mask kinds (plan 07 MK8).
+    // MK8: split, mirror, gradient, shape presets, and track mattes / text as a mask.
     'create_shape_mask',
     'mask_with_layer',
     // Folded in from `tracking` (AM1.2): both steer a MASK, so they arrive with the tools

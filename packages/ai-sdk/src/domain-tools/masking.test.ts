@@ -670,13 +670,181 @@ describe('follow_subject', () => {
   });
 });
 
-describe('tools whose engine does not exist yet', () => {
-  it('are registered unavailable, never built as something the renderers would ignore', () => {
-    for (const name of ['create_shape_mask', 'mask_with_layer']) {
-      const spec = tool(name);
-      expect(spec.available).toBe(false);
-      expect(spec.kind).toBe('unavailable');
-      expect(spec.buildOps).toBeUndefined();
-    }
+describe('create_shape_mask (MK8)', () => {
+  const shapeCall = (
+    args: Record<string, unknown>,
+    p: Project,
+    candidate?: MaskCandidate,
+    userNumbers: number[] = [],
+  ) =>
+    maskingOpsFromMeasurement(
+      'create_shape_mask',
+      { clipId: 'shot', ...args },
+      { kind: 'create_shape_mask', clipId: 'shot', ...(candidate ? { candidate } : {}) },
+      ctxOf(p, userNumbers),
+    );
+
+  it('is live, host-measured, and every analytic preset lands on the frame, attested', () => {
+    expect(tool('create_shape_mask').available).toBe(true);
+    const p = project();
+    const split = shapeCall({ preset: 'split', side: 'right', edge: 'exact' }, p);
+    expect(unsourcedMaskGeometry(split.operations)).toEqual([]);
+    expect(maskGeometrySourceOf(split.operations[0]!)).toEqual({ kind: 'frame', preset: 'split' });
+    expect(masksOf(clipOf(land(p, split.operations)))[0]).toMatchObject({
+      kind: 'linear',
+      originX: 960,
+      originY: 540,
+      angle: 90,
+      softnessPx: 0,
+    });
+    expect(split.target).toBeUndefined();
+    const band = masksOf(
+      clipOf(land(p, shapeCall({ preset: 'mirror', direction: 'vertical' }, p).operations)),
+    )[0];
+    expect(band).toMatchObject({ kind: 'band', angle: 90, widthPx: 640 });
+    expect((band as { softnessPx: number }).softnessPx).toBeGreaterThan(0);
+    const gradient = masksOf(
+      clipOf(land(p, shapeCall({ preset: 'gradient', side: 'bottom' }, p).operations)),
+    )[0];
+    expect(gradient).toMatchObject({
+      kind: 'gradient',
+      shape: 'linear',
+      startY: 1080,
+      endY: 0,
+      featherOuterPx: 0,
+    });
+    const radial = masksOf(
+      clipOf(land(p, shapeCall({ preset: 'radial_gradient' }, p).operations)),
+    )[0];
+    expect(radial).toMatchObject({ kind: 'gradient', shape: 'radial', startX: 960, startY: 540 });
+  });
+
+  it('draws path presets into a subject box and asks for a spot check of that subject', () => {
+    const p = project();
+    const edit = shapeCall(
+      { candidateId: FACE.candidateId, preset: 'star', points: 6, purpose: 'hide' },
+      p,
+      FACE,
+    );
+    expect(maskGeometrySourceOf(edit.operations.find((op) => op.type === 'add_mask')!)).toEqual({
+      kind: 'candidate',
+      candidateId: FACE.candidateId,
+    });
+    const [star] = masksOf(clipOf(land(p, edit.operations)));
+    expect(star).toMatchObject({ kind: 'path', name: 'Star', invert: true });
+    if (star?.kind !== 'path') throw new Error('expected a path');
+    expect(star.pathKeyframes[0]!.vertexTypes).toHaveLength(12);
+    expect(star.pathKeyframes[0]!.sourceTime).toBe(FACE.sourceTime);
+    const xs = star.pathKeyframes[0]!.points.filter((_, index) => index % 6 === 0);
+    expect(Math.min(...xs)).toBeCloseTo(768, 6);
+    expect(Math.max(...xs)).toBeCloseTo(960, 6);
+    expect(edit.target).toMatchObject({ label: 'face', purpose: 'hide' });
+  });
+
+  it('builds a rounded frame as two masks and limits an effect with a gradient', () => {
+    const p = project();
+    const frame = shapeCall({ preset: 'rounded_frame' }, p);
+    expect(masksOf(clipOf(land(p, frame.operations))).map((mask) => mask.mode)).toEqual([
+      'add',
+      'subtract',
+    ]);
+    expect(() => shapeCall({ preset: 'rounded_frame', purpose: 'hide' }, p)).toThrow(
+      /already keeps only its border/,
+    );
+    const sky = shapeCall({ preset: 'gradient', purpose: 'effect', effect: 'darken' }, p);
+    const landed = clipOf(land(p, sky.operations));
+    expect(landed.effects.map((effect) => effect.type)).toEqual(['color_grade']);
+    expect(masksOf(landed)[0]!.target).toEqual({
+      kind: 'effect',
+      effectId: landed.effects[0]!.id,
+    });
+  });
+
+  it('takes a userBox only with numbers the editor typed, and one placement', () => {
+    const p = project();
+    const args = { preset: 'heart', userBox: { x: 0.25, y: 0.25, width: 0.5, height: 0.5 } };
+    expect(() => shapeCall(args, p)).toThrow(USER_NUMBERS_NOT_TYPED);
+    const typed = shapeCall(args, p, undefined, [25, 25, 50, 50]);
+    expect(maskGeometrySourceOf(typed.operations[0]!)).toEqual({ kind: 'user_numbers' });
+    expect(() =>
+      shapeCall({ ...args, candidateId: FACE.candidateId }, p, FACE, [25, 25, 50, 50]),
+    ).toThrow(/not both/);
+    expect(() =>
+      maskingOpsFromMeasurement(
+        'create_shape_mask',
+        { clipId: 'shot', preset: 'heart', candidateId: FACE.candidateId },
+        { kind: 'create_shape_mask', clipId: 'shot' },
+        ctxOf(p),
+      ),
+    ).toThrow(/different candidate/);
+    expect(() =>
+      maskingOpsFromMeasurement(
+        'create_shape_mask',
+        { clipId: 'shot', preset: 'heart' },
+        { kind: 'create_mask', clipId: 'shot' },
+        ctxOf(p),
+      ),
+    ).toThrow(UnusableMaskingPayloadError);
+  });
+});
+
+describe('mask_with_layer (MK8.2)', () => {
+  function withTitle(): Project {
+    const p = project();
+    return {
+      ...p,
+      timeline: {
+        ...p.timeline,
+        tracks: [
+          {
+            id: 't1',
+            type: 'video',
+            clips: [
+              {
+                id: 'title',
+                assetId: '__text__',
+                trackId: 't1',
+                start: 0,
+                end: 4,
+                sourceStart: 0,
+                sourceEnd: 4,
+                effects: [{ id: 'tx', type: 'text', params: { text: 'HI' }, keyframes: [] }],
+                keyframes: [],
+              },
+            ],
+          },
+          ...p.timeline.tracks,
+        ],
+      },
+    } as Project;
+  }
+
+  it('uses a title as the clip’s mask through the Mask tab’s own command', () => {
+    const p = withTitle();
+    const ops = tool('mask_with_layer').buildOps!(
+      { clipId: 'shot', sourceClipId: 'title', channel: 'luma' },
+      ctxOf(p),
+    );
+    expect(unsourcedMaskGeometry(ops)).toEqual([]);
+    const landed = land(p, ops);
+    const shot = landed.timeline.tracks[1]!.clips.find((clip) => clip.id === 'shot')!;
+    expect(masksOf(shot)[0]).toMatchObject({
+      kind: 'layer',
+      source: { kind: 'clip', clipId: 'title' },
+      channel: 'luma',
+    });
+  });
+
+  it('refuses no source, two sources, itself and a loop', () => {
+    const p = withTitle();
+    const build = tool('mask_with_layer').buildOps!;
+    expect(() => build({ clipId: 'shot' }, ctxOf(p))).toThrow(/exactly one source/);
+    expect(() =>
+      build({ clipId: 'shot', sourceClipId: 'title', sourceTrackId: 't1' }, ctxOf(p)),
+    ).toThrow(/exactly one source/);
+    expect(() => build({ clipId: 'shot', sourceClipId: 'shot' }, ctxOf(p))).toThrow(
+      /own track matte/,
+    );
+    expect(() => build({ clipId: 'shot', sourceTrackId: 'v1' }, ctxOf(p))).toThrow(/lead back/);
   });
 });

@@ -421,6 +421,43 @@ describe('create_mask', () => {
   });
 });
 
+describe('create_shape_mask (MK8)', () => {
+  async function faceId(project: Project, projectPath: string): Promise<string> {
+    const outcome = await executor(projectPath).run(
+      { name: 'find_mask_targets', arguments: { clipId: 'shot', description: 'her face' } },
+      ctxOf(project),
+    );
+    return MaskTargetsResultSchema.parse(outcome.data).chosenCandidateIds[0]!;
+  }
+
+  it('echoes the clip for a preset on the frame, running no job', async () => {
+    const { project, projectPath } = await openProject();
+    const calls: string[] = [];
+    const run = executor(projectPath, { tracking: tracking(calls) });
+    const args = { clipId: 'shot', preset: 'split', side: 'right' };
+    const outcome = await run.run({ name: 'create_shape_mask', arguments: args }, ctxOf(project));
+    expect(outcome.status).toBe('completed');
+    expect(outcome.data).toEqual({ kind: 'create_shape_mask', clipId: 'shot' });
+    expect(calls).toEqual([]);
+    const edit = maskingOpsFromMeasurement('create_shape_mask', args, outcome.data, { project });
+    expect(edit.operations.map((operation) => operation.type)).toEqual(['add_mask']);
+  });
+
+  it('re-resolves the candidate a preset is placed on, and the orchestrator draws it there', async () => {
+    const { project, projectPath } = await openProject();
+    const candidateId = await faceId(project, projectPath);
+    const fresh = executor(projectPath, { tracking: tracking([]) });
+    const args = { clipId: 'shot', preset: 'heart', candidateId };
+    const outcome = await fresh.run({ name: 'create_shape_mask', arguments: args }, ctxOf(project));
+    expect(outcome.status).toBe('completed');
+    const data = outcome.data as { candidate?: { candidateId: string } };
+    expect(data.candidate?.candidateId).toBe(candidateId);
+    const edit = maskingOpsFromMeasurement('create_shape_mask', args, outcome.data, { project });
+    expect(edit.target?.label).toBe('face');
+    expect(edit.operations[0]!.type).toBe('add_mask');
+  });
+});
+
 describe('cut-outs', () => {
   it('runs a short job against the RUN’s project revision, not the file on disk', async () => {
     // 0.1 s of clip + handles is still over the confirm threshold on the CPU numbers, so this

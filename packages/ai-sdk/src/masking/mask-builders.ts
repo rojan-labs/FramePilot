@@ -239,11 +239,15 @@ export function inspectorGradeId(clipId: string): string {
 }
 
 /** Add the clip effect an `effect` mask limits; returns its id. */
-function addLimitedEffect(chain: MaskCommandChain, clip: Clip, intent: CreateMaskIntent): string {
-  if (intent.effect === undefined) {
+export function addLimitedEffect(
+  chain: MaskCommandChain,
+  clip: Clip,
+  effect: MaskEffectIntent | undefined,
+): string {
+  if (effect === undefined) {
     throw new ToolRefusalError('purpose "effect" needs an effect: brighten, darken or desaturate.');
   }
-  const resolved = resolveEffectIntent(intent.effect);
+  const resolved = resolveEffectIntent(effect);
   if (!resolved.ok) throw new ToolRefusalError(resolved.message);
   if (clip.effects.some((effect) => effect.type === resolved.effect.type)) {
     throw new ToolRefusalError(
@@ -292,7 +296,7 @@ export function buildShapeMaskOps(
   const maskId = nextMaskId(clip);
   const target =
     intent.purpose === 'effect'
-      ? ({ kind: 'effect', effectId: addLimitedEffect(chain, clip, intent) } as const)
+      ? ({ kind: 'effect', effectId: addLimitedEffect(chain, clip, intent.effect) } as const)
       : undefined;
   const drawn = chain.run({
     type: 'draw_mask',
@@ -371,7 +375,7 @@ function buildMatteMaskOps(
     engine: `${measurement.artifact.packId}@${measurement.artifact.packVersion}`,
   });
   if (intent.purpose === 'effect') {
-    const effectId = addLimitedEffect(chain, clip, intent);
+    const effectId = addLimitedEffect(chain, clip, intent.effect);
     chain.run({
       type: 'set_mask_target',
       clipId: clip.id,

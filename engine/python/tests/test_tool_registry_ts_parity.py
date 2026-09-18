@@ -142,8 +142,9 @@ def test_host_ui_only_tools_are_detected_and_excluded() -> None:
         "get_masks",
         "delete_mask",
         "follow_subject",
-        # Registered unavailable on the TS side until the renderers draw their mask kinds.
-        "create_shape_mask",
+        # MK8.2: a track matte compiles through editor-core's `add_track_matte`. Its sibling
+        # `create_shape_mask` is pack-measured (a preset placed on a subject re-resolves the
+        # candidate), so it is named by constant on the TS side like `create_mask`.
         "mask_with_layer",
     }
     assert "trim_clip" not in host_ui_only

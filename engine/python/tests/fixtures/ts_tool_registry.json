@@ -1170,16 +1170,149 @@
       }
     },
     "create_shape_mask": {
-      "kind": "unavailable",
-      "mutates": true,
-      "available": false,
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
       "hostUiOnly": true,
       "schema": {
         "type": [
           "object"
         ],
         "additionalProperties": false,
-        "properties": {}
+        "required": [
+          "clipId",
+          "preset"
+        ],
+        "properties": {
+          "candidateId": {
+            "type": [
+              "string"
+            ]
+          },
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "direction": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "horizontal",
+              "vertical"
+            ]
+          },
+          "edge": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "exact",
+              "soft",
+              "very_soft"
+            ]
+          },
+          "effect": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "blur_to_hide",
+              "brighten",
+              "darken",
+              "desaturate",
+              "grade_match_to"
+            ]
+          },
+          "points": {
+            "type": [
+              "integer"
+            ],
+            "minimum": 3,
+            "maximum": 64
+          },
+          "preset": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "arrow",
+              "gradient",
+              "heart",
+              "mirror",
+              "polygon",
+              "radial_gradient",
+              "rounded_frame",
+              "speech_bubble",
+              "split",
+              "star"
+            ]
+          },
+          "purpose": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "cutout",
+              "effect",
+              "hide"
+            ]
+          },
+          "side": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "bottom",
+              "left",
+              "right",
+              "top"
+            ]
+          },
+          "userBox": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "height",
+              "width",
+              "x",
+              "y"
+            ],
+            "properties": {
+              "height": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "width": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "x": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "y": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        }
       }
     },
     "delete_clip": {
@@ -2250,16 +2383,46 @@
       }
     },
     "mask_with_layer": {
-      "kind": "unavailable",
+      "kind": "mutate",
       "mutates": true,
-      "available": false,
+      "available": true,
       "hostUiOnly": true,
       "schema": {
         "type": [
           "object"
         ],
         "additionalProperties": false,
-        "properties": {}
+        "required": [
+          "clipId"
+        ],
+        "properties": {
+          "channel": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "alpha",
+              "inverted-alpha",
+              "inverted-luma",
+              "luma"
+            ]
+          },
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "sourceClipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "sourceTrackId": {
+            "type": [
+              "string"
+            ]
+          }
+        }
       }
     },
     "match_color": {

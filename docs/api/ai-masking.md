@@ -24,16 +24,18 @@ unroutable, so they are never advertised there.
 
 ## Tools
 
-| Tool                      | Kind               | What it does                                                                      | Compiles to                                                                                                     |
-| ------------------------- | ------------------ | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `find_mask_targets`       | host-measured read | Ranked candidates for a description on one clip, and a status                     | —                                                                                                               |
-| `create_mask`             | host-measured edit | Cut-out (matte) or fitted shape from one candidate; purpose, edge, optional track | `add_matte_mask` / `draw_mask`, `set_mask_properties`, `set_mask_target`, `apply_color_grade`, `set_mask_track` |
-| `remove_background`       | host-measured edit | `create_mask` preset: main subject (or a candidate), cut-out                      | `add_matte_mask`                                                                                                |
-| `track_mask`              | host-measured edit | Track an existing rectangle, ellipse or path                                      | `set_mask_track`                                                                                                |
-| `refine_mask`             | in-process edit    | `edge`, `grow` (one step), `mode`, `invert` — by intent                           | `set_mask_properties`                                                                                           |
-| `put_text_behind_subject` | in-process edit    | Title between subject and background; needs a matte first                         | `text_behind_subject`                                                                                           |
-| `get_masks`               | read               | id, kind, what it limits, tracked, review state, flagged count                    | —                                                                                                               |
-| `delete_mask`             | in-process edit    | Remove one mask                                                                   | `remove_mask`                                                                                                   |
+| Tool                      | Kind               | What it does                                                                                                                                                       | Compiles to                                                                                                     |
+| ------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `find_mask_targets`       | host-measured read | Ranked candidates for a description on one clip, and a status                                                                                                      | —                                                                                                               |
+| `create_mask`             | host-measured edit | Cut-out (matte) or fitted shape from one candidate; purpose, edge, optional track                                                                                  | `add_matte_mask` / `draw_mask`, `set_mask_properties`, `set_mask_target`, `apply_color_grade`, `set_mask_track` |
+| `remove_background`       | host-measured edit | `create_mask` preset: main subject (or a candidate), cut-out                                                                                                       | `add_matte_mask`                                                                                                |
+| `track_mask`              | host-measured edit | Track an existing rectangle, ellipse or path                                                                                                                       | `set_mask_track`                                                                                                |
+| `create_shape_mask`       | host-measured edit | MK8: split, mirror band, linear/radial gradient, heart, star, polygon, speech bubble, arrow, rounded frame — on a candidate, on the frame, or in a typed `userBox` | `draw_mask` (analytic geometry) / `draw_shape_preset`, `set_mask_properties`, `apply_color_grade`               |
+| `mask_with_layer`         | in-process edit    | MK8.2: another clip (a title: video inside text) or a whole track as this clip's mask, alpha or luma, either inverted                                              | `add_track_matte`                                                                                               |
+| `refine_mask`             | in-process edit    | `edge`, `grow` (one step), `mode`, `invert` — by intent                                                                                                            | `set_mask_properties`                                                                                           |
+| `put_text_behind_subject` | in-process edit    | Title between subject and background; needs a matte first                                                                                                          | `text_behind_subject`                                                                                           |
+| `get_masks`               | read               | id, kind, what it limits, tracked, review state, flagged count                                                                                                     | —                                                                                                               |
+| `delete_mask`             | in-process edit    | Remove one mask                                                                                                                                                    | `remove_mask`                                                                                                   |
 
 Every edit goes through `compileMaskCommand`, the entry point the monitor tools and the Inspector
 use, so an agent mask gets the same id, name, colour, validation and undo as a drawn one. A tool
@@ -343,10 +345,11 @@ prompt and cached prefix do not move; the three token-golden suites pass unregen
 `packages/ai-sdk/skills/masking-and-compositing.md` is the masking playbook: the tools in the
 order the work uses them, recipes (background removal, title behind a subject, spotlight with
 `refine_mask` `invert`, out-of-vocabulary targets via `needs_click`, hide, identity requests) and
-the review etiquette. It is grounded in what renders: a masked blur, split screen and the MK8
-shape kinds, a track matte, and a title that follows a subject are named as unavailable, and the
-body never recommends `blur_to_hide` or `grade_match_to` (a test pins both). Its description is
-284 of the 300 characters the manifest allows.
+the review etiquette. It is grounded in what renders: a masked blur and a title that follows a
+subject are named as unavailable, and the body never recommends `blur_to_hide` or
+`grade_match_to` (a test pins both); since MK8 it teaches split screen, gradients, shape presets
+and video inside text through `create_shape_mask` and `mask_with_layer`. Its description is
+294 of the 300 characters the manifest allows.
 
 A host that cannot offer any of a playbook's tools does not advertise it (`skillsOnOffer`): with
 the kill switch off the agent's manifest drops this skill, and the MCP server's `load_skill`
@@ -463,13 +466,44 @@ refusal's text is the repeated-failure guard's key. `maskingFailureNoteEntries()
 the desktop failure-quality gate. `pack_missing` (Smart Mask, Tracking Lite, Subject Intelligence)
 carries the signed proposal to `PackInstallInlineCard`.
 
+## Shape presets and track mattes (MK8)
+
+`create_shape_mask` became available once both renderers drew its kinds (MK8.1, MK8.3). The model
+names the preset and where it goes; `masking/shape-presets.ts` picks every number from the
+placement box:
+
+| Placement             | Box                                                                                    | Geometry source (attested) |
+| --------------------- | -------------------------------------------------------------------------------------- | -------------------------- |
+| `candidateId`         | the candidate's measured box (re-resolved by the desktop executor on its frame)        | `candidate`                |
+| none                  | the frame: split/band/gradient/frame span it; heart/star/polygon a centred 60 % square | `frame` (the preset)       |
+| `userBox` (fractions) | only numbers the editor typed in this request (`numbersWereTyped`)                     | `user_numbers`             |
+
+A split keeps `side` (left of its line's travel, editor-core's convention); a mirror band runs
+`direction` (a third of the frame, or the subject's extent); a gradient is opaque at `side`; a
+radial gradient reaches the box's half-diagonal; `points` is a count (star points, polygon sides),
+never a coordinate. `edge` becomes softness on a split or band and outer feather on a path; a
+gradient has none. `purpose` is `create_mask`'s (`hide` inverts; `effect` adds the Inspector's
+grade and targets it). A rounded frame is two paths, so `hide` is refused for it with a remedy. The
+tool is host-measured because a preset ON a subject needs its candidate; on the frame or from
+numbers the desktop executor measures nothing and echoes the clip (`CreateShapeMaskMeasurementSchema`).
+
+`mask_with_layer` compiles `add_track_matte`, the Mask tab's own command. It carries no geometry
+(a `layer` mask is coordinate-free), and editor-core refuses a clip as its own matte, a missing
+track, and a loop (a clip reading a track it sits on included).
+
+What the two tools cost the model, measured by the three token-golden regenerations: the skills
+manifest moves **1,799 → 1,811 (+12 tokens)** on every request where masking is on (the playbook's
+description and tool list), and one estimator-rounding token moves the other way, so a request moves
+**+11** (e.g. 12,293 → 12,304). The goldens' tool definitions do not move: the masking domain's
+schemas are sent only after `load_tools` loads it, and then these two add **≈590 tokens**
+(`create_shape_mask` 421, `mask_with_layer` 169, by the same 4-characters-per-token estimate; they
+were withheld while unavailable).
+
 ## Not built
 
-- `create_shape_mask` and `mask_with_layer` are **registered unavailable**, deliberately. Their
-  mask kinds (`linear`, `band`, `gradient`, `layer`) and the shape-preset path generators are in
-  the schema, but neither renderer draws them yet (plan 07 **MK8** is open), so a tool that
-  emitted them would make masks the preview and the export ignore. PRD §23: no AI capability
-  ahead of its engine. The orchestrator refuses an unavailable tool by name.
+- `create_shape_mask` with a candidate follows the candidate's box on its frame; it is not
+  tracked. Tracking an analytic kind is refused (only shapes carry control points); a path preset
+  can be tracked afterwards with `track_mask`.
 - `follow_subject` for a **title or overlay** is refused with a remedy: a clip transform that
   follows a track needs `Clip.transformTrack`, an unapproved schema change (**MO-14**). The mask
   half works.

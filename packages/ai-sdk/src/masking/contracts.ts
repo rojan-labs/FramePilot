@@ -15,6 +15,12 @@ export const FIND_MASK_TARGETS_TOOL_NAME = 'find_mask_targets';
 export const CREATE_MASK_TOOL_NAME = 'create_mask';
 export const REMOVE_BACKGROUND_TOOL_NAME = 'remove_background';
 export const TRACK_MASK_TOOL_NAME = 'track_mask';
+/**
+ * MK8: split, mirror, gradient and shape presets. Host-measured because a preset placed ON a
+ * subject needs the candidate re-resolved where the detector runs; placed on the frame or from
+ * the editor's numbers, the host measures nothing and echoes the clip.
+ */
+export const CREATE_SHAPE_MASK_TOOL_NAME = 'create_shape_mask';
 
 /** The tools a host executor measures for. */
 export const MASKING_HOST_TOOL_NAMES: readonly string[] = [
@@ -22,6 +28,7 @@ export const MASKING_HOST_TOOL_NAMES: readonly string[] = [
   CREATE_MASK_TOOL_NAME,
   REMOVE_BACKGROUND_TOOL_NAME,
   TRACK_MASK_TOOL_NAME,
+  CREATE_SHAPE_MASK_TOOL_NAME,
 ];
 
 /** The host-measured tools whose result becomes a patch. */
@@ -29,6 +36,7 @@ export const MASKING_HOST_MUTATION_TOOL_NAMES: readonly string[] = [
   CREATE_MASK_TOOL_NAME,
   REMOVE_BACKGROUND_TOOL_NAME,
   TRACK_MASK_TOOL_NAME,
+  CREATE_SHAPE_MASK_TOOL_NAME,
 ];
 
 const UnitSchema = z.number().finite().min(0).max(1);
@@ -175,6 +183,19 @@ export const CreateMaskMeasurementSchema = z.discriminatedUnion('precision', [
     .strict(),
 ]);
 export type CreateMaskMeasurement = z.infer<typeof CreateMaskMeasurementSchema>;
+
+/**
+ * What the host measured for `create_shape_mask`: the clip, and the candidate the preset is
+ * placed on when the call named one (re-resolved on its frame, like `create_mask`'s).
+ */
+export const CreateShapeMaskMeasurementSchema = z
+  .object({
+    kind: z.literal('create_shape_mask'),
+    clipId: z.string().min(1),
+    candidate: MaskCandidateSchema.optional(),
+  })
+  .strict();
+export type CreateShapeMaskMeasurement = z.infer<typeof CreateShapeMaskMeasurementSchema>;
 
 export const TrackMaskMeasurementSchema = z
   .object({

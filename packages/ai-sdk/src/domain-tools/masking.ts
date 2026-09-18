@@ -21,7 +21,9 @@ import type { ToolSpec } from '../tool-registry.js';
 import { ToolRefusalError } from '../tool-refusal.js';
 import {
   CREATE_MASK_TOOL_NAME,
+  CREATE_SHAPE_MASK_TOOL_NAME,
   CreateMaskMeasurementSchema,
+  CreateShapeMaskMeasurementSchema,
   FIND_MASK_TARGETS_TOOL_NAME,
   REMOVE_BACKGROUND_TOOL_NAME,
   TRACK_MASK_TOOL_NAME,
@@ -51,8 +53,15 @@ import {
   type BuiltMask,
   type CreateMaskIntent,
 } from '../masking/mask-builders.js';
+import {
+  AI_SHAPE_PRESETS,
+  SHAPE_DIRECTIONS,
+  SHAPE_SIDES,
+  buildShapePresetMaskOps,
+  type CreateShapeMaskIntent,
+} from '../masking/shape-presets.js';
 import { boolean, numeric, seconds } from './tool-args.js';
-import { jsonSchema, mutateTool, readTool, unavailableTool } from './tool-factories.js';
+import { jsonSchema, mutateTool, readTool } from './tool-factories.js';
 
 const unit = numeric(z.number().min(0).max(1));
 
@@ -88,6 +97,49 @@ export const CreateMaskArgsSchema = z
     effect: z.enum(MASK_EFFECT_INTENTS).optional(),
     edge: z.enum(MASK_EDGE_INTENTS).default('soft'),
     track: boolean().default(false),
+  })
+  .strict();
+
+const UserBoxSchema = z
+  .object({
+    /** Fractions of the picture: left, top, width, height. */
+    x: unit,
+    y: unit,
+    width: unit,
+    height: unit,
+  })
+  .strict();
+
+export const CreateShapeMaskArgsSchema = z
+  .object({
+    clipId: z.string().min(1),
+    preset: z.enum(AI_SHAPE_PRESETS),
+    /** Place the preset on this measured subject (from find_mask_targets). */
+    candidateId: MaskCandidateIdSchema.optional(),
+    /** Place the preset in this box, ONLY with numbers the editor typed. */
+    userBox: UserBoxSchema.optional(),
+    /** split: the side kept; gradient: the side that stays opaque. */
+    side: z.enum(SHAPE_SIDES).optional(),
+    /** mirror: which way the band runs. */
+    direction: z.enum(SHAPE_DIRECTIONS).optional(),
+    /** star: points; polygon: sides (3–64). A count, never a coordinate. */
+    points: numeric(z.number().int().min(3).max(64)).optional(),
+    purpose: z.enum(MASK_PURPOSES).default('cutout'),
+    effect: z.enum(MASK_EFFECT_INTENTS).optional(),
+    edge: z.enum(MASK_EDGE_INTENTS).default('soft'),
+  })
+  .strict();
+
+const LAYER_CHANNELS = ['alpha', 'luma', 'inverted-alpha', 'inverted-luma'] as const;
+
+export const MaskWithLayerArgsSchema = z
+  .object({
+    clipId: z.string().min(1),
+    /** The clip whose picture becomes the mask — a title for text-as-mask. */
+    sourceClipId: z.string().min(1).optional(),
+    /** Or a whole track. */
+    sourceTrackId: z.string().min(1).optional(),
+    channel: z.enum(LAYER_CHANNELS).default('alpha'),
   })
   .strict();
 
@@ -162,6 +214,56 @@ export function createMaskRequest(rawArgs: unknown): CreateMaskIntent {
   };
 }
 
+const REFUSE_BOTH_PLACEMENTS =
+  'Pass candidateId or userBox, not both: a shape mask has one placement. Omit both to place ' +
+  'it on the frame.';
+
+/**
+ * The structural half of {@link createShapeMaskIntent}: what the arguments alone decide. The
+ * desktop executor uses it; whether the editor typed the numbers is the orchestrator's check.
+ */
+export function createShapeMaskRequest(rawArgs: unknown): CreateShapeMaskIntent {
+  const args = CreateShapeMaskArgsSchema.parse(rawArgs);
+  if (args.candidateId !== undefined && args.userBox !== undefined) {
+    throw new ToolRefusalError(REFUSE_BOTH_PLACEMENTS);
+  }
+  if (args.userBox !== undefined && (args.userBox.width <= 0 || args.userBox.height <= 0)) {
+    throw new ToolRefusalError('userBox needs a width and a height above zero.');
+  }
+  return {
+    clipId: args.clipId,
+    preset: args.preset,
+    ...(args.candidateId === undefined ? {} : { candidateId: args.candidateId }),
+    ...(args.userBox === undefined ? {} : { userBox: args.userBox }),
+    ...(args.side === undefined ? {} : { side: args.side }),
+    ...(args.direction === undefined ? {} : { direction: args.direction }),
+    ...(args.points === undefined ? {} : { points: args.points }),
+    purpose: args.purpose,
+    ...(args.effect === undefined ? {} : { effect: args.effect }),
+    edge: args.edge,
+  };
+}
+
+/**
+ * The rules `create_shape_mask` arguments obey beyond their types, refused before the host runs.
+ *
+ * @throws ToolRefusalError with the remedy.
+ */
+export function createShapeMaskIntent(
+  rawArgs: unknown,
+  ctx: Pick<ToolContext, 'userNumbers' | 'userPickedCandidateIds'>,
+): CreateShapeMaskIntent {
+  const intent = createShapeMaskRequest(rawArgs);
+  assertCandidateUsable(intent.candidateId, ctx);
+  if (intent.userBox !== undefined) {
+    const { x, y, width, height } = intent.userBox;
+    if (!numbersWereTyped([x, y, width, height], ctx.userNumbers ?? [])) {
+      throw new ToolRefusalError(USER_NUMBERS_NOT_TYPED);
+    }
+  }
+  return intent;
+}
+
 /** The refusal for a candidate the editor was asked to choose and has not chosen. */
 export const CANDIDATE_NEEDS_EDITOR_PICK =
   'That candidate is one the editor has to choose: find_mask_targets could not tell which ' +
@@ -215,6 +317,7 @@ export function removeBackgroundRequest(rawArgs: unknown): CreateMaskIntent {
 export function preflightMaskingCall(toolName: string, rawArgs: unknown, ctx: ToolContext): void {
   if (toolName === CREATE_MASK_TOOL_NAME) createMaskIntent(rawArgs, ctx);
   else if (toolName === REMOVE_BACKGROUND_TOOL_NAME) removeBackgroundIntent(rawArgs, ctx);
+  else if (toolName === CREATE_SHAPE_MASK_TOOL_NAME) createShapeMaskIntent(rawArgs, ctx);
 }
 
 /** A host-measured masking result, ready for the orchestrator to assemble. */
@@ -273,6 +376,38 @@ export function maskingOpsFromMeasurement(
     const built = buildTrackMaskOps(ctx.project, args.clipId, args.maskId, parsed.data.track);
     return {
       ...measuredEdit(args.clipId, built, parsed.data.track.flagged, parsed.data.track),
+    };
+  }
+  if (toolName === CREATE_SHAPE_MASK_TOOL_NAME) {
+    const shape = createShapeMaskIntent(rawArgs, ctx);
+    const parsed = CreateShapeMaskMeasurementSchema.safeParse(payload);
+    if (!parsed.success) throw new UnusableMaskingPayloadError();
+    if (parsed.data.clipId !== shape.clipId) {
+      throw new ToolRefusalError(
+        'The measurement is for a different clip, so nothing was applied.',
+      );
+    }
+    const measured = parsed.data.candidate;
+    if (shape.candidateId !== undefined && measured?.candidateId !== shape.candidateId) {
+      throw new ToolRefusalError(
+        'The measurement is for a different candidate, so nothing was applied.',
+      );
+    }
+    const built = buildShapePresetMaskOps(ctx.project, shape, measured);
+    return {
+      ...measuredEdit(shape.clipId, built, []),
+      // A preset put ON a subject can be spot-checked like any mask on a subject; one placed
+      // on the frame or from the editor's numbers has no "is it the right thing?" to ask.
+      ...(measured === undefined
+        ? {}
+        : {
+            target: {
+              label: measured.label,
+              purpose: shape.purpose,
+              candidateScore: measured.score,
+              editorChose: parseCandidateId(measured.candidateId)?.pickRequired === true,
+            },
+          }),
     };
   }
   const intent =
@@ -538,6 +673,32 @@ function followSubjectOps(
   );
 }
 
+const REFUSE_LAYER_SOURCE =
+  'mask_with_layer needs exactly one source: sourceClipId (a clip, such as a title) or ' +
+  'sourceTrackId (a whole track). Call get_clips for real ids.';
+
+/** `mask_with_layer`: one `add_track_matte`, the command the Mask tab's Track matte row runs. */
+function maskWithLayerOps(
+  args: z.infer<typeof MaskWithLayerArgsSchema>,
+  ctx: ToolContext,
+): Operation[] {
+  if ((args.sourceClipId === undefined) === (args.sourceTrackId === undefined)) {
+    throw new ToolRefusalError(REFUSE_LAYER_SOURCE);
+  }
+  const { clip } = clipWithSize(ctx.project, args.clipId);
+  const chain = new MaskCommandChain(ctx.project);
+  chain.run({
+    type: 'add_track_matte',
+    clipId: clip.id,
+    source:
+      args.sourceClipId !== undefined
+        ? { kind: 'clip', clipId: args.sourceClipId }
+        : { kind: 'track', trackId: args.sourceTrackId! },
+    channel: args.channel,
+  });
+  return chain.operations;
+}
+
 export const MASKING_TOOLS: readonly ToolSpec[] = [
   hostMeasured(
     FIND_MASK_TARGETS_TOOL_NAME,
@@ -662,32 +823,32 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
     FollowSubjectArgsSchema,
     followSubjectOps,
   ),
-  // The two below are REGISTERED UNAVAILABLE on purpose (PRD §23: no AI capability ahead of
-  // its engine). Their mask kinds — `linear`, `band`, `gradient`, `layer`, and the shape-preset
-  // path generators — are in the schema, and neither renderer draws them yet (plan 07 MK8 is
-  // open). A tool that emitted them would produce masks the preview and the export ignore.
-  // The orchestrator refuses an unavailable tool by name, so a model that reaches for one is
-  // told plainly instead of being handed something that silently does nothing.
-  unavailableTool(
-    {
-      name: 'create_shape_mask',
-      description:
-        'Split screen, mirror, gradient and shape-preset masks (heart, star, …) placed from a ' +
-        'candidate or the frame. Unavailable: the renderers do not draw these mask kinds yet.',
-      capabilities: ['masking'],
-      hostUiOnly: true,
-    },
-    true,
+  // MK8: the split, mirror, gradient and shape-preset masks render in the export and the monitor,
+  // so the tool is live. Host-measured (like create_mask) because a preset placed ON a subject
+  // re-resolves the candidate where the detector runs.
+  hostMeasured(
+    CREATE_SHAPE_MASK_TOOL_NAME,
+    'Split screen, mirror band, gradient and shape-preset masks (heart, star, polygon, speech ' +
+      'bubble, arrow, rounded frame). Placed on a candidateId from find_mask_targets, on the ' +
+      'frame (pass neither), or in a userBox ONLY with numbers the editor typed. side: which ' +
+      'half a split keeps, or where a gradient is opaque; direction: a mirror band runs ' +
+      'horizontal or vertical; points: star points or polygon sides. purpose, effect and edge ' +
+      'as in create_mask. You never give coordinates.',
+    CreateShapeMaskArgsSchema,
+    ['analysis', 'write'],
   ),
-  unavailableTool(
+  mutateTool(
     {
       name: 'mask_with_layer',
       description:
-        'Track matte and text-as-mask: use another clip or track as this clip’s mask. ' +
-        'Unavailable: the renderers do not draw the layer mask kind yet.',
+        'Track matte and text-as-mask: use another clip (sourceClipId, e.g. a title for video ' +
+        'inside text) or a whole track (sourceTrackId) as this clip’s mask. channel: alpha (its ' +
+        'shape), luma (its brightness) or either inverted. The source is then no longer drawn ' +
+        'on its own. Undo removes it.',
       capabilities: ['masking'],
       hostUiOnly: true,
     },
-    true,
+    MaskWithLayerArgsSchema,
+    maskWithLayerOps,
   ),
 ];

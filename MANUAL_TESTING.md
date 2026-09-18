@@ -770,8 +770,9 @@ effect (ADR 0113).
 > pack, and cut out through the Smart Mask pack (16.4, 16.5). The assistant masks through the
 > `masking` tools (`find_mask_targets`, `create_mask`, `remove_background`, `track_mask`, …), which
 > run the same pack jobs and land on the same Inspector review list (16.8). `generate_mask` and
-> the model's fixed-bounds `add_mask` no longer exist; `create_shape_mask` and `mask_with_layer`
-> are registered unavailable because neither renderer draws their mask kinds yet.
+> the model's fixed-bounds `add_mask` no longer exist. `create_shape_mask` (split, mirror,
+> gradients, shape presets) and `mask_with_layer` (track matte, text as a mask) are live since MK8
+> (16.9, 16.10).
 
 - [ ] **16.1 Draw and edit masks on the monitor** — `UI` · desktop
   - Setup: a project with a real camera clip (4K if you have one). Select it, open Inspector → Mask.
@@ -919,6 +920,34 @@ effect (ADR 0113).
     added or removed, and the existing masks still preview and export. Unset, a dev build is `on`
     and a packaged release is `off` until RD3.
   - Fail if: any masking tool card appears, or Cmd+K proposes a mask edit with the switch off.
+  - Result: **/**/____ · PASS / FAIL · notes:
+
+- [ ] **16.9 Split, mirror, gradient and shape masks** — `UI+AI` · desktop
+  - Setup: two video clips stacked (V1 over V2), Inspector → Mask on the V1 clip.
+  - Do: Split tool (S): drag across the picture; turn it with the square handle (Shift for 15°
+    steps), pull the softness knob. Mirror (M): click, widen the band with its edge handles.
+    Gradient (G): drag top to bottom, then Alt-drag for a radial one. Shapes (H): pick Star, set 6
+    points, drag a box; pick Rounded frame and drag. Undo each. Export 5 s.
+  - Then ask the assistant: _"Split screen: keep the left half of this clip."_ and _"Darken the top
+    of this shot with a gradient."_ and _"Put a heart around her face."_
+  - Expect: every gesture is one undo step; the monitor and the export show the same edges (a hard
+    diagonal split is clean, not stair-stepped); the rounded frame is two masks (outer, inner
+    subtracted). The assistant places each on the frame or the face, never asks you for
+    coordinates, and reports what it did.
+  - Fail if: the monitor says "Mask not previewed yet" for any of them, an export differs from the
+    monitor, or the assistant invents a position.
+  - Result: **/**/____ · PASS / FAIL · notes:
+
+- [ ] **16.10 Track matte and video inside text** — `UI+AI` · desktop
+  - Setup: a title (big bold word) on the top track over a video clip, over a second clip below.
+  - Do: select the video clip, Mask tab → Track matte: pick the title, Alpha, **Use as mask**. Switch
+    the channel to Luma, then Alpha, inverted. Scale and rotate the video clip. Export 5 s. Undo.
+    Then ask the assistant: _"Put this video inside the title."_
+  - Expect: the clip shows only through the letters, over the clip below; the title itself is no
+    longer drawn; inverted shows the clip everywhere except the letters; scaling the clip does not
+    move the matte (it stays where the title is); the export matches the monitor; the assistant
+    uses the title as an alpha track matte.
+  - Fail if: white letters are drawn on top, the matte moves with the clip, or the export differs.
   - Result: **/**/____ · PASS / FAIL · notes:
 
 ---

@@ -42,6 +42,7 @@ export * from './masking/feature-flag.js';
 export * from './masking/geometry-provenance.js';
 export * from './masking/intent-tables.js';
 export * from './masking/mask-builders.js';
+export * from './masking/shape-presets.js';
 export * from './masking/shape-fit.js';
 export * from './masking/target-resolution.js';
 export * from './domain-tools/professional-audio.js';

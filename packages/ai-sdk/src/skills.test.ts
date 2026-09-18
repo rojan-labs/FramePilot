@@ -243,13 +243,18 @@ describe('masking-and-compositing (AM4.2)', () => {
     for (const name of skill!.tools) expect(getTool(name)?.available, name).toBe(true);
   });
 
-  it('lists the masking domain’s working tools and none that has no renderer', () => {
+  it('lists the masking domain’s working tools, the MK8 ones included now that they render', () => {
     expect(skill!.tools).toEqual(
-      expect.arrayContaining(['find_mask_targets', 'create_mask', 'remove_background']),
+      expect.arrayContaining([
+        'find_mask_targets',
+        'create_mask',
+        'remove_background',
+        'create_shape_mask',
+        'mask_with_layer',
+      ]),
     );
     for (const name of ['create_shape_mask', 'mask_with_layer']) {
-      expect(skill!.tools).not.toContain(name);
-      expect(getTool(name)?.available).toBe(false);
+      expect(getTool(name)?.available).toBe(true);
     }
   });
 

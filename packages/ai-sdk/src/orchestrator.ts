@@ -10376,6 +10376,7 @@ const MASKING_PATCH_REASON: Readonly<Record<string, string>> = {
   create_mask: 'Create mask',
   remove_background: 'Remove background',
   track_mask: 'Track mask',
+  create_shape_mask: 'Create shape mask',
 };
 
 /**
