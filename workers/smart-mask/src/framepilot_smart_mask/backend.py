@@ -71,6 +71,8 @@ class DecoderOutput:
     ious: Array
     obj_ptr: Array
     object_score_logits: Array
+    #: (1,M,256,256) logits of every candidate when decoded with multimask (a single click).
+    low_res_multimasks: Array | None = None
 
 
 @dataclass(frozen=True, slots=True)

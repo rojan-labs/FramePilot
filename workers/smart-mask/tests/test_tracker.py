@@ -205,3 +205,19 @@ def test_embedding_cache_is_bounded_and_spills(tmp_path: object) -> None:
     assert fake.encodes == before + 1, "past both budgets an embedding is recomputed, never kept"
     cache.clear()
     assert list(Path(str(tmp_path)).iterdir()) == []
+
+
+def test_a_single_click_conditions_on_the_whole_subject_not_the_part() -> None:
+    """BR7.4: SAM's best-IoU candidate for a click on a person is often a part (it0 one-click)."""
+    from framepilot_smart_mask.tracker import LOW_RES, whole_object
+
+    candidates = np.full((3, LOW_RES, LOW_RES), -8.0, np.float32)
+    candidates[0, 100:120, 100:120] = 8.0  # the torso the click is on (SAM's pick)
+    candidates[1, 60:200, 90:130] = 8.0  # the whole person
+    candidates[2, :, :] = 8.0  # everything: never the subject
+    click = np.array([110.0, 110.0])
+    assert whole_object(candidates, np.array([0.95, 0.88, 0.9]), click) == 1
+    assert whole_object(candidates, np.array([0.95, 0.70, 0.9]), click) is None, "too unsure"
+    assert whole_object(candidates, np.array([0.80, 0.95, 0.5]), click) is None, "SAM's own pick"
+    outside = np.array([10.0, 10.0])
+    assert whole_object(candidates[:2], np.array([0.95, 0.9]), outside) is None

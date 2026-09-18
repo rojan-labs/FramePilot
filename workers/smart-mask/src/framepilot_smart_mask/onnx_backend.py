@@ -177,6 +177,7 @@ class OnnxSam:
             ious=values["ious"],
             obj_ptr=values["obj_ptr"],
             object_score_logits=values["object_score_logits"],
+            low_res_multimasks=values["low_res_multimasks"],
         )
 
     def decode_points(

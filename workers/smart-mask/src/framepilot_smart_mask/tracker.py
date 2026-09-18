@@ -323,6 +323,15 @@ class SamTracker:
         multimask = labels.shape[1] <= 1
         out = self.modules.decode_points(pix, feats, coords, labels, multimask)
         self.decoder_calls += 1
+        if multimask and prompt.labels == (1,) and out.low_res_multimasks is not None:
+            candidates = np.asarray(out.low_res_multimasks, np.float32).reshape(
+                -1, LOW_RES, LOW_RES
+            )
+            ious = np.asarray(out.ious, np.float32).reshape(-1)
+            chosen = whole_object(candidates, ious, coords[0, 0] * LOW_RES / IMAGE_SIZE)
+            if chosen is not None:
+                whole = resize_bilinear(candidates[chosen], IMAGE_SIZE, IMAGE_SIZE) > 0
+                return self._condition_mask(feats, MaskPrompt(whole))
         return self._with_memory(feats, out, is_cond=True)
 
     def _condition_mask(self, feats: ImageFeatures, prompt: MaskPrompt) -> FrameOutput:
@@ -454,6 +463,40 @@ class SamTracker:
         return tokens
 
 
+#: One click selects the whole subject: of SAM's candidates that contain the click and whose
+#: predicted IoU is within this margin of the best, the largest (BR7.4 it0: the best-IoU pick was
+#: a part, a torso or a head, in 4 of 5 categories: one-click IoU 0.53-0.86).
+WHOLE_OBJECT_IOU_MARGIN: Final = 0.15
+#: ... but never a candidate covering more than this fraction of the frame (the background).
+WHOLE_OBJECT_MAX_FRACTION: Final = 0.6
+
+
+def whole_object(candidates: Float, ious: Float, click_low_res: Float) -> int | None:
+    """Index of the candidate to condition on for a single click, or None to keep SAM's pick.
+
+    ``candidates`` (M, 256, 256) logits, ``ious`` (M,) predicted IoU, ``click_low_res`` (x, y)
+    in low-res pixels. SAM's own pick is the highest predicted IoU, which for a click on a person
+    is usually a part; background removal wants the subject the click is on.
+    """
+    x = int(np.clip(click_low_res[0], 0, LOW_RES - 1))
+    y = int(np.clip(click_low_res[1], 0, LOW_RES - 1))
+    masks = candidates > 0
+    areas = masks.reshape(len(masks), -1).sum(axis=1)
+    eligible = [
+        index
+        for index in range(len(masks))
+        if masks[index, y, x] and areas[index] <= WHOLE_OBJECT_MAX_FRACTION * LOW_RES * LOW_RES
+    ]
+    if not eligible:
+        return None
+    best = max(float(ious[index]) for index in eligible)
+    near_best = [
+        index for index in eligible if float(ious[index]) >= best - WHOLE_OBJECT_IOU_MARGIN
+    ]
+    chosen = max(near_best, key=lambda index: int(areas[index]))
+    return None if chosen == int(np.argmax(ious)) else chosen
+
+
 def video_logits(low_res: Float, height: int, width: int) -> Float:
     """``_get_orig_video_res_output``: bilinear from 256² logits to the display size."""
     return resize_bilinear(low_res, height, width)
@@ -477,4 +520,5 @@ __all__ = [
     "sigmoid",
     "sine_pe",
     "video_logits",
+    "whole_object",
 ]
