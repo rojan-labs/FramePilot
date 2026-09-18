@@ -202,6 +202,21 @@ describe('MattePass', () => {
     expect(recorded.uploads).toEqual(['artifact@7|alpha', 'artifact@7|foreground']);
   });
 
+  it('decontaminates from the monitor tier with one conversion, no band pass and no resample', () => {
+    const { resources, recorded } = recordingResources();
+    const picture = { texture: {}, framebuffer: {}, width: 96, height: 54, format: 'rgba8' };
+    const tiered = {
+      ...frame(384, 216),
+      planes: { width: 96, height: 54, data: new Uint16Array(96 * 54 * 4) },
+    };
+    const pass = new MattePass(resources);
+    expect(pass.carriesPlanes(tiered, geometry())).toBe(true);
+    pass.decontaminatePlanes(picture as never, tiered, geometry());
+    expect(recorded.passes).toEqual(['matte-tier-planes', 'matte-decontaminate']);
+    // One 16-bit upload at the decoded size; the 4K masters are never touched.
+    expect(recorded.uploads).toEqual(['artifact@7|planes']);
+  });
+
   it('copies out and resamples a crop that disagrees with the frame', () => {
     const { resources, recorded } = recordingResources();
     const mask = matteMask({ edgeShiftPx: 0, finesse: IDENTITY_FINESSE });

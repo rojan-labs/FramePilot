@@ -9,11 +9,17 @@ import { describe, expect, it } from 'vitest';
 import { ClipSchema } from '@framepilot/timeline-schema';
 
 import {
+  TIER_COLOUR_SCALE,
+  TIER_WEIGHT_SCALE,
   applyFinesse,
   decontaminate,
+  decontaminateFromPlanes,
   finesseIsIdentity,
+  resample,
+  type CropFractions,
   type MaskFinesseValues,
   type MatteFrameData,
+  type MattePlanes,
 } from './matte-edges';
 import {
   clipMaskStack,
@@ -227,4 +233,94 @@ describe('matte finesse vs the export', () => {
       true,
     );
   });
+});
+
+describe('decontamination from the monitor tier (PX5.3)', () => {
+  /** A soft ring matte and a random foreground at the artifact's size. */
+  function artifactFrame(width: number, height: number): MatteFrameData {
+    const alpha = new Uint8Array(width * height);
+    const foreground = new Uint8Array(width * height * 3);
+    let seed = 7;
+    const next = (): number => {
+      seed = (seed * 1103515245 + 12345) % 2 ** 31;
+      return seed % 256;
+    };
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const distance = Math.hypot(x - width * 0.45, y - height * 0.5);
+        const ring = Math.min(Math.max((Math.min(width, height) * 0.3 - distance) / 3, 0), 1);
+        alpha[y * width + x] = Math.round(ring * 255);
+        for (let ch = 0; ch < 3; ch += 1) foreground[(y * width + x) * 3 + ch] = next();
+      }
+    }
+    return { id: 'a@0', width, height, maximum: 255, alpha, foreground };
+  }
+
+  /** `render/matte_tier.py`'s `tier_planes`, through the float64 twin of `resample`. */
+  function tierPlanes(frame: MatteFrameData, width: number, height: number): MattePlanes {
+    const pixels = frame.width * frame.height;
+    const band = new Float64Array(pixels);
+    const colour = new Float64Array(pixels * 3);
+    for (let i = 0; i < pixels; i += 1) {
+      const inBand = frame.alpha[i]! > 0 && frame.alpha[i]! < frame.maximum ? 1 : 0;
+      band[i] = inBand;
+      for (let ch = 0; ch < 3; ch += 1)
+        colour[i * 3 + ch] = frame.foreground![i * 3 + ch]! * inBand;
+    }
+    const plane = (data: Float64Array, channels: number) => ({
+      width: frame.width,
+      height: frame.height,
+      channels,
+      data,
+    });
+    const weight = resample(plane(band, 1), width, height, 1).data;
+    const premultiplied = resample(plane(colour, 3), width, height, 255).data;
+    const data = new Uint16Array(width * height * 4);
+    const n = width * height;
+    for (let i = 0; i < n; i += 1) {
+      data[i] = Math.round(weight[i]! * TIER_WEIGHT_SCALE);
+      for (let ch = 0; ch < 3; ch += 1) {
+        data[(ch + 1) * n + i] = Math.round(premultiplied[i * 3 + ch]! * TIER_COLOUR_SCALE);
+      }
+    }
+    return { width, height, data };
+  }
+
+  const cases: { name: string; crop: CropFractions | null; frame: [number, number] }[] = [
+    { name: 'uncropped', crop: null, frame: [32, 18] },
+    {
+      name: 'cropped to its own slice',
+      crop: { x: 0.1, y: 0.2, width: 0.7, height: 0.6 },
+      frame: [22, 10],
+    },
+    {
+      name: 'cropped and resampled',
+      crop: { x: 0.25, y: 0, width: 0.5, height: 1 },
+      frame: [32, 18],
+    },
+  ];
+
+  it.each(cases)(
+    'moves no byte more than one level from the masters ($name)',
+    ({ crop, frame }) => {
+      const artifact = artifactFrame(96, 54);
+      const [width, height] = frame;
+      const picture = new Uint8Array(width * height * 4).map((_v, i) => (i * 37) % 256);
+      const fromMasters = picture.slice();
+      decontaminate(fromMasters, width, height, 4, artifact, crop, 32, 18);
+      const fromTier = picture.slice();
+      decontaminateFromPlanes(fromTier, width, height, 4, tierPlanes(artifact, 32, 18), crop);
+      let worst = 0;
+      let equal = 0;
+      for (let i = 0; i < picture.length; i += 1) {
+        const difference = Math.abs(fromTier[i]! - fromMasters[i]!);
+        worst = Math.max(worst, difference);
+        if (difference === 0) equal += 1;
+      }
+      expect(worst).toBeLessThanOrEqual(1);
+      expect(equal / picture.length).toBeGreaterThanOrEqual(0.99);
+      // The alpha channel is never touched.
+      for (let i = 3; i < picture.length; i += 4) expect(fromTier[i]).toBe(picture[i]);
+    },
+  );
 });

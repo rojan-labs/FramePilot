@@ -27,6 +27,7 @@ import {
   resampleTaps,
   type CropFractions,
   type MatteFrameData,
+  type MattePlanes,
 } from '../../masks/matte-edges.js';
 import { AlphaPasses, MAX_ALPHA_BOX_PX, blurBoxRadius } from './alpha-passes.js';
 import type { GlResources, RenderTarget } from './gl-resources.js';
@@ -37,6 +38,7 @@ import {
   MATTE_FEATHER_FRAGMENT,
   MATTE_RESAMPLE_FRAGMENT,
   MATTE_ROW_DISTANCE_FRAGMENT,
+  MATTE_TIER_PLANES_FRAGMENT,
   MATTE_TO_FLOAT_FRAGMENT,
   FALLOFF_TABLE_SIDE,
   MAX_MATTE_FEATHER_CAP,
@@ -138,11 +140,26 @@ export class MattePass {
 
   /** Whether `frame`'s decontamination planes fit the texture limit and the resample loop. */
   carriesFrame(frame: MatteFrameData, geometry: MatteFrameGeometry): boolean {
-    const gl = this.resources.gl;
-    this.maxTextureSize ??= gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
-    const limit = this.maxTextureSize;
+    const limit = this.textureLimit();
     if (frame.width > limit || frame.height > limit) return false;
     return geometryCarried(frame.width, frame.height, geometry);
+  }
+
+  /** PX5.3: whether a frame's monitor-tier planes fit the texture limit and the crop's resample. */
+  carriesPlanes(
+    frame: MatteFrameData & { readonly planes: MattePlanes },
+    geometry: MatteFrameGeometry,
+  ): boolean {
+    const limit = this.textureLimit();
+    if (frame.planes.width > limit || 4 * frame.planes.height > limit) return false;
+    // The planes are at the decoded size: only the crop's resample can need taps.
+    return geometryCarried(frame.planes.width, frame.planes.height, geometry);
+  }
+
+  private textureLimit(): number {
+    const gl = this.resources.gl;
+    this.maxTextureSize ??= gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+    return this.maxTextureSize;
   }
 
   /**
@@ -249,6 +266,45 @@ export class MattePass {
     r.draw(across, across.width, across.height);
 
     const decoded = this.resampleAxis(across, geometry.decodedHeight, 1, 'rgba32f', PLANES_CEILING);
+    const placed = this.cropToFrame(decoded, geometry, 'rgba32f', PLANES_CEILING);
+    const out = r.target(picture.width, picture.height, 'rgba8');
+    const program = r.program('matte-decontaminate', MATTE_DECONTAMINATE_FRAGMENT);
+    gl.useProgram(program.handle);
+    r.bind(program, 'u_picture', 0, picture.texture);
+    r.bind(program, 'u_planes', 1, placed.target.texture);
+    program.ivec2('u_origin', placed.x, placed.y);
+    r.draw(out, out.width, out.height);
+    return out;
+  }
+
+  /**
+   * `decontaminate` from the monitor tier's planes (PX5.3): the planes the export would resample
+   * to the decoded size, already resampled by the engine, then the same crop and mix as
+   * {@link decontaminate}. One 4 MB upload per frame at 540p instead of a 4K foreground.
+   *
+   * @param picture - The cropped picture (`rgba8`), before any effect.
+   */
+  decontaminatePlanes(
+    picture: RenderTarget,
+    frame: MatteFrameData & { readonly planes: MattePlanes },
+    geometry: MatteFrameGeometry,
+  ): RenderTarget {
+    const r = this.resources;
+    const gl = r.gl;
+    const planes = frame.planes;
+    const stacked = r.keyedTexture(
+      `${frame.id}|planes`,
+      planes.width,
+      4 * planes.height,
+      'r16',
+      planes.data,
+    );
+    const decoded = r.target(planes.width, planes.height, 'rgba32f');
+    const convert = r.program('matte-tier-planes', MATTE_TIER_PLANES_FRAGMENT);
+    gl.useProgram(convert.handle);
+    r.bind(convert, 'u_planes', 0, stacked);
+    convert.int('u_height', planes.height);
+    r.draw(decoded, decoded.width, decoded.height);
     const placed = this.cropToFrame(decoded, geometry, 'rgba32f', PLANES_CEILING);
     const out = r.target(picture.width, picture.height, 'rgba8');
     const program = r.program('matte-decontaminate', MATTE_DECONTAMINATE_FRAGMENT);

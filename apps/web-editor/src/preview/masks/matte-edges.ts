@@ -406,6 +406,24 @@ export function toFrame(
 
 // --- A matte layer --------------------------------------------------------------------------
 
+/**
+ * `render/matte_tier.py`'s quantisation: a band weight in [0, 1] is stored as
+ * `round(weight * 65535)`, a premultiplied colour in [0, 255] as `round(colour * 257)`.
+ */
+export const TIER_WEIGHT_SCALE = 65535;
+export const TIER_COLOUR_SCALE = 257;
+
+/**
+ * PX5.3: a matte frame's decontamination planes from the artifact's monitor tier, already at the
+ * decoded size (`resample` of the band weight and the band-premultiplied foreground, quantised).
+ * One `width × 4·height` plane, rows top first: weight, then R, G, B.
+ */
+export interface MattePlanes {
+  readonly width: number;
+  readonly height: number;
+  readonly data: Uint16Array;
+}
+
 /** One decoded matte frame at the artifact's source (display) resolution. */
 export interface MatteFrameData {
   /** Identity for caches: artifact key and matte frame index. */
@@ -417,6 +435,21 @@ export interface MatteFrameData {
   readonly alpha: MatteSamples;
   /** Interleaved RGB, when the mask decontaminates. */
   readonly foreground: Uint8Array | null;
+  /**
+   * PX5.3: the monitor tier's planes for this frame, when the artifact has a tier. They stand in
+   * for {@link foreground} only where the picture was decoded at their size.
+   */
+  readonly planes?: MattePlanes | null;
+}
+
+/** Whether `frame`'s tier planes are at the size its picture was decoded at. */
+export function planesFit(
+  frame: MatteFrameData,
+  decodedWidth: number,
+  decodedHeight: number,
+): frame is MatteFrameData & { readonly planes: MattePlanes } {
+  const planes = frame.planes ?? null;
+  return planes !== null && planes.width === decodedWidth && planes.height === decodedHeight;
 }
 
 /**
@@ -499,6 +532,53 @@ export function decontaminate(
     decodedHeight,
     255.0,
   ).data;
+  for (let i = 0; i < width * height; i += 1) {
+    const w = weight[i]!;
+    for (let ch = 0; ch < 3; ch += 1) {
+      const base = picture[i * channels + ch]!;
+      const mixed = base + (colour[i * 3 + ch]! - base * w);
+      picture[i * channels + ch] = Math.min(Math.max(roundHalfEven(mixed), 0), 255);
+    }
+  }
+}
+
+/**
+ * {@link decontaminate} from the monitor tier's planes (PX5.3): the same mix, with the weight and
+ * colour planes read from the tier instead of resampled from the masters. The planes are at the
+ * decoded size, so `toFrame`'s resample to it is the identity and only the crop (and, for a crop
+ * that disagrees with the frame, the second resample) remains.
+ *
+ * The CPU twin of the GPU tier pass, for a GPU without float targets.
+ */
+export function decontaminateFromPlanes(
+  picture: Uint8Array | Uint8ClampedArray,
+  width: number,
+  height: number,
+  channels: number,
+  planes: MattePlanes,
+  crop: CropFractions | null | undefined,
+): void {
+  const pixels = planes.width * planes.height;
+  const weightPlane = new Float64Array(pixels);
+  const colourPlane = new Float64Array(pixels * 3);
+  for (let i = 0; i < pixels; i += 1) {
+    weightPlane[i] = planes.data[i]! / TIER_WEIGHT_SCALE;
+    for (let ch = 0; ch < 3; ch += 1) {
+      colourPlane[i * 3 + ch] = planes.data[(ch + 1) * pixels + i]! / TIER_COLOUR_SCALE;
+    }
+  }
+  const at = (data: Float64Array, count: number, ceiling: number): Float64Array =>
+    toFrame(
+      { width: planes.width, height: planes.height, channels: count, data },
+      crop,
+      width,
+      height,
+      planes.width,
+      planes.height,
+      ceiling,
+    ).data;
+  const weight = at(weightPlane, 1, 1.0);
+  const colour = at(colourPlane, 3, 255.0);
   for (let i = 0; i < width * height; i += 1) {
     const w = weight[i]!;
     for (let ch = 0; ch < 3; ch += 1) {

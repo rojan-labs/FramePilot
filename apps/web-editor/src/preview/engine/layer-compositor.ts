@@ -42,7 +42,13 @@ import {
   type MatteStackInputs,
 } from '../masks/mask-stack.js';
 import { maskSourceTime } from '@framepilot/editor-core';
-import { decontaminate, type MatteFrameData } from '../masks/matte-edges.js';
+import {
+  decontaminate,
+  decontaminateFromPlanes,
+  planesFit,
+  type MatteFrameData,
+  type MattePlanes,
+} from '../masks/matte-edges.js';
 import {
   MASK_DESPILL_FRAGMENT,
   MASK_KEY_FRAGMENT,
@@ -613,7 +619,10 @@ export class LayerCompositor {
    *
    * PX5.3: on the GPU, because the float64 twin over a read-back of the picture cost 324 ms a
    * frame for a 4K matte. The twin stays for a GPU without float targets and for a plane the
-   * shader's resample loop cannot carry, so neither case loses the decontamination.
+   * shader's resample loop cannot carry, so neither case loses the decontamination. A frame
+   * whose monitor-tier planes are at the decoded size is drawn from them (the export's own
+   * planes, resampled once by the engine), whether or not its foreground master is also known,
+   * so one frame is always drawn one way.
    */
   private decontaminate(
     source: RenderTarget,
@@ -625,18 +634,34 @@ export class LayerCompositor {
       .reverse()
       .filter((mask) => mask.decontaminate)
       .map((mask) => mattes.frames.get(mask.id) ?? null)
-      .filter((frame): frame is MatteFrameData => frame !== null && frame.foreground !== null);
+      .filter(
+        (frame): frame is MatteFrameData =>
+          frame !== null &&
+          (frame.foreground !== null ||
+            planesFit(frame, mattes.decodedWidth, mattes.decodedHeight)),
+      );
     if (cleaning.length === 0) return source;
     const geometry = this.matteGeometry(stack, source.width, source.height, mattes);
+    const fromPlanes = (
+      frame: MatteFrameData,
+    ): frame is MatteFrameData & { readonly planes: MattePlanes } =>
+      planesFit(frame, mattes.decodedWidth, mattes.decodedHeight);
     // Not `floatTargetsAvailable`: that one refuses a key; a matte keeps its CPU twin instead.
     const onGpu =
       this.floatTargetsSupported() &&
-      cleaning.every((frame) => this.mattePass.carriesFrame(frame, geometry));
+      cleaning.every((frame) =>
+        fromPlanes(frame)
+          ? this.mattePass.carriesPlanes(frame, geometry)
+          : this.mattePass.carriesFrame(frame, geometry),
+      );
     if (onGpu) {
       const started = performance.now();
       let current = source;
-      for (const frame of cleaning)
-        current = this.mattePass.decontaminate(current, frame, geometry);
+      for (const frame of cleaning) {
+        current = fromPlanes(frame)
+          ? this.mattePass.decontaminatePlanes(current, frame, geometry)
+          : this.mattePass.decontaminate(current, frame, geometry);
+      }
       this.telemetry?.record('matteStack', performance.now() - started);
       return current;
     }
@@ -647,6 +672,17 @@ export class LayerCompositor {
     gl.readPixels(0, 0, source.width, source.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     for (const frame of cleaning) {
+      if (planesFit(frame, mattes.decodedWidth, mattes.decodedHeight)) {
+        decontaminateFromPlanes(
+          pixels,
+          source.width,
+          source.height,
+          4,
+          frame.planes,
+          stack.clip.crop,
+        );
+        continue;
+      }
       decontaminate(
         pixels,
         source.width,

@@ -52,8 +52,8 @@ import {
   type MatteStackInputs,
 } from '../masks/mask-stack.js';
 import { MatteSource } from '../masks/matte-source.js';
-import { resolveMatteArtifactLocator } from '../masks/matte-location.js';
-import type { MatteFrameData } from '../masks/matte-edges.js';
+import { resolveMatteArtifactLocator, resolveMatteTierLocator } from '../masks/matte-location.js';
+import { planesFit, type MatteFrameData } from '../masks/matte-edges.js';
 import { isFlaggedFrame, type MaskDebugView } from '../masks/mask-view.js';
 import { FrameMaskRasterCache, effectLayerMaskStack } from '../masks/frame-masks.js';
 import type { FlaggedRange, MatteLookup } from '../masks/matte-source.js';
@@ -135,7 +135,9 @@ type CacheEntry =
 const entryBytes = (entry: CacheEntry): number =>
   entry.kind === 'picture'
     ? entry.picture.byteLength
-    : entry.frame.alpha.byteLength + (entry.frame.foreground?.byteLength ?? 0);
+    : entry.frame.alpha.byteLength +
+      (entry.frame.foreground?.byteLength ?? 0) +
+      (entry.frame.planes?.data.byteLength ?? 0);
 
 /** A matte layer some presented picture needs, at that picture's source frame. */
 interface MatteNeed {
@@ -156,6 +158,10 @@ interface MatteDebugState {
   readonly state: MatteLookup['state'];
   readonly code: string | null;
   readonly frameIndex: number | null;
+  /** PX5.3: the artifact's monitor tier size when one matched, else `null`. */
+  readonly tier: string | null;
+  /** PX5.3: whether this frame's decontamination was drawn from the tier's planes. */
+  readonly fromTier: boolean;
   readonly loaded: boolean;
   readonly refusal: string | null;
   readonly firstFrame: number | null;
@@ -298,7 +304,10 @@ export class LayerPreviewEngine {
         },
       },
       undefined,
-      (ms) => this.telemetry.record('matteDecode', ms),
+      {
+        onFrameDecoded: (ms) => this.telemetry.record('matteDecode', ms),
+        locateTier: resolveMatteTierLocator,
+      },
     );
     // Created up front: a monitor that cannot composite should say so now, not on first seek.
     this.compositor = new LayerCompositor();
@@ -913,9 +922,13 @@ export class LayerPreviewEngine {
       let mattes: MatteStackInputs | null = null;
       if (step.mask !== null && step.mask.stack.mattes.length > 0) {
         const frames = new Map<string, MatteFrameData | null>();
+        const decoded =
+          step.decode.kind === 'scaled'
+            ? step.decode
+            : { width: cached.picture.width, height: cached.picture.height };
         for (const mask of step.mask.stack.mattes) {
           const pictureSeconds = cached.timestampUs / 1_000_000;
-          const found = this.mattes.lookup(mask, frame, pictureSeconds);
+          const found = this.mattes.lookup(mask, frame, pictureSeconds, decoded);
           matteStates.push({
             clipId: clip.id,
             maskId: mask.id,
@@ -925,6 +938,12 @@ export class LayerPreviewEngine {
             state: found.state,
             code: found.state === 'refused' ? found.code : null,
             frameIndex: this.mattes.frameIndexFor(mask, frame),
+            // The compositor takes the tier's planes whenever they fit, foreground or not, so
+            // one frame is always drawn one way.
+            fromTier:
+              found.state === 'ready' &&
+              mask.decontaminate &&
+              planesFit(found.frame, decoded.width, decoded.height),
             ...this.mattes.debugState(mask),
           });
           if (found.state === 'pending') return null;
@@ -941,10 +960,6 @@ export class LayerPreviewEngine {
           frames.set(mask.id, found.state === 'ready' ? found.frame : null);
         }
         if (step.mask !== null) {
-          const decoded =
-            step.decode.kind === 'scaled'
-              ? step.decode
-              : { width: cached.picture.width, height: cached.picture.height };
           mattes = { decodedWidth: decoded.width, decodedHeight: decoded.height, frames };
         }
       }

@@ -235,3 +235,137 @@ describe('MatteSource', () => {
     ]);
   });
 });
+
+describe('the monitor tier (PX5.3)', () => {
+  /** The decontaminating mask, pinning a foreground too, and a tier made from its masters. */
+  function tiered(changes: Record<string, unknown> = {}) {
+    const { mask: base, files } = artifactFiles();
+    const mask = {
+      ...base,
+      decontaminate: true,
+      artifact: {
+        ...base.artifact,
+        files: [...base.artifact.files, { name: 'foreground.mkv', sha256: 'f'.repeat(64) }],
+      },
+    } as MatteMask;
+    const pinned = (name: string) => mask.artifact.files.find((file) => file.name === name)!.sha256;
+    const tier = {
+      version: 1,
+      kind: 'framepilot.matte-monitor-tier',
+      width: 4,
+      height: 2,
+      frameCount: FRAMES.pts.length,
+      planes: {
+        file: 'planes.mkv',
+        bytes: 1,
+        order: ['weight', 'r', 'g', 'b'],
+        weightScale: 65535,
+        colourScale: 257,
+      },
+      resample: 'swscale-bicubic-b0-c0.6-float64',
+      source: {
+        width: 8,
+        height: 4,
+        files: {
+          'matte.mkv': pinned('matte.mkv'),
+          'foreground.mkv': pinned('foreground.mkv'),
+          'frames.json': pinned('frames.json'),
+        },
+      },
+      ...changes,
+    };
+    files.set('tier.json', encoder.encode(JSON.stringify(tier)));
+    const store = new Map<string, MatteFrameData>();
+    const decoded: string[] = [];
+    const client = {
+      loadMatte: vi.fn(async (sourceId: string) => ({
+        type: 'matteLoaded' as const,
+        requestId: 0,
+        sourceId,
+        ...(sourceId.endsWith(':planes')
+          ? { width: 4, height: 8, format: 'gray16' as const }
+          : sourceId.endsWith(':foreground')
+            ? { width: 8, height: 4, format: 'rgb24' as const }
+            : { width: 8, height: 4, format: 'gray8' as const }),
+        frameCount: FRAMES.pts.length,
+        intraOnly: true,
+      })),
+      decodeMatte: vi.fn(async (sourceId: string, frame: number) => {
+        decoded.push(`${sourceId.split(':').pop()}@${frame}`);
+        const planes = sourceId.endsWith(':planes');
+        const foreground = sourceId.endsWith(':foreground');
+        return {
+          type: 'matteFrame' as const,
+          requestId: 0,
+          sourceId,
+          frame,
+          width: planes ? 4 : 8,
+          height: planes ? 8 : 4,
+          format: planes
+            ? ('gray16' as const)
+            : foreground
+              ? ('rgb24' as const)
+              : ('gray8' as const),
+          data: planes ? new Uint16Array(32).fill(frame).buffer : new Uint8Array(96).buffer,
+        };
+      }),
+      unloadSource: vi.fn(async () => undefined),
+    };
+    const source = new MatteSource(
+      client,
+      () => (key, name) => `mem://${key}/${name}`,
+      { get: (key) => store.get(key), put: (key, frame) => store.set(key, frame) },
+      async (url) => files.get(url.split('/').pop()!) ?? null,
+      { locateTier: () => (key, name) => `tier://${key}/${name}` },
+    );
+    return { mask, source, decoded };
+  }
+
+  /** Let the tier's manifest and index load. */
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it('decontaminates from the tier where the picture was decoded at its size', async () => {
+    const { mask, source, decoded } = tiered();
+    await source.ensure([{ mask, sourceFrame: 10 }]);
+    // The first ask of a clip knows no decode size yet: the foreground master, as before.
+    expect(decoded).toEqual(['matte@0', 'foreground@0']);
+    expect(source.lookup(mask, 11, null, { width: 4, height: 2 }).state).toBe('pending');
+    await settle();
+    await source.ensure([{ mask, sourceFrame: 11 }]);
+    expect(decoded.slice(2)).toEqual(['matte@1', 'planes@1']);
+    const ready = source.lookup(mask, 11, null, { width: 4, height: 2 });
+    expect(ready.state === 'ready' && ready.frame.planes?.width).toBe(4);
+    expect(ready.state === 'ready' && ready.frame.foreground).toBeNull();
+    expect(source.debugState(mask).tier).toBe('4x2');
+  });
+
+  it('decodes the foreground master for a picture decoded at another size', async () => {
+    const { mask, source, decoded } = tiered();
+    expect(source.lookup(mask, 10, null, { width: 4, height: 2 }).state).toBe('pending');
+    await source.ensure([{ mask, sourceFrame: 10 }]);
+    await settle();
+    await source.ensure([{ mask, sourceFrame: 11 }]);
+    expect(decoded).toContain('planes@1');
+    expect(decoded).not.toContain('foreground@1');
+    // The same clip decoded larger (say, shown bigger): the tier does not fit it.
+    expect(source.lookup(mask, 11, null, { width: 8, height: 4 }).state).toBe('pending');
+    await source.ensure([{ mask, sourceFrame: 11 }]);
+    expect(decoded).toContain('foreground@1');
+    const ready = source.lookup(mask, 11, null, { width: 8, height: 4 });
+    expect(ready.state === 'ready' && ready.frame.foreground).not.toBeNull();
+  });
+
+  it.each([
+    ['other masters', { source: { width: 8, height: 4, files: {} } }],
+    ['another frame count', { frameCount: 3 }],
+    ['another quantisation', { planes: { file: 'planes.mkv', weightScale: 255 } }],
+  ])('ignores a tier made from %s and decodes the masters', async (_name, changes) => {
+    const { mask, source, decoded } = tiered(changes);
+    source.lookup(mask, 10, null, { width: 4, height: 2 });
+    await settle();
+    await source.ensure([{ mask, sourceFrame: 11 }]);
+    expect(source.debugState(mask).tier).toBeNull();
+    expect(decoded).not.toContain('planes@1');
+    expect(decoded).toContain('foreground@1');
+  });
+});

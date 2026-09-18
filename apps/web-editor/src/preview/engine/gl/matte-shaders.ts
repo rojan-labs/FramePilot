@@ -13,6 +13,7 @@
  * other mask pass is: there is no filtering and no normalised coordinate anywhere.
  */
 import { FALLOFF_TABLE_SIZE } from '../../masks/mask-raster.js';
+import { TIER_COLOUR_SCALE, TIER_WEIGHT_SCALE } from '../../masks/matte-edges.js';
 import { MAX_TAPS } from './raster-shaders.js';
 
 /**
@@ -190,6 +191,26 @@ void main() {
     total = tap == 0 ? value * weight : total + value * weight;
   }
   o_color = clamp(total, vec4(0.0), vec4(255.0, 255.0, 255.0, 1.0));
+}`;
+
+/**
+ * PX5.3: the monitor tier's planes (`render/matte_tier.py`) as the float planes
+ * {@link MATTE_DECONTAMINATE_FRAGMENT} reads: one `W × 4H` 16-bit texture, rows top first
+ * (weight, R, G, B), to `vec4(colour, weight)` at `W × H`. The tier is already at the decoded
+ * size, so this replaces the band pass and the resample to it; the crop follows as for the
+ * masters.
+ */
+export const MATTE_TIER_PLANES_FRAGMENT = `${HEADER}
+uniform usampler2D u_planes;
+uniform int u_height;
+out vec4 o_color;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float weight = float(texelFetch(u_planes, p, 0).r) / ${String(TIER_WEIGHT_SCALE)}.0;
+  float r = float(texelFetch(u_planes, ivec2(p.x, p.y + u_height), 0).r);
+  float g = float(texelFetch(u_planes, ivec2(p.x, p.y + 2 * u_height), 0).r);
+  float b = float(texelFetch(u_planes, ivec2(p.x, p.y + 3 * u_height), 0).r);
+  o_color = vec4(vec3(r, g, b) / ${String(TIER_COLOUR_SCALE)}.0, weight);
 }`;
 
 /** The clip's integer crop (`_crop_slices`), then optionally `layer_alpha` (invert, opacity). */
