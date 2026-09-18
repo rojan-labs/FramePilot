@@ -4,7 +4,7 @@
  */
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { EditResult, ToolNode } from '@framepilot/ai-sdk';
+import type { EditResult, ToolNode, ToolResultEvent } from '@framepilot/ai-sdk';
 import type { Project, Timeline } from '@framepilot/timeline-schema';
 import { EventNode } from './EventNode.js';
 
@@ -693,6 +693,71 @@ describe('EventNode', () => {
     fireEvent.click(screen.getByRole('button', { name: 'View details' }));
     fireEvent.click(screen.getByRole('button', { name: 'clip_a' }));
     expect(onReveal).toHaveBeenCalledWith(expect.objectContaining({ kind: 'clip', id: 'clip_a' }));
+  });
+
+  const toolResult = (result: unknown): ToolResultEvent => ({
+    id: 'r',
+    conversationId: 'c',
+    ts: 0,
+    turnId: 't',
+    type: 'tool_result',
+    toolCallId: 'x',
+    result,
+  });
+
+  // AM1.5: a masking tool that failed for want of a pack shows the signed install offer, for
+  // each of the three packs the domain uses. The model cannot install anything.
+  it.each([
+    ['remove_background', 'Smart Mask'],
+    ['track_mask', 'Tracking Lite'],
+    ['find_mask_targets', 'Subject Intelligence'],
+  ])('offers the missing pack when %s fails with pack_missing', (toolName, displayName) => {
+    const proposal = {
+      proposalId: 'a'.repeat(64),
+      displayName,
+      downloadBytes: 42_000_000,
+      licenses: [{ spdx: 'Apache-2.0' }],
+      privacy: { mediaLeavesDevice: false },
+    };
+    render(
+      <EventNode
+        node={{
+          kind: 'tool',
+          id: `pack-${toolName}`,
+          ts: 0,
+          turnId: 't',
+          toolName,
+          status: 'failed',
+          result: toolResult({ code: 'pack_missing', proposal: { ok: true, proposal } }),
+        }}
+      />,
+    );
+    const card = screen.getByRole('dialog', { name: 'capability pack install' });
+    expect(card.textContent).toContain(displayName);
+    expect(card.textContent).toContain('Media never leaves this machine.');
+  });
+
+  it('offers a long cut-out to the editor instead of showing it as a dead failure', () => {
+    render(
+      <EventNode
+        node={{
+          kind: 'tool',
+          id: 'matte-start',
+          ts: 0,
+          turnId: 't',
+          toolName: 'remove_background',
+          status: 'failed',
+          result: toolResult({
+            code: 'needs_editor_start',
+            job: { assetId: 'asset', clipId: 'shot', sourceStart: 0, sourceEnd: 6, prompts: [] },
+            estimateSeconds: 3120,
+          }),
+        }}
+      />,
+    );
+    expect(screen.getByRole('dialog', { name: 'start background removal' }).textContent).toContain(
+      'about 52 minutes',
+    );
   });
 
   it('renders an unavailable tool as visibly gated (Coming soon)', () => {

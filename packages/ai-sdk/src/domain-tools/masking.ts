@@ -119,6 +119,23 @@ export function createMaskIntent(
   rawArgs: unknown,
   ctx: Pick<ToolContext, 'userNumbers'>,
 ): CreateMaskIntent {
+  const intent = createMaskRequest(rawArgs);
+  if (intent.userShape !== undefined) {
+    const { x, y, width, height } = intent.userShape;
+    if (!numbersWereTyped([x, y, width, height], ctx.userNumbers ?? [])) {
+      throw new ToolRefusalError(USER_NUMBERS_NOT_TYPED);
+    }
+  }
+  return intent;
+}
+
+/**
+ * The structural half of {@link createMaskIntent}: everything that can be judged from the
+ * arguments alone. The desktop executor uses it, because whether the editor typed a number is
+ * a fact about the CONVERSATION, which only the orchestrator holds — and the orchestrator
+ * checks it before anything is built.
+ */
+export function createMaskRequest(rawArgs: unknown): CreateMaskIntent {
   const args = CreateMaskArgsSchema.parse(rawArgs);
   if (args.candidateId !== undefined && args.userShape !== undefined) {
     throw new ToolRefusalError(REFUSE_BOTH_SOURCES);
@@ -126,12 +143,8 @@ export function createMaskIntent(
   if (args.candidateId === undefined && args.userShape === undefined) {
     throw new ToolRefusalError(REFUSE_NO_SOURCE);
   }
-  if (args.userShape !== undefined) {
-    if (args.precision === 'cutout') throw new ToolRefusalError(REFUSE_USER_CUTOUT);
-    const { x, y, width, height } = args.userShape;
-    if (!numbersWereTyped([x, y, width, height], ctx.userNumbers ?? [])) {
-      throw new ToolRefusalError(USER_NUMBERS_NOT_TYPED);
-    }
+  if (args.userShape !== undefined && args.precision === 'cutout') {
+    throw new ToolRefusalError(REFUSE_USER_CUTOUT);
   }
   return {
     clipId: args.clipId,

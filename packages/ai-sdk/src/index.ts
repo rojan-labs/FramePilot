@@ -34,11 +34,13 @@ export * from './domain-tools/professional-color.js';
 export * from './domain-tools/professional-tracking-mask.js';
 export * from './domain-tools/automatic-tracking.js';
 export * from './domain-tools/masking.js';
+export * from './masking/candidate-id.js';
 export * from './masking/contracts.js';
 export * from './masking/geometry-provenance.js';
 export * from './masking/intent-tables.js';
 export * from './masking/mask-builders.js';
 export * from './masking/shape-fit.js';
+export * from './masking/target-resolution.js';
 export * from './domain-tools/professional-audio.js';
 export * from './controllers/timeline-controller.js';
 export * from './controllers/motion-controller.js';
@@ -77,6 +79,9 @@ export * from './concurrency.js';
 export * from './tool-scope.js';
 export * from './tool-context.js';
 export * from './tool-executor.js';
+// The desktop masking executor runs ai-sdk's own builders host-side and has to tell a refusal
+// written for the model apart from a bug.
+export { ToolRefusalError } from './tool-refusal.js';
 export * from './sidecar-executor.js';
 export * from './brain-client.js';
 export * from './visual-index-client.js';

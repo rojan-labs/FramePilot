@@ -54,6 +54,7 @@ import { Button } from '@framepilot/ui';
 import { toReviewCard } from '../../editor/ai.js';
 import { DiffPreviewModal } from './DiffPreviewModal.js';
 import { PackInstallInlineCard, packMissingProposal } from './PackInstallInlineCard.js';
+import { MatteStartInlineCard, matteStartProposal } from './MatteStartInlineCard.js';
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -1035,8 +1036,11 @@ function ToolCard({
   runEnded,
   expanded: controlledOpen,
   onToggleExpanded,
+  timelineRevision,
 }: {
   node: ToolNode;
+  /** The editor's current timeline revision, for a card that starts a job (see below). */
+  timelineRevision?: number;
   onReveal?: RevealHandler;
   /** Answers the model's question when this call is an `ask_user` (P12). */
   onAnswer?: AnswerHandler;
@@ -1101,6 +1105,12 @@ function ToolCard({
   const missingPackProposal = useMemo(() => {
     if (status !== 'failed') return null;
     return packMissingProposal(result?.result);
+  }, [status, result]);
+  // A cut-out too long for the agent to start carries the exact job instead; starting it is
+  // the editor's decision, and this is where they make it (plan/background-removal-ai/11).
+  const matteStart = useMemo(() => {
+    if (status !== 'failed') return null;
+    return matteStartProposal(result?.result);
   }, [status, result]);
   const expanded = open && canExpand;
   const Chevron = expanded ? ChevronDown : ChevronRight;
@@ -1178,6 +1188,9 @@ function ToolCard({
             below is the only thing worth reading then. */}
         {expanded && result && !isAsk && <ToolOutput result={result} />}
         {missingPackProposal !== null && <PackInstallInlineCard proposal={missingPackProposal} />}
+        {matteStart !== null && (
+          <MatteStartInlineCard proposal={matteStart} timelineRevision={timelineRevision ?? 0} />
+        )}
         {isAsk && <AskReceipt node={node} reply={askReply} {...(runEnded ? { runEnded } : {})} />}
         {onAnswer && (
           <AskPrompt node={node} onAnswer={answerAndRemember} {...(runEnded ? { runEnded } : {})} />
@@ -1808,6 +1821,7 @@ export const EventNode = memo(function EventNode({
           {...(runEnded ? { runEnded } : {})}
           {...(expanded !== undefined ? { expanded } : {})}
           {...(onToggleExpanded ? { onToggleExpanded } : {})}
+          {...(project ? { timelineRevision: project.timeline.revision ?? 0 } : {})}
         />
       );
     case 'timeline_action':

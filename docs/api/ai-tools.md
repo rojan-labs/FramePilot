@@ -86,47 +86,46 @@ nothing in a non-empty bin.
 
 ## Core tools (PRD §8.3)
 
-| Tool                      | Purpose                                                        | Kind             | Available? |
-| ------------------------- | -------------------------------------------------------------- | ---------------- | ---------- |
-| `get_project_state`       | Current editable state (no undo history; media bin as a tally) | read             | yes        |
-| `get_timeline`            | Current tracks/clips                                           | read             | yes        |
-| `get_transcript`          | Word-level transcript (optional `start`/`end` window)          | read             | yes        |
-| `get_timeline_summary`    | Compact per-track overview (counts + spans, no clip bodies)    | read             | yes        |
-| `get_clips`               | Windowed, paginated compact clip listing                       | read             | yes        |
-| `get_clip`                | One clip in full detail + its `trackId`                        | read             | yes        |
-| `get_selected_range`      | The user's current selection                                   | read             | yes        |
-| `list_assets`             | Media-bin assets + folders (kind/folder filterable)            | read             | yes        |
-| `discover_caption_styles` | Bundled caption fonts, templates and composition fields        | read             | yes        |
-| `trim_clip`               | Trim a clip (non-destructive)                                  | write            | yes        |
-| `split_clip`              | Split a clip at a time                                         | write            | yes        |
-| `delete_range`            | Delete a time range on a track                                 | write            | yes        |
-| `ripple_delete`           | Delete a range and close the gap                               | write            | yes        |
-| `delete_clip`             | Delete one clip by id (optional ripple)                        | write            | yes        |
-| `delete_clips`            | Delete up to 50 clips by id in one call                        | write            | yes        |
-| `move_clip`               | Move a clip to a new track/start                               | write            | yes        |
-| `add_track`               | Create a new empty track/layer (`add_layer` op)                | write            | yes        |
-| `remove_track`            | Remove a track and its clips (`remove_layer` op)               | write            | yes        |
-| `move_track`              | Reorder a track's z-slot (`move_layer` op)                     | write            | yes        |
-| `add_clip`                | Add a clip from an existing asset                              | write            | yes        |
-| `add_clips`               | Place a whole sequence on one track in a single call           | write            | yes        |
-| `add_text_layer`          | Add a text overlay (`add_text_overlay` op)                     | write            | yes        |
-| `add_caption_layer`       | Add one short mapped caption cue (never a full-song block)     | write            | yes        |
-| `auto_emphasize_captions` | Ground AI-selected anchors and compose a caption track         | write            | yes        |
-| `set_track_caption_style` | Set/clear the complete shared caption composition              | write            | yes        |
-| `set_caption_style`       | Set/clear one cue's composition override                       | write            | yes        |
-| `add_keyframes`           | Add animation keyframes (e.g. zoom)                            | write            | yes        |
-| `apply_color_grade`       | Apply a color grade                                            | write            | yes        |
-| `adjust_audio`            | Volume/gain (dB)                                               | write            | yes        |
-| `add_transition`          | Transition onto a clip                                         | write            | yes        |
-| `add_mask`                | Add a mask shape (rect/ellipse/polygon)                        | write            | yes        |
-| `track_object`            | Attach a face/bbox tracker to a clip                           | write            | yes        |
-| `transcribe`              | Run host-owned ASR and propose a transcript patch              | analysis + write | yes        |
-| `render_preview`          | Produce a low-res preview render                               | action           | yes        |
-| `export_video`            | Final export (after approval)                                  | action           | yes        |
-| `analyze_silence`         | Detect silent gaps (ffmpeg silencedetect)                      | analysis         | yes        |
-| `detect_scenes`           | Detect scene cuts (ffmpeg scene score)                         | analysis         | yes        |
-| `detect_subjects`         | Detect people/objects in frames (Subject Intelligence pack)    | analysis         | yes        |
-| `generate_mask`           | Produce a subject mask                                         | write            | **no\***   |
+| Tool                                | Purpose                                                        | Kind             | Available? |
+| ----------------------------------- | -------------------------------------------------------------- | ---------------- | ---------- |
+| `get_project_state`                 | Current editable state (no undo history; media bin as a tally) | read             | yes        |
+| `get_timeline`                      | Current tracks/clips                                           | read             | yes        |
+| `get_transcript`                    | Word-level transcript (optional `start`/`end` window)          | read             | yes        |
+| `get_timeline_summary`              | Compact per-track overview (counts + spans, no clip bodies)    | read             | yes        |
+| `get_clips`                         | Windowed, paginated compact clip listing                       | read             | yes        |
+| `get_clip`                          | One clip in full detail + its `trackId`                        | read             | yes        |
+| `get_selected_range`                | The user's current selection                                   | read             | yes        |
+| `list_assets`                       | Media-bin assets + folders (kind/folder filterable)            | read             | yes        |
+| `discover_caption_styles`           | Bundled caption fonts, templates and composition fields        | read             | yes        |
+| `trim_clip`                         | Trim a clip (non-destructive)                                  | write            | yes        |
+| `split_clip`                        | Split a clip at a time                                         | write            | yes        |
+| `delete_range`                      | Delete a time range on a track                                 | write            | yes        |
+| `ripple_delete`                     | Delete a range and close the gap                               | write            | yes        |
+| `delete_clip`                       | Delete one clip by id (optional ripple)                        | write            | yes        |
+| `delete_clips`                      | Delete up to 50 clips by id in one call                        | write            | yes        |
+| `move_clip`                         | Move a clip to a new track/start                               | write            | yes        |
+| `add_track`                         | Create a new empty track/layer (`add_layer` op)                | write            | yes        |
+| `remove_track`                      | Remove a track and its clips (`remove_layer` op)               | write            | yes        |
+| `move_track`                        | Reorder a track's z-slot (`move_layer` op)                     | write            | yes        |
+| `add_clip`                          | Add a clip from an existing asset                              | write            | yes        |
+| `add_clips`                         | Place a whole sequence on one track in a single call           | write            | yes        |
+| `add_text_layer`                    | Add a text overlay (`add_text_overlay` op)                     | write            | yes        |
+| `add_caption_layer`                 | Add one short mapped caption cue (never a full-song block)     | write            | yes        |
+| `auto_emphasize_captions`           | Ground AI-selected anchors and compose a caption track         | write            | yes        |
+| `set_track_caption_style`           | Set/clear the complete shared caption composition              | write            | yes        |
+| `set_caption_style`                 | Set/clear one cue's composition override                       | write            | yes        |
+| `add_keyframes`                     | Add animation keyframes (e.g. zoom)                            | write            | yes        |
+| `apply_color_grade`                 | Apply a color grade                                            | write            | yes        |
+| `adjust_audio`                      | Volume/gain (dB)                                               | write            | yes        |
+| `add_transition`                    | Transition onto a clip                                         | write            | yes        |
+| `track_object`                      | Attach a face/bbox tracker to a clip                           | write            | yes        |
+| `transcribe`                        | Run host-owned ASR and propose a transcript patch              | analysis + write | yes        |
+| `render_preview`                    | Produce a low-res preview render                               | action           | yes        |
+| `export_video`                      | Final export (after approval)                                  | action           | yes        |
+| `analyze_silence`                   | Detect silent gaps (ffmpeg silencedetect)                      | analysis         | yes        |
+| `detect_scenes`                     | Detect scene cuts (ffmpeg scene score)                         | analysis         | yes        |
+| `detect_subjects`                   | Detect people/objects in frames (Subject Intelligence pack)    | analysis         | yes        |
+| `find_mask_targets` … `delete_mask` | The masking domain — see [ai-masking.md](./ai-masking.md)      | analysis / write | yes        |
 
 `get_project_state` returns the media bin as a **tally**, not a listing:
 
@@ -156,16 +155,18 @@ places at 1× speed. A legacy `sourceEnd` argument is accepted for compatibility
 but cannot override that invariant. Speed changes happen afterward through the
 typed `set_clip_speed` operation.
 
-\* `generate_mask` is registered for discoverability but stays `available: false`, and for a
-reason that will not be resolved by shipping a model: a segmentation produces a **bitmap**,
-while a timeline mask steers by **rectangle bounds**. The measured path that does exist is
-`track_subject_automatically` with `subject="silhouette"`, which segments inside a drawn mask
-and animates that mask to follow the silhouette's bounding box. The orchestrator refuses to
-invoke an unavailable tool rather than fabricate a result — no AI feature pretends to use an
-engine that has not been built (build-order invariant,
-[ADR 0004](../adr/0004-timeline-patch-engine-before-ai.md)).
+No tool is registered `available: false` today. `generate_mask` was the last: it existed
+because a segmentation produces a **bitmap** while a v21 timeline mask steered by **rectangle
+bounds**. Schema v22 gave masks a raster `matte` kind and the Smart Mask pack a measured one, so
+`create_mask` replaced it ([ai-masking.md](./ai-masking.md)). The model-facing `add_mask` (a
+whole-frame shape) and the unadvertised `add_mask_advanced` (model-authored bounds and polygon
+points) were deleted with it, because the AI never authors mask geometry. The `unavailable` kind
+and the orchestrator's refusal of one remain — no AI feature pretends to use an engine that has
+not been built (build-order invariant,
+[ADR 0004](../adr/0004-timeline-patch-engine-before-ai.md)) — and the suites prove that refusal
+with a test-only tool (`packages/ai-sdk/src/__fixtures__/unbuilt-tool.ts`).
 
-`detect_faces` was the other entry here. It is **gone**, not renamed to `available: false`:
+`detect_faces` went the same way earlier. It is **gone**, not renamed to `available: false`:
 the Subject Intelligence pack superseded it with `detect_subjects`, which returns
 person/object labels rather than face boxes alone.
 

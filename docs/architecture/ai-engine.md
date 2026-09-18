@@ -190,9 +190,9 @@ The full contract and the table of every core tool are in
 - Tool inputs are **schema-validated** before execution.
 - **Read tools** return state (e.g. `get_timeline`, `get_transcript`,
   `get_selected_range`). `analyze_silence` and `detect_scenes` are **analysis** tools —
-  ffmpeg-backed reads the engine sidecar executes — and both have shipped. The only tool
-  still `available: false` is `generate_mask`, and not for want of a model: segmentation
-  yields a bitmap while timeline masks steer by rectangle bounds.
+  ffmpeg-backed reads the engine sidecar executes — and both have shipped. No tool is
+  `available: false` today: `generate_mask` was the last, and the pack-measured `create_mask`
+  replaced it (see [ai-masking](../api/ai-masking.md)).
 - **Write tools** return typed **operations** that the orchestrator assembles into a
   **patch** (e.g. `trim_clip`, `delete_range`, `add_caption_layer`, `add_keyframes`),
   which then flows through validate → diff → preview → apply. The provider never returns

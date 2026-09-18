@@ -103,6 +103,7 @@ import {
   type ProviderConfig,
 } from '@framepilot/ai-sdk';
 import { createAutomaticTrackingExecutor } from './ai/automatic-tracking-executor.js';
+import { createMaskingExecutor, MASKING_EXECUTOR_TOOLS } from './ai/masking-executor.js';
 import { recordAutoAcceptedMemory } from './ai/auto-accept-memory.js';
 import {
   IpcChannels,
@@ -190,15 +191,8 @@ import { loadCapabilityPackRootKeys } from './capability-packs/config.js';
 import { FileCapabilityPackLocation } from './capability-packs/location.js';
 import { MaskTrackIntentSchema } from '@framepilot/capability-packs';
 import { buildTrackingWorkerRequest } from './capability-packs/tracking-request.js';
-import {
-  commitMaskTrack,
-  maskTrackMeasurements,
-  measurementIntent,
-  resolveMaskTrack,
-  segmentFromSamples,
-  type MaskTrackIntent,
-} from './capability-packs/track-run.js';
-import type { TrackSegment } from '@framepilot/editor-core';
+import { runMaskTrackJob } from './capability-packs/mask-track-service.js';
+import type { MaskTrackIntent } from './capability-packs/track-run.js';
 import {
   matteJobRunner,
   registerJobIpc,
@@ -1234,122 +1228,26 @@ function registerIpcHandlers(): void {
       }
       const intent = parsed.data as MaskTrackIntent;
       // Main re-reads the project from disk: the renderer's view of the mask, the asset and the
-      // revision is never the authority for what gets tracked.
+      // revision is never the authority for what gets tracked. (The agent's `track_mask` runs
+      // the same job against its run's working project — see `mask-track-service.ts`.)
       const project = await readProjectFile(active.path);
-      const revision = project.timeline.revision ?? 0;
-      const resolution = resolveMaskTrack(project, intent, Number(project.fps));
-      if (resolution.status === 'rejected') {
-        return { ok: false, code: resolution.code, error: resolution.detail, retryable: false };
-      }
-      const resolved = resolution.resolved;
-      const measurements = maskTrackMeasurements(resolved, intent, undefined);
-      if (measurements.length === 0) {
-        return {
-          ok: false,
-          code: 'nothing_to_track',
-          error: 'There is nothing to track in that direction. Move the playhead and try again.',
-          retryable: false,
-        };
-      }
       const controller = new AbortController();
       trackingRuns.set(intent.requestId, controller);
-      const segments: TrackSegment[] = [];
-      let engine = '';
-      let releaseDigest = '';
-      let packId = '';
-      let packVersion = '';
       try {
-        for (const [index, measurement] of measurements.entries()) {
-          const built = buildTrackingWorkerRequest(
-            project,
-            revision,
-            measurementIntent(resolved, measurement, intent, index),
-          );
-          if (built.status === 'rejected') {
-            return { ok: false, code: built.code, error: built.detail, retryable: false };
-          }
-          const outcome = await (await capabilityPackService).tracking().run(built.request, {
-            projectRevision: revision,
-            mediaRoot: built.mediaRoot,
-            signal: controller.signal,
-            onProgress: (progress: CapabilityPackWorkerProgress) => {
-              if (event.sender.isDestroyed()) return;
-              event.sender.send(IpcChannels.capabilityPackTrackProgress, {
-                requestId: intent.requestId,
-                phase: progress.phase,
-                // One job, several measurements: progress is reported across all of them so the
-                // panel shows one bar rather than restarting at zero halfway through.
-                completed: index * progress.total + progress.completed,
-                total: measurements.length * progress.total,
-              } satisfies TrackingProgressWire);
-            },
-          });
-          if (outcome.status === 'pack_missing') {
-            return { ok: false, code: 'pack_missing', proposal: outcome.proposal };
-          }
-          if (outcome.status === 'failed') {
-            return {
-              ok: false,
-              code: outcome.code,
-              error: outcome.detail,
-              retryable: outcome.retryable,
-            };
-          }
-          if (!('samples' in outcome.result)) {
-            return {
-              ok: false,
-              code: 'worker_failed',
-              error: 'This job did not return a track.',
-              retryable: false,
-            };
-          }
-          packId = outcome.identity.id;
-          packVersion = outcome.identity.version;
-          releaseDigest = outcome.identity.releaseDigest;
-          engine = `${packId}@${packVersion}`;
-          const segment = segmentFromSamples(resolved, measurement, outcome.result.samples);
-          if (segment !== null) segments.push(segment);
-        }
-        const committed = await commitMaskTrack({
+        return await runMaskTrackJob({
+          project,
           projectDir: path.dirname(active.path),
-          resolved,
-          segments,
-          // The pinned digest is what makes an artifact trustworthy; this fingerprint only has
-          // to change when the same request would measure different footage, which the asset's
-          // identity, path, measured size and duration already say.
-          fingerprint: [
-            resolved.asset.id,
-            resolved.asset.path,
-            `${resolved.geometry.codedWidth}x${resolved.geometry.codedHeight}`,
-            String(resolved.asset.durationSeconds ?? ''),
-          ].join('|'),
-          pack: { id: packId, version: packVersion, releaseDigest },
+          intent,
+          tracking: async () => (await capabilityPackService).tracking(),
+          signal: controller.signal,
+          onProgress: (progress) => {
+            if (event.sender.isDestroyed()) return;
+            event.sender.send(IpcChannels.capabilityPackTrackProgress, {
+              requestId: intent.requestId,
+              ...progress,
+            } satisfies TrackingProgressWire);
+          },
         });
-        if (committed.status === 'failed') {
-          return {
-            ok: false,
-            code: committed.code,
-            error: committed.detail,
-            retryable: committed.code === 'no_frames',
-          };
-        }
-        return {
-          ok: true,
-          artifact: { key: committed.key, sha256: committed.sha256 },
-          method: resolved.request.method,
-          frames: committed.frames,
-          flagged: committed.flagged,
-          worstResidualPx: committed.worstResidualPx,
-          engine,
-          projectRevision: revision,
-        };
-      } catch (error) {
-        return {
-          ok: false,
-          code: 'worker_failed',
-          error: error instanceof Error ? error.message : 'Tracking failed.',
-          retryable: false,
-        };
       } finally {
         trackingRuns.delete(intent.requestId);
       }
@@ -2973,11 +2871,20 @@ function registerIpcHandlers(): void {
   const automaticTrackingExecutor = createAutomaticTrackingExecutor({
     tracking: async () => (await capabilityPackService).tracking(),
   });
+  // The masking domain's measured tools (plan/background-removal-ai/11): the same matte
+  // service, scheduler and mask-track job the Inspector runs, against the run's working project.
+  const maskingExecutor = createMaskingExecutor({
+    tracking: async () => (await capabilityPackService).tracking(),
+    matte: async () => (await capabilityPackService).matte(),
+    scheduler: packJobScheduler,
+    activeProjectPath: async () => (await activeProject.current())?.path ?? null,
+  });
   const toolExecutor: HostToolExecutor = {
     async run(call, ctx, signal) {
       if (call.name === AUTOMATIC_TRACKING_TOOL_NAME || call.name === DETECT_SUBJECTS_TOOL_NAME) {
         return automaticTrackingExecutor.run(call, ctx, signal);
       }
+      if (MASKING_EXECUTOR_TOOLS.has(call.name)) return maskingExecutor.run(call, ctx, signal);
       return sidecarToolExecutor.run(call, ctx, signal);
     },
     // Forwarded, not re-derived: the sidecar executor owns the list of tools this surface

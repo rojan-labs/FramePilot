@@ -8,6 +8,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Ask the assistant for a mask.** In the AI sidebar you can now say "remove the background",
+  "hide her face", "darken everything but the presenter" or "put the title behind him", and the
+  assistant uses the same masks, the same packs and the same review list as the Mask tab. It
+  never draws a shape by guessing: a mask comes from something FramePilot detected or measured,
+  or from numbers you typed yourself. It tells you how many moments need a look and never calls a
+  mask verified — only your review does that. A long background removal is not started behind
+  your back: the sidebar shows roughly how long it will take and a **Start** button, and it then
+  runs like any other background removal while you keep editing. If a pack is missing, the
+  sidebar shows the exact install offer. A blur limited to a mask is not available yet, and the
+  assistant says so rather than approximating one. Desktop app only.
+
 - **Remove the background from a shot.** Inspector → Mask → **Remove background** cuts the subject
   out so something else can sit behind it. It runs entirely on your computer, through the Smart
   Mask pack, and nothing downloads until you approve the exact offer on screen — its size and its
