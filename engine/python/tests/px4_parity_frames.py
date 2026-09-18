@@ -484,6 +484,8 @@ def collect_media(
 MATTE_FRAME_MARGIN = 3
 #: Where a progressive (partially processed) artifact's PREVIEW copy lives in the output.
 PREVIEW_MATTES_DIR = "preview-mattes"
+#: Where that copy's monitor tier lives (PX5.3); a whole artifact's is in ``MATTE_TIERS_DIR``.
+PREVIEW_MATTE_TIERS_DIR = "preview-matte-tiers"
 #: The foreground estimate a ``disc`` matte carries: no sentinel, so decontamination shows.
 DISC_FOREGROUND = (96, 200, 160)
 
@@ -784,15 +786,36 @@ def _write_background_png(target: Path, size: tuple[int, int]) -> None:
     Image.new("RGB", size, (0, 0, 0)).save(target, format="PNG")
 
 
-def _grab_case(args: tuple[str, str, dict[str, Any], bool]) -> list[dict[str, Any]]:
+def _grab_case(
+    args: tuple[str, str, dict[str, Any], bool],
+) -> tuple[list[dict[str, Any]], dict[str, list[int]]]:
     """Render every sample of ONE case, then release everything it opened.
 
     Runs in a worker process that exits after this one task (``max_tasks_per_child=1``), and
     also clears the composition cache after every frame: a composition holds an ffmpeg reader
     per clip, and a case like every-transition-kind opens dozens. Keeping one composition alive
     at a time is what bounds this script's memory.
+
+    :returns: The samples, and per matte artifact key the size the export decoded its picture
+        at (PX5.3: the size its monitor tier must be made at for the preview to use it).
     """
     out_dir_text, area, case, keep_existing = args
+    import framepilot_engine.render.compiler as compiler_module
+
+    decoded_sizes: dict[str, list[int]] = {}
+    unwrapped = compiler_module._clip_mask_stacks
+
+    def recording(clip: Any, media_size: Any, *rest: Any, **named: Any) -> Any:
+        # `_clip_mask_stacks(clip, media_size, mattes, decoded_size, tracks)`: the export's own
+        # decode size, read where it is used rather than recomputed here.
+        size = named.get("decoded_size", rest[1] if len(rest) > 1 else None)
+        if size is not None:
+            for mask in getattr(clip, "masks", None) or []:
+                if getattr(mask, "kind", None) == "matte":
+                    decoded_sizes.setdefault(str(mask.artifact.key), [int(size[0]), int(size[1])])
+        return unwrapped(clip, media_size, *rest, **named)
+
+    compiler_module._clip_mask_stacks = recording  # type: ignore[assignment]
     from framepilot_engine.render.compiler import timeline_duration
     from framepilot_engine.render.composition_cache import COMPOSITION_CACHE
     from framepilot_engine.render.frame_grab import grab_frame
@@ -878,7 +901,40 @@ def _grab_case(args: tuple[str, str, dict[str, Any], bool]) -> list[dict[str, An
         finally:
             # Closes every reader of the composition (close_clip_tree); nothing is retained.
             COMPOSITION_CACHE.clear()
-    return results
+    return results, decoded_sizes
+
+
+def write_case_tiers(
+    out_dir: Path, mattes: dict[str, Any], decoded_sizes: dict[str, list[int]]
+) -> None:
+    """Make each served artifact's monitor tier (PX5.3) at the size the export decoded its
+    picture at, so the oracle judges the tier path wherever the preview can take it.
+
+    ``render/matte_tier.py`` writes it, digests before pixels, from exactly the copy the
+    PREVIEW reads (a progressive job's truncated copy for that row), into a directory beside
+    it; the served entry names that directory (``tierRoot``). An artifact without a foreground,
+    or whose picture no sample decoded, gets none, and the preview decodes the masters.
+    """
+    from framepilot_engine.render.matte_tier import MATTE_TIERS_DIR, write_monitor_tier
+    from framepilot_engine.render.mattes import FOREGROUND_FILE, MATTES_DIR
+
+    for key, entry in mattes.items():
+        size = decoded_sizes.get(key)
+        artifact = entry["artifact"]
+        names = {file["name"] for file in artifact["files"]}
+        if size is None or FOREGROUND_FILE not in names:
+            continue
+        root = str(entry["root"])
+        tier_root = MATTE_TIERS_DIR if root == MATTES_DIR else PREVIEW_MATTE_TIERS_DIR
+        tier = write_monitor_tier(
+            out_dir,
+            {**artifact, "key": key},
+            (int(size[0]), int(size[1])),
+            artifact_dir=out_dir / root / key,
+            tier_dir=out_dir / tier_root / key,
+        )
+        entry["tierRoot"] = tier_root
+        _log.info("matte tier %s: %dx%d, %d frames", key[:12], *size, tier.frame_count)
 
 
 def _patch_boxes() -> list[tuple[int, int, int, int]]:
@@ -1190,17 +1246,21 @@ def generate(
     _log.info("rendering engine frames for %d case(s), one case per process", len(cases))
     tasks = [(str(out_dir), area, case, keep_existing) for area, case in cases]
     rendered: list[list[dict[str, Any]]] = []
+    matte_sizes: dict[str, list[int]] = {}
     # A fresh process per case: whatever MoviePy, numpy or ffmpeg readers hold is returned to
     # the OS when the case ends, not accumulated across 43 cases.
     context = multiprocessing.get_context("spawn")
     with ProcessPoolExecutor(
         max_workers=workers, mp_context=context, max_tasks_per_child=1
     ) as pool:
-        for (area, case), samples in zip(cases, pool.map(_grab_case, tasks), strict=True):
+        for (area, case), (samples, sizes) in zip(cases, pool.map(_grab_case, tasks), strict=True):
             rendered.append(samples)
+            for key, size in sizes.items():
+                matte_sizes.setdefault(key, size)
             _log.info("rendered %s/%s (peak tree RSS %.0f MB)", area, case["id"], guard.peak_mb)
             guard.check()
 
+    write_case_tiers(out_dir, mattes, matte_sizes)
     colour = measure_colour(out_dir)
     COMPOSITION_CACHE.clear()
     guard.check()

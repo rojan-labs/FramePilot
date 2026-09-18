@@ -354,7 +354,12 @@ def _verified_source(directory: Path, artifact: Mapping[str, Any]) -> dict[str, 
 
 
 def write_monitor_tier(
-    base_dir: Path, artifact: Mapping[str, Any], size: tuple[int, int]
+    base_dir: Path,
+    artifact: Mapping[str, Any],
+    size: tuple[int, int],
+    *,
+    artifact_dir: Path | None = None,
+    tier_dir: Path | None = None,
 ) -> MonitorTier:
     """Make the monitor tier of a pinned artifact at ``size`` (the monitor's decoded size).
 
@@ -365,14 +370,17 @@ def write_monitor_tier(
 
     :param artifact: The mask's pinned ``artifact`` (``key``, ``files``, ``width``, ``height``).
     :param size: ``(width, height)`` the monitor decodes the source at (the proxy's size).
+    :param artifact_dir: Read the masters from here instead of the project's artifact directory
+        (a test harness serving a copy); the digests are checked all the same.
+    :param tier_dir: Write the tier here instead of the project's tier directory.
     :raises MatteTierError: The artifact is missing, changed, or not readable as pinned.
     """
     key = str(artifact["key"])
     width, height = size
     if width <= 0 or height <= 0:
         raise MatteTierError("A tier needs a positive size.")
-    directory = artifact_directory(base_dir, key)
-    out_dir = tier_directory(base_dir, key)
+    directory = artifact_dir if artifact_dir is not None else artifact_directory(base_dir, key)
+    out_dir = tier_dir if tier_dir is not None else tier_directory(base_dir, key)
     if directory is None or out_dir is None or not directory.is_dir():
         raise MatteTierError("The matte artifact is missing.")
     source = _verified_source(directory, artifact)

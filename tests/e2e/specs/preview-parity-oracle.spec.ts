@@ -163,6 +163,8 @@ interface ManifestMatte {
   root: string;
   artifact: Record<string, unknown>;
   processedSourceFrames?: [number, number];
+  /** PX5.3: where the artifact's monitor tier is served from, when the generator made one. */
+  tierRoot?: string;
 }
 interface Baseline {
   cases: Record<string, Check[]>;
@@ -184,6 +186,11 @@ interface SampleResult {
   failures: Partial<Record<Check, string>>;
   /** Readback facts recorded for a far-off sample (diagnosis only, never a verdict). */
   diagnostic?: Record<string, unknown>;
+  /**
+   * PX5.3: per matte layer of the presented frame, the tier the artifact has and whether this
+   * frame's decontamination came from it: which path the pixels judged. Fact, not a verdict.
+   */
+  mattes?: { tier: string | null; fromTier: boolean; state: string }[];
 }
 interface CaseResult {
   key: string;
@@ -333,6 +340,22 @@ async function oraclePage(browser: Browser): Promise<Page> {
       const root = roots[key];
       return root === undefined ? null : `${location.origin}${prefix}${root}/${key}/${name}`;
     };
+    // PX5.3: the monitor tier beside each artifact, as the desktop reads it from the project.
+    (
+      host as unknown as { __fpMatteTierUrl: (key: string, name: string) => string | null }
+    ).__fpMatteTierUrl = (key, name) => {
+      let roots: Record<string, string> = {};
+      try {
+        roots = JSON.parse(localStorage.getItem('px4:matte-tier-roots') ?? '{}') as Record<
+          string,
+          string
+        >;
+      } catch {
+        roots = {};
+      }
+      const root = roots[key];
+      return root === undefined ? null : `${location.origin}${prefix}${root}/${key}/${name}`;
+    };
   }, MEDIA_PREFIX);
   if (SIDECAR_URL) {
     // Node-side forwarding: the page never talks to the sidecar directly, as on the desktop.
@@ -396,6 +419,7 @@ async function openInEditor(
   const doc = JSON.parse(JSON.stringify(project)) as MatrixCase['project'];
   // Pin the artifacts the generator actually wrote (real digests, coverage), as a real job does.
   const matteRoots: Record<string, string> = {};
+  const tierRoots: Record<string, string> = {};
   const docTimeline = (
     doc as { timeline?: { tracks?: { clips?: { masks?: Record<string, unknown>[] }[] }[] } }
   ).timeline;
@@ -408,6 +432,7 @@ async function openInEditor(
         if (served === undefined) continue;
         Object.assign(artifact, served.artifact);
         matteRoots[String(artifact.key)] = served.root;
+        if (served.tierRoot !== undefined) tierRoots[String(artifact.key)] = served.tierRoot;
       }
     }
   }
@@ -435,15 +460,16 @@ async function openInEditor(
   }
   await page.goto(`${origin}${BLANK_PAGE}`);
   await page.evaluate(
-    ({ p, burn, roots }) => {
+    ({ p, burn, roots, tiers }) => {
       localStorage.clear();
       localStorage.setItem(`framepilot:project:${(p as { id: string }).id}`, JSON.stringify(p));
       localStorage.setItem('framepilot:last-project-id', (p as { id: string }).id);
       localStorage.setItem('px4:matte-roots', JSON.stringify(roots));
+      localStorage.setItem('px4:matte-tier-roots', JSON.stringify(tiers));
       // The monitor burns captions in exactly when the case's export does.
       localStorage.setItem('framepilot.settings', JSON.stringify({ previewBurnCaptions: burn }));
     },
-    { p: doc, burn: burnCaptions, roots: matteRoots },
+    { p: doc, burn: burnCaptions, roots: matteRoots, tiers: tierRoots },
   );
   await page.goto(`${origin}/`);
   await expect(page.getByLabel('project name')).toHaveText(project.name, { timeout: 30_000 });
@@ -835,6 +861,27 @@ async function measureCase(
         continue;
       }
       sample.presentedPts = presentedPts(compared.presented, kase.probe.fps);
+      if (Object.keys(m.mattes ?? {}).length > 0) {
+        sample.mattes = await page.evaluate(() =>
+          (
+            (
+              window as unknown as {
+                __fpPreviewEngine?: {
+                  debugPresentedMattes?: () => {
+                    tier?: string | null;
+                    fromTier?: boolean;
+                    state: string;
+                  }[];
+                };
+              }
+            ).__fpPreviewEngine?.debugPresentedMattes?.() ?? []
+          ).map(({ tier, fromTier, state }) => ({
+            tier: tier ?? null,
+            fromTier: fromTier ?? false,
+            state,
+          })),
+        );
+      }
       if (JSON.stringify(sample.presentedPts) !== JSON.stringify(sample.expectedPts)) {
         sample.failures.pts = `presented [${sample.presentedPts.join(', ')}] != plan [${sample.expectedPts.join(', ')}]`;
       }
