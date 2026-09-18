@@ -116,6 +116,35 @@ Two facts this measured:
   Rejected: a new in-memory representation (every reader would change) and rounding coordinates
   (loses the sub-pixel positions the tools promise).
 
+## Amendment (2026-09-18, MK7): tracking, and what `use_track` still cannot drive
+
+A tracked mask carries `tracking: { artifact: { key, sha256 }, method, referenceSourceTime,
+constraints, review }`, and the per-frame 3×3 transforms live in a project-owned, digest-pinned
+file (`.framepilot-derived/tracks/<key>/track.json`), exactly as a matte's frames do. The
+transform is applied to the mask's control points **before** they are flattened, so the edge stays
+the exact one the rasteriser draws and the monitor and export agree; both sides are pinned
+byte-for-byte by `tests/fixtures/mask-track/transforms.json`.
+
+Only `rectangle`, `ellipse` and `path` masks can be tracked. A track warps control points, and a
+`matte`, `key` or `layer` mask follows its own pixels — so a track on one is refused with a
+remedy rather than silently ignored, on both sides. A mask using the `gaussian-legacy` feather is
+refused for the same reason: its v21 blur path has no control points to move.
+
+**`use_track` still drives masks only, and that is now a decision to take rather than a gap to
+fill.** Pointing a track at a text clip's or an overlay's transform needs a place on the clip to
+record it — `Clip.transformTrack` — which is a schema change (v23 → v24, purely additive with a
+`(raw) => raw` migration step), and it needs an answer to a question the mask side never had to
+ask: a clip's transform is position, scale and rotation, not a general homography, so a
+`perspective` track cannot be applied to one without being reduced. The honest reduction is the
+similarity part — the same constraint `constrainTransform` already applies for the
+`position-scale-rotation` method — with the residual reported so a plane the transform cannot
+express is visible rather than quietly dropped.
+
+Neither half was built here: CLAUDE.md §5 makes a schema change a maintainer decision, and a
+backend-only `transformTrack` field with no renderer behind it is precisely the kind of
+"schema exists, capability does not" progress the product-discipline rule forbids. Recorded so a
+later agent takes the decision rather than rediscovering the question.
+
 ## Consequences
 
 - Keyframe curve math and the speed curve moved into `timeline-schema` (editor-core re-exports
@@ -124,7 +153,8 @@ Two facts this measured:
   (`mask-geometry.ts`) but the probe does not record them yet, so anamorphic and rotated media are
   treated as square-pixel, unrotated — the same assumption every render path already makes.
 - `use_track` can drive masks only; driving a text or overlay transform needs a place on the clip
-  to record the track, which lands with MK7.6.
+  to record the track and a decision about reducing a homography to a clip transform (see the
+  MK7 amendment).
 - The frame plan (`render/frame_plan.py`, `editor-core/frame-plan.ts`, owned by PX1) still reports
   the retired `mask` effect and must switch to `Clip.masks`.
 - `project.schema.json` inlines the mask union at each use site and grew accordingly.
