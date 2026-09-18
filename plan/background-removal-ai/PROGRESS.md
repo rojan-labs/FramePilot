@@ -8,7 +8,7 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-**Resumed 2026-09-18 01:59.** Fresh agents (maintainer: don't resume old ones): (1) finish PX5.3 from the uncommitted GPU matte pass on disk; AM verification + AM4 + AM1.6 + AM5 harness done; AM2.5 done: all AM5 gates pass. PX5.3 done in code; MO-17 sidecar route APPROVED 2026-09-18 — the PX5 agent is building it. Next: MK8 (analytic kinds, track matte, presets — also unblocks AM2.4's two tools), BR6.10–6.12, AM2.6. PX5.1/5.2 done: matte rows miss. MK5, MK6 done; MK7 done bar MK7.6 (MO-14). BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
+**Resumed 2026-09-18 01:59.** Fresh agents (maintainer: don't resume old ones): (1) finish PX5.3 from the uncommitted GPU matte pass on disk; AM verification + AM4 + AM1.6 + AM5 harness done; AM2.5 done: all AM5 gates pass. PX5.3–PX5.9 done (MO-17 route built). MK8 committed; CI green except the mask-panel visual baseline (test window made taller, new baseline pending from CI). Next: MK8 (analytic kinds, track matte, presets — also unblocks AM2.4's two tools), BR6.10–6.12, AM2.6. PX5.1/5.2 done: matte rows miss. MK5, MK6 done; MK7 done bar MK7.6 (MO-14). BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
 On resume, read ONLY this file first, then the specific plan file for the task you start. Don't re-read 00–12 wholesale.
 
 1. CI: `gh run list --branch plan/background-removal-ai --workflow CI -L 3`. Runs 35245865537 (6ec24d91), 35245714147 and 35245248405 were in flight. Fix any red before new work.
@@ -20,6 +20,9 @@ Next after those: MK5 (effect-target masks), MK6 (key), MK7 (tracking) → BR6 (
 Agent rules to paste into every prompt: single-file tests with `--no-file-parallelism`; no local Playwright or oracle (CI only; poll CI yourself in bounded rounds, never end a turn "waiting"); watchdog for model runs; explicit `git add`; no stash, force-push or trailers; don't edit plan files.
 
 ## Done
+
+- PX5.6–PX5.9 (b0de2027…6056250c): key oracle rows, the perf-run hang (dev-server hot reload mid-run), soft-matte alpha tier, the approved `/mattes/monitor-tier` route + host call. Oracle 65/65 (run 35344378923). Note: 09f7eb3d swept in two uncommitted MK8 fixes to layer-compositor.ts / layer-preview-engine.ts — correct code, wrong attribution
+- MK8 (75f3991d…71f046a8): split/mirror/gradient, `layer` kind (track matte, text as mask), shape presets, oracle rows + goldens; AI `create_shape_mask` and `mask_with_layer` live. I fixed two CI reds after the agent stopped: `points` renamed to `count` so the vertex-list audit stays strict (059fd942), and create_shape_mask's missing mutation contract (d28c421e)
 
 - PX5.3 (f0addf60…791a8422, ADR 0181): GPU matte pass, separate matte decode workers, host-derived monitor tier, index-only matte open (was reading 149 MB per 4K matte). Found and fixed: key drawn with the wrong GPU program in the monitor since MK6.1; the pointer regression was BR6.6 subscribing Editor/Inspector to the whole mask-tools store (work p95 back to 9.0 ms)
 
@@ -90,6 +93,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## CI reds
 
+- E2E visual: mask-panel.png (panel outgrew the 800 px window) — test window made taller (229f4988); new baseline to commit from CI's macOS render after inspection
+
 - save-budget.perf.test.ts failed once at 252.7 ms vs 250 ms (dispatch run 35332745167); passed on the same commit in the PR run — watch for a flake
 
 
@@ -105,6 +110,9 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
+
+- Oracle 65/65 at unchanged gates (run 35344378923): incl. key rows (worst 73.66 dB with despill) and MK8 rows
+- PX5.9 desktop matte path: load 6–7 → 1–2/601 dropped, both budgets ✓ in 4/4; load 12–18 → dropped > 1% in 3/4 ✗, seek < 100 ms in 8/8 ✓
 
 - PX5.3 (M1 Pro, Chrome/Metal, scale/proxy): with the monitor tier 1/601 dropped (0.17%) ✓, seek p95 49.9–52.5 ms ✓, no main-thread matte work in playback; masters only: seek 90.6 ms ✓ but 8.4% dropped ✗ (the desktop can't make the tier until MO-17). Oracle 59/59 (runs 35324781183, 35329323404)
 
