@@ -47,11 +47,19 @@ import {
   type MaskToolStore,
   type SubjectPoint,
 } from './useMaskTools.js';
+import { LabeledSelect } from '../LabeledSelect.js';
 import { useMatteIssues } from './useMatteIssues.js';
 import { SUBJECT_MATTE_CAPABILITY, usePackStatus } from './usePackStatus.js';
 
 /** How the editor tells the pack which subject to keep. */
 export type SubjectMode = 'auto' | 'pick';
+
+const SUBJECT_MODES: readonly SubjectMode[] = ['auto', 'pick'];
+const SUBJECT_LABELS = ['Auto (main subject)', 'Click to pick'] as const;
+
+/** RD0 parity control (Premiere Object Mask). The delivered matte is precise either way. */
+const EDGE_MODES: readonly ('smooth' | 'sharp')[] = ['smooth', 'sharp'];
+const EDGE_LABELS = ['Smooth (hair and soft edges)', 'Sharp (hard edges)'] as const;
 
 const TOOL_NAME = 'Background removal';
 const WARNING_ID = 'background-removal-pack-note';
@@ -162,27 +170,14 @@ export function BackgroundRemovalRow({
       {running && job !== null && <MatteProgress job={job} onCancel={cancel} />}
       {!copy.blocked && !running && (
         <>
-          <fieldset className="background-removal-subject">
-            <legend>Subject</legend>
-            <label>
-              <input
-                type="radio"
-                name={`subject-${clip.id}`}
-                checked={subject === 'auto'}
-                onChange={() => setSubject('auto')}
-              />
-              Auto (main subject)
-            </label>
-            <label>
-              <input
-                type="radio"
-                name={`subject-${clip.id}`}
-                checked={subject === 'pick'}
-                onChange={() => setSubject('pick')}
-              />
-              Click to pick
-            </label>
-          </fieldset>
+          <LabeledSelect
+            caption="Subject"
+            label="background removal subject"
+            value={subject}
+            options={SUBJECT_MODES}
+            labels={SUBJECT_LABELS}
+            onChange={(value) => setSubject(value)}
+          />
           {subject === 'pick' && (
             <p className="inspector-empty">
               {tools.subjectPoints.length === 0
@@ -190,30 +185,14 @@ export function BackgroundRemovalRow({
                 : `${String(tools.subjectPoints.length)} point(s) picked.`}
             </p>
           )}
-          <fieldset className="background-removal-subject">
-            <legend>Edges</legend>
-            <label>
-              <input
-                type="radio"
-                name={`edges-${clip.id}`}
-                checked={edgeMode === 'smooth'}
-                onChange={() => setEdgeMode('smooth')}
-              />
-              Smooth (hair and soft edges)
-            </label>
-            <label>
-              <input
-                type="radio"
-                name={`edges-${clip.id}`}
-                checked={edgeMode === 'sharp'}
-                onChange={() => setEdgeMode('sharp')}
-              />
-              Sharp (hard edges)
-            </label>
-          </fieldset>
-          <p className="inspector-empty">
-            Covers this clip plus {String(MATTE_HANDLE_SECONDS)} s of handles.
-          </p>
+          <LabeledSelect
+            caption="Edges"
+            label="background removal edges"
+            value={edgeMode}
+            options={EDGE_MODES}
+            labels={EDGE_LABELS}
+            onChange={(value) => setEdgeMode(value)}
+          />
           {notice?.disk === undefined ? (
             <p className="inspector-empty">
               About {formatDuration(estimate.computeSeconds)} on this computer ·{' '}
@@ -236,8 +215,8 @@ export function BackgroundRemovalRow({
             </p>
           )}
           <p className="inspector-empty">
-            The first run on this computer also prepares the models, which takes longer than later
-            runs.
+            Covers this clip plus {String(MATTE_HANDLE_SECONDS)} s of handles. The first run on this
+            computer also prepares the models, so it takes longer than later ones.
           </p>
         </>
       )}

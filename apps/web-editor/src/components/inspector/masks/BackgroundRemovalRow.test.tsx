@@ -280,7 +280,8 @@ describe('BackgroundRemovalRow', () => {
 
   it('asks for a click before running in pick mode instead of guessing a subject', async () => {
     render(<Harness jobs={jobs} />);
-    fireEvent.click(await screen.findByLabelText('Click to pick'));
+    fireEvent.click(await screen.findByRole('combobox', { name: 'background removal subject' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Click to pick' }));
     fireEvent.click(screen.getByRole('button', { name: 'Remove background' }));
 
     expect(await screen.findByText('Click the subject on the monitor first.')).toBeTruthy();
@@ -584,13 +585,10 @@ describe('BackgroundRemovalRow', () => {
 
   it('keeps every control reachable and labelled from the keyboard (BR6.9)', async () => {
     render(<Harness jobs={jobs} />);
-    // Radios are labelled by their own text, not by position.
-    expect(await screen.findByLabelText('Auto (main subject)')).toBeTruthy();
-    expect(screen.getByLabelText('Click to pick')).toBeTruthy();
-    expect(screen.getByLabelText('Smooth (hair and soft edges)')).toBeTruthy();
-    expect(screen.getByLabelText('Sharp (hard edges)')).toBeTruthy();
-    // The two fieldsets say what their choices are about.
-    expect(screen.getByRole('group', { name: 'Subject' })).toBeTruthy();
-    expect(screen.getByRole('group', { name: 'Edges' })).toBeTruthy();
+    // Both choices are named controls, in the Inspector's own select pattern.
+    const subject = await screen.findByRole('combobox', { name: 'background removal subject' });
+    expect(subject.textContent).toContain('Auto (main subject)');
+    const edges = screen.getByRole('combobox', { name: 'background removal edges' });
+    expect(edges.textContent).toContain('Smooth (hair and soft edges)');
   });
 });

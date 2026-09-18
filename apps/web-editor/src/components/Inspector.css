@@ -31,6 +31,11 @@
   padding: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  /* The status bar is sticky at the bottom, so anything scrolled to the very end of the panel
+     lands UNDER it and stops being clickable. Reserving its height here means `scrollIntoView`
+     — Playwright's and the browser's — stops short of it. Found by the mask e2e once the Mask
+     tab grew a background-removal row (BR6.8). */
+  scroll-padding-bottom: 36px;
   background: var(--bg-panel);
 }
 
