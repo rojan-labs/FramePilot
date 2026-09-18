@@ -136,7 +136,14 @@ class PackServices:
     def segment_frame(
         self, request: SegmentFrameRequest, cancellation: CancellationFlag
     ) -> SegmentFrameOutcome:
-        raise BackendUnavailableError("interactive segmentation is not available in this build.")
+        # BR6.11: the warm process keeps ONE segmenter, so the SAM graphs and each frame's image
+        # embedding stay loaded between hover and click requests (BR3.13's LRU).
+        if self._interactive is None:
+            from .interactive import InteractiveSegmenter
+
+            self._interactive = InteractiveSegmenter(self.provider, self.tools)
+        outcome: SegmentFrameOutcome = self._interactive.segment(request, cancellation)
+        return outcome
 
 
 def create_services() -> WorkerServices:

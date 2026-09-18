@@ -195,3 +195,29 @@ def test_accelerator_oom_falls_back_to_cpu_once_and_is_recorded(tmp_path: Path) 
     )  # type: ignore[arg-type]
     with pytest.raises(AcceleratorOutOfMemoryError):
         cpu_only.run({"image": np.zeros(1)})
+
+
+def test_pack_services_route_segment_frame_to_one_warm_segmenter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BR6.11: the warm worker's services keep one segmenter (and its embedding cache)."""
+    from framepilot_smart_mask import interactive
+    from framepilot_smart_mask.services import PackServices
+
+    made: list[object] = []
+
+    class Recording:
+        def __init__(self, provider: object, media: object) -> None:
+            made.append((provider, media))
+
+        def segment(self, request: object, cancellation: object) -> str:
+            return f"segmented:{request}"
+
+    monkeypatch.setattr(interactive, "InteractiveSegmenter", Recording)
+    services = PackServices.__new__(PackServices)
+    services.provider = "provider"  # type: ignore[assignment]
+    services.tools = "tools"  # type: ignore[assignment]
+    services._interactive = None
+    assert services.segment_frame("r1", None) == "segmented:r1"  # type: ignore[arg-type]
+    assert services.segment_frame("r2", None) == "segmented:r2"  # type: ignore[arg-type]
+    assert made == [("provider", "tools")]
