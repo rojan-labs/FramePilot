@@ -249,7 +249,7 @@ read over `fp-media` on the desktop) in the same pass as every other kind:
   twin). Everything else keeps decoding the samples, because its controls act before the resample
   and are not linear. The alpha drawn from the plane is the export's within 1/131070
   (`test_matte_alpha_tier.py`, `matte-edges.test.ts`); it decodes in 3.6 ms at 960x540 where the
-  4K samples take 19.6-20.1 ms. In the PX4 oracle (CI run 35341329629) seven samples of
+  4K samples take 19.6-20.1 ms. In the PX4 oracle (CI run 35341329629) six samples of
   `matte-speed`, `matte-vfr`, `matte-progressive` and `matte-text-behind-subject` drew from it
   and pass at the unchanged gates; each sample records which path it took
   (`sample.mattes[].alphaFromTier`).

@@ -527,15 +527,16 @@ load 19: 41/612 dropped, seek p95 46.6 ms - the budget miss is the load (the sam
 1/602 at load ~10 an hour earlier, 17:09); re-measure on a quiet machine before quoting it.
 
 **PX4 oracle, unchanged gates.** CI run 35341329629 (`09f7eb3d`): 65/65 cases pass (the 60 of
-PX5.6 plus five MK8 rows another agent added meanwhile). Seven samples in four rows drew their
+PX5.6 plus five MK8 rows another agent added meanwhile). Six samples in four rows drew their
 alpha from the tier's alpha plane (`sample.mattes[].alphaFromTier`): `matte-speed` at 1.3 s and
 3.1 s (∞), `matte-vfr` at 1.9 s (∞), `matte-progressive` at 0.5 s (∞), and the effect-target
 matte of `matte-text-behind-subject` at 1 s and 2.5 s (53.68 dB, 100% within 8/255: the same
 figure as before PX5.8, set by its burned text). The other qualifying samples drew from the
-samples: the first seek of a clip before its tier had loaded (`matte-speed` 0.4 s,
-`matte-vfr` 0.62 s), a tier whose size the picture was not decoded at (`matte-display-space`,
-404x720), or a frame cached earlier with its samples (`matte-shape-stack` 2.5 s). Every
-non-qualifying matte (`sharp`, edge shift, feather) kept the samples, as it must.
+samples, equally within the gates: at `matte-speed` 0.4 s the tier had not loaded yet; at
+`matte-vfr` 0.62 s, `matte-display-space` 3 s (a 404x720 tier) and `matte-shape-stack` 2.5 s
+the reason was not examined. Every non-qualifying matte (`sharp`, edge shift, feather) kept the
+samples, as it must. At the PX5.9 head (CI run 35344378923, `d28c421e`: the tier generator on the
+hardened reads) the oracle is again 65/65 with the same six samples from the plane.
 
 ## PX5.9 — the desktop makes the tier: the route, end to end
 
