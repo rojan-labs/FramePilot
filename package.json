@@ -56,6 +56,7 @@
     "matte-render:goldens": "cd engine/python && uv run python -m tests.matte_render_goldens",
     "px4:frames": "cd engine/python && uv run python -m tests.px4_parity_frames",
     "px5:fixture": "cd engine/python && uv run python -m tests.px5_scale_fixture",
+    "px5:pts-probe": "cd engine/python && uv run python -m tests.px5_pts_probe",
     "license:scan": "node scripts/license-scan.mjs",
     "release:check-feed": "node scripts/verify-update-feed.mjs",
     "release:check-installer": "node scripts/check-installer-budget.mjs",
