@@ -53,6 +53,30 @@ void main() {
 `;
 
 /**
+ * The RGB24 lookup tables of `ff_yuv2rgb_c_init_tables` as arithmetic (`swscale.ts#swsTableToRgb`):
+ * one copy, shared by the scaled path and the unscaled C converter (MK6.4), so the two cannot
+ * disagree about a table entry. Declares its uniforms; `tablesRgb` takes 8-bit Y, U, V.
+ */
+const SWS_RGB_TABLES_GLSL = `
+uniform int u_crv;
+uniform int u_cbu;
+uniform int u_cgu;
+uniform int u_cgv;
+uniform int u_yOffset;
+uniform int u_cy;
+uniform int u_yb;
+int yTable(int index) {
+  return clamp((u_yb + index * u_cy + 32768) >> 16, 0, 255);
+}
+vec4 tablesRgb(int y, int u, int v) {
+  int r = u_yOffset - (u_crv >> 9) + ((v * u_crv) >> 16) + y;
+  int b = u_yOffset - (u_cbu >> 9) + ((u * u_cbu) >> 16) + y;
+  int g = u_yOffset - (u_cgu >> 9) + ((u * u_cgu) >> 16) - (u_cgv >> 9) + ((v * u_cgv) >> 16) + y;
+  return vec4(float(yTable(r)), float(yTable(g)), float(yTable(b)), 255.0) / 255.0;
+}
+`;
+
+/**
  * swscale's vertical filter inside `yuv2rgb_X_c_template` plus the RGB24 lookup tables.
  * Luma lines are `dstW × srcH`, chroma lines `ceil(dstW/2) × chromaSrcH`; each pair of output
  * pixels shares chroma column `x >> 1`.
@@ -65,17 +89,8 @@ uniform isampler2D u_lumaFilter;
 uniform isampler2D u_chromaFilter;
 uniform int u_lumaSize;
 uniform int u_chromaSize;
-uniform int u_crv;
-uniform int u_cbu;
-uniform int u_cgu;
-uniform int u_cgv;
-uniform int u_yOffset;
-uniform int u_cy;
-uniform int u_yb;
+${SWS_RGB_TABLES_GLSL}
 out vec4 o_color;
-int yTable(int index) {
-  return clamp((u_yb + index * u_cy + 32768) >> 16, 0, 255);
-}
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   int lumaPos = texelFetch(u_lumaFilter, ivec2(p.y, 0), 0).r;
@@ -94,13 +109,27 @@ void main() {
     u += texelFetch(u_uLines, ivec2(cx, chromaPos + j), 0).r * c;
     v += texelFetch(u_vLines, ivec2(cx, chromaPos + j), 0).r * c;
   }
-  y = y >> 19;
-  u = clamp(u >> 19, 0, 255);
-  v = clamp(v >> 19, 0, 255);
-  int r = u_yOffset - (u_crv >> 9) + ((v * u_crv) >> 16) + y;
-  int b = u_yOffset - (u_cbu >> 9) + ((u * u_cbu) >> 16) + y;
-  int g = u_yOffset - (u_cgu >> 9) + ((u * u_cgu) >> 16) - (u_cgv >> 9) + ((v * u_cgv) >> 16) + y;
-  o_color = vec4(float(yTable(r)), float(yTable(g)), float(yTable(b)), 255.0) / 255.0;
+  o_color = tablesRgb(y >> 19, clamp(u >> 19, 0, 255), clamp(v >> 19, 0, 255));
+}
+`;
+
+/**
+ * The unscaled C converter (`yuv2rgb_c_24_rgb`, MK6.4): nearest (2×2) chroma straight into the
+ * lookup tables. What an export host without a SIMD `yuv420p → rgb24` converter runs — the
+ * macOS arm64 ffmpeg MoviePy uses — in place of {@link SWS_UNSCALED_FRAGMENT}.
+ */
+export const SWS_UNSCALED_TABLES_FRAGMENT = `${HEADER}
+uniform usampler2D u_y;
+uniform usampler2D u_u;
+uniform usampler2D u_v;
+${SWS_RGB_TABLES_GLSL}
+out vec4 o_color;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  int y = int(texelFetch(u_y, p, 0).r);
+  int u = int(texelFetch(u_u, p / 2, 0).r);
+  int v = int(texelFetch(u_v, p / 2, 0).r);
+  o_color = tablesRgb(y, u, v);
 }
 `;
 

@@ -20,7 +20,11 @@
  *   `yuv2rgb.c`, `output.c`), checked bit-exact against FFmpeg 6.1 output in `swscale.test.ts`.
  * - **Unscaled** (same size): the x86 SIMD converter (`yuv420_rgb24_ssse3`), whose 16-bit
  *   `pmulhw` arithmetic {@link swsUnscaledCoefficients} reproduces. Checked against the PX0.3 CI
- *   engine measurements (every BT.709 limited patch exact).
+ *   engine measurements (every BT.709 limited patch exact). A host whose ffmpeg has no SIMD
+ *   converter for `rgb24` — the macOS arm64 build MoviePy runs on an Apple Silicon desktop —
+ *   takes the C converter instead (`yuv2rgb_c_24_rgb`: nearest chroma straight into the same
+ *   lookup tables, {@link swsUnscaledTablesToRgb24}), which lands up to 3 levels away from the
+ *   SIMD one (MK6.4). `sws-host.ts` says which one this host's export runs.
  *
  * The GPU executes the same integer arithmetic (`gl/yuv-shaders.ts`); the CPU functions here
  * are its reference and its test oracle.
@@ -528,6 +532,39 @@ export function swsUnscaledToRgb24(
       const chroma = (row >> 1) * chromaWidth + (x >> 1);
       const [r, g, b] = swsUnscaledToRgb(
         coefficients,
+        frame.y[row * frame.width + x]!,
+        frame.u[chroma]!,
+        frame.v[chroma]!,
+      );
+      const o = (row * frame.width + x) * 3;
+      out[o] = r;
+      out[o + 1] = g;
+      out[o + 2] = b;
+    }
+  }
+  return out;
+}
+
+/**
+ * CPU reference of the unscaled C converter (`yuv2rgb_c_24_rgb`): each 2 × 2 block shares one
+ * chroma sample, read through the lookup tables of {@link swsRgbTables}. Checked bit-exact
+ * against the macOS arm64 export host's ffmpeg in `swscale.test.ts` (MK6.4).
+ *
+ * @returns Packed RGB, `width × height × 3`.
+ */
+export function swsUnscaledTablesToRgb24(
+  frame: I420Frame,
+  matrix: SwsMatrix,
+  fullRange: boolean,
+): Uint8Array {
+  const tables = swsRgbTables(matrix, fullRange);
+  const chromaWidth = (frame.width + 1) >> 1;
+  const out = new Uint8Array(frame.width * frame.height * 3);
+  for (let row = 0; row < frame.height; row++) {
+    for (let x = 0; x < frame.width; x++) {
+      const chroma = (row >> 1) * chromaWidth + (x >> 1);
+      const [r, g, b] = swsTableToRgb(
+        tables,
         frame.y[row * frame.width + x]!,
         frame.u[chroma]!,
         frame.v[chroma]!,

@@ -46,6 +46,7 @@ import logging
 import math
 import multiprocessing
 import os
+import platform
 import signal
 import struct
 import subprocess
@@ -140,6 +141,22 @@ class VideoSpec:
     key_picture: bool = False
     #: MK8.4: every frame is :func:`luma_picture` (through a lossless PNG) instead of a sentinel.
     luma_picture: bool = False
+
+
+def export_host_hints() -> dict[str, str]:
+    """This engine's platform in the browser's client-hint vocabulary (MK6.4).
+
+    The preview draws a same-size decode with the unscaled converter the export host's ffmpeg
+    runs (`apps/web-editor/src/preview/engine/raster/sws-host.ts`). The desktop reads that from
+    its own client hints; the oracle's browser reports a spoofed device, so the harness hands the
+    page the platform these frames were rendered on instead.
+    """
+    system = platform.system()
+    machine = platform.machine().lower()
+    return {
+        "platform": {"Darwin": "macOS", "Windows": "Windows", "Linux": "Linux"}.get(system, system),
+        "architecture": "arm" if machine in ("arm64", "aarch64") else "x86",
+    }
 
 
 def input_hash() -> str:
@@ -1394,6 +1411,7 @@ def generate(
         ],
         "colour": colour,
         "mattes": mattes,
+        "engineHost": export_host_hints(),
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest

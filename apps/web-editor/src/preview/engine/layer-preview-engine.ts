@@ -48,6 +48,7 @@ import {
   type TextRaster,
 } from './text-raster.js';
 import { parseCubeLut, type CubeLut } from './raster/cube-lut.js';
+import { configureSwsUnscaledConverterFromHost } from './raster/sws-host.js';
 import {
   configureLegacyMaskArithmeticFromHost,
   type MaskPreviewRefusal,
@@ -339,6 +340,8 @@ export class LayerPreviewEngine {
     this.compositor.setTelemetry(this.telemetry);
     // Legacy (v21) masks follow the host Pillow's float arithmetic (`masks/legacy-mask.ts`).
     void configureLegacyMaskArithmeticFromHost();
+    // Same-size decodes follow the host ffmpeg's unscaled converter (`raster/sws-host.ts`).
+    void configureSwsUnscaledConverterFromHost();
   }
 
   /**

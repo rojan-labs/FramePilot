@@ -97,7 +97,8 @@ import {
   SWS_VERTICAL_ONE,
   type SwsFilter,
 } from './raster/swscale.js';
-import { GlResources, type RenderTarget } from './gl/gl-resources.js';
+import { swsUnscaledConverter } from './raster/sws-host.js';
+import { GlResources, type Program, type RenderTarget } from './gl/gl-resources.js';
 import { AlphaPasses } from './gl/alpha-passes.js';
 import { MattePass, type MatteFrameGeometry } from './gl/matte-pass.js';
 import { pilBoxWeights, pilGaussianBoxRadius, pilRotationMatrix } from './raster/pil.js';
@@ -122,6 +123,7 @@ import {
   PRESENT_FRAGMENT,
   SWS_HORIZONTAL_FRAGMENT,
   SWS_UNSCALED_FRAGMENT,
+  SWS_UNSCALED_TABLES_FRAGMENT,
   SWS_VERTICAL_RGB_FRAGMENT,
 } from './gl/raster-shaders.js';
 
@@ -537,6 +539,17 @@ export class LayerCompositor {
     const u = r.plane(chromaWidth, chromaHeight, picture.u);
     const v = r.plane(chromaWidth, chromaHeight, picture.v);
     const out = r.target(picture.width, picture.height, 'rgba8');
+    // MK6.4: the converter this host's export runs, so a same-size decode matches it byte for byte.
+    if (swsUnscaledConverter() === 'tables') {
+      const program = r.program('sws-unscaled-tables', SWS_UNSCALED_TABLES_FRAGMENT);
+      gl.useProgram(program.handle);
+      r.bind(program, 'u_y', 0, y);
+      r.bind(program, 'u_u', 1, u);
+      r.bind(program, 'u_v', 2, v);
+      this.bindRgbTables(program, picture);
+      r.draw(out, out.width, out.height);
+      return out;
+    }
     const program = r.program('sws-unscaled', SWS_UNSCALED_FRAGMENT);
     gl.useProgram(program.handle);
     r.bind(program, 'u_y', 0, y);
@@ -641,6 +654,13 @@ export class LayerCompositor {
     r.bind(program, 'u_chromaFilter', 4, this.filterTexture('sws-v', chromaV));
     program.int('u_lumaSize', lumaV.size);
     program.int('u_chromaSize', chromaV.size);
+    this.bindRgbTables(program, picture);
+    r.draw(out, width, height);
+    return out;
+  }
+
+  /** The lookup-table uniforms `SWS_RGB_TABLES_GLSL` declares, for this picture's encoding. */
+  private bindRgbTables(program: Program, picture: I420Picture): void {
     const tables = swsRgbTables(swsMatrixOf(picture.matrix), picture.fullRange === true);
     program.int('u_crv', tables.crv);
     program.int('u_cbu', tables.cbu);
@@ -649,8 +669,6 @@ export class LayerCompositor {
     program.int('u_yOffset', tables.yOffset);
     program.int('u_cy', tables.cy);
     program.int('u_yb', tables.yb);
-    r.draw(out, width, height);
-    return out;
   }
 
   private copy(

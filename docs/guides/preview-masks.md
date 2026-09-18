@@ -197,6 +197,22 @@ unseen. The source they key is a picture made by numpy (`key_picture` in
 specks and a green-to-red sweep), stored as a lossless PNG and encoded like every other asset,
 so both sides key the same decoded pixels.
 
+**"The same decoded pixels" depends on the export host (MK6.4).** A same-size decode goes through
+libswscale's unscaled `yuv420p → rgb24` converter, and which one runs depends on the ffmpeg build
+MoviePy uses (imageio-ffmpeg's bundled binary). An x86 build (CI, Intel desktops) has a SIMD
+converter; the macOS arm64 build has none and runs the C converter, whose lookup tables land up to
+3 levels away (about one level darker on average). Run on an M1 Pro, the oracle's key rows failed
+because of that and nothing else: the key and its whole finesse chain on Metal matched numpy on
+the picture the monitor held with **zero** differing alpha bytes (every float pass within
+0.0002/255), and the same rows under SwiftShader on that Mac produced bit-identical metrics. The
+qualifier's hue ramp turned the decode's ±3 into 82/255 at the key edge (`alpha/key-finesse`:
+47.86 dB, 99.494 % within 8/255). The monitor now draws a same-size decode with the converter its
+export host runs (`preview/engine/raster/sws-host.ts`, from the browser's client hints; the
+oracle states the engine's platform from its manifest), and the row is byte-exact on Metal
+(∞ dB, max error 0). The C converter's CPU twin is pinned bit-exact to the arm64 binary in
+`swscale.test.ts` (`__fixtures__/swscale-unscaled-arm64-golden.*`); only macOS + arm switches,
+because that is the only pairing measured.
+
 **What a key costs the monitor, unmeasured so far:** the qualifier is one pass, but the finesse
 chain is not — morph open and close are two disc passes each, shrink/grow one, and the blur is
 six separable box passes. Each writes a float target the size of the frame, and `GlResources`

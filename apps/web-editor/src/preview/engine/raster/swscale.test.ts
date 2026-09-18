@@ -7,7 +7,9 @@ import {
   swsMatrixOf,
   swsScaleToRgb24,
   swsUnscaledCoefficients,
+  swsUnscaledTablesToRgb24,
   swsUnscaledToRgb,
+  swsUnscaledToRgb24,
   SWS_HORIZONTAL_FILTER_ALIGN,
   SWS_HORIZONTAL_ONE,
   type SwsMatrix,
@@ -141,5 +143,45 @@ describe('swscale unscaled path (x86 SIMD arithmetic)', () => {
     expect(swsMatrixOf('smpte170m')).toBe('bt601');
     expect(swsMatrixOf('bt470bg')).toBe('bt601');
     expect(swsMatrixOf(null)).toBe('bt601');
+  });
+});
+
+describe('swscale unscaled path (C converter of the macOS arm64 export host, MK6.4)', () => {
+  interface UnscaledGolden {
+    width: number;
+    height: number;
+    matrix: SwsMatrix;
+    range: 'tv' | 'pc';
+    y: string;
+    u: string;
+    v: string;
+    rgb: string;
+  }
+  const arm64 = JSON.parse(
+    readFileSync(join(HERE, '__fixtures__', 'swscale-unscaled-arm64-golden.json'), 'utf8'),
+  ) as { cases: UnscaledGolden[] };
+
+  for (const c of arm64.cases) {
+    it(`${c.width}x${c.height} ${c.matrix} ${c.range} is bit exact`, () => {
+      const rgb = swsUnscaledTablesToRgb24(
+        { width: c.width, height: c.height, y: bytes(c.y), u: bytes(c.u), v: bytes(c.v) },
+        c.matrix,
+        c.range === 'pc',
+      );
+      const expected = bytes(c.rgb);
+      let mismatches = 0;
+      for (let i = 0; i < expected.length; i++) if (rgb[i] !== expected[i]) mismatches++;
+      expect(mismatches).toBe(0);
+    });
+  }
+
+  it('differs from the SIMD arithmetic, so the host has to be known', () => {
+    const c = arm64.cases[0]!;
+    const frame = { width: c.width, height: c.height, y: bytes(c.y), u: bytes(c.u), v: bytes(c.v) };
+    const tables = swsUnscaledTablesToRgb24(frame, c.matrix, c.range === 'pc');
+    const simd = swsUnscaledToRgb24(frame, c.matrix, c.range === 'pc');
+    let differing = 0;
+    for (let i = 0; i < tables.length; i++) if (tables[i] !== simd[i]) differing++;
+    expect(differing).toBeGreaterThan(0);
   });
 });

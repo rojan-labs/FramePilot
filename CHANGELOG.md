@@ -237,6 +237,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **On Apple Silicon Macs the monitor shows the colours the export writes.** The export's decoder
+  on those Macs turns video into RGB slightly differently from the one the monitor copied (up to 3
+  levels per channel), so every clip was a shade off in the monitor, and a colour key could cut a
+  visibly different edge (up to 82/255 at the edge of a keyed gradient). The monitor now uses the
+  same conversion as the export on the machine it runs on; on an M1 Pro the keyed frames match
+  the export exactly. Other machines are unchanged.
 - **Masks from older projects export exactly as before on clips that start later in the
   timeline.** An animated mask from a project made before the mask stack could draw one edge a
   pixel off on some frames when its clip did not start at 0 s. The upgrade now keeps the numbers

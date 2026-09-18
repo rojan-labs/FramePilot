@@ -150,6 +150,8 @@ interface Manifest {
   sentinels: Record<string, { primary: Rgb; secondary: Rgb }>;
   cases: { area: string; id: string; samples: ManifestSample[] }[];
   mattes?: Record<string, ManifestMatte>;
+  /** MK6.4: the platform the engine rendered on, as client hints (`export_host_hints`). */
+  engineHost?: { platform: string; architecture: string };
   colour: {
     time: number;
     patches: { name: string; authored: Rgb; box: [number, number, number, number] }[];
@@ -321,6 +323,14 @@ async function oraclePage(browser: Browser): Promise<Page> {
       headers: { 'content-type': CONTENT_TYPES[extname(file)] ?? 'application/octet-stream' },
     });
   });
+  // MK6.4: the desktop monitor learns which unscaled yuv420p -> rgb24 converter its export runs
+  // from its own client hints; this browser reports the device Playwright emulates, so the page
+  // is told the platform the engine frames were rendered on (`raster/sws-host.ts`).
+  if (manifest?.engineHost) {
+    await page.addInitScript((hints: { platform: string; architecture: string }) => {
+      (window as unknown as { __fpExportHostHints: unknown }).__fpExportHostHints = hints;
+    }, manifest.engineHost);
+  }
   // The desktop monitor reads matte artifacts from the project folder over fp-media (BR5); here
   // they are served from the generated output. The directory per key comes from the manifest
   // (a progressive job's preview copy lives apart from the export's whole artifact).
