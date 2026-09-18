@@ -374,7 +374,7 @@ cause, not verified. The other five rows do not decontaminate, so they have no t
   decode slower; the tier's planes cost follows the band's length, not the frame's.
 - One run of ten at the final code hung (a `page.evaluate` past the 260 s test timeout, normal
   memory). The same kind of hang happened before PX5.3 on `scale-path` (a variant with no matte,
-  12:38, 623.7 s). Not diagnosed; the next three runs passed.
+  12:38, 623.7 s). Diagnosed in PX5.7 (below): the dev server hot-replaced the editor mid-run.
 - The desktop app makes no tier yet, so on the desktop a matte runs the masters path: seek within
   budget, playback not (8.4% dropped here).
 
@@ -386,3 +386,42 @@ cause, not verified. The other five rows do not decontaminate, so they have no t
   resampled alpha is then exactly what the monitor needs, and the 4K alpha decode (17–19 ms a
   frame) would go. Not for `sharp` or any edge control, which act at source resolution.
 - PX5.5 (two composites per project frame at 60 Hz) and PX5.4 (export ratio) are untouched.
+
+## PX5.7 — the intermittent hang: the dev server replaced the editor mid-run
+
+Diagnosed 2026-09-18 on the same M1 Pro. **Not the engine.** Playwright's `webServer` is Vite's
+dev server, which watches the worktree, and this worktree is shared with other agents. An edit in
+the editor's import graph during a run hot-updated `WebCodecsPreviewPlayer` (or, for a file only
+the decode worker imports, reloaded the page), so the engine under the test was rebuilt mid-step.
+
+**Evidence.** With the new step guard (below) the first watched `scale-path/proxy` run hung, and
+the report named it: `telemetry.poolStats` open for 210 s in the engine that answered, the decode
+worker silent (`worker: null`), no decode window open. The next run failed differently: playback
+never started (`expectedFrames: 0`), and the console showed the app starting twice 13 s apart —
+a reload. Then on demand, three times out of three: touching one source file 17-22 s into a
+run (content unchanged) gave `expectedFrames: 0` (the fresh engine had only decoded frame 0),
+`[vite] hot updated: /src/components/WebCodecsPreviewPlayer.tsx`, and, for
+`decode/decoder-pool.ts`, a full reload. With the watcher off, the same touch mid-run: the run
+passed (29.2 s). Five untouched runs before the change passed as well, which is the "one in ten":
+it depends on whether someone saves a file during the 30 s.
+
+The exact sub-path of the 210 s wait (which replaced module left a request with no worker to
+answer it) was not reproduced on demand; the three outcomes that were share the cause.
+
+**What changed.**
+
+| Where                                | What                                                                                                                                                                   |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/e2e/scripts/px5-local-run.py` | starts the dev server itself with `FRAMEPILOT_VITE_NO_WATCH=1` (no watcher, no hot reload, `vite.config.ts`), watches its footprint too, refuses if port 5173 is taken |
+| `preview-scale-perf.spec.ts`         | fails the moment the editor's code is replaced (`[vite] hot updated`, a navigation), naming it; `the editor kept the code it was opened with` is the first invariant   |
+| same, every step                     | 25 s before the test timeout: writes `results/<variant>.hang.json` (open stages, worker report, traffic) and fails naming the stuck step                               |
+| `engine/stage-tracker.ts` (new)      | every stage a seek, decode-ahead, playback start or telemetry read waits on; logs `preview stage stuck` after 10 s. Observes only: nothing is cancelled or timed out   |
+| `decode/decode-worker.ts` `stages`   | each source's call: `queued` / `fetch` / `feed` / `await-output` / `flush` / `copy-planes`, age, decoder state and queue, copies in flight, calls waiting              |
+| `decode/worker-client.ts`            | `debugStages(timeout)` (`null` = the worker did not answer) and the last 16 messages each way with their age                                                           |
+
+Guards: `stage-tracker.test.ts` (a never-settling stage is named once, settled ones forgotten,
+the outcome passes through) and `worker-client.test.ts` (the worker's report, and `null` from a
+silent worker instead of a wait). The spec's replacement check was seen to fire on a watching
+server (`PX5 step "telemetry after playback": the editor's code was replaced mid-run ([vite] hot
+updated: …)`, 27.6 s instead of a timeout). CI starts its own dev server in a fresh checkout that
+nothing edits, so it was never exposed.

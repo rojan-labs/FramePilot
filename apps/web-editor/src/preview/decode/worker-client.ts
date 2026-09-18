@@ -10,9 +10,34 @@ import type {
   DecodedPictureMessage,
   WorkerRequest,
   WorkerResponse,
+  WorkerStageReport,
 } from './decode-worker.js';
 
 const log = createLogger('web-editor:preview:decode-worker-client');
+
+/** PX5.7: messages remembered each way for a hang report. */
+const TRAFFIC_KEPT = 16;
+
+/** One request or response, summarised for a hang report (ids and ranges, never a URL). */
+function summarise(message: WorkerRequest | WorkerResponse): string {
+  const parts: string[] = [message.type, `#${message.requestId}`];
+  if ('sourceId' in message) parts.push(message.sourceId);
+  if ('fromChunkIndex' in message) parts.push(`${message.fromChunkIndex}-${message.toChunkIndex}`);
+  if ('chunkIndex' in message) parts.push(`@${message.chunkIndex}`);
+  if ('frame' in message && typeof message.frame === 'number') parts.push(`@${message.frame}`);
+  return parts.join(' ');
+}
+
+/** What the client last sent to and heard from its worker (PX5.7). */
+export interface WorkerTraffic {
+  /** Milliseconds since the worker last posted anything; `null` if it never has. */
+  readonly silentForMs: number | null;
+  /** Oldest first, each `summary +ms-ago`. */
+  readonly sent: readonly string[];
+  readonly received: readonly string[];
+  /** Requests still waiting for their answer. */
+  readonly pending: readonly number[];
+}
 
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 
@@ -54,6 +79,10 @@ export class DecodeWorkerClient {
   private readonly matteUrls = new Map<string, { url: string; expectedFrames: number }>();
   private workerNeedsRehydrate = false;
   private rehydratePromise: Promise<void> | undefined;
+  /** PX5.7: recent traffic each way, `[summary, atMs]`, for {@link debugTraffic}. */
+  private readonly sentLog: [string, number][] = [];
+  private readonly receivedLog: [string, number][] = [];
+  private lastHeardAtMs: number | null = null;
 
   private ensureWorker(): Worker {
     if (this.disposed) throw new Error('DecodeWorkerClient used after dispose().');
@@ -142,7 +171,31 @@ export class DecodeWorkerClient {
     if (message.picture.kind === 'frame') this.closeFrame(message.picture.frame);
   }
 
+  /** PX5.7: what went to and came from the worker lately, for a hang report. */
+  debugTraffic(): WorkerTraffic {
+    const now = performance.now();
+    const ago = ([summary, at]: [string, number]): string => `${summary} +${Math.round(now - at)}`;
+    return {
+      silentForMs: this.lastHeardAtMs === null ? null : now - this.lastHeardAtMs,
+      sent: this.sentLog.map(ago),
+      received: this.receivedLog.map(ago),
+      pending: [...this.pending.keys()],
+    };
+  }
+
+  private remember(entries: [string, number][], message: WorkerRequest | WorkerResponse): void {
+    entries.push([summarise(message), performance.now()]);
+    if (entries.length > TRAFFIC_KEPT) entries.shift();
+  }
+
+  private post(worker: Worker, request: WorkerRequest): void {
+    this.remember(this.sentLog, request);
+    worker.postMessage(request);
+  }
+
   private handleMessage(message: WorkerResponse): void {
+    this.lastHeardAtMs = performance.now();
+    this.remember(this.receivedLog, message);
     if (message.type === 'picture') {
       if (message.picture.kind === 'frame') {
         this.framesCreatedTotal++;
@@ -195,7 +248,7 @@ export class DecodeWorkerClient {
     return new Promise<T>((resolve, reject) => {
       this.pending.set(requestId, { resolve: resolve as (msg: WorkerResponse) => void, reject });
       try {
-        worker.postMessage({ ...request, requestId } as WorkerRequest);
+        this.post(worker, { ...request, requestId } as WorkerRequest);
       } catch (error) {
         this.pending.delete(requestId);
         reject(error instanceof Error ? error : new Error(String(error)));
@@ -286,6 +339,26 @@ export class DecodeWorkerClient {
     );
   }
 
+  /**
+   * PX5.7: where each source's decode call is (`decode-worker.ts` `StagesRequest`), for a hang
+   * report. `null` when the worker does not answer within `timeoutMs`: its event loop is blocked
+   * or it is gone, which is then the finding.
+   */
+  async debugStages(timeoutMs: number): Promise<WorkerStageReport[] | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const silent = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), timeoutMs);
+    });
+    try {
+      const answer = this.send<Extract<WorkerResponse, { type: 'stages' }>>({
+        type: 'stages',
+      }).then((response) => response.sessions);
+      return await Promise.race([answer, silent]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   reconfigureCountFor(sourceId: string): Promise<number> {
     return this.send<Extract<WorkerResponse, { type: 'stats' }>>({ type: 'stats', sourceId }).then(
       (r) => r.reconfigureCount,
@@ -316,7 +389,7 @@ export class DecodeWorkerClient {
       },
     );
 
-    worker.postMessage({
+    this.post(worker, {
       type: 'decodeRange',
       requestId,
       sourceId,
@@ -367,7 +440,7 @@ export class DecodeWorkerClient {
         });
       },
     );
-    worker.postMessage({
+    this.post(worker, {
       type: 'decodeRange',
       requestId,
       sourceId,

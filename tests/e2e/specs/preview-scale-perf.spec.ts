@@ -99,6 +99,8 @@ interface EngineHook {
   debugPresentedMattes?(): { tier?: string | null; fromTier?: boolean; state?: string }[];
   seek(t: number): Promise<void>;
   telemetry: { reset(): void; gpuSync: boolean };
+  /** PX5.7: the monitor's open stages and the decode worker's report, for a hang. */
+  debugInFlight?(): Promise<unknown>;
 }
 type ScaleProject = {
   id: string;
@@ -194,6 +196,82 @@ const snapshot = (page: Page): Promise<Telemetry> =>
     (window as unknown as { __fpPreviewEngine: EngineHook }).__fpPreviewEngine.debugTelemetry(),
   );
 
+/**
+ * PX5.7: a step still running this long before the test's own timeout is reported as a hang:
+ * the monitor's open stages and the decode worker's own report (`debugInFlight`) are read while
+ * the page is still alive, written beside the results, and the test fails naming the stage.
+ * About one watched run in ten used to stop inside a `page.evaluate` until the timeout, and a
+ * timeout alone says nothing about which promise never settled.
+ */
+const HANG_REPORT_RESERVE_MS = 25_000;
+/** How long the hang report itself may take (a blocked main thread never answers). */
+const HANG_REPORT_TIMEOUT_MS = 10_000;
+
+/** What one guarded step of a run needs to know about the run. */
+interface RunWatch {
+  readonly page: Page;
+  /** `variant.mode`, the results file stem. */
+  readonly name: string;
+  readonly deadlineAt: number;
+  readonly problems: readonly string[];
+  /** Resolves, with what happened, when the page's code is replaced mid-run (PX5.7). */
+  readonly codeReplaced: Promise<string>;
+}
+
+/**
+ * PX5.7, the cause of the "one run in ten" hang: the dev server hot-updated or reloaded the
+ * editor when a file in the worktree changed during the run (another agent's edit), rebuilding
+ * the engine under a running step. Whatever is measured after that is not the run it claims to
+ * be, so the step fails at once, saying so, instead of waiting for a replaced worker.
+ */
+function codeReplacement(message: string): boolean {
+  return message.startsWith('[vite] hot updated') || message.startsWith('[vite] connecting');
+}
+
+async function withHangReport<T>(watch: RunWatch, label: string, work: Promise<T>): Promise<T> {
+  const { page, name, deadlineAt, problems } = watch;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const hung = new Promise<'hung'>((resolve) => {
+    timer = setTimeout(() => resolve('hung'), Math.max(0, deadlineAt - Date.now()));
+  });
+  const replaced = watch.codeReplaced.then((what) => ({ replaced: what }));
+  try {
+    const outcome = await Promise.race([work.then((value) => ({ value })), hung, replaced]);
+    if (outcome !== 'hung' && 'value' in outcome) return outcome.value;
+    if (outcome !== 'hung') {
+      throw new Error(
+        `PX5 step "${label}": the editor's code was replaced mid-run (${outcome.replaced}); ` +
+          'nothing measured after it is this run. Measure through ' +
+          'tests/e2e/scripts/px5-local-run.py, which serves a frozen tree.',
+      );
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+  const silence = new Promise<string>((resolve) =>
+    setTimeout(
+      () => resolve('the page did not answer: its main thread is blocked'),
+      HANG_REPORT_TIMEOUT_MS,
+    ),
+  );
+  const report = await Promise.race([
+    page
+      .evaluate(
+        () =>
+          (
+            window as unknown as { __fpPreviewEngine?: EngineHook }
+          ).__fpPreviewEngine?.debugInFlight?.() ?? null,
+      )
+      .catch((error: unknown) => `hang report failed: ${String(error).slice(0, 200)}`),
+    silence,
+  ]);
+  const body = JSON.stringify({ step: label, report, console: problems.slice(-20) }, null, 1);
+  mkdirSync(RESULTS_DIR, { recursive: true });
+  writeFileSync(join(RESULTS_DIR, `${name}.hang.json`), `${body}\n`);
+  await test.info().attach('px5-hang', { body, contentType: 'application/json' });
+  throw new Error(`PX5 step "${label}" did not finish; in flight: ${body.slice(0, 2000)}`);
+}
+
 /** A WebGL error as Chrome reports it (`WebGL: INVALID_OPERATION: …`, `GL_INVALID_…`). */
 const GL_ERROR = /WebGL: [A-Z_]+:|GL_INVALID_|GL_OUT_OF_MEMORY/;
 
@@ -220,42 +298,79 @@ test.describe('PX5 Scale row', () => {
         }
       });
       page.on('pageerror', (error) => problems.push(`pageerror: ${error.message.slice(0, 300)}`));
-      const project = await openScale(page, run.variant, run.mode);
+      // PX5.7: once the editor is open, any navigation or hot update replaces its code.
+      const replacements: string[] = [];
+      let noteReplacement: (what: string) => void = () => undefined;
+      const codeReplaced = new Promise<string>((resolve) => {
+        noteReplacement = (what) => {
+          replacements.push(what);
+          resolve(what);
+        };
+      });
+      let editorOpen = false;
+      page.on('console', (message) => {
+        if (editorOpen && codeReplacement(message.text())) noteReplacement(message.text());
+      });
+      page.on('framenavigated', (frame) => {
+        if (editorOpen && frame === page.mainFrame()) noteReplacement('the page reloaded');
+      });
+      const watch: RunWatch = {
+        page,
+        name: `${run.variant}.${run.mode}`,
+        deadlineAt: Date.now() + testInfo.timeout - HANG_REPORT_RESERVE_MS,
+        problems,
+        codeReplaced,
+      };
+      const guard = <T>(label: string, work: Promise<T>): Promise<T> =>
+        withHangReport(watch, label, work);
+      const project = await guard('open', openScale(page, run.variant, run.mode));
+      editorOpen = true;
 
       // --- seek-to-present: deterministic targets spread over the whole timeline ------------
-      const duration = await page.evaluate(
-        () =>
-          (window as unknown as { __fpPreviewEngine: EngineHook }).__fpPreviewEngine.debugStats()
-            .durationSec ?? 0,
+      const duration = await guard(
+        'duration',
+        page.evaluate(
+          () =>
+            (window as unknown as { __fpPreviewEngine: EngineHook }).__fpPreviewEngine.debugStats()
+              .durationSec ?? 0,
+        ),
       );
-      await page.evaluate(
-        async ({ seeks, durationSec, fps }) => {
-          const engine = (window as unknown as { __fpPreviewEngine: EngineHook }).__fpPreviewEngine;
-          engine.telemetry.reset();
-          // An LCG, so every run seeks the same frames; none lands on a GOP boundary by design.
-          let state = 12345;
-          for (let i = 0; i < seeks; i++) {
-            state = (state * 1103515245 + 12345) % 2147483648;
-            const frame = Math.floor((state / 2147483648) * (durationSec - 1) * fps);
-            await engine.seek((frame + 0.5) / fps);
-          }
-        },
-        { seeks: SEEKS, durationSec: duration, fps: project.fps },
+      await guard(
+        'seeks',
+        page.evaluate(
+          async ({ seeks, durationSec, fps }) => {
+            const engine = (window as unknown as { __fpPreviewEngine: EngineHook })
+              .__fpPreviewEngine;
+            engine.telemetry.reset();
+            // An LCG, so every run seeks the same frames; none lands on a GOP boundary by design.
+            let state = 12345;
+            for (let i = 0; i < seeks; i++) {
+              state = (state * 1103515245 + 12345) % 2147483648;
+              const frame = Math.floor((state / 2147483648) * (durationSec - 1) * fps);
+              await engine.seek((frame + 0.5) / fps);
+            }
+          },
+          { seeks: SEEKS, durationSec: duration, fps: project.fps },
+        ),
       );
-      const seeking = await snapshot(page);
+      const seeking = await guard('telemetry after seeks', snapshot(page));
 
       // --- frame stepping: consecutive frames, so decode is contiguous and what is left is the
       // steady cost of ONE full-resolution composite of this timeline --------------------------
-      await page.evaluate(
-        async ({ fps }) => {
-          const engine = (window as unknown as { __fpPreviewEngine: EngineHook }).__fpPreviewEngine;
-          await engine.seek(60);
-          engine.telemetry.reset();
-          for (let i = 1; i <= 12; i++) await engine.seek(60 + (i + 0.5) / fps);
-        },
-        { fps: project.fps },
+      await guard(
+        'frame steps',
+        page.evaluate(
+          async ({ fps }) => {
+            const engine = (window as unknown as { __fpPreviewEngine: EngineHook })
+              .__fpPreviewEngine;
+            await engine.seek(60);
+            engine.telemetry.reset();
+            for (let i = 1; i <= 12; i++) await engine.seek(60 + (i + 0.5) / fps);
+          },
+          { fps: project.fps },
+        ),
       );
-      const stepping = await snapshot(page);
+      const stepping = await guard('telemetry after steps', snapshot(page));
       // What the row looks like, so a number is never reported for a monitor that drew nothing.
       mkdirSync(RESULTS_DIR, { recursive: true });
       await page
@@ -263,18 +378,22 @@ test.describe('PX5 Scale row', () => {
         .screenshot({ path: join(RESULTS_DIR, `${run.variant}.${run.mode}.png`) });
 
       // --- playback through the real transport ----------------------------------------------
-      await page.evaluate(
-        async ({ gpuSync }) => {
-          const engine = (window as unknown as { __fpPreviewEngine: EngineHook }).__fpPreviewEngine;
-          await engine.seek(1);
-          engine.telemetry.reset();
-          engine.telemetry.gpuSync = gpuSync;
-        },
-        { gpuSync: run.gpuSync === true },
+      await guard(
+        'seek before playback',
+        page.evaluate(
+          async ({ gpuSync }) => {
+            const engine = (window as unknown as { __fpPreviewEngine: EngineHook })
+              .__fpPreviewEngine;
+            await engine.seek(1);
+            engine.telemetry.reset();
+            engine.telemetry.gpuSync = gpuSync;
+          },
+          { gpuSync: run.gpuSync === true },
+        ),
       );
       await page.getByRole('button', { name: 'play', exact: true }).click();
       await page.waitForTimeout((PLAY_SECONDS * 1000) / 2);
-      const midway = await snapshot(page);
+      const midway = await guard('telemetry midway', snapshot(page));
       await page.waitForTimeout((PLAY_SECONDS * 1000) / 2);
       const layersWhilePlaying = await page.evaluate(
         () =>
@@ -286,7 +405,7 @@ test.describe('PX5 Scale row', () => {
       const pause = page.getByRole('button', { name: 'pause', exact: true });
       const stillPlaying = await pause.isVisible();
       if (stillPlaying) await pause.click();
-      const played = await snapshot(page);
+      const played = await guard('telemetry after playback', snapshot(page));
       // PX5.3: which path the last presented matte came from, so a run says what it measured.
       const presentedMattes = await page.evaluate(
         () =>
@@ -324,6 +443,17 @@ test.describe('PX5 Scale row', () => {
         mattes: presentedMattes.map(({ tier, fromTier, state }) => ({ tier, fromTier, state })),
         gpuSync: played.gpuSync,
         stillPlayingAtEnd: stillPlaying,
+        // PX5.7: what the monitor still waits on at the end (a playback that never started
+        // shows its `play.audio` stage here).
+        inFlightAtEnd: await guard(
+          'in flight at end',
+          page.evaluate(
+            () =>
+              (
+                window as unknown as { __fpPreviewEngine: EngineHook }
+              ).__fpPreviewEngine.debugInFlight?.() ?? null,
+          ),
+        ),
         problems: problems.slice(0, 20),
       };
       mkdirSync(RESULTS_DIR, { recursive: true });
@@ -338,6 +468,7 @@ test.describe('PX5 Scale row', () => {
       });
 
       // --- invariants: the algorithm's, so the same on any machine ---------------------------
+      expect(replacements, 'the editor kept the code it was opened with').toEqual([]);
       expect(glErrors, 'the compositor raised no GL error').toEqual([]);
       expect(result.seekToPresent.count, 'every seek reached the monitor').toBe(SEEKS);
       expect(result.playback.expectedFrames, 'playback ran').toBeGreaterThan(

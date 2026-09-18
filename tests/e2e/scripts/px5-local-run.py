@@ -15,6 +15,13 @@ watchdog's own measurements and rules:
   free-memory level drops under 15%;
 * refuses to start while another Playwright run is alive; an abort is recorded, never retried.
 
+PX5.7: it also starts the web editor's dev server itself, with no file watcher and no hot
+reload (`FRAMEPILOT_VITE_NO_WATCH=1`), and refuses to run while something else serves port
+5173. With Playwright's own `webServer` (or a developer's server) an edit anywhere in the
+worktree during a run - another agent's, an editor's autosave - hot-replaced the editor under
+the test: the engine was rebuilt mid-step, and the run either measured a playback that never
+started or waited on a replaced decode worker until it timed out (the "one run in ten" hang).
+
 Each run appends one line to `tests/e2e/.tmp-px5-scale/results/local-runs.jsonl`.
 """
 
@@ -24,9 +31,11 @@ import argparse
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
@@ -35,6 +44,36 @@ import watchdog  # noqa: E402  (the spike watchdog's measurements, reused as the
 
 RESULTS = REPO / "tests" / "e2e" / ".tmp-px5-scale" / "results"
 GIB = 2**30
+#: Where the spec expects the editor (`baseURL` of `tests/e2e/playwright.config.ts`).
+DEV_HOST, DEV_PORT = "127.0.0.1", 5173
+DEV_READY_SECONDS = 120
+
+
+def port_in_use(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.5)
+        return probe.connect_ex((host, port)) == 0
+
+
+def start_frozen_dev_server() -> subprocess.Popen[bytes]:
+    """The editor's dev server with no watcher and no hot reload (see the module note)."""
+    env = {**os.environ, "FRAMEPILOT_VITE_NO_WATCH": "1"}
+    argv = ["pnpm", "--filter", "@framepilot/web-editor", "dev", "--host", DEV_HOST]
+    server = subprocess.Popen(
+        argv, cwd=REPO, env=env, start_new_session=True,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )  # fmt: skip
+    deadline = time.time() + DEV_READY_SECONDS
+    while time.time() < deadline:
+        if server.poll() is not None:
+            raise RuntimeError("the frozen dev server exited before it served")
+        try:
+            with urllib.request.urlopen(f"http://{DEV_HOST}:{DEV_PORT}/", timeout=2):
+                return server
+        except OSError:
+            time.sleep(0.5)
+    kill_tree(server.pid)
+    raise RuntimeError("the frozen dev server did not serve in time")
 
 
 def tree_pids(root: int) -> list[int]:
@@ -83,6 +122,12 @@ def main() -> int:
     parser.add_argument("--wait-minutes", type=float, default=10.0)
     args = parser.parse_args()
 
+    if port_in_use(DEV_HOST, DEV_PORT):
+        print(
+            f"not started: something already serves {DEV_HOST}:{DEV_PORT}. Stop it: a watching "
+            "dev server hot-reloads the editor under the run when any file changes (PX5.7)."
+        )
+        return 3
     deadline = time.time() + args.wait_minutes * 60
     while True:
         busy, free = other_playwright_runs(), watchdog.pressure_free_pct()
@@ -104,10 +149,11 @@ def main() -> int:
         "--project=preview-perf", "--reporter=line", "--grep", f" {args.case}$",
     ]  # fmt: skip
     started, base_swap = time.time(), watchdog.swap_used_bytes()
+    server = start_frozen_dev_server()
     proc = subprocess.Popen(argv, cwd=REPO, env=env, start_new_session=True)
     peak_footprint, peak_swap, min_free, reason = 0, base_swap, 100, None
     while proc.poll() is None:
-        footprint = watchdog.footprint_bytes(tree_pids(proc.pid))
+        footprint = watchdog.footprint_bytes(tree_pids(proc.pid) + tree_pids(server.pid))
         swap, free = watchdog.swap_used_bytes(), watchdog.free_memory_pct()
         peak_footprint, peak_swap = max(peak_footprint, footprint), max(peak_swap, swap)
         min_free = min(min_free, free)
@@ -122,6 +168,8 @@ def main() -> int:
             proc.wait()
             break
         time.sleep(watchdog.POLL_SECONDS)
+    kill_tree(server.pid)
+    server.wait()
     record = {
         "case": args.case,
         "exitCode": proc.returncode,

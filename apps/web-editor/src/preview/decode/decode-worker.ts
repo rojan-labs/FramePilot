@@ -71,6 +71,16 @@ export interface PoolStatsRequest {
   requestId: number;
 }
 
+/**
+ * PX5.7: what every source's decode call is waiting on now. Answered from the worker's event
+ * loop, so a call stuck on a browser promise (a `flush()` or `copyTo()` that never settles)
+ * does not stop the answer; a worker that does not answer at all is a finding of its own.
+ */
+export interface StagesRequest {
+  type: 'stages';
+  requestId: number;
+}
+
 export interface UnloadSourceRequest {
   type: 'unload';
   requestId: number;
@@ -100,6 +110,7 @@ export type WorkerRequest =
   | DecodeRangeRequest
   | StatsRequest
   | PoolStatsRequest
+  | StagesRequest
   | UnloadSourceRequest
   | LoadMatteRequest
   | DecodeMatteRequest;
@@ -183,6 +194,35 @@ export interface PoolStatsResponse {
   capacity: number;
 }
 
+/** Where one source's decode call is, for a hang report (PX5.7). */
+export interface WorkerStageReport {
+  readonly sourceId: string;
+  /** The step the running call awaits; `queued` = waiting behind another call of this source. */
+  readonly stage: DecodeStage;
+  readonly ageMs: number;
+  /** The running call's presentation range. */
+  readonly from: number;
+  readonly to: number;
+  /** Calls of this source waiting behind it. */
+  readonly queuedCalls: number;
+  readonly decoderState: string;
+  readonly decodeQueueSize: number;
+  readonly lastOutputPresentation: number;
+  readonly feedCursor: number;
+  readonly stashedFrames: number;
+  /** Plane copies (`VideoFrame.copyTo`) started and not yet posted. */
+  readonly pendingCopies: number;
+}
+
+/** The steps of one `decodeRange` call, in order (`fetch` only for a range-read source). */
+export type DecodeStage = 'queued' | 'fetch' | 'feed' | 'await-output' | 'flush' | 'copy-planes';
+
+export interface StagesResponse {
+  type: 'stages';
+  requestId: number;
+  sessions: WorkerStageReport[];
+}
+
 export interface MatteLoadedResponse {
   type: 'matteLoaded';
   requestId: number;
@@ -220,6 +260,7 @@ export type WorkerResponse =
   | RangeDoneResponse
   | StatsResponse
   | PoolStatsResponse
+  | StagesResponse
   | MatteLoadedResponse
   | MatteFrameResponse
   | ErrorResponse;
@@ -320,6 +361,16 @@ class DecoderSession implements PooledDecoderHolder {
    * both be in flight; interleaving their feeds would corrupt the stream. */
   private queue: Promise<unknown> = Promise.resolve();
 
+  // -- PX5.7: where the running call is, for a hang report (`debugStage`) -----
+  private stage: DecodeStage = 'queued';
+  private stageSinceMs = 0;
+  private running = false;
+  /** Calls accepted and not yet finished (the running one included). */
+  private acceptedCalls = 0;
+  private firstQueuedSinceMs = 0;
+  /** `VideoFrame.copyTo` calls started and not settled. */
+  private copiesInFlight = 0;
+
   constructor(
     private readonly sourceId: string,
     private readonly post: Post,
@@ -391,8 +442,11 @@ class DecoderSession implements PooledDecoderHolder {
     toPresentation: number,
     output: 'frame' | 'picture' = 'frame',
   ): Promise<{ decodeDurationMs: number; reconfigured: boolean }> {
+    if (this.acceptedCalls === 0) this.firstQueuedSinceMs = performance.now();
+    this.acceptedCalls++;
     const run = this.queue.then(async () => {
       this.busy = true;
+      this.running = true;
       if (this.decoder) decoderPool.touch(this);
       try {
         return await this.decodeRangeSerialized(
@@ -403,6 +457,9 @@ class DecoderSession implements PooledDecoderHolder {
         );
       } finally {
         this.busy = false;
+        this.running = false;
+        this.acceptedCalls--;
+        this.firstQueuedSinceMs = performance.now();
       }
     });
     // Keep the queue alive past a rejection so a failed call doesn't wedge
@@ -427,6 +484,8 @@ class DecoderSession implements PooledDecoderHolder {
     this.currentTo = toPresentation;
     this.currentOutput = output;
     this.pendingPosts = [];
+    this.stage = 'feed';
+    this.stageSinceMs = startedAt;
 
     const continuation =
       this.streamActive &&
@@ -450,6 +509,7 @@ class DecoderSession implements PooledDecoderHolder {
 
     await this.feedAndAwait(table, toPresentation);
     // Plane copies are asynchronous; every one must be posted before `rangeDone`.
+    this.enterStage('copy-planes');
     await Promise.all(this.pendingPosts);
     this.pendingPosts = [];
 
@@ -537,11 +597,13 @@ class DecoderSession implements PooledDecoderHolder {
         // normal stream end at the last frames of a source, and the safety
         // net for a pathological decoder; either way the stream is over.
         this.streamActive = false;
+        this.enterStage('flush');
         await decoder.flush();
         continue;
       }
       // Input still queued — decode is in progress; wait for the next output
       // (the timeout is only a safety net against a wedged pipeline).
+      this.enterStage('await-output');
       const progressed = await this.awaitOutputProgress();
       consecutiveStalledWaits = progressed ? 0 : consecutiveStalledWaits + 1;
     }
@@ -550,7 +612,9 @@ class DecoderSession implements PooledDecoderHolder {
   /** Feed decode-order chunks `[feedCursor .. throughDecodeIndex]`. */
   private async feedThrough(table: SessionTable, throughDecodeIndex: number): Promise<void> {
     const last = Math.min(throughDecodeIndex, table.chunkCount - 1);
+    this.enterStage(this.reader && this.feedCursor <= last ? 'fetch' : 'feed');
     if (this.reader && this.feedCursor <= last) await this.fetchChunks(this.feedCursor, last);
+    this.enterStage('feed');
     const decoder = this.decoder;
     if (!decoder) return;
     while (this.feedCursor <= throughDecodeIndex && this.feedCursor < table.chunkCount) {
@@ -609,6 +673,32 @@ class DecoderSession implements PooledDecoderHolder {
     for (const wake of waiters) wake();
   }
 
+  private enterStage(stage: DecodeStage): void {
+    if (this.stage === stage) return;
+    this.stage = stage;
+    this.stageSinceMs = performance.now();
+  }
+
+  /** PX5.7: where this source's decode call is, or `null` when it has none. */
+  debugStage(): WorkerStageReport | null {
+    if (this.acceptedCalls === 0) return null;
+    const now = performance.now();
+    return {
+      sourceId: this.sourceId,
+      stage: this.running ? this.stage : 'queued',
+      ageMs: now - (this.running ? this.stageSinceMs : this.firstQueuedSinceMs),
+      from: this.currentFrom,
+      to: this.currentTo,
+      queuedCalls: this.acceptedCalls - (this.running ? 1 : 0),
+      decoderState: this.decoder?.state ?? 'none',
+      decodeQueueSize: this.decoder?.decodeQueueSize ?? 0,
+      lastOutputPresentation: this.lastOutputPresentation,
+      feedCursor: this.feedCursor,
+      stashedFrames: this.stash.size,
+      pendingCopies: this.copiesInFlight,
+    };
+  }
+
   stats(): { reconfigureCount: number } {
     return { reconfigureCount: this.reconfigureCount };
   }
@@ -659,6 +749,7 @@ class DecoderSession implements PooledDecoderHolder {
     const timestampUs = frame.timestamp;
     const post = async (): Promise<void> => {
       let picture: DecodedPicture;
+      this.copiesInFlight++;
       try {
         const planes = await copyI420(frame);
         if (planes === null) {
@@ -681,6 +772,8 @@ class DecoderSession implements PooledDecoderHolder {
           height: frame.displayHeight,
           byteLength: frame.displayWidth * frame.displayHeight * 4,
         };
+      } finally {
+        this.copiesInFlight--;
       }
       this.post(
         {
@@ -829,6 +922,13 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         },
         [],
       );
+    } else if (request.type === 'stages') {
+      const reports: WorkerStageReport[] = [];
+      for (const session of sessions.values()) {
+        const report = session.debugStage();
+        if (report !== null) reports.push(report);
+      }
+      post({ type: 'stages', requestId: request.requestId, sessions: reports }, []);
     } else if (request.type === 'stats') {
       const session = sessions.get(request.sourceId);
       if (!session) throw new Error(`Source ${request.sourceId} not loaded.`);

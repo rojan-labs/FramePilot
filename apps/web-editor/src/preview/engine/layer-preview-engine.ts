@@ -28,7 +28,8 @@
 import { framePlanAt, type FramePlan, type FramePlanLayer } from '@framepilot/editor-core';
 import type { Asset, Clip, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
 import { createLogger, type PreviewTextRasterRequest } from '@framepilot/shared-types';
-import { DecodeWorkerClient } from '../decode/worker-client.js';
+import { DecodeWorkerClient, type WorkerTraffic } from '../decode/worker-client.js';
+import type { WorkerStageReport } from '../decode/decode-worker.js';
 import { MatteDecodePool } from '../decode/matte-decode-pool.js';
 import { rotateI420, type DecodedPicture } from '../decode/decoded-picture.js';
 import { AudioMasterClock, type AudioSegment } from '../clock/audio-clock.js';
@@ -70,6 +71,7 @@ import type {
 } from './webcodecs-preview-engine.js';
 
 import { PreviewTelemetry, type PreviewTelemetrySnapshot } from './preview-telemetry.js';
+import { StageTracker, type StageSnapshot } from './stage-tracker.js';
 
 const log = createLogger('web-editor:preview:layer-engine');
 
@@ -80,6 +82,14 @@ const LOOKAHEAD_FRAMES = 12;
 /** Frames decoded per request during playback (one streaming window). */
 const DECODE_WINDOW = 8;
 const DEFAULT_FPS = 30;
+/**
+ * PX5.7: a stage (a decode window, a seek's mattes or texts) still waiting after this long is
+ * logged with the decode worker's own report. A decode window takes 10-100 ms here and about a
+ * second on CI's CPU GL; ten seconds is no slow machine, it is a promise that never settled.
+ */
+const STAGE_STUCK_MS = 10_000;
+/** How long a hang report waits for the decode worker to say where it is. */
+const WORKER_STAGES_TIMEOUT_MS = 2_000;
 /**
  * PX2.8 load shedding. Playback lowers the resolution the plan is rasterised at before anything
  * else, one step at a time, and only then lets presentation frames drop (a frame not ready on a
@@ -201,6 +211,11 @@ function timelineForCanvas(timeline: Timeline, ratio: number): Timeline {
 
 export class LayerPreviewEngine {
   private readonly client = new DecodeWorkerClient();
+  /** PX5.7: every asynchronous stage a seek or decode-ahead waits on, for a hang report. */
+  private readonly stages = new StageTracker({
+    stuckAfterMs: STAGE_STUCK_MS,
+    onStuck: (stuck) => this.reportStuck(stuck),
+  });
   /** PX5.3: matte artifact files decode here, off the picture decoders' worker. */
   private readonly matteDecoders = new MatteDecodePool();
   private readonly ctx2d: CanvasRenderingContext2D;
@@ -690,7 +705,11 @@ export class LayerPreviewEngine {
 
   private async decodeRun(assetId: string, from: number, to: number): Promise<void> {
     const started = performance.now();
-    const { pictures } = await this.client.decodePictures(assetId, from, to);
+    const { pictures } = await this.stages.track(
+      'decode',
+      `${assetId} ${from}-${to}`,
+      this.client.decodePictures(assetId, from, to),
+    );
     const decodeMs = performance.now() - started;
     this.dbg.maxDecodeMs = Math.max(this.dbg.maxDecodeMs, decodeMs);
     this.telemetry.record('decode', decodeMs);
@@ -1144,7 +1163,13 @@ export class LayerPreviewEngine {
         // re-plan below asks again, so a frame number that changes meanwhile is still covered.
         const matteNeeds = this.matteNeedsOf(plan);
         this.mattes.want(matteNeeds);
-        if (matteNeeds.length > 0) void this.mattes.ensure(matteNeeds);
+        if (matteNeeds.length > 0) {
+          void this.stages.track(
+            'matte.prefetch',
+            `seek ${clamped}`,
+            this.mattes.ensure(matteNeeds),
+          );
+        }
         const needs = this.needsOf(plan);
         const started = performance.now();
         await this.ensureFrames(needs);
@@ -1155,8 +1180,16 @@ export class LayerPreviewEngine {
         this.mattes.want(this.matteNeedsOf(current));
         await Promise.all([
           this.ensureFrames(this.needsOf(current)),
-          this.engineTexts.ensure(this.textRequestsOf(current)),
-          this.mattes.ensure(this.matteNeedsOf(current)),
+          this.stages.track(
+            'seek.texts',
+            `seek ${clamped}`,
+            this.engineTexts.ensure(this.textRequestsOf(current)),
+          ),
+          this.stages.track(
+            'seek.mattes',
+            `seek ${clamped}`,
+            this.mattes.ensure(this.matteNeedsOf(current)),
+          ),
         ]);
         if (this.disposed || this.generation !== myGeneration) return;
         // Superseded seeks returned above, so a sample is always a seek that reached the monitor.
@@ -1216,7 +1249,11 @@ export class LayerPreviewEngine {
     if (this.playing || this.starting || !this.audioClock || !this.project) return;
     this.starting = true;
     try {
-      await this.audioClock.start();
+      await this.stages.track(
+        'play.audio',
+        `context ${this.audioClock.contextState}`,
+        this.audioClock.start(),
+      );
     } catch (err) {
       this.starting = false;
       this.callbacks.onError?.(err instanceof Error ? err.message : String(err));
@@ -1390,7 +1427,11 @@ export class LayerPreviewEngine {
    */
   async debugTelemetry(): Promise<PreviewTelemetrySnapshot> {
     try {
-      const pool = await this.client.decoderPoolStats();
+      const pool = await this.stages.track(
+        'telemetry.poolStats',
+        '',
+        this.client.decoderPoolStats(),
+      );
       this.telemetry.gauge('liveDecoders', pool.peakLiveDecoders);
       this.telemetry.gauge('liveDecoders', pool.liveDecoders);
     } catch (err) {
@@ -1399,6 +1440,50 @@ export class LayerPreviewEngine {
       });
     }
     return this.telemetry.snapshot();
+  }
+
+  /**
+   * PX5.7: what the monitor is waiting on right now — its own open stages, oldest first, and
+   * the decode worker's report of each source's call (`null` when the worker did not answer).
+   * Read by a hang report; nothing draws from it.
+   */
+  async debugInFlight(): Promise<{
+    stages: StageSnapshot[];
+    worker: WorkerStageReport[] | null;
+    traffic: WorkerTraffic;
+  }> {
+    const traffic = this.client.debugTraffic();
+    return {
+      stages: this.stages.inFlight(),
+      worker: await this.client.debugStages(WORKER_STAGES_TIMEOUT_MS),
+      traffic,
+    };
+  }
+
+  /** A stage passed {@link STAGE_STUCK_MS}: say which, and where the decode worker is. */
+  private reportStuck(stuck: readonly StageSnapshot[]): void {
+    const named = stuck.map((s) => `${s.stage} [${s.detail}] ${Math.round(s.ageMs)} ms`);
+    const silentForMs = this.client.debugTraffic().silentForMs;
+    log.warn('preview stage stuck', {
+      stages: named,
+      workerSilentForMs: silentForMs === null ? null : Math.round(silentForMs),
+    });
+    void this.client
+      .debugStages(WORKER_STAGES_TIMEOUT_MS)
+      .then((sessions) => {
+        log.warn('decode worker at a stuck preview stage', {
+          sessions:
+            sessions === null
+              ? 'worker did not answer'
+              : sessions.map(
+                  (w) =>
+                    `${w.sourceId} ${w.stage} ${Math.round(w.ageMs)} ms [${w.from}-${w.to}] ` +
+                    `decoder ${w.decoderState} queue ${w.decodeQueueSize} out ${w.lastOutputPresentation} ` +
+                    `feed ${w.feedCursor} copies ${w.pendingCopies} waiting ${w.queuedCalls}`,
+                ),
+        });
+      })
+      .catch(() => undefined);
   }
 
   /** The last presented picture layers, back to front (the PX4 oracle's frame identity). */
@@ -1438,6 +1523,7 @@ export class LayerPreviewEngine {
   dispose(): void {
     this.pause();
     this.disposed = true;
+    this.stages.dispose();
     for (const [key, entry] of [...this.cache]) this.releaseEntry(key, entry);
     this.client.dispose();
     this.matteDecoders.dispose();

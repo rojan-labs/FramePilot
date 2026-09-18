@@ -181,6 +181,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   wrongly cut or not cut at all. The export was never affected. Three preview/export parity
   checks with a colour key (alone, combined with shapes, and with every edge-refinement control)
   now run on every change, so this cannot come back unseen.
+- **Preview performance runs no longer hang now and then.** About one measurement run in ten
+  stopped until it timed out. The cause was the development server reloading the editor when a
+  file changed during the run; measurement runs now use a server that does not reload, fail
+  immediately if the editor is replaced anyway, and name the step they were waiting on if one
+  ever hangs.
 - **A mask's expansion now exports.** Growing or shrinking a mask by a fixed amount showed in the
   editor but was ignored when exporting (only animated expansion worked); the same applied to a
   cut-out's fixed edge shift.

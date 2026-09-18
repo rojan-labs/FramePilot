@@ -74,6 +74,12 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // PX5.7: a measurement run (tests/e2e/scripts/px5-local-run.py) serves a FROZEN tree. With
+    // the watcher on, any edit in the worktree during a run (another agent, an editor save)
+    // hot-replaced the editor under the running test: its engine was rebuilt mid-step, a
+    // playback never started or a telemetry read waited on a replaced decode worker until the
+    // test timed out. No watcher means no hot update and no reload.
+    ...(process.env.FRAMEPILOT_VITE_NO_WATCH === '1' ? { watch: null, hmr: false } : {}),
   },
   test: {
     globals: true,

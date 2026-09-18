@@ -356,6 +356,25 @@ CPU twin of the tier path against the masters (`matte-edges.test.ts`), texture r
 (`gl-resources.test.ts`), and the tier's resample value-for-value against the engine's
 (`test_matte_tier.py`).
 
+**PX5.7: the "one run in ten" hang was the dev server, not the engine.** Playwright's `webServer`
+is Vite's dev server, which watches the worktree. An edit anywhere in the editor's import graph
+during a run (another agent working in the same worktree, an editor autosave) hot-replaced
+`WebCodecsPreviewPlayer` or reloaded the page, rebuilding the engine under a running step: the
+run then measured a playback that never started (`expectedFrames: 0`) or waited on a replaced
+decode worker until the test timed out. Reproduced on demand by touching one source file
+mid-run. So:
+
+- `px5-local-run.py` starts the dev server itself with `FRAMEPILOT_VITE_NO_WATCH=1` (no watcher,
+  no hot reload) and refuses to run while anything else serves port 5173;
+- the spec fails the moment the editor's code is replaced (`[vite] hot updated`, a reload),
+  naming it, instead of timing out;
+- every step is guarded: 25 s before the test's timeout it writes `results/<variant>.hang.json`
+  with the engine's open stages (`StageTracker`: each decode window, a seek's mattes and texts,
+  `play.audio`, the pool-stats read), the decode worker's own report of every source's call
+  (`queued` / `fetch` / `feed` / `await-output` / `flush` / `copy-planes`, decoder state, queue
+  size, copies in flight) and the last messages each way, and fails naming the stuck step. The
+  engine also logs any stage open for 10 s (`preview stage stuck`) in a real session.
+
 ## How they're measured
 
 - **Interaction:** `performance.now()` around the store's `commit` path and React
