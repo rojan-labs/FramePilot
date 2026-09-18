@@ -815,7 +815,7 @@ def _grab_case(
                     decoded_sizes.setdefault(str(mask.artifact.key), [int(size[0]), int(size[1])])
         return unwrapped(clip, media_size, *rest, **named)
 
-    compiler_module._clip_mask_stacks = recording  # type: ignore[assignment]
+    compiler_module._clip_mask_stacks = recording
     from framepilot_engine.render.compiler import timeline_duration
     from framepilot_engine.render.composition_cache import COMPOSITION_CACHE
     from framepilot_engine.render.frame_grab import grab_frame

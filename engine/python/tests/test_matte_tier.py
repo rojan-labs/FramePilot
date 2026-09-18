@@ -83,7 +83,8 @@ def _ring(width: int, height: int, maximum: int = 255) -> np.ndarray:
     y, x = np.mgrid[0:height, 0:width]
     distance = np.hypot(x - width * 0.45, y - height * 0.5)
     ring = np.clip((min(width, height) * 0.3 - distance) / 3.0, 0.0, 1.0)
-    return np.round(ring * maximum).astype(np.uint16 if maximum > 255 else np.uint8)
+    rounded: np.ndarray = np.round(ring * maximum).astype(np.uint16 if maximum > 255 else np.uint8)
+    return rounded
 
 
 def test_tier_planes_are_the_rounded_export_planes() -> None:
