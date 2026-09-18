@@ -123,11 +123,20 @@ class RefineRecord:
     crop: tuple[int, int, int, int]
     mode: str  # "empty" | "resized" | "tiled"
     passes: int
+    #: The tile the crop was matted at (0 when unknown: treated as "any size was shrunk").
+    tile: int = 0
 
     @property
     def downscaled(self) -> bool:
-        """The crop was shrunk into one tile; stage 7 redoes its edges at source resolution."""
-        return self.mode == "resized" and max(self.crop[2], self.crop[3]) > 0
+        """The crop was SHRUNK into one tile; stage 7 redoes its edges at source resolution.
+
+        BR7.4: a crop no larger than the tile was matted at or above source resolution, so it
+        needs no second pass. Before, any resized crop counted, and at the trained 2048² tile
+        every 720p/1080p frame got a second BiRefNet pass over the whole reflect-padded frame
+        (outside the subject crop), which scored below the crop pass on the band (BR7.4 it0).
+        """
+        side = max(self.crop[2], self.crop[3])
+        return self.mode == "resized" and side > self.tile
 
 
 def matte_region(model: MattingModel, crop: npt.NDArray[np.uint8]) -> tuple[Float, str, int]:
@@ -178,7 +187,7 @@ def refine_frame(
     alpha[top : top + crop_h, left : left + crop_w] = np.clip(
         np.round(region * gate * 255.0), 0, 255
     ).astype(np.uint8)
-    return alpha, RefineRecord((left, top, crop_w, crop_h), mode, passes)
+    return alpha, RefineRecord((left, top, crop_w, crop_h), mode, passes, model.tile)
 
 
 __all__ = [

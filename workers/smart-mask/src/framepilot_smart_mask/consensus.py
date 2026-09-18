@@ -7,18 +7,31 @@ Estimates per frame: SAM forward, SAM backward (when a pass reached the frame), 
 (plus 6 px around every estimate's edge) into the band and gave the band BiRefNet's alpha. When
 BiRefNet dropped an arm or matted a background object, the whole region was "disagreement",
 so the binarised matte *was* BiRefNet's mask (BR0.4: that is where most of the IoU loss came
-from). Here:
+from).
 
-* the silhouette is the **majority vote** of the estimates (ties broken by the SAM logits);
-* the **unknown band** is a ring of ``edge_radius`` around the majority boundary, plus
-  disagreement pixels close to that boundary where BiRefNet's alpha is fractional (a soft edge);
-* hard disagreement (a missing limb, a background island), wherever it lies, is decided by the
-  vote, not handed to BiRefNet, and is **measured** in the frame score so verification and
-  self-correction see it;
-* inside the band, alpha is BiRefNet's fractional alpha; outside it is exactly 0 or 1;
-* an editor's **Edge brush** stroke (``extra_band``, BR6.10) joins the band on that frame, so the
-  same rule re-mattes it: BiRefNet's alpha where it is fractional or agrees with the vote. The
-  stroke never sets alpha itself.
+**BR7.4: topology from SAM, the edge from BiRefNet only where the two agree.** The BR7.4 CI
+eval (it0, BiRefNet at its trained 2048² tile) measured each estimate against ground truth:
+BiRefNet's edge is the most precise one where it agrees with SAM (hair, product, similar
+colour: BF@2px 0.98–1.00 against SAM's 0.93–0.97), and wrong by whole regions where it does
+not (low light, a crossing person, the talking head: IoU 0.81–0.95 against SAM's 0.89–0.99).
+Letting it vote on the silhouette cost frames either way. So:
+
+* the **silhouette** is the vote of the SAM passes and the warped previous alpha (ties broken
+  by the SAM logits); BiRefNet does not vote on topology;
+* **edge trust** is per frame: when BiRefNet's boundary agrees with the silhouette's within
+  ``AGREEMENT_TOLERANCE`` px on at least ``EDGE_AGREEMENT`` of both boundaries (a BF-style
+  F-measure), BiRefNet decides every pixel within ``CORRIDOR`` px of the silhouette's
+  boundary (SAM's 256² logits are ~3–5 px coarse at 720p; BiRefNet's are not). Otherwise
+  the silhouette's own edge stands;
+* the **unknown band** is a ring of ``edge_radius`` around the final boundary. Inside it, on
+  a trusted frame, alpha is BiRefNet's fractional alpha where it is fractional or agrees with
+  the decision; on an untrusted frame the edge stays binary (BiRefNet's soft edge there is
+  a soft edge in the wrong place);
+* an editor's **Edge brush** stroke (``extra_band``, BR6.10) joins the band on that frame and
+  always re-mattes with BiRefNet's alpha where it is fractional or agrees: the stroke never
+  sets alpha itself;
+* hard disagreement between ALL the estimates (BiRefNet included) is still **measured** in
+  the frame score, so verification and self-correction see it.
 """
 
 from __future__ import annotations
@@ -32,6 +45,14 @@ import numpy.typing as npt
 
 #: Band half-width at 1080p; scaled by frame height, at least 2 px.
 EDGE_RADIUS_1080P: Final = 6
+#: BiRefNet's edge is trusted on a frame when its boundary and the silhouette's agree within
+#: this many px (at 1080p, scaled) on at least EDGE_AGREEMENT of both (fitted on the it0
+#: calibration split: 0.9 at 3 px for 720p kept every category's gain and dropped the losses).
+AGREEMENT_TOLERANCE_1080P: Final = 4.5
+EDGE_AGREEMENT: Final = 0.9
+#: On a trusted frame BiRefNet decides pixels this close (px at 1080p, scaled) to the
+#: silhouette's boundary: about one SAM low-res cell at 720p.
+CORRIDOR_1080P: Final = 4.5
 #: Disagreement within this multiple of the edge radius of the boundary is edge uncertainty.
 NEAR_EDGE_MULTIPLE: Final = 4
 #: Denominator floor for fractions of a tiny or empty subject (pixels).
@@ -42,6 +63,10 @@ Bool = npt.NDArray[np.bool_]
 
 def edge_radius(height: int) -> int:
     return max(2, round(EDGE_RADIUS_1080P * height / 1080))
+
+
+def _scaled(px_1080p: float, height: int) -> int:
+    return max(2, round(px_1080p * height / 1080))
 
 
 def disk(radius: int) -> npt.NDArray[Any]:
@@ -55,6 +80,27 @@ def boundary(mask: Bool) -> Bool:
     m = mask.astype(np.uint8)
     edge: Bool = (m - cv2.erode(m, np.ones((3, 3), np.uint8))).astype(bool)
     return edge
+
+
+def distance_to_boundary(mask: Bool) -> npt.NDArray[Any]:
+    """Per pixel, the distance (px) to the nearest boundary pixel of ``mask``."""
+    edge = boundary(mask)
+    if not edge.any():
+        return np.full(mask.shape, np.inf, np.float32)
+    out: npt.NDArray[Any] = cv2.distanceTransform((~edge).astype(np.uint8), cv2.DIST_L2, 5)
+    return out
+
+
+def boundary_agreement(a: Bool, b: Bool, tolerance: int) -> float:
+    """F-measure of the two masks' boundary pixels lying within ``tolerance`` px of the other's."""
+    edge_a, edge_b = boundary(a), boundary(b)
+    if not edge_a.any() and not edge_b.any():
+        return 1.0
+    if not edge_a.any() or not edge_b.any():
+        return 0.0
+    precision = float((distance_to_boundary(b)[edge_a] <= tolerance).mean())
+    recall = float((distance_to_boundary(a)[edge_b] <= tolerance).mean())
+    return 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
 
 
 def iou(a: Bool, b: Bool) -> float:
@@ -88,13 +134,17 @@ def consensus(
     if warped_previous is not None:
         votes.append(warped_previous >= 127.5)
     stack = np.stack(votes)
-    count = stack.sum(axis=0, dtype=np.int32)
     n = len(votes)
-    majority = count * 2 > n
-    if n % 2 == 0:
-        tie = count * 2 == n
-        tie_break = sam_logits > 0 if sam_logits is not None else birefnet
-        majority = majority | (tie & tie_break)
+    silhouette = _silhouette(sam_masks, sam_logits, birefnet, warped_previous)
+    height = birefnet.shape[0]
+    trusted_edge = (
+        boundary_agreement(silhouette, birefnet, _scaled(AGREEMENT_TOLERANCE_1080P, height))
+        >= EDGE_AGREEMENT
+    )
+    majority = silhouette
+    if trusted_edge:
+        near_edge = distance_to_boundary(silhouette) <= _scaled(CORRIDOR_1080P, height)
+        majority = np.where(near_edge, birefnet, silhouette)
     disagreement = stack.any(axis=0) & ~stack.all(axis=0)
     edge = boundary(majority)
     ring = cv2.dilate(edge.astype(np.uint8), disk(radius)).astype(bool)
@@ -102,13 +152,16 @@ def consensus(
     # Only pixels BiRefNet itself calls fractional are soft-edge uncertainty; a hard
     # disagreement (a limb one estimate dropped) is decided by the vote, even near the edge.
     fractional = (birefnet_alpha > 0) & (birefnet_alpha < 255)
-    band = ring | (disagreement & near & fractional)
+    band = ring
     if extra_band is not None:
         band = band | extra_band
     alpha = np.where(majority, 255, 0).astype(np.uint8)
-    # Inside the band BiRefNet supplies alpha only where it is fractional or agrees with the
-    # vote; a hard contradiction keeps the majority's 0 or 255.
-    trusted = band & (fractional | (birefnet == majority))
+    # BiRefNet supplies band alpha only where it is fractional or agrees with the decision, and
+    # only on a frame whose edge it is trusted with (or under an Edge brush stroke).
+    matted = ring if trusted_edge else np.zeros_like(ring)
+    if extra_band is not None:
+        matted = matted | extra_band
+    trusted = matted & (fractional | (birefnet == majority))
     alpha[trusted] = birefnet_alpha[trusted]
     area = max(int(majority.sum()), MIN_AREA_PX)
     # Disagreement not explained as a soft edge: a dropped limb, an extra island, a wrong subject.
@@ -122,9 +175,31 @@ def consensus(
         "bandFraction": float(band.sum() / area),
         "area": float(majority.sum()),
         "estimates": float(n),
+        "edgeTrusted": 1.0 if trusted_edge else 0.0,
     }
     score["score"] = frame_score(score)
     return FrameConsensus(alpha=alpha, band=band, majority=majority, score=score)
+
+
+def _silhouette(
+    sam_masks: list[Bool],
+    sam_logits: npt.NDArray[Any] | None,
+    birefnet: Bool,
+    warped_previous: npt.NDArray[Any] | None,
+) -> Bool:
+    """Vote of the SAM passes and the warped previous alpha; BiRefNet only when nothing else."""
+    votes: list[Bool] = list(sam_masks)
+    if warped_previous is not None:
+        votes.append(warped_previous >= 127.5)
+    if not votes:
+        return birefnet
+    count = np.sum(votes, axis=0, dtype=np.int32)
+    majority: Bool = count * 2 > len(votes)
+    if len(votes) % 2 == 0:
+        tie = count * 2 == len(votes)
+        tie_break = sam_logits > 0 if sam_logits is not None else birefnet
+        majority = majority | (tie & tie_break)
+    return majority
 
 
 def frame_score(parts: dict[str, float]) -> float:
@@ -135,4 +210,14 @@ def frame_score(parts: dict[str, float]) -> float:
     return float(min(max(signals), 1.0))
 
 
-__all__ = ["FrameConsensus", "boundary", "consensus", "disk", "edge_radius", "frame_score", "iou"]
+__all__ = [
+    "FrameConsensus",
+    "boundary",
+    "boundary_agreement",
+    "consensus",
+    "disk",
+    "distance_to_boundary",
+    "edge_radius",
+    "frame_score",
+    "iou",
+]

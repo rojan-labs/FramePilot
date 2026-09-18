@@ -161,3 +161,31 @@ def test_an_edge_stroke_joins_the_band_and_takes_only_matted_alpha() -> None:
     assert np.array_equal(widened.majority, plain.majority), "the silhouette vote is unchanged"
     # Outside the stroke nothing moved.
     assert np.array_equal(widened.alpha[~stroke], plain.alpha[~stroke])
+
+
+def test_birefnet_sets_the_edge_only_on_frames_where_its_boundary_agrees() -> None:
+    """BR7.4: SAM's coarse edge is 2 px outside the subject; BiRefNet's is exact."""
+    height, width = 720, 1280
+    truth = np.zeros((height, width), bool)
+    truth[200:600, 500:700] = True
+    coarse = cv2.dilate(truth.astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)
+    exact = np.where(truth, 255, 0).astype(np.uint8)
+    result = consensus([coarse, coarse], None, exact, None, edge_radius(height))
+    assert result.score["edgeTrusted"] == 1.0
+    assert np.array_equal(result.majority, truth), "the corridor takes BiRefNet's edge"
+    # BiRefNet matting a background slab beside the subject disagrees on a whole boundary side.
+    wrong = exact.copy()
+    wrong[200:600, 700:900] = 255
+    untrusted = consensus([coarse, coarse], None, wrong, None, edge_radius(height))
+    assert untrusted.score["edgeTrusted"] == 0.0
+    assert np.array_equal(untrusted.majority, coarse), "SAM's silhouette and edge stand"
+    assert set(np.unique(untrusted.alpha).tolist()) <= {0, 255}, "no soft edge in the wrong place"
+
+
+def test_birefnet_never_votes_on_topology() -> None:
+    sam = body()
+    birefnet = np.where(sam, 255, 0).astype(np.uint8)
+    birefnet[100:140, 20:60] = 255  # an island far from the subject
+    result = consensus([sam, sam], None, birefnet, None, edge_radius(180))
+    assert not result.majority[120, 40]
+    assert result.score["hardDisagreementFraction"] > 0, "but the disagreement is measured"

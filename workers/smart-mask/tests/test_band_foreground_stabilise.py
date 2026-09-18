@@ -38,7 +38,10 @@ def test_band_alpha_only_reruns_downscaled_crops_and_only_writes_the_band() -> N
     tiled = RefineRecord((0, 0, 200, 200), "tiled", 4)
     untouched, passes = band_alpha(ColourMatting(tile=64), frame, alpha, band, tiled)
     assert passes == 0 and untouched is alpha
-    resized = RefineRecord((0, 0, 90, 90), "resized", 1)
+    upscaled = RefineRecord((0, 0, 60, 60), "resized", 1, tile=64)
+    same, passes = band_alpha(ColourMatting(tile=64), frame, alpha, band, upscaled)
+    assert passes == 0 and same is alpha, "a crop matted at or above source size is not redone"
+    resized = RefineRecord((0, 0, 90, 90), "resized", 1, tile=64)
     fixed, passes = band_alpha(ColourMatting(tile=64), frame, alpha, band, resized)
     assert passes >= 1
     assert fixed[60, 50] == 255 and fixed[60, 49] == 0
