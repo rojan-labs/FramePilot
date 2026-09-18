@@ -12,6 +12,7 @@
  * Every texture is addressed with `texelFetch` at integer coordinates, rows top first, as every
  * other mask pass is: there is no filtering and no normalised coordinate anywhere.
  */
+import { ALPHA_LEVELS_GLSL } from '../../masks/key-mask.js';
 import { FALLOFF_TABLE_SIZE } from '../../masks/mask-raster.js';
 import { TIER_COLOUR_SCALE, TIER_WEIGHT_SCALE } from '../../masks/matte-edges.js';
 import { MAX_TAPS } from './raster-shaders.js';
@@ -46,6 +47,46 @@ out vec4 o_color;
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   o_color = vec4(float(texelFetch(u_matte, p, 0).r) / u_maximum, 0.0, 0.0, 1.0);
+}`;
+
+/**
+ * PX5.3: a matte whose source-pixel chain is POINTWISE (no edge shift, feather, denoise,
+ * morphology or blur: only clean levels and in/out ratio, as `edgeMode: 'sharp'` and the
+ * defaults are) resampled across straight from its integer samples, the chain applied per tap.
+ *
+ * WHY: otherwise the artifact's whole 4K plane goes through two or three float passes (to-float,
+ * levels, ratio), each writing a 33 MB target, before the resample reads it. Per tap this is
+ * the same float operations as those passes (`x / maximum`, then {@link ALPHA_LEVELS_GLSL}; a
+ * float32 target stores each intermediate exactly), then the same tap sum as
+ * {@link MATTE_RESAMPLE_FRAGMENT}, so the values are the unfused path's. `u_tapCount == 0` is
+ * an identity axis: the chain at the artifact's own width.
+ */
+export const MATTE_ALPHA_ACROSS_FRAGMENT = `${HEADER}
+uniform usampler2D u_matte;
+uniform sampler2D u_taps;
+uniform int u_tapCount;
+uniform float u_maximum;
+${ALPHA_LEVELS_GLSL}
+out vec4 o_color;
+float sampleAt(ivec2 q) {
+  return alphaLevels(float(texelFetch(u_matte, q, 0).r) / u_maximum);
+}
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  if (u_tapCount == 0) {
+    o_color = vec4(sampleAt(p), 0.0, 0.0, 1.0);
+    return;
+  }
+  int limit = textureSize(u_matte, 0).x - 1;
+  int first = int(texelFetch(u_taps, ivec2(0, p.x), 0).r);
+  float total = 0.0;
+  for (int tap = 0; tap < ${String(MAX_TAPS)}; tap++) {
+    if (tap >= u_tapCount) break;
+    float value = sampleAt(ivec2(clamp(first + tap, 0, limit), p.y));
+    float weight = texelFetch(u_taps, ivec2(tap + 1, p.x), 0).r;
+    total = tap == 0 ? value * weight : total + value * weight;
+  }
+  o_color = vec4(clamp(total, 0.0, 1.0), 0.0, 0.0, 1.0);
 }`;
 
 /**

@@ -448,25 +448,18 @@ void main() {
 }`;
 
 /**
- * The pointwise tail: `apply_clean_levels`, `in_out_ratio` and `layer_alpha`.
- *
- * They are one pass because each is a handful of arithmetic ops, and splitting them would cost
- * two more full-frame targets for nothing.
+ * `apply_clean_levels` then `in_out_ratio` on one alpha, as GLSL: the ONE copy of that
+ * arithmetic on the GPU. {@link MASK_LEVELS_FRAGMENT} runs it as a pass; a matte whose source
+ * chain is only these two runs it per tap inside its resample (PX5.3, `matte-shaders.ts`), and
+ * both must stay the same float operations in the same order.
  */
-export const MASK_LEVELS_FRAGMENT = `#version 300 es
-precision highp float;
-uniform sampler2D u_alpha;
+export const ALPHA_LEVELS_GLSL = `
+/** 1 applies the clean levels (they run before the morphology, so usually 0 in a tail pass). */
+uniform int u_levels;
 uniform float u_cleanBlack;
 uniform float u_cleanWhite;
 uniform float u_ratio;
-uniform float u_invert;
-uniform float u_opacity;
-/** 1 applies the clean levels here (they run before the morphology, so usually 0). */
-uniform int u_levels;
-out vec4 o_color;
-void main() {
-  ivec2 p = ivec2(gl_FragCoord.xy);
-  float alpha = texelFetch(u_alpha, p, 0).r;
+float alphaLevels(float alpha) {
   if (u_levels == 1) {
     if (u_cleanWhite <= u_cleanBlack) alpha = alpha >= u_cleanBlack ? 1.0 : 0.0;
     else if (u_cleanBlack != 0.0 || u_cleanWhite != 1.0) {
@@ -482,6 +475,25 @@ void main() {
       alpha = clamp(mapped, 0.0, 1.0);
     }
   }
+  return alpha;
+}`;
+
+/**
+ * The pointwise tail: `apply_clean_levels`, `in_out_ratio` and `layer_alpha`.
+ *
+ * They are one pass because each is a handful of arithmetic ops, and splitting them would cost
+ * two more full-frame targets for nothing.
+ */
+export const MASK_LEVELS_FRAGMENT = `#version 300 es
+precision highp float;
+uniform sampler2D u_alpha;
+uniform float u_invert;
+uniform float u_opacity;
+${ALPHA_LEVELS_GLSL}
+out vec4 o_color;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float alpha = alphaLevels(texelFetch(u_alpha, p, 0).r);
   o_color = vec4((u_invert == 1.0 ? 1.0 - alpha : alpha) * u_opacity, 0.0, 0.0, 1.0);
 }`;
 

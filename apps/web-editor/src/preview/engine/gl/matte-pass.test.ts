@@ -159,7 +159,23 @@ describe('MattePass', () => {
       finesse: IDENTITY_FINESSE,
     });
     new MattePass(resources).layer(mask, frame(96, 54), geometry(), 0);
-    expect(recorded.passes).toEqual(['matte-to-float', 'matte-crop']);
+    expect(recorded.passes).toEqual(['matte-alpha-across', 'matte-crop']);
+  });
+
+  it('resamples a sharp matte straight from its samples, with no source-size float pass', () => {
+    const { resources, recorded } = recordingResources();
+    const mask = matteMask({
+      edgeMode: 'sharp',
+      edgeShiftPx: 0,
+      expansionPx: 0,
+      featherInnerPx: 0,
+      featherOuterPx: 0,
+      finesse: { ...IDENTITY_FINESSE, inOutRatio: 0.3 },
+    });
+    new MattePass(resources).layer(mask, frame(384, 216), geometry(), 0);
+    // Levels and ratio are applied per tap inside the horizontal resample (PX5.3): the 4K plane
+    // never exists as a float target.
+    expect(recorded.passes).toEqual(['matte-alpha-across', 'matte-resample', 'matte-crop']);
   });
 
   it("hands the shader the engine's float64-normalised taps and first source index", () => {

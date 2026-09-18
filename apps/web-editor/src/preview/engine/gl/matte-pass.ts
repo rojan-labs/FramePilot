@@ -32,6 +32,7 @@ import {
 import { AlphaPasses, MAX_ALPHA_BOX_PX, blurBoxRadius } from './alpha-passes.js';
 import type { GlResources, RenderTarget } from './gl-resources.js';
 import {
+  MATTE_ALPHA_ACROSS_FRAGMENT,
   MATTE_BAND_FRAGMENT,
   MATTE_CROP_FRAGMENT,
   MATTE_DECONTAMINATE_FRAGMENT,
@@ -68,6 +69,23 @@ interface MatteEdgeValues {
   readonly featherInner: number;
   readonly featherOuter: number;
   readonly cap: number;
+}
+
+/**
+ * Whether a matte's source-pixel chain is pointwise at this instant: every step that reads a
+ * neighbour (edge shift, denoise, morphology, blur, distance feather) is off, so what is left
+ * is clean levels and in/out ratio - `edgeMode: 'sharp'` and the defaults.
+ */
+function pointwiseChain(finesse: MatteMask['finesse'], edge: MatteEdgeValues): boolean {
+  return (
+    edge.shiftPx === 0 &&
+    edge.cap === 0 &&
+    finesse.denoise <= 0 &&
+    finesse.morphOpenPx <= 0 &&
+    finesse.morphClosePx <= 0 &&
+    finesse.shrinkGrowPx === 0 &&
+    finesse.blurPx <= 0
+  );
 }
 
 function edgeValues(mask: MatteMask, s: number): MatteEdgeValues {
@@ -176,7 +194,6 @@ export class MattePass {
   ): WebGLTexture {
     const r = this.resources;
     const gl = r.gl;
-    const passes = this.alphaPasses;
     const edge = edgeValues(mask, s);
     const samples = r.keyedTexture(
       `${frame.id}|alpha`,
@@ -185,17 +202,51 @@ export class MattePass {
       frame.alpha instanceof Uint16Array ? 'r16' : 'r8',
       frame.alpha,
     );
+    const levels = cleanLevels(mask);
+    const placed = pointwiseChain(mask.finesse, edge)
+      ? this.pointwiseToFrame(samples, frame, geometry, levels, mask.finesse.inOutRatio)
+      : this.toFrame(
+          this.sourceChain(samples, frame, mask, edge, levels),
+          geometry,
+          'r32f',
+          ALPHA_CEILING,
+        );
+    const opacity = maskScalar(mask, 'opacity', s);
+    const out = r.target(geometry.width, geometry.height, 'r32f');
+    const program = r.program('matte-crop', MATTE_CROP_FRAGMENT);
+    gl.useProgram(program.handle);
+    r.bind(program, 'u_source', 0, placed.target.texture);
+    program.ivec2('u_origin', placed.x, placed.y);
+    program.int('u_layer', 1);
+    gl.uniform1f(program.location('u_invert'), mask.invert ? 1 : 0);
+    gl.uniform1f(program.location('u_opacity'), opacity <= 0 ? 0 : opacity >= 1 ? 1 : opacity);
+    r.draw(out, out.width, out.height);
+    return out.texture;
+  }
+
+  /**
+   * The chain in the artifact's source pixels, as float passes: to-float, edge shift, finesse,
+   * in/out ratio, distance feather.
+   */
+  private sourceChain(
+    samples: WebGLTexture,
+    frame: MatteFrameData,
+    mask: MatteMask,
+    edge: MatteEdgeValues,
+    levels: readonly [number, number],
+  ): RenderTarget {
+    const r = this.resources;
+    const gl = r.gl;
+    const passes = this.alphaPasses;
     let alpha = r.target(frame.width, frame.height, 'r32f');
     const toFloat = r.program('matte-to-float', MATTE_TO_FLOAT_FRAGMENT);
     gl.useProgram(toFloat.handle);
     r.bind(toFloat, 'u_matte', 0, samples);
     gl.uniform1f(toFloat.location('u_maximum'), frame.maximum);
     r.draw(alpha, alpha.width, alpha.height);
-
     // `edge_shift` takes the extremum of the integer samples and divides after; dividing first
     // is the same value, because `x / maximum` is monotonic.
     alpha = passes.morphology(alpha, Math.abs(edge.shiftPx), edge.shiftPx > 0);
-    const levels = cleanLevels(mask);
     alpha = passes.finesse(alpha, mask.finesse, levels);
     if (mask.finesse.inOutRatio !== 0) {
       alpha = passes.tail(alpha, {
@@ -208,20 +259,38 @@ export class MattePass {
         layer: false,
       });
     }
-    if (edge.cap > 0) alpha = this.feather(alpha, edge, mask.falloff);
+    return edge.cap > 0 ? this.feather(alpha, edge, mask.falloff) : alpha;
+  }
 
-    const opacity = maskScalar(mask, 'opacity', s);
-    const placed = this.toFrame(alpha, geometry, 'r32f', ALPHA_CEILING);
-    const out = r.target(geometry.width, geometry.height, 'r32f');
-    const program = r.program('matte-crop', MATTE_CROP_FRAGMENT);
+  /**
+   * PX5.3: `to_frame` of a pointwise chain ({@link pointwiseChain}) without a source-size float
+   * plane: the horizontal resample reads the integer samples and applies the chain per tap
+   * (`MATTE_ALPHA_ACROSS_FRAGMENT`), then down and the crop as for any plane.
+   */
+  private pointwiseToFrame(
+    samples: WebGLTexture,
+    frame: MatteFrameData,
+    geometry: MatteFrameGeometry,
+    levels: readonly [number, number],
+    ratio: number,
+  ): { target: RenderTarget; x: number; y: number } {
+    const r = this.resources;
+    const gl = r.gl;
+    const across = r.target(geometry.decodedWidth, frame.height, 'r32f');
+    const program = r.program('matte-alpha-across', MATTE_ALPHA_ACROSS_FRAGMENT);
     gl.useProgram(program.handle);
-    r.bind(program, 'u_source', 0, placed.target.texture);
-    program.ivec2('u_origin', placed.x, placed.y);
-    program.int('u_layer', 1);
-    gl.uniform1f(program.location('u_invert'), mask.invert ? 1 : 0);
-    gl.uniform1f(program.location('u_opacity'), opacity <= 0 ? 0 : opacity >= 1 ? 1 : opacity);
-    r.draw(out, out.width, out.height);
-    return out.texture;
+    r.bind(program, 'u_matte', 0, samples);
+    r.bind(program, 'u_taps', 1, this.tapsTable(frame.width, geometry.decodedWidth));
+    program.int('u_tapCount', tapCount(frame.width, geometry.decodedWidth));
+    gl.uniform1f(program.location('u_maximum'), frame.maximum);
+    // `AlphaPasses.finesse` applies the levels only when they are not the identity.
+    program.int('u_levels', levels[0] !== 0 || levels[1] !== 1 ? 1 : 0);
+    gl.uniform1f(program.location('u_cleanBlack'), levels[0]);
+    gl.uniform1f(program.location('u_cleanWhite'), levels[1]);
+    gl.uniform1f(program.location('u_ratio'), ratio);
+    r.draw(across, across.width, across.height);
+    const decoded = this.resampleAxis(across, geometry.decodedHeight, 1, 'r32f', ALPHA_CEILING);
+    return this.cropToFrame(decoded, geometry, 'r32f', ALPHA_CEILING);
   }
 
   /**
