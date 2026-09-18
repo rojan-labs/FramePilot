@@ -112,6 +112,12 @@
       "minWithinPercent": 100,
       "failing": []
     },
+    "effects/effect-kinds-masked": {
+      "renderer": "webcodecs",
+      "minPsnr": 68.52,
+      "minWithinPercent": 100,
+      "failing": []
+    },
     "effects/effect-layer-between": {
       "renderer": "webcodecs",
       "minPsnr": 64.77,
