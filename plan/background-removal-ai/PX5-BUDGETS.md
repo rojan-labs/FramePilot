@@ -2,7 +2,8 @@
 
 Budgets from [`09`](./09-PREVIEW-EXPORT-PARITY.md) ("PX5 — performance evidence") and
 [`06`](./06-PRECISION-AND-EVAL.md) ("Production budgets"). Measured 2026-09-18. **No budget was
-lowered.** Two hold, three miss; the misses are recorded with the hot path and what would fix them.
+lowered.** Without the matte the preview budgets hold; with it they miss, and the export budget
+misses narrowly; the misses are recorded with the hot path and what would fix them.
 
 ## Verdicts
 
@@ -10,15 +11,15 @@ Scale row = a 3-minute 4K timeline, 4 picture layers + text + a decontaminating 
 "Desktop path" = the monitor plays the 540p proxies `media/derive.py` makes (what the desktop app
 does); the matte is always the 4K artifact.
 
-| Budget                                                         | Measured (M1 Pro, real GPU)                                                         | Verdict                                         |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------- |
-| Playback ≤ 1% dropped frames, Scale row **without** the matte  | 1 / 600 (0.17%); 0–0.17% with an animated 200-vertex path or a key + finesse on top | **holds**                                       |
-| Playback ≤ 1% dropped frames, Scale row **with** the 4K matte  | 600 / 601 (99.8%): one frame in 20 s, the monitor freezes                           | **misses**                                      |
-| Seek-to-present ≤ 100 ms p95, without the matte                | 35.7 ms (56.3 ms with the path, 50.2 ms with key + finesse)                         | **holds**                                       |
-| Seek-to-present ≤ 100 ms p95, with the 4K matte                | 617 ms (p50 592 ms)                                                                 | **misses**                                      |
-| Memory bounded by the decoder pool                             | live decoders peak 6 of 6; picture cache peak 401–407 MB (676 MB with the matte)    | **bounded**, above the nominal 384 MB (below)   |
-| Export with masks + 4K matte ≤ 1.5× without (P13)              | 1.98× before, **1.49× after** the optimisation below                                | **at the budget**, inside the noise, not clear  |
-| Desktop path **without proxies** (4K originals in the monitor) | 603 / 604 dropped; seek p95 161 ms                                                  | misses; the desktop app does not take this path |
+| Budget                                                         | Measured (M1 Pro, real GPU)                                                              | Verdict                                               |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Playback ≤ 1% dropped frames, Scale row **without** the matte  | 1 / 600 (0.17%); 0–0.17% with an animated 200-vertex path or a key + finesse on top      | **holds**                                             |
+| Playback ≤ 1% dropped frames, Scale row **with** the 4K matte  | 600 / 601 (99.8%): one frame in 20 s, the monitor freezes                                | **misses**                                            |
+| Seek-to-present ≤ 100 ms p95, without the matte                | 35.7 ms (56.3 ms with the path, 50.2 ms with key + finesse)                              | **holds**                                             |
+| Seek-to-present ≤ 100 ms p95, with the 4K matte                | 617 ms (p50 592 ms)                                                                      | **misses**                                            |
+| Memory bounded by the decoder pool                             | live decoders peak 6 of 6; picture cache peak 401–407 MB (676 MB with the matte)         | **bounded**, above the nominal 384 MB (below)         |
+| Export with masks + 4K matte ≤ 1.5× without (P13)              | 1.98× before; after the optimisation below **1.49×** here and **1.56×** on the CI runner | **misses narrowly** (at the line here, over it on CI) |
+| Desktop path **without proxies** (4K originals in the monitor) | 603 / 604 dropped; seek p95 161 ms                                                       | misses; the desktop app does not take this path       |
 
 ## What is measured where, and what is not
 
@@ -162,6 +163,32 @@ both (1,064 rasters in 20 s). Quantising playback time to the project frame grid
 work and present exactly the instants the export renders — but it changes what a 60 fps source
 looks like in a 30 fps project's monitor, so it is handed over, not done.
 
+## The same spec on CI (no GPU) — invariants pass, timings are not evidence
+
+Run 35318861767, job `Preview performance evidence (PX5)`, ubuntu runner, Chrome on SwiftShader
+(`ANGLE Vulkan, SwiftShader Device (Subzero)`), 15 s of playback, 12 seeks. All seven variants
+**passed the invariants**: decoders ≤ 6, cache within budget + pinned, GL pools flat when the
+render scale did not move, every seek presented, and four layers presented while load shedding
+had dropped the render scale to 0.5 — the one place "shedding never removes a layer" was
+actually exercised, because the M1 never shed.
+
+| Variant (CI, CPU GL)        | Dropped         | Lowest render scale | Composite p50 | Seek p95 |
+| --------------------------- | --------------- | ------------------- | ------------- | -------- |
+| `scale-plain`               | 431/492 (87.6%) | 0.5                 | 207 ms        | 453 ms   |
+| `scale-path`                | 430/480 (89.6%) | 0.5                 | 248 ms        | 495 ms   |
+| `scale-key-nofinesse`       | 440/491 (89.6%) | 0.5                 | 255 ms        | 491 ms   |
+| `scale-key`                 | 729/736 (99.1%) | 1                   | 3,421 ms      | 3,515 ms |
+| `scale` (4K matte)          | 467/468 (99.8%) | 1                   | 1,102 ms      | 1,968 ms |
+| `scale-plain`, 4K originals | 455/456 (99.8%) | 1                   | 2,225 ms      | 2,501 ms |
+
+A software rasteriser composites the plain row in 0.2 s and a key's float passes in 3.4 s. That
+is why no timing is gated on CI: these numbers describe the runner. CPU-side measurements on the
+same runner (x86-64, Node 22): feathered 200-vertex path 33.8 ms at 960×540 and 54.4 ms at
+1280×720 (M1: 20.8 / 38.0); 4K matte frame decode 41.6 ms and foreground 76.2 ms (M1: 32.3 /
+69.4); `matteFrameAlpha` 196 ms and `decontaminate` 439 ms (M1: 170 / 324); pts probe 0.78 s on
+the 3.9 GB file and 1.02 s on the two-hour file. Note `scale-key` did not shed on CI: a frame
+that takes 3.4 s presents too rarely for the 8-tick shed rule to trip.
+
 ## Memory: bounded, and what the bound really is
 
 - **Live decoders:** never above the pool's cap (6) in any run; `decoder-pool.test.ts` holds 40
@@ -198,7 +225,11 @@ on the resampled planes otherwise): **65 ms** per frame. The dense form stays as
 (`tests/test_matte_decontaminate_exact.py`) and the 79 existing matte golden, alignment and
 frame-hash tests pass unchanged.
 
-**Honest verdict:** 1.49× is at the budget, not inside it. The plain run moved 8% between the two
+On the CI runner (Linux x86-64, software x264, 4-second window = 120 frames, after the
+optimisation): plain 92.9 s, with the matte 144.6 s, **1.56×** — over the budget.
+
+**Honest verdict:** the budget is not met. 1.49× here is at the line, not inside it, and CI is
+over it. The plain run moved 8% between the two
 measurements on this shared machine, and a matte whose band box covers most of the frame (a
 subject filling the shot) gains less than this disc (its box is 22% of the frame). What is left
 per frame: the stack's matte alpha ~51 ms (`apply_clean_levels` 28 ms), two FFV1 reads ~46 ms.

@@ -111,8 +111,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Exports with a background-removal matte are about a third faster.** Cleaning the colour fringe
   around a cut-out subject used to do arithmetic on every pixel of every frame to change only the
   thin edge; it now works on the edge alone. On a 4K test timeline the export went from 1.98× the
-  time of the same timeline without a matte to 1.49×. The exported pixels are identical, byte for
-  byte.
+  time of the same timeline without a matte to 1.49× (1.56× on a slower Linux machine; the
+  target is 1.5×). The exported pixels are identical, byte for byte.
 - **The preview now measures itself.** The program monitor records its own frame times, dropped
   frames, seek-to-picture time and memory, so performance claims come from the app rather than
   from a stopwatch. On a 3-minute 4K timeline with four layers and a title, playback on an M1 Pro
