@@ -190,7 +190,7 @@ interface SampleResult {
    * PX5.3: per matte layer of the presented frame, the tier the artifact has and whether this
    * frame's decontamination came from it: which path the pixels judged. Fact, not a verdict.
    */
-  mattes?: { tier: string | null; fromTier: boolean; state: string }[];
+  mattes?: { tier: string | null; fromTier: boolean; alphaFromTier: boolean; state: string }[];
 }
 interface CaseResult {
   key: string;
@@ -870,14 +870,17 @@ async function measureCase(
                   debugPresentedMattes?: () => {
                     tier?: string | null;
                     fromTier?: boolean;
+                    alphaFromTier?: boolean;
                     state: string;
                   }[];
                 };
               }
             ).__fpPreviewEngine?.debugPresentedMattes?.() ?? []
-          ).map(({ tier, fromTier, state }) => ({
+          ).map(({ tier, fromTier, alphaFromTier, state }) => ({
             tier: tier ?? null,
             fromTier: fromTier ?? false,
+            // PX5.8: whether the alpha was drawn from the tier's alpha plane.
+            alphaFromTier: alphaFromTier ?? false,
             state,
           })),
         );

@@ -412,6 +412,90 @@ export function toFrame(
  */
 export const TIER_WEIGHT_SCALE = 65535;
 export const TIER_COLOUR_SCALE = 257;
+/** PX5.8: `ALPHA_SCALE`: a resampled alpha in [0, 1] is stored as `round(alpha * 65535)`. */
+export const TIER_ALPHA_SCALE = 65535;
+
+/**
+ * PX5.8: a matte frame's alpha from the monitor tier (`alpha.mkv`), already at the decoded size:
+ * `resample(samples / maximum)`, 16-bit, as one `width × 2·height` byte plane (the high-byte
+ * rows, then the low-byte rows).
+ */
+export interface MatteAlphaPlane {
+  readonly width: number;
+  readonly height: number;
+  readonly data: Uint8Array;
+}
+
+/** The 16-bit value of a tier alpha plane at pixel `index`. */
+export function tierAlphaValue(plane: MatteAlphaPlane, index: number): number {
+  return (plane.data[index]! << 8) | plane.data[plane.width * plane.height + index]!;
+}
+
+/** A matte layer's source-resolution edge controls at one instant (feathers clamped at 0). */
+export interface MatteSourceControls {
+  readonly levels: readonly [number, number];
+  readonly finesse: MaskFinesseValues;
+  readonly shiftPx: number;
+  readonly feather: Pick<MatteFeather, 'expansion' | 'featherInner' | 'featherOuter'>;
+}
+
+/**
+ * PX5.8, `source_chain_is_identity` of `render/matte_tier.py`: whether every step `matte_alpha`
+ * runs at SOURCE resolution returns its input, so `to_frame` of the chain is `to_frame` of the
+ * samples, which the tier's alpha plane holds at the decoded size. Each condition is the one
+ * under which that step is the identity: edge shift exactly 0; denoise, open, close and blur
+ * <= 0; clean levels (0, 1) after {@link cleanLevels} (`sharp` supplies 0.25 / 0.75, so it never
+ * qualifies); shrink/grow and in/out ratio exactly 0; expansion and both (clamped) feathers 0.
+ */
+export function sourceChainIsIdentity({
+  levels,
+  finesse,
+  shiftPx,
+  feather,
+}: MatteSourceControls): boolean {
+  return (
+    shiftPx === 0 &&
+    finesse.denoise <= 0 &&
+    levels[0] === 0 &&
+    levels[1] === 1 &&
+    finesse.morphOpenPx <= 0 &&
+    finesse.morphClosePx <= 0 &&
+    finesse.shrinkGrowPx === 0 &&
+    finesse.blurPx <= 0 &&
+    finesse.inOutRatio === 0 &&
+    feather.expansion === 0 &&
+    feather.featherInner === 0 &&
+    feather.featherOuter === 0
+  );
+}
+
+/**
+ * PX5.8: whether {@link sourceChainIsIdentity} holds for `mask` at EVERY instant: its finesse
+ * and edge mode qualify and none of its edge shift, expansion or feathers is non-zero or
+ * keyframed. What the monitor decides to decode by; a keyframed control that passes through 0
+ * is judged per instant when drawing, but its frames always carry the source-size alpha.
+ */
+export function matteAlphaTierable(mask: MatteMask): boolean {
+  const keyframed = new Set(mask.keyframes.map((keyframe) => keyframe.property as string));
+  const still = (name: 'edgeShiftPx' | 'expansionPx' | 'featherInnerPx' | 'featherOuterPx') =>
+    !keyframed.has(name);
+  return (
+    still('edgeShiftPx') &&
+    still('expansionPx') &&
+    still('featherInnerPx') &&
+    still('featherOuterPx') &&
+    sourceChainIsIdentity({
+      levels: cleanLevels(mask),
+      finesse: mask.finesse,
+      shiftPx: mask.edgeShiftPx,
+      feather: {
+        expansion: mask.expansionPx,
+        featherInner: Math.max(mask.featherInnerPx, 0),
+        featherOuter: Math.max(mask.featherOuterPx, 0),
+      },
+    })
+  );
+}
 
 /**
  * PX5.3: a matte frame's decontamination planes from the artifact's monitor tier, already at the
@@ -444,14 +528,33 @@ export interface MatteFrameData {
   readonly height: number;
   /** 255 for `gray`, 65535 for `gray16le`. */
   readonly maximum: number;
-  readonly alpha: MatteSamples;
-  /** Interleaved RGB, when the mask decontaminates. */
+  /**
+   * The source-size samples; `null` when only the tier's {@link alphaPlane} was decoded
+   * (PX5.8: every mask reading the frame takes the plane, so the 4K alpha is not decoded).
+   */
+  readonly alpha: MatteSamples | null;
+  /** Interleaved RGB, when the mask decontaminates (always with {@link alpha}). */
   readonly foreground: Uint8Array | null;
   /**
    * PX5.3: the monitor tier's planes for this frame, when the artifact has a tier. They stand in
    * for {@link foreground} only where the picture was decoded at their size.
    */
   readonly planes?: MattePlanes | null;
+  /**
+   * PX5.8: the monitor tier's alpha plane for this frame. It stands in for {@link alpha} where
+   * the picture was decoded at its size and the mask's source chain is the identity.
+   */
+  readonly alphaPlane?: MatteAlphaPlane | null;
+}
+
+/** Whether `frame`'s tier alpha plane is at the size its picture was decoded at (PX5.8). */
+export function alphaPlaneFits(
+  frame: MatteFrameData,
+  decodedWidth: number,
+  decodedHeight: number,
+): frame is MatteFrameData & { readonly alphaPlane: MatteAlphaPlane } {
+  const plane = frame.alphaPlane ?? null;
+  return plane !== null && plane.width === decodedWidth && plane.height === decodedHeight;
 }
 
 /** Whether `frame`'s tier planes are at the size its picture was decoded at. */
@@ -483,6 +586,29 @@ export function matteFrameAlpha(
   decodedWidth: number,
   decodedHeight: number,
 ): Float64Array {
+  // PX5.8: an identity source chain is `to_frame` of the samples, which the tier holds at the
+  // decoded size: only the crop (and a frame resample for a crop that disagrees) is left.
+  if (
+    sourceChainIsIdentity({ levels, finesse, shiftPx, feather }) &&
+    alphaPlaneFits(frame, decodedWidth, decodedHeight)
+  ) {
+    const plane = frame.alphaPlane;
+    const values = new Float64Array(plane.width * plane.height);
+    for (let i = 0; i < values.length; i += 1) {
+      values[i] = tierAlphaValue(plane, i) / TIER_ALPHA_SCALE;
+    }
+    return toFrame(
+      { width: plane.width, height: plane.height, channels: 1, data: values },
+      crop,
+      width,
+      height,
+      plane.width,
+      plane.height,
+    ).data;
+  }
+  if (frame.alpha === null) {
+    throw new Error('A matte frame without its samples was drawn with a chain the tier cannot.');
+  }
   let alpha = edgeShift(frame.alpha, frame.width, frame.height, frame.maximum, shiftPx);
   // MK6.2: the finesse group sits between the artifact's own edge shift and the mask's base
   // expansion/feather, as `matte_alpha` orders them.
@@ -516,11 +642,13 @@ export function decontaminate(
 ): void {
   const foreground = frame.foreground;
   if (foreground === null) return;
+  if (frame.alpha === null) throw new Error('A decontaminating matte frame has no samples.');
+  const samples = frame.alpha;
   const pixels = frame.width * frame.height;
   const band = new Float64Array(pixels);
   const premultiplied = new Float64Array(pixels * 3);
   for (let i = 0; i < pixels; i += 1) {
-    const value = frame.alpha[i]!;
+    const value = samples[i]!;
     const inBand = value > 0 && value < frame.maximum ? 1.0 : 0.0;
     band[i] = inBand;
     premultiplied[i * 3] = foreground[i * 3]! * inBand;

@@ -69,3 +69,28 @@ monitor decodes the masters, correctly and slower.
   make one, the desktop does not yet.
 - Re-processing an artifact invalidates its tier by digest; nothing has to delete it.
 - A clip shown at a size other than the tier's (an inset decoded smaller) uses the masters.
+
+## Addendum (PX5.8, 2026-09-18): the alpha plane, for a matte whose source chain is the identity
+
+The context above says the alpha cannot be pre-resampled because its edge controls run at source
+resolution. That holds for a matte that USES them. For one whose every source-resolution step is
+the identity at an instant — edge shift 0; no denoise, clean levels, morphology, shrink/grow,
+blur or in/out ratio (so never `edgeMode: 'sharp'`, which supplies clean levels 0.25 / 0.75);
+expansion and both feathers 0 — `matte_alpha` is `to_frame(samples / maximum)` followed by
+invert and opacity, and the first half of that is a plane the host can make once like the
+others. `render/matte_tier.py` `source_chain_is_identity` states the rule step by step from the
+functions' own identity conditions, and the tests hold it to the export: where it is true, the
+alpha drawn from the plane is `matte_alpha` within the plane's half step (1/131070); where
+`sharp` is set, drawing from the plane would move alpha by more than 0.05.
+
+- `write_monitor_tier` writes `alpha.mkv` (`round(resample(samples / maximum) × 65535)`, high
+  then low byte rows, `W × 2H` intra-only gray FFV1) in the same pass as the planes, and
+  `tier.json` names it under `alpha`. Still version 1: a reader without PX5.8 ignores the entry.
+- The monitor reads the plane only for a mask whose chain qualifies at EVERY instant (none of
+  the four scalar controls keyframed), only where the picture was decoded at the tier's size,
+  and only when `alpha.mkv` opened as `tier.json` describes; the compositor then applies the rule
+  per instant. Anything else decodes the source-size samples, as before. A malformed `alpha`
+  entry makes the whole tier unusable; an `alpha.mkv` that does not open leaves the planes in use.
+- Cost: 24–34 ms per 4K frame to make for the Scale disc, 84 ms for a subject filling the frame
+  (on top of the planes' 84–205 ms); 3.6 ms per frame to decode at 960×540 where the 4K samples
+  take 19.6–20.1 ms (`matte-decode.perf.test.ts`).

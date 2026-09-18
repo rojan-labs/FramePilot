@@ -55,7 +55,12 @@ import {
 } from '../masks/mask-stack.js';
 import { MatteSource } from '../masks/matte-source.js';
 import { resolveMatteArtifactLocator, resolveMatteTierLocator } from '../masks/matte-location.js';
-import { planesFit, type MatteFrameData } from '../masks/matte-edges.js';
+import {
+  alphaPlaneFits,
+  matteAlphaTierable,
+  planesFit,
+  type MatteFrameData,
+} from '../masks/matte-edges.js';
 import { isFlaggedFrame, type MaskDebugView } from '../masks/mask-view.js';
 import { FrameMaskRasterCache, effectLayerMaskStack } from '../masks/frame-masks.js';
 import type { FlaggedRange, MatteLookup } from '../masks/matte-source.js';
@@ -146,9 +151,10 @@ type CacheEntry =
 const entryBytes = (entry: CacheEntry): number =>
   entry.kind === 'picture'
     ? entry.picture.byteLength
-    : entry.frame.alpha.byteLength +
+    : (entry.frame.alpha?.byteLength ?? 0) +
       (entry.frame.foreground?.byteLength ?? 0) +
-      (entry.frame.planes?.data.byteLength ?? 0);
+      (entry.frame.planes?.data.byteLength ?? 0) +
+      (entry.frame.alphaPlane?.data.byteLength ?? 0);
 
 /** A matte layer some presented picture needs, at that picture's source frame. */
 interface MatteNeed {
@@ -173,6 +179,8 @@ interface MatteDebugState {
   readonly tier: string | null;
   /** PX5.3: whether this frame's decontamination was drawn from the tier's planes. */
   readonly fromTier: boolean;
+  /** PX5.8: whether this frame's alpha was drawn from the tier's alpha plane. */
+  readonly alphaFromTier: boolean;
   readonly loaded: boolean;
   readonly refusal: string | null;
   readonly firstFrame: number | null;
@@ -874,6 +882,8 @@ export class LayerPreviewEngine {
     if (!project) return null;
     const size = { width: plan.width, height: plan.height };
     const layers: CompositeLayer[] = [];
+    // MK8.2: the plan layer each composite layer came from, so track mattes can be resolved.
+    const origins: FramePlanLayer[] = [];
     const presented: PresentedLayer[] = [];
     // Filled in place, so an abandoned composite (a frame still decoding) still leaves the
     // states it reached behind for the diagnostic.
@@ -882,8 +892,6 @@ export class LayerPreviewEngine {
     let processing = false;
     for (const layer of plan.layers) {
       if (layer.kind === 'caption' || layer.kind === 'text') {
-    // MK8.2: the plan layer each composite layer came from, so track mattes can be resolved.
-    const origins: FramePlanLayer[] = [];
         const raster =
           layer.kind === 'caption' ? this.captionLayer(layer, size) : this.textLayer(layer, size);
         // An engine raster still on its way: keep the previous presentation, as for a frame.
@@ -915,6 +923,7 @@ export class LayerPreviewEngine {
           height: bitmap.height,
         };
         layers.push({ kind: 'picture', step, source });
+        origins.push(layer);
         presented.push({
           role: layer.role === 'underlay' ? 'held' : 'clip',
           sourceId: asset.id,
@@ -923,7 +932,6 @@ export class LayerPreviewEngine {
         });
         continue;
       }
-        origins.push(layer);
       if (!this.sources.has(asset.id)) {
         // Still loading: wait for it. Failed to load: the monitor already shows the error, and
         // the rest of the frame is still worth drawing.
@@ -968,6 +976,12 @@ export class LayerPreviewEngine {
               found.state === 'ready' &&
               mask.decontaminate &&
               planesFit(found.frame, decoded.width, decoded.height),
+            // The compositor takes the alpha plane wherever it fits and the chain qualifies
+            // (a keyframed control is judged per instant; its frames rarely carry a plane).
+            alphaFromTier:
+              found.state === 'ready' &&
+              matteAlphaTierable(mask) &&
+              alphaPlaneFits(found.frame, decoded.width, decoded.height),
             ...this.mattes.debugState(mask),
           });
           if (found.state === 'pending') return null;
@@ -1003,6 +1017,7 @@ export class LayerPreviewEngine {
           ? { maskView: this.maskView }
           : {}),
       });
+      origins.push(layer);
       presented.push({
         role: layer.role === 'underlay' ? 'held' : 'clip',
         sourceId: asset.id,
@@ -1017,7 +1032,6 @@ export class LayerPreviewEngine {
    * BR5.2: whether a matte frame at source frame `sourceFrame` needs review: in the pack's
    * `report.json` flags (read once per artifact, digest-verified) or the mask's own review
    * ranges, and not approved. The report arrives asynchronously; the paused frame is presented
-      origins.push(layer);
    * again when it does.
    */
   private isFlagged(

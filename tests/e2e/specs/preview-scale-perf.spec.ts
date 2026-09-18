@@ -96,7 +96,12 @@ interface EngineHook {
   debugStats(): Record<string, number>;
   debugTelemetry(): Promise<Telemetry>;
   debugPresentedFrame(): { projectTimeSec: number; layers: unknown[] };
-  debugPresentedMattes?(): { tier?: string | null; fromTier?: boolean; state?: string }[];
+  debugPresentedMattes?(): {
+    tier?: string | null;
+    fromTier?: boolean;
+    alphaFromTier?: boolean;
+    state?: string;
+  }[];
   seek(t: number): Promise<void>;
   telemetry: { reset(): void; gpuSync: boolean };
   /** PX5.7: the monitor's open stages and the decode worker's report, for a hang. */
@@ -121,6 +126,8 @@ const RUNS: readonly { variant: string; mode: MediaMode; gpuSync?: boolean }[] =
   { variant: 'scale-key', mode: 'proxy', gpuSync: true },
   { variant: 'scale-key-nofinesse', mode: 'proxy', gpuSync: true },
   { variant: 'scale-plain', mode: 'original' },
+  // PX5.8: the row with a default soft matte, whose alpha the tier's alpha plane stands in for.
+  { variant: 'scale-soft', mode: 'proxy' },
 ];
 
 const fsUrl = (origin: string, file: string): string =>
@@ -151,16 +158,22 @@ async function openScale(page: Page, variant: string, mode: MediaMode): Promise<
     manifest.tier !== undefined && process.env.PX5_TIER !== '0'
       ? fsUrl(origin, join(FIXTURE, manifest.tier.root))
       : null;
+  // PX5.8: PX5_TIER_ALPHA=0 withholds only the tier's alpha plane (its file is not found), so
+  // a soft matte decodes its 4K samples: the "before" of the alpha plane, on the same fixture.
+  const withheld = process.env.PX5_TIER_ALPHA === '0' ? 'alpha.mkv' : null;
   await page.addInitScript(
-    ({ root, tiers }: { root: string; tiers: string | null }) => {
+    ({ root, tiers, hidden }: { root: string; tiers: string | null; hidden: string | null }) => {
       const host = window as unknown as {
         __fpMatteArtifactUrl: (key: string, name: string) => string;
         __fpMatteTierUrl?: (key: string, name: string) => string;
       };
       host.__fpMatteArtifactUrl = (key, name) => `${root}/${key}/${name}`;
-      if (tiers !== null) host.__fpMatteTierUrl = (key, name) => `${tiers}/${key}/${name}`;
+      if (tiers !== null) {
+        host.__fpMatteTierUrl = (key, name) =>
+          `${tiers}/${key}/${name === hidden ? `withheld-${name}` : name}`;
+      }
     },
-    { root: matteRoot, tiers: tierRoot },
+    { root: matteRoot, tiers: tierRoot, hidden: withheld },
   );
   // A blank same-origin document to seed localStorage from, before the editor ever loads.
   await page.route('**/__px5-blank.html', (route) =>
@@ -440,7 +453,12 @@ test.describe('PX5 Scale row', () => {
         glPoolBytesMidway: midway.gauges.glPoolBytes.current,
         renderScaleChangesMidway: midway.playback.renderScaleChanges,
         layersWhilePlaying,
-        mattes: presentedMattes.map(({ tier, fromTier, state }) => ({ tier, fromTier, state })),
+        mattes: presentedMattes.map(({ tier, fromTier, alphaFromTier, state }) => ({
+          tier,
+          fromTier,
+          alphaFromTier,
+          state,
+        })),
         gpuSync: played.gpuSync,
         stillPlayingAtEnd: stillPlaying,
         // PX5.7: what the monitor still waits on at the end (a playback that never started

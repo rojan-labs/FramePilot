@@ -690,7 +690,9 @@ export class LayerCompositor {
       .filter(
         (frame): frame is MatteFrameData =>
           frame !== null &&
-          (frame.foreground !== null ||
+          // The masters path needs the samples too (PX5.8: a frame may carry only the tier's
+          // alpha plane); the lookup decodes both whenever the planes do not fit.
+          ((frame.foreground !== null && frame.alpha !== null) ||
             planesFit(frame, mattes.decodedWidth, mattes.decodedHeight)),
       );
     if (cleaning.length === 0) return source;
@@ -834,17 +836,17 @@ export class LayerCompositor {
     const masks = drawnMasks(stack, target, mattes);
     if (masks.length === 0) return null;
     const readsPicture = stackReadsPicture(masks);
-    // PX5.3: a stack holding a matte is combined on the GPU like one holding a key, so the
-    // float64 twin (170 ms of main thread for a 4K matte) never runs during playback. Only a
     // MK8.2: a track matte reads another layer's composited picture, so its stack is built on
     // the GPU too, like a key's.
     const readsLayers = stackReadsLayers(masks);
+    // PX5.3: a stack holding a matte is combined on the GPU like one holding a key, so the
+    // float64 twin (170 ms of main thread for a 4K matte) never runs during playback. Only a
     // layer whose radii the shaders cannot carry, or a GPU without float targets, keeps it.
     const matteOnGpu =
       !readsPicture &&
+      !readsLayers &&
       this.mattesCarried(stack, masks, width, height, maskSourceTime(stack.clip, clipTime), mattes);
     if (!readsPicture && !readsLayers && !matteOnGpu) {
-      !readsLayers &&
       const drawsBefore = this.maskRasters.drawCount;
       const started = performance.now();
       const raster = this.maskRasters.raster(stack, target, width, height, clipTime, mattes);
@@ -862,9 +864,9 @@ export class LayerCompositor {
       // The GPU stack accumulates in float, so it needs the same extension the effect layers do.
       if (!this.floatTargetsAvailable()) return null;
     }
+    if (readsLayers && !this.floatTargetsAvailable()) return null;
     const started = performance.now();
     const texture = this.gpuStack(stack, masks, width, height, clipTime, mattes, picture);
-    if (readsLayers && !this.floatTargetsAvailable()) return null;
     // Submission time: the GPU runs the chain later. Its real cost is read from the composite
     // channels with and without the chain (`PX5-BUDGETS.md`), not from this sample.
     this.telemetry?.record(readsPicture ? 'keyStack' : 'matteStack', performance.now() - started);
@@ -1006,8 +1008,6 @@ export class LayerCompositor {
     return this.keyFinesse(qualified, mask.finesse, uniforms).texture;
   }
 
-  /** `apply_finesse` then `layer_alpha`, in the order `key_mask_alpha` chains them. */
-  private keyFinesse(
   /**
    * One track matte's alpha (MK8.2): the source composited alone on a transparent frame, read
    * where each of this clip's pixels lands (`MASK_LAYER_FRAGMENT`), then the key's finesse passes
@@ -1111,6 +1111,8 @@ export class LayerCompositor {
     return frame;
   }
 
+  /** `apply_finesse` then `layer_alpha`, in the order `key_mask_alpha` chains them. */
+  private keyFinesse(
     qualified: RenderTarget,
     finesse: KeyMask['finesse'],
     uniforms: ReturnType<typeof keyUniforms>,

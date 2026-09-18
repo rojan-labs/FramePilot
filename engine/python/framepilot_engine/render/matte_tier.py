@@ -34,6 +34,17 @@ the tier only when those equal the digests its mask pins - so a re-processed art
 be decontaminated with a stale tier; it falls back to the masters until a new tier is made.
 
 The export never reads a tier: it always decontaminates from the masters.
+
+**The alpha plane (PX5.8).** ``alpha.mkv`` beside the planes holds ``resample(samples /
+maximum, W, H, 1)`` for every frame, rounded to 16 bits and split into high then low byte rows
+(``W x 2H`` gray). That is exactly what ``to_frame`` makes of a matte layer's alpha when every
+step ``matte_alpha`` runs at SOURCE resolution is the identity at that instant
+(:func:`source_chain_is_identity`): no edge shift, no finesse (``edgeMode: 'sharp'`` supplies
+clean levels, so it is excluded), no expansion or feather. Every other control acts before the
+resample and cannot be moved after it (clean levels and morphology are not linear, the feather
+redraws the 50 % contour at source resolution), so for those the monitor keeps decoding the
+source-size alpha. Invert and opacity act after the resample, on the frame, and are applied by
+the monitor as always. The loss is the same half step as the weight's: 1/131070.
 """
 
 from __future__ import annotations
@@ -51,7 +62,8 @@ import numpy.typing as npt
 
 from framepilot_engine.media.ffmpeg import find_ffmpeg
 from framepilot_engine.render.mask_raster import FloatArray
-from framepilot_engine.render.matte_edges import resample_taps
+from framepilot_engine.render.masks import mask_scalar_at
+from framepilot_engine.render.matte_edges import clean_levels, resample_taps
 from framepilot_engine.render.mattes import (
     FOREGROUND_FILE,
     FOREGROUND_PIXEL_FORMATS,
@@ -74,6 +86,10 @@ _log = logging.getLogger(__name__)
 MATTE_TIERS_DIR = ".framepilot-derived/matte-tiers"
 TIER_FILE = "tier.json"
 PLANES_FILE = "planes.mkv"
+#: PX5.8: the resampled alpha, for mattes whose source-pixel chain is the identity.
+ALPHA_FILE = "alpha.mkv"
+#: A resampled alpha in [0, 1] stored as round(alpha * ALPHA_SCALE).
+ALPHA_SCALE = 65535
 TIER_VERSION = 1
 TIER_KIND = "framepilot.matte-monitor-tier"
 #: A band weight in [0, 1] stored as round(weight * WEIGHT_SCALE).
@@ -177,6 +193,59 @@ def resample_limited(
     return _axis_outputs(horizontal, height, 0, ceiling, row_box)
 
 
+# --- When the alpha plane stands in for the source-size alpha (PX5.8) --------------------------
+
+
+def _scalar(mask: Any, name: str, source_time: float) -> float:
+    value = mask_scalar_at(mask, name, source_time)
+    return 0.0 if value is None else value
+
+
+def source_chain_is_identity(mask: Any, source_time: float) -> bool:
+    """Whether every step ``matte_alpha`` runs at SOURCE resolution leaves the alpha unchanged
+    at ``source_time``, so its ``to_frame`` is ``to_frame(samples / maximum)`` - the tier's
+    alpha plane at the decoded size.
+
+    Each condition is the one under which that step returns its input (``render/matte_edges``):
+    ``edge_shift`` for a shift of exactly 0; ``denoise``, ``morph_open``, ``morph_close`` and
+    ``blur`` for an amount or radius <= 0; ``apply_clean_levels`` for levels (0, 1) - after
+    :func:`~framepilot_engine.render.matte_edges.clean_levels`, so ``edgeMode: 'sharp'`` (which
+    supplies 0.25 / 0.75) is never the identity; ``shrink_grow`` and ``in_out_ratio`` for
+    exactly 0; ``distance_feather`` for expansion 0 and both feathers (clamped at 0) 0. The
+    scalars are read at the instant, so a keyframed edge control uses the plane only where it
+    is 0.
+    """
+    finesse = mask.finesse
+    return (
+        _scalar(mask, "edgeShiftPx", source_time) == 0.0
+        and float(finesse.denoise) <= 0.0
+        and clean_levels(mask) == (0.0, 1.0)
+        and float(finesse.morph_open_px) <= 0.0
+        and float(finesse.morph_close_px) <= 0.0
+        and float(finesse.shrink_grow_px) == 0.0
+        and float(finesse.blur_px) <= 0.0
+        and float(finesse.in_out_ratio) == 0.0
+        and _scalar(mask, "expansionPx", source_time) == 0.0
+        and max(_scalar(mask, "featherInnerPx", source_time), 0.0) == 0.0
+        and max(_scalar(mask, "featherOuterPx", source_time), 0.0) == 0.0
+    )
+
+
+def alpha_plane(
+    alpha_int: npt.NDArray[Any], maximum: int, width: int, height: int
+) -> npt.NDArray[np.uint16]:
+    """One matte frame's alpha at ``width x height``, quantised: ``round(resample(samples /
+    maximum, width, height, 1) * ALPHA_SCALE)``. ``samples / maximum`` is ``edge_shift`` by 0
+    (the integer samples as float64 divided by the maximum), and :func:`resample_limited` is
+    ``resample`` value for value.
+
+    :returns: ``(height, width)`` uint16.
+    """
+    alpha = alpha_int.astype(np.float64) / float(maximum)
+    resampled = resample_limited(alpha, width, height, 1.0, _box(alpha_int > 0))
+    return np.rint(resampled * ALPHA_SCALE).astype(np.uint16)
+
+
 # --- One frame's planes ------------------------------------------------------------------------
 
 
@@ -221,6 +290,24 @@ def split_bytes(stacked: npt.NDArray[np.uint16]) -> npt.NDArray[np.uint8]:
     return out
 
 
+def split_plane_bytes(values: npt.NDArray[np.uint16]) -> npt.NDArray[np.uint8]:
+    """One ``(H, W)`` 16-bit plane as the ``(2H, W)`` byte frame ``alpha.mkv`` stores: high-byte
+    rows, then low-byte rows (the planes' layout, for one plane)."""
+    height = values.shape[0]
+    out = np.empty((2 * height, values.shape[1]), dtype=np.uint8)
+    out[0:height] = values >> 8
+    out[height:] = values & 0xFF
+    return out
+
+
+def join_plane_bytes(frame: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint16]:
+    """The inverse of :func:`split_plane_bytes`."""
+    height = frame.shape[0] // 2
+    out = np.empty((height, frame.shape[1]), dtype=np.uint16)
+    out[:] = (frame[0:height].astype(np.uint16) << 8) | frame[height:].astype(np.uint16)
+    return out
+
+
 def join_bytes(frame: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint16]:
     """The inverse of :func:`split_bytes`."""
     height = frame.shape[0] // 8
@@ -255,60 +342,107 @@ def tier_directory(base_dir: Path, key: str) -> Path | None:
         return None
 
 
+class GrayEncoder:
+    """One intra-only ``gray`` FFV1 stream (``-g 1``, slice CRCs), as the pack writes its
+    masters, fed raw ``rows x width`` byte frames on stdin."""
+
+    def __init__(self, path: Path, width: int, rows: int) -> None:
+        argv = validate_safe_argv(
+            [
+                find_ffmpeg(),
+                "-nostdin",
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "gray",
+                "-s",
+                f"{width}x{rows}",
+                "-r",
+                "30",
+                "-i",
+                "-",
+                "-c:v",
+                "ffv1",
+                "-level",
+                "3",
+                "-g",
+                "1",
+                "-slicecrc",
+                "1",
+                "-pix_fmt",
+                "gray",
+                "-f",
+                "matroska",
+                str(path),
+            ]
+        )
+        self.shape = (rows, width)
+        self.count = 0
+        self._process = subprocess.Popen(argv, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def write(self, frame: npt.NDArray[np.uint8]) -> None:
+        if frame.shape != self.shape or frame.dtype != np.uint8:
+            raise MatteTierError("A tier frame has the wrong shape.")
+        assert self._process.stdin is not None
+        self._process.stdin.write(np.ascontiguousarray(frame).tobytes())
+        self.count += 1
+
+    def finish(self) -> int:
+        """Close the stream and wait for ffmpeg; returns the frame count."""
+        if self._process.stdin is not None and not self._process.stdin.closed:
+            self._process.stdin.close()
+        assert self._process.stderr is not None
+        stderr = self._process.stderr.read()
+        if self._process.wait(timeout=600) != 0:
+            raise MatteTierError(
+                f"The tier encode failed: {stderr.decode(errors='replace')[-300:]}"
+            )
+        return self.count
+
+    def abort(self) -> None:
+        """Stop ffmpeg after a failure elsewhere (the partial file is discarded by the caller)."""
+        if self._process.stdin is not None and not self._process.stdin.closed:
+            self._process.stdin.close()
+        if self._process.poll() is None:
+            self._process.kill()
+        self._process.wait(timeout=60)
+
+
 def encode_planes(
     path: Path, frames: Iterable[npt.NDArray[np.uint16]], width: int, height: int
 ) -> int:
     """Stream stacked 16-bit planes, split to bytes (:func:`split_bytes`), into intra-only
     ``gray`` FFV1 (``-g 1``, slice CRCs) as the pack writes its masters; returns the count."""
-    argv = validate_safe_argv(
-        [
-            find_ffmpeg(),
-            "-nostdin",
-            "-v",
-            "error",
-            "-y",
-            "-f",
-            "rawvideo",
-            "-pix_fmt",
-            "gray",
-            "-s",
-            f"{width}x{8 * height}",
-            "-r",
-            "30",
-            "-i",
-            "-",
-            "-c:v",
-            "ffv1",
-            "-level",
-            "3",
-            "-g",
-            "1",
-            "-slicecrc",
-            "1",
-            "-pix_fmt",
-            "gray",
-            "-f",
-            "matroska",
-            str(path),
-        ]
-    )
-    process = subprocess.Popen(argv, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-    count = 0
+    encoder = GrayEncoder(path, width, 8 * height)
     try:
-        assert process.stdin is not None
         for stacked in frames:
             if stacked.shape != (4 * height, width) or stacked.dtype != np.uint16:
                 raise MatteTierError("A tier frame has the wrong shape.")
-            process.stdin.write(np.ascontiguousarray(split_bytes(stacked)).tobytes())
-            count += 1
-    finally:
-        if process.stdin is not None:
-            process.stdin.close()
-    assert process.stderr is not None
-    stderr = process.stderr.read()
-    if process.wait(timeout=600) != 0:
-        raise MatteTierError(f"The tier encode failed: {stderr.decode(errors='replace')[-300:]}")
-    return count
+            encoder.write(split_bytes(stacked))
+    except BaseException:
+        encoder.abort()
+        raise
+    return encoder.finish()
+
+
+def encode_alpha(
+    path: Path, frames: Iterable[npt.NDArray[np.uint16]], width: int, height: int
+) -> int:
+    """Stream 16-bit alpha planes (:func:`alpha_plane`), split to bytes
+    (:func:`split_plane_bytes`), into intra-only ``gray`` FFV1; returns the count."""
+    encoder = GrayEncoder(path, width, 2 * height)
+    try:
+        for values in frames:
+            if values.shape != (height, width) or values.dtype != np.uint16:
+                raise MatteTierError("A tier alpha frame has the wrong shape.")
+            encoder.write(split_plane_bytes(values))
+    except BaseException:
+        encoder.abort()
+        raise
+    return encoder.finish()
 
 
 def tier_manifest(
@@ -317,8 +451,25 @@ def tier_manifest(
     frame_count: int,
     source: Mapping[str, Any],
     planes_bytes: int,
+    alpha_bytes: int | None = None,
 ) -> dict[str, Any]:
-    """``tier.json``: what the tier is, and exactly which masters it was made from."""
+    """``tier.json``: what the tier is, and exactly which masters it was made from.
+
+    :param alpha_bytes: The size of ``alpha.mkv`` (PX5.8), or ``None`` for a tier without it,
+        whose ``tier.json`` then has no ``alpha`` entry (a reader treats that as no plane).
+    """
+    alpha = (
+        {}
+        if alpha_bytes is None
+        else {
+            "alpha": {
+                "file": ALPHA_FILE,
+                "bytes": alpha_bytes,
+                "layout": PLANE_LAYOUT,
+                "scale": ALPHA_SCALE,
+            }
+        }
+    )
     return {
         "version": TIER_VERSION,
         "kind": TIER_KIND,
@@ -333,6 +484,7 @@ def tier_manifest(
             "weightScale": WEIGHT_SCALE,
             "colourScale": COLOUR_SCALE,
         },
+        **alpha,
         "resample": "swscale-bicubic-b0-c0.6-float64",
         "source": dict(source),
     }
@@ -413,19 +565,41 @@ def write_monitor_tier(
         lru_frames=1,
     )
     partial = out_dir / f"{PLANES_FILE}.partial"
+    alpha_partial = out_dir / f"{ALPHA_FILE}.partial"
+    # One pass over the masters feeds both streams: the planes and (PX5.8) the alpha plane.
+    planes = GrayEncoder(partial, width, 8 * height)
+    alphas = GrayEncoder(alpha_partial, width, 2 * height)
     try:
-
-        def stacked() -> Iterable[npt.NDArray[np.uint16]]:
-            for index in range(frames.count):
-                frame = reader.frame(index)
-                assert frame.foreground is not None
-                yield tier_planes(frame.alpha, frame.maximum, frame.foreground, width, height)
-
-        count = encode_planes(partial, stacked(), width, height)
+        for index in range(frames.count):
+            frame = reader.frame(index)
+            assert frame.foreground is not None
+            planes.write(
+                split_bytes(
+                    tier_planes(frame.alpha, frame.maximum, frame.foreground, width, height)
+                )
+            )
+            alphas.write(split_plane_bytes(alpha_plane(frame.alpha, frame.maximum, width, height)))
+        count = planes.finish()
+        if alphas.finish() != count:
+            raise MatteTierError("The tier alpha has a different frame count.")
+    except BaseException:
+        planes.abort()
+        alphas.abort()
+        partial.unlink(missing_ok=True)
+        alpha_partial.unlink(missing_ok=True)
+        raise
     finally:
         reader.close()
     partial.replace(out_dir / PLANES_FILE)
-    manifest = tier_manifest(width, height, count, source, (out_dir / PLANES_FILE).stat().st_size)
+    alpha_partial.replace(out_dir / ALPHA_FILE)
+    manifest = tier_manifest(
+        width,
+        height,
+        count,
+        source,
+        (out_dir / PLANES_FILE).stat().st_size,
+        (out_dir / ALPHA_FILE).stat().st_size,
+    )
     pending = out_dir / f"{TIER_FILE}.partial"
     pending.write_text(json.dumps(manifest, indent=1), encoding="utf-8")
     pending.replace(out_dir / TIER_FILE)

@@ -9,9 +9,15 @@ import { describe, expect, it } from 'vitest';
 import { ClipSchema } from '@framepilot/timeline-schema';
 
 import {
+  TIER_ALPHA_SCALE,
   TIER_COLOUR_SCALE,
   TIER_WEIGHT_SCALE,
   applyFinesse,
+  matteAlphaTierable,
+  matteFrameAlpha,
+  sourceChainIsIdentity,
+  type MatteAlphaPlane,
+  type MatteSourceControls,
   decontaminate,
   decontaminateFromPlanes,
   finesseIsIdentity,
@@ -22,6 +28,7 @@ import {
   type MattePlanes,
 } from './matte-edges';
 import {
+  type MatteMask,
   clipMaskStack,
   stackAlphaAt,
   type MaskStackTarget,
@@ -262,7 +269,7 @@ describe('decontamination from the monitor tier (PX5.3)', () => {
     const band = new Float64Array(pixels);
     const colour = new Float64Array(pixels * 3);
     for (let i = 0; i < pixels; i += 1) {
-      const inBand = frame.alpha[i]! > 0 && frame.alpha[i]! < frame.maximum ? 1 : 0;
+      const inBand = frame.alpha![i]! > 0 && frame.alpha![i]! < frame.maximum ? 1 : 0;
       band[i] = inBand;
       for (let ch = 0; ch < 3; ch += 1)
         colour[i * 3 + ch] = frame.foreground![i * 3 + ch]! * inBand;
@@ -329,3 +336,159 @@ describe('decontamination from the monitor tier (PX5.3)', () => {
     },
   );
 });
+
+describe('the tier alpha plane (PX5.8)', () => {
+  const IDENTITY_FINESSE: MaskFinesseValues = {
+    denoise: 0,
+    morphOpenPx: 0,
+    morphClosePx: 0,
+    shrinkGrowPx: 0,
+    blurPx: 0,
+    inOutRatio: 0,
+    cleanBlack: 0,
+    cleanWhite: 1,
+  };
+  const IDENTITY: MatteSourceControls = {
+    levels: [0, 1],
+    finesse: IDENTITY_FINESSE,
+    shiftPx: 0,
+    feather: { expansion: 0, featherInner: 0, featherOuter: 0 },
+  };
+  /** Half the plane's quantisation step, plus float noise from the crop resample. */
+  const TOLERANCE = 0.5 / TIER_ALPHA_SCALE + 1e-12;
+
+  it('takes the plane exactly where every source-resolution step is the identity', () => {
+    expect(sourceChainIsIdentity(IDENTITY)).toBe(true);
+    const off: Partial<MatteSourceControls>[] = [
+      { levels: [0.25, 0.75] },
+      { levels: [0.1, 1] },
+      { shiftPx: 0.5 },
+      { shiftPx: -1 },
+      { feather: { expansion: 1, featherInner: 0, featherOuter: 0 } },
+      { feather: { expansion: 0, featherInner: 2, featherOuter: 0 } },
+      { feather: { expansion: 0, featherInner: 0, featherOuter: 0.5 } },
+      ...(
+        ['denoise', 'morphOpenPx', 'morphClosePx', 'shrinkGrowPx', 'blurPx', 'inOutRatio'] as const
+      ).map((name) => ({ finesse: { ...IDENTITY_FINESSE, [name]: 0.5 } })),
+      { finesse: { ...IDENTITY_FINESSE, shrinkGrowPx: -0.5 } },
+      { finesse: { ...IDENTITY_FINESSE, inOutRatio: -0.2 } },
+    ];
+    for (const change of off) expect(sourceChainIsIdentity({ ...IDENTITY, ...change })).toBe(false);
+    // `<= 0` is the identity for these (the export returns its input), as for the GPU chain.
+    expect(
+      sourceChainIsIdentity({ ...IDENTITY, finesse: { ...IDENTITY_FINESSE, blurPx: -1 } }),
+    ).toBe(true);
+  });
+
+  it('decodes by the plane only for a matte that qualifies at every instant', () => {
+    const mask = (fields: Record<string, unknown> = {}) =>
+      ({
+        edgeMode: 'smooth',
+        edgeShiftPx: 0,
+        expansionPx: 0,
+        featherInnerPx: 0,
+        featherOuterPx: 0,
+        finesse: IDENTITY_FINESSE,
+        keyframes: [],
+        ...fields,
+      }) as unknown as MatteMask;
+    expect(matteAlphaTierable(mask())).toBe(true);
+    expect(matteAlphaTierable(mask({ featherOuterPx: -2 }))).toBe(true);
+    expect(matteAlphaTierable(mask({ edgeMode: 'sharp' }))).toBe(false);
+    expect(matteAlphaTierable(mask({ edgeShiftPx: 1 }))).toBe(false);
+    expect(
+      matteAlphaTierable(
+        mask({ keyframes: [{ id: 'k', sourceTime: 0, property: 'featherOuterPx', value: 0 }] }),
+      ),
+    ).toBe(false);
+  });
+
+  /** A soft disc at 96x54 and its plane at the decoded size (`alpha_plane`). */
+  function frameWithPlane(decoded: [number, number]): {
+    samples: MatteFrameData;
+    planeOnly: MatteFrameData;
+  } {
+    const [sw, sh] = [96, 54];
+    const alpha = new Uint8Array(sw * sh);
+    for (let y = 0; y < sh; y += 1) {
+      for (let x = 0; x < sw; x += 1) {
+        const distance = Math.hypot(x - sw * 0.45, y - sh * 0.5);
+        alpha[y * sw + x] = Math.round(Math.min(Math.max((16 - distance) / 6, 0), 1) * 255);
+      }
+    }
+    const float = Float64Array.from(alpha, (value) => value / 255);
+    const [w, h] = decoded;
+    const resampled = resample({ width: sw, height: sh, channels: 1, data: float }, w, h, 1).data;
+    const data = new Uint8Array(w * h * 2);
+    for (let i = 0; i < w * h; i += 1) {
+      const value = Math.round(resampled[i]! * TIER_ALPHA_SCALE);
+      data[i] = value >> 8;
+      data[w * h + i] = value & 0xff;
+    }
+    const plane: MatteAlphaPlane = { width: w, height: h, data };
+    const samples: MatteFrameData = {
+      id: 'a@0',
+      width: sw,
+      height: sh,
+      maximum: 255,
+      alpha,
+      foreground: null,
+    };
+    return { samples, planeOnly: { ...samples, alpha: null, alphaPlane: plane } };
+  }
+
+  it.each([
+    { name: 'uncropped', crop: null, frame: [40, 22] as [number, number] },
+    {
+      name: 'cropped',
+      crop: { x: 0.05, y: 0.1, width: 0.85, height: 0.8 },
+      frame: [int(0.9 * 40) - int(0.05 * 40), int(0.9 * 22) - int(0.1 * 22)] as [number, number],
+    },
+  ])('draws $name from the plane within its half step of the samples', ({ crop, frame }) => {
+    const decoded: [number, number] = [40, 22];
+    const { samples, planeOnly } = frameWithPlane(decoded);
+    const draw = (source: MatteFrameData) =>
+      matteFrameAlpha(
+        source,
+        IDENTITY.levels,
+        IDENTITY_FINESSE,
+        0,
+        { expansion: 0, featherInner: 0, featherOuter: 0, falloff: 'smooth' },
+        crop,
+        frame[0],
+        frame[1],
+        decoded[0],
+        decoded[1],
+      );
+    const exact = draw(samples);
+    const fromPlane = draw(planeOnly);
+    expect(fromPlane.length).toBe(exact.length);
+    let worst = 0;
+    for (let i = 0; i < exact.length; i += 1) {
+      worst = Math.max(worst, Math.abs(fromPlane[i]! - exact[i]!));
+    }
+    expect(worst).toBeLessThanOrEqual(TOLERANCE);
+  });
+
+  it('never draws a sharp matte from the plane', () => {
+    const { planeOnly } = frameWithPlane([40, 22]);
+    expect(() =>
+      matteFrameAlpha(
+        planeOnly,
+        [0.25, 0.75],
+        IDENTITY_FINESSE,
+        0,
+        { expansion: 0, featherInner: 0, featherOuter: 0, falloff: 'smooth' },
+        null,
+        40,
+        22,
+        40,
+        22,
+      ),
+    ).toThrow(/without its samples/);
+  });
+});
+
+function int(value: number): number {
+  return Math.trunc(value);
+}

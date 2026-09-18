@@ -22,10 +22,13 @@ import { maskScalar } from '../../masks/mask-stack.js';
 import { MAX_KEY_MORPH_PX } from '../../masks/key-mask.js';
 import { gaussianFalloffTable, type MaskFalloff } from '../../masks/mask-raster.js';
 import {
+  alphaPlaneFits,
   cleanLevels,
   cropSlices,
   resampleTaps,
+  sourceChainIsIdentity,
   type CropFractions,
+  type MatteAlphaPlane,
   type MatteFrameData,
   type MattePlanes,
 } from '../../masks/matte-edges.js';
@@ -39,6 +42,7 @@ import {
   MATTE_FEATHER_FRAGMENT,
   MATTE_RESAMPLE_FRAGMENT,
   MATTE_ROW_DISTANCE_FRAGMENT,
+  MATTE_TIER_ALPHA_FRAGMENT,
   MATTE_TIER_PLANES_FRAGMENT,
   MATTE_TO_FLOAT_FRAGMENT,
   FALLOFF_TABLE_SIDE,
@@ -103,6 +107,28 @@ function edgeValues(mask: MatteMask, s: number): MatteEdgeValues {
   };
 }
 
+/**
+ * PX5.8: the tier's alpha plane when it stands in for the source chain at this instant: the
+ * chain is the identity and the plane is at the decoded size. `null` otherwise.
+ */
+function tierAlpha(
+  mask: MatteMask,
+  frame: MatteFrameData,
+  geometry: MatteFrameGeometry,
+  edge: MatteEdgeValues,
+): MatteAlphaPlane | null {
+  const identity = sourceChainIsIdentity({
+    levels: cleanLevels(mask),
+    finesse: mask.finesse,
+    shiftPx: edge.shiftPx,
+    feather: edge,
+  });
+  if (!identity || !alphaPlaneFits(frame, geometry.decodedWidth, geometry.decodedHeight)) {
+    return null;
+  }
+  return frame.alphaPlane;
+}
+
 /** `resample_taps`' tap count for one axis; 0 when the axis is not resampled. */
 function tapCount(source: number, size: number): number {
   return source === size ? 0 : 2 * Math.ceil(2.0 * Math.max(source / size, 1.0));
@@ -143,6 +169,10 @@ export class MattePass {
     s: number,
   ): boolean {
     const edge = edgeValues(mask, s);
+    const plane = tierAlpha(mask, frame, geometry, edge);
+    if (plane !== null) return this.carriesAlphaPlane(plane, geometry);
+    // Without the plane the samples are needed; the lookup always decodes them then.
+    if (frame.alpha === null) return false;
     const { morphOpenPx, morphClosePx, shrinkGrowPx, blurPx } = mask.finesse;
     const widestMorph = Math.max(
       Math.abs(edge.shiftPx),
@@ -174,6 +204,13 @@ export class MattePass {
     return geometryCarried(frame.planes.width, frame.planes.height, geometry);
   }
 
+  /** PX5.8: whether a tier alpha plane fits the texture limit and the crop's resample. */
+  private carriesAlphaPlane(plane: MatteAlphaPlane, geometry: MatteFrameGeometry): boolean {
+    const limit = this.textureLimit();
+    if (plane.width > limit || 2 * plane.height > limit) return false;
+    return geometryCarried(plane.width, plane.height, geometry);
+  }
+
   private textureLimit(): number {
     const gl = this.resources.gl;
     this.maxTextureSize ??= gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
@@ -195,22 +232,7 @@ export class MattePass {
     const r = this.resources;
     const gl = r.gl;
     const edge = edgeValues(mask, s);
-    const samples = r.keyedTexture(
-      `${frame.id}|alpha`,
-      frame.width,
-      frame.height,
-      frame.alpha instanceof Uint16Array ? 'r16' : 'r8',
-      frame.alpha,
-    );
-    const levels = cleanLevels(mask);
-    const placed = pointwiseChain(mask.finesse, edge)
-      ? this.pointwiseToFrame(samples, frame, geometry, levels, mask.finesse.inOutRatio)
-      : this.toFrame(
-          this.sourceChain(samples, frame, mask, edge, levels),
-          geometry,
-          'r32f',
-          ALPHA_CEILING,
-        );
+    const placed = this.placedAlpha(mask, frame, geometry, edge);
     const opacity = maskScalar(mask, 'opacity', s);
     const out = r.target(geometry.width, geometry.height, 'r32f');
     const program = r.program('matte-crop', MATTE_CROP_FRAGMENT);
@@ -222,6 +244,61 @@ export class MattePass {
     gl.uniform1f(program.location('u_opacity'), opacity <= 0 ? 0 : opacity >= 1 ? 1 : opacity);
     r.draw(out, out.width, out.height);
     return out.texture;
+  }
+
+  /** `to_frame` of the layer's source chain: from the tier's alpha plane when it stands in. */
+  private placedAlpha(
+    mask: MatteMask,
+    frame: MatteFrameData,
+    geometry: MatteFrameGeometry,
+    edge: MatteEdgeValues,
+  ): { target: RenderTarget; x: number; y: number } {
+    const plane = tierAlpha(mask, frame, geometry, edge);
+    if (plane !== null) return this.alphaFromPlane(frame, plane, geometry);
+    if (frame.alpha === null) throw new Error('A matte frame without its samples reached the GPU.');
+    const samples = this.resources.keyedTexture(
+      `${frame.id}|alpha`,
+      frame.width,
+      frame.height,
+      frame.alpha instanceof Uint16Array ? 'r16' : 'r8',
+      frame.alpha,
+    );
+    const levels = cleanLevels(mask);
+    return pointwiseChain(mask.finesse, edge)
+      ? this.pointwiseToFrame(samples, frame, geometry, levels, mask.finesse.inOutRatio)
+      : this.toFrame(
+          this.sourceChain(samples, frame, mask, edge, levels),
+          geometry,
+          'r32f',
+          ALPHA_CEILING,
+        );
+  }
+
+  /**
+   * PX5.8: the tier's alpha plane (the export's resample of the samples to the decoded size) as
+   * a float alpha, then the crop as for any decoded-size plane. One `W × 2H` byte upload per
+   * frame instead of the source-size samples and their resample.
+   */
+  private alphaFromPlane(
+    frame: MatteFrameData,
+    plane: MatteAlphaPlane,
+    geometry: MatteFrameGeometry,
+  ): { target: RenderTarget; x: number; y: number } {
+    const r = this.resources;
+    const stacked = r.keyedTexture(
+      `${frame.id}|alphaPlane`,
+      plane.width,
+      2 * plane.height,
+      'r8',
+      plane.data,
+    );
+    const decoded = r.target(plane.width, plane.height, 'r32f');
+    const program = r.program('matte-tier-alpha', MATTE_TIER_ALPHA_FRAGMENT);
+    r.gl.useProgram(program.handle);
+    r.bind(program, 'u_alpha', 0, stacked);
+    program.int('u_height', plane.height);
+    r.draw(decoded, decoded.width, decoded.height);
+    return this.cropToFrame(decoded, geometry, 'r32f', ALPHA_CEILING);
   }
 
   /**
@@ -306,6 +383,7 @@ export class MattePass {
   ): RenderTarget {
     const foreground = frame.foreground;
     if (foreground === null) return picture;
+    if (frame.alpha === null) throw new Error('A decontaminating matte frame has no samples.');
     const r = this.resources;
     const gl = r.gl;
     const samples = r.keyedTexture(

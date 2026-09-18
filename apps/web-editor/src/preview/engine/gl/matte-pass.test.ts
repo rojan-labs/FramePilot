@@ -267,3 +267,72 @@ describe('MattePass', () => {
     expect(pass.carries(carried, frame(20000, 54), geometry(), 0)).toBe(false);
   });
 });
+
+describe('MattePass and the tier alpha plane (PX5.8)', () => {
+  const soft = (changes: Record<string, unknown> = {}) =>
+    matteMask({
+      edgeMode: 'smooth',
+      edgeShiftPx: 0,
+      expansionPx: 0,
+      featherInnerPx: 0,
+      featherOuterPx: 0,
+      finesse: IDENTITY_FINESSE,
+      ...changes,
+    });
+  /** A frame carrying only the tier's alpha plane at the decoded size, no 4K samples. */
+  const planeOnly = (width = 96, height = 54): MatteFrameData => ({
+    ...frame(384, 216),
+    alpha: null,
+    alphaPlane: { width, height, data: new Uint8Array(width * height * 2) },
+  });
+
+  it('draws a soft matte from the plane: one conversion, the tail, no samples', () => {
+    const { resources, recorded } = recordingResources();
+    const pass = new MattePass(resources);
+    expect(pass.carries(soft(), planeOnly(), geometry(), 0)).toBe(true);
+    pass.layer(soft({ invert: true, opacity: 0.5 }), planeOnly(), geometry(), 0);
+    expect(recorded.passes).toEqual(['matte-tier-alpha', 'matte-crop']);
+    expect(recorded.uploads).toEqual(['artifact@7|alphaPlane']);
+  });
+
+  it('crops and resamples the plane like any decoded-size plane', () => {
+    const { resources, recorded } = recordingResources();
+    const crop = { x: 0.25, y: 0, width: 0.5, height: 1 };
+    new MattePass(resources).layer(soft(), planeOnly(), geometry({ crop, width: 96 }), 0);
+    expect(recorded.passes).toEqual([
+      'matte-tier-alpha',
+      'matte-crop',
+      'matte-resample',
+      'matte-crop',
+    ]);
+  });
+
+  it('prefers the plane to the samples when both are there and the chain qualifies', () => {
+    const { resources, recorded } = recordingResources();
+    const both = { ...planeOnly(), alpha: new Uint8Array(384 * 216) };
+    new MattePass(resources).layer(soft(), both, geometry(), 0);
+    expect(recorded.uploads).toEqual(['artifact@7|alphaPlane']);
+  });
+
+  it.each([
+    ['sharp', { edgeMode: 'sharp' }],
+    ['an edge shift', { edgeShiftPx: 1 }],
+    ['a feather', { featherOuterPx: 2 }],
+    ['clean levels', { finesse: { ...IDENTITY_FINESSE, cleanBlack: 0.1 } }],
+  ])('keeps the samples for a matte with %s', (_name, changes) => {
+    const { resources, recorded } = recordingResources();
+    const pass = new MattePass(resources);
+    const both = { ...planeOnly(), alpha: new Uint8Array(384 * 216) };
+    pass.layer(soft(changes), both, geometry(), 0);
+    expect(recorded.uploads).toEqual(['artifact@7|alpha']);
+    // Without the samples there is nothing it may draw from: the CPU twin is asked instead.
+    expect(pass.carries(soft(changes), planeOnly(), geometry(), 0)).toBe(false);
+  });
+
+  it('keeps the samples where the picture was decoded at another size', () => {
+    const { resources, recorded } = recordingResources();
+    const both = { ...planeOnly(48, 27), alpha: new Uint8Array(384 * 216) };
+    new MattePass(resources).layer(soft(), both, geometry(), 0);
+    expect(recorded.uploads).toEqual(['artifact@7|alpha']);
+  });
+});

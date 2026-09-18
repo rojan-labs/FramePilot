@@ -179,6 +179,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   a seek in about 50 ms. The picture is the same: it still matches the export within the same
   checks as before. The desktop app does not make that small copy yet, so there a matte plays
   noticeably better than before but still drops some frames; seeks are fast either way.
+- **A background removal with its default soft edge costs the monitor less.** Its small copy now
+  also holds the cut-out's outline at the monitor's size, so the monitor no longer decodes the
+  full-resolution outline every frame (about 16 ms of background work per frame on a 4K clip).
+  Cut-outs with a sharp edge or any edge adjustment still use the full-resolution outline, because
+  those adjustments change the edge before it is scaled. The picture is the same as before.
 
 ### Fixed
 

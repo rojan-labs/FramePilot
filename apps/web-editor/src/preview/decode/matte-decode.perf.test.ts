@@ -12,6 +12,9 @@
  * foreground wherever the picture is decoded at the tier's size: four 16-bit planes at 960x540,
  * stored as eight byte planes.
  *
+ * PX5.8: and its `alpha.mkv`, which replaces the 4K `matte.mkv` for a soft matte (one 16-bit
+ * plane at 960x540, stored as two byte planes).
+ *
  * Needs the generated fixture (`pnpm px5:fixture`, or FRAMEPILOT_PX5_FIXTURE=<dir>); skips with
  * a message when it is absent. Runs only with FRAMEPILOT_RUN_PERF=1. Numbers and their meaning:
  * `plan/background-removal-ai/PX5-BUDGETS.md`.
@@ -94,6 +97,17 @@ describe('4K matte frame decode cost (PX5)', () => {
           p50: p50.toFixed(1),
           p95: p95.toFixed(1),
         });
+        const alpha = path.join(FIXTURE, manifest.tier.root, manifest.matte.key, 'alpha.mkv');
+        if (existsSync(alpha)) {
+          const measured = await measure(alpha, [width, 2 * height]);
+          rows.push({
+            name: 'tier alpha.mkv',
+            size: `${width}x${2 * height}`,
+            format: measured.format,
+            p50: measured.p50.toFixed(1),
+            p95: measured.p95.toFixed(1),
+          });
+        }
       }
       console.info(`[PX5 matte decode] ms per frame\n${JSON.stringify(rows, null, 1)}`);
       expect(rows.length).toBeGreaterThanOrEqual(2);

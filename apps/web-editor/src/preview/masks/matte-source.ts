@@ -34,11 +34,16 @@ import {
 } from '../decode/matte-decode-pool.js';
 import type { MatteMask } from './mask-stack.js';
 import {
+  TIER_ALPHA_SCALE,
   TIER_COLOUR_SCALE,
   TIER_WEIGHT_SCALE,
+  alphaPlaneFits,
+  matteAlphaTierable,
   planesFit,
+  type MatteAlphaPlane,
   type MatteFrameData,
   type MattePlanes,
+  type MatteSamples,
 } from './matte-edges.js';
 
 const log = createLogger('web-editor:preview:matte-source');
@@ -97,6 +102,11 @@ export type MatteTierLocator = (artifactKey: string, fileName: string) => string
 export interface MatteTier {
   readonly width: number;
   readonly height: number;
+  /**
+   * PX5.8: the tier has an alpha plane (`alpha.mkv`) at the same size, which stands in for the
+   * source-size samples of a mask whose source chain is the identity (`matteAlphaTierable`).
+   */
+  readonly alpha: boolean;
 }
 
 /** The decoded-frame store the engine shares between pictures and mattes. */
@@ -245,16 +255,24 @@ interface ArtifactState {
   tierInfo: MatteTier | null;
   /** `WxH` decode sizes lookups reported, newest last: which planes a prefetch should fetch. */
   sizes: string[];
+  /** 255 or 65535, once `matte.mkv` is open: a frame's maximum without decoding its samples. */
+  maximum: number | null;
 }
 
 /** What one decode of a frame must add to what is cached. */
 interface FrameWants {
+  /** The source-size samples (`matte.mkv`). PX5.8: not when every reader takes the plane. */
+  readonly samples: boolean;
   readonly foreground: boolean;
   readonly planes: boolean;
+  /** PX5.8: the tier's alpha plane. */
+  readonly alphaPlane: boolean;
 }
 
-const sourceIdOf = (key: string, file: 'matte' | 'foreground' | 'planes'): string =>
-  `matte:${key}:${file}`;
+const sourceIdOf = (
+  key: string,
+  file: 'matte' | 'foreground' | 'planes' | 'alpha-tier',
+): string => `matte:${key}:${file}`;
 const sizeKey = (width: number, height: number): string => `${width}x${height}`;
 
 /**
@@ -289,6 +307,18 @@ export function parseMatteTier(
   ) {
     throw new Error('tier.json planes are not the documented layout.');
   }
+  // PX5.8: an optional alpha plane; an entry that is not the documented layout makes the whole
+  // tier unusable (a derived file that is not what it says is not trusted in part).
+  const alpha = (doc.alpha ?? null) as Record<string, unknown> | null;
+  if (
+    alpha !== null &&
+    (typeof alpha !== 'object' ||
+      alpha.file !== 'alpha.mkv' ||
+      alpha.layout !== 'u16-hi-lo-bytes' ||
+      alpha.scale !== TIER_ALPHA_SCALE)
+  ) {
+    throw new Error('tier.json alpha is not the documented layout.');
+  }
   const source = doc.source as { width?: unknown; height?: unknown; files?: unknown } | null;
   if (
     source === null ||
@@ -305,7 +335,7 @@ export function parseMatteTier(
       throw new Error('tier.json was made from other masters.');
     }
   }
-  return { width: doc.width, height: doc.height };
+  return { width: doc.width, height: doc.height, alpha: alpha !== null };
 }
 export const matteCacheKey = (key: string, index: number): string => `matte:${key}@${index}`;
 
@@ -375,17 +405,22 @@ export class MatteSource {
     }
     const failed = this.failedFrames.get(`${mask.artifact.key}@${index}`);
     if (failed !== undefined) return refused(failed);
-    if (mask.decontaminate) this.loadTier(artifact);
-    // At this size, from the tier when it fits, else from the foreground master.
-    const fromPlanes =
-      mask.decontaminate &&
+    const tierable = matteAlphaTierable(mask);
+    if (mask.decontaminate || tierable) this.loadTier(artifact);
+    // At this size, from the tier when it fits, else from the masters.
+    const tier = artifact.tierInfo;
+    const tierFits =
       decoded !== null &&
-      artifact.tierInfo !== null &&
-      sizeKey(artifact.tierInfo.width, artifact.tierInfo.height) ===
-        sizeKey(decoded.width, decoded.height);
+      tier !== null &&
+      sizeKey(tier.width, tier.height) === sizeKey(decoded.width, decoded.height);
+    const fromPlanes = mask.decontaminate && tierFits;
+    // PX5.8: a mask whose source chain is always the identity reads the tier's alpha plane.
+    const fromAlphaPlane = tierable && tierFits && tier.alpha;
     const cached = this.cache.get(matteCacheKey(mask.artifact.key, index));
     if (
       cached !== undefined &&
+      (cached.alpha !== null ||
+        (fromAlphaPlane && alphaPlaneFits(cached, decoded.width, decoded.height))) &&
       (!mask.decontaminate ||
         cached.foreground !== null ||
         (decoded !== null && planesFit(cached, decoded.width, decoded.height)))
@@ -394,8 +429,10 @@ export class MatteSource {
     }
     this.markWanted(mask.artifact.key, index);
     void this.decode(artifact, index, {
+      samples: !fromAlphaPlane || (mask.decontaminate && !fromPlanes),
       foreground: mask.decontaminate && !fromPlanes,
       planes: fromPlanes,
+      alphaPlane: fromAlphaPlane,
     });
     return { state: 'pending' };
   }
@@ -408,6 +445,8 @@ export class MatteSource {
   debugState(mask: MatteMask): {
     /** PX5.3: the monitor tier's size when one matched the artifact, else `null`. */
     tier: string | null;
+    /** PX5.8: whether that tier's alpha plane opened. */
+    alphaTier: boolean;
     loaded: boolean;
     refusal: MatteRefusalCode | null;
     firstFrame: number | null;
@@ -419,6 +458,7 @@ export class MatteSource {
     const tier = state?.tierInfo ?? null;
     return {
       tier: tier === null ? null : sizeKey(tier.width, tier.height),
+      alphaTier: tier?.alpha ?? false,
       loaded: (state?.frames ?? null) !== null,
       refusal: state?.refusal ?? null,
       firstFrame: state?.frames?.firstFrame ?? null,
@@ -456,13 +496,15 @@ export class MatteSource {
         if (artifact.refusal !== null || frames === null) return;
         const index = sourceFrame - frames.firstFrame;
         if (index < 0 || index >= frames.pts.length) return;
-        if (mask.decontaminate) this.loadTier(artifact);
+        if (mask.decontaminate || matteAlphaTierable(mask)) this.loadTier(artifact);
         const wants = this.prefetchWants(artifact, mask);
         const cached = this.cache.get(matteCacheKey(mask.artifact.key, index));
         if (
           cached !== undefined &&
+          (!wants.samples || cached.alpha !== null) &&
           (!wants.foreground || cached.foreground !== null) &&
-          (!wants.planes || (cached.planes ?? null) !== null)
+          (!wants.planes || (cached.planes ?? null) !== null) &&
+          (!wants.alphaPlane || (cached.alphaPlane ?? null) !== null)
         ) {
           return;
         }
@@ -498,13 +540,17 @@ export class MatteSource {
    * has reported a size for yet, which is how the first seek of a clip still presents exactly.
    */
   private prefetchWants(state: ArtifactState, mask: MatteMask): FrameWants {
-    if (!mask.decontaminate) return { foreground: false, planes: false };
     const tier = state.tierInfo;
     const fits = (size: string): boolean =>
       tier !== null && size === sizeKey(tier.width, tier.height);
+    // A size the tier does not fit, or none reported yet: only the masters will do there.
+    const masters = state.sizes.length === 0 || state.sizes.some((size) => !fits(size));
+    const tierable = matteAlphaTierable(mask) && tier !== null && tier.alpha;
     return {
-      foreground: state.sizes.length === 0 || state.sizes.some((size) => !fits(size)),
-      planes: state.sizes.some(fits),
+      samples: !tierable || masters,
+      foreground: mask.decontaminate && masters,
+      planes: mask.decontaminate && state.sizes.some(fits),
+      alphaPlane: tierable && state.sizes.some(fits),
     };
   }
 
@@ -548,12 +594,14 @@ export class MatteSource {
         ) {
           throw new Error('planes.mkv is not what tier.json describes.');
         }
-        state.tierInfo = tier;
+        const ready = { ...tier, alpha: tier.alpha && (await this.openAlphaPlane(state, tier)) };
+        state.tierInfo = ready;
         log.debug('matte monitor tier ready', {
           artifact: state.key.slice(0, 12),
           size: sizeKey(tier.width, tier.height),
+          alpha: ready.alpha,
         });
-        return tier;
+        return ready;
       } catch (error) {
         log.warn('matte monitor tier unusable; the masters are decoded instead', {
           artifact: state.key.slice(0, 12),
@@ -562,6 +610,37 @@ export class MatteSource {
         return null;
       }
     })();
+  }
+
+  /**
+   * PX5.8: open the tier's `alpha.mkv` and check it is what `tier.json` says. `false` (the planes
+   * stay usable, the samples are decoded for the alpha) when it cannot be reached or is not.
+   */
+  private async openAlphaPlane(state: ArtifactState, tier: MatteTier): Promise<boolean> {
+    const url = this.options.locateTier?.()?.(state.key, 'alpha.mkv') ?? null;
+    if (url === null || state.frames === null) return false;
+    try {
+      const info = await this.client.loadMatte(
+        sourceIdOf(state.key, 'alpha-tier'),
+        url,
+        state.frames.pts.length,
+      );
+      if (
+        info.format !== 'gray8' ||
+        info.width !== tier.width ||
+        info.height !== 2 * tier.height ||
+        info.frameCount !== state.frames.pts.length
+      ) {
+        throw new Error('alpha.mkv is not what tier.json describes.');
+      }
+      return true;
+    } catch (error) {
+      log.warn('matte tier alpha unusable; the samples are decoded instead', {
+        artifact: state.key.slice(0, 12),
+        cause: describeCause(error),
+      });
+      return false;
+    }
   }
 
   /** Asking for a frame wants it until the next {@link want}, after the frames named there. */
@@ -606,7 +685,7 @@ export class MatteSource {
   prepare(masks: readonly MatteMask[]): void {
     for (const mask of masks) {
       const state = this.artifact(mask);
-      if (!mask.decontaminate) continue;
+      if (!mask.decontaminate && !matteAlphaTierable(mask)) continue;
       void state.ready.then(() => this.loadTier(state));
     }
   }
@@ -619,6 +698,7 @@ export class MatteSource {
       void this.client.unloadSource(sourceIdOf(key, 'matte')).catch(() => undefined);
       void this.client.unloadSource(sourceIdOf(key, 'foreground')).catch(() => undefined);
       void this.client.unloadSource(sourceIdOf(key, 'planes')).catch(() => undefined);
+      void this.client.unloadSource(sourceIdOf(key, 'alpha-tier')).catch(() => undefined);
     }
   }
 
@@ -638,6 +718,7 @@ export class MatteSource {
       tier: null,
       tierInfo: null,
       sizes: [],
+      maximum: null,
     };
     state.ready = this.loadArtifact(state, mask);
     this.artifacts.set(key, state);
@@ -685,7 +766,8 @@ export class MatteSource {
         throw new MatteArtifactError('matte_missing');
       }
       stage = 'open-matte';
-      await this.openFile(artifact, 'matte', parsed.pts.length);
+      const matte = await this.openFile(artifact, 'matte', parsed.pts.length);
+      state.maximum = matte.format === 'gray16' ? 65535 : 255;
       state.frames = parsed;
       log.debug('matte artifact ready', {
         artifact: state.key.slice(0, 12),
@@ -712,7 +794,7 @@ export class MatteSource {
     artifact: MatteMask['artifact'],
     file: 'matte' | 'foreground',
     frameCount: number,
-  ): Promise<void> {
+  ): Promise<Awaited<ReturnType<MatteDecoder['loadMatte']>>> {
     const locator = this.locate();
     if (locator === null) throw new MatteArtifactError('matte_unavailable');
     const url = locator(artifact.key, `${file}.mkv`);
@@ -734,6 +816,7 @@ export class MatteSource {
     if (info.width !== artifact.width || info.height !== artifact.height) {
       throw new MatteArtifactError('matte_size_mismatch');
     }
+    return info;
   }
 
   private foregroundReady(state: ArtifactState): Promise<MatteRefusalCode | null> {
@@ -757,7 +840,9 @@ export class MatteSource {
    * planes are asked for together, so on the matte pool they decode on separate workers at once.
    */
   private decode(state: ArtifactState, index: number, wants: FrameWants): Promise<void> {
-    const flightKey = `${state.key}@${index}@${wants.foreground ? 'fg' : ''}${wants.planes ? 'tier' : ''}`;
+    const flightKey =
+      `${state.key}@${index}@${wants.samples ? 'a' : ''}${wants.foreground ? 'fg' : ''}` +
+      `${wants.planes ? 'tier' : ''}${wants.alphaPlane ? 'ta' : ''}`;
     const pending = this.inFlight.get(flightKey);
     if (pending !== undefined) return pending;
     const run = (async () => {
@@ -765,13 +850,16 @@ export class MatteSource {
       const started = performance.now();
       try {
         const cached = this.cache.get(cacheKey);
-        const [alpha, foreground, planes] = await Promise.all([
-          cached ?? this.decodeAlpha(state, index),
+        const [samples, foreground, planes, alphaPlane] = await Promise.all([
+          wants.samples && (cached?.alpha ?? null) === null ? this.decodeAlpha(state, index) : null,
           wants.foreground && (cached?.foreground ?? null) === null
             ? this.decodeForeground(state, index)
             : null,
           wants.planes && (cached?.planes ?? null) === null
             ? this.decodePlanes(state, index)
+            : null,
+          wants.alphaPlane && (cached?.alphaPlane ?? null) === null
+            ? this.decodeAlphaPlane(state, index)
             : null,
         ]);
         if (foreground !== null && !(foreground instanceof Uint8Array)) {
@@ -781,11 +869,20 @@ export class MatteSource {
         // Merged into what is cached NOW: another decode of this frame may have finished
         // meanwhile, and what it added must not be dropped.
         const latest = this.cache.get(cacheKey);
-        this.cache.put(cacheKey, {
-          ...alpha,
+        const merged: MatteFrameData = {
+          id: `${state.key}@${index}`,
+          width: samples?.width ?? state.artifact.width,
+          height: samples?.height ?? state.artifact.height,
+          maximum: samples?.maximum ?? latest?.maximum ?? state.maximum ?? 255,
+          alpha: samples?.alpha ?? latest?.alpha ?? cached?.alpha ?? null,
           foreground: foreground ?? latest?.foreground ?? cached?.foreground ?? null,
           planes: planes ?? latest?.planes ?? cached?.planes ?? null,
-        });
+          alphaPlane: alphaPlane ?? latest?.alphaPlane ?? cached?.alphaPlane ?? null,
+        };
+        // A plane that failed to decode leaves nothing to draw the alpha from: the next ask
+        // decodes the samples (the tier's alpha is dropped by then).
+        if (merged.alpha === null && merged.alphaPlane === null) return;
+        this.cache.put(cacheKey, merged);
         this.options.onFrameDecoded?.(performance.now() - started);
       } catch (error) {
         // Nobody wants it any more: not a failure, and the next ask decodes it.
@@ -832,21 +929,53 @@ export class MatteSource {
     }
   }
 
-  /** One `matte.mkv` frame as samples, without a foreground. */
-  private async decodeAlpha(state: ArtifactState, index: number): Promise<MatteFrameData> {
+  /**
+   * PX5.8: one frame of the tier's alpha plane, or `null` when the tier cannot give it. Like
+   * the planes, a tier that fails to decode is dropped (the samples are decoded from then on),
+   * never a reason to refuse the frame.
+   */
+  private async decodeAlphaPlane(
+    state: ArtifactState,
+    index: number,
+  ): Promise<MatteAlphaPlane | null> {
+    const tier = state.tierInfo;
+    if (tier === null || !tier.alpha) return null;
+    try {
+      const message = await this.client.decodeMatte(
+        sourceIdOf(state.key, 'alpha-tier'),
+        index,
+        this.rankOf(state.key, index),
+      );
+      if (message.format !== 'gray8') throw new Error('alpha.mkv is not the byte layout.');
+      return { width: tier.width, height: tier.height, data: new Uint8Array(message.data) };
+    } catch (error) {
+      if (error instanceof MatteDecodeCancelled) throw error;
+      if (state.tierInfo !== null) state.tierInfo = { ...state.tierInfo, alpha: false };
+      log.warn('matte tier alpha failed to decode; the samples are decoded instead', {
+        artifact: state.key.slice(0, 12),
+        index,
+        cause: describeCause(error),
+      });
+      return null;
+    }
+  }
+
+  /** One `matte.mkv` frame's samples. */
+  private async decodeAlpha(
+    state: ArtifactState,
+    index: number,
+  ): Promise<{ width: number; height: number; maximum: number; alpha: MatteSamples }> {
     const message = await this.client.decodeMatte(
       sourceIdOf(state.key, 'matte'),
       index,
       this.rankOf(state.key, index),
     );
     return {
-      id: `${state.key}@${index}`,
       width: message.width,
       height: message.height,
       maximum: message.format === 'gray16' ? 65535 : 255,
       alpha:
         message.format === 'gray16' ? new Uint16Array(message.data) : new Uint8Array(message.data),
-      foreground: null,
     };
   }
 

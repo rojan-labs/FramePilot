@@ -382,9 +382,8 @@ cause, not verified. The other five rows do not decontaminate, so they have no t
 
 - The desktop tier trigger: a sidecar route shaped like `/mattes/frame-hashes` and a host call
   after an artifact commits (ADR 0181). Needs the maintainer (sidecar contract).
-- An alpha tier for a matte whose edge chain is the identity (the default soft matte): the
-  resampled alpha is then exactly what the monitor needs, and the 4K alpha decode (17–19 ms a
-  frame) would go. Not for `sharp` or any edge control, which act at source resolution.
+- An alpha tier for a matte whose edge chain is the identity (the default soft matte): DONE in
+  PX5.8 (below). Not for `sharp` or any edge control, which act at source resolution.
 - PX5.5 (two composites per project frame at 60 Hz) and PX5.4 (export ratio) are untouched.
 
 ## PX5.7 — the intermittent hang: the dev server replaced the editor mid-run
@@ -425,3 +424,80 @@ silent worker instead of a wait). The spec's replacement check was seen to fire 
 server (`PX5 step "telemetry after playback": the editor's code was replaced mid-run ([vite] hot
 updated: …)`, 27.6 s instead of a timeout). CI starts its own dev server in a fresh checkout that
 nothing edits, so it was never exposed.
+
+## PX5.8 — the tier's alpha plane: a soft matte stops decoding its 4K alpha
+
+M1 Pro, Chrome, ANGLE/Metal, 2026-09-18, the same shared machine (load average 10-22 during
+these runs: other agents' work). No budget lowered, no tolerance widened, no dependency.
+
+**The rule, from the engine's maths.** `matte_alpha` runs edge shift, the finesse group and the
+distance feather at SOURCE resolution, then `to_frame` (resample to the decoded size, crop,
+resample to the frame), then invert and opacity. Each source step returns its input exactly
+when: `edge_shift` - shift 0; `denoise`, `morph_open`, `morph_close`, `blur` - amount/radius
+<= 0; `apply_clean_levels` - levels (0, 1) after `clean_levels`, so `edgeMode: 'sharp'` (0.25 /
+0.75) never qualifies; `shrink_grow`, `in_out_ratio` - exactly 0; `distance_feather` - expansion
+0 and both feathers (clamped at 0) 0. Then `matte_alpha` = `layer_alpha(to_frame(samples /
+maximum))`, and `resample(samples / maximum)` at the decoded size is a plane the host makes once
+(`source_chain_is_identity`, `alpha_plane` in `render/matte_tier.py`). Clean levels and
+morphology are not linear and the feather redraws the 50 % contour at source resolution, so no
+other control can move after the resample: those mattes keep the samples. The test shows the
+exclusion is needed: for `sharp`, drawing from the plane moves alpha by more than 0.05.
+
+**Exactness.** 16-bit rounding, at most half a step (1/131070) before the stack quantises once;
+where the rule holds the alpha from the plane is `matte_alpha` within that half step
+(`test_matte_alpha_tier.py`: 8-bit and 16-bit mattes, cropped and uncropped, inverted with
+opacity, clamped feathers; `matte-edges.test.ts` for the TypeScript twin). The monitor uses the
+plane only for a mask whose four scalar edge controls are not keyframed (so the rule holds at
+every instant), only at the tier's decoded size, only when `alpha.mkv` opened as `tier.json`
+says; the compositor applies the rule per instant as well.
+
+**Per frame** (`matte-decode.perf.test.ts`, the real `MatteDecodeSession`, two runs):
+
+| File                             | Size      | p50 ms    | p95 ms    |
+| -------------------------------- | --------- | --------- | --------- |
+| `matte.mkv` (the 4K samples)     | 3840x2160 | 19.6-20.1 | 25.7-32.5 |
+| tier `alpha.mkv` (PX5.8)         | 960x1080  | **3.6**   | 3.8-4.6   |
+| tier `planes.mkv` (PX5.3)        | 960x4320  | 16.0-16.1 | 17.9-18.9 |
+| `foreground.mkv` (for reference) | 3840x2160 | 42.1-42.9 | 49.5-58.7 |
+
+Making it: 24-34 ms per 4K frame for the Scale disc, 84 ms for a subject filling the frame (on
+top of the planes'), one pass over the masters.
+
+**The row.** The Scale row's own matte is `sharp`, so it is untouched by design. A new variant,
+`scale-soft`, is the row with the matte at its default soft edge. Before/after on the SAME
+fixture: `PX5_TIER_ALPHA=0` withholds only `alpha.mkv` (the monitor then decodes the samples, as
+before PX5.8). Five interleaved pairs, `px5-local-run.py scale-soft/proxy`, one 20-second run each:
+
+| Run        | Dropped           | Seek p50 / p95     | Full-res composite p50 | Picture decode p50 | Matte decode p50 / p95 | Cache peak | GL pools   |
+| ---------- | ----------------- | ------------------ | ---------------------- | ------------------ | ---------------------- | ---------- | ---------- |
+| before 1   | 1/602             | 37.0 / 43.7        | 11.7                   | 78.9               | 21.2 / 36.0            | 420 MB     | 182 MB     |
+| after 1    | 132/673           | 31.2 / 54.6        | 7.8                    | 51.3               | 20.4 / 304.9           | 406 MB     | 169 MB     |
+| before 2   | 23/602            | 36.8 / 50.9        | 11.5                   | 91.4               | 24.2 / 363.6           | 425 MB     | 182 MB     |
+| after 2    | 33/602            | 36.8 / 49.4        | 8.6                    | 52.5               | 20.4 / 236.4           | 404 MB     | 169 MB     |
+| before 3   | 90/610            | 49.5 / 75.1        | 18.0                   | 102.5              | 24.9 / 287.1           | 419 MB     | 182 MB     |
+| after 3    | 1/602             | 35.3 / 71.4        | 8.9                    | 66.2               | 20.7 / 45.2            | 407 MB     | 169 MB     |
+| before 4   | 1/603             | 37.5 / 51.7        | 10.2                   | 90.3               | 22.0 / 55.1            | 420 MB     | 182 MB     |
+| after 4    | 2/601             | 35.0 / 58.1        | 8.9                    | 73.0               | 20.4 / 67.0            | 407 MB     | 169 MB     |
+| before 5   | 2/602             | 44.1 / 72.0        | 11.8                   | 100.2              | 24.9 / 85.2            | 419 MB     | 182 MB     |
+| after 5    | 1/601             | 30.5 / 45.1        | 8.5                    | 59.5               | 20.5 / 27.7            | 407 MB     | 169 MB     |
+| **median** | before 2, after 2 | 51.7 vs 54.6 (p95) | **11.7 -> 8.6**        | **91.4 -> 59.5**   | **24.2 -> 20.4** (p50) | 420 -> 407 | 182 -> 169 |
+
+Runs 3-5 recorded the path: `alphaFromTier: true` after, `false` before, the tier's planes in
+both (runs 1-2 predate the field; their "before" arms logged the plane as withheld). What moved, and why: 16 ms of matte-worker CPU per frame is gone, so the picture
+decoders wait less for cores (decode window p50 down a third); the composite no longer uploads
+and resamples a 4K alpha (-3.1 ms per full-resolution composite, read back); the cache holds a
+1 MB plane where the 8.3 MB samples were. What did not: dropped frames and seek p95 are the same
+on both sides within this machine's noise - the drops that happened (23, 33, 90, 132 of ~600)
+came with load spikes in both arms, and "after 1" ran 673 frames of clock in 20 s, a stall of the
+whole page. Both were already inside budget at the PX5.3 final state on a quiet machine; the win
+is headroom (worker CPU, decode latency), not a verdict change. Not measured: a slower machine,
+where 16 ms of a 33 ms frame matters more; camera mattes (whose 4K samples decode slower than this
+flat disc, so the saving is larger).
+
+`scale/proxy` (the `sharp` row, unchanged path, `alphaFromTier: false`) in one run right after, at
+load 19: 41/612 dropped, seek p95 46.6 ms - the budget miss is the load (the same code measured
+1/602 at load ~10 an hour earlier, 17:09); re-measure on a quiet machine before quoting it.
+
+**PX4 oracle.** The soft mattes of `matte-speed`, `matte-vfr`, `matte-display-space`,
+`matte-progressive` and the effect-target mattes of `matte-text-behind-subject` and
+`matte-shape-stack` qualify; CI results below.

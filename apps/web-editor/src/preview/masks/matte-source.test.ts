@@ -134,7 +134,7 @@ describe('MatteSource', () => {
     await source.ensure([{ mask, sourceFrame: 11 }]);
     const ready = source.lookup(mask, 11, 5632 / 15360);
     expect(ready.state).toBe('ready');
-    expect(ready.state === 'ready' && ready.frame.alpha[0]).toBe(1);
+    expect(ready.state === 'ready' && ready.frame.alpha?.[0]).toBe(1);
     expect(client.decodeMatte).toHaveBeenCalledWith(
       `matte:${'a'.repeat(64)}:matte`,
       1,
@@ -372,6 +372,184 @@ describe('the monitor tier (PX5.3)', () => {
     await source.ensure([{ mask, sourceFrame: 11 }]);
     expect(source.debugState(mask).tier).toBeNull();
     expect(decoded).not.toContain('planes@1');
+    expect(decoded).toContain('foreground@1');
+  });
+});
+
+describe('the tier alpha plane (PX5.8)', () => {
+  const ALPHA = { file: 'alpha.mkv', bytes: 1, layout: 'u16-hi-lo-bytes', scale: 65535 };
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const TIER_SIZE = { width: 4, height: 2 };
+
+  /** The PX5.3 harness, with the tier (optionally) carrying an alpha plane. */
+  function tieredAlpha(changes: Record<string, unknown> = {}, alphaRows = 4) {
+    const { mask: base, files } = artifactFiles();
+    const { artifact } = {
+      artifact: {
+        ...base.artifact,
+        files: [...base.artifact.files, { name: 'foreground.mkv', sha256: 'f'.repeat(64) }],
+      },
+    };
+    const pinned = (name: string) => artifact.files.find((file) => file.name === name)!.sha256;
+    files.set(
+      'tier.json',
+      encoder.encode(
+        JSON.stringify({
+          version: 1,
+          kind: 'framepilot.matte-monitor-tier',
+          width: 4,
+          height: 2,
+          frameCount: FRAMES.pts.length,
+          planes: {
+            file: 'planes.mkv',
+            bytes: 1,
+            order: ['weight', 'r', 'g', 'b'],
+            weightScale: 65535,
+            colourScale: 257,
+            layout: 'u16-hi-lo-bytes',
+          },
+          alpha: ALPHA,
+          source: {
+            width: 8,
+            height: 4,
+            files: {
+              'matte.mkv': pinned('matte.mkv'),
+              'foreground.mkv': pinned('foreground.mkv'),
+              'frames.json': pinned('frames.json'),
+            },
+          },
+          ...changes,
+        }),
+      ),
+    );
+    const store = new Map<string, MatteFrameData>();
+    const decoded: string[] = [];
+    const shapes: Record<string, { width: number; height: number; format: 'gray8' | 'rgb24' }> = {
+      planes: { width: 4, height: 16, format: 'gray8' },
+      'alpha-tier': { width: 4, height: alphaRows, format: 'gray8' },
+      foreground: { width: 8, height: 4, format: 'rgb24' },
+      matte: { width: 8, height: 4, format: 'gray8' },
+    };
+    const client = {
+      loadMatte: vi.fn(async (sourceId: string) => ({
+        type: 'matteLoaded' as const,
+        requestId: 0,
+        sourceId,
+        ...shapes[sourceId.split(':').pop()!]!,
+        frameCount: FRAMES.pts.length,
+        intraOnly: true,
+      })),
+      decodeMatte: vi.fn(async (sourceId: string, frame: number) => {
+        const file = sourceId.split(':').pop()!;
+        decoded.push(`${file}@${frame}`);
+        return {
+          type: 'matteFrame' as const,
+          requestId: 0,
+          sourceId,
+          frame,
+          ...shapes[file]!,
+          data: new Uint8Array(96).fill(frame).buffer,
+        };
+      }),
+      unloadSource: vi.fn(async () => undefined),
+    };
+    const source = new MatteSource(
+      client,
+      () => (key, name) => `mem://${key}/${name}`,
+      { get: (key) => store.get(key), put: (key, frame) => store.set(key, frame) },
+      async (url) => files.get(url.split('/').pop()!) ?? null,
+      { locateTier: () => (key, name) => `tier://${key}/${name}` },
+    );
+    const mask = (fields: Record<string, unknown> = {}): MatteMask =>
+      ({ ...base, artifact, decontaminate: true, ...fields }) as MatteMask;
+    return { mask, source, decoded };
+  }
+
+  /** Report the tier's size for the clip, then prefetch frame 11 (index 1). */
+  async function prefetch(source: MatteSource, mask: MatteMask): Promise<void> {
+    await source.ensure([{ mask, sourceFrame: 10 }]);
+    source.lookup(mask, 10, null, TIER_SIZE);
+    // The manifest, then planes.mkv, then alpha.mkv open one after the other.
+    for (let step = 0; step < 5; step += 1) await settle();
+    await source.ensure([{ mask, sourceFrame: 11 }]);
+  }
+
+  it('reads a default soft matte from the planes and the alpha plane, never its samples', async () => {
+    const { mask, source, decoded } = tieredAlpha();
+    const soft = mask();
+    await prefetch(source, soft);
+    expect(decoded.filter((d) => d.endsWith('@1')).sort()).toEqual(['alpha-tier@1', 'planes@1']);
+    const ready = source.lookup(soft, 11, null, TIER_SIZE);
+    expect(ready.state).toBe('ready');
+    expect(ready.state === 'ready' && ready.frame.alpha).toBeNull();
+    expect(ready.state === 'ready' && ready.frame.alphaPlane?.width).toBe(4);
+    expect(source.debugState(soft)).toMatchObject({ tier: '4x2', alphaTier: true });
+  });
+
+  it('reads a soft matte that does not decontaminate from the alpha plane alone', async () => {
+    const { mask, source, decoded } = tieredAlpha();
+    const plain = mask({ decontaminate: false, invert: true, opacity: 0.5 });
+    await prefetch(source, plain);
+    expect(decoded.filter((d) => d.endsWith('@1'))).toEqual(['alpha-tier@1']);
+  });
+
+  it.each([
+    ['sharp', { edgeMode: 'sharp' }],
+    ['an edge shift', { edgeShiftPx: 2 }],
+    ['a feather', { featherOuterPx: 4 }],
+    [
+      'a finesse control',
+      {
+        finesse: {
+          denoise: 0,
+          morphOpenPx: 0,
+          morphClosePx: 0,
+          shrinkGrowPx: 0,
+          blurPx: 2,
+          inOutRatio: 0,
+          cleanBlack: 0,
+          cleanWhite: 1,
+        },
+      },
+    ],
+    [
+      'a keyframed edge control',
+      { keyframes: [{ id: 'k', sourceTime: 0, property: 'edgeShiftPx', value: 0 }] },
+    ],
+  ])('keeps decoding the samples of a matte with %s', async (_name, fields) => {
+    const { mask, source, decoded } = tieredAlpha();
+    const edged = mask(fields);
+    await prefetch(source, edged);
+    expect(decoded.filter((d) => d.endsWith('@1')).sort()).toEqual(['matte@1', 'planes@1']);
+    const ready = source.lookup(edged, 11, null, TIER_SIZE);
+    expect(ready.state === 'ready' && ready.frame.alpha).not.toBeNull();
+  });
+
+  it('decodes the samples for a picture decoded at a size the tier does not fit', async () => {
+    const { mask, source, decoded } = tieredAlpha();
+    const soft = mask();
+    await prefetch(source, soft);
+    expect(source.lookup(soft, 11, null, { width: 8, height: 4 }).state).toBe('pending');
+    await source.ensure([{ mask: soft, sourceFrame: 11 }]);
+    expect(decoded).toContain('matte@1');
+    const ready = source.lookup(soft, 11, null, { width: 8, height: 4 });
+    expect(ready.state === 'ready' && ready.frame.alpha).not.toBeNull();
+  });
+
+  it('uses the planes without the alpha plane when alpha.mkv is not what tier.json says', async () => {
+    const { mask, source, decoded } = tieredAlpha({}, 6);
+    const soft = mask();
+    await prefetch(source, soft);
+    expect(source.debugState(soft)).toMatchObject({ tier: '4x2', alphaTier: false });
+    expect(decoded.filter((d) => d.endsWith('@1')).sort()).toEqual(['matte@1', 'planes@1']);
+  });
+
+  it('ignores a tier whose alpha entry is not the documented layout', async () => {
+    const { mask, source, decoded } = tieredAlpha({ alpha: { ...ALPHA, scale: 255 } });
+    const soft = mask();
+    await prefetch(source, soft);
+    expect(source.debugState(soft).tier).toBeNull();
+    expect(decoded).toContain('matte@1');
     expect(decoded).toContain('foreground@1');
   });
 });

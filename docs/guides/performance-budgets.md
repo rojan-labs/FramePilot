@@ -356,6 +356,18 @@ CPU twin of the tier path against the masters (`matte-edges.test.ts`), texture r
 (`gl-resources.test.ts`), and the tier's resample value-for-value against the engine's
 (`test_matte_tier.py`).
 
+**PX5.8: a soft matte no longer decodes its 4K alpha.** For a matte whose source-resolution chain
+is the identity (the default soft edge: no edge shift, feather, expansion, finesse or `sharp`),
+the tier also carries `alpha.mkv`, the export's resample of the alpha to the decoded size, and
+the monitor reads it instead of the 4K samples: 3.6 ms per frame to decode against 19.6-20.1 ms
+(`matte-decode.perf.test.ts`). On `scale-soft/proxy` (the row with that matte), five interleaved
+pairs on a loaded machine (load 10-22): full-resolution composite 11.7 -> 8.6 ms p50 (median of
+five), picture decode window 91 -> 60 ms p50, matte decode latency 24.2 -> 20.4 ms p50, cache
+peak 420 -> 407 MB, GL pools 182 -> 169 MB; dropped frames median 2 of ~602 on both sides (both
+had load outliers), seek p95 unchanged within noise. A `sharp` matte, or any edge control, keeps
+the 4K samples: its controls act before the resample. `PX5_TIER_ALPHA=0` withholds only the
+plane, which is how the "before" was run on the same fixture.
+
 **PX5.7: the "one run in ten" hang was the dev server, not the engine.** Playwright's `webServer`
 is Vite's dev server, which watches the worktree. An edit anywhere in the editor's import graph
 during a run (another agent working in the same worktree, an editor autosave) hot-replaced

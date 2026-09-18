@@ -14,7 +14,11 @@
  */
 import { ALPHA_LEVELS_GLSL } from '../../masks/key-mask.js';
 import { FALLOFF_TABLE_SIZE } from '../../masks/mask-raster.js';
-import { TIER_COLOUR_SCALE, TIER_WEIGHT_SCALE } from '../../masks/matte-edges.js';
+import {
+  TIER_ALPHA_SCALE,
+  TIER_COLOUR_SCALE,
+  TIER_WEIGHT_SCALE,
+} from '../../masks/matte-edges.js';
 import { MAX_TAPS } from './raster-shaders.js';
 
 /**
@@ -256,6 +260,25 @@ void main() {
   float weight = float(planeValue(p, 0)) / ${String(TIER_WEIGHT_SCALE)}.0;
   vec3 colour = vec3(float(planeValue(p, 1)), float(planeValue(p, 2)), float(planeValue(p, 3)));
   o_color = vec4(colour / ${String(TIER_COLOUR_SCALE)}.0, weight);
+}`;
+
+/**
+ * PX5.8: the monitor tier's alpha plane (`render/matte_tier.py` `alpha.mkv`) as a float alpha at
+ * the decoded size: one `W × 2H` byte texture, the 16-bit value's high-byte rows then its
+ * low-byte rows, rebuilt exactly (`hi * 256 + lo`) before the one division. It is what the
+ * export's `to_frame` resamples a matte to when the source-resolution chain is the identity, so
+ * it replaces that chain and the resample to the decoded size; the crop follows as for the
+ * masters.
+ */
+export const MATTE_TIER_ALPHA_FRAGMENT = `${HEADER}
+uniform usampler2D u_alpha;
+uniform int u_height;
+out vec4 o_color;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  uint high = texelFetch(u_alpha, p, 0).r;
+  uint low = texelFetch(u_alpha, ivec2(p.x, p.y + u_height), 0).r;
+  o_color = vec4(float(high * 256u + low) / ${String(TIER_ALPHA_SCALE)}.0, 0.0, 0.0, 1.0);
 }`;
 
 /** The clip's integer crop (`_crop_slices`), then optionally `layer_alpha` (invert, opacity). */

@@ -21,8 +21,8 @@ const FILE_NAMES = new Set([
   'report.json',
 ]);
 
-/** The monitor tier's files (`render/matte_tier.py`), PX5.3. */
-const TIER_FILE_NAMES = new Set(['tier.json', 'planes.mkv']);
+/** The monitor tier's files (`render/matte_tier.py`), PX5.3; `alpha.mkv` since PX5.8. */
+const TIER_FILE_NAMES = new Set(['tier.json', 'planes.mkv', 'alpha.mkv']);
 
 let activeProjectPath = '';
 

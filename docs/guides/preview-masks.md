@@ -236,6 +236,20 @@ read over `fp-media` on the desktop) in the same pass as every other kind:
   call `write_monitor_tier`; the desktop app does not yet (it needs a sidecar route and a host
   call after an artifact commits, which changes the sidecar contract and waits for the
   maintainer - see ADR 0181). Without a tier the monitor decodes the masters, correctly, slower.
+- **The tier's alpha plane (PX5.8).** `alpha.mkv` beside the planes holds
+  `resample(samples / maximum)` at the same size, 16-bit, as two byte planes. It stands in for the
+  4K samples only for a matte whose source-resolution chain is the identity at every instant:
+  edge shift, expansion and both feathers 0 and not keyframed, and no finesse control or clean
+  levels - so never `edgeMode: 'sharp'`. That is the default soft matte, which is then
+  `to_frame(samples / maximum)`, invert and opacity (`source_chain_is_identity` in
+  `render/matte_tier.py` states each step's identity condition; `sourceChainIsIdentity` is its
+  twin). Everything else keeps decoding the samples, because its controls act before the resample
+  and are not linear. The alpha drawn from the plane is the export's within 1/131070
+  (`test_matte_alpha_tier.py`, `matte-edges.test.ts`); it decodes in 3.6 ms at 960x540 where the
+  4K samples take 19.6-20.1 ms. The PX4 oracle's soft matte rows (`matte-speed`, `matte-vfr`,
+  `matte-display-space`, `matte-progressive`, and the effect-target mattes of
+  `matte-text-behind-subject` and `matte-shape-stack`) draw from it at the unchanged gates, and
+  each sample records which path it took (`sample.mattes[].alphaFromTier`).
 - **Decoding: lossless masters, not the VP9 previews.** The pack also writes `preview.webm` and
   `foreground.preview.webm` (VP9, 540p by default, CRF 34). Measured against the export's
   composite on a hard-edged 1080p matte with one-pixel strands, the 540p VP9 matte gives 32.44 dB

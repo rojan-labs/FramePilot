@@ -19,8 +19,9 @@ What it writes (``tests/e2e/.tmp-px5-scale/``):
   covering every frame of ``scale-d``.
 * ``.framepilot-derived/matte-tiers/<key>/`` - the artifact's monitor tier at the proxy size
   (PX5.3, ``render/matte_tier.py``): the decontamination planes the monitor reads instead of
-  the 4K foreground. Additive: it is not part of the recipe hash, so adding it never
-  regenerates the sources; ``tier.json`` names the masters' digests it was made from.
+  the 4K foreground, and (PX5.8) the alpha plane it reads instead of the 4K alpha for a soft
+  matte. Additive: it is not part of the recipe hash, so adding it never regenerates the
+  sources; ``tier.json`` names the masters' digests it was made from.
 * ``projects/*.json`` - the Scale timeline and its A/B variants (see :func:`write_projects`).
 * ``manifest.json`` - paths, sizes and the recipe hash the consumers check.
 
@@ -382,9 +383,12 @@ def write_matte_tier(ffmpeg: str, out_dir: Path, seconds: int, artifact: dict[st
     import numpy as np
 
     from framepilot_engine.render.matte_tier import (
+        ALPHA_FILE,
         PLANE_LAYOUT,
         PLANES_FILE,
         TIER_FILE,
+        alpha_plane,
+        encode_alpha,
         encode_planes,
         tier_directory,
         tier_manifest,
@@ -408,8 +412,9 @@ def write_matte_tier(ffmpeg: str, out_dir: Path, seconds: int, artifact: dict[st
             existing.get("width"),
             existing.get("height"),
             (existing.get("planes") or {}).get("layout"),
+            (existing.get("alpha") or {}).get("layout"),
         )
-        if current == (source, width, height, PLANE_LAYOUT):
+        if current == (source, width, height, PLANE_LAYOUT, PLANE_LAYOUT):
             return {"size": [width, height]}
     started = time.monotonic()
     directory.mkdir(parents=True, exist_ok=True)
@@ -431,16 +436,29 @@ def write_matte_tier(ffmpeg: str, out_dir: Path, seconds: int, artifact: dict[st
     period.unlink()
     planes = directory / PLANES_FILE
     partial.rename(planes)
+    # PX5.8: the alpha plane, one period looped the same way.
+    alpha_period = directory / "alpha.period.mkv"
+    encode_alpha(
+        alpha_period,
+        (alpha_plane(frame, 255, width, height) for frame in _matte_frames(period_frames)),
+        width,
+        height,
+    )
+    alpha_partial = directory / "alpha.partial.mkv"
+    _loop_copy(ffmpeg, alpha_period, alpha_partial, seconds, [])
+    alpha_period.unlink()
+    alpha = directory / ALPHA_FILE
+    alpha_partial.rename(alpha)
     frames = json.loads(
         (out_dir / MATTES_DIR / str(artifact["key"]) / FRAMES_FILE).read_text(encoding="utf-8")
     )
     count = probe_stream(planes).frame_count
-    if count != len(frames["pts"]):
+    if count != len(frames["pts"]) or probe_stream(alpha).frame_count != count:
         raise RuntimeError(f"tier has {count} frames, the matte {len(frames['pts'])}")
-    manifest_path.write_text(
-        json.dumps(tier_manifest(width, height, count, source, planes.stat().st_size), indent=1),
-        encoding="utf-8",
+    manifest = tier_manifest(
+        width, height, count, source, planes.stat().st_size, alpha.stat().st_size
     )
+    manifest_path.write_text(json.dumps(manifest, indent=1), encoding="utf-8")
     _log.info(
         "matte tier %dx%d: %.1f MB in %.0f s",
         width,
@@ -502,6 +520,8 @@ def scale_project(seconds: int, artifact: dict[str, Any], variant: str) -> dict[
       whole monitor frame, the worst case for the CPU rasteriser.
     * ``scale-key`` - plain + a key mask with the whole finesse chain on layer c.
     * ``scale-key-nofinesse`` - plain + the same key with finesse at its defaults.
+    * ``scale-soft`` - the row with the matte at its default soft edge instead of ``sharp``: the
+      matte whose alpha the tier's alpha plane stands in for (PX5.8).
     """
     matte = {
         "id": "subject",
@@ -560,6 +580,8 @@ def scale_project(seconds: int, artifact: dict[str, Any], variant: str) -> dict[
     }
     if variant == "scale":
         clips["d"]["masks"] = [matte]
+    if variant == "scale-soft":
+        clips["d"]["masks"] = [{key: value for key, value in matte.items() if key != "edgeMode"}]
     if variant == "scale-path":
         clips["b"]["masks"] = [path]
     if variant == "scale-path-full":
@@ -612,6 +634,7 @@ VARIANTS = (
     "scale-path-full",
     "scale-key",
     "scale-key-nofinesse",
+    "scale-soft",
 )
 
 
