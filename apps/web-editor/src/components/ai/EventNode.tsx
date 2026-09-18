@@ -56,6 +56,7 @@ import { DiffPreviewModal } from './DiffPreviewModal.js';
 import { PackInstallInlineCard, packMissingProposal } from './PackInstallInlineCard.js';
 import { MatteStartInlineCard, matteStartProposal } from './MatteStartInlineCard.js';
 import { MaskTargetPicker, maskTargetChoice } from './MaskTargetPicker.js';
+import { MaskReviewCard, maskReviewSummary } from './MaskReviewCard.js';
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -1119,6 +1120,11 @@ function ToolCard({
     if (status !== 'failed') return null;
     return matteStartProposal(result?.result);
   }, [status, result]);
+  // A landed AI mask: how many moments need a look, and the way to the review list (AM3.3).
+  const maskReview = useMemo(
+    () => (status === 'completed' ? maskReviewSummary(result?.result) : null),
+    [status, result],
+  );
   // `find_mask_targets` asking "which one?" — never settled by the model (plan 11 rule 2).
   const targetChoice = useMemo(() => maskTargetChoice(result?.result), [result]);
   const expanded = open && canExpand;
@@ -1197,6 +1203,7 @@ function ToolCard({
             below is the only thing worth reading then. */}
         {expanded && result && !isAsk && <ToolOutput result={result} />}
         {missingPackProposal !== null && <PackInstallInlineCard proposal={missingPackProposal} />}
+        {maskReview !== null && <MaskReviewCard summary={maskReview} />}
         {targetChoice !== null && (
           <MaskTargetPicker
             choice={targetChoice}

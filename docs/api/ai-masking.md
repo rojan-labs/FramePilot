@@ -205,6 +205,45 @@ is not an authority; the saved revision would refuse every agent job as stale, a
 tracked may exist only in the patch under construction). And the mask-track job itself is shared:
 `capability-packs/mask-track-service.ts` is called by both the IPC handler and the executor.
 
+## Verification after apply
+
+**Deterministic first (AM3.1).** Every host-measured edit returns a `mask_review` result:
+
+| Field                         | Meaning                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `needsReview`, `flaggedCount` | Source-second ranges the pack or the tracker flagged, plus any the spot check added        |
+| `frames`                      | For a cut-out: frames the pack vouched for and flagged                                     |
+| `trackConfidence`             | For a track: frames measured, worst model residual in source pixels, flagged count         |
+| `validator`                   | `valid` and any non-blocking warnings. An error would have refused the edit                |
+| `spotCheck`                   | The one visual look, when it ran: `yes`, `unsure` or `not_run`, with the reason and frames |
+
+There is deliberately no `verified` field. The sentence the model reads states the count and
+forbids the word; `get_masks` reports `nothing flagged` / `needs a look`, never verified; and
+`claimsMaskVerified(text)` exists so the AM5 eval can audit what the agent SAID for the
+"Verification honesty" gate, not only what the tools returned.
+
+**One look, where the numbers cannot decide (AM3.2).** `masking/spot-check.ts` asks the existing
+vision-review route a single question — "is the masked region the {label}?" — at no more than
+four frames (the middle of each flagged range first, then an even spread), against the project
+WITH the mask applied. It runs only when something was flagged or the candidate scored under
+0.8, and never when the editor picked the candidate or typed the shape: they said which thing,
+and a model disagreeing is not evidence.
+
+| Answer    | What happens                                                                                                                                                              |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `yes`     | The mask lands. Recorded as a second opinion; it is not a review and the card does not show it as reassurance                                                             |
+| `no`      | **The mask is never applied.** The call fails, telling the model to resolve again more specifically or ask the editor, and not to re-apply the same candidate             |
+| `unsure`  | The mask lands, and the frames looked at go on its review list (`review_matte` / `review_mask_track`). An untracked shape has no list; the ranges are still in the result |
+| `not_run` | No reviewer, a cloud reviewer without media-egress consent, or a cancelled run. A fact about the check, never an opinion about the mask                                   |
+
+It uses the run's own reviewer (`AgentReviewControls.visionReview`, the same objects picture
+verification uses), so there is no second reviewer to configure and no frame leaves the machine
+without the consent that route already requires.
+
+**The sidebar card (AM3.3).** `MaskReviewCard` renders on a landed `mask_review`: the count, and a
+button that opens the Inspector's review list through the same `maskToolStore.requestReview` the
+export dialog's "Review" uses. It shows the count whatever the model wrote.
+
 ## Failures
 
 Every sentence the executor authors names the next move and carries no varying number, because a

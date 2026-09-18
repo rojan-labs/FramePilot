@@ -16,8 +16,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   mask verified — only your review does that. A long background removal is not started behind
   your back: the sidebar shows roughly how long it will take and a **Start** button, and it then
   runs like any other background removal while you keep editing. If a pack is missing, the
-  sidebar shows the exact install offer. A blur limited to a mask is not available yet, and the
-  assistant says so rather than approximating one. Desktop app only.
+  sidebar shows the exact install offer. When it cannot tell which person or object you mean, it
+  shows you the choices as thumbnails and waits — it never picks for you. Remembering who is who
+  across a project is off until you turn it on for that project, runs on your computer only, and
+  **Delete identity data** removes everything it stored in one step. After a mask lands, the
+  sidebar says how many moments need a look and opens the Inspector's review list. A blur limited
+  to a mask, split-screen and shape masks, and a title that follows a tracked subject are not
+  available yet, and the assistant says so rather than approximating one. Desktop app only.
 
 - **Remove the background from a shot.** Inspector → Mask → **Remove background** cuts the subject
   out so something else can sit behind it. It runs entirely on your computer, through the Smart
