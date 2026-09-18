@@ -8,10 +8,9 @@
  * tool. They validate here and still flow through assembleEdit's patch validation.
  */
 import type { AnyOperation, ProjectOperation } from '@framepilot/editor-core';
-import type { Keyframe, Project, SpeedPoint } from '@framepilot/timeline-schema';
+import type { Project, SpeedPoint } from '@framepilot/timeline-schema';
 import { assembleEdit, type EditResult } from './assemble.js';
 import type { ToolContext } from './tool-context.js';
-import { addLegacyMaskOps } from './domain-tools/mask-ops.js';
 import { operationsForCall } from './tool-dispatch.js';
 import { getTool } from './tool-registry.js';
 
@@ -76,8 +75,6 @@ const TIMELINE_MUTATION_BUILDERS: ReadonlySet<string> = new Set([
   'adjust_audio_full',
   'add_transition',
   'set_hard_cut',
-  'add_mask',
-  'add_mask_advanced',
   'track_object',
   'set_track_flags',
   'set_track_caption_style',
@@ -143,12 +140,6 @@ function optionalFiniteNumber(tool: string, field: string, value: unknown): numb
   return value === undefined ? undefined : finiteNumber(tool, field, value);
 }
 
-function unitNumber(tool: string, field: string, value: unknown): number {
-  const number = finiteNumber(tool, field, value);
-  if (number < 0 || number > 1) throw new Error(`${tool} requires ${field} within 0..1.`);
-  return number;
-}
-
 function assertSafeAutonomousArguments(call: AutonomousOperationCall): void {
   if (call.tool !== 'set_clip_speed') return;
   const speed = call.arguments.speed;
@@ -199,31 +190,7 @@ function speedPoint(call: AutonomousOperationCall, raw: unknown, index: number):
   };
 }
 
-function maskKeyframe(call: AutonomousOperationCall, raw: unknown, index: number): Keyframe {
-  if (!objectRecord(raw))
-    throw new Error(`${call.tool} keyframes[${String(index)}] must be an object.`);
-  strictKeys(call.tool, raw, ['time', 'property', 'value', 'easing']);
-  const time = finiteNumber(call.tool, `keyframes[${String(index)}].time`, raw.time);
-  if (time < 0) throw new Error(`${call.tool} keyframe time must be >= 0.`);
-  const property = nonEmptyString(call.tool, `keyframes[${String(index)}].property`, raw.property);
-  const value = finiteNumber(call.tool, `keyframes[${String(index)}].value`, raw.value);
-  const easing = raw.easing ?? 'linear';
-  if (typeof easing !== 'string' || !EASINGS.has(easing)) {
-    throw new Error(`${call.tool} keyframe easing "${String(easing)}" is unsupported.`);
-  }
-  return {
-    id: `ai_mask_${String(index)}_${String(Math.round(time * 1000))}_${property}`,
-    time,
-    property,
-    value,
-    easing: easing as Keyframe['easing'],
-  };
-}
-
-function virtualAutonomousOperations(
-  call: AutonomousOperationCall,
-  project: Project,
-): AnyOperation[] | undefined {
+function virtualAutonomousOperations(call: AutonomousOperationCall): AnyOperation[] | undefined {
   const a = call.arguments;
 
   if (call.tool === 'set_clip_playback_mode') {
@@ -320,85 +287,6 @@ function virtualAutonomousOperations(
     ];
   }
 
-  if (call.tool === 'add_mask_advanced') {
-    strictKeys(call.tool, a, [
-      'clipId',
-      'shape',
-      'bounds',
-      'points',
-      'feather',
-      'opacity',
-      'invert',
-      'keyframes',
-    ]);
-    const clipId = nonEmptyString(call.tool, 'clipId', a.clipId);
-    const shape = a.shape;
-    if (shape !== 'rectangle' && shape !== 'ellipse' && shape !== 'polygon') {
-      throw new Error(`${call.tool} shape must be rectangle, ellipse, or polygon.`);
-    }
-    let bounds: { x: number; y: number; width: number; height: number } | undefined;
-    if (a.bounds !== undefined) {
-      if (!objectRecord(a.bounds)) throw new Error(`${call.tool} bounds must be an object.`);
-      strictKeys(call.tool, a.bounds, ['x', 'y', 'width', 'height']);
-      bounds = {
-        x: unitNumber(call.tool, 'bounds.x', a.bounds.x),
-        y: unitNumber(call.tool, 'bounds.y', a.bounds.y),
-        width: unitNumber(call.tool, 'bounds.width', a.bounds.width),
-        height: unitNumber(call.tool, 'bounds.height', a.bounds.height),
-      };
-      if (
-        bounds.width <= 0 ||
-        bounds.height <= 0 ||
-        bounds.x + bounds.width > 1 ||
-        bounds.y + bounds.height > 1
-      ) {
-        throw new Error(`${call.tool} bounds must have positive size and remain inside the frame.`);
-      }
-    }
-    let points: readonly (readonly [number, number])[] | undefined;
-    if (a.points !== undefined) {
-      if (!Array.isArray(a.points) || a.points.length < 3) {
-        throw new Error(`${call.tool} polygon points must contain at least three [x,y] pairs.`);
-      }
-      points = a.points.map((point, index) => {
-        if (!Array.isArray(point) || point.length !== 2) {
-          throw new Error(`${call.tool} points[${String(index)}] must be [x,y].`);
-        }
-        return [
-          unitNumber(call.tool, `points[${String(index)}][0]`, point[0]),
-          unitNumber(call.tool, `points[${String(index)}][1]`, point[1]),
-        ] as const;
-      });
-    }
-    if (shape === 'polygon' && points === undefined)
-      throw new Error(`${call.tool} polygon masks require points.`);
-    const feather =
-      a.feather === undefined ? undefined : unitNumber(call.tool, 'feather', a.feather);
-    const opacity =
-      a.opacity === undefined ? undefined : unitNumber(call.tool, 'opacity', a.opacity);
-    if (a.invert !== undefined && typeof a.invert !== 'boolean')
-      throw new Error(`${call.tool} invert must be boolean.`);
-    const keyframes =
-      a.keyframes === undefined
-        ? undefined
-        : Array.isArray(a.keyframes)
-          ? a.keyframes.map((keyframe, index) => maskKeyframe(call, keyframe, index))
-          : (() => {
-              throw new Error(`${call.tool} keyframes must be an array.`);
-            })();
-    // Schema v22: converted exactly as a migrated v21 mask effect (ADR 0178).
-    return addLegacyMaskOps(project, {
-      clipId,
-      shape,
-      ...(bounds !== undefined ? { bounds } : {}),
-      ...(points !== undefined ? { points } : {}),
-      ...(feather !== undefined ? { feather } : {}),
-      ...(opacity !== undefined ? { opacity } : {}),
-      ...(a.invert !== undefined ? { invert: a.invert as boolean } : {}),
-      ...(keyframes !== undefined ? { keyframes } : {}),
-    });
-  }
-
   return undefined;
 }
 
@@ -476,7 +364,7 @@ export function compileAutonomousPatchProposal(
       // of a generic authorization message.
     }
     assertSafeAutonomousArguments(call);
-    const virtual = virtualAutonomousOperations(call, project);
+    const virtual = virtualAutonomousOperations(call);
     let built: AnyOperation[];
     if (virtual !== undefined) {
       built = virtual;

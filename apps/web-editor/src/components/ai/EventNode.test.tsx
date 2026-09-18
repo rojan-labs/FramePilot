@@ -703,12 +703,14 @@ describe('EventNode', () => {
           id: 'g',
           ts: 0,
           turnId: 't',
-          toolName: 'generate_mask',
+          // An autonomous capability whose contract is not `ready`. The registry itself has
+          // no unavailable tool since `create_mask` replaced `generate_mask` (plan 11).
+          toolName: 'probe_media',
           status: 'running',
         }}
       />,
     );
-    expect(screen.getByText('Generate mask')).toBeTruthy();
+    expect(screen.getByText('Probe media')).toBeTruthy();
     // Gated tools read "Coming soon" via the status-icon tooltip label, not a badge.
     expect(screen.getByLabelText('Coming soon')).toBeTruthy();
   });

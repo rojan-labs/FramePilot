@@ -249,7 +249,7 @@ export function hostedTranscriptionUnavailable(reason: string): string {
 /**
  * The refusal for a tool that is registered but whose engine is not wired up.
  *
- * `Skipped "generate_mask" — not available yet` said the fact and stopped. "Yet" reads as
+ * `Skipped "<tool>" — not available yet` said the fact and stopped. "Yet" reads as
  * "wait and try later", which is the one thing that cannot work: `ToolSpec.available` is a
  * build-time constant, so the answer is identical on every turn of every run. Naming that
  * is what turns the second call into the last one.

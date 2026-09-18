@@ -41,7 +41,10 @@ describe('tool registry — shape', () => {
     expect(getTool('detect_subjects')?.available).toBe(true);
     expect(getTool('detect_subjects')?.mutates).toBe(false);
     expect(getTool('track_subject_automatically')?.kind).toBe('analysis');
-    expect(getTool('generate_mask')?.available).toBe(false);
+    // `create_mask` replaced the last unavailable tool (plan 11); the old names are gone.
+    expect(getTool('generate_mask')).toBeUndefined();
+    expect(getTool('add_mask')).toBeUndefined();
+    expect(getTool('create_mask')?.kind).toBe('analysis');
     expect(getTool('unknown_tool_xyz')).toBeUndefined();
   });
 
@@ -120,6 +123,7 @@ describe('tool registry — shape', () => {
     const names = toolDescriptors().map((t) => t.name);
     expect(names).not.toContain('detect_faces');
     expect(names).not.toContain('generate_mask');
+    expect(names).not.toContain('add_mask');
     // Available analysis tools ARE advertised (their ffmpeg engine exists).
     expect(names).toContain('analyze_silence');
     expect(names).toContain('detect_scenes');
@@ -1373,7 +1377,7 @@ describe('mutating tools — build valid operations', () => {
     expect(getTool('add_clips')?.description).toContain(String(MAX_CLIPS_PER_BATCH));
   });
 
-  it('adjust_audio / add_transition / add_mask / track_object', () => {
+  it('adjust_audio / add_transition / track_object', () => {
     expect(build('adjust_audio', { clipId: 'clip_a', gainDb: -3 })[0]).toEqual({
       type: 'adjust_audio',
       clipId: 'clip_a',
@@ -1402,14 +1406,6 @@ describe('mutating tools — build valid operations', () => {
         ],
       }),
     };
-    expect(getTool('add_mask')!.buildOps!({ clipId: 'clip_a', shape: 'ellipse' }, measured)[0]).toMatchObject({
-      type: 'add_mask',
-      clipId: 'clip_a',
-      mask: { kind: 'ellipse', id: 'clip_a__mask', cx: 960, cy: 540, rx: 960, ry: 540 },
-    });
-    expect(() => build('add_mask', { clipId: 'clip_a', shape: 'ellipse' })).toThrow(
-      /Measure this media first/,
-    );
     expect(build('track_object', { clipId: 'clip_a', target: 'face' })[0]).toEqual({
       type: 'track_object',
       clipId: 'clip_a',
@@ -2078,7 +2074,7 @@ describe('schema validation rejects bad input', () => {
 
   it('throws ZodError on wrong types and bad enums', () => {
     expect(() => build('adjust_audio', { clipId: 'c', gainDb: 'loud' })).toThrow(ZodError);
-    expect(() => build('add_mask', { clipId: 'c', shape: 'triangle' })).toThrow(ZodError);
+    expect(() => build('track_object', { clipId: 'c', target: 'triangle' })).toThrow(ZodError);
   });
 
   it('every registered tool validates empty args and read tools return data', () => {

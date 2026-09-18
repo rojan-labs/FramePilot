@@ -160,13 +160,14 @@ describe('EditorSession — runTool', () => {
     expect(() => session.runTool('no_such_tool', {})).toThrow(
       expect.objectContaining({ code: 'unknown_tool' }),
     );
-    // generate_mask remains unavailable (dependency-gated CV engine); detect_faces
-    // was replaced by the pack-backed detect_subjects, so it is now unknown here.
+    // detect_faces was replaced by the pack-backed detect_subjects, and generate_mask by the
+    // pack-backed create_mask (plan/background-removal-ai/11), so both are unknown here. The
+    // registry has no unavailable tool left; ai-sdk proves that refusal with a test-only one.
     expect(() => session.runTool('detect_faces', {})).toThrow(
       expect.objectContaining({ code: 'unknown_tool' }),
     );
     expect(() => session.runTool('generate_mask', {})).toThrow(
-      expect.objectContaining({ code: 'unavailable_tool' }),
+      expect.objectContaining({ code: 'unknown_tool' }),
     );
     expect(() => session.runTool('trim_clip', { clipId: 'clip_a' })).toThrow(
       expect.objectContaining({ code: 'invalid_args' }),

@@ -76,7 +76,8 @@ export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string
   footage:
     'understand the raw material: scenes, shots, what is visually in it, where each moment lives',
   sourcing: 'find and place stock footage and music from the libraries',
-  tracking: 'track a subject or object over time; masks and rotoscoping',
+  // The mask half moved to `masking` (plan 11): what is left is evidence and the tracker effect.
+  tracking: 'detect who and what is on screen, frame by frame; attach a tracker effect to a clip',
   // Names the REQUESTS, not the mechanics (plan 11): nobody asks for a "matte".
   masking:
     'masks and cut-outs: remove backgrounds, isolate or hide people and objects, blur faces or plates, grade or effect only part of the picture, put text behind a subject, track masks',
@@ -216,14 +217,7 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'index_media',
   ],
   sourcing: ['search_stock', 'add_stock', 'search_music', 'add_music'],
-  tracking: [
-    'add_mask',
-    'generate_mask',
-    'track_object',
-    'professional_tracking_mask',
-    'track_subject_automatically',
-    'detect_subjects',
-  ],
+  tracking: ['track_object', 'detect_subjects'],
   masking: [
     'find_mask_targets',
     'create_mask',
@@ -233,6 +227,11 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'refine_mask',
     'get_masks',
     'delete_mask',
+    // Folded in from `tracking` (AM1.2): both steer a MASK, so they arrive with the tools
+    // that make one. They are the editor-drawn-mask path the Inspector still has — a mask the
+    // editor drew and selected — beside `track_mask`, which takes any mask by id.
+    'professional_tracking_mask',
+    'track_subject_automatically',
   ],
   media: ['add_asset', 'manage_assets'],
   professional: ['professional_edit'],
@@ -324,9 +323,9 @@ const DOMAIN_REQUEST_WORDS: Readonly<Record<Exclude<ToolDomain, 'core'>, RegExp>
   motion: /\b(punch[- ]?ins?|keyframes?|zooms?|speed ramps?|reframe\w*|crops?)\b/gi,
   effects: /\b(transitions?|effects?|titles?|text layers?|graphics?|callouts?)\b/gi,
   footage: /\b(index(?:ed|ing)?|index_media|map_footage|describe_footage|search_visual|detect_scenes|footage map|scene detection|shot list)\b/gi,
-  tracking: /\b(track(?:ing)? (?:the )?subject|masks?|rotoscop\w*)\b/gi,
+  tracking: /\b(who is on screen|detect (?:the )?(?:faces?|people|subjects?)|tracker)\b/gi,
   masking:
-    /\b(backgrounds?|cut-?outs?|isolate\w*|blur (?:the |their |every(?:one's)? )?(?:faces?|plates?)|behind (?:the |her|him|them)\w*|green ?screen)\b/gi,
+    /\b(masks?|rotoscop\w*|track(?:ing)? (?:the )?subject|backgrounds?|cut-?outs?|isolate\w*|blur (?:the |their |every(?:one's)? )?(?:faces?|plates?)|behind (?:the |her|him|them)\w*|green ?screen)\b/gi,
   media: /\b(import\w*|media bin|organi[sz]e the bin)\b/gi,
   professional: /\b(roll edits?|slip|slide edits?|insert edits?)\b/gi,
 };

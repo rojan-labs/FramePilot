@@ -13,7 +13,9 @@ PRD_CORE_TOOLS = {
     "analyze_silence",
     "detect_scenes",
     "track_object",
-    "generate_mask",
+    # PRD §8.3 also lists `generate_mask`. It shipped as the desktop-only `create_mask`
+    # (plan/background-removal-ai/11), which runs in a Capability Pack worker and is
+    # therefore `hostUiOnly` on the TS side and absent from this mirror by design.
     "add_text_layer",
     "add_caption_layer",
     "trim_clip",

@@ -221,7 +221,6 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   add_keyframes: { role: 'mutation', scope: 'timeline_dependent' },
   remove_keyframes: { role: 'mutation', scope: 'timeline_dependent' },
   add_marker: { role: 'mutation', scope: 'timeline_dependent' },
-  add_mask: { role: 'mutation', scope: 'timeline_dependent' },
   add_text_layer: { role: 'mutation', scope: 'timeline_dependent' },
   add_track: { role: 'mutation', scope: 'timeline_dependent' },
   add_transition: { role: 'mutation', scope: 'timeline_dependent' },
@@ -283,10 +282,6 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   render_preview: { role: 'other', scope: 'timeline_dependent' },
   ask_user: { role: 'other', scope: 'revision_independent' },
 
-  // --- unavailableTool: registered for discoverability, engine not built yet -----------
-  // Classified anyway, so turning one on is a one-line registry change and not a silent
-  // regression back into the `other`/`timeline_dependent` default.
-  generate_mask: { role: 'mutation', scope: 'timeline_dependent' },
 });
 
 /**

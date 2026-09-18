@@ -28,7 +28,6 @@ from framepilot_engine.ai_tools.registry import (
     AddClipsArgs,
     AddKeyframesArgs,
     AddMarkerArgs,
-    AddMaskArgs,
     AddTextLayerArgs,
     AddTrackArgs,
     AddTransitionArgs,
@@ -670,52 +669,6 @@ def add_transition(args: AddTransitionArgs, ctx: ToolContext) -> Operations:
             "durationSeconds": args.duration_seconds,
         }
     ]
-
-
-def add_mask(args: AddMaskArgs, ctx: ToolContext) -> Operations:
-    """A full-frame rectangle or ellipse mask on the clip, in source pixels (schema v22).
-
-    Mirrors the TS ``add_mask`` tool: the tool keeps its v21 ``shape`` vocabulary, and the
-    shape becomes a v22 mask through the asset's measured size. Without that size there is
-    nothing honest to store, so the tool refuses rather than guessing one.
-    """
-    found = _find_clip(ctx.project, args.clip_id)
-    if found is None:
-        raise ValueError(f'Unknown clip "{args.clip_id}". Use get_clips to list real clip ids.')
-    _track, clip = found
-    if args.shape == "polygon":
-        raise ValueError(
-            "add_mask draws a rectangle or an ellipse; a polygon mask needs at least three "
-            "[x, y] points, as fractions of the frame."
-        )
-    asset = next((a for a in ctx.project.assets if a.id == clip.asset_id), None)
-    media = asset.media if asset is not None else None
-    display = media.display_size() if media is not None else None
-    if display is None:
-        raise ValueError(
-            "Measure this media first: its picture size is unknown, and a mask is stored in "
-            "source pixels."
-        )
-    taken = {mask.id for mask in clip.masks or []}
-    mask_id = f"{clip.id}__mask"
-    counter = 2
-    while mask_id in taken:
-        mask_id = f"{clip.id}__mask_{counter}"
-        counter += 1
-    # Display-corrected (PAR and rotation applied), the space editor-core draws masks in.
-    width, height = display
-    geometry: dict[str, Any] = (
-        {"kind": "ellipse", "cx": width / 2, "cy": height / 2, "rx": width / 2, "ry": height / 2}
-        if args.shape == "ellipse"
-        else {
-            "kind": "rectangle",
-            "cx": width / 2,
-            "cy": height / 2,
-            "width": width,
-            "height": height,
-        }
-    )
-    return [{"type": "add_mask", "clipId": clip.id, "mask": {"id": mask_id, **geometry}}]
 
 
 def track_object(args: TrackObjectArgs, ctx: ToolContext) -> Operations:

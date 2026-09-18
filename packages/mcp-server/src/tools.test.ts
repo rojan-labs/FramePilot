@@ -74,11 +74,15 @@ describe('buildMcpTools (registry → MCP auto-sync)', () => {
   });
 
   it('does NOT expose unavailable registry tools (build-order invariant)', () => {
-    const unavailable = TOOL_REGISTRY.filter((t) => !t.available);
-    expect(unavailable.length).toBeGreaterThan(0); // guard the test is meaningful
-    for (const tool of unavailable) {
+    for (const tool of TOOL_REGISTRY.filter((t) => !t.available)) {
       expect(names.has(tool.name)).toBe(false);
     }
+    // The registry has carried no unavailable tool since the pack-backed `create_mask`
+    // replaced `generate_mask` (plan/background-removal-ai/11), so the loop above can be
+    // empty. The predicate the surface is built from is what keeps the invariant, and it
+    // is asserted directly so the test stays meaningful.
+    expect(servableOverMcp({ name: 'unbuilt_tool', available: false })).toBe(false);
+    expect(servableOverMcp({ name: 'unbuilt_tool', available: true })).toBe(true);
   });
 
   it('advertises the CONTRACTED registry JSON Schema (no drift from what is enforced)', () => {

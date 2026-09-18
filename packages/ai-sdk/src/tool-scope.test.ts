@@ -1,6 +1,7 @@
 /** Tests for tool metadata, implicit lifecycle tools, and scoped descriptors. */
 import { describe, expect, it } from 'vitest';
 import { TOOL_REGISTRY, type ToolSpec } from './tool-registry.js';
+import { UNBUILT_TOOL, UNBUILT_TOOL_NAME } from './__fixtures__/unbuilt-tool.js';
 import { MockProvider } from './providers/mock.js';
 import type { ToolDomain } from './tool-domains.js';
 import { Orchestrator } from './orchestrator.js';
@@ -172,8 +173,11 @@ describe('selectTools', () => {
         .map((tool) => tool.name)
         .sort(),
     ).toEqual(['get_timeline', 'trim_clip']);
-    expect(selectTools({ names: ['generate_mask'] })).toHaveLength(0);
-    expect(selectTools({ names: ['generate_mask'], includeUnavailable: true })).toHaveLength(1);
+    const withUnbuilt = [...TOOL_REGISTRY, UNBUILT_TOOL];
+    expect(selectTools({ names: [UNBUILT_TOOL_NAME] }, withUnbuilt)).toHaveLength(0);
+    expect(
+      selectTools({ names: [UNBUILT_TOOL_NAME], includeUnavailable: true }, withUnbuilt),
+    ).toHaveLength(1);
   });
 });
 
