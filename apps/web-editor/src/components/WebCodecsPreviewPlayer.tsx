@@ -52,6 +52,7 @@ import { maskToolsEnabled } from '../preview/mask-tools-flag.js';
 import { timelineWithLiveMask, type LiveMaskPreview } from '../editor/mask-editing.js';
 import { useMaskTools } from './inspector/masks/useMaskTools.js';
 import { MaskCanvasTools } from './preview/MaskCanvasTools.js';
+import { drawnPictureClips, selectedDrawnPicture } from '../preview/monitor-pictures.js';
 import { maskToolTelemetry } from './preview/mask-tool-telemetry.js';
 import { previewFailureMessage } from '../preview/preview-availability.js';
 import { isDesktop } from '../editor/bridge-base.js';
@@ -179,27 +180,34 @@ export function WebCodecsPreviewPlayer({
   // committed playhead is stale only DURING playback, which is exactly when nobody
   // is dragging handles; any discrete seek updates it.
   const [transformOverride, setTransformOverride] = useState<TransformOverride>(null);
+  // Every picture clip the frame plan draws now, back to front (not under-layers).
+  const drawnPictures = useMemo(
+    () =>
+      layered
+        ? drawnPictureClips(
+            framePlanAt(editor.state.timeline, assets, editor.state.playhead, resolution),
+            editor.state.timeline,
+          )
+        : null,
+    [layered, editor.state.timeline, assets, resolution, editor.state.playhead],
+  );
   const shownPicture = useMemo(() => {
+    // The front-most picture: what a click on the monitor selects.
+    if (drawnPictures !== null) return drawnPictures[drawnPictures.length - 1] ?? null;
     const at = editor.state.playhead;
-    if (layered) {
-      // The front-most picture clip the frame plan draws now (not an under-layer).
-      const plan = framePlanAt(editor.state.timeline, assets, at, resolution);
-      const front = [...plan.layers]
-        .reverse()
-        .find((layer) => layer.kind === 'picture' && layer.role === 'clip');
-      if (!front?.clipId) return null;
-      for (const track of editor.state.timeline.tracks) {
-        const clip = track.clips.find((candidate) => candidate.id === front.clipId);
-        if (clip) return clip;
-      }
-      return null;
-    }
     return (
       segments.find((seg) => seg.clip !== null && seg.start <= at && at < seg.end)?.clip ?? null
     );
-  }, [layered, segments, editor.state.timeline, assets, resolution, editor.state.playhead]);
+  }, [drawnPictures, segments, editor.state.playhead]);
+  // The clip the handles and mask tools act on: the selected one among the drawn pictures, even
+  // when another picture covers it (a clip under a cut-out or a track matte source still needs
+  // its masks drawn).
   const selectedPicture =
-    shownPicture && editor.state.selectedIds.includes(shownPicture.id) ? shownPicture : null;
+    drawnPictures !== null
+      ? selectedDrawnPicture(drawnPictures, editor.state.selectedIds)
+      : shownPicture && editor.state.selectedIds.includes(shownPicture.id)
+        ? shownPicture
+        : null;
   const transformSelected = selectedPicture !== null;
   // MK4.1 (RD2.1 flag): with the Inspector's mask panel open for the selected picture, the
   // monitor edits its masks instead of its transform.

@@ -123,6 +123,22 @@ describe('program monitor — on-canvas transform', () => {
     expect(box()).not.toBeNull();
   });
 
+  it('gives a covered clip its handles when it is selected: it is drawn, just behind', () => {
+    // E2E.8: a clip under another picture (a cut-out, a title, a track matte source) must still
+    // be editable on the monitor, or its Mask tab's Draw buttons do nothing.
+    const stacked: Timeline = {
+      tracks: [
+        { id: 'top', type: 'video', clips: [{ ...clip('c_top', 0, 4), trackId: 'top' }] },
+        ...timeline.tracks,
+      ],
+    };
+    render(<Host editorTimeline={stacked} />);
+    // A click on the monitor still selects the picture in front.
+    expect(screen.getByLabelText('select clip c_top in preview')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'select c1' }));
+    expect(box()).not.toBeNull();
+  });
+
   it('withdraws the handles when the selection is cleared', () => {
     render(<Host />);
     fireEvent.click(screen.getByRole('button', { name: 'select c1' }));
