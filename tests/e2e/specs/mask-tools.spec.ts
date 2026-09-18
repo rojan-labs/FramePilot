@@ -104,6 +104,22 @@ async function openMaskTab(page: Page, injected: unknown): Promise<Locator> {
 const masks = (page: Page): Locator =>
   page.getByRole('listbox', { name: 'Masks', exact: true }).locator('li.mask-list-row');
 
+/**
+ * Click an Inspector control, centred in the panel first.
+ *
+ * Playwright scrolls a control into view through CDP, which aligns it to the NEAREST edge and does
+ * not honour `scroll-padding` — so a control below the fold lands flush with the bottom of the
+ * panel, where the sticky status bar sits, and the click is intercepted. Real browsers do honour
+ * the panel's `scroll-padding-bottom` when focus or `scrollIntoView` moves there, so this is the
+ * harness's scroll position, not a control a person cannot reach.
+ */
+async function clickInInspector(target: Locator): Promise<void> {
+  await target.evaluate((node: Element) => {
+    node.scrollIntoView({ block: 'center' });
+  });
+  await target.click();
+}
+
 test('draw a rectangle on the monitor, animate it, and undo', async ({ page }) => {
   const canvas = await openMaskTab(page, project(1920, 1080));
   const box = (await canvas.boundingBox())!;
@@ -118,12 +134,12 @@ test('draw a rectangle on the monitor, animate it, and undo', async ({ page }) =
   await expect(masks(page).first()).toHaveAccessibleName('Mask 1');
 
   // Key the centre at 0 s, move the mask at 2 s: the move keys the new instant.
-  await page
-    .getByRole('button', {
+  await clickInInspector(
+    page.getByRole('button', {
       name: 'Animate Mask 1 centre x — adds a keyframe at the playhead',
       exact: true,
-    })
-    .click();
+    }),
+  );
   await seekTo(page, 2);
   const centre = page.getByRole('spinbutton', { name: 'Mask 1 centre x', exact: true });
   const before = Number(await centre.inputValue());
