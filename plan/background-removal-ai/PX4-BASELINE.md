@@ -4,7 +4,7 @@
 > [`09-PREVIEW-EXPORT-PARITY.md`](./09-PREVIEW-EXPORT-PARITY.md) ("PX4 — the pixel parity oracle").
 
 **Source:** CI only. Workflow `CI`, job `preview-parity-oracle`, run
-[35353756815](https://github.com/rojan-labs/FramePilot/actions/runs/35353756815) at `5a0c795a`
+[35366379149](https://github.com/rojan-labs/FramePilot/actions/runs/35366379149) at `b361595d`
 (Google Chrome, ubuntu-latest, SwiftShader CPU GL), artifact `preview-parity-results`. This file and
 `tests/e2e/fixtures/preview-parity-baseline.json` were generated from that artifact with
 `node tests/e2e/scripts/px4-baseline.mjs [--write-baseline]`. Nothing here was run locally: a local
@@ -28,15 +28,18 @@ that newly fails is not listed and fails the job.
 
 ## Summary
 
-- **68 cases. All 68 pass every check** (renderer, pixels, sentinel and pts). Every case renders on
+- **72 cases. All 72 pass every check** (renderer, pixels, sentinel and pts). Every case renders on
   the layer compositor; no case is routed to the DOM player (ADR 0180). The baseline JSON's `cases`
   map is empty, so any newly failing check fails the job. PX5.10 regenerated this file, the JSON
-  and the PX0 inventory's pixel column from run 35353756815: the nine rows added since the last
-  regeneration now show as measured — PX5.6's `alpha/key-alone` (73.66 dB: the despill sample),
-  `key-shape-stack` and `key-finesse` (inf), MK8.1's `analytic-split-band` and `analytic-gradient`
-  (inf), MK8.2's `layer-text-alpha` and `layer-luma-channels` (inf) and `layer-transformed-target`
-  (95.39 dB) — and `matte-decontaminate` reads 97.78 dB (it draws from its monitor tier since
-  PX5.3; inf when it drew from the masters).
+  and the PX0 inventory's pixel column from CI runs 35353756815 (68 cases, `5a0c795a`) and then
+  35366379149 (72 cases, `b361595d`): the thirteen rows added since the regeneration before them
+  now show as measured — PX5.6's `alpha/key-alone` (73.66 dB: the despill sample),
+  `key-shape-stack` and `key-finesse` (inf); MK8.1's `analytic-split-band` and `analytic-gradient`
+  (inf); MK8.2's `layer-text-alpha` and `layer-luma-channels` (inf) and `layer-transformed-target`
+  (95.39 dB); MK9's `frame-space-clip-mask` (90.76 dB), `edge-styles-shape` (67.02 dB),
+  `edge-styles-matte` (60.94 dB) and `effects/lane-mask-over-moving-picture` (76.85 dB).
+  `matte-decontaminate` read 97.78 dB in the first run (drawn from its monitor tier) and inf in
+  the second (drawn from the masters before the tier loaded); both within the gates.
 - **The eight matte rows pass (BR5).** `alpha/matte-edge-modes`, `matte-decontaminate`,
   `matte-shape-stack`, `matte-speed`, `matte-vfr`, `matte-display-space` and `matte-progressive`
   are bit-identical to the export: PSNR inf, 100% within 8/255, 0 sentinel disagreements, presented
@@ -70,6 +73,9 @@ that newly fails is not listed and fails the job.
 | ---------------------------------------- | --------- | ------- | ------------- | ------------------ | -------------- | ----------------------- |
 | `alpha/analytic-gradient`                | WebCodecs | 2       | inf           | 100.000            | none           |                         |
 | `alpha/analytic-split-band`              | WebCodecs | 3       | inf           | 100.000            | none           |                         |
+| `alpha/edge-styles-matte`                | WebCodecs | 4       | 60.94         | 100.000            | none           |                         |
+| `alpha/edge-styles-shape`                | WebCodecs | 4       | 67.02         | 100.000            | none           |                         |
+| `alpha/frame-space-clip-mask`            | WebCodecs | 4       | 90.76         | 100.000            | none           |                         |
 | `alpha/key-alone`                        | WebCodecs | 2       | 73.66         | 100.000            | none           |                         |
 | `alpha/key-finesse`                      | WebCodecs | 1       | inf           | 100.000            | none           |                         |
 | `alpha/key-shape-stack`                  | WebCodecs | 1       | inf           | 100.000            | none           |                         |
@@ -81,7 +87,7 @@ that newly fails is not listed and fails the job.
 | `alpha/mask-legacy`                      | WebCodecs | 3       | inf           | 100.000            | none           |                         |
 | `alpha/mask-modes`                       | WebCodecs | 6       | inf           | 100.000            | none           |                         |
 | `alpha/mask-shapes`                      | WebCodecs | 2       | inf           | 100.000            | none           |                         |
-| `alpha/matte-decontaminate`              | WebCodecs | 2       | 97.78         | 100.000            | none           |                         |
+| `alpha/matte-decontaminate`              | WebCodecs | 2       | inf           | 100.000            | none           |                         |
 | `alpha/matte-display-space`              | WebCodecs | 2       | inf           | 100.000            | none           |                         |
 | `alpha/matte-edge-modes`                 | WebCodecs | 2       | inf           | 100.000            | none           |                         |
 | `alpha/matte-progressive`                | WebCodecs | 2       | inf           | 100.000            | none           |                         |
@@ -96,6 +102,7 @@ that newly fails is not listed and fails the job.
 | `effects/effect-kinds`                   | WebCodecs | 41      | 60.19         | 100.000            | none           |                         |
 | `effects/effect-kinds-masked`            | WebCodecs | 41      | 68.52         | 100.000            | none           |                         |
 | `effects/effect-layer-between`           | WebCodecs | 1       | 64.77         | 100.000            | none           |                         |
+| `effects/lane-mask-over-moving-picture`  | WebCodecs | 4       | 76.85         | 100.000            | none           |                         |
 | `geometry/anamorphic-pixel-aspect`       | WebCodecs | 1       | inf           | 100.000            | none           |                         |
 | `geometry/crop`                          | WebCodecs | 1       | inf           | 100.000            | none           |                         |
 | `geometry/fit-landscape-in-portrait`     | WebCodecs | 1       | inf           | 100.000            | none           |                         |

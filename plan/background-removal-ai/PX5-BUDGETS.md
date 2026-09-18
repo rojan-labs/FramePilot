@@ -702,3 +702,10 @@ previous regeneration now show as measured instead of "not measured (PX4.3)": `a
 `analytic-gradient` inf, `layer-text-alpha` and `layer-luma-channels` inf,
 `layer-transformed-target` 95.39 dB. `matte-decontaminate` reads 97.78 dB: it draws from its
 monitor tier since PX5.3 (inf when it drew from the masters).
+
+Then again from CI run 35366379149 at `b361595d` (every PX5.4 cut and PX5.5 in, plus MK9): **72/72
+pass** at the unchanged gates, with mask vectors green on macOS, Windows and Linux in the same
+run. The four rows MK9 added meanwhile are measured too: `alpha/frame-space-clip-mask` 90.76 dB,
+`alpha/edge-styles-shape` 67.02 dB, `alpha/edge-styles-matte` 60.94 dB,
+`effects/lane-mask-over-moving-picture` 76.85 dB, all 100% within 8/255. `matte-decontaminate`
+drew from the masters in that run (inf) where the first drew from its tier (97.78 dB).

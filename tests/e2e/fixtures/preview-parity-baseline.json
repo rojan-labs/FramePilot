@@ -16,6 +16,24 @@
       "minWithinPercent": 100,
       "failing": []
     },
+    "alpha/edge-styles-matte": {
+      "renderer": "webcodecs",
+      "minPsnr": 60.94,
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "alpha/edge-styles-shape": {
+      "renderer": "webcodecs",
+      "minPsnr": 67.02,
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "alpha/frame-space-clip-mask": {
+      "renderer": "webcodecs",
+      "minPsnr": 90.76,
+      "minWithinPercent": 100,
+      "failing": []
+    },
     "alpha/key-alone": {
       "renderer": "webcodecs",
       "minPsnr": 73.66,
@@ -84,7 +102,7 @@
     },
     "alpha/matte-decontaminate": {
       "renderer": "webcodecs",
-      "minPsnr": 97.78,
+      "minPsnr": "Infinity",
       "minWithinPercent": 100,
       "failing": []
     },
@@ -169,6 +187,12 @@
     "effects/effect-layer-between": {
       "renderer": "webcodecs",
       "minPsnr": 64.77,
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "effects/lane-mask-over-moving-picture": {
+      "renderer": "webcodecs",
+      "minPsnr": 76.85,
       "minWithinPercent": 100,
       "failing": []
     },
