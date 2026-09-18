@@ -335,3 +335,23 @@ export const maskToolStore = new MaskToolStore();
 export function useMaskTools(store: MaskToolStore = maskToolStore): MaskToolState {
   return useSyncExternalStore(store.subscribe, store.getState, store.getState);
 }
+
+/**
+ * Subscribe a component to ONE value of the mask tool state: it re-renders only when that value
+ * changes (by `Object.is`), not on every update of the store.
+ *
+ * WHY: the store changes on every pointer move of a mask drag (the live geometry). A component
+ * far from the monitor that needs one field - `Editor` and `Inspector` read `reviewRequest` -
+ * re-rendered the whole editor on every move through {@link useMaskTools}, inside the MK4.6
+ * pointer budget's `work` window.
+ *
+ * @param select - Must return a value that keeps its identity while it does not change (a field
+ *   of the state, not a new object).
+ */
+export function useMaskToolValue<T>(
+  select: (state: MaskToolState) => T,
+  store: MaskToolStore = maskToolStore,
+): T {
+  const snapshot = (): T => select(store.getState());
+  return useSyncExternalStore(store.subscribe, snapshot, snapshot);
+}

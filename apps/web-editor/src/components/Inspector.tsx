@@ -15,7 +15,7 @@ import {
 } from '../editor/patch-builders.js';
 import { EffectInspector } from './EffectInspector.js';
 import { MaskPanel } from './inspector/masks/MaskPanel.js';
-import { maskToolStore, useMaskTools } from './inspector/masks/useMaskTools.js';
+import { maskToolStore, useMaskToolValue } from './inspector/masks/useMaskTools.js';
 import { MaskTracking } from './inspector/masks/MaskTracking.js';
 import { maskToolsEnabled } from '../preview/mask-tools-flag.js';
 import {
@@ -190,7 +190,8 @@ export function Inspector({
   const sectionState = useSectionState();
 
   // "Review" in the export dialog asked for this clip's background removal (BR6.6).
-  const reviewRequest = useMaskTools().reviewRequest;
+  // One field, not the whole store: the store changes on every move of a mask drag.
+  const reviewRequest = useMaskToolValue((state) => state.reviewRequest);
   const [preferredTab, setPreferredTab] = useViewPreference<InspectorTabId>(
     'inspectorTab',
     'basic',

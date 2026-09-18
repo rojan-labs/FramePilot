@@ -68,7 +68,7 @@ import { TranscriptionPanel } from './TranscriptionPanel.js';
 import { Tooltip } from './Tooltip.js';
 import { CommandPalette } from './CommandPalette.js';
 import { useMatteJobCommits } from './inspector/masks/useMatteJob.js';
-import { useMaskTools } from './inspector/masks/useMaskTools.js';
+import { useMaskToolValue } from './inspector/masks/useMaskTools.js';
 import type { SettingsSection } from './SettingsDialog.js';
 import {
   Captions,
@@ -796,7 +796,8 @@ export function Editor({
   useMatteJobCommits(editor);
 
   // "Review" in the export dialog (BR6.6): select the clip and open the Inspector on it.
-  const reviewRequest = useMaskTools().reviewRequest;
+  // One field, not the whole store: the store changes on every move of a mask drag.
+  const reviewRequest = useMaskToolValue((state) => state.reviewRequest);
   useEffect(() => {
     if (reviewRequest === null) return;
     editor.select(reviewRequest.clipId);
