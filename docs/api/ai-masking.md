@@ -244,6 +244,20 @@ without the consent that route already requires.
 button that opens the Inspector's review list through the same `maskToolStore.requestReview` the
 export dialog's "Review" uses. It shows the count whatever the model wrote.
 
+## What the model sees of a project's masks (AM4.1)
+
+`masking/mask-row-facts.ts`. A clip row in the prompt's timeline summary gains a suffix only when
+the clip has masks, top first, in `create_mask`'s purpose words:
+
+```
+clip_a[0–6s] · masks: matte-cutout (3 flagged), ellipse-hide tracked, rectangle-effect off
+```
+
+`get_clips` rows carry the same summary as a `masks` field. Ids stay with `get_masks`, which the
+refine and delete tools need anyway. No checkmark and no "verified": a mask with nothing flagged
+simply has no count. A project without masks gets its row facts back as the same object, so its
+prompt and cached prefix do not move; the three token-golden suites pass unregenerated.
+
 ## Kill switch (RD2.1)
 
 `masking/feature-flag.ts`. The same mechanism as the compositor and mask-tools flags: one
