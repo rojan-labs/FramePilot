@@ -138,14 +138,14 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** key gates pass; oracle rows green.
 
-### MK7 — Mask tracking `[ ]`
+### MK7 — Mask tracking `[~]` (MK7.1–MK7.5 shipped, pack run 35294557292 green on both platforms; MK7.6 → MO-14; two gate rows open, see `MK7-TRACKING-GATES.md`)
 
-- [ ] MK7.1 Transform-track artifact (per-frame 3×3, digest-pinned, project-owned) and host job via Tracking Lite
-- [ ] MK7.2 Methods: position, position+scale+rotation, perspective, shape (vertex) track; forward/backward/one frame/to edge
-- [ ] MK7.3 Per-frame confidence → shared review list; constraint frames; re-track from constraints
-- [ ] MK7.4 Tracking panel UI with progress, cancel and review; interactive feature points and exclusion regions
-- [ ] MK7.6 `use_track`: a track drives another mask, a text clip or an overlay transform
-- [ ] MK7.5 Tracking gates from `06` on synthetic and real clips
+- [x] MK7.1 Transform-track artifact (per-frame 3×3, digest-pinned, project-owned) and host job via Tracking Lite
+- [x] MK7.2 Methods: position, position+scale+rotation, perspective, shape (vertex) track; forward/backward/one frame/to edge
+- [x] MK7.3 Per-frame confidence → shared review list; constraint frames; re-track from constraints
+- [x] MK7.4 Tracking panel UI with progress, cancel and review; interactive feature points and exclusion regions
+- [!] MK7.6 (blocked on MO-14: needs `Clip.transformTrack` in v24) `use_track`: a track drives another mask, a text clip or an overlay transform
+- [~] MK7.5 (synthetic gates pass on darwin-arm64 + win32-x64; recall 100% is BY REFUSAL — `target_lost`, not the confidence number; real hand-labelled clips and the ≥95% correction rate still open) Tracking gates from `06` on synthetic and real clips
 
 **DoD:** tracking gates pass on both platforms; tracked-mask oracle rows green.
 

@@ -8,7 +8,7 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-**Resumed 2026-09-18 01:59.** MK5+MK6 (effect targets, key mask) and MK7 (tracking) starting. BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
+**Resumed 2026-09-18 01:59.** MK5+MK6 (effect targets, key mask) running; MK7 done bar MK7.6 (MO-14). BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
 On resume, read ONLY this file first, then the specific plan file for the task you start. Don't re-read 00–12 wholesale.
 
 1. CI: `gh run list --branch plan/background-removal-ai --workflow CI -L 3`. Runs 35245865537 (6ec24d91), 35245714147 and 35245248405 were in flight. Fix any red before new work.
@@ -20,6 +20,8 @@ Next after those: MK5 (effect-target masks), MK6 (key), MK7 (tracking) → BR6 (
 Agent rules to paste into every prompt: single-file tests with `--no-file-parallelism`; no local Playwright or oracle (CI only; poll CI yourself in bounded rounds, never end a turn "waiting"); watchdog for model runs; explicit `git add`; no stash, force-push or trailers; don't edit plan files.
 
 ## Done
+
+- MK7.1–MK7.5 (ea98df93…d3dfa2aa): transform-track artifact (48 parity cases byte-equal TS↔Python), 4 methods incl. perspective + per-vertex, reverse/one-frame/to-edge, review + constraints, tracking panel with feature points and exclusion regions. Note: an agent used `git push --force-with-lease` once to fix a commit message (against the rules; no content lost)
 
 - MK4 (…c46d104d): canvas tools, mask panel, keyframe lane, presets (**schema v23**, migration + Pydantic twin + drift), addMaskPatch deleted, Playwright flows, mask-tools flag, MANUAL_TESTING §16. Found and fixed a layout thrash (getBoundingClientRect per pointer move)
 
@@ -89,6 +91,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
+
+- MK7 tracking (pack run 35294557292, both platforms): planar/translation median 0.0204 px, similarity 0.0771, perspective 0.0698 (gates ≤0.25 median / ≤1 p95 / ≤2 max) ✓; drift 2e-13 px per 300 frames ✓; recall 100% **by refusal** (`target_lost`), so the confidence number's own recall is unevidenced; real-clip row and the ≥95% correction rate open
 
 - MK4.6: save 162.5 ms / 13.4 MB ✓ (gate 250 ms). Pointer: monitor work p95 6.3 ms ✓ vs 16 ms; end-to-end 19.3–22.0 ms including 12–15 ms Playwright CDP injection — **not a product number, not gated**; confirm on real hardware in the beta (MO-7)
 
