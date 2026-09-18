@@ -16,7 +16,13 @@ import type { MaskClipboard, MaskGeometry } from '@framepilot/editor-core';
 import type { MaskTarget } from '@framepilot/timeline-schema';
 
 /** The hand tools on the monitor. */
-export type MaskTool = 'select' | 'rectangle' | 'ellipse' | 'pen' | 'freehand';
+/**
+ * `feature-point` and `exclude` are TRACKING tools (MK7.4): they place hints for the next
+ * measurement — texture the tracker should follow, and regions it must ignore — rather than
+ * editing the mask, so they never change the project.
+ */
+export type MaskTool =
+  'select' | 'rectangle' | 'ellipse' | 'pen' | 'freehand' | 'feature-point' | 'exclude';
 
 /** Monitor zoom while masking: fit, or screen pixels per source pixel in percent. */
 export type MaskZoom = 'fit' | '100' | '200' | '400' | '800';
@@ -66,6 +72,20 @@ export interface MaskToolState {
    * moves to another clip: a stale effect target would silently retarget the next cut-out.
    */
   readonly pendingTarget: MaskTarget | null;
+  /**
+   * Extra texture the tracker should follow, display-corrected source pixels (MK7.4).
+   *
+   * Editor-owned hints, not project state: they steer the NEXT measurement and are meaningless
+   * once the track exists, so they live with the tools rather than on the mask.
+   */
+  readonly featurePoints: readonly { readonly x: number; readonly y: number }[];
+  /** Regions the tracker must ignore — a hand passing in front — same units. */
+  readonly exclusions: readonly {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  }[];
   /** The last refusal to show, in plain words. */
   readonly message: string | null;
 }
@@ -74,6 +94,8 @@ const INITIAL: MaskToolState = {
   panelClipId: null,
   selectedMaskId: null,
   tool: 'select',
+  featurePoints: [],
+  exclusions: [],
   selectedVertices: [],
   allKeyframes: false,
   snapping: true,
@@ -116,6 +138,36 @@ export class MaskToolStore {
   public reset(): void {
     this.state = INITIAL;
     for (const listener of this.listeners) listener();
+  }
+
+  /**
+   * Add a point the tracker should follow, or remove the one nearest a click (MK7.4).
+   *
+   * Points are toggled rather than only added, because placing a point on the wrong texture is
+   * the common mistake and undoing it must not mean clearing all of them.
+   */
+  public toggleFeaturePoint(point: { x: number; y: number }, withinPx = 8): void {
+    const nearest = this.state.featurePoints.findIndex(
+      (candidate) =>
+        Math.abs(candidate.x - point.x) <= withinPx && Math.abs(candidate.y - point.y) <= withinPx,
+    );
+    this.update({
+      featurePoints:
+        nearest >= 0
+          ? this.state.featurePoints.filter((_value, index) => index !== nearest)
+          : [...this.state.featurePoints, point],
+    });
+  }
+
+  /** Add a region the tracker must ignore. */
+  public addExclusion(region: { x: number; y: number; width: number; height: number }): void {
+    if (!(region.width > 0) || !(region.height > 0)) return;
+    this.update({ exclusions: [...this.state.exclusions, region] });
+  }
+
+  /** Forget the tracking hints (a new mask, a new shot). */
+  public clearTrackingHints(): void {
+    this.update({ featurePoints: [], exclusions: [] });
   }
 
   public selectMask(maskId: string | null): void {

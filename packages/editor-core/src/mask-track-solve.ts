@@ -346,7 +346,7 @@ export function buildTrackArtifact(input: BuildTrackArtifactInput): {
   const residualPx: number[] = [];
   const pts: number[] = [];
   const positions: number[] = [];
-  let pointCount = input.referencePoints?.length ?? 0;
+  const pointCount = input.referencePoints?.length ?? 0;
   if (pointCount > TRACK_MAX_POINTS) {
     throw new TrackSolveError(
       'too_many_points',

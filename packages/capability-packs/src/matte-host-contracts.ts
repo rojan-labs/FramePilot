@@ -9,7 +9,11 @@ import { z } from 'zod/v4';
 
 const Sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/u);
 const UnitSchema = z.number().finite().min(0).max(1);
-const SourceTimeSchema = z.number().finite().nonnegative().max(7 * 24 * 60 * 60);
+const SourceTimeSchema = z
+  .number()
+  .finite()
+  .nonnegative()
+  .max(7 * 24 * 60 * 60);
 /** Host job id, also the staging directory name: portable and traversal-free. */
 export const MatteJobIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/u);
 export const CapabilityIdSchema = z
@@ -29,16 +33,29 @@ const PointSchema = z
 const BoxSchema = z
   .object({ x: UnitSchema, y: UnitSchema, width: UnitSchema, height: UnitSchema })
   .strict()
-  .refine((box) => box.width > 0 && box.height > 0 && box.x + box.width <= 1 && box.y + box.height <= 1, {
-    message: 'box must be non-empty and inside the frame',
-  });
+  .refine(
+    (box) => box.width > 0 && box.height > 0 && box.x + box.width <= 1 && box.y + box.height <= 1,
+    {
+      message: 'box must be non-empty and inside the frame',
+    },
+  );
 
 /** Mirrors `MattePromptRefSchema` in timeline-schema: what the mask records it asked for. */
 export const MatteIntentPromptSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('points'), sourceTime: SourceTimeSchema, points: z.array(PointSchema).min(1).max(64) }).strict(),
+  z
+    .object({
+      kind: z.literal('points'),
+      sourceTime: SourceTimeSchema,
+      points: z.array(PointSchema).min(1).max(64),
+    })
+    .strict(),
   z.object({ kind: z.literal('box'), sourceTime: SourceTimeSchema, box: BoxSchema }).strict(),
-  z.object({ kind: z.literal('brush'), sourceTime: SourceTimeSchema, sha256: Sha256HexSchema }).strict(),
-  z.object({ kind: z.literal('lock'), sourceTime: SourceTimeSchema, sha256: Sha256HexSchema }).strict(),
+  z
+    .object({ kind: z.literal('brush'), sourceTime: SourceTimeSchema, sha256: Sha256HexSchema })
+    .strict(),
+  z
+    .object({ kind: z.literal('lock'), sourceTime: SourceTimeSchema, sha256: Sha256HexSchema })
+    .strict(),
   z.object({ kind: z.literal('candidate'), candidateId: z.string().min(1).max(128) }).strict(),
 ]);
 
@@ -73,7 +90,10 @@ export const MatteSaveCorrectionSchema = z
     sourceTime: SourceTimeSchema,
     kind: z.enum(['brush', 'lock']),
     png: z.custom<Uint8Array>(
-      (value) => value instanceof Uint8Array && value.byteLength > 0 && value.byteLength <= MATTE_CORRECTION_MAX_BYTES,
+      (value) =>
+        value instanceof Uint8Array &&
+        value.byteLength > 0 &&
+        value.byteLength <= MATTE_CORRECTION_MAX_BYTES,
       { message: 'png must be non-empty bytes within the size limit' },
     ),
   })
@@ -118,7 +138,14 @@ export const MatteArtifactRecordSchema = z
       .array(
         z
           .object({
-            name: z.enum(['matte.mkv', 'foreground.mkv', 'preview.webm', 'foreground.preview.webm', 'frames.json', 'report.json']),
+            name: z.enum([
+              'matte.mkv',
+              'foreground.mkv',
+              'preview.webm',
+              'foreground.preview.webm',
+              'frames.json',
+              'report.json',
+            ]),
             bytes: z.number().int().positive(),
             sha256: Sha256HexSchema,
           })
@@ -147,7 +174,15 @@ export const MatteArtifactRecordSchema = z
           .object({
             start: SourceTimeSchema,
             end: SourceTimeSchema,
-            reason: z.enum(['subject_lost', 'estimates_disagree', 'flow_inconsistent', 'new_region', 'edge_misaligned', 'occlusion', 'motion_blur']),
+            reason: z.enum([
+              'subject_lost',
+              'estimates_disagree',
+              'flow_inconsistent',
+              'new_region',
+              'edge_misaligned',
+              'occlusion',
+              'motion_blur',
+            ]),
           })
           .strict(),
       )
@@ -160,7 +195,9 @@ export const MatteArtifactRecordSchema = z
      * Decoded-frame hashes of the SOURCE at commit time: the coverage's exact first and last
      * frames plus up to 16 evenly spaced samples (BR4.10 relink/replace re-check).
      */
-    sourceSamples: z.array(z.object({ pts: z.number().int(), sha256: Sha256HexSchema }).strict()).max(64),
+    sourceSamples: z
+      .array(z.object({ pts: z.number().int(), sha256: Sha256HexSchema }).strict())
+      .max(64),
     createdAt: z.string().datetime(),
   })
   .strict();
@@ -181,5 +218,47 @@ export const CapabilityPackJobActionSchema = z
     action: z.enum(['pause', 'resume', 'cancel']),
   })
   .strict();
+
+/**
+ * Track one mask (MK7.4).
+ *
+ * Deliberately carries no media path, no frame range and no geometry: main derives all of that
+ * from the mask in the project it reads from disk, so a renderer cannot ask for a track of
+ * geometry the project does not contain. Point and region lists are bounded here, before
+ * anything is spawned.
+ */
+export const MaskTrackIntentSchema = z
+  .object({
+    requestId: MatteJobIdSchema,
+    clipId: z.string().min(1).max(256),
+    maskId: z.string().min(1).max(256),
+    method: z.enum(['position', 'position-scale-rotation', 'perspective', 'point-cloud']),
+    direction: z.enum(['forward', 'backward', 'one-frame', 'to-clip-edge', 'both']),
+    referenceSourceTime: SourceTimeSchema,
+    /** Extra texture the tracker should follow, display-corrected source pixels. */
+    featurePoints: z
+      .array(z.object({ x: z.number().finite(), y: z.number().finite() }).strict())
+      .max(64)
+      .optional(),
+    /** Regions the tracker must ignore, display-corrected source pixels. */
+    exclusions: z
+      .array(
+        z
+          .object({
+            x: z.number().finite(),
+            y: z.number().finite(),
+            width: z.number().finite().positive(),
+            height: z.number().finite().positive(),
+          })
+          .strict(),
+      )
+      .max(16)
+      .optional(),
+    /** Re-measure only around the mask's constraint frames instead of the whole direction. */
+    fromConstraints: z.boolean().optional(),
+  })
+  .strict();
+
+export type MaskTrackIntent = z.infer<typeof MaskTrackIntentSchema>;
 
 export type CapabilityPackJobAction = z.infer<typeof CapabilityPackJobActionSchema>;

@@ -176,7 +176,7 @@ def _query_times(document: dict[str, Any]) -> list[float]:
     pts = document["pts"]
 
     def seconds(ticks: float) -> float:
-        return (ticks - origin) * numerator / denominator
+        return float((ticks - origin) * numerator / denominator)
 
     times = [seconds(pts[0] - 10)]  # before the tracked range
     for value in pts:
@@ -245,7 +245,8 @@ def _delta(artifact: Any, index: int, vertex: int) -> tuple[float, float]:
 def _digest(values: list[float]) -> str:
     import numpy as np
 
-    return hashlib.sha256(np.asarray(values, dtype="<f8").tobytes()).hexdigest()
+    digest: str = hashlib.sha256(np.asarray(values, dtype="<f8").tobytes()).hexdigest()
+    return digest
 
 
 def serialize(doc: dict[str, Any]) -> str:

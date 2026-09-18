@@ -151,10 +151,9 @@ def test_a_track_moves_the_masks_control_points_before_flattening() -> None:
     }
     track = parse_track(document)
     clip = _clip(_rect())
-    untracked = stack_alpha(list(clip.masks), clip, _SIZE, *_SIZE, 0.0)
-    tracked = stack_alpha(
-        list(clip.masks), clip, _SIZE, *_SIZE, 1.0, None, None, {"r": track}
-    )
+    masks = list(clip.masks or [])
+    untracked = stack_alpha(masks, clip, _SIZE, *_SIZE, 0.0)
+    tracked = stack_alpha(masks, clip, _SIZE, *_SIZE, 1.0, None, None, {"r": track})
     # A 12 px translation at one source second: the same alpha, shifted by 12 columns.
     assert np.array_equal(untracked[:, :-12], tracked[:, 12:])
 

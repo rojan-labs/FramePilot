@@ -73,7 +73,17 @@ import {
   type MaskToolStore,
   type MaskZoom,
 } from '../inspector/masks/useMaskTools.js';
-import { Circle, ICON_SIZE, Magnet, MousePointer2, Pencil, PenTool, Square } from '../icons.js';
+import {
+  Ban,
+  Circle,
+  Diamond,
+  ICON_SIZE,
+  Magnet,
+  MousePointer2,
+  Pencil,
+  PenTool,
+  Square,
+} from '../icons.js';
 import { Tooltip } from '../Tooltip.js';
 import {
   BOX_HANDLES,
@@ -127,6 +137,9 @@ const TOOLS: readonly { readonly tool: MaskTool; readonly label: string; readonl
     { tool: 'ellipse', label: 'Ellipse tool', key: 'E' },
     { tool: 'pen', label: 'Pen tool', key: 'P' },
     { tool: 'freehand', label: 'Freehand tool', key: 'F' },
+    // Tracking hints (MK7.4): they steer the next measurement and never change the project.
+    { tool: 'feature-point', label: 'Feature point tool', key: 'T' },
+    { tool: 'exclude', label: 'Exclude region tool', key: 'X' },
   ];
 
 const TOOL_ICONS = {
@@ -135,6 +148,8 @@ const TOOL_ICONS = {
   ellipse: Circle,
   pen: PenTool,
   freehand: Pencil,
+  'feature-point': Diamond,
+  exclude: Ban,
 } as const;
 
 type EdgeProperty = 'expansionPx' | 'featherOuterPx' | 'featherInnerPx';
@@ -193,6 +208,13 @@ type Gesture =
       readonly kind: 'draw-box';
       readonly pointerId: number;
       readonly shape: 'rectangle' | 'ellipse';
+      readonly start: PixelPoint;
+      current: PixelPoint;
+    }
+  | {
+      /** Dragging out a region the tracker must ignore (MK7.4). Never touches the project. */
+      readonly kind: 'draw-exclusion';
+      readonly pointerId: number;
       readonly start: PixelPoint;
       current: PixelPoint;
     }
@@ -683,6 +705,20 @@ export function MaskCanvasTools({
     const point = toSource(event);
     setCursor(null);
     switch (tools.tool) {
+      case 'feature-point':
+        // A click adds the point; a click on one removes it, because putting a point on the
+        // wrong texture is the common mistake and undoing it must not clear the others.
+        store.toggleFeaturePoint({ x: point.x, y: point.y });
+        setAnnouncement('Feature point toggled');
+        return;
+      case 'exclude':
+        gesture.current = {
+          kind: 'draw-exclusion',
+          pointerId: event.pointerId,
+          start: point,
+          current: point,
+        };
+        return;
       case 'select':
         beginSelect(event, point);
         return;
@@ -804,6 +840,10 @@ export function MaskCanvasTools({
         return;
       }
       case 'marquee':
+        active.current = point;
+        setDraft({ marquee: rectFromCorners(active.start, point) });
+        return;
+      case 'draw-exclusion':
         active.current = point;
         setDraft({ marquee: rectFromCorners(active.start, point) });
         return;
@@ -1059,6 +1099,12 @@ export function MaskCanvasTools({
         commitBox(active.shape, active.start, active.current, event);
         return;
       }
+      case 'draw-exclusion': {
+        const region = rectFromCorners(active.start, active.current);
+        store.addExclusion(region);
+        setAnnouncement('Excluded region added');
+        return;
+      }
       case 'freehand': {
         const vertices = fitClosedStroke(
           active.samples,
@@ -1267,6 +1313,12 @@ export function MaskCanvasTools({
         store.selectMask(null);
         setAnnouncement('Mask deleted');
       }
+      return;
+    }
+    if (!modifier && (lower === 't' || lower === 'x')) {
+      handled();
+      store.setTool(lower === 't' ? 'feature-point' : 'exclude');
+      setAnnouncement(lower === 't' ? 'Feature point tool' : 'Exclude region tool');
       return;
     }
     if (modifier && (lower === 'c' || lower === 'v')) {
@@ -1479,6 +1531,32 @@ export function MaskCanvasTools({
               vectorEffect="non-scaling-stroke"
             />
           )}
+          {/*
+            Tracking hints (MK7.4). They are drawn whatever tool is active, because what the
+            tracker will follow and ignore has to be visible while the mask is being adjusted —
+            not only while the hint tool happens to be selected.
+          */}
+          {tools.exclusions.map((region) => (
+            <rect
+              key={`exclude-${region.x}-${region.y}-${region.width}-${region.height}`}
+              className="mask-canvas-exclusion"
+              x={region.x}
+              y={region.y}
+              width={region.width}
+              height={region.height}
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+          {tools.featurePoints.map((point) => (
+            <circle
+              key={`feature-${point.x}-${point.y}`}
+              className="mask-canvas-feature-point"
+              cx={point.x}
+              cy={point.y}
+              r={px(4)}
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
           {penPoints.length > 0 && (
             <>
               <path

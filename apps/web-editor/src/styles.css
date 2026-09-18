@@ -1218,6 +1218,22 @@ input[type='checkbox']:focus-visible {
   fill: var(--accent-subtle);
   stroke-dasharray: 3 3;
 }
+/*
+  Tracking hints (MK7.4). They are not mask geometry, so they never use the mask's own colour:
+  a feature point is what the tracker follows, an excluded region is what it must ignore, and
+  both must read as advice on top of the mask rather than as part of it.
+*/
+.mask-canvas-feature-point {
+  fill: var(--accent);
+  stroke: #fff;
+  stroke-width: 1px;
+}
+.mask-canvas-exclusion {
+  fill: rgba(220, 38, 38, 0.14);
+  stroke: rgb(220, 38, 38);
+  stroke-width: 1px;
+  stroke-dasharray: 4 3;
+}
 .mask-canvas-guide {
   stroke: var(--accent);
   stroke-width: 1px;

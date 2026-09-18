@@ -1,162 +1,261 @@
 /**
- * Pack-driven mask tracking in the Inspector's Mask tab (formerly `MaskPackActions`; moved beside
- * the mask panel in MK4.4, MK7 replaces it with per-mask tracking controls).
+ * Per-mask tracking in the Inspector's Mask tab (MK7.4, plan 10 "Tracking", plan 05 "Review").
  *
- * The user drew the mask; these buttons MEASURE its subject through an
- * installed Capability Pack worker and animate that same mask from the
- * measurements — the identical reversible `track_object` patch the agent path
- * produces, applied through the editor's checked pipeline so validation,
- * history, and desktop persistence behave like any other manual edit.
+ * The editor drew the mask; this panel MEASURES its motion through an installed Capability Pack
+ * worker and pins the resulting transform track on the mask. It replaces the old clip-wide
+ * "Measure and follow" buttons, which could only steer one hard-coded mask's bounding box.
+ *
+ * What the panel owns, and why each piece is here rather than in main:
+ *
+ * - **Method** and **direction**. Both are the editor's judgement about the shot, not something to
+ *   infer: a sign on a wall is a perspective track, a face is position+scale+rotation, a hand is a
+ *   shape track, and "from here to the end" is a different request from "the whole clip".
+ * - **Feature points and exclusion regions.** Extra texture the tracker should follow, and regions
+ *   it must ignore (a hand passing in front). They are sent with the request; main bounds and
+ *   validates both before anything spawns.
+ * - **Progress and cancel**, on the same channels as every other pack job.
+ * - **The review list**, shared with mattes: the ranges the measurement itself flagged, with
+ *   Lock this frame (a constraint) and Re-track from constraints.
+ *
+ * Everything that changes the project goes through `runMaskCommand`, so the panel and the agent
+ * take the identical reversible path.
  */
 import { useMemo, useState } from 'react';
-import {
-  assetDisplaySize,
-  compileTrackingCommand,
-  maskFrameBox,
-  type ApplyTrackedMaskCommand,
-} from '@framepilot/editor-core';
 import { masksOf, type Clip, type MaskLayer } from '@framepilot/timeline-schema';
-import type { UseEditor } from '../../../editor/useEditor.js';
 import { Button } from '@framepilot/ui';
-import { professionalMaskEffectId } from '@framepilot/editor-core';
-import { silhouetteMasksToTrackSamples } from '@framepilot/ai-sdk';
-import type { TrackingSampleWire } from '@framepilot/shared-types';
+import type { MaskTrackIntentWire } from '@framepilot/shared-types';
+import type { UseEditor } from '../../../editor/useEditor.js';
+import { clipSourceTimeAt, runMaskCommand } from '../../../editor/mask-editing.js';
 import { LabeledSelect } from '../LabeledSelect.js';
-import { usePackJob } from '../usePackJob.js';
+import { maskToolStore, useMaskTools, type MaskToolStore } from './useMaskTools.js';
+import { useMaskTrackJob } from './useMaskTrackJob.js';
 
-type FollowMode = 'box' | 'center' | 'silhouette';
+type Method = MaskTrackIntentWire['method'];
+type Direction = MaskTrackIntentWire['direction'];
 
-const FOLLOW_OPTIONS = ['box', 'center', 'silhouette'] as const;
-const FOLLOW_LABELS = ['Follow box', 'Follow centre', 'Follow silhouette'] as const;
+const METHODS: readonly Method[] = [
+  'position',
+  'position-scale-rotation',
+  'perspective',
+  'point-cloud',
+];
+const METHOD_LABELS = ['Position', 'Position, scale and rotation', 'Perspective', 'Shape'] as const;
 
-/** The clip's primary mask on its v22 mask stack (ADR 0178). */
-function professionalMask(clip: Clip): MaskLayer | undefined {
-  const id = professionalMaskEffectId(clip.id);
-  return masksOf(clip).find((mask) => mask.id === id);
+const DIRECTIONS: readonly Direction[] = ['forward', 'backward', 'both', 'one-frame'];
+const DIRECTION_LABELS = [
+  'Forward to the clip edge',
+  'Backward to the clip start',
+  'Both ways',
+  'One frame',
+] as const;
+
+/** Mask kinds a transform track can move (`_TRACKABLE_KINDS` of the engine). */
+const TRACKABLE = new Set<MaskLayer['kind']>(['rectangle', 'ellipse', 'path']);
+
+function seconds(value: number): string {
+  return `${value.toFixed(2)}s`;
+}
+
+export interface MaskTrackingProps {
+  readonly editor: UseEditor;
+  readonly clip: Clip;
+  readonly fps: number;
+  readonly store?: MaskToolStore;
 }
 
 export function MaskTracking({
   editor,
   clip,
-  fps,
-}: {
-  editor: UseEditor;
-  clip: Clip;
-  fps: number;
-}): JSX.Element | null {
-  const mask = useMemo(() => professionalMask(clip), [clip]);
-  const media = editor.state.assets.find((asset) => asset.id === clip.assetId)?.media;
-  const bounds =
-    mask === undefined
-      ? undefined
-      : (maskFrameBox(mask, assetDisplaySize(media), clip.sourceStart) ?? undefined);
-  const shapeOk = mask !== undefined && (mask.kind === 'rectangle' || mask.kind === 'ellipse');
-  const [mode, setMode] = useState<FollowMode>('box');
-  const [localError, setLocalError] = useState<string | null>(null);
-  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
-  const firstFrame = Math.max(0, Math.round(clip.sourceStart * safeFps));
-  const lastFrameExclusive = Math.max(firstFrame + 1, Math.round(clip.sourceEnd * safeFps));
+  store = maskToolStore,
+}: MaskTrackingProps): JSX.Element | null {
+  const tools = useMaskTools(store);
+  const mask = useMemo(
+    () => masksOf(clip).find((candidate) => candidate.id === tools.selectedMaskId),
+    [clip, tools.selectedMaskId],
+  );
+  const [method, setMethod] = useState<Method>('position');
+  const [direction, setDirection] = useState<Direction>('forward');
+  const [message, setMessage] = useState<string | null>(null);
+  const sourceTime = clipSourceTimeAt(clip, editor.state.playhead);
 
-  const job = usePackJob({
+  const job = useMaskTrackJob({
     onComplete: (result) => {
-      // Main already converts silhouettes to a track; a raw segmentation from
-      // an older host goes through the identical agent-path conversion.
-      const samples: readonly TrackingSampleWire[] | undefined =
-        result.kind === 'tracking'
-          ? result.samples
-          : result.kind === 'segment'
-            ? silhouetteMasksToTrackSamples(result.masks)
-            : undefined;
-      if (samples === undefined || samples.length === 0) {
-        setLocalError('This job did not return a track.');
-        return;
-      }
-      // Identical conversion to the agent path: measured samples become a
-      // validated, exactly invertible tracked-mask patch.
-      const command: ApplyTrackedMaskCommand = {
-        type: 'apply_tracked_mask',
-        timelineRevision: editor.state.timeline.revision ?? 0,
+      const refusal = runMaskCommand(editor, {
+        type: 'set_mask_track',
         clipId: clip.id,
-        maskEffectId: professionalMaskEffectId(clip.id),
-        target: mode === 'center' ? ('object' as const) : ('bounding_box' as const),
-        engine: result.engine,
-        fps: safeFps,
-        startSeconds: 0,
-        firstFrame,
-        samples,
-      };
-      const compiled = compileTrackingCommand({
-        timeline: editor.state.timeline,
-        assets: editor.state.assets,
-        command,
+        maskId: result.maskId,
+        tracking: {
+          artifact: result.artifact,
+          method: result.method,
+          referenceSourceTime: result.referenceSourceTime,
+          constraints: [...result.constraints],
+          review: { flagged: [...result.flagged], approved: [], locked: [] },
+        },
       });
-      if (compiled.status === 'rejected') {
-        setLocalError(`${compiled.code}: ${compiled.detail}`);
-        return;
-      }
-      const issues = editor.applyPatchChecked(compiled.patch);
-      if (issues.length > 0) setLocalError(issues.map((issue) => issue.message).join('; '));
+      setMessage(
+        refusal ??
+          (result.flagged.length === 0
+            ? 'Tracked. Nothing needs review.'
+            : `Tracked. ${result.flagged.length} range(s) need review.`),
+      );
     },
   });
 
-  if (mask === undefined || !shapeOk || bounds === undefined) {
+  if (mask === undefined) {
+    return <p className="inspector-empty inspector-empty-inline">Select a mask to track it.</p>;
+  }
+  if (!TRACKABLE.has(mask.kind)) {
     return (
       <p className="inspector-empty inspector-empty-inline">
-        Add a rectangle or ellipse mask first — pack tracking measures the subject inside it.
+        Only shape masks can be tracked — a matte or a key follows its own pixels.
       </p>
     );
   }
 
-  const capability =
-    mode === 'center' ? 'tracking.point' : mode === 'silhouette' ? 'subject.segment' : 'tracking.region';
-  const parameters =
-    mode === 'center'
-      ? { point: { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 } }
-      : { region: { ...bounds } };
-  const run = (): void => {
-    setLocalError(null);
-    void job.run({ assetId: clip.assetId, capability, firstFrame, lastFrameExclusive, fps: safeFps, parameters });
+  const tracking = mask.tracking;
+  const flagged = tracking?.review.flagged ?? [];
+  const running = job.phase !== 'idle';
+  const start = (fromConstraints: boolean): void => {
+    setMessage(null);
+    void job.run({
+      clipId: clip.id,
+      maskId: mask.id,
+      method: method === 'point-cloud' && mask.kind !== 'path' ? 'position' : method,
+      direction,
+      referenceSourceTime: sourceTime,
+      ...(tools.featurePoints.length > 0 ? { featurePoints: [...tools.featurePoints] } : {}),
+      ...(tools.exclusions.length > 0 ? { exclusions: [...tools.exclusions] } : {}),
+      ...(fromConstraints ? { fromConstraints: true } : {}),
+    });
   };
 
-  const running = job.phase !== 'idle';
-
   return (
-    <div className="inspector-subpanel" aria-label="pack-tracking">
+    <div className="inspector-subpanel" aria-label="mask tracking">
       <LabeledSelect
-        caption="Measure"
-        label="pack follow mode"
-        value={mode}
-        options={FOLLOW_OPTIONS}
-        labels={FOLLOW_LABELS}
-        onChange={(value) => setMode(value as FollowMode)}
+        caption="Method"
+        label="tracking method"
+        value={method}
+        options={METHODS}
+        labels={METHOD_LABELS}
+        onChange={(value) => setMethod(value as Method)}
       />
+      <LabeledSelect
+        caption="Direction"
+        label="tracking direction"
+        value={direction}
+        options={DIRECTIONS}
+        labels={DIRECTION_LABELS}
+        onChange={(value) => setDirection(value as Direction)}
+      />
+      {method === 'point-cloud' && mask.kind !== 'path' && (
+        <p className="inspector-empty inspector-empty-inline">
+          A shape track follows a path’s vertices. Draw a path mask, or choose another method.
+        </p>
+      )}
+      <p className="inspector-empty inspector-empty-inline">
+        {tools.featurePoints.length} feature point(s), {tools.exclusions.length} excluded region(s).
+      </p>
       {running ? (
         <>
           <p className="inspector-empty inspector-empty-inline" role="status">
-            Measuring… {job.progress ? `${job.progress.phase} ${job.progress.completed}/${job.progress.total}` : ''}
+            Tracking… {job.progress ? `${job.progress.completed}/${job.progress.total}` : ''}
           </p>
-          <Button variant="secondary" type="button" onClick={job.cancel} disabled={job.phase === 'cancelling'}>
+          <Button
+            variant="secondary"
+            type="button"
+            onClick={job.cancel}
+            disabled={job.phase === 'cancelling'}
+          >
             {job.phase === 'cancelling' ? 'Cancelling…' : 'Cancel'}
           </Button>
         </>
       ) : (
-        <Button variant="secondary" type="button" onClick={run}>
-          Measure and follow
+        <Button variant="secondary" type="button" onClick={() => start(false)}>
+          Track this mask
         </Button>
       )}
-      {(job.error !== null || localError !== null) && (
-        <p role="alert" className="inspector-empty inspector-empty-inline">
-          {localError ?? job.error}
+      {tracking !== undefined && !running && (
+        <div className="inspector-subpanel" aria-label="track review">
+          <p className="inspector-empty inspector-empty-inline">
+            {flagged.length === 0
+              ? 'Verified — every frame of this track cleared its confidence floor.'
+              : `${flagged.length} range(s) need review.`}
+          </p>
+          <ul aria-label="flagged tracking ranges">
+            {flagged.map((range) => (
+              <li key={`${range.start}-${range.end}`}>
+                <button
+                  type="button"
+                  onClick={() => editor.seek(clip.start + (range.start - clip.sourceStart))}
+                >
+                  {seconds(range.start)} – {seconds(range.end)}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <Button
+            variant="ghost"
+            type="button"
+            onClick={() =>
+              setMessage(
+                runMaskCommand(editor, {
+                  type: 'add_track_constraint',
+                  clipId: clip.id,
+                  maskId: mask.id,
+                  sourceTime,
+                }) ?? 'This frame is locked. Re-track from constraints to fix the range.',
+              )
+            }
+          >
+            Lock this frame
+          </Button>{' '}
+          <Button
+            variant="ghost"
+            type="button"
+            disabled={(tracking.constraints ?? []).length === 0}
+            onClick={() => start(true)}
+          >
+            Re-track from constraints
+          </Button>{' '}
+          <Button
+            variant="ghost"
+            type="button"
+            onClick={() =>
+              setMessage(
+                runMaskCommand(editor, {
+                  type: 'clear_mask_track',
+                  clipId: clip.id,
+                  maskId: mask.id,
+                }) ?? 'The track was removed; the mask keeps its own animation.',
+              )
+            }
+          >
+            Remove track
+          </Button>
+        </div>
+      )}
+      {(job.error !== null || message !== null) && (
+        <p
+          role={job.error === null ? 'status' : 'alert'}
+          className="inspector-empty inspector-empty-inline"
+        >
+          {job.error ?? message}
         </p>
       )}
       {job.proposal !== null && (
         <div role="dialog" aria-label="capability pack install">
           <p>
-            <strong>{job.proposal.displayName}</strong> — {(job.proposal.downloadBytes / 1_000_000).toFixed(1)} MB.
-            Licenses: {job.proposal.licenses.map((license) => license.spdx).join(', ')}. Media never leaves this
-            machine.
+            <strong>{job.proposal.displayName}</strong> —{' '}
+            {(job.proposal.downloadBytes / 1_000_000).toFixed(1)} MB. Licenses:{' '}
+            {job.proposal.licenses.map((license: { spdx: string }) => license.spdx).join(', ')}.
+            Media never leaves this machine.
           </p>
-          <Button variant="primary" type="button" onClick={() => void job.approveInstall()} disabled={job.installing}>
+          <Button
+            variant="primary"
+            type="button"
+            onClick={() => void job.approveInstall()}
+            disabled={job.installing}
+          >
             {job.installing ? 'Installing…' : 'Review and install'}
           </Button>{' '}
           <Button variant="ghost" type="button" onClick={job.dismissProposal}>

@@ -1176,6 +1176,58 @@ export interface TrackingRequestIntentWire {
   readonly parameters: unknown;
 }
 
+/**
+ * Track one mask through a clip (MK7.4). Deliberately has no media path, no frame range and no
+ * geometry: main resolves the asset from the project it reads from disk and derives the mask's
+ * bounds, vertices and source range from the mask ITSELF, so a renderer cannot ask for a track of
+ * geometry the project does not contain.
+ */
+export interface MaskTrackIntentWire {
+  readonly requestId: string;
+  readonly clipId: string;
+  readonly maskId: string;
+  readonly method: 'position' | 'position-scale-rotation' | 'perspective' | 'point-cloud';
+  readonly direction: 'forward' | 'backward' | 'one-frame' | 'to-clip-edge' | 'both';
+  /** The source instant the mask's geometry belongs to — where the playhead is. */
+  readonly referenceSourceTime: number;
+  /** Extra texture the tracker should follow, display-corrected source pixels (MK7.4). */
+  readonly featurePoints?: readonly { readonly x: number; readonly y: number }[];
+  /** Regions the tracker must ignore, display-corrected source pixels (MK7.4). */
+  readonly exclusions?: readonly {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  }[];
+  /** Re-measure only around the mask's constraint frames instead of the whole direction. */
+  readonly fromConstraints?: boolean;
+}
+
+/** What a finished mask track gives the renderer: the pin, and what to review. */
+export type MaskTrackResultWire =
+  | {
+      readonly ok: true;
+      readonly artifact: { readonly key: string; readonly sha256: string };
+      readonly method: MaskTrackIntentWire['method'];
+      readonly frames: number;
+      readonly flagged: readonly { readonly start: number; readonly end: number }[];
+      /** The worst model residual over the track, display-corrected source pixels. */
+      readonly worstResidualPx: number;
+      readonly engine: string;
+      readonly projectRevision: number;
+    }
+  | {
+      readonly ok: false;
+      readonly code: 'pack_missing';
+      readonly proposal: CapabilityPackProposalResultWire;
+    }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly error: string;
+      readonly retryable: boolean;
+    };
+
 export interface TrackingSampleWire {
   readonly frame: number;
   readonly box: {
@@ -2052,6 +2104,12 @@ export interface FramePilotBridge {
   capabilityPackTrack?(intent: TrackingRequestIntentWire): Promise<TrackingRunResultWire>;
   /** Cancel an in-flight tracking job by request id. */
   capabilityPackCancelTrack?(requestId: string): void;
+  /**
+   * Track one mask and commit its transform-track artifact (MK7.4).
+   *
+   * Progress and cancellation ride the same channels as any other pack job, keyed by request id.
+   */
+  capabilityPackTrackMask?(intent: MaskTrackIntentWire): Promise<MaskTrackResultWire>;
   /** Bounded progress for an in-flight tracking job. */
   onCapabilityPackTrackProgress?(handler: (progress: TrackingProgressWire) => void): () => void;
   /** Install only the exact signed proposal the user explicitly approved. */

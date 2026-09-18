@@ -117,6 +117,7 @@ import {
   type AiStreamRequest,
   type DurableRunAccepted,
   type TrackingProgressWire,
+  type MaskTrackResultWire,
   type TrackingRunResultWire,
   type DurableRunSnapshot,
   type DurableRunSubscription,
@@ -187,7 +188,17 @@ import {
 import { withVisualPackLease } from './capability-packs/visual-pack-lease.js';
 import { loadCapabilityPackRootKeys } from './capability-packs/config.js';
 import { FileCapabilityPackLocation } from './capability-packs/location.js';
+import { MaskTrackIntentSchema } from '@framepilot/capability-packs';
 import { buildTrackingWorkerRequest } from './capability-packs/tracking-request.js';
+import {
+  commitMaskTrack,
+  maskTrackMeasurements,
+  measurementIntent,
+  resolveMaskTrack,
+  segmentFromSamples,
+  type MaskTrackIntent,
+} from './capability-packs/track-run.js';
+import type { TrackSegment } from '@framepilot/editor-core';
 import {
   matteJobRunner,
   registerJobIpc,
@@ -1201,6 +1212,146 @@ function registerIpcHandlers(): void {
         };
       } finally {
         trackingRuns.delete(requestId);
+      }
+    },
+  );
+  ipcMain.handle(
+    IpcChannels.capabilityPackTrackMask,
+    async (event, raw: unknown): Promise<MaskTrackResultWire> => {
+      requireLicense();
+      const active = await activeProject.current();
+      if (active === null) {
+        return { ok: false, code: 'no_project', error: 'No project is open.', retryable: false };
+      }
+      const parsed = MaskTrackIntentSchema.safeParse(raw);
+      if (!parsed.success) {
+        return {
+          ok: false,
+          code: 'invalid_request',
+          error: 'This tracking request is malformed.',
+          retryable: false,
+        };
+      }
+      const intent = parsed.data as MaskTrackIntent;
+      // Main re-reads the project from disk: the renderer's view of the mask, the asset and the
+      // revision is never the authority for what gets tracked.
+      const project = await readProjectFile(active.path);
+      const revision = project.timeline.revision ?? 0;
+      const resolution = resolveMaskTrack(project, intent, Number(project.fps));
+      if (resolution.status === 'rejected') {
+        return { ok: false, code: resolution.code, error: resolution.detail, retryable: false };
+      }
+      const resolved = resolution.resolved;
+      const measurements = maskTrackMeasurements(resolved, intent, undefined);
+      if (measurements.length === 0) {
+        return {
+          ok: false,
+          code: 'nothing_to_track',
+          error: 'There is nothing to track in that direction. Move the playhead and try again.',
+          retryable: false,
+        };
+      }
+      const controller = new AbortController();
+      trackingRuns.set(intent.requestId, controller);
+      const segments: TrackSegment[] = [];
+      let engine = '';
+      let releaseDigest = '';
+      let packId = '';
+      let packVersion = '';
+      try {
+        for (const [index, measurement] of measurements.entries()) {
+          const built = buildTrackingWorkerRequest(
+            project,
+            revision,
+            measurementIntent(resolved, measurement, intent, index),
+          );
+          if (built.status === 'rejected') {
+            return { ok: false, code: built.code, error: built.detail, retryable: false };
+          }
+          const outcome = await (await capabilityPackService).tracking().run(built.request, {
+            projectRevision: revision,
+            mediaRoot: built.mediaRoot,
+            signal: controller.signal,
+            onProgress: (progress: CapabilityPackWorkerProgress) => {
+              if (event.sender.isDestroyed()) return;
+              event.sender.send(IpcChannels.capabilityPackTrackProgress, {
+                requestId: intent.requestId,
+                phase: progress.phase,
+                // One job, several measurements: progress is reported across all of them so the
+                // panel shows one bar rather than restarting at zero halfway through.
+                completed: index * progress.total + progress.completed,
+                total: measurements.length * progress.total,
+              } satisfies TrackingProgressWire);
+            },
+          });
+          if (outcome.status === 'pack_missing') {
+            return { ok: false, code: 'pack_missing', proposal: outcome.proposal };
+          }
+          if (outcome.status === 'failed') {
+            return {
+              ok: false,
+              code: outcome.code,
+              error: outcome.detail,
+              retryable: outcome.retryable,
+            };
+          }
+          if (!('samples' in outcome.result)) {
+            return {
+              ok: false,
+              code: 'worker_failed',
+              error: 'This job did not return a track.',
+              retryable: false,
+            };
+          }
+          packId = outcome.identity.id;
+          packVersion = outcome.identity.version;
+          releaseDigest = outcome.identity.releaseDigest;
+          engine = `${packId}@${packVersion}`;
+          const segment = segmentFromSamples(resolved, measurement, outcome.result.samples);
+          if (segment !== null) segments.push(segment);
+        }
+        const committed = await commitMaskTrack({
+          projectDir: path.dirname(active.path),
+          resolved,
+          segments,
+          // The pinned digest is what makes an artifact trustworthy; this fingerprint only has
+          // to change when the same request would measure different footage, which the asset's
+          // identity, path, measured size and duration already say.
+          fingerprint: [
+            resolved.asset.id,
+            resolved.asset.path,
+            `${resolved.geometry.codedWidth}x${resolved.geometry.codedHeight}`,
+            String(resolved.asset.durationSeconds ?? ''),
+          ].join('|'),
+          pack: { id: packId, version: packVersion, releaseDigest },
+        });
+        if (committed.status === 'failed') {
+          return {
+            ok: false,
+            code: committed.code,
+            error: committed.detail,
+            retryable: committed.code === 'no_frames',
+          };
+        }
+        return {
+          ok: true,
+          artifact: { key: committed.key, sha256: committed.sha256 },
+          method: resolved.request.method,
+          frames: committed.frames,
+          flagged: committed.flagged,
+          worstResidualPx: committed.worstResidualPx,
+          engine,
+          projectRevision: revision,
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          code: 'worker_failed',
+          error: error instanceof Error ? error.message : 'Tracking failed.',
+          retryable: false,
+        };
+      } finally {
+        trackingRuns.delete(intent.requestId);
       }
     },
   );

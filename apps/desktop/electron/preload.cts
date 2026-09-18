@@ -68,6 +68,8 @@ import type {
   MusicDownloadProgressWire,
   CapabilityPackRelocationProgressWire,
   TrackingProgressWire,
+  MaskTrackIntentWire,
+  MaskTrackResultWire,
   TrackingRequestIntentWire,
   TrackingRunResultWire,
   CapabilityPackRelocationResultWire,
@@ -166,6 +168,7 @@ const Channels = {
   capabilityPackTrack: 'framepilot:capability-pack:track',
   capabilityPackCancelTrack: 'framepilot:capability-pack:cancel-track',
   capabilityPackTrackProgress: 'framepilot:capability-pack:track-progress',
+  capabilityPackTrackMask: 'framepilot:capability-pack:track-mask',
   capabilityPackStatus: 'framepilot:capability-pack:status',
   capabilityPackInstalled: 'framepilot:capability-pack:installed',
   capabilityPackMatte: 'framepilot:capability-pack:matte',
@@ -301,6 +304,8 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
     ipcRenderer.invoke(Channels.matteCleanUnused, request) as Promise<MatteCleanResultWire>,
   capabilityPackTrack: (intent: TrackingRequestIntentWire) =>
     ipcRenderer.invoke(Channels.capabilityPackTrack, intent) as Promise<TrackingRunResultWire>,
+  capabilityPackTrackMask: (intent: MaskTrackIntentWire) =>
+    ipcRenderer.invoke(Channels.capabilityPackTrackMask, intent) as Promise<MaskTrackResultWire>,
   capabilityPackCancelTrack: (requestId: string) => {
     ipcRenderer.send(Channels.capabilityPackCancelTrack, requestId);
   },

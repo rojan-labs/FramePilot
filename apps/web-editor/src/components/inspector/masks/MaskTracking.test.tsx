@@ -1,20 +1,24 @@
 /**
- * Inspector pack tracking: the measured result must actually steer the mask.
+ * The Inspector's per-mask tracking panel (MK7.4).
  *
- * Regression: "Follow silhouette" sends `subject.segment`, and the host answered
- * with `kind: 'segment'`, which this component refused — the button could never
- * succeed. Main now converts silhouettes to a track; the renderer also converts
- * a raw segmentation itself so an older host still works.
+ * What is asserted is the contract between the panel and main, and between the panel and the
+ * project: the request carries the method, the direction and the editor's tracking hints; a
+ * finished track lands on the SELECTED mask as one reversible edit; the review list shows the
+ * ranges the measurement flagged; a constraint is recorded on the frame the editor is on.
+ *
+ * (This replaces the clip-wide "Measure and follow" buttons, which could only steer one
+ * hard-coded mask's bounding box.)
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MaskLayerSchema, masksOf, type Asset, type Timeline } from '@framepilot/timeline-schema';
-import type { TrackingRunResultWire } from '@framepilot/shared-types';
+import type { MaskTrackResultWire } from '@framepilot/shared-types';
 import { useEditor } from '../../../editor/useEditor.js';
 import { MaskTracking } from './MaskTracking.js';
+import { MaskToolStore } from './useMaskTools.js';
 
 const bridge = vi.hoisted(() => ({
-  capabilityPackTrack: vi.fn(),
+  capabilityPackTrackMask: vi.fn(),
   onCapabilityPackTrackProgress: vi.fn(() => () => {}),
   capabilityPackCancelTrack: vi.fn(),
 }));
@@ -25,8 +29,11 @@ vi.mock('../../../editor/bridge.js', async (importOriginal) => ({
 }));
 
 afterEach(() => {
-  bridge.capabilityPackTrack.mockReset();
+  bridge.capabilityPackTrackMask.mockReset();
 });
+
+const KEY = 'a'.repeat(64);
+const SHA = 'b'.repeat(64);
 
 const timeline: Timeline = {
   revision: 0,
@@ -44,10 +51,9 @@ const timeline: Timeline = {
           sourceStart: 0,
           sourceEnd: 4,
           effects: [],
-          // Schema v22 mask stack: the v21 bounds {0.2, 0.2, 0.4, 0.4} in 1920x1080 source pixels.
           masks: [
             MaskLayerSchema.parse({
-              id: 'c1__mask',
+              id: 'm1',
               kind: 'rectangle',
               cx: 768,
               cy: 432,
@@ -62,7 +68,6 @@ const timeline: Timeline = {
   ],
 };
 
-// A mask is stored in source pixels, so the pack actions need the probed picture size.
 const assets: Asset[] = [
   {
     id: 'a',
@@ -73,106 +78,125 @@ const assets: Asset[] = [
   },
 ];
 
-function Host(): JSX.Element {
-  const editor = useEditor(timeline, { assets });
-  const clip = editor.state.timeline.tracks[0]!.clips[0]!;
-  const mask = masksOf(clip).find((layer) => layer.id === 'c1__mask');
-  return (
-    <>
-      <span data-testid="mask-keyframes">{mask?.keyframes.length ?? 0}</span>
-      <MaskTracking editor={editor} clip={clip} fps={30} />
-    </>
-  );
-}
-
-const ENGINE = 'framepilot.subject-intelligence@1.0.0';
-
-/** A 10x10 row-major RLE silhouette four pixels wide on row 2, shifted one pixel per frame. */
-function segmentResult(): TrackingRunResultWire {
+function result(flagged: readonly { start: number; end: number }[] = []): MaskTrackResultWire {
   return {
     ok: true,
-    kind: 'segment',
-    masks: Array.from({ length: 8 }, (_unused, frame) => ({
-      frame,
-      width: 10,
-      height: 10,
-      counts: [22 + (frame % 3), 4, 74 - (frame % 3)],
-      confidence: 0.9,
-    })),
-    engine: ENGINE,
-    backend: 'opencv-dnn',
+    artifact: { key: KEY, sha256: SHA },
+    method: 'position',
+    frames: 120,
+    flagged,
+    worstResidualPx: 0.3,
+    engine: 'framepilot.tracking-lite@1.0.0',
     projectRevision: 0,
-  } as TrackingRunResultWire;
+  };
 }
 
-function trackingResult(): TrackingRunResultWire {
-  return {
-    ok: true,
-    kind: 'tracking',
-    samples: Array.from({ length: 8 }, (_unused, frame) => ({
-      frame,
-      box: { x: 0.2 + frame * 0.005, y: 0.2, width: 0.4, height: 0.4 },
-      confidence: 0.9,
-      occluded: false,
-    })),
-    engine: ENGINE,
-    backend: 'opencv-dnn',
-    projectRevision: 0,
-  } as TrackingRunResultWire;
+function host(store: MaskToolStore): () => JSX.Element {
+  return function Host(): JSX.Element {
+    const editor = useEditor(timeline, { assets });
+    const clip = editor.state.timeline.tracks[0]!.clips[0]!;
+    const mask = masksOf(clip).find((layer) => layer.id === 'm1');
+    return (
+      <>
+        <span data-testid="tracked">{mask?.tracking === undefined ? 'no' : 'yes'}</span>
+        <span data-testid="constraints">{mask?.tracking?.constraints.length ?? 0}</span>
+        <MaskTracking editor={editor} clip={clip} fps={30} store={store} />
+      </>
+    );
+  };
 }
 
-async function followSilhouette(): Promise<void> {
-  fireEvent.click(screen.getByRole('combobox', { name: 'pack follow mode' }));
-  fireEvent.click(screen.getByRole('option', { name: 'Follow silhouette' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Measure and follow' }));
-  await waitFor(() => expect(bridge.capabilityPackTrack).toHaveBeenCalledTimes(1));
+function selected(): MaskToolStore {
+  const store = new MaskToolStore();
+  store.selectMask('m1');
+  return store;
 }
 
-describe('MaskTracking', () => {
-  it('Follow silhouette applies the host-converted track to the mask', async () => {
-    bridge.capabilityPackTrack.mockResolvedValue(trackingResult());
+/** The Inspector's selects are listboxes, not native `select` elements. */
+function choose(label: string, option: string): void {
+  fireEvent.click(screen.getByRole('combobox', { name: label }));
+  fireEvent.click(screen.getByRole('option', { name: option }));
+}
+
+async function track(): Promise<void> {
+  fireEvent.click(screen.getByRole('button', { name: 'Track this mask' }));
+  await waitFor(() => expect(bridge.capabilityPackTrackMask).toHaveBeenCalledTimes(1));
+}
+
+describe('the tracking panel', () => {
+  it('asks for a mask before it offers to track anything', () => {
+    const Host = host(new MaskToolStore());
     render(<Host />);
+    expect(screen.getByText(/Select a mask to track it/)).toBeTruthy();
+  });
 
-    await followSilhouette();
+  it('sends the chosen method, direction and hints, and pins the result on the mask', async () => {
+    bridge.capabilityPackTrackMask.mockResolvedValue(result());
+    const store = selected();
+    store.toggleFeaturePoint({ x: 100, y: 200 });
+    store.addExclusion({ x: 0, y: 0, width: 50, height: 50 });
+    const Host = host(store);
+    render(<Host />);
+    choose('tracking method', 'Perspective');
+    choose('tracking direction', 'Both ways');
+    await track();
+    const intent = bridge.capabilityPackTrackMask.mock.calls[0]![0] as Record<string, unknown>;
+    expect(intent['clipId']).toBe('c1');
+    expect(intent['maskId']).toBe('m1');
+    expect(intent['method']).toBe('perspective');
+    expect(intent['direction']).toBe('both');
+    expect(intent['featurePoints']).toEqual([{ x: 100, y: 200 }]);
+    expect(intent['exclusions']).toEqual([{ x: 0, y: 0, width: 50, height: 50 }]);
+    // No media path, no frame range: main derives both from the project it reads from disk.
+    expect(intent['assetId']).toBeUndefined();
+    await waitFor(() => expect(screen.getByTestId('tracked').textContent).toBe('yes'));
+  });
 
-    expect(bridge.capabilityPackTrack.mock.calls[0]![0]).toMatchObject({
-      capability: 'subject.segment',
-      assetId: 'a',
-      firstFrame: 0,
-      fps: 30,
+  it('shows the ranges the measurement flagged, and says so when nothing needs review', async () => {
+    bridge.capabilityPackTrackMask.mockResolvedValue(result([{ start: 1, end: 1.5 }]));
+    const Host = host(selected());
+    render(<Host />);
+    await track();
+    await waitFor(() => expect(screen.getByLabelText('track review')).toBeTruthy());
+    expect(screen.getByRole('button', { name: '1.00s – 1.50s' })).toBeTruthy();
+    expect(screen.getAllByText(/1 range\(s\) need review/).length).toBeGreaterThan(0);
+  });
+
+  it('records the frame the editor fixed as a constraint', async () => {
+    bridge.capabilityPackTrackMask.mockResolvedValue(result([{ start: 1, end: 1.5 }]));
+    const Host = host(selected());
+    render(<Host />);
+    await track();
+    await waitFor(() => expect(screen.getByLabelText('track review')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Lock this frame' }));
+    await waitFor(() => expect(screen.getByTestId('constraints').textContent).toBe('1'));
+    // Re-tracking is only offered once there is something to re-measure from.
+    expect(
+      screen.getByRole('button', { name: 'Re-track from constraints' }).hasAttribute('disabled'),
+    ).toBe(false);
+  });
+
+  it('surfaces a typed refusal from main without touching the project', async () => {
+    bridge.capabilityPackTrackMask.mockResolvedValue({
+      ok: false,
+      code: 'target_lost',
+      error: 'The tracker lost the subject. Move the playhead to a clearer frame and track again.',
+      retryable: false,
     });
-    await waitFor(() =>
-      expect(Number(screen.getByTestId('mask-keyframes').textContent)).toBeGreaterThan(0),
-    );
-    expect(screen.queryByRole('alert')).toBeNull();
+    const Host = host(selected());
+    render(<Host />);
+    await track();
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/lost the subject/));
+    expect(screen.getByTestId('tracked').textContent).toBe('no');
   });
 
-  it('converts a raw segmentation result instead of refusing it', async () => {
-    bridge.capabilityPackTrack.mockResolvedValue(segmentResult());
+  it('removes a track and leaves the mask its own animation', async () => {
+    bridge.capabilityPackTrackMask.mockResolvedValue(result());
+    const Host = host(selected());
     render(<Host />);
-
-    await followSilhouette();
-
-    await waitFor(() =>
-      expect(Number(screen.getByTestId('mask-keyframes').textContent)).toBe(8 * 4),
-    );
-    expect(screen.queryByRole('alert')).toBeNull();
-  });
-
-  it('still refuses a result that carries no track', async () => {
-    bridge.capabilityPackTrack.mockResolvedValue({
-      ok: true,
-      kind: 'detect',
-      detections: [],
-      engine: ENGINE,
-      backend: 'opencv-dnn',
-      projectRevision: 0,
-    } as unknown as TrackingRunResultWire);
-    render(<Host />);
-
-    await followSilhouette();
-
-    expect((await screen.findByRole('alert')).textContent).toContain('did not return a track');
-    expect(screen.getByTestId('mask-keyframes').textContent).toBe('0');
+    await track();
+    await waitFor(() => expect(screen.getByTestId('tracked').textContent).toBe('yes'));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove track' }));
+    await waitFor(() => expect(screen.getByTestId('tracked').textContent).toBe('no'));
   });
 });
