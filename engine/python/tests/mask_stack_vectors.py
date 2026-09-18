@@ -1125,7 +1125,8 @@ def layer_frame_rgba() -> np.ndarray:
     green = 250 - ys * 7
     blue = 30 + (xs + ys) * 3
     rgba = np.stack([red, green, blue, alpha], axis=-1)
-    return np.clip(np.rint(rgba), 0, 255).astype(np.uint8)
+    quantised: np.ndarray = np.clip(np.rint(rgba), 0, 255).astype(np.uint8)
+    return quantised
 
 
 def _layer_document() -> dict[str, Any]:
