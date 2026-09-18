@@ -1,0 +1,247 @@
+# PX5 budgets: measured numbers
+
+Budgets from [`09`](./09-PREVIEW-EXPORT-PARITY.md) ("PX5 — performance evidence") and
+[`06`](./06-PRECISION-AND-EVAL.md) ("Production budgets"). Measured 2026-09-18. **No budget was
+lowered.** Two hold, three miss; the misses are recorded with the hot path and what would fix them.
+
+## Verdicts
+
+Scale row = a 3-minute 4K timeline, 4 picture layers + text + a decontaminating 4K matte.
+"Desktop path" = the monitor plays the 540p proxies `media/derive.py` makes (what the desktop app
+does); the matte is always the 4K artifact.
+
+| Budget                                                         | Measured (M1 Pro, real GPU)                                                         | Verdict                                         |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Playback ≤ 1% dropped frames, Scale row **without** the matte  | 1 / 600 (0.17%); 0–0.17% with an animated 200-vertex path or a key + finesse on top | **holds**                                       |
+| Playback ≤ 1% dropped frames, Scale row **with** the 4K matte  | 600 / 601 (99.8%): one frame in 20 s, the monitor freezes                           | **misses**                                      |
+| Seek-to-present ≤ 100 ms p95, without the matte                | 35.7 ms (56.3 ms with the path, 50.2 ms with key + finesse)                         | **holds**                                       |
+| Seek-to-present ≤ 100 ms p95, with the 4K matte                | 617 ms (p50 592 ms)                                                                 | **misses**                                      |
+| Memory bounded by the decoder pool                             | live decoders peak 6 of 6; picture cache peak 401–407 MB (676 MB with the matte)    | **bounded**, above the nominal 384 MB (below)   |
+| Export with masks + 4K matte ≤ 1.5× without (P13)              | 1.98× before, **1.49× after** the optimisation below                                | **at the budget**, inside the noise, not clear  |
+| Desktop path **without proxies** (4K originals in the monitor) | 603 / 604 dropped; seek p95 161 ms                                                  | misses; the desktop app does not take this path |
+
+## What is measured where, and what is not
+
+- **Real hardware, this machine:** Apple M1 Pro, 16 GB, shared with other work, Chrome stable on
+  ANGLE/Metal, Node 24.13, ffmpeg 8.1. Every number in this file is from here unless a row says
+  CI. One run at a time under a footprint watchdog (8 GiB cap, start at ≥ 40% free, abort on
+  > 1 GiB swap growth). The first attempt was aborted by that watchdog 8 seconds in (system swap
+  > grew 1.04 GiB while another agent's tests ran); it was re-run once memory was free. Each
+  > playback number is ONE 20-second run, not a distribution.
+- **CI (GitHub runner, no GPU, SwiftShader CPU GL):** the `preview-perf` job runs the same spec
+  and gates on **invariants only**. Its timings are logged to the job summary and must not be
+  read as budget evidence in either direction.
+- **Not measured, and why:**
+  - _"An M-series Mac" as a class._ One M1 Pro is one machine. No M1 (8 GB, 7-core GPU), M2/M3/M4
+    or Intel/Windows number exists. The "holds" verdicts are for this machine only.
+  - _The packaged desktop app._ The spec drives the web editor in Chrome against the dev server
+    (unminified React, the same engine code). Electron's `fp-media://` reads, the production
+    bundle and a retina monitor were not measured. The canvas is 1280×720 in both.
+  - _Camera footage._ The fixture is synthetic (`testsrc2`), 13–18 Mb/s at 4K. Hardware decode
+    barely cares; a software decoder does. FFV1 cost is per pixel, but the matte here is a disc
+    and the foreground a flat colour, which is FFV1's best case.
+  - _Cold storage._ The pts probe and every file read ran on files just written (page cache).
+  - _The whole 3-minute export._ The ratio is from a 6-second window (180 4K frames) of a
+    timeline that is uniform by construction; the full row is ~40 min + ~60 min on this machine.
+  - _Long playback._ 20 seconds per run. A leak that needs minutes would not show; the GL pools
+    and cache are asserted flat between the 10 s and 20 s marks only.
+
+## The fixture (PX5.1)
+
+`pnpm px5:fixture` (`engine/python/tests/px5_scale_fixture.py`) writes, into the gitignored
+`tests/e2e/.tmp-px5-scale/` (1.6 GB, 22 s to generate, one ffmpeg at a time, no audio, nothing
+committed):
+
+- four **different** 3840×2160 30 fps H.264 sources, GOP 15, no B-frames, 250–410 MB each, and
+  their 540p proxies with `media/derive.py`'s arguments. Each encodes one 12-second period and
+  stream-copies it to length.
+- a 4K matte artifact to the `render/mattes.py` contract (intra-only FFV1 `matte.mkv` +
+  `foreground.mkv` + `frames.json`), 5,400 frames.
+- the timeline and its A/B variants. `scale` is the row. Every other variant is `scale-plain`
+  (no masks) plus exactly one feature, so its difference from `scale-plain` is that feature:
+  `scale-path` / `scale-path-full` (animated feathered 200-vertex path), `scale-key` (key mask
+  with the whole finesse chain), `scale-key-nofinesse`.
+
+## The instrument (PX5.1)
+
+`apps/web-editor/src/preview/engine/preview-telemetry.ts`, owned by `LayerPreviewEngine` and read
+through `debugTelemetry()`. The spec (`tests/e2e/specs/preview-scale-perf.spec.ts`) reads only
+this; nothing times the page from outside.
+
+- `frameInterval`, `composite` (ticks that drew), `seekToPresent`, `exactComposite` (the
+  composite inside a seek, read back, so it includes the GPU), `maskRaster`, `keyStack`, `decode`.
+- **Dropped frames are counted, not timed:** the project frame index due on each tick against the
+  last index presented. Unit-tested exactly (`preview-telemetry.test.ts`).
+- Gauges with peaks: picture cache bytes, GL pool bytes and textures (`GlResources.poolBytes`),
+  live decoders (asked of the decode worker, where the pool lives).
+- `gpuSync` (measurement mode): a one-pixel read-back per playback composite. `gl.finish()` was
+  tried first and returned in 0.0 ms with a dozen float passes queued, so it measures nothing
+  under Chrome's command buffer.
+
+## Scale row in the editor — M1 Pro, Chrome, ANGLE Metal
+
+20 s of playback through the real transport, 24 fixed seeks, 12 single-frame steps. Times in ms.
+
+| Variant (desktop path)      | Dropped         | Frame interval p95 | Composite p50 / p95      | Seek p50 / p95 | One full-res composite (step p50) | Cache peak | GL pools | Decoders |
+| --------------------------- | --------------- | ------------------ | ------------------------ | -------------- | --------------------------------- | ---------- | -------- | -------- |
+| `scale-plain`               | 1/600 (0.17%)   | 17.5               | 0.3 / 0.5 (submission)   | 25.5 / 35.7    | 7.0                               | 401 MB     | 51 MB    | 4        |
+| `scale-path`                | 0/606 (0%)      | 21.4               | 15.2 / 16.5              | 41.4 / 51.9    | 20.6                              | 407 MB     | 53 MB    | 4        |
+| `scale-path-full`           | 1/606 (0.17%)   | 21.5               | 15.3 / 16.5              | 41.7 / 56.3    | 20.7                              | 407 MB     | 53 MB    | 4        |
+| `scale-key-nofinesse`       | 0/602 (0%)      | 17.4               | 6.4 / 9.0 (GPU sync)     | 26.1 / 34.6    | 7.5                               | 395 MB     | 87 MB    | 4        |
+| `scale-key`                 | 1/608 (0.16%)   | 19.8               | 13.8 / 14.8 (GPU sync)   | 34.6 / 50.2    | 14.8                              | 407 MB     | 190 MB   | 4        |
+| **`scale`** (4K matte)      | 600/601 (99.8%) | 17.5               | 478 (one composite drew) | 592 / 617      | **452**                           | 676 MB     | 55 MB    | 6        |
+| `scale-plain`, 4K originals | 603/604 (99.8%) | 17.6               | 17.2                     | 122 / 161      | 26.9                              | 759 MB     | 199 MB   | 4        |
+
+Load shedding never stepped (render scale stayed 1) in any run, and no run removed a layer.
+
+### An animated 200-vertex path: 16 ms p95 on the main thread, no frames lost
+
+The exact CPU rasteriser runs inside every composite for an animated mask (a cache miss per
+frame). Rastered at the decoded picture's size, which on the desktop path is the 960×540 proxy:
+**14.9 ms p50 / 16.0 p95 / 18.1 max**, playback 0–1 dropped of 606. It takes half the frame and
+loses none, so **it was not moved to a worker**: the move is only worth its risk when it costs
+frames. The Node numbers (`mask-raster.perf.test.ts`) say when it would:
+
+| Raster size                                 | Hard edge p50 / p95 | Feathered (8 in, 24 out) p50 / p95     |
+| ------------------------------------------- | ------------------- | -------------------------------------- |
+| 640×360 (load-shed 0.5)                     | 5.2 / 7.0           | 10.7 / 14.7                            |
+| 960×540 (540p proxy: the desktop path)      | 9.0 / 16.2          | 20.8 / 71.1                            |
+| 1280×720 (monitor canvas, unproxied source) | 13.7 / 21.2         | **38.0 / 39.2** — over a 33.3 ms frame |
+| 3840×2160 (the export-equivalent raster)    | 108 / 117           | 273 / 279                              |
+
+So a feathered animated path on an **unproxied** clip would cost frames. The desktop app proxies
+first; if that stops being true, the worker is the fix, with the same module on both threads so
+the vectors stay byte-equal. Not measured: two animated paths in one frame, which by addition
+(2 × 15 ms) would sit at the limit.
+
+### A key's finesse chain: 7.4 ms of GPU per frame, +103 MB of pooled float targets
+
+`scale-key` vs `scale-key-nofinesse`, GPU sync on: composite 13.8 vs 6.4 ms p50 (14.8 vs 9.0 p95),
+and 14.8 vs 7.5 ms for a full-resolution paused composite. Playback holds (1/608). The cost that
+matters is memory: the chain's pooled RGBA32F targets take the GL pools from 87 MB to **190 MB**
+(51 MB with no key at all). It is flat once allocated (asserted), but the pool never shrinks
+before the engine is disposed, and the telemetry counts storage by format, not what the driver
+really commits.
+
+### The 4K matte: the monitor freezes, and it is CPU float64 work, not the compositor
+
+`scale` differs from `scale-plain` by one decontaminating matte. With it, playback presents one
+frame in 20 seconds and a seek takes 0.6 s. The frame interval stays at 16.7 ms: the main thread
+is idle between composites, because the frames never arrive in time. Two separate costs, both
+many times a 33.3 ms frame:
+
+| Where                                    | Cost per matte frame                                     | How measured                                               |
+| ---------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------- |
+| Decode worker: `matte.mkv` (4K gray)     | 32.3 ms p50 / 34.8 p95                                   | `matte-decode.perf.test.ts`, the real `MatteDecodeSession` |
+| Decode worker: `foreground.mkv` (4K RGB) | 69.4 ms p50 / 83.3 p95 (a flat colour: FFV1's best case) | same                                                       |
+| Main thread: `matteFrameAlpha`           | 170 ms (Node); 115–131 ms `maskRaster` in Chrome         | `matte-composite.perf.test.ts`; telemetry                  |
+| Main thread: `decontaminate`             | 324 ms (Node)                                            | same                                                       |
+| Main thread: the whole composite         | **452 ms p50** (step), 478 ms during playback            | telemetry `exactComposite` / `composite`                   |
+
+The FFV1 decoder is pure TypeScript and single-threaded in the one decode worker, so it also
+starves picture decode: a picture decode window goes from 58 ms to **1,566 ms** p50. And because
+every decoded frame is already stale when it arrives, the monitor does not slow down, it stops.
+The picture cache peaks at 676 MB (one 4K matte frame pair is 41 MB, and decode-ahead pins 13).
+
+**What it would take.** Not a worker: ~550 ms of CPU per frame needs 17 cores to reach 30 fps.
+The matte passes (resample to the frame, clean levels, decontaminate) have to run on the GPU the
+way MK6 moved the key stack there — float targets, quantise once — and be judged by the PX4
+oracle's thresholds, since float32 on a GPU cannot be byte-equal to the export's float64. Or the
+monitor needs a matte tier at its own resolution that passes those thresholds (BR5 measured a
+540p VP9 matte at 32.4 dB and rejected it; no other tier is measured in this file).
+Frame-parallel FFV1 decode (the files are intra-only) would fix the decode side alone. Until
+then, a clip with a 4K matte cannot be played in the monitor; it can be scrubbed at ~0.6 s a
+frame. This is a product decision, so nothing here changes it.
+
+### Every project frame is composited twice on a 60 Hz display
+
+`composite` has ~1,200 samples for ~600 project frames: the plan is evaluated at the audio clock's
+continuous time on each animation frame, the layers' `localTime` differs between the two ticks of
+one project frame, so the "unchanged" signature never matches and an animated mask is rastered on
+both (1,064 rasters in 20 s). Quantising playback time to the project frame grid would halve that
+work and present exactly the instants the export renders — but it changes what a 60 fps source
+looks like in a 30 fps project's monitor, so it is handed over, not done.
+
+## Memory: bounded, and what the bound really is
+
+- **Live decoders:** never above the pool's cap (6) in any run; `decoder-pool.test.ts` holds 40
+  sources visited round-robin at the cap and proves the peak cannot hide an overshoot.
+- **Picture cache:** `CACHE_BUDGET_BYTES` is 384 MB, but eviction cannot take what decode-ahead
+  pins (13 project frames × every layer, plus an 8-frame window in flight per source). Measured
+  peaks: 401–407 MB on proxies, 676 MB with a 4K matte, 759 MB on 4K originals. The spec asserts
+  the real bound: budget + 21 frames × (pictures + matte pairs). It is a function of the
+  timeline, not of how long it plays.
+- **GL pools:** 51–199 MB, flat between the 10 s and 20 s marks (asserted). They are keyed by
+  size and never shrink, and a render-scale step adds a second set.
+- Peak process-tree footprint during a run (Playwright + Vite + Chrome): 2.9–3.8 GiB, 4.6 GiB on
+  4K originals.
+
+## Export with masks and a 4K matte ≤ 1.5× without (P13)
+
+`pnpm px5:export-ratio` (`engine/python/tests/px5_export_ratio.py`): `scale` and `scale-plain`
+through the real `export_video` at 3840×2160 (`h264_videotoolbox`), one export per process,
+under the spike watchdog (peak footprint 7.4 GiB of the 8 GiB cap).
+
+| Version                                | Window       | Plain   | With the 4K matte | Ratio     |
+| -------------------------------------- | ------------ | ------- | ----------------- | --------- |
+| Before                                 | 2 s (60 fr)  | 29.8 s  | 51.5 s            | 1.73×     |
+| Before                                 | 6 s (180 fr) | 79.9 s  | 158.3 s           | **1.98×** |
+| Before, per frame from the two windows |              | 0.418 s | 0.890 s           | 2.13×     |
+| **After** (boxed `decontaminate`)      | 6 s (180 fr) | 86.7 s  | 129.0 s           | **1.49×** |
+
+cProfile named the hot function: `render/matte_edges.py` `decontaminate`, **227 ms of every 4K
+frame** — four frame-sized float64 arrays built to change a thin edge band. Where the band weight
+and colour are zero the formula is `picture + (0 − picture·0)`, the picture exactly, so the
+arithmetic now runs inside the box holding the band (taken on the band itself at source size,
+on the resampled planes otherwise): **65 ms** per frame. The dense form stays as
+`decontaminate_dense`, the definition. Same bytes: 38 cases against it
+(`tests/test_matte_decontaminate_exact.py`) and the 79 existing matte golden, alignment and
+frame-hash tests pass unchanged.
+
+**Honest verdict:** 1.49× is at the budget, not inside it. The plain run moved 8% between the two
+measurements on this shared machine, and a matte whose band box covers most of the frame (a
+subject filling the shot) gains less than this disc (its box is 22% of the frame). What is left
+per frame: the stack's matte alpha ~51 ms (`apply_clean_levels` 28 ms), two FFV1 reads ~46 ms.
+The preview's TypeScript twin was not changed; its cost is the resample, not the mix.
+
+## The BR2.5 pts probe on large files
+
+`pnpm px5:pts-probe`: `video_timing` demuxes every video packet once per export, then caches by
+path, size and mtime. Generated by stream-copying one encoded period; deleted after measuring.
+
+| File                                            | Packets    | First call  | Cached |
+| ----------------------------------------------- | ---------- | ----------- | ------ |
+| 3.90 GB, 5 min, 1080p at 100 Mb/s (camera-like) | 9,000      | 1.05 s      | 1.2 ms |
+| 0.46 GB, 2 h, 320×180                           | 216,000    | 0.72 s      | 0.1 ms |
+| Scale fixture, 4 × 4K sources (in the export)   | 5,400 each | 0.18 s each |        |
+
+Warm storage (the page cache cannot be dropped without root): a cold multi-GB file adds the
+disk's sequential read of the whole file, because ffprobe reads every packet's payload.
+
+## Regression guards
+
+| Guard                                                                         | What it asserts                                                                                                        | Flake-proof because                                                               |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `preview-telemetry.test.ts` (every run)                                       | dropped-frame ledger, percentiles, gauge peaks                                                                         | pure arithmetic on a tick sequence                                                |
+| `decoder-pool.test.ts` (every run)                                            | 40 sources round-robin never exceed the cap; the peak records a forced overshoot                                       | operation counts                                                                  |
+| `test_matte_decontaminate_exact.py` (every run)                               | boxed = dense bytes (38 cases); never one frame-sized float64 RGB plane for a small band                               | `tracemalloc` sizes are the algorithm's                                           |
+| `preview-scale-perf.spec.ts`, CI `preview-perf` job (`FRAMEPILOT_RUN_PERF=1`) | decoders ≤ cap, cache ≤ budget + pinned, GL pools flat when steady, 4 layers presented under load, every seek presents | invariants; no timing is gated on CI                                              |
+| same spec with `PX5_ASSERT=budgets` (real hardware, `px5-local-run.py`)       | dropped ≤ 1%, seek-to-present p95 ≤ 100 ms — the budgets, unrounded                                                    | margin on this machine: 0.17% vs 1%, 36–56 ms vs 100 ms; only meaningful on a GPU |
+| `*.perf.test.ts` (CI `preview-perf`, logged)                                  | mask raster, 4K matte decode, matte main-thread cost                                                                   | reported, not gated                                                               |
+
+The budget assertion is deliberately **not** run on CI: a SwiftShader runner would fail it for
+reasons that say nothing about the product, and a guard that is red for the wrong reason gets
+turned off. `scale/proxy` fails it on real hardware today, which is the truth.
+
+## Handed to the optimiser (precise targets)
+
+1. **Matte in the monitor** — 452 ms per composite on the main thread (`matteFrameAlpha` 170 ms,
+   `decontaminate` 324 ms in Node at 4K → 960×540) plus 101 ms of single-threaded FFV1 decode per
+   frame. Target: a composite with a 4K matte ≤ 25 ms (the load-shed threshold) and ≤ 33 ms of
+   decode per frame. Judge with the PX4 oracle; the guard is `scale/proxy` with `PX5_ASSERT=budgets`.
+2. **Two composites per project frame at 60 Hz** — quantise playback time to the frame grid.
+   Halves `maskRaster` and `composite` samples per second. Needs a maintainer decision (above).
+3. **GL pools never shrink** — 190 MB after a key with finesse. Release targets of a size not
+   used for N frames. Guard: the `glPoolBytes` gauge.
+4. **Export matte alpha** — `apply_clean_levels` is dense at 4K (28 ms/frame); the same exact-box
+   argument applies outside the band, where alpha is exactly 0 or 1.

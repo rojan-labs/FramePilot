@@ -106,6 +106,21 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   it stopped if the app quits mid-job. It is not downloadable yet: a licence question about one
   model and the minimum hardware are still being decided.
 
+### Performance
+
+- **Exports with a background-removal matte are about a third faster.** Cleaning the colour fringe
+  around a cut-out subject used to do arithmetic on every pixel of every frame to change only the
+  thin edge; it now works on the edge alone. On a 4K test timeline the export went from 1.98× the
+  time of the same timeline without a matte to 1.49×. The exported pixels are identical, byte for
+  byte.
+- **The preview now measures itself.** The program monitor records its own frame times, dropped
+  frames, seek-to-picture time and memory, so performance claims come from the app rather than
+  from a stopwatch. On a 3-minute 4K timeline with four layers and a title, playback on an M1 Pro
+  drops fewer than 1 frame in 500 and a seek shows its picture in about 35 ms.
+- **Known limit:** a clip with a 4K background-removal matte does not play smoothly in the monitor
+  yet (it can be scrubbed, at roughly half a second a frame). The export is unaffected. The
+  numbers and what it would take are in `plan/background-removal-ai/PX5-BUDGETS.md`.
+
 ### Fixed
 
 - **A mask's expansion now exports.** Growing or shrinking a mask by a fixed amount showed in the
