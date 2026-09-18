@@ -10,7 +10,7 @@
  * project's own timeline time — no per-clip source-time translation needed
  * (P1's single-clip version had to translate; P2's multi-clip EDL doesn't).
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Asset, CaptionStyle, TranscriptWord } from '@framepilot/timeline-schema';
 import { createLogger } from '@framepilot/shared-types';
 import { framePlanAt, resolveCaptionCue } from '@framepilot/editor-core';
@@ -209,6 +209,21 @@ export function WebCodecsPreviewPlayer({
     maskToolsOn && selectedPicture !== null && maskTools.panelClipId === selectedPicture.id;
   const [stageHost, setStageHost] = useState<HTMLDivElement | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
+  // The frame's layout width, for the mask tools' zoom. Measured when mask editing starts and on
+  // resize, never while rendering: this component re-renders on every pointer move of a mask
+  // drag (it follows the live geometry), and reading `offsetWidth` in render forced a style and
+  // layout of the whole editor inside each move - the pattern MK4.6 took out of MaskCanvasTools.
+  const [frameWidth, setFrameWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    if (!maskEditing || frame === null) return undefined;
+    const measure = (): void => setFrameWidth(frame.offsetWidth);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, [maskEditing]);
   const liveMask = useMemo((): LiveMaskPreview | null => {
     if (!maskEditing) return null;
     if (maskTools.live !== null) return maskTools.live;
@@ -917,7 +932,7 @@ export function WebCodecsPreviewPlayer({
               assets={assets}
               resolution={resolution}
               chromeHost={stageHost}
-              {...(frameRef.current ? { frameWidth: frameRef.current.offsetWidth } : {})}
+              {...(frameWidth !== null ? { frameWidth } : {})}
             />
           )}
           {transformSelected && selectedPicture && !maskEditing && (
