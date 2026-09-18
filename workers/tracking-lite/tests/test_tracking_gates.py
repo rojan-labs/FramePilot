@@ -331,35 +331,45 @@ def flagged(error_px: float, confidence: float) -> bool:
 def test_low_confidence_detection_recall_meets_the_gate(tmp_path: Path) -> None:
     """Plan 06: ≥ 99.5 % of frames whose error exceeds 2 px are flagged.
 
-    The failure is produced honestly rather than injected into the measurement: half the
-    sequence is occluded by a moving opaque band, so the tracker loses correspondences and the
-    frames that go wrong are the frames it could not measure.
+    The failure has to be one the tracker MEASURES and gets wrong, not one it refuses: a total
+    occluder makes the worker report ``target_lost``, which is honest and is already the right
+    product behaviour, but it says nothing about whether the confidence number catches a wrong
+    answer. So the plane instead makes a burst of fast, motion-blurred movement in the middle of
+    the shot — the classic case where flow undershoots and the reported plane lags the real one
+    while the tracker still believes it has a measurement.
     """
     count = 90
+    burst = range(40, 56)
+    steps = [26.0 if index in burst else 1.0 for index in range(count)]
+    positions = np.cumsum([0.0, *steps[:-1]])
     matrices = [
-        homography(dx=1.2 * index, dy=0.0, scale=1.0, degrees=0.0, perspective=0.0)
+        homography(dx=float(positions[index]), dy=0.0, scale=1.0, degrees=0.0, perspective=0.0)
         for index in range(count)
     ]
     frames = sequence(tmp_path, matrices)
-    for index in range(count // 2, count):
-        gray = frames[index].gray.copy()
-        left = max(0, min(WIDTH - 200, (index - count // 2) * 14))
-        gray[:, left : left + 200] = 128
-        frames[index] = DecodedFrame(color=cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR), gray=gray)
+    for index in burst:
+        # Motion blur along the direction of travel, as a real fast pan would carry.
+        blurred = cv2.blur(frames[index].gray, (17, 1))
+        frames[index] = DecodedFrame(
+            color=cv2.cvtColor(blurred, cv2.COLOR_GRAY2BGR), gray=blurred
+        )
     samples = track(frames)
     errors, confidences = corner_errors(matrices, samples)
     wrong = [index for index, error in enumerate(errors) if error > MAX_PX]
     caught = [index for index in wrong if flagged(errors[index], confidences[index])]
     recall = 1.0 if not wrong else len(caught) / len(wrong)
     record(
-        "recall/occlusion",
+        "recall/fast-motion",
         {
             "frames": len(samples),
             "wrongFrames": len(wrong),
             "caught": len(caught),
             "recall": recall,
+            "worstPx": max(errors),
         },
     )
+    # A recall number over an empty set would be vacuous: the fixture must actually go wrong.
+    assert wrong, "the fixture produced no frame outside the 2 px gate"
     assert recall >= RECALL, f"recall {recall:.4f} over {len(wrong)} wrong frame(s)"
 
 
