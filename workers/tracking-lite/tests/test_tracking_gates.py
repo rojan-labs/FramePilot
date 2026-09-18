@@ -48,7 +48,7 @@ import cv2
 import numpy as np
 
 from framepilot_tracking_lite.backend import Frame
-from framepilot_tracking_lite.opencv_backend import OpenCvBackend
+from framepilot_tracking_lite.opencv_backend import DecodedFrame, OpenCvBackend
 from framepilot_tracking_lite.policy import run_tracker
 from framepilot_tracking_lite.protocol import MediaHandle, NormalizedPoint, TrackingRequest
 from framepilot_tracking_lite.runtime import build_tracker
@@ -142,7 +142,12 @@ def homography(
 def sequence(
     tmp_path: Path, matrices: list[np.ndarray], plate: np.ndarray | None = None
 ) -> list[Frame]:
-    """Render the frames and read them back through lossless PNG."""
+    """Render the frames and read them back through lossless PNG.
+
+    The backend takes a decoded frame in both the colour and grayscale forms its algorithms
+    need, exactly as its own reader produces, so the gates measure the same code path a real
+    decode feeds.
+    """
     image = base_image() if plate is None else plate
     frames: list[Frame] = []
     for index, matrix in enumerate(matrices):
@@ -150,7 +155,9 @@ def sequence(
         assert cv2.imwrite(str(path), warp(image, matrix))
         decoded = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
         assert decoded is not None
-        frames.append(decoded)
+        frames.append(
+            DecodedFrame(color=cv2.cvtColor(decoded, cv2.COLOR_GRAY2BGR), gray=decoded)
+        )
     return frames
 
 
@@ -335,10 +342,10 @@ def test_low_confidence_detection_recall_meets_the_gate(tmp_path: Path) -> None:
     ]
     frames = sequence(tmp_path, matrices)
     for index in range(count // 2, count):
-        band = frames[index].copy()
+        gray = frames[index].gray.copy()
         left = max(0, min(WIDTH - 200, (index - count // 2) * 14))
-        band[:, left : left + 200] = 128
-        frames[index] = band
+        gray[:, left : left + 200] = 128
+        frames[index] = DecodedFrame(color=cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR), gray=gray)
     samples = track(frames)
     errors, confidences = corner_errors(matrices, samples)
     wrong = [index for index, error in enumerate(errors) if error > MAX_PX]

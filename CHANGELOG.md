@@ -8,6 +8,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Track a mask.** A mask can now follow what it covers. Pick how it should move — position;
+  position, scale and rotation; perspective, for a sign or a screen on a wall; or shape, which
+  follows a path's own points for something that bends — and which way to go: forward to the clip
+  edge, backward to its start, both ways, or a single frame. The measurement is stored beside the
+  project rather than as thousands of keyframes, so a long track costs a small file and the mask
+  keeps its own animation on top of the motion.
+- **Tracking review, and frames you can promise.** Every tracked frame carries a measured
+  confidence, and the ranges that fall short land on the same review list as background removal.
+  Fix the mask on a bad frame and lock it: that frame becomes exact, and re-tracking measures
+  outwards from it in both directions instead of starting the clip over.
+- **Tell the tracker what to watch, and what to ignore.** Two new monitor tools place a point on
+  texture the tracker should follow (T) and drag out a region it must ignore (X) — a hand passing
+  in front, a reflection — before the track runs.
+
 - **Mask an adjustment layer.** A mask drawn on an effect layer now limits that adjustment on
   both the monitor and the export, for every effect in the catalog — so a blur, a glitch or a
   grade on an adjustment lane can cover a region instead of the whole frame. The mask stays where
