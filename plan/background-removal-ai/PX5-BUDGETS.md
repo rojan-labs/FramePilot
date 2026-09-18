@@ -3,7 +3,8 @@
 Budgets from [`09`](./09-PREVIEW-EXPORT-PARITY.md) ("PX5 — performance evidence") and
 [`06`](./06-PRECISION-AND-EVAL.md) ("Production budgets"). Measured 2026-09-18. **No budget was
 lowered.** Without the matte the preview budgets hold; with it they missed until PX5.3; the export
-budget missed narrowly until PX5.4 and holds on CI's windows since (the full row is unmeasured).
+budget missed narrowly until PX5.4 and holds since, on CI's windows and on the whole 3-minute row
+(PX5.11: 1.32× wall, 1.31× CPU).
 
 ## Verdicts
 
@@ -11,15 +12,15 @@ Scale row = a 3-minute 4K timeline, 4 picture layers + text + a decontaminating 
 "Desktop path" = the monitor plays the 540p proxies `media/derive.py` makes (what the desktop app
 does); the matte is always the 4K artifact.
 
-| Budget                                                         | Measured (M1 Pro, real GPU)                                                                                | Verdict                                                  |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| Playback ≤ 1% dropped frames, Scale row **without** the matte  | 1 / 600 (0.17%); 0–0.17% with an animated 200-vertex path or a key + finesse on top                        | **holds**                                                |
-| Playback ≤ 1% dropped frames, Scale row **with** the 4K matte  | 600 / 601 (99.8%) before PX5.3; **1 / 601 (0.17%)** after, with the matte's monitor tier                   | **holds** since PX5.3 (tier needed; see "PX5.3")         |
-| Seek-to-present ≤ 100 ms p95, without the matte                | 35.7 ms (56.3 ms with the path, 50.2 ms with key + finesse)                                                | **holds**                                                |
-| Seek-to-present ≤ 100 ms p95, with the 4K matte                | 617 ms (p50 592 ms) before PX5.3; **49.9–52.5 ms** (p50 37 ms) after                                       | **holds** since PX5.3                                    |
-| Memory bounded by the decoder pool                             | live decoders peak 6 of 6; picture cache peak 401–407 MB (676 MB with the matte)                           | **bounded**, above the nominal 384 MB (below)            |
-| Export with masks + 4K matte ≤ 1.5× without (P13)              | 1.98× before; 1.49× here / 1.56× CI after PX5.2; after PX5.4 **1.32–1.45×** on the CI runner (4 s windows) | **holds on CI's windows; full row not measured** (PX5.4) |
-| Desktop path **without proxies** (4K originals in the monitor) | 603 / 604 dropped; seek p95 161 ms                                                                         | misses; the desktop app does not take this path          |
+| Budget                                                         | Measured (M1 Pro, real GPU)                                                                                                                                  | Verdict                                          |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
+| Playback ≤ 1% dropped frames, Scale row **without** the matte  | 1 / 600 (0.17%); 0–0.17% with an animated 200-vertex path or a key + finesse on top                                                                          | **holds**                                        |
+| Playback ≤ 1% dropped frames, Scale row **with** the 4K matte  | 600 / 601 (99.8%) before PX5.3; **1 / 601 (0.17%)** after, with the matte's monitor tier                                                                     | **holds** since PX5.3 (tier needed; see "PX5.3") |
+| Seek-to-present ≤ 100 ms p95, without the matte                | 35.7 ms (56.3 ms with the path, 50.2 ms with key + finesse)                                                                                                  | **holds**                                        |
+| Seek-to-present ≤ 100 ms p95, with the 4K matte                | 617 ms (p50 592 ms) before PX5.3; **49.9–52.5 ms** (p50 37 ms) after                                                                                         | **holds** since PX5.3                            |
+| Memory bounded by the decoder pool                             | live decoders peak 6 of 6; picture cache peak 401–407 MB (676 MB with the matte)                                                                             | **bounded**, above the nominal 384 MB (below)    |
+| Export with masks + 4K matte ≤ 1.5× without (P13)              | 1.98× before; 1.49× here / 1.56× CI after PX5.2; after PX5.4 **1.32–1.45×** on the CI runner (4 s windows); **full row 1.32× wall / 1.31× CPU** (PX5.11, CI) | **holds** on the whole row, on CI (PX5.11)       |
+| Desktop path **without proxies** (4K originals in the monitor) | 603 / 604 dropped; seek p95 161 ms                                                                                                                           | misses; the desktop app does not take this path  |
 
 ## What is measured where, and what is not
 
@@ -42,10 +43,10 @@ does); the matte is always the 4K artifact.
     barely cares; a software decoder does. FFV1 cost is per pixel, but the matte here is a disc
     and the foreground a flat colour, which is FFV1's best case.
   - _Cold storage._ The pts probe and every file read ran on files just written (page cache).
-  - _The whole 3-minute export._ PX5.4 tried it once under the watchdog: aborted after 58 s
-    (system swap +1.08 GiB at a 5 GiB footprint, other agents' jobs running). A 60 s and a 20 s
-    window were aborted the same way (19 and 6.5 minutes in). The ratio is from 4-6-second windows
-    of a timeline that is uniform by construction (see "PX5.4").
+  - _The whole 3-minute export on this machine._ PX5.4 tried it once under the watchdog: aborted
+    after 58 s (system swap +1.08 GiB at a 5 GiB footprint, other agents' jobs running). A 60 s
+    and a 20 s window were aborted the same way. The whole row was measured on a CI runner
+    instead (PX5.11, below); there is still no M-series number for it.
   - _Long playback._ 20 seconds per run. A leak that needs minutes would not show; the GL pools
     and cache are asserted flat between the 10 s and 20 s marks only.
 
@@ -278,7 +279,8 @@ are recorded and not used. PX5.2's 1.49× (the same code as "before", 6 s, a qui
 the last trustworthy local number.
 
 **Verdict.** On CI's 4-second windows the budget holds (1.32–1.45× after PX5.4, 1.56× before).
-The full 3-minute row was **not measured**: it does not fit this 16 GB machine's watchdog budget
+The full 3-minute row was then measured on CI by PX5.11 (1.32× wall, 1.31× CPU; section below).
+Locally it was **not measured**: it does not fit this 16 GB machine's watchdog budget
 while other agents run (the matte export's footprint is 5-7 GiB, mostly MoviePy's per-clip 4K
 readers). What would measure it: the row on a quiet machine or a dedicated runner (about 45 min
 plain + 60 min matte here; CI's `preview-perf` job has a 60-minute limit and a 4 s window).
@@ -688,6 +690,37 @@ which held a peer's uncommitted preview edits (MK9) in both arms.
 arrives after a frame first drew). It failed both "before" runs above (914 > 673, 944 > 664) and
 passed every "after" run; on CI's seven completed variants of run 35353756815 it held (e.g.
 `scale-plain` 59 composites for 60 presented frames).
+
+## PX5.11 — the whole 3-minute row, on a CI runner
+
+`.github/workflows/preview-perf-full.yml`, dispatch only (a path-filtered `pull_request` trigger
+exists solely so GitHub registers the file from this branch; its job skips every PR run). It
+generates the Scale fixture with `px5_scale_fixture.py` (2 min 43 s) and runs
+`px5_export_ratio.py --window-seconds 180`: both arms through the real `export_video` at
+3840×2160, 5,400 frames each, one export per process, `scale-plain` first. Timeout 330 minutes.
+
+**Run [35369857493](https://github.com/rojan-labs/FramePilot/actions/runs/35369857493)**, head
+`91b22dc3` (engine as of PX5.4's cuts; no engine change since), GitHub `ubuntu-latest`, Linux
+x86-64, software `libx264` preset medium, the runner to itself (load average 4.5–4.6 after each
+arm).
+
+| Arm                     | Wall       | CPU (process tree) | Wall per frame | CPU per frame |
+| ----------------------- | ---------- | ------------------ | -------------- | ------------- |
+| `scale-plain` (no mask) | 3,386.4 s  | 5,816.9 s          | 627 ms         | 1,077 ms      |
+| `scale` (4K matte)      | 4,476.4 s  | 7,628.8 s          | 829 ms         | 1,413 ms      |
+| **Ratio**               | **1.322×** | **1.311×**         |                |               |
+
+**Verdict: the budget (≤ 1.5×) holds on the whole row**, with 0.18 to spare, and the CPU ratio
+agrees with the wall ratio. So the 4-second windows were not flattering it: the full row's wall
+ratio sits at the low end of their 1.32–1.45× range. Its CPU ratio (1.31×) is above the windows'
+1.20–1.26×, so per-frame matte work is a little heavier over the whole row than over its first
+4 seconds (the windows' fixed per-export overhead, reading and preparing assets, dilutes it);
+the window CPU numbers slightly understate the matte's cost.
+
+What this is not: one run on one CI machine class, not a distribution and not an M-series Mac
+(`h264_videotoolbox` there; the local 6 s windows were 1.49× before PX5.4). The matte costs
+~200 ms of wall and ~340 ms of CPU per 4K frame here; what would move it further is unchanged
+from PX5.4 (the rest of `stack_alpha`, and the matte's two FFV1 reads).
 
 ## PX5.10 — the parity baseline regenerated from CI
 

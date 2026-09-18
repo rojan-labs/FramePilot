@@ -296,13 +296,13 @@ timeline, the **Scale row**: 3 minutes, 4K, 4 picture layers + text + a 4K matte
 `pnpm px5:fixture` (never committed). Full numbers, method and the honest limits:
 [`plan/background-removal-ai/PX5-BUDGETS.md`](../../plan/background-removal-ai/PX5-BUDGETS.md).
 
-| Budget                                                               | Covers                                                                                                                         | Measured (M1 Pro, Chrome, Metal)                                                                                         | Status                |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ | --------------------- |
-| Playback **≤ 1% dropped frames** at the monitor's default resolution | 4 layers + text on 540p proxies (the desktop path); also with an animated 200-vertex path, and with a key + full finesse chain | 0–0.17% (0–1 of ~600 frames)                                                                                             | holds                 |
-| same, **with a 4K matte**                                            | the whole row, the matte's monitor tier present (PX5.3)                                                                        | 99.8% dropped before PX5.3; **0.17%** (1 of 601) after, in each of 5 runs                                                | holds (PX5.3)         |
-| **Seek-to-present ≤ 100 ms p95**                                     | 24 fixed seeks across the timeline                                                                                             | 36–56 ms without the matte; with it 617 ms before PX5.3, **50–53 ms** after                                              | holds                 |
-| **Memory bounded by the decoder pool**                               | live decoders, picture cache, GL pools                                                                                         | decoders ≤ 6; cache 401–407 MB (676 → 434–440 MB with the matte); GL pools 51–199 MB, flat                               | bounded               |
-| **Export with masks + 4K matte ≤ 1.5× without** (P13)                | `export_video` at 4K, 120–180-frame window                                                                                     | 1.98× → 1.49× / 1.56× CI (PX5.2) → **1.32–1.45×** on CI after PX5.4's exact cuts (CPU 1.20–1.26×); full row not measured | holds on CI's windows |
+| Budget                                                               | Covers                                                                                                                         | Measured (M1 Pro, Chrome, Metal)                                                                                                                                             | Status                      |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| Playback **≤ 1% dropped frames** at the monitor's default resolution | 4 layers + text on 540p proxies (the desktop path); also with an animated 200-vertex path, and with a key + full finesse chain | 0–0.17% (0–1 of ~600 frames)                                                                                                                                                 | holds                       |
+| same, **with a 4K matte**                                            | the whole row, the matte's monitor tier present (PX5.3)                                                                        | 99.8% dropped before PX5.3; **0.17%** (1 of 601) after, in each of 5 runs                                                                                                    | holds (PX5.3)               |
+| **Seek-to-present ≤ 100 ms p95**                                     | 24 fixed seeks across the timeline                                                                                             | 36–56 ms without the matte; with it 617 ms before PX5.3, **50–53 ms** after                                                                                                  | holds                       |
+| **Memory bounded by the decoder pool**                               | live decoders, picture cache, GL pools                                                                                         | decoders ≤ 6; cache 401–407 MB (676 → 434–440 MB with the matte); GL pools 51–199 MB, flat                                                                                   | bounded                     |
+| **Export with masks + 4K matte ≤ 1.5× without** (P13)                | `export_video` at 4K, 120–180-frame window                                                                                     | 1.98× → 1.49× / 1.56× CI (PX5.2) → **1.32–1.45×** on CI after PX5.4's exact cuts (CPU 1.20–1.26×); **full 3-minute row 1.32× wall / 1.31× CPU** (PX5.11, CI run 35369857493) | holds on the whole row (CI) |
 
 **How it is measured.** The engine records its own numbers (`preview-telemetry.ts`, read through
 `LayerPreviewEngine.debugTelemetry()`): frame interval, composite, seek-to-present, mask raster,
@@ -397,8 +397,11 @@ edge shift, the stack's `combine` and its one quantisation write into one workin
 allocating two to four 4K float planes each. Every change is compared bit for bit with the
 definition it replaces. Interleaved on a real 4K frame: the matte pass 249 → 120 ms p50. The
 export ratio on CI's 4 s window: 1.56× → 1.32–1.45× (three runs; the runner's plain arm moves
-~7%). The full 3-minute row did not fit the local memory watchdog while other jobs ran, so it is
-not measured (`PX5-BUDGETS.md`, "PX5.4").
+~7%). The full 3-minute row did not fit the local memory watchdog while other jobs ran; PX5.11
+measured it on a CI runner instead, in the dispatch-only `preview-perf-full.yml` workflow (330-minute
+timeout, fixture generated in the job): 3,386 s plain, 4,476 s with the matte, **1.32× wall and
+1.31× CPU** over 5,400 4K frames (`PX5-BUDGETS.md`, "PX5.11"). Dispatch it with
+`gh workflow run preview-perf-full.yml --ref <branch>`; it takes about 2 h 15 min.
 
 **PX5.5: one composite per project frame, at the export's instant.** The export composites
 `t = k / fps` and reads each layer's source frame there, so a 60 fps source in a 30 fps project
