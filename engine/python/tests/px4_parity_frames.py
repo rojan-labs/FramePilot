@@ -134,6 +134,8 @@ class VideoSpec:
     rotation: int = 0
     #: Variable frame rate: each frame's pts in milliseconds (``probe.frameTimes``); empty = CFR.
     frame_times_ms: tuple[int, ...] = ()
+    #: PX5.6: every frame is :func:`key_picture` (through a lossless PNG) instead of a sentinel.
+    key_picture: bool = False
 
 
 def input_hash() -> str:
@@ -287,12 +289,25 @@ def encode_video(ffmpeg: str, out_dir: Path, spec: VideoSpec) -> None:
         if variable
         else []
     )
-    graph = ",".join(
-        [
+    if spec.key_picture:
+        # PX5.6: the numpy still through a lossless PNG (never a lavfi test source).
+        still = out.with_suffix(".source.png")
+        write_key_picture(still, spec.width, spec.height)
+        source = [
+            f"movie={still}:loop=0,setpts=N/({spec.fps:g}*TB),fps={spec.fps:g}",
+            f"trim=duration={frames_seconds:g}",
+            "format=rgb24",
+        ]
+    else:
+        source = [
             f"color=c={_hex(spec.primary)}:s={spec.width}x{spec.height}:r={spec.fps:g}"
             f":d={frames_seconds:g}",
             "format=rgb24",
             f"drawbox=x=iw/2:y=0:w=iw/2:h=ih/2:color={_hex(spec.secondary)}:t=fill",
+        ]
+    graph = ",".join(
+        [
+            *source,
             *counter,
             "scale=out_color_matrix=bt709:out_range=tv",
             "format=yuv420p",
@@ -395,6 +410,56 @@ def write_png_asset(out_dir: Path, rel_path: str, width: int, height: int) -> No
     image.save(target, format="PNG")
 
 
+#: PX5.6: the image asset the ``key`` rows qualify. Not a sentinel: a key needs colour to read.
+KEY_PICTURE_ASSET = "keyed"
+#: Every pixel of the key picture has this blue, 48 levels from every sentinel level (44, 140,
+#: 236), so no pixel of it can be classified as a sentinel however red and green vary.
+KEY_PICTURE_BLUE = 92
+
+
+def key_picture(width: int, height: int) -> Any:
+    """The ``key`` rows' still (PX5.6): numpy, deterministic, stored as a lossless PNG.
+
+    A green backdrop (brighter to the right, redder downwards) behind a warm subject ellipse
+    with a 24 px smoothstep edge, so the key has a soft band to qualify; one-pixel holes in the
+    subject every 48 px (``morphClosePx``) and 3x3 specks of subject colour in the backdrop
+    every 64 px (``denoise``, ``morphOpenPx``); and a bottom stripe sweeping green to red, so
+    the hue and saturation softness ramps are crossed at every level. Blue is constant
+    (:data:`KEY_PICTURE_BLUE`).
+    """
+    import numpy as np
+
+    y, x = np.mgrid[0:height, 0:width].astype(np.float64)
+    u, v = x / width, y / height
+    blue = np.full_like(u, float(KEY_PICTURE_BLUE))
+    backdrop = np.stack([10 + 30 * v, 150 + 80 * u, blue], axis=-1)
+    subject = np.stack([170 + 40 * u, 70 + 60 * v, blue], axis=-1)
+    radius = np.hypot((x - width * 0.44) / (width * 0.24), (y - height * 0.5) / (height * 0.36))
+    edge = np.clip((1.0 - radius) * min(width, height) * 0.36 / 24.0 + 0.5, 0.0, 1.0)
+    edge = edge * edge * (3.0 - 2.0 * edge)
+    column, row = x.astype(np.int64), y.astype(np.int64)
+    holes = (column % 48 < 2) & (row % 48 < 2) & (radius < 0.8)
+    specks = (column % 64 >= 30) & (column % 64 < 33) & (row % 64 >= 30) & (row % 64 < 33)
+    edge = np.where(holes, 0.0, np.where(specks & (radius > 1.2), 1.0, edge))
+    picture = backdrop + (subject - backdrop) * edge[:, :, None]
+    sweep = np.stack([20 + 200 * u, 220 - 200 * u, blue], axis=-1)
+    picture = np.where((y >= height * 0.86)[:, :, None], sweep, picture)
+    return np.clip(np.rint(picture), 0, 255).astype(np.uint8)
+
+
+def write_key_picture(target: Path, width: int, height: int) -> None:
+    """:func:`key_picture` as a lossless RGB PNG, the still the key asset's video is encoded from.
+
+    The export ignores masks on image clips, so the key rows read a VIDEO made of this still,
+    encoded like every other asset: both sides decode the same H.264 bytes (the monitor with
+    the engine's own swscale), so the key is judged on the pixels it qualifies, not on codecs.
+    """
+    from PIL import Image
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(key_picture(width, height), mode="RGB").save(target, format="PNG")
+
+
 def write_audio_asset(ffmpeg: str, out_dir: Path, rel_path: str, seconds: float) -> None:
     """A silent WAV: audio assets draw nothing, they only have to exist."""
     target = out_dir / rel_path
@@ -448,9 +513,10 @@ def collect_media(
             rel = engine_asset_path(asset)
             media = asset.get("media") or {}
             if asset["kind"] == "video":
-                if asset["id"] not in SENTINELS:
+                keyed = asset["id"] == KEY_PICTURE_ASSET
+                if not keyed and asset["id"] not in SENTINELS:
                     raise KeyError(f"No sentinel colour for video asset {asset['id']!r}")
-                primary, secondary = SENTINELS[asset["id"]]
+                primary, secondary = ((0, 0, 0), (0, 0, 0)) if keyed else SENTINELS[asset["id"]]
                 spec = VideoSpec(
                     rel_path=rel,
                     width=int(media["width"]),
@@ -465,6 +531,7 @@ def collect_media(
                         round(float(value) * 1000)
                         for value in case["probe"].get("frameTimes", {}).get(asset["id"], [])
                     ),
+                    key_picture=keyed,
                 )
                 if videos.setdefault(rel, spec) != spec:
                     raise ValueError(f"Cases disagree about the media facts of {rel!r}")

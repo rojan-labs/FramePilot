@@ -162,7 +162,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   work per move; only the parts that follow the drag re-render now.
 - **A colour-key mask draws correctly in the monitor.** A key limiting a clip's picture (not one
   limiting an effect) was drawn with the wrong GPU program, so the monitor could show the clip
-  wrongly cut or not cut at all. The export was never affected.
+  wrongly cut or not cut at all. The export was never affected. Three preview/export parity
+  checks with a colour key (alone, combined with shapes, and with every edge-refinement control)
+  now run on every change, so this cannot come back unseen.
 - **A mask's expansion now exports.** Growing or shrinking a mask by a fixed amount showed in the
   editor but was ignored when exporting (only animated expansion worked); the same applied to a
   cut-out's fixed edge shift.

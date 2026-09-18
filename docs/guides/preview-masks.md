@@ -58,6 +58,15 @@ end, as `stack_alpha` quantises once) into `R8UI`, which is the format an upload
 lands in — so the alpha cut, the effect mix and the debug views never learn where the coverage
 came from. Stacks without a key keep the byte-exact CPU path untouched.
 
+**Whole frames with a key** are judged by the PX4 oracle's `alpha/key-*` rows (PX5.6): a key
+alone (and one that despills), a key intersected and subtracted with shapes, and a key through
+the whole finesse chain at partial opacity, at the unchanged 40 dB / 99.5 % gates. Until then no
+row carried a key, which is how a key drawn with the wrong GPU program (MK6.1 to PX5.3) went
+unseen. The source they key is a picture made by numpy (`key_picture` in
+`engine/python/tests/px4_parity_frames.py`: a green backdrop, a soft-edged subject, holes,
+specks and a green-to-red sweep), stored as a lossless PNG and encoded like every other asset,
+so both sides key the same decoded pixels.
+
 **What a key costs the monitor, unmeasured so far:** the qualifier is one pass, but the finesse
 chain is not — morph open and close are two disc passes each, shrink/grow one, and the blur is
 six separable box passes. Each writes a float target the size of the frame, and `GlResources`
