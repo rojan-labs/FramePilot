@@ -598,6 +598,19 @@ export class MatteSource {
     return artifact.flagged;
   }
 
+  /**
+   * PX5.3: start opening these masks' artifacts (and, for a decontaminating one, its monitor
+   * tier) before any frame is asked for - the project's load, not its first seek, pays for it.
+   * Idempotent; a refusal is recorded exactly as a lookup would record it.
+   */
+  prepare(masks: readonly MatteMask[]): void {
+    for (const mask of masks) {
+      const state = this.artifact(mask);
+      if (!mask.decontaminate) continue;
+      void state.ready.then(() => this.loadTier(state));
+    }
+  }
+
   /** Forget artifacts no mask references any more, and unload their worker sources. */
   retain(keys: ReadonlySet<string>): void {
     for (const key of [...this.artifacts.keys()]) {

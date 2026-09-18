@@ -433,17 +433,15 @@ export class LayerPreviewEngine {
       this.dropCachedAsset(assetId);
       void this.client.unloadSource(assetId).catch(() => undefined);
     }
-    this.mattes.retain(
-      new Set(
-        project.timeline.tracks.flatMap((track) =>
-          track.clips.flatMap((clip) =>
-            (clip.masks ?? []).flatMap((mask) =>
-              mask.kind === 'matte' ? [mask.artifact.key] : [],
-            ),
-          ),
-        ),
+    const matteMasks = project.timeline.tracks.flatMap((track) =>
+      track.clips.flatMap((clip) =>
+        (clip.masks ?? []).filter((mask): mask is MatteMask => mask.kind === 'matte'),
       ),
     );
+    this.mattes.retain(new Set(matteMasks.map((mask) => mask.artifact.key)));
+    // PX5.3: open every artifact (and its monitor tier) now, as the pictures' sources are, not
+    // on the first seek that needs it.
+    this.mattes.prepare(matteMasks.filter((mask) => mask.enabled));
     for (const [url, bitmap] of [...this.images]) {
       if (wantedImages.has(url)) continue;
       bitmap.close();

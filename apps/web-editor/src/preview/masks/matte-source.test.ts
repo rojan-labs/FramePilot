@@ -336,6 +336,15 @@ describe('the monitor tier (PX5.3)', () => {
     expect(source.debugState(mask).tier).toBe('4x2');
   });
 
+  it('opens the artifact and its tier when prepared, before any frame is asked for', async () => {
+    const { mask, source, decoded } = tiered();
+    source.prepare([mask]);
+    await settle();
+    await settle();
+    expect(source.debugState(mask)).toMatchObject({ loaded: true, tier: '4x2' });
+    expect(decoded).toEqual([]);
+  });
+
   it('decodes the foreground master for a picture decoded at another size', async () => {
     const { mask, source, decoded } = tiered();
     expect(source.lookup(mask, 10, null, { width: 4, height: 2 }).state).toBe('pending');
