@@ -177,9 +177,10 @@ describe('the tracking panel', () => {
     const Host = host(selected());
     render(<Host />);
     await track();
-    await waitFor(() => expect(screen.getByLabelText('track review')).toBeTruthy());
-    expect(screen.getByRole('button', { name: '1.00s – 1.50s' })).toBeTruthy();
-    expect(screen.getAllByText(/1 range\(s\) need review/).length).toBeGreaterThan(0);
+    // The shared review panel (BR6.5), the same one background removal uses.
+    await waitFor(() => expect(screen.getByLabelText('Review')).toBeTruthy());
+    expect(screen.getByRole('button', { name: /1\.00s – 1\.50s/ })).toBeTruthy();
+    expect(screen.getAllByText(/1 moment needs? a look/).length).toBeGreaterThan(0);
   });
 
   it('records the frame the editor fixed as a constraint', async () => {
@@ -187,7 +188,7 @@ describe('the tracking panel', () => {
     const Host = host(selected());
     render(<Host />);
     await track();
-    await waitFor(() => expect(screen.getByLabelText('track review')).toBeTruthy());
+    await waitFor(() => expect(screen.getByLabelText('Review')).toBeTruthy());
     fireEvent.click(screen.getByRole('button', { name: 'Lock this frame' }));
     await waitFor(() => expect(screen.getByTestId('constraints').textContent).toBe('1'));
     // Re-tracking is only offered once there is something to re-measure from.

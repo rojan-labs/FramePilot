@@ -165,6 +165,9 @@ const TOOL_ICONS = {
   exclude: Ban,
   'ai-object': Sparkles,
   'ai-brush': Wand2,
+  // The correction brush is armed from the review panel, not the toolbar, so it has no button;
+  // it still needs an icon because the toolbar maps every tool.
+  'correction-brush': Pencil,
 } as const;
 
 type EdgeProperty = 'expansionPx' | 'featherOuterPx' | 'featherInnerPx';
@@ -234,6 +237,12 @@ type Gesture =
       current: PixelPoint;
     }
   | { readonly kind: 'freehand'; readonly pointerId: number; readonly samples: PixelPoint[] }
+  | {
+      readonly kind: 'correction-brush';
+      readonly pointerId: number;
+      readonly brush: 'keep' | 'remove';
+      readonly samples: PixelPoint[];
+    }
   | {
       readonly kind: 'ai-brush';
       readonly pointerId: number;
@@ -819,6 +828,15 @@ export function MaskCanvasTools({
         // points are what the NEXT background removal is prompted with.
         addSubjectPoint(point, event.altKey ? 'exclude' : 'include');
         return;
+      case 'correction-brush':
+        gesture.current = {
+          kind: 'correction-brush',
+          pointerId: event.pointerId,
+          brush: tools.brushKind,
+          samples: [point],
+        };
+        setDraft({ stroke: [point] });
+        return;
       case 'ai-brush':
         gesture.current = {
           kind: 'ai-brush',
@@ -999,6 +1017,7 @@ export function MaskCanvasTools({
       }
       case 'freehand':
       case 'ai-brush':
+      case 'correction-brush':
         active.samples.push(point);
         setDraft({ stroke: [...active.samples] });
         return;
@@ -1215,6 +1234,18 @@ export function MaskCanvasTools({
       }
       case 'draw-box': {
         commitBox(active.shape, active.start, active.current, event);
+        return;
+      }
+      case 'correction-brush': {
+        // The stroke is a DRAFT: it paints nothing until [Apply fix] saves it as a correction
+        // input and re-runs the affected window, so an unapplied stroke never changes output.
+        store.addCorrectionStroke({
+          kind: active.brush,
+          radiusPx: tools.brushRadiusPx,
+          sourceTime,
+          points: active.samples.map((sample) => ({ x: sample.x, y: sample.y })),
+        });
+        setAnnouncement(active.brush === 'keep' ? 'Keep stroke drawn' : 'Remove stroke drawn');
         return;
       }
       case 'ai-brush': {
@@ -1708,6 +1739,16 @@ export function MaskCanvasTools({
               width={region.width}
               height={region.height}
               vectorEffect="non-scaling-stroke"
+            />
+          ))}
+          {tools.correctionStrokes.map((stroke, index) => (
+            <path
+              key={`fix-${String(index)}`}
+              className="mask-canvas-correction"
+              data-kind={stroke.kind}
+              d={polylinePathData([...stroke.points], false)}
+              strokeWidth={stroke.radiusPx * 2}
+              fill="none"
             />
           ))}
           {tools.subjectPoints.map((point) => (

@@ -29,6 +29,10 @@ export const MASK_DEBUG_VIEWS: readonly {
   { value: 'flagged', label: 'Flagged' },
 ];
 
+/** Whether a string names one of the debug views (a request from another panel, BR6.5). */
+export const isMaskDebugView = (value: string): value is MaskDebugView =>
+  MASK_DEBUG_VIEWS.some((view) => view.value === value);
+
 /** Shader mode for the per-layer view pass (the checkerboard is a frame-level choice). */
 export const MASK_VIEW_MODE: Readonly<Record<MaskDebugView, number>> = {
   off: 0,

@@ -1243,6 +1243,17 @@ input[type='checkbox']:focus-visible {
   stroke-width: 1.5px;
   fill: none;
 }
+/* Unapplied brush fixes (BR6.5). Keep and Remove read apart by hue AND by dash pattern, and
+   both are translucent so the picture under them is still judgeable. */
+.mask-canvas-correction {
+  stroke: rgba(34, 197, 94, 0.45);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.mask-canvas-correction[data-kind='remove'] {
+  stroke: rgba(220, 38, 38, 0.45);
+  stroke-dasharray: 10 6;
+}
 .mask-canvas-exclusion {
   fill: rgba(220, 38, 38, 0.14);
   stroke: rgb(220, 38, 38);

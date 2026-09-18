@@ -47,8 +47,8 @@ export function matteNoticeFor(outcome: MatteOutcome, refusal: string | null): M
           outcome.needsReview.length === 0
             ? 'Background removed. Every frame was checked.'
             : `Background removed. ${String(outcome.needsReview.length)} moment${
-                outcome.needsReview.length === 1 ? '' : 's'
-              } need a look.`,
+                outcome.needsReview.length === 1 ? ' needs' : 's need'
+              } a look.`,
       };
     case 'cancelled':
       return { tone: 'status', message: 'Stopped. Nothing changed.' };

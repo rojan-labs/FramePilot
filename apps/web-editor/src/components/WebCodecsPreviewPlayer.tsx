@@ -44,7 +44,7 @@ import {
   type PreviewEngineCallbacks,
 } from '../preview/engine/webcodecs-preview-engine.js';
 import type { MaskPreviewRefusal } from '../preview/masks/mask-stack.js';
-import type { MaskDebugView } from '../preview/masks/mask-view.js';
+import { isMaskDebugView, type MaskDebugView } from '../preview/masks/mask-view.js';
 import { MaskViewToggle } from './MaskViewToggle.js';
 import { LayerPreviewEngine } from '../preview/engine/layer-preview-engine.js';
 import { layerCompositorEnabled } from '../preview/compositor-flag.js';
@@ -216,7 +216,9 @@ export function WebCodecsPreviewPlayer({
   }, [maskEditing, maskTools.live, maskTools.liveScalars]);
   const previewTimeline = useMemo(
     () =>
-      liveMask === null ? editor.state.timeline : timelineWithLiveMask(editor.state.timeline, liveMask),
+      liveMask === null
+        ? editor.state.timeline
+        : timelineWithLiveMask(editor.state.timeline, liveMask),
     [editor.state.timeline, liveMask],
   );
   // MK3.3: the mask view switch appears only while the selected picture carries an enabled mask.
@@ -451,6 +453,12 @@ export function WebCodecsPreviewPlayer({
   /** BR5.1: a presented clip's background removal is still processing at this frame. */
   const [matteProcessing, setMatteProcessing] = useState(false);
   const [maskView, setMaskView] = useState<MaskDebugView>('off');
+  // The review list switches the monitor to Overlay when the editor opens a flagged moment
+  // (BR6.5): a flagged moment is about WHAT was removed, which only Overlay shows.
+  useEffect(() => {
+    const requested = maskTools.requestedMaskView;
+    if (requested !== null && isMaskDebugView(requested)) setMaskView(requested);
+  }, [maskTools.requestedMaskView]);
 
   // ONE persistent engine per mounted canvas. An EDL change streams through
   // engine.loadSegments below, which is INCREMENTAL (already-loaded sources,

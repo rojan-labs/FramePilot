@@ -35,7 +35,8 @@ export type MaskTool =
   | 'feature-point'
   | 'exclude'
   | 'ai-object'
-  | 'ai-brush';
+  | 'ai-brush'
+  | 'correction-brush';
 
 /** Monitor zoom while masking: fit, or screen pixels per source pixel in percent. */
 export type MaskZoom = 'fit' | '100' | '200' | '400' | '800';
@@ -114,8 +115,29 @@ export interface MaskToolState {
    * run and are recorded on the mask only once that run produces an artifact.
    */
   readonly subjectPoints: readonly SubjectPoint[];
+  /**
+   * Brush fixes drawn on the monitor but not yet applied (BR6.5).
+   *
+   * Source pixels, so they rasterise straight into a correction mask at the artifact's size. They
+   * are a draft until [Apply fix] saves them, which is why they live here and not on the mask:
+   * an unapplied stroke must not change a frame of output.
+   */
+  readonly correctionStrokes: readonly CorrectionStrokeDraft[];
+  /** Which fix the brush paints, and how wide it is, in source pixels. */
+  readonly brushKind: 'keep' | 'remove';
+  readonly brushRadiusPx: number;
+  /** The mask debug view the review list asked the monitor to show, or `null`. */
+  readonly requestedMaskView: string | null;
   /** The last refusal to show, in plain words. */
   readonly message: string | null;
+}
+
+/** One unapplied brush stroke, in display-corrected source pixels at a source instant. */
+export interface CorrectionStrokeDraft {
+  readonly kind: 'keep' | 'remove';
+  readonly radiusPx: number;
+  readonly sourceTime: number;
+  readonly points: readonly { readonly x: number; readonly y: number }[];
 }
 
 /** One AI Object click: include or exclude, at a source instant, in picture fractions. */
@@ -144,6 +166,10 @@ const INITIAL: MaskToolState = {
   pendingTarget: null,
   eyedropper: false,
   subjectPoints: [],
+  correctionStrokes: [],
+  brushKind: 'keep',
+  brushRadiusPx: 24,
+  requestedMaskView: null,
   message: null,
 };
 
@@ -233,6 +259,23 @@ export class MaskToolStore {
               index === nearest ? point : candidate,
             ),
     });
+  }
+
+  /** Record one brush stroke drawn on the monitor; it changes nothing until [Apply fix]. */
+  public addCorrectionStroke(stroke: CorrectionStrokeDraft): void {
+    if (stroke.points.length === 0) return;
+    this.update({ correctionStrokes: [...this.state.correctionStrokes, stroke] });
+  }
+
+  /** Throw away the unapplied strokes (applied, cancelled, or another clip). */
+  public clearCorrectionStrokes(): void {
+    if (this.state.correctionStrokes.length === 0) return;
+    this.update({ correctionStrokes: [] });
+  }
+
+  /** Ask the monitor for a mask debug view (the review list switches to Overlay). */
+  public requestMaskView(view: string | null): void {
+    this.update({ requestedMaskView: view });
   }
 
   /** Forget the subject clicks (a finished run, another clip). */

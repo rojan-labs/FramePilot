@@ -27,6 +27,7 @@ import type { MaskTrackIntentWire } from '@framepilot/shared-types';
 import type { UseEditor } from '../../../editor/useEditor.js';
 import { clipSourceTimeAt, runMaskCommand } from '../../../editor/mask-editing.js';
 import { LabeledSelect } from '../LabeledSelect.js';
+import { MaskReviewPanel } from './MaskReviewPanel.js';
 import { PackToolWarning } from './PackToolWarning.js';
 import { packToolCopy, TRACKING_LITE_PACK } from './packToolCopy.js';
 import { TRACKING_CAPABILITY, usePackStatus } from './usePackStatus.js';
@@ -56,10 +57,6 @@ const DIRECTION_LABELS = [
 const TRACKABLE = new Set<MaskLayer['kind']>(['rectangle', 'ellipse', 'path']);
 
 const TRACKING_WARNING_ID = 'mask-tracking-pack-note';
-
-function seconds(value: number): string {
-  return `${value.toFixed(2)}s`;
-}
 
 export interface MaskTrackingProps {
   readonly editor: UseEditor;
@@ -122,7 +119,6 @@ export function MaskTracking({
   }
 
   const tracking = mask.tracking;
-  const flagged = tracking?.review.flagged ?? [];
   const running = job.phase !== 'idle';
   const start = (fromConstraints: boolean): void => {
     setMessage(null);
@@ -199,40 +195,15 @@ export function MaskTracking({
         </Button>
       )}
       {tracking !== undefined && !running && (
-        <div className="inspector-subpanel" aria-label="track review">
-          <p className="inspector-empty inspector-empty-inline">
-            {flagged.length === 0
-              ? 'Verified — every frame of this track cleared its confidence floor.'
-              : `${flagged.length} range(s) need review.`}
-          </p>
-          <ul aria-label="flagged tracking ranges">
-            {flagged.map((range) => (
-              <li key={`${range.start}-${range.end}`}>
-                <button
-                  type="button"
-                  onClick={() => editor.seek(clip.start + (range.start - clip.sourceStart))}
-                >
-                  {seconds(range.start)} – {seconds(range.end)}
-                </button>
-              </li>
-            ))}
-          </ul>
-          <Button
-            variant="ghost"
-            type="button"
-            onClick={() =>
-              setMessage(
-                runMaskCommand(editor, {
-                  type: 'add_track_constraint',
-                  clipId: clip.id,
-                  maskId: mask.id,
-                  sourceTime,
-                }) ?? 'This frame is locked. Re-track from constraints to fix the range.',
-              )
-            }
-          >
-            Lock this frame
-          </Button>{' '}
+        <>
+          {/* The same review list mattes use (BR6.5): one panel, so the two cannot drift. */}
+          <MaskReviewPanel
+            editor={editor}
+            clip={clip}
+            mask={mask}
+            subject="tracking"
+            store={store}
+          />
           <Button
             variant="ghost"
             type="button"
@@ -256,7 +227,7 @@ export function MaskTracking({
           >
             Remove track
           </Button>
-        </div>
+        </>
       )}
       {(job.error !== null || message !== null) && (
         <p

@@ -20,6 +20,7 @@ import {
 import { Circle, ICON_SIZE, Pencil, PenTool, Square } from '../../icons.js';
 import { BackgroundRemovalRow } from './BackgroundRemovalRow.js';
 import { MaskList, maskDisplayName } from './MaskList.js';
+import { MaskReviewPanel } from './MaskReviewPanel.js';
 import { MaskPresets } from './MaskPresets.js';
 import { MaskProperties } from './MaskProperties.js';
 import { maskToolStore, useMaskTools, type MaskTool, type MaskToolStore } from './useMaskTools.js';
@@ -169,6 +170,16 @@ export function MaskPanel({ editor, clip, store = maskToolStore }: MaskPanelProp
         <p className="inspector-empty inspector-empty-inline mask-panel-message" role="status">
           {tools.message}
         </p>
+      )}
+      {selected?.kind === 'matte' && (
+        <MaskReviewPanel
+          key={`${selected.id}-review`}
+          editor={editor}
+          clip={clip}
+          mask={selected}
+          subject="matte"
+          store={store}
+        />
       )}
       {selected !== null && (
         <MaskProperties

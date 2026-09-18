@@ -981,6 +981,82 @@
   background: var(--accent);
 }
 
+/* ---- Review list, shared by mattes and tracks (BR6.5) ------------------- */
+.inspector-pro .mask-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.inspector-pro .mask-review-verified {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  color: var(--text-secondary);
+}
+.inspector-pro .mask-review-badge {
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-xs);
+  background: var(--success-subtle, var(--bg-active));
+  color: var(--success, var(--text-primary));
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.inspector-pro .mask-review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.inspector-pro .mask-review-list:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.inspector-pro .mask-review-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.inspector-pro .mask-review-range {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+.inspector-pro .mask-review-range:hover {
+  background: var(--bg-hover);
+}
+.inspector-pro .mask-review-range[aria-current='true'] {
+  background: var(--bg-selected);
+}
+.inspector-pro .mask-review-reason {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+}
+.inspector-pro .mask-review-brushes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+.inspector-pro .mask-review-size {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
 /* ---- Mask tab (MK4.2) --------------------------------------------------- */
 .inspector-pro .mask-panel-tools {
   display: grid;
