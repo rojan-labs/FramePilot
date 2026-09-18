@@ -37,7 +37,11 @@ import type {
 } from '@framepilot/timeline-schema';
 import { useFramePlayhead, type UseEditor } from '../editor/useEditor.js';
 import { PreviewEffectOverlay } from './PreviewEffectOverlay.js';
-import { MaskStackRasterCache, clipMaskStack } from '../preview/masks/mask-stack.js';
+import {
+  MaskStackRasterCache,
+  clipMaskStack,
+  stackReadsPicture,
+} from '../preview/masks/mask-stack.js';
 import { maskRasterCssImage } from '../preview/masks/mask-canvas.js';
 import { previewMediaSrc } from '../editor/media.js';
 import {
@@ -872,8 +876,16 @@ export function PreviewPlayer({
     ? clipMaskStack(videoClip, assetById.get(videoClip.assetId)?.media)
     : null;
   const maskFrame = domMaskFrame(resolution);
+  // A stack that reads the PICTURE — a `key` — has no CPU raster to make into a CSS mask: the
+  // qualifier runs on the GPU, which this fallback does not have. It is skipped here, as a
+  // refused stack already is, so this monitor shows the clip uncut. That is a known gap of the
+  // DOM fallback, not of the key: the canvas monitor is the path a key mask is designed for,
+  // and PX3 deletes this one.
   const clipMaskRaster =
-    clipStack !== null && clipStack.refusal === null && clipStack.alpha.length > 0
+    clipStack !== null &&
+    clipStack.refusal === null &&
+    clipStack.alpha.length > 0 &&
+    !stackReadsPicture(clipStack.alpha)
       ? domMaskRasters.raster(
           clipStack,
           { kind: 'alpha' },
