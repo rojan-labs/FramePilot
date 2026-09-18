@@ -142,6 +142,9 @@ def main(argv: list[str] | None = None) -> int:
             (after.ru_utime - before.ru_utime) + (after.ru_stime - before.ru_stime), 2
         )
         runs[variant]["loadAverageAfter"] = [round(value, 1) for value in os.getloadavg()]
+        # Each arm as soon as it lands: a long window killed by a memory watchdog during the
+        # second export still leaves the first one's number in the log.
+        print("PX5_ARM " + json.dumps(runs[variant]), flush=True)
     ratio = runs["scale"]["seconds"] / runs["scale-plain"]["seconds"]
     cpu_ratio = runs["scale"]["cpuSeconds"] / max(runs["scale-plain"]["cpuSeconds"], 1e-9)
     result = {
