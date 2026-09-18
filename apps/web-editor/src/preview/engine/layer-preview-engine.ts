@@ -1125,6 +1125,9 @@ export class LayerPreviewEngine {
     try {
       const plan = this.planAt(clamped);
       if (plan) {
+        // PX5.3: this seek's matte frames replace whatever was waiting to decode (a superseded
+        // seek's, or the decode-ahead window's when playback paused), so they are next.
+        this.mattes.want(this.matteNeedsOf(plan));
         const needs = this.needsOf(plan);
         const started = performance.now();
         await this.ensureFrames(needs);
@@ -1132,6 +1135,7 @@ export class LayerPreviewEngine {
         if (this.disposed || this.generation !== myGeneration) return;
         // Re-plan: a source that finished loading meanwhile may have changed frame numbers.
         const current = this.planAt(clamped) ?? plan;
+        this.mattes.want(this.matteNeedsOf(current));
         await Promise.all([
           this.ensureFrames(this.needsOf(current)),
           this.engineTexts.ensure(this.textRequestsOf(current)),
@@ -1285,6 +1289,7 @@ export class LayerPreviewEngine {
     const fps = this.project?.projectFps ?? DEFAULT_FPS;
     const wanted = new Map<string, number[]>();
     const pinned = new Set<string>();
+    const windowMattes: MatteNeed[] = [];
     for (let k = 0; k <= LOOKAHEAD_FRAMES; k++) {
       const t = nowSec + k / fps;
       if (t >= this.durationSec) break;
@@ -1294,7 +1299,7 @@ export class LayerPreviewEngine {
         void this.engineTexts.ensure(this.textRequestsOf(plan));
       const matteNeeds = this.matteNeedsOf(plan);
       for (const need of matteNeeds) for (const key of this.matteKeysOf(need)) pinned.add(key);
-      if (matteNeeds.length > 0) void this.mattes.ensure(matteNeeds);
+      windowMattes.push(...matteNeeds);
       for (const need of this.needsOf(plan)) {
         const key = pictureKey(need.assetId, need.frame);
         pinned.add(key);
@@ -1304,6 +1309,10 @@ export class LayerPreviewEngine {
         wanted.set(need.assetId, frames);
       }
     }
+    // PX5.3: the window, nearest frame first, replaces what the matte workers should decode;
+    // a frame the playhead has passed is dropped while it waits instead of decoded late.
+    this.mattes.want(windowMattes);
+    if (windowMattes.length > 0) void this.mattes.ensure(windowMattes);
     this.evict(pinned);
     const generation = this.generation;
     for (const [assetId, frames] of wanted) {

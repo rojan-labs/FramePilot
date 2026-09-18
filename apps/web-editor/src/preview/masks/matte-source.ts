@@ -27,7 +27,11 @@
  */
 import { createLogger } from '@framepilot/shared-types';
 
-import type { MatteDecodePool } from '../decode/matte-decode-pool.js';
+import {
+  MatteDecodeCancelled,
+  type MatteDecodePool,
+  type MatteDecodeRank,
+} from '../decode/matte-decode-pool.js';
 import type { MatteMask } from './mask-stack.js';
 import type { MatteFrameData } from './matte-edges.js';
 
@@ -231,6 +235,11 @@ export class MatteSource {
   private readonly artifacts = new Map<string, ArtifactState>();
   private readonly inFlight = new Map<string, Promise<void>>();
   private readonly failedFrames = new Map<string, MatteRefusalCode>();
+  /**
+   * PX5.3: the frames that matter now (`artifactKey@index` → rank, most urgent first), or
+   * `null` before anyone said, when every request is wanted in arrival order.
+   */
+  private wanted: Map<string, number> | null = null;
 
   /**
    * @param onFrameDecoded - PX5.3 telemetry: milliseconds from asking for a matte frame to its
@@ -267,6 +276,7 @@ export class MatteSource {
     if (cached !== undefined && (!mask.decontaminate || cached.foreground !== null)) {
       return { state: 'ready', frame: cached };
     }
+    this.markWanted(mask.artifact.key, index);
     void this.decode(artifact, index, mask.decontaminate);
     return { state: 'pending' };
   }
@@ -325,9 +335,41 @@ export class MatteSource {
         if (index < 0 || index >= frames.pts.length) return;
         const cached = this.cache.get(matteCacheKey(mask.artifact.key, index));
         if (cached !== undefined && (!mask.decontaminate || cached.foreground !== null)) return;
+        this.markWanted(mask.artifact.key, index);
         await this.decode(artifact, index, mask.decontaminate);
       }),
     );
+  }
+
+  /**
+   * PX5.3: the matte frames that matter now, most urgent first — the decode-ahead window on
+   * every playback tick, a seek's own frames on a seek. It REPLACES the last set: a request
+   * still waiting for a worker whose frame is in neither this set nor asked for since
+   * ({@link lookup}, {@link ensure}) is dropped, never decoded, and not remembered as failed,
+   * so asking again later decodes it. Without it a backlog decodes frames already passed.
+   */
+  want(requests: readonly { readonly mask: MatteMask; readonly sourceFrame: number }[]): void {
+    const wanted = new Map<string, number>();
+    requests.forEach(({ mask, sourceFrame }, position) => {
+      const frames = this.artifacts.get(mask.artifact.key)?.frames ?? null;
+      if (frames === null) return;
+      const index = sourceFrame - frames.firstFrame;
+      if (index < 0 || index >= frames.pts.length) return;
+      const key = `${mask.artifact.key}@${index}`;
+      if (!wanted.has(key)) wanted.set(key, position);
+    });
+    this.wanted = wanted;
+  }
+
+  /** Asking for a frame wants it until the next {@link want}, after the frames named there. */
+  private markWanted(artifactKey: string, index: number): void {
+    const key = `${artifactKey}@${index}`;
+    if (this.wanted !== null && !this.wanted.has(key)) this.wanted.set(key, this.wanted.size);
+  }
+
+  private rankOf(artifactKey: string, index: number): MatteDecodeRank {
+    const key = `${artifactKey}@${index}`;
+    return () => (this.wanted === null ? 0 : (this.wanted.get(key) ?? null));
   }
 
   /**
@@ -515,6 +557,8 @@ export class MatteSource {
         this.cache.put(cacheKey, { ...alpha, foreground });
         this.onFrameDecoded?.(performance.now() - started);
       } catch (error) {
+        // Nobody wants it any more: not a failure, and the next ask decodes it.
+        if (error instanceof MatteDecodeCancelled) return;
         this.failedFrames.set(`${state.key}@${index}`, 'matte_unreadable');
         log.warn('matte frame could not be decoded', {
           artifact: state.key.slice(0, 12),
@@ -531,7 +575,11 @@ export class MatteSource {
 
   /** One `matte.mkv` frame as samples, without a foreground. */
   private async decodeAlpha(state: ArtifactState, index: number): Promise<MatteFrameData> {
-    const message = await this.client.decodeMatte(sourceIdOf(state.key, 'matte'), index);
+    const message = await this.client.decodeMatte(
+      sourceIdOf(state.key, 'matte'),
+      index,
+      this.rankOf(state.key, index),
+    );
     return {
       id: `${state.key}@${index}`,
       width: message.width,
@@ -550,7 +598,11 @@ export class MatteSource {
   ): Promise<Uint8Array | ForegroundRefused> {
     const refusal = await this.foregroundReady(state);
     if (refusal !== null) return { refusal };
-    const message = await this.client.decodeMatte(sourceIdOf(state.key, 'foreground'), index);
+    const message = await this.client.decodeMatte(
+      sourceIdOf(state.key, 'foreground'),
+      index,
+      this.rankOf(state.key, index),
+    );
     return new Uint8Array(message.data);
   }
 }

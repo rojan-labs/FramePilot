@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { MaskLayerSchema } from '@framepilot/timeline-schema';
 
+import { MatteDecodeCancelled } from '../decode/matte-decode-pool';
 import {
   MatteSource,
   flaggedFromReport,
@@ -134,9 +135,52 @@ describe('MatteSource', () => {
     const ready = source.lookup(mask, 11, 5632 / 15360);
     expect(ready.state).toBe('ready');
     expect(ready.state === 'ready' && ready.frame.alpha[0]).toBe(1);
-    expect(client.decodeMatte).toHaveBeenCalledWith(`matte:${'a'.repeat(64)}:matte`, 1);
+    expect(client.decodeMatte).toHaveBeenCalledWith(
+      `matte:${'a'.repeat(64)}:matte`,
+      1,
+      expect.any(Function),
+    );
     expect(source.lookup(mask, 9, null).state).toBe('unprocessed');
     expect(source.lookup(mask, 14, null).state).toBe('unprocessed');
+  });
+
+  it('ranks wanted frames nearest first, and a dropped request is not a failed frame', async () => {
+    const { mask, files } = artifactFiles();
+    const { source, client } = harness(files);
+    await source.ensure([{ mask, sourceFrame: 10 }]);
+    source.want([
+      { mask, sourceFrame: 12 },
+      { mask, sourceFrame: 11 },
+    ]);
+    const ranks: (number | null)[] = [];
+    let lastRank: () => number | null = () => 0;
+    const decode = client.decodeMatte as unknown as ReturnType<typeof vi.fn>;
+    decode.mockImplementation(async (_id: string, frame: number, rank: () => number | null) => {
+      lastRank = rank;
+      ranks.push(rank());
+      // The playhead moved on before a worker was free: the pool drops the request.
+      if (frame === 3) throw new MatteDecodeCancelled();
+      return {
+        type: 'matteFrame' as const,
+        requestId: 0,
+        sourceId: '',
+        frame,
+        width: 8,
+        height: 4,
+        format: 'gray8' as const,
+        data: new Uint8Array(32).fill(frame).buffer,
+      };
+    });
+    await source.ensure([{ mask, sourceFrame: 12 }]);
+    await source.ensure([{ mask, sourceFrame: 11 }]);
+    expect(ranks).toEqual([0, 1]);
+    // Asked for outside the wanted set: ranked after it, never refused.
+    await source.ensure([{ mask, sourceFrame: 13 }]);
+    expect(ranks[2]).toBe(2);
+    expect(source.lookup(mask, 13, null).state).toBe('pending');
+    // A later `want` without it: waiting requests for it would be dropped.
+    source.want([{ mask, sourceFrame: 11 }]);
+    expect(lastRank()).toBeNull();
   });
 
   it('refuses a misaligned frame, a digest mismatch and a size mismatch with the export remedy', async () => {

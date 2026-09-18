@@ -4,7 +4,12 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { MatteDecodePool, matteWorkerCount, type MatteWorkerClient } from './matte-decode-pool';
+import {
+  MatteDecodeCancelled,
+  MatteDecodePool,
+  matteWorkerCount,
+  type MatteWorkerClient,
+} from './matte-decode-pool';
 
 interface FakeWorker {
   readonly client: MatteWorkerClient;
@@ -100,28 +105,59 @@ describe('MatteDecodePool', () => {
     expect(workers).toHaveLength(3);
   });
 
-  it('spreads an intra-only burst over every worker, each opening the file once', async () => {
+  it('spreads an intra-only burst over every worker, one frame each at a time', async () => {
     const { decoders, workers } = pool(4, { intraOnly: true });
     await decoders.loadMatte('m', 'u', 100);
     const frames = Array.from({ length: 8 }, (_, i) => decoders.decodeMatte('m', i));
     await settle();
-    expect(workers.map((worker) => worker.decoded.length)).toEqual([2, 2, 2, 2]);
+    expect(workers.map((worker) => worker.decoded)).toEqual([[0], [1], [2], [3]]);
     expect(workers.map((worker) => worker.opened)).toEqual([['m'], ['m'], ['m'], ['m']]);
+    expect(decoders.queued).toBe(4);
+    workers.forEach((worker) => worker.flush());
+    await settle();
+    expect(workers.map((worker) => worker.decoded.length)).toEqual([2, 2, 2, 2]);
     workers.forEach((worker) => worker.flush());
     expect((await Promise.all(frames)).map((frame) => frame.frame)).toEqual([
       0, 1, 2, 3, 4, 5, 6, 7,
     ]);
   });
 
+  it('gives a free worker the most urgent waiting frame, and drops unwanted ones', async () => {
+    const { decoders, workers } = pool(1, { intraOnly: true });
+    await decoders.loadMatte('m', 'u', 100);
+    const ranks = new Map<number, number | null>([
+      [0, 0],
+      [1, 5],
+      [2, 1],
+      [3, 2],
+    ]);
+    const frames = [0, 1, 2, 3].map((i) =>
+      decoders.decodeMatte('m', i, () => ranks.get(i) ?? null),
+    );
+    const cancelled = expect(frames[3]).rejects.toBeInstanceOf(MatteDecodeCancelled);
+    await settle();
+    // Frame 3 is no longer wanted by the time a worker is free (the playhead passed it).
+    ranks.set(3, null);
+    for (let step = 0; step < 3; step += 1) {
+      workers[0]!.flush();
+      await settle();
+    }
+    expect(workers[0]!.decoded).toEqual([0, 2, 1]);
+    await cancelled;
+    await Promise.all(frames.slice(0, 3));
+  });
+
   it('keeps a file with non-key frames on the worker that opened it', async () => {
     const { decoders, workers } = pool(4, { intraOnly: false });
     await decoders.loadMatte('m', 'u', 100);
-    const frames = [0, 1, 2, 3, 4].map((i) => decoders.decodeMatte('m', i));
-    await settle();
-    expect(workers.map((worker) => worker.decoded)).toEqual([[0, 1, 2, 3, 4], [], [], []]);
-    expect(workers.map((worker) => worker.opened.length)).toEqual([1, 0, 0, 0]);
-    workers[0]!.flush();
+    const frames = [0, 1, 2].map((i) => decoders.decodeMatte('m', i));
+    for (let step = 0; step < 3; step += 1) {
+      await settle();
+      workers[0]!.flush();
+    }
     await Promise.all(frames);
+    expect(workers.map((worker) => worker.decoded)).toEqual([[0, 1, 2], [], [], []]);
+    expect(workers.map((worker) => worker.opened.length)).toEqual([1, 0, 0, 0]);
   });
 
   it('gives the alpha and the foreground different home workers', async () => {
@@ -135,11 +171,13 @@ describe('MatteDecodePool', () => {
     const { decoders, workers } = pool(2, { intraOnly: true, failOpenAfterFirst: true });
     await decoders.loadMatte('m', 'u', 100);
     const frames = [0, 1, 2].map((i) => decoders.decodeMatte('m', i));
-    await settle();
+    for (let step = 0; step < 4; step += 1) {
+      await settle();
+      workers[0]!.flush();
+    }
+    await Promise.all(frames);
     expect(workers[1]!.decoded).toEqual([]);
     expect([...workers[0]!.decoded].sort()).toEqual([0, 1, 2]);
-    workers[0]!.flush();
-    await Promise.all(frames);
   });
 
   it('unloads the file on every worker that opened it, and refuses its frames after', async () => {
@@ -154,10 +192,16 @@ describe('MatteDecodePool', () => {
     await expect(decoders.decodeMatte('m', 0)).rejects.toThrow(/not loaded/);
   });
 
-  it('terminates every worker on dispose', async () => {
-    const { decoders, workers } = pool(2, { intraOnly: true });
+  it('terminates every worker on dispose and refuses what was waiting', async () => {
+    const { decoders, workers } = pool(1, { intraOnly: true });
     await decoders.loadMatte('m', 'u', 100);
+    const running = decoders.decodeMatte('m', 0).catch(() => 'rejected');
+    const waiting = expect(decoders.decodeMatte('m', 1)).rejects.toThrow(/disposed/);
+    await settle();
     decoders.dispose();
+    await waiting;
+    // A real client rejects its own pending requests on dispose; the fake just never answers.
+    void running;
     expect(workers.every((worker) => worker.disposed)).toBe(true);
     await expect(decoders.loadMatte('m', 'u', 100)).rejects.toThrow(/after dispose/);
   });
