@@ -214,6 +214,14 @@ carries the signed proposal to `PackInstallInlineCard`.
 
 ## Not built
 
+- `create_shape_mask` and `mask_with_layer` are **registered unavailable**, deliberately. Their
+  mask kinds (`linear`, `band`, `gradient`, `layer`) and the shape-preset path generators are in
+  the schema, but neither renderer draws them yet (plan 07 **MK8** is open), so a tool that
+  emitted them would make masks the preview and the export ignore. PRD §23: no AI capability
+  ahead of its engine. The orchestrator refuses an unavailable tool by name.
+- `follow_subject` for a **title or overlay** is refused with a remedy: a clip transform that
+  follows a track needs `Clip.transformTrack`, an unapproved schema change (**MO-14**). The mask
+  half works.
 - `refine_mask` `add` / `remove` candidate (a matte re-run with include/exclude prompts).
 - `blur_to_hide`, `grade_match_to` (no renderer; see above).
 - MCP and Python mirrors (by design, see the top of this page).

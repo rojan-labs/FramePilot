@@ -144,6 +144,9 @@ const TOOL_META: Record<string, ToolMeta> = {
   refine_mask: { label: 'Refine mask', Icon: SlidersHorizontal },
   get_masks: { label: 'Read masks', Icon: Square },
   delete_mask: { label: 'Delete mask', Icon: Trash2 },
+  follow_subject: { label: 'Follow subject', Icon: Scan },
+  create_shape_mask: { label: 'Create shape mask', Icon: Square },
+  mask_with_layer: { label: 'Mask with a layer', Icon: Square },
 
   // Timeline edits
   trim_clip: { label: 'Trim clip', Icon: Scissors },

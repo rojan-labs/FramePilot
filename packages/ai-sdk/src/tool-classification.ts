@@ -115,6 +115,10 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   refine_mask: { role: 'mutation', scope: 'timeline_dependent' },
   put_text_behind_subject: { role: 'mutation', scope: 'timeline_dependent' },
   delete_mask: { role: 'mutation', scope: 'timeline_dependent' },
+  follow_subject: { role: 'mutation', scope: 'timeline_dependent' },
+  // Unavailable until MK8; classified anyway so turning one on is a one-line registry change.
+  create_shape_mask: { role: 'mutation', scope: 'timeline_dependent' },
+  mask_with_layer: { role: 'mutation', scope: 'timeline_dependent' },
   get_masks: { role: 'inspection', scope: 'timeline_dependent' },
   professional_audio: { role: 'mutation', scope: 'timeline_dependent' },
   measure_color: { role: 'analysis', scope: 'timeline_dependent' },

@@ -588,3 +588,66 @@ describe('model-facing text', () => {
     for (const message of refusals) expect(message).not.toMatch(/\d/);
   });
 });
+
+describe('follow_subject', () => {
+  const tracking = {
+    artifact: { key: SHA('d'), sha256: SHA('e') },
+    method: 'position',
+    referenceSourceTime: 1,
+  };
+  const tracked = { kind: 'ellipse', id: 'face', cx: 900, cy: 300, rx: 90, ry: 100, tracking };
+  const glow = { kind: 'ellipse', id: 'glow', cx: 900, cy: 300, rx: 140, ry: 150 };
+
+  it('lets a second mask reuse the measured track, reversibly, with the track as its source', () => {
+    const p = project([tracked, glow]);
+    const ops = tool('follow_subject').buildOps!(
+      { clipId: 'shot', maskId: 'face', targetClipId: 'shot', targetMaskId: 'glow' },
+      ctxOf(p),
+    ) as Operation[];
+    expect(ops).toEqual([
+      {
+        type: 'use_track',
+        fromClipId: 'shot',
+        fromMaskId: 'face',
+        to: { clipId: 'shot', maskId: 'glow' },
+      },
+    ]);
+    expect(maskGeometrySourceOf(ops[0]!)).toEqual({
+      kind: 'measurement',
+      engine: `track:${SHA('d')}`,
+    });
+    const masks = masksOf(clipOf(land(p, ops)));
+    expect(masks.find((mask) => mask.id === 'glow')?.tracking?.artifact.key).toBe(SHA('d'));
+  });
+
+  it('refuses a title following a track (MO-14), an untracked source, and a mask following itself', () => {
+    const p = project([tracked, glow]);
+    const build = tool('follow_subject').buildOps!;
+    expect(() =>
+      build({ clipId: 'shot', maskId: 'face', targetClipId: 'unmeasured' }, ctxOf(p)),
+    ).toThrow(/cannot follow a tracked subject yet, so nothing was changed/);
+    expect(() =>
+      build(
+        { clipId: 'shot', maskId: 'glow', targetClipId: 'shot', targetMaskId: 'face' },
+        ctxOf(p),
+      ),
+    ).toThrow(/Call track_mask for it first/);
+    expect(() =>
+      build(
+        { clipId: 'shot', maskId: 'face', targetClipId: 'shot', targetMaskId: 'face' },
+        ctxOf(p),
+      ),
+    ).toThrow(/cannot follow itself/);
+  });
+});
+
+describe('tools whose engine does not exist yet', () => {
+  it('are registered unavailable, never built as something the renderers would ignore', () => {
+    for (const name of ['create_shape_mask', 'mask_with_layer']) {
+      const spec = tool(name);
+      expect(spec.available).toBe(false);
+      expect(spec.kind).toBe('unavailable');
+      expect(spec.buildOps).toBeUndefined();
+    }
+  });
+});

@@ -141,6 +141,10 @@ def test_host_ui_only_tools_are_detected_and_excluded() -> None:
         "put_text_behind_subject",
         "get_masks",
         "delete_mask",
+        "follow_subject",
+        # Registered unavailable on the TS side until the renderers draw their mask kinds.
+        "create_shape_mask",
+        "mask_with_layer",
     }
     assert "trim_clip" not in host_ui_only
 

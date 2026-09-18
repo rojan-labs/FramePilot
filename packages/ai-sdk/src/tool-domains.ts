@@ -227,6 +227,10 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'refine_mask',
     'get_masks',
     'delete_mask',
+    'follow_subject',
+    // Registered unavailable until the renderers draw their mask kinds (plan 07 MK8).
+    'create_shape_mask',
+    'mask_with_layer',
     // Folded in from `tracking` (AM1.2): both steer a MASK, so they arrive with the tools
     // that make one. They are the editor-drawn-mask path the Inspector still has — a mask the
     // editor drew and selected — beside `track_mask`, which takes any mask by id.

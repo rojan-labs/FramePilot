@@ -71,9 +71,12 @@ export function carriesMaskGeometry(operation: AnyOperation): boolean {
       const kind = record(op.mask)?.kind;
       return typeof kind !== 'string' || !COORDINATE_FREE_MASK_KINDS.has(kind);
     }
+    // `use_track` is here because reusing a track moves the mask that receives it, so it
+    // needs a source like any other.
     case 'paste_masks':
     case 'set_mask_path':
     case 'apply_mask_tracking':
+    case 'use_track':
       return true;
     case 'update_mask':
       return Object.keys(record(op.changes) ?? {}).some((key) => GEOMETRY_PROPERTIES.has(key));

@@ -30,6 +30,7 @@ import {
   type MaskReviewReport,
 } from '../masking/contracts.js';
 import { parseCandidateId } from '../masking/candidate-id.js';
+import { attestMaskGeometry } from '../masking/geometry-provenance.js';
 import { USER_NUMBERS_NOT_TYPED, numbersWereTyped } from '../masking/geometry-provenance.js';
 import {
   MASK_EDGE_INTENTS,
@@ -51,7 +52,7 @@ import {
   type CreateMaskIntent,
 } from '../masking/mask-builders.js';
 import { boolean, numeric, seconds } from './tool-args.js';
-import { jsonSchema, mutateTool, readTool } from './tool-factories.js';
+import { jsonSchema, mutateTool, readTool, unavailableTool } from './tool-factories.js';
 
 const unit = numeric(z.number().min(0).max(1));
 
@@ -408,6 +409,59 @@ function textStyleParams(style: z.infer<typeof TextStyleSchema>): Record<string,
   };
 }
 
+const FollowSubjectArgsSchema = z
+  .object({
+    /** The clip whose tracked mask is followed. */
+    clipId: z.string().min(1),
+    maskId: z.string().min(1),
+    /** The clip that should follow it. */
+    targetClipId: z.string().min(1),
+    /** A mask on the target clip. Omit to make the target CLIP itself follow (a title). */
+    targetMaskId: z.string().min(1).optional(),
+  })
+  .strict();
+
+/** MO-14: a clip transform that follows a track needs a schema field nobody has approved. */
+const REFUSE_FOLLOW_CLIP =
+  'A title or overlay cannot follow a tracked subject yet, so nothing was changed: FramePilot ' +
+  'can make a MASK follow a track, not a clip. Tell the editor this is not available yet. To ' +
+  'make a mask on that clip follow the subject instead, pass its targetMaskId.';
+
+/**
+ * `follow_subject`, the half that exists: a mask reuses another mask's measured track
+ * (`use_track`). The clip half waits on MO-14 and is refused rather than approximated.
+ */
+function followSubjectOps(
+  args: z.infer<typeof FollowSubjectArgsSchema>,
+  ctx: ToolContext,
+): Operation[] {
+  const source = maskOnClip(clipWithSize(ctx.project, args.clipId).clip, args.maskId);
+  if (source.tracking === undefined) {
+    throw new ToolRefusalError(
+      'That mask is not tracked, so there is nothing to follow. Call track_mask for it first, ' +
+        'then call follow_subject again.',
+    );
+  }
+  if (args.targetMaskId === undefined) throw new ToolRefusalError(REFUSE_FOLLOW_CLIP);
+  const target = clipWithSize(ctx.project, args.targetClipId).clip;
+  const targetMask = maskOnClip(target, args.targetMaskId);
+  if (target.id === args.clipId && targetMask.id === source.id) {
+    throw new ToolRefusalError('A mask cannot follow itself. Pass a different targetMaskId.');
+  }
+  // The track was MEASURED for the source mask; reusing it authors nothing new.
+  return attestMaskGeometry(
+    [
+      {
+        type: 'use_track',
+        fromClipId: args.clipId,
+        fromMaskId: source.id,
+        to: { clipId: target.id, maskId: targetMask.id },
+      } as Operation,
+    ],
+    { kind: 'measurement', engine: `track:${source.tracking.artifact.key}` },
+  );
+}
+
 export const MASKING_TOOLS: readonly ToolSpec[] = [
   hostMeasured(
     FIND_MASK_TARGETS_TOOL_NAME,
@@ -517,5 +571,47 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
       chain.run({ type: 'remove_mask', clipId: clip.id, maskId: maskOnClip(clip, args.maskId).id });
       return chain.operations;
     },
+  ),
+  mutateTool(
+    {
+      name: 'follow_subject',
+      description:
+        'Make a mask follow a subject that is ALREADY tracked: the target mask reuses the ' +
+        'measured track of another mask (on the same clip or another one over the same ' +
+        'picture). The source mask must be tracked first (track_mask, or create_mask with ' +
+        'track:true). A title or overlay cannot follow a track yet.',
+      capabilities: ['masking', 'tracking'],
+      hostUiOnly: true,
+    },
+    FollowSubjectArgsSchema,
+    followSubjectOps,
+  ),
+  // The two below are REGISTERED UNAVAILABLE on purpose (PRD §23: no AI capability ahead of
+  // its engine). Their mask kinds — `linear`, `band`, `gradient`, `layer`, and the shape-preset
+  // path generators — are in the schema, and neither renderer draws them yet (plan 07 MK8 is
+  // open). A tool that emitted them would produce masks the preview and the export ignore.
+  // The orchestrator refuses an unavailable tool by name, so a model that reaches for one is
+  // told plainly instead of being handed something that silently does nothing.
+  unavailableTool(
+    {
+      name: 'create_shape_mask',
+      description:
+        'Split screen, mirror, gradient and shape-preset masks (heart, star, …) placed from a ' +
+        'candidate or the frame. Unavailable: the renderers do not draw these mask kinds yet.',
+      capabilities: ['masking'],
+      hostUiOnly: true,
+    },
+    true,
+  ),
+  unavailableTool(
+    {
+      name: 'mask_with_layer',
+      description:
+        'Track matte and text-as-mask: use another clip or track as this clip’s mask. ' +
+        'Unavailable: the renderers do not draw the layer mask kind yet.',
+      capabilities: ['masking'],
+      hostUiOnly: true,
+    },
+    true,
   ),
 ];

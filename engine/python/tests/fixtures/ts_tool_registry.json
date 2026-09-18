@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 105,
+  "toolCount": 108,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -1169,6 +1169,19 @@
         }
       }
     },
+    "create_shape_mask": {
+      "kind": "unavailable",
+      "mutates": true,
+      "available": false,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
     "delete_clip": {
       "kind": "mutate",
       "mutates": true,
@@ -1672,6 +1685,45 @@
             "maximum": 100
           },
           "query": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
+    "follow_subject": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId",
+          "maskId",
+          "targetClipId"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "maskId": {
+            "type": [
+              "string"
+            ]
+          },
+          "targetClipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "targetMaskId": {
             "type": [
               "string"
             ]
@@ -2195,6 +2247,19 @@
             "minimum": 0
           }
         }
+      }
+    },
+    "mask_with_layer": {
+      "kind": "unavailable",
+      "mutates": true,
+      "available": false,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "properties": {}
       }
     },
     "match_color": {
