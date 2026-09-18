@@ -30,12 +30,15 @@
   min-width: 0;
   padding: 0;
   overflow-x: hidden;
-  overflow-y: auto;
-  /* The status bar is sticky at the bottom, so anything scrolled to the very end of the panel
-     lands UNDER it and stops being clickable. Reserving its height here means `scrollIntoView`
-     — Playwright's and the browser's — stops short of it. Found by the mask e2e once the Mask
-     tab grew a background-removal row (BR6.8). */
-  scroll-padding-bottom: 36px;
+  /*
+   * The PANEL does not scroll; its tab page does (below), and the status bar is a sibling under
+   * that scroll region rather than a sticky child of it — the same split the export dialog uses,
+   * for the same reason. As a sticky child it covered the last band of the scroll port, so a
+   * control scrolled flush to the bottom edge could not be clicked at all, by a person or by a
+   * test. Found once the Mask tab grew a background-removal row (BR6.8), but it was never
+   * specific to that row: any panel taller than the rail had it.
+   */
+  overflow-y: hidden;
   background: var(--bg-panel);
 }
 
@@ -231,6 +234,9 @@
 .inspector-pro .inspector-tab-page {
   flex: 1;
   min-height: 0;
+  /* The one scrolling region of the inspector. */
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 0 var(--inspector-inline) 28px;
 }
 
