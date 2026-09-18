@@ -7,7 +7,7 @@
  * when the install came from somewhere else entirely.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { Asset, Timeline } from '@framepilot/timeline-schema';
 import type {
   CapabilityPackInstalledEventWire,
@@ -310,5 +310,94 @@ describe('BackgroundRemovalRow', () => {
     expect(
       (screen.getByRole('button', { name: 'Remove background' }) as HTMLButtonElement).disabled,
     ).toBe(false);
+  });
+  it('shows the phase, the round, the counts and an ETA while the job runs', async () => {
+    let emitProgress: ((message: unknown) => void) | null = null;
+    bridge.onCapabilityPackMatteProgress.mockImplementation(((handler: (m: unknown) => void) => {
+      emitProgress = handler;
+      return () => {};
+    }) as never);
+    let settle: ((result: unknown) => void) | null = null;
+    bridge.capabilityPackMatte.mockImplementation(((intent: { requestId: string }) => {
+      requestId = intent.requestId;
+      return new Promise((resolve) => {
+        settle = resolve;
+      });
+    }) as never);
+    let requestId = '';
+
+    render(<Harness jobs={jobs} />);
+    const button = await screen.findByRole('button', { name: 'Remove background' });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(bridge.capabilityPackMatte).toHaveBeenCalled());
+
+    act(() =>
+      emitProgress!({
+        requestId,
+        phase: 'self-correct',
+        completed: 30,
+        total: 120,
+        round: 2,
+        etaSeconds: 240,
+      }),
+    );
+
+    expect(await screen.findByText('Correcting itself (round 2 of 3)')).toBeTruthy();
+    const bar = screen.getByRole('progressbar', { name: 'Background removal progress' });
+    expect(bar.getAttribute('aria-valuenow')).toBe('30');
+    expect(bar.getAttribute('aria-valuetext')).toBe('30 of 120 frames');
+    expect(screen.getByText(/about 4 minutes left/)).toBeTruthy();
+
+    // Cancel goes to main by request id; the outcome still comes back through the promise.
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(bridge.capabilityPackCancelMatte).toHaveBeenCalledWith(requestId);
+    await act(async () => {
+      settle!({ ok: false, code: 'cancelled', error: 'Cancelled.', retryable: true });
+      await Promise.resolve();
+    });
+  });
+
+  it('keeps the job when the editor selects another clip and comes back', async () => {
+    let settle: ((result: unknown) => void) | null = null;
+    bridge.capabilityPackMatte.mockImplementation(
+      (() =>
+        new Promise((resolve) => {
+          settle = resolve;
+        })) as never,
+    );
+
+    const view = render(<Harness jobs={jobs} />);
+    const button = await screen.findByRole('button', { name: 'Remove background' });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(bridge.capabilityPackMatte).toHaveBeenCalledTimes(1));
+
+    // The Inspector row unmounts on a selection change and re-mounts when the editor returns.
+    view.unmount();
+    expect(jobs.getState().jobs.c1).toBeDefined();
+    render(<Harness jobs={jobs} />);
+
+    // Re-mounting reconnects to the live job rather than starting a second run.
+    expect(await screen.findByRole('button', { name: 'Cancel' })).toBeTruthy();
+    expect(bridge.capabilityPackMatte).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      settle!({ ok: false, code: 'cancelled', error: 'Cancelled.', retryable: true });
+      await Promise.resolve();
+    });
+  });
+
+  it('does not offer a second run while one is in flight', async () => {
+    bridge.capabilityPackMatte.mockImplementation((() => new Promise(() => {})) as never);
+    render(<Harness jobs={jobs} />);
+    const button = await screen.findByRole('button', { name: 'Remove background' });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Remove background' }) as HTMLButtonElement).disabled,
+      ).toBe(true),
+    );
   });
 });

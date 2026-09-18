@@ -16,7 +16,7 @@
  *   one reversible `add_matte_mask` through the editor's validated patch path, exactly as the agent's
  *   would.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { assetDisplaySize } from '@framepilot/editor-core';
 import type { Clip } from '@framepilot/timeline-schema';
 import type { MattePromptRefWire } from '@framepilot/shared-types';
@@ -26,12 +26,18 @@ import {
   MATTE_HANDLE_SECONDS,
   estimateMatteJob,
   formatBytes,
+  formatClock,
   formatDuration,
 } from './matteEstimate.js';
 import { PackToolWarning } from './PackToolWarning.js';
 import { hardwareNotice, packToolCopy, SMART_MASK_PACK } from './packToolCopy.js';
-import { matteJobStore, type MatteJobStore } from './matteJobStore.js';
-import { useClipMatteJob } from './useMatteJob.js';
+import {
+  matteJobStore,
+  mattePhaseLabel,
+  type MatteJobState,
+  type MatteJobStore,
+} from './matteJobStore.js';
+import { useClipMatteJob, useMatteJobs } from './useMatteJob.js';
 import {
   maskToolStore,
   useMaskTools,
@@ -81,7 +87,8 @@ export function BackgroundRemovalRow({
 }: BackgroundRemovalRowProps): JSX.Element {
   const { status, refresh } = usePackStatus(SUBJECT_MATTE_CAPABILITY);
   const tools = useMaskTools(store);
-  const { job, start } = useClipMatteJob(clip.id, jobs);
+  const { job, start, cancel } = useClipMatteJob(clip.id, jobs);
+  const notice = useMatteJobs(jobs).notices[clip.id];
   const [subject, setSubject] = useState<SubjectMode>('auto');
   // RD0 parity control (Premiere Object Mask): the delivered matte is the precise one either way;
   // this is which edge treatment the mask carries.
@@ -137,7 +144,8 @@ export function BackgroundRemovalRow({
           {hardwareLine}
         </p>
       )}
-      {!copy.blocked && (
+      {running && job !== null && <MatteProgress job={job} onCancel={cancel} />}
+      {!copy.blocked && !running && (
         <>
           <fieldset className="background-removal-subject">
             <legend>Subject</legend>
@@ -212,6 +220,66 @@ export function BackgroundRemovalRow({
           {message}
         </p>
       )}
+      {notice !== undefined && (
+        <p className="inspector-empty" role={notice.tone === 'alert' ? 'alert' : 'status'}>
+          {notice.message}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The running job (BR6.4): which phase it is in, how far through, how long it has taken and how
+ * long is left, and one way to stop it.
+ *
+ * The bar is a real `progressbar` with the counts on it, and the ETA is the HOST's number — when
+ * the host has not produced one yet the line says nothing rather than extrapolating from two
+ * frames, because an ETA that swings is worse than no ETA.
+ */
+export function MatteProgress({
+  job,
+  onCancel,
+}: {
+  readonly job: MatteJobState;
+  readonly onCancel: () => void;
+}): JSX.Element {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, []);
+  const elapsed = Math.max(0, (now - job.startedAt) / 1000);
+  const label = mattePhaseLabel(job.phase, job.round);
+
+  return (
+    <div className="background-removal-progress">
+      <p className="inspector-empty" role="status" aria-live="polite">
+        {label}
+      </p>
+      <div
+        role="progressbar"
+        className="background-removal-bar"
+        aria-label="Background removal progress"
+        aria-valuemin={0}
+        aria-valuemax={job.total > 0 ? job.total : 100}
+        {...(job.total > 0 ? { 'aria-valuenow': job.completed } : {})}
+        aria-valuetext={
+          job.total > 0 ? `${String(job.completed)} of ${String(job.total)} frames` : 'Starting…'
+        }
+      >
+        <span
+          className="background-removal-bar-fill"
+          style={{ width: job.total > 0 ? `${String((job.completed / job.total) * 100)}%` : '0%' }}
+        />
+      </div>
+      <p className="inspector-empty">
+        {formatClock(elapsed)} elapsed
+        {job.etaSeconds === null ? '' : ` · about ${formatDuration(job.etaSeconds)} left`}
+      </p>
+      <Button variant="secondary" type="button" disabled={job.cancelling} onClick={onCancel}>
+        {job.cancelling ? 'Stopping…' : 'Cancel'}
+      </Button>
     </div>
   );
 }

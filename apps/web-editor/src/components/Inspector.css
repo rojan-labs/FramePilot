@@ -964,6 +964,23 @@
   color: var(--text-secondary);
 }
 
+.inspector-pro .background-removal-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.inspector-pro .background-removal-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-subtle, var(--bg-surface));
+  overflow: hidden;
+}
+.inspector-pro .background-removal-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
 /* ---- Mask tab (MK4.2) --------------------------------------------------- */
 .inspector-pro .mask-panel-tools {
   display: grid;
