@@ -488,21 +488,27 @@ top of the planes'), one pass over the masters.
 **The row.** The Scale row's own matte is `sharp`, so it is untouched by design. A new variant,
 `scale-soft`, is the row with the matte at its default soft edge. Before/after on the SAME
 fixture: `PX5_TIER_ALPHA=0` withholds only `alpha.mkv` (the monitor then decodes the samples, as
-before PX5.8). Five interleaved pairs, `px5-local-run.py scale-soft/proxy`, one 20-second run each:
+before PX5.8). Seven interleaved pairs, `px5-local-run.py scale-soft/proxy`, one 20-second run
+each (pairs 6-7 later, at load 11-15, with `--budgets`: both "after" runs passed both budgets, one
+"before" run failed the dropped-frame budget at 7/603):
 
-| Run        | Dropped           | Seek p50 / p95     | Full-res composite p50 | Picture decode p50 | Matte decode p50 / p95 | Cache peak | GL pools   |
-| ---------- | ----------------- | ------------------ | ---------------------- | ------------------ | ---------------------- | ---------- | ---------- |
-| before 1   | 1/602             | 37.0 / 43.7        | 11.7                   | 78.9               | 21.2 / 36.0            | 420 MB     | 182 MB     |
-| after 1    | 132/673           | 31.2 / 54.6        | 7.8                    | 51.3               | 20.4 / 304.9           | 406 MB     | 169 MB     |
-| before 2   | 23/602            | 36.8 / 50.9        | 11.5                   | 91.4               | 24.2 / 363.6           | 425 MB     | 182 MB     |
-| after 2    | 33/602            | 36.8 / 49.4        | 8.6                    | 52.5               | 20.4 / 236.4           | 404 MB     | 169 MB     |
-| before 3   | 90/610            | 49.5 / 75.1        | 18.0                   | 102.5              | 24.9 / 287.1           | 419 MB     | 182 MB     |
-| after 3    | 1/602             | 35.3 / 71.4        | 8.9                    | 66.2               | 20.7 / 45.2            | 407 MB     | 169 MB     |
-| before 4   | 1/603             | 37.5 / 51.7        | 10.2                   | 90.3               | 22.0 / 55.1            | 420 MB     | 182 MB     |
-| after 4    | 2/601             | 35.0 / 58.1        | 8.9                    | 73.0               | 20.4 / 67.0            | 407 MB     | 169 MB     |
-| before 5   | 2/602             | 44.1 / 72.0        | 11.8                   | 100.2              | 24.9 / 85.2            | 419 MB     | 182 MB     |
-| after 5    | 1/601             | 30.5 / 45.1        | 8.5                    | 59.5               | 20.5 / 27.7            | 407 MB     | 169 MB     |
-| **median** | before 2, after 2 | 51.7 vs 54.6 (p95) | **11.7 -> 8.6**        | **91.4 -> 59.5**   | **24.2 -> 20.4** (p50) | 420 -> 407 | 182 -> 169 |
+| Run             | Dropped           | Seek p50 / p95     | Full-res composite p50 | Picture decode p50 | Matte decode p50 / p95 | Cache peak | GL pools   |
+| --------------- | ----------------- | ------------------ | ---------------------- | ------------------ | ---------------------- | ---------- | ---------- |
+| before 1        | 1/602             | 37.0 / 43.7        | 11.7                   | 78.9               | 21.2 / 36.0            | 420 MB     | 182 MB     |
+| after 1         | 132/673           | 31.2 / 54.6        | 7.8                    | 51.3               | 20.4 / 304.9           | 406 MB     | 169 MB     |
+| before 2        | 23/602            | 36.8 / 50.9        | 11.5                   | 91.4               | 24.2 / 363.6           | 425 MB     | 182 MB     |
+| after 2         | 33/602            | 36.8 / 49.4        | 8.6                    | 52.5               | 20.4 / 236.4           | 404 MB     | 169 MB     |
+| before 3        | 90/610            | 49.5 / 75.1        | 18.0                   | 102.5              | 24.9 / 287.1           | 419 MB     | 182 MB     |
+| after 3         | 1/602             | 35.3 / 71.4        | 8.9                    | 66.2               | 20.7 / 45.2            | 407 MB     | 169 MB     |
+| before 4        | 1/603             | 37.5 / 51.7        | 10.2                   | 90.3               | 22.0 / 55.1            | 420 MB     | 182 MB     |
+| after 4         | 2/601             | 35.0 / 58.1        | 8.9                    | 73.0               | 20.4 / 67.0            | 407 MB     | 169 MB     |
+| before 5        | 2/602             | 44.1 / 72.0        | 11.8                   | 100.2              | 24.9 / 85.2            | 419 MB     | 182 MB     |
+| after 5         | 1/601             | 30.5 / 45.1        | 8.5                    | 59.5               | 20.5 / 27.7            | 407 MB     | 169 MB     |
+| before 6        | 2/601             | 43.9 / 55.9        | 10.9                   | 94.1               | 22.4 / 150.3           | 413 MB     | 182 MB     |
+| after 6         | 2/603             | 33.0 / 46.4        | 10.4                   | 79.8               | 21.2 / 110.1           | 407 MB     | 169 MB     |
+| before 7        | 7/603             | 42.2 / 58.6        | 12.7                   | 105.7              | 27.0 / 193.6           | 424 MB     | 182 MB     |
+| after 7         | 1/602             | 33.1 / 55.3        | 8.4                    | 59.9               | 20.3 / 36.6            | 405 MB     | 169 MB     |
+| **median of 7** | before 2, after 2 | 42.2 vs 33.1 (p50) | **11.7 -> 8.6**        | **94.1 -> 59.9**   | **24.2 -> 20.4** (p50) | 420 -> 407 | 182 -> 169 |
 
 Runs 3-5 recorded the path: `alphaFromTier: true` after, `false` before, the tier's planes in
 both (runs 1-2 predate the field; their "before" arms logged the plane as withheld). What moved, and why: 16 ms of matte-worker CPU per frame is gone, so the picture
@@ -548,8 +554,8 @@ artifact, `proxies/scale-d.mp4`, rotation 0). M1 Pro, 2026-09-18, machine shared
 | Against the fixture's tier | decoded pixels identical (framemd5 of 460 sampled frames of both files); files differ by 107 bytes of container |
 | Left behind                | `matte-tiers/.staging/` empty                                                                                   |
 
-Then the monitor on that route-made tier, `px5-local-run.py <variant>/proxy --budgets`, two rounds,
-load average 12-18 throughout:
+Then the monitor on that route-made tier, `px5-local-run.py <variant>/proxy --budgets`: rounds 1-2
+at load average 12-18, rounds 3-4 half an hour later at load 6-7:
 
 | Run            | Dropped       | Seek p50 / p95 | Full-res composite p50 | Picture decode p50 | Path                             |
 | -------------- | ------------- | -------------- | ---------------------- | ------------------ | -------------------------------- |
@@ -557,13 +563,18 @@ load average 12-18 throughout:
 | `scale-soft` 1 | 26/600 (4.3%) | 29.8 / 45.9    | 7.7                    | 64.6               | planes + alpha plane             |
 | `scale` 2      | 24/608 (3.9%) | 46.8 / 65.9    | 12.5                   | 105.9              | planes from the tier, 4K samples |
 | `scale-soft` 2 | 42/601 (7.0%) | 31.8 / 38.6    | 8.2                    | 85.8               | planes + alpha plane             |
+| `scale` 3      | 1/601 (0.17%) | 37.8 / 44.1    | 11.4                   | 69.8               | planes from the tier, 4K samples |
+| `scale-soft` 3 | 1/601 (0.17%) | 30.9 / 46.2    | 8.2                    | 59.5               | planes + alpha plane             |
+| `scale` 4      | 1/601 (0.17%) | 37.3 / 51.3    | 11.1                   | 85.9               | planes from the tier, 4K samples |
+| `scale-soft` 4 | 2/601 (0.33%) | 31.9 / 48.7    | 7.6                    | 62.1               | planes + alpha plane             |
 
 **Verdict, honestly.** The route works end to end and the monitor takes what it made (every run
 recorded the tier; the soft matte's alpha from its plane). Seek-to-present holds its budget in all
-four runs (p95 38.6-65.9 ms against 100). Dropped frames do not hold the 1% budget in three of four
-runs at this load; the same `scale/proxy` measured 1/602 at load ~10 an hour earlier (17:09) and
-1/601 at PX5.3's final state, and the drops come in bursts with the load spikes, on both variants.
-So the dropped-frame verdict on the desktop path needs a quiet machine and is not re-stated here.
+eight runs (p95 38.6-65.9 ms against 100). Dropped frames held the 1% budget in all four runs at
+load 6-7 (1/601, 1/601, 1/601, 2/601) and missed it in three of four at load 12-18, on both
+variants, in bursts with the load spikes: on this shared machine that verdict depends on the
+other work, not on the path.
+
 Not measured: the packaged Electron app (the host call itself is covered by `matte.test.ts` and
 `matte-media-inspector.tier.test.ts`; this run drove the route with the host's request by hand),
 a camera-footage matte (a subject filling the frame costs about twice this disc per frame), and a

@@ -362,11 +362,11 @@ CPU twin of the tier path against the masters (`matte-edges.test.ts`), texture r
 is the identity (the default soft edge: no edge shift, feather, expansion, finesse or `sharp`),
 the tier also carries `alpha.mkv`, the export's resample of the alpha to the decoded size, and
 the monitor reads it instead of the 4K samples: 3.6 ms per frame to decode against 19.6-20.1 ms
-(`matte-decode.perf.test.ts`). On `scale-soft/proxy` (the row with that matte), five interleaved
-pairs on a loaded machine (load 10-22): full-resolution composite 11.7 -> 8.6 ms p50 (median of
-five), picture decode window 91 -> 60 ms p50, matte decode latency 24.2 -> 20.4 ms p50, cache
-peak 420 -> 407 MB, GL pools 182 -> 169 MB; dropped frames median 2 of ~602 on both sides (both
-had load outliers), seek p95 unchanged within noise. A `sharp` matte, or any edge control, keeps
+(`matte-decode.perf.test.ts`). On `scale-soft/proxy` (the row with that matte), seven interleaved
+pairs on a loaded machine (load 10-22), medians: full-resolution composite 11.7 -> 8.6 ms p50,
+picture decode window 94 -> 60 ms p50, matte decode latency 24.2 -> 20.4 ms p50, seek p50 42 ->
+33 ms, cache peak 420 -> 407 MB, GL pools 182 -> 169 MB; dropped frames median 2 of ~602 on both
+sides (both had load outliers), seek p95 unchanged within noise. A `sharp` matte, or any edge control, keeps
 the 4K samples: its controls act before the resample. `PX5_TIER_ALPHA=0` withholds only the
 plane, which is how the "before" was run on the same fixture.
 
