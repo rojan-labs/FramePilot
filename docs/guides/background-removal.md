@@ -125,6 +125,9 @@ For each moment:
   matting model's alpha there, so an edge stroke never paints alpha itself, and a stroke across
   plain background leaves the background at 0.
 - **Lock this frame** stores the current frame so no later run can change it.
+- A second (or third) fix on the **same frame** is layered on the first, in the order applied: a
+  later stroke wins where it marks keep, remove or edge, and untouched pixels keep the earlier
+  fix. (Before, the second fix on a frame was refused.)
 
 **The correction format.** A fix is an 8-bit grayscale PNG at the artifact's size with exactly four
 values: keep = 255, remove = 0, edge = 64, untouched = 128. Keep and remove are hard constraints on
@@ -148,6 +151,14 @@ The export dialog counts the moments nobody has checked and says so. It never bl
 takes you to the clip, and exporting anyway is always allowed. A stale or broken matte shows the
 engine's own remedy sentence — the same words the render refusal uses, carried over the wire
 rather than paraphrased.
+
+## How precise it is (BR7)
+
+The pack is not at gate. The eval (`workers/smart-mask/eval/run_eval.py`) runs the installed worker
+and scores every plan-06 gate; its latest report is `reports/smart-mask/2026-09-18-darwin-arm64.json`
+with a contact sheet, and the table with reasons is in `plan/background-removal-ai/BR0-FINDINGS.md`
+("BR7.2 / BR7.3"). All of it is judged on construction-true clips until MO-8's human labels exist.
+Hover highlight on real weights measured p95 431 ms on the M1 Pro, over the 100 ms budget.
 
 ## Where each piece lives
 

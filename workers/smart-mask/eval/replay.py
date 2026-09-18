@@ -201,11 +201,28 @@ def replay(
             step["target"]["iou"] >= CONVERGED_IOU and step["target"]["bf"] >= CONVERGED_BF
         )
         actions.append(step)
+        # Written after every action, so a watchdog abort mid-replay keeps what was measured.
+        _write_record(out_root, fixture, plan, neighbours, before, actions, complete=False)
         previous_staging, previous_matte = staging, matte
         if step["converged"]:
             break
+    return _write_record(out_root, fixture, plan, neighbours, before, actions, complete=True)
+
+
+def _write_record(
+    out_root: Path,
+    fixture: Fixture,
+    plan: ReplayPlan,
+    neighbours: list[int],
+    before: dict[int, dict[str, float]],
+    actions: list[dict[str, Any]],
+    *,
+    complete: bool,
+) -> dict[str, Any]:
     converged_at = next((a["action"] for a in actions if a.get("converged")), None)
+    checked = [a for a in actions if "lockBitIdentical" in a]
     record = {
+        "complete": complete,
         "fixture": fixture.name,
         "category": fixture.category,
         "groundTruth": fixture.ground_truth,
@@ -218,9 +235,8 @@ def replay(
         "convergedAtAction": converged_at,
         "converged": converged_at is not None
         and all(a.get("neighboursRegressed", 1) == 0 for a in actions[:converged_at]),
-        "locksBitIdentical": all(a.get("lockBitIdentical", False) for a in actions)
-        if actions
-        else None,
+        # Only re-runs that finished can say anything about the lock.
+        "locksBitIdentical": all(a["lockBitIdentical"] for a in checked) if checked else None,
     }
     (out_root / "replay.json").write_text(json.dumps(record, indent=2))
     return record

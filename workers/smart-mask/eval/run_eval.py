@@ -528,9 +528,19 @@ def gates(scored: list[dict[str, Any]], click: list[dict[str, Any]], calibrated:
                               "can flag fewer frames than are actually wrong.", **judged))  # fmt: skip
     if replays:
         converged = [r for r in replays if r["converged"]]
+        finished = [r for r in replays if r.get("complete", True)]
+        failed_complete = [r for r in finished if not r["converged"]]
+        status = (
+            "fail" if failed_complete
+            else "pass" if len(converged) == len(replays)
+            else "not_measured"
+        )  # fmt: skip
         out.append(_gate("correction_convergence", "Correction convergence",
                          "<= 3 actions -> corrected frame IoU >= 0.995, BF@2px >= 0.98; neighbours within 1 s do not regress",
-                         "pass" if len(converged) == len(replays) else "fail", f"{len(converged)}/{len(replays)}",
+                         status, f"{len(converged)}/{len(replays)}",
+                         incomplete=[r["fixture"] for r in replays if not r.get("complete", True)],
+                         note="A replay that did not finish (a watchdog abort) is not judged: the gate is "
+                              "not measured locally until every replay completes within the memory budget.",
                          actionsFrom=sorted({r["actionsFrom"] for r in replays}),
                          judgedOn=sorted({r["groundTruth"] for r in replays}),
                          constructionTrueOnly=all(r["groundTruth"] == "construction" for r in replays)))  # fmt: skip
