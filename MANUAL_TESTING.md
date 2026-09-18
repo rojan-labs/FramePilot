@@ -877,8 +877,13 @@ effect (ADR 0113).
     frame**; then clear the last moment.
   - Expect: `J`/`K` seek and switch the monitor to Overlay; each approval is one Undo; **Apply
     fix** re-runs only that window; **VERIFIED** appears only when NOTHING is flagged.
-  - Fail if: VERIFIED appears while a moment is still flagged, or an unapplied brush stroke
-    changes the picture.
+  - Do: on a moment with hair or a blurred edge, press **Edge brush**, paint along the edge (and
+    once across plain background), then **Apply fix**.
+  - Expect: the Edge brush is enabled and its stroke draws dotted yellow; after the re-run the edge
+    under the stroke is soft (fractional) where the subject has hair or blur, and the background
+    under the stroke is still fully removed.
+  - Fail if: VERIFIED appears while a moment is still flagged, an unapplied brush stroke
+    changes the picture, or an edge stroke paints a solid or half-opaque band over background.
   - Result: **/**/____ · PASS / FAIL · notes:
 
 - [ ] **16.7 Text behind the subject, and what export says** — `UI` · desktop · **needs the pack**

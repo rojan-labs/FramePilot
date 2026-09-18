@@ -142,6 +142,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   timeline and can be dragged. Copy masks between clips and save them as presets in the project.
   Every edit is one undo.
 
+- **The Edge brush works.** When reviewing a background removal, paint over hair or a blurred edge
+  with the **Edge brush** and press **Apply fix**: that band is matted again, so the edge comes back
+  soft instead of chewed. It never paints the cut-out itself — only Keep and Remove do that.
+
 - **A Jobs tab for long-running work.** On desktop, the right rail's new **Jobs** tab lists every
   background removal and mask track in the project — running, waiting, paused or finished — with
   its clip, progress and time left, and Pause, Resume, Cancel and Show clip. Show clip takes you

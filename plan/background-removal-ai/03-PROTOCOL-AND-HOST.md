@@ -19,7 +19,7 @@ RequestBaseSchema.extend({
       // MattePrompt =
       //   { kind: 'points', pts, points: [{ x, y, label: 'include'|'exclude' }] }
       // | { kind: 'box', pts, box: NormalizedBox }
-      // | { kind: 'brush', pts, file: 'corrections/<pts>.png' }   // keep=255, remove=0, untouched=128
+      // | { kind: 'brush', pts, file: 'corrections/<pts>.png' }   // keep=255, remove=0, edge=64 (re-matte band, BR6.10), untouched=128
       // | { kind: 'lock', pts, file: 'locked/<pts>.png' }         // editor-approved alpha, hard constraint
       previousArtifact: ArtifactKeySchema.optional(), // re-run reuses unaffected frames' verified alpha
       previewHeight: z.number().int().min(180).max(1080),

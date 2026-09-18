@@ -234,12 +234,32 @@ describe('MaskReviewPanel', () => {
     expect(store.getState().correctionStrokes).toHaveLength(0);
   });
 
-  it('shows the edge brush disabled rather than hiding a capability the format cannot carry', () => {
+  it('arms the edge brush like Keep and Remove, and saves an edge stroke as a brush fix (BR6.10)', async () => {
+    bridge.matteSaveCorrection.mockResolvedValue({
+      ok: true,
+      reference: { kind: 'brush', sourceTime: 1.2, sha256: SHA },
+    });
+    bridge.capabilityPackMatte.mockImplementation((() => new Promise(() => {})) as never);
     mount(timeline({ flagged: [{ start: 1, end: 1.5 }] }));
     const edge = screen.getByRole('button', { name: 'Edge brush' }) as HTMLButtonElement;
-    expect(edge.disabled).toBe(true);
-    expect(edge.title).toContain('pack update');
+    expect(edge.disabled).toBe(false);
+    fireEvent.click(edge);
+    expect(store.getState().tool).toBe('correction-brush');
+    expect(store.getState().brushKind).toBe('edge');
+    expect(edge.getAttribute('aria-pressed')).toBe('true');
+    act(() =>
+      store.addCorrectionStroke({
+        kind: 'edge',
+        radiusPx: 3,
+        sourceTime: 1.2,
+        points: [{ x: 8, y: 8 }],
+      }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply fix' }));
+    await waitFor(() => expect(bridge.matteSaveCorrection).toHaveBeenCalled());
+    expect((bridge.matteSaveCorrection.mock.calls[0]![0] as { kind: string }).kind).toBe('brush');
   });
+
   it('offers a mouse-free way through every correction (BR6.9)', () => {
     mount(timeline({ flagged: [{ start: 1, end: 1.5 }] }));
     const list = screen.getByRole('list', { name: 'Moments to review' });

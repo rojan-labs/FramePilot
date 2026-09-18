@@ -74,6 +74,7 @@ import {
   PIXEL_GRID_MIN_ZOOM,
   maskToolStore,
   useMaskTools,
+  type CorrectionBrushKind,
   type MaskTool,
   type MaskToolStore,
   type MaskZoom,
@@ -116,7 +117,12 @@ import {
   type OrientedBox,
 } from './mask-canvas-geometry.js';
 import { keySampleChanges, sampleCanvasColour } from '../../preview/masks/eyedropper.js';
-import { affineAttribute, applyAffine, monitorPictureSpace } from './mask-monitor-space.js';
+import {
+  affineAttribute,
+  applyAffine,
+  frameMonitorSpace,
+  monitorPictureSpace,
+} from './mask-monitor-space.js';
 import { maskToolTelemetry } from './mask-tool-telemetry.js';
 import {
   analyticDrawGeometry,
@@ -185,6 +191,18 @@ const TOOLS: readonly { readonly tool: MaskTool; readonly label: string; readonl
     { tool: 'feature-point', label: 'Feature point tool', key: 'T' },
     { tool: 'exclude', label: 'Exclude region tool', key: 'X' },
   ];
+
+/**
+ * Tools that read or steer a CLIP's picture (subject hints, tracking hints). An adjustment
+ * lane's mask is geometry on the frame (MK9.1), so its toolbar leaves them out.
+ */
+const PICTURE_TOOLS: ReadonlySet<MaskTool> = new Set<MaskTool>([
+  'ai-object',
+  'ai-brush',
+  'feature-point',
+  'exclude',
+  'correction-brush',
+]);
 
 const TOOL_ICONS = {
   select: MousePointer2,
@@ -296,7 +314,7 @@ type Gesture =
   | {
       readonly kind: 'correction-brush';
       readonly pointerId: number;
-      readonly brush: 'keep' | 'remove';
+      readonly brush: CorrectionBrushKind;
       readonly samples: PixelPoint[];
     }
   | {
@@ -344,15 +362,29 @@ export interface MaskCanvasToolsProps {
    */
   readonly chromeHost?: HTMLElement | null;
   readonly store?: MaskToolStore;
+  /**
+   * Whose stack is edited (MK9.1). `effect_layer`: `clip` is the lane's stand-in
+   * (`effectLayerMaskOwner`), geometry is drawn in output-frame pixels and every command is
+   * compiled onto the lane.
+   */
+  readonly owner?: 'clip' | 'effect_layer';
 }
 
 const describePoint = (point: PixelPoint): string =>
   `${point.x.toFixed(2)}, ${point.y.toFixed(2)} px`;
 
-function editableMasks(clip: Clip): (MaskLayer & { kind: 'rectangle' | 'ellipse' | 'path' })[] {
+/**
+ * The masks the monitor edits in the space it draws: a clip's picture space, or the frame for an
+ * adjustment lane. A clip's frame-space mask (MK9.1) is not drawn over the picture, where its
+ * frame-pixel numbers would land in the wrong place.
+ */
+function editableMasks(
+  clip: Clip,
+  space: 'source' | 'frame',
+): (MaskLayer & { kind: 'rectangle' | 'ellipse' | 'path' })[] {
   return masksOf(clip).filter(
     (mask): mask is MaskLayer & { kind: 'rectangle' | 'ellipse' | 'path' } =>
-      isEditableMask(mask) && mask.units !== 'normalized',
+      isEditableMask(mask) && mask.units !== 'normalized' && mask.space === space,
   );
 }
 
@@ -364,7 +396,10 @@ export function MaskCanvasTools({
   frameWidth,
   chromeHost,
   store = maskToolStore,
+  owner = 'clip',
 }: MaskCanvasToolsProps): JSX.Element | null {
+  const onLane = owner === 'effect_layer';
+  const maskSpace = onLane ? 'frame' : 'source';
   const tools = useMaskTools(store);
   const svgRef = useRef<SVGSVGElement>(null);
   const gesture = useRef<Gesture | null>(null);
@@ -401,17 +436,21 @@ export function MaskCanvasTools({
   const { playhead, timeline } = editor.state;
   const sourceTime = clipSourceTimeAt(clip, playhead);
   const space = useMemo(
-    () => monitorPictureSpace(timeline, assets, playhead, resolution, clip.id),
-    [timeline, assets, playhead, resolution, clip.id],
+    () =>
+      onLane
+        ? frameMonitorSpace(resolution)
+        : monitorPictureSpace(timeline, assets, playhead, resolution, clip.id),
+    [onLane, timeline, assets, playhead, resolution, clip.id],
   );
-  const masks = useMemo(() => editableMasks(clip), [clip]);
+  const masks = useMemo(() => editableMasks(clip, maskSpace), [clip, maskSpace]);
   // Splits, mirror bands and gradients (MK8.1): edited by their own handles, not a box.
   const analyticLayers = useMemo(
     () =>
       masksOf(clip).filter(
-        (mask): mask is AnalyticMaskLayer => isAnalyticLayer(mask) && mask.units !== 'normalized',
+        (mask): mask is AnalyticMaskLayer =>
+          isAnalyticLayer(mask) && mask.units !== 'normalized' && mask.space === maskSpace,
       ),
-    [clip],
+    [clip, maskSpace],
   );
   const selectedMask = masks.find((mask) => mask.id === tools.selectedMaskId) ?? null;
   // The selected mask WHATEVER its kind: `masks` holds only the kinds the hand tools draw, and
@@ -504,7 +543,7 @@ export function MaskCanvasTools({
   };
 
   const run = (command: MaskCommandInput): boolean => {
-    const refusal = runMaskCommand(editor, command);
+    const refusal = runMaskCommand(editor, onLane ? { ...command, owner } : command);
     report(refusal);
     return refusal === null;
   };
@@ -1681,7 +1720,12 @@ export function MaskCanvasTools({
     };
     const modifier = event.metaKey || event.ctrlKey;
     const lower = event.key.toLowerCase();
-    if (!modifier && !event.altKey && TOOL_KEYS[lower] !== undefined) {
+    if (
+      !modifier &&
+      !event.altKey &&
+      TOOL_KEYS[lower] !== undefined &&
+      !(onLane && PICTURE_TOOLS.has(TOOL_KEYS[lower]))
+    ) {
       handled();
       store.setTool(TOOL_KEYS[lower]!);
       setPenPoints([]);
@@ -1895,7 +1939,7 @@ export function MaskCanvasTools({
   const chrome = (
     <>
       <div className="mask-canvas-toolbar" role="toolbar" aria-label="Mask tools">
-        {TOOLS.map(({ tool, label, key }) => {
+        {TOOLS.filter(({ tool }) => !(onLane && PICTURE_TOOLS.has(tool))).map(({ tool, label, key }) => {
           const Icon = TOOL_ICONS[tool];
           const needsPack = tool === 'ai-object' || tool === 'ai-brush';
           const blocked = needsPack && subjectCopy.blocked;

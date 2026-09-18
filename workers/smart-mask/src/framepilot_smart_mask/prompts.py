@@ -4,8 +4,11 @@
   upstream ``add_new_points_or_box`` order: labels 2/3 for the box corners, then 1/0 points).
 * ``lock``: an editor-approved alpha PNG. It seeds SAM's memory as a mask prompt AND is copied
   verbatim into the matte (the host checks it bit for bit).
-* ``brush``: a correction PNG with keep = 255, remove = 0, untouched = 128. Keep/remove pixels
-  are hard constraints on that frame's alpha; the frame is re-seeded from the corrected mask.
+* ``brush``: a correction PNG with keep = 255, remove = 0, edge = 64, untouched = 128.
+  Keep/remove pixels are hard constraints on that frame's alpha; the frame is re-seeded from the
+  corrected mask. **Edge** pixels (BR6.10, the Edge brush for hair and blur) are NOT constraints:
+  they widen that frame's unknown band so the matting model re-mattes them, and alpha there stays
+  whatever the model measures. An edge stroke never sets alpha directly.
 
 A prompt whose pts is not exactly one of the requested frames' pts is refused: identity is a
 pts, never a nearest frame.
@@ -25,6 +28,7 @@ from .sandbox import InputDirectory
 BRUSH_KEEP: Final = 255
 BRUSH_REMOVE: Final = 0
 BRUSH_UNTOUCHED: Final = 128
+BRUSH_EDGE: Final = 64
 BOX_LABELS: Final = (2, 3)
 INCLUDE_LABEL: Final = 1
 EXCLUDE_LABEL: Final = 0
@@ -42,6 +46,8 @@ class FramePrompts:
     lock: npt.NDArray[np.uint8] | None = None
     keep: npt.NDArray[np.bool_] | None = None
     remove: npt.NDArray[np.bool_] | None = None
+    #: Pixels the editor marked as a soft edge: added to the unknown band, never forced.
+    edge: npt.NDArray[np.bool_] | None = None
 
     @property
     def has_points(self) -> bool:
@@ -122,15 +128,20 @@ def resolve_prompts(
                 frame.lock = image
             else:
                 allowed = (
-                    (image == BRUSH_KEEP) | (image == BRUSH_REMOVE) | (image == BRUSH_UNTOUCHED)
+                    (image == BRUSH_KEEP)
+                    | (image == BRUSH_REMOVE)
+                    | (image == BRUSH_EDGE)
+                    | (image == BRUSH_UNTOUCHED)
                 )
                 if not bool(allowed.all()):
                     raise ProtocolError(
                         "invalid_request",
-                        "A correction PNG may hold only keep (255), remove (0) or untouched (128).",
+                        "A correction PNG may hold only keep (255), remove (0), edge (64) "
+                        "or untouched (128).",
                     )
                 frame.keep = image == BRUSH_KEEP
                 frame.remove = image == BRUSH_REMOVE
+                frame.edge = image == BRUSH_EDGE
     for frame in frames.values():
         if frame.lock is not None and (frame.keep is not None or frame.has_points):
             raise ProtocolError(
@@ -142,7 +153,10 @@ def resolve_prompts(
 def apply_constraints(
     alpha: npt.NDArray[np.uint8], frame: FramePrompts | None
 ) -> npt.NDArray[np.uint8]:
-    """Locks replace the frame; brush keep/remove pixels are forced. Returns a new array."""
+    """Locks replace the frame; brush keep/remove pixels are forced. Returns a new array.
+
+    Edge pixels are deliberately absent: they change the band (:func:`edge_band`), not alpha.
+    """
     if frame is None:
         return alpha
     if frame.lock is not None:
@@ -153,6 +167,17 @@ def apply_constraints(
     if frame.remove is not None:
         out[frame.remove] = 0
     return out
+
+
+def edge_band(frame: FramePrompts | None) -> npt.NDArray[np.bool_] | None:
+    """Pixels the editor asked to be re-matted as a soft edge; ``None`` when there are none.
+
+    Keep/remove win over edge on the same pixel (they cannot overlap in one PNG, but a lock
+    replaces the whole frame, so a locked frame has no edge band either).
+    """
+    if frame is None or frame.lock is not None or frame.edge is None or not bool(frame.edge.any()):
+        return None
+    return frame.edge
 
 
 def constrained_pixels(frame: FramePrompts | None, shape: tuple[int, int]) -> npt.NDArray[np.bool_]:
@@ -171,6 +196,7 @@ def constrained_pixels(frame: FramePrompts | None, shape: tuple[int, int]) -> np
 
 
 __all__ = [
+    "BRUSH_EDGE",
     "BRUSH_KEEP",
     "BRUSH_REMOVE",
     "BRUSH_UNTOUCHED",
@@ -179,5 +205,6 @@ __all__ = [
     "apply_constraints",
     "constrained_pixels",
     "decode_gray_png",
+    "edge_band",
     "resolve_prompts",
 ]

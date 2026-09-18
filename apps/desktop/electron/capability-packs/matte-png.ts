@@ -8,7 +8,8 @@
  * adds no image dependency to the main process, and the subset is tiny: colour type 0, bit
  * depth 8, no interlace, the five standard filters, zlib from Node.
  *
- * Brush masks use keep = 255, remove = 0, untouched = 128 (plan 03); locked frames are alpha.
+ * Brush masks use keep = 255, remove = 0, edge = 64, untouched = 128 (plan 03, BR6.10); locked
+ * frames are alpha.
  */
 import { createHash } from 'node:crypto';
 import { deflateSync, inflateSync } from 'node:zlib';
@@ -17,8 +18,19 @@ const SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 /** Encoded bytes one input PNG may be. An 8K gray frame of noise deflates to about this. */
 export const MATTE_INPUT_PNG_MAX_BYTES = 64 * 1024 * 1024;
 const MAX_SIDE = 8192;
-/** Brush masks may hold only these three values. */
-export const BRUSH_VALUES = new Set([0, 128, 255]);
+/** Brush value: this pixel is the subject (a hard constraint on the frame's alpha). */
+export const BRUSH_KEEP = 255;
+/** Brush value: this pixel is background (a hard constraint on the frame's alpha). */
+export const BRUSH_REMOVE = 0;
+/**
+ * Brush value: this pixel is a soft edge (hair, blur). NOT a constraint: the worker widens the
+ * unknown band there and re-mattes it, so alpha stays whatever the matting model measures.
+ */
+export const BRUSH_EDGE = 64;
+/** Brush value: the editor said nothing about this pixel. */
+export const BRUSH_UNTOUCHED = 128;
+/** Brush masks may hold only these four values. */
+export const BRUSH_VALUES: ReadonlySet<number> = new Set([BRUSH_REMOVE, BRUSH_EDGE, BRUSH_UNTOUCHED, BRUSH_KEEP]);
 
 export class MattePngError extends Error {
   public constructor(

@@ -1304,6 +1304,11 @@ g.mask-canvas-draft circle {
   stroke: rgba(220, 38, 38, 0.45);
   stroke-dasharray: 10 6;
 }
+/* Edge brush (BR6.10): a band to re-matte, not a decision, so it reads as neutral and dotted. */
+.mask-canvas-correction[data-kind='edge'] {
+  stroke: rgba(250, 204, 21, 0.45);
+  stroke-dasharray: 2 6;
+}
 .mask-canvas-exclusion {
   fill: rgba(220, 38, 38, 0.14);
   stroke: rgb(220, 38, 38);

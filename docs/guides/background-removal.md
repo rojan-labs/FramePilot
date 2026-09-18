@@ -102,10 +102,19 @@ For each moment:
   **Overlay**.
 - **Keep** and **Remove** brushes paint a fix on the monitor. A stroke is a draft: **Apply fix**
   saves it and re-runs only the window around that moment.
+- The **Edge brush** (BR6.10) is for hair, fur and motion blur: paint over an edge that came out
+  hard or chewed and **Apply fix**. It does not say what the edge *is* — it asks the pack to matte
+  that band again. The pack adds the painted pixels to its unknown band on that frame and takes the
+  matting model's alpha there, so an edge stroke never paints alpha itself, and a stroke across
+  plain background leaves the background at 0.
 - **Lock this frame** stores the current frame so no later run can change it.
 
-The **Edge brush** is shown disabled. The correction format carries keep, remove and untouched
-only, so there is no way to mark an edge band yet; hiding the button would have been a quieter lie.
+**The correction format.** A fix is an 8-bit grayscale PNG at the artifact's size with exactly four
+values: keep = 255, remove = 0, edge = 64, untouched = 128. Keep and remove are hard constraints on
+that frame; edge is not a constraint. The renderer rasterises strokes itself (a canvas would
+antialias into values the host refuses), the host decodes it with the strict BR4.12 reader (size at
+IHDR, every CRC, no ancillary chunks), refuses any other value as `invalid_brush`, and stores the
+canonical re-encode by digest; the worker checks the same four values again.
 
 ## Putting text behind the subject
 
@@ -147,7 +156,6 @@ rather than paraphrased.
   pack, exactly as BR4 was.
 - **Hover highlight** shows where a click will land, not a tint on the object under the pointer.
   Tinting the object needs the pack's per-frame segmentation (`subject.segment_frame`, BR3.13).
-- **The Edge brush** needs a fourth value in the correction format.
 - **No HDR notice.** Nothing in the schema records a clip's transfer function, so there is no
   honest way to know a clip is HDR without a probe field and a migration.
 - **Flag reasons do not survive a reopen.** A flagged range is stored as a time range and nothing

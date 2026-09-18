@@ -140,3 +140,24 @@ def test_ties_break_on_sam_logits_and_the_warped_previous_frame_votes() -> None:
     previous = np.where(sam, 255.0, 0.0).astype(np.float32)
     three = consensus([sam], None, birefnet, previous, 3)
     assert three.majority[100, 140] and three.score["estimates"] == 3.0
+
+
+def test_an_edge_stroke_joins_the_band_and_takes_only_matted_alpha() -> None:
+    """BR6.10: the Edge brush widens the band; alpha there is BiRefNet's, never the stroke's."""
+    sam = body()
+    soft = cv2.GaussianBlur(np.where(sam, 255, 0).astype(np.uint8), (31, 31), 9)
+    plain = consensus([sam, sam], None, soft, None, 2)
+    stroke = np.zeros_like(sam)
+    stroke[:, 150:200] = True  # a vertical swipe across the subject's edges and the background
+    widened = consensus([sam, sam], None, soft, None, 2, extra_band=stroke)
+    assert (widened.band >= plain.band).all() and widened.band[stroke].all()
+    added = stroke & ~plain.band
+    fractional = added & (soft > 0) & (soft < 255)
+    assert fractional.any(), "the swipe reaches soft pixels the default ring missed"
+    assert np.array_equal(widened.alpha[fractional], soft[fractional]), "re-matted there"
+    # Where BiRefNet is exact the vote's value stands: the stroke never invents alpha.
+    exact = added & ((soft == 0) | (soft == 255))
+    assert set(np.unique(widened.alpha[exact]).tolist()) <= {0, 255}
+    assert np.array_equal(widened.majority, plain.majority), "the silhouette vote is unchanged"
+    # Outside the stroke nothing moved.
+    assert np.array_equal(widened.alpha[~stroke], plain.alpha[~stroke])

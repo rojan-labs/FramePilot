@@ -51,6 +51,34 @@ function pngCorpus(): Record<string, Buffer> {
   };
 }
 
+/**
+ * Brush PNGs that are well-formed images but not valid corrections (BR6.10 added `edge` = 64):
+ * a value one off each defined value, a gradient (an antialiased canvas stroke), and random
+ * bytes from a fixed seed. Each must fail the save as `invalid_brush`, never be stored.
+ */
+function brushCorpus(): Record<string, Buffer> {
+  const size = 64 * 36;
+  const withValue = (value: number) => {
+    const pixels = new Uint8Array(size).fill(128);
+    pixels[size >> 1] = value;
+    return encodeGrayPng(64, 36, pixels);
+  };
+  let seed = 0x5eed;
+  const random = new Uint8Array(size).map(() => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed & 0xff;
+  });
+  return {
+    edge_minus_one: withValue(63),
+    edge_plus_one: withValue(65),
+    untouched_minus_one: withValue(127),
+    keep_minus_one: withValue(254),
+    remove_plus_one: withValue(1),
+    antialiased_gradient: encodeGrayPng(64, 36, new Uint8Array(size).map((_, index) => index % 256)),
+    random_bytes: encodeGrayPng(64, 36, random),
+  };
+}
+
 async function framesCorpus(root: string): Promise<Record<string, string>> {
   const valid = { version: 1, timeBase: [1, 30], originPts: 0, firstFrame: 0, pts: [0, 1] };
   const cases: Record<string, Buffer | number> = {
@@ -101,6 +129,21 @@ describe('matte host fuzz corpus (BR4.12)', () => {
         await new Promise((resolve) => setImmediate(resolve));
       }
     });
+  });
+
+  it('refuses every well-formed but invalid brush PNG as invalid_brush and stores nothing (BR6.10)', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'framepilot-fuzz-brush-'));
+    await withEventLoopBound(async () => {
+      for (const [name, bytes] of Object.entries(brushCorpus())) {
+        await expect(saveMatteInput(dir, bytes, { width: 64, height: 36, kind: 'brush' }), name).rejects.toMatchObject({
+          code: 'invalid_brush',
+        });
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    });
+    // All four defined values together are accepted.
+    const valid = encodeGrayPng(64, 36, new Uint8Array(64 * 36).map((_, index) => [0, 64, 128, 255][index % 4]!));
+    await expect(saveMatteInput(dir, valid, { width: 64, height: 36, kind: 'brush' })).resolves.toMatchObject({ bytes: expect.any(Number) });
   });
 
   it('refuses every hostile frames.json with frames_invalid', async () => {

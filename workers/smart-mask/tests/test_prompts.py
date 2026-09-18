@@ -11,8 +11,10 @@ np = pytest.importorskip("numpy")
 cv2 = pytest.importorskip("cv2")
 
 from framepilot_smart_mask.prompts import (  # noqa: E402
+    BRUSH_EDGE,
     apply_constraints,
     constrained_pixels,
+    edge_band,
     resolve_prompts,
 )
 from framepilot_smart_mask.protocol import (  # noqa: E402
@@ -118,10 +120,55 @@ def test_brush_and_lock_inputs(tmp_path: Path) -> None:
     assert constrained_pixels(resolved.frames[1], (36, 64)).sum() == 16 + 24
 
 
+def test_edge_brush_widens_the_band_and_never_sets_alpha(tmp_path: Path) -> None:
+    """BR6.10: edge pixels are neither forced nor constrained; they only mark the band."""
+    brush = np.full((36, 64), 128, np.uint8)
+    brush[0:4, 0:4] = 255
+    brush[10:14, 20:40] = BRUSH_EDGE
+    png(tmp_path / "corrections" / "612.png", brush)
+    parsed = request(
+        [
+            {"kind": "box", "pts": 100, "box": {"x": 0, "y": 0, "width": 1, "height": 1}},
+            {"kind": "brush", "pts": 612, "file": "corrections/612.png"},
+        ],
+        ["corrections/612.png"],
+        tmp_path,
+    )
+    inputs = InputDirectory(InputHandle("in", str(tmp_path), ("corrections/612.png",)))
+    frame = resolve_prompts(parsed, PTS, 64, 36, inputs).frames[1]
+    band = edge_band(frame)
+    assert band is not None and int(band.sum()) == 4 * 20 and band[12, 30]
+    alpha = np.full((36, 64), 90, np.uint8)
+    corrected = apply_constraints(alpha, frame)
+    assert corrected[0, 0] == 255, "keep still forces"
+    assert (corrected[10:14, 20:40] == 90).all(), "edge leaves alpha to the matting model"
+    assert constrained_pixels(frame, (36, 64)).sum() == 16, "edge pixels are not constraints"
+
+
+def test_a_brush_without_edge_pixels_has_no_edge_band(tmp_path: Path) -> None:
+    brush = np.full((36, 64), 128, np.uint8)
+    brush[0:4, 0:4] = 0
+    png(tmp_path / "corrections" / "612.png", brush)
+    parsed = request(
+        [
+            {"kind": "box", "pts": 100, "box": {"x": 0, "y": 0, "width": 1, "height": 1}},
+            {"kind": "brush", "pts": 612, "file": "corrections/612.png"},
+        ],
+        ["corrections/612.png"],
+        tmp_path,
+    )
+    inputs = InputDirectory(InputHandle("in", str(tmp_path), ("corrections/612.png",)))
+    resolved = resolve_prompts(parsed, PTS, 64, 36, inputs)
+    assert edge_band(resolved.frames[1]) is None
+    assert edge_band(None) is None and edge_band(resolved.frames[0]) is None
+
+
 @pytest.mark.parametrize(
     ("image", "fragment"),
     [
-        (np.full((36, 64), 77, np.uint8), "keep \\(255\\), remove \\(0\\) or untouched"),
+        (np.full((36, 64), 77, np.uint8), "keep \\(255\\), remove \\(0\\), edge \\(64\\)"),
+        (np.full((36, 64), 63, np.uint8), "edge \\(64\\) or untouched"),
+        (np.full((36, 64), 65, np.uint8), "edge \\(64\\) or untouched"),
         (np.full((35, 64), 128, np.uint8), "display size"),
         (np.full((36, 64, 3), 128, np.uint8), "grayscale"),
     ],

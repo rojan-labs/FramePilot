@@ -47,7 +47,7 @@ export interface SavedMatteInput {
 
 /**
  * Validate and store one correction input. The PNG must be 8-bit gray at the artifact's size;
- * a brush may hold only keep (255), remove (0) and untouched (128).
+ * a brush may hold only keep (255), remove (0), edge (64) and untouched (128).
  */
 export async function saveMatteInput(
   projectDir: string,
@@ -56,7 +56,7 @@ export async function saveMatteInput(
 ): Promise<SavedMatteInput> {
   const image = decodeInput(png, expected);
   if (expected.kind === 'brush' && image.pixels.some((value) => !BRUSH_VALUES.has(value))) {
-    throw new MatteStoreError('invalid_brush', 'A brush correction may only mark keep, remove or untouched.');
+    throw new MatteStoreError('invalid_brush', 'A brush correction may only mark keep, remove, edge or untouched.');
   }
   // Store the canonical re-encode, never the renderer's bytes: exactly the decoded pixels, no
   // other chunks, one filter mode. The digest names what is stored (BR4.12 L2).

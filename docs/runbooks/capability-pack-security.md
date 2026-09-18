@@ -23,6 +23,7 @@ install consent are what keep hostile packs out.
 | Watchdog | `worker-watchdog.ts` | Footprint ≤ min(pack limit, 0.6 × RAM); 5 min without progress; staging bytes ≤ min(ceiling, free − 1 GB) → `resource_exhausted` |
 | Host verification | `matte-verify.ts` | Only declared regular files; sizes, ceiling, sha256, frames equal to the source's decoded pts, ffprobe facts, locked frames bit-identical |
 | Pre-rename re-check | `matte-staging.ts` | Same names, regular files, `nlink == 1`, same size, inode and mtime as verified |
+| Correction inputs | `matte-png.ts`, `matte-store.ts` | Brush/lock PNGs decoded strictly (size checked at IHDR before inflating, every CRC, no ancillary chunks, nothing after IEND); a brush holds only keep 255 / remove 0 / edge 64 / untouched 128 (`invalid_brush` otherwise); stored as the host's canonical re-encode by digest |
 | Matte store access | `existingRealDirectory` | Nothing is listed, read or deleted through a symlinked parent |
 | Clean unused mattes | `matte-storage.ts` | Keeps anything referenced by any `.json`/`.fp.json` in the folder or the recovery snapshot; refuses on links or unreadable project files |
 | Hardened decodes | `media/untrusted.py`, `frame_hashes.py`, `matte-media-inspector.ts` | `file` protocol only, media demuxers only, `-max_pixels`, bounded threads; routes one at a time with work-sized deadlines |

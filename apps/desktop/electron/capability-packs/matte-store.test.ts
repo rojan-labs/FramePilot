@@ -25,6 +25,20 @@ describe('matte project store (MD-4)', () => {
     expect((await readMatteInput(dir, saved.sha256)).image.width).toBe(4);
   });
 
+  it('accepts an edge brush (64) and refuses the values beside it (BR6.10)', async () => {
+    const dir = await project();
+    const edge = encodeGrayPng(4, 2, Uint8Array.from([64, 64, 128, 128, 255, 0, 64, 128]));
+    const saved = await saveMatteInput(dir, edge, { width: 4, height: 2, kind: 'brush' });
+    expect([...(await readMatteInput(dir, saved.sha256)).image.pixels]).toEqual([64, 64, 128, 128, 255, 0, 64, 128]);
+    // An antialiased edge stroke (63, 65) is not a fourth value; it fails the whole save.
+    for (const near of [63, 65, 127, 129, 1, 254]) {
+      const png = encodeGrayPng(4, 2, Uint8Array.from([64, near, 128, 128, 128, 128, 128, 128]));
+      await expect(saveMatteInput(dir, png, { width: 4, height: 2, kind: 'brush' }), String(near)).rejects.toMatchObject({
+        code: 'invalid_brush',
+      });
+    }
+  });
+
   it('refuses the wrong size, non-brush values, non-PNG bytes and tampered or escaping references', async () => {
     const dir = await project();
     const png = encodeGrayPng(4, 2, new Uint8Array(8).fill(7));

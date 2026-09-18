@@ -1,7 +1,18 @@
 import { createHash } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { decodeGrayPng, encodeGrayPng, grayPixelSha256, MattePngError, pngChunk } from './matte-png.js';
+import {
+  BRUSH_EDGE,
+  BRUSH_KEEP,
+  BRUSH_REMOVE,
+  BRUSH_UNTOUCHED,
+  BRUSH_VALUES,
+  decodeGrayPng,
+  encodeGrayPng,
+  grayPixelSha256,
+  MattePngError,
+  pngChunk,
+} from './matte-png.js';
 
 const SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -25,6 +36,20 @@ describe('matte PNG inputs', () => {
     expect(decoded).toMatchObject({ width: 4, height: 3 });
     expect([...decoded.pixels]).toEqual([...pixels]);
     expect(grayPixelSha256(decoded)).toBe(createHash('sha256').update(pixels).digest('hex'));
+  });
+
+  it('defines exactly four brush values, edge among them (BR6.10)', () => {
+    expect([...BRUSH_VALUES].sort((a, b) => a - b)).toEqual([0, 64, 128, 255]);
+    expect({ BRUSH_KEEP, BRUSH_REMOVE, BRUSH_EDGE, BRUSH_UNTOUCHED }).toEqual({
+      BRUSH_KEEP: 255,
+      BRUSH_REMOVE: 0,
+      BRUSH_EDGE: 64,
+      BRUSH_UNTOUCHED: 128,
+    });
+    // An edge stroke round-trips through the strict reader and the canonical re-encode.
+    const pixels = Uint8Array.from([0, 64, 128, 255, 64, 64, 128, 128]);
+    const decoded = decodeGrayPng(encodeGrayPng(4, 2, pixels), { expectedWidth: 4, expectedHeight: 2 });
+    expect([...decoded.pixels]).toEqual([...pixels]);
   });
 
   it('undoes sub, up, average and paeth row filters', () => {

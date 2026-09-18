@@ -15,7 +15,10 @@ from). Here:
 * hard disagreement (a missing limb, a background island), wherever it lies, is decided by the
   vote, not handed to BiRefNet, and is **measured** in the frame score so verification and
   self-correction see it;
-* inside the band, alpha is BiRefNet's fractional alpha; outside it is exactly 0 or 1.
+* inside the band, alpha is BiRefNet's fractional alpha; outside it is exactly 0 or 1;
+* an editor's **Edge brush** stroke (``extra_band``, BR6.10) joins the band on that frame, so the
+  same rule re-mattes it: BiRefNet's alpha where it is fractional or agrees with the vote. The
+  stroke never sets alpha itself.
 """
 
 from __future__ import annotations
@@ -73,8 +76,13 @@ def consensus(
     birefnet_alpha: npt.NDArray[np.uint8],
     warped_previous: npt.NDArray[Any] | None,
     radius: int,
+    extra_band: Bool | None = None,
 ) -> FrameConsensus:
-    """Combine one frame's estimates. ``warped_previous`` is alpha in [0,255] float or None."""
+    """Combine one frame's estimates. ``warped_previous`` is alpha in [0,255] float or None.
+
+    ``extra_band`` (the Edge brush) widens the unknown band; it is not a vote and not a
+    constraint, so it changes only which pixels may take BiRefNet's fractional alpha.
+    """
     birefnet = birefnet_alpha >= 128
     votes: list[Bool] = [*sam_masks, birefnet]
     if warped_previous is not None:
@@ -95,6 +103,8 @@ def consensus(
     # disagreement (a limb one estimate dropped) is decided by the vote, even near the edge.
     fractional = (birefnet_alpha > 0) & (birefnet_alpha < 255)
     band = ring | (disagreement & near & fractional)
+    if extra_band is not None:
+        band = band | extra_band
     alpha = np.where(majority, 255, 0).astype(np.uint8)
     # Inside the band BiRefNet supplies alpha only where it is fractional or agrees with the
     # vote; a hard contradiction keeps the majority's 0 or 255.

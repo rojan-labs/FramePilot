@@ -155,8 +155,8 @@ export function MaskReviewPanel({
   /**
    * Save the drawn strokes as a correction input and re-run only the window around the moment.
    *
-   * The stroke is rasterised here rather than on a canvas: the host accepts exactly three values
-   * (keep, remove, untouched) and a canvas would antialias the edge into values it refuses.
+   * The stroke is rasterised here rather than on a canvas: the host accepts exactly four values
+   * (keep, remove, edge, untouched) and a canvas would antialias the edge into values it refuses.
    */
   const applyFix = async (): Promise<void> => {
     const bridge = getBridge();
@@ -169,7 +169,7 @@ export function MaskReviewPanel({
     }
     const strokes = tools.correctionStrokes;
     if (strokes.length === 0) {
-      setMessage('Draw over the mistake with the Keep or Remove brush first.');
+      setMessage('Draw over the mistake with the Keep, Remove or Edge brush first.');
       return;
     }
     const at = strokes[strokes.length - 1]!.sourceTime;
@@ -310,14 +310,17 @@ export function MaskReviewPanel({
           >
             Remove brush
           </button>
-          {/* The correction format carries keep, remove and untouched only (plan 03), so an edge
-              band cannot be expressed yet. Shown disabled rather than silently missing. */}
+          {/* BR6.10: marks a band to re-matte (hair, motion blur). It never sets alpha itself:
+              the pack widens its matting band there and measures the edge again. */}
           <button
             type="button"
             className="inspector-text-button"
-            disabled
-            aria-disabled="true"
-            title="The edge brush needs a pack update before it can be saved."
+            aria-pressed={tools.tool === 'correction-brush' && tools.brushKind === 'edge'}
+            title="Paint over hair or a blurred edge to have it matted again."
+            onClick={() => {
+              store.update({ brushKind: 'edge' });
+              store.setTool('correction-brush');
+            }}
           >
             Edge brush
           </button>

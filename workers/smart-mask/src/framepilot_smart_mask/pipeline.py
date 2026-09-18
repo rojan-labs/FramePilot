@@ -56,6 +56,7 @@ from .prompts import (
     ResolvedPrompts,
     apply_constraints,
     constrained_pixels,
+    edge_band,
     resolve_prompts,
 )
 from .protocol import (
@@ -203,6 +204,9 @@ def _prompt_satisfied(frame: FramePrompts, previous: U8, width: int, height: int
     if frame.keep is not None and bool((previous[frame.keep] != 255).any()):
         return False
     if frame.remove is not None and bool((previous[frame.remove] != 0).any()):
+        return False
+    # An edge stroke asks for re-matting; the previous alpha cannot already "satisfy" it.
+    if edge_band(frame) is not None:
         return False
     points = [(c, lab) for c, lab in zip(frame.coords, frame.labels, strict=True) if lab in (0, 1)]
     for (x, y), label in points:
@@ -857,8 +861,14 @@ class MatteJob:
         for i in range(count):
             self._check()
             warped = warp(alphas[i - 1].astype(np.float32), flows(i - 1, i)) if i > 0 else None
+            frame_prompt = ctx.resolved.frames.get(window.start + i)
             result = consensus(
-                segmentation.masks(i), segmentation.mean_logits(i), birefnet[i], warped, radius
+                segmentation.masks(i),
+                segmentation.mean_logits(i),
+                birefnet[i],
+                warped,
+                radius,
+                extra_band=edge_band(frame_prompt),
             )
             alpha = result.alpha
             if matting is not None and refine_records[i].downscaled:
@@ -866,7 +876,6 @@ class MatteJob:
                     matting, window.store[i], alpha, result.band, refine_records[i]
                 )
                 ctx.records[window.start + i].band_passes = passes
-            frame_prompt = ctx.resolved.frames.get(window.start + i)
             alphas[i] = apply_constraints(alpha, frame_prompt)
             bands[i] = result.band
             fixed.append(constrained_pixels(frame_prompt, (ctx.height, ctx.width)))

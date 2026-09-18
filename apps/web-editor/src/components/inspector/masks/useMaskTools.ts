@@ -133,7 +133,7 @@ export interface MaskToolState {
    */
   readonly correctionStrokes: readonly CorrectionStrokeDraft[];
   /** Which fix the brush paints, and how wide it is, in source pixels. */
-  readonly brushKind: 'keep' | 'remove';
+  readonly brushKind: CorrectionBrushKind;
   readonly brushRadiusPx: number;
   /** The mask debug view the review list asked the monitor to show, or `null`. */
   readonly requestedMaskView: string | null;
@@ -148,9 +148,15 @@ export interface MaskToolState {
   readonly message: string | null;
 }
 
+/**
+ * What a correction brush marks: the subject (keep), background (remove), or a soft edge to
+ * re-matte (edge, BR6.10: hair and blur; it widens the matting band, it never sets alpha).
+ */
+export type CorrectionBrushKind = 'keep' | 'remove' | 'edge';
+
 /** One unapplied brush stroke, in display-corrected source pixels at a source instant. */
 export interface CorrectionStrokeDraft {
-  readonly kind: 'keep' | 'remove';
+  readonly kind: CorrectionBrushKind;
   readonly radiusPx: number;
   readonly sourceTime: number;
   readonly points: readonly { readonly x: number; readonly y: number }[];

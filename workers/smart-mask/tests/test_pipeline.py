@@ -176,6 +176,55 @@ def test_a_partial_rerun_reuses_unaffected_frames_bit_for_bit(tmp_path: Path, cl
     assert (second_matte[55][70:80, 140:150] == 255).all()
 
 
+def test_an_edge_stroke_reruns_its_frame_and_never_sets_alpha(tmp_path: Path) -> None:
+    """BR6.10 end to end in the worker: an edge-only correction is always affecting (it asks for
+    re-matting), its frame is recomputed, and background pixels under the stroke stay 0."""
+    count = 40
+    long_clip = tmp_path / "long.mkv"
+    make_clip(long_clip, square_frames(count, step=1))
+    first = staging_dir(tmp_path, "first")
+    outcome = run_job(
+        request_for(
+            long_clip, first, count, [{"kind": "box", "pts": 0, "box": BOX}],
+            files=["matte.mkv", "frames.json", "report.json"],
+        )
+    )  # fmt: skip
+    first_matte = host_verify(first, outcome, long_clip, 0, count)
+    pts = json.loads((first / "frames.json").read_text())["pts"]
+    second = staging_dir(tmp_path, "second")
+    previous = second / "inputs" / "previous"
+    previous.mkdir()
+    shutil.copyfile(first / "matte.mkv", previous / "matte.mkv")
+    shutil.copyfile(first / "frames.json", previous / "frames.json")
+    edge = np.full((90, 160), 128, np.uint8)
+    edge[5:85, 100:110] = 64  # a swipe through empty background
+    (second / "inputs" / "corrections").mkdir()
+    cv2.imwrite(str(second / "inputs" / "corrections" / f"{pts[35]}.png"), edge)
+    request = request_for(
+        long_clip, second, count,
+        [
+            {"kind": "box", "pts": pts[0], "box": BOX},
+            {"kind": "brush", "pts": pts[35], "file": f"corrections/{pts[35]}.png"},
+        ],
+        inputs={"handleId": "in", "absolutePath": str(second / "inputs"),
+                "files": ["previous/matte.mkv", "previous/frames.json", f"corrections/{pts[35]}.png"]},
+        previous="c" * 64, files=["matte.mkv", "frames.json", "report.json"],
+    )  # fmt: skip
+    from framepilot_smart_mask.pipeline import PipelineConfig
+
+    config = PipelineConfig(
+        window_frames=16, window_overlap=6, embedding_ram_bytes=64 * 2**20,
+        matting_tile=64, affect_radius=6,
+    )  # fmt: skip
+    rerun = run_job(request, config=config)
+    second_matte = host_verify(second, rerun, long_clip, 0, count)
+    reused = [f["reused"] for f in json.loads((second / "report.json").read_text())["frames"]]
+    assert not reused[35], "an edge stroke is never 'already satisfied'"
+    assert reused[0], "frames outside the affect radius keep the previous alpha"
+    assert np.array_equal(second_matte[0], first_matte[0])
+    assert (second_matte[35][5:85, 100:110] == 0).all(), "the stroke did not paint alpha"
+
+
 def test_affected_ranges_merge_and_clip() -> None:
     assert affected_ranges([5, 100, 130], 200, radius=20) == [(0, 26), (80, 151)]
     assert affected_ranges([], 10) == []
