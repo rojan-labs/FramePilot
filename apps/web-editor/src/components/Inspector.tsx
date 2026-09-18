@@ -5,7 +5,7 @@
  * builders. This shell follows the interaction model used by modern desktop editors:
  * a compact selection header, contextual category tabs, and a focused property page.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { MEASURE_MEDIA_FIRST, assetDisplaySize } from '@framepilot/editor-core';
 import type { UseEditor } from '../editor/useEditor.js';
 import {
@@ -15,7 +15,7 @@ import {
 } from '../editor/patch-builders.js';
 import { EffectInspector } from './EffectInspector.js';
 import { MaskPanel } from './inspector/masks/MaskPanel.js';
-import { maskToolStore } from './inspector/masks/useMaskTools.js';
+import { maskToolStore, useMaskTools } from './inspector/masks/useMaskTools.js';
 import { MaskTracking } from './inspector/masks/MaskTracking.js';
 import { maskToolsEnabled } from '../preview/mask-tools-flag.js';
 import {
@@ -189,12 +189,19 @@ export function Inspector({
   );
   const sectionState = useSectionState();
 
+  // "Review" in the export dialog asked for this clip's background removal (BR6.6).
+  const reviewRequest = useMaskTools().reviewRequest;
   const [preferredTab, setPreferredTab] = useViewPreference<InspectorTabId>(
     'inspectorTab',
     'basic',
     coerceInspectorTab,
   );
   const [copied, setCopied] = useState<ClipProperties | null>(null);
+
+  // Hooks run before any early return: the Mask tab opens for the clip the export dialog named.
+  useEffect(() => {
+    if (reviewRequest !== null) setPreferredTab('mask');
+  }, [reviewRequest, setPreferredTab]);
 
   if (selection.kind === 'effect-layer' && selection.effectLayer !== null) {
     const { layer } = selection.effectLayer;

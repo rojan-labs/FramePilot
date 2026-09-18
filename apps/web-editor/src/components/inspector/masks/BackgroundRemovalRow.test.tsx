@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { Asset, Timeline } from '@framepilot/timeline-schema';
+import { MaskLayerSchema, type Asset, type Timeline } from '@framepilot/timeline-schema';
 import type {
   CapabilityPackInstalledEventWire,
   CapabilityPackStatusWire,
@@ -19,6 +19,7 @@ import { MatteJobStore } from './matteJobStore.js';
 import { MaskToolStore } from './useMaskTools.js';
 
 const bridge = vi.hoisted(() => ({
+  matteRecheckMedia: vi.fn(),
   capabilityPackStatus: vi.fn(),
   onCapabilityPackInstalled: vi.fn(),
   capabilityPackPropose: vi.fn(),
@@ -101,8 +102,55 @@ const timeline: Timeline = {
   ],
 } as unknown as Timeline;
 
-function Harness({ jobs }: { readonly jobs: MatteJobStore }): JSX.Element {
-  const editor = useEditor(timeline, { assets });
+/** The same project after a run: one matte on the clip, nothing behind it. */
+const timelineWithMatte: Timeline = {
+  revision: 2,
+  tracks: [
+    {
+      id: 'v1',
+      type: 'video',
+      clips: [
+        {
+          id: 'c1',
+          assetId: 'a1',
+          trackId: 'v1',
+          start: 0,
+          end: 4,
+          sourceStart: 2,
+          sourceEnd: 6,
+          effects: [],
+          keyframes: [],
+          masks: [
+            MaskLayerSchema.parse({
+              id: 'c1__mask',
+              kind: 'matte',
+              artifact: {
+                key: 'a'.repeat(64),
+                files: [{ name: 'matte.mkv', sha256: 'b'.repeat(64) }],
+                width: 1920,
+                height: 1080,
+                coverage: { sourceStart: 0, sourceEnd: 8 },
+                packId: 'smart-mask',
+                packVersion: '1.0.0',
+                modelDigests: ['b'.repeat(64)],
+              },
+              review: { flagged: [], approved: [], locked: [] },
+            }),
+          ],
+        },
+      ],
+    },
+  ],
+} as unknown as Timeline;
+
+function Harness({
+  jobs,
+  withMatte = false,
+}: {
+  readonly jobs: MatteJobStore;
+  readonly withMatte?: boolean;
+}): JSX.Element {
+  const editor = useEditor(withMatte ? timelineWithMatte : timeline, { assets });
   const clip = editor.state.timeline.tracks[0]!.clips[0]!;
   return (
     <BackgroundRemovalRow
@@ -399,5 +447,48 @@ describe('BackgroundRemovalRow', () => {
         (screen.getByRole('button', { name: 'Remove background' }) as HTMLButtonElement).disabled,
       ).toBe(true),
     );
+  });
+  it('offers text behind the subject once a background removal is applied', async () => {
+    bridge.matteRecheckMedia.mockResolvedValue({ ok: true, issues: [] });
+    render(<Harness jobs={jobs} withMatte />);
+
+    const field = await screen.findByLabelText('Text behind the subject');
+    const button = screen.getByRole('button', { name: 'Put text behind subject' });
+    // Nothing to put behind anything until there is text.
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(field, { target: { value: 'BEHIND' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Put text behind subject' }));
+    expect(await screen.findByText('Text added behind the subject.')).toBeTruthy();
+  });
+
+  it('warns that the removed area exports as black with nothing below the clip', async () => {
+    bridge.matteRecheckMedia.mockResolvedValue({ ok: true, issues: [] });
+    render(<Harness jobs={jobs} withMatte />);
+    expect(
+      await screen.findByText(/Nothing below this clip, so the removed area exports as black/),
+    ).toBeTruthy();
+  });
+
+  it('shows the engine’s own remedy sentence for a stale matte', async () => {
+    bridge.matteRecheckMedia.mockResolvedValue({
+      ok: true,
+      issues: [
+        {
+          clipId: 'c1',
+          maskId: 'c1__mask',
+          artifactKey: 'a'.repeat(64),
+          code: 'matte_media_changed',
+          status: 'stale',
+          remedy: 'Media changed since background removal ran — run Remove background again.',
+        },
+      ],
+    });
+    render(<Harness jobs={jobs} withMatte />);
+    expect(
+      await screen.findByText(
+        'Media changed since background removal ran — run Remove background again.',
+      ),
+    ).toBeTruthy();
   });
 });

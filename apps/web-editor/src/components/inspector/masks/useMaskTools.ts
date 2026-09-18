@@ -128,6 +128,13 @@ export interface MaskToolState {
   readonly brushRadiusPx: number;
   /** The mask debug view the review list asked the monitor to show, or `null`. */
   readonly requestedMaskView: string | null;
+  /**
+   * "Take me to this clip's background removal" (BR6.6), from the export dialog.
+   *
+   * A counter rather than a flag, because asking twice for the same clip must move the editor
+   * twice — by the second ask they have usually scrolled away.
+   */
+  readonly reviewRequest: { readonly clipId: string; readonly seq: number } | null;
   /** The last refusal to show, in plain words. */
   readonly message: string | null;
 }
@@ -170,6 +177,7 @@ const INITIAL: MaskToolState = {
   brushKind: 'keep',
   brushRadiusPx: 24,
   requestedMaskView: null,
+  reviewRequest: null,
   message: null,
 };
 
@@ -271,6 +279,13 @@ export class MaskToolStore {
   public clearCorrectionStrokes(): void {
     if (this.state.correctionStrokes.length === 0) return;
     this.update({ correctionStrokes: [] });
+  }
+
+  /** Ask the editor to select a clip and show its background removal. */
+  public requestReview(clipId: string): void {
+    this.update({
+      reviewRequest: { clipId, seq: (this.state.reviewRequest?.seq ?? 0) + 1 },
+    });
   }
 
   /** Ask the monitor for a mask debug view (the review list switches to Overlay). */

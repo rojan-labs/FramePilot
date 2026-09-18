@@ -964,6 +964,21 @@
   color: var(--text-secondary);
 }
 
+.inspector-pro .background-removal-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+}
+.inspector-pro .background-removal-text input {
+  padding: var(--space-1);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
 .inspector-pro .background-removal-progress {
   display: flex;
   flex-direction: column;

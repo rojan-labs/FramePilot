@@ -614,6 +614,7 @@ export function App(): JSX.Element {
                 ensureSavedForExport={ensureSavedForExport}
                 onRevealExport={revealPath}
                 assets={project.assets}
+                exportTimeline={project.timeline}
                 exportFrame={{
                   width: project.resolution.width,
                   height: project.resolution.height,
@@ -680,7 +681,9 @@ export function App(): JSX.Element {
             open={settingsOpen}
             initialSection={settingsSection}
             onClose={() => setSettingsOpen(false)}
-            {...(project ? { projectId: project.id, project, onApplyPatch: applySettingsPatch } : {})}
+            {...(project
+              ? { projectId: project.id, project, onApplyPatch: applySettingsPatch }
+              : {})}
           />
           {project !== null && !capabilityGateDismissed ? (
             <CapabilityPackDependencyDialog

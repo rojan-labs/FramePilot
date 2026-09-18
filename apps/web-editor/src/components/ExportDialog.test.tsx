@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { Asset } from '@framepilot/timeline-schema';
+import { MaskLayerSchema, type Asset, type Timeline } from '@framepilot/timeline-schema';
 import { ExportDialog } from './ExportDialog.js';
+import { maskToolStore } from './inspector/masks/useMaskTools.js';
 import type { ExportProgressMessage, RendererBridge } from '../editor/bridge.js';
 
 afterEach(() => {
@@ -716,5 +717,65 @@ describe('ExportDialog', () => {
     openExportMenu();
 
     expect(screen.getByRole('status').textContent).toContain('Rendering');
+  });
+  it('names the unchecked background-removal moments without blocking the export (BR6.6)', () => {
+    const matte = MaskLayerSchema.parse({
+      id: 'm1',
+      kind: 'matte',
+      artifact: {
+        key: 'a'.repeat(64),
+        files: [{ name: 'matte.mkv', sha256: 'b'.repeat(64) }],
+        width: 64,
+        height: 36,
+        coverage: { sourceStart: 0, sourceEnd: 4 },
+        packId: 'smart-mask',
+        packVersion: '1',
+        modelDigests: ['b'.repeat(64)],
+      },
+      review: { flagged: [{ start: 1, end: 1.5 }], approved: [], locked: [] },
+    });
+    const timeline = {
+      revision: 1,
+      tracks: [
+        {
+          id: 'v1',
+          type: 'video',
+          clips: [
+            {
+              id: 'c1',
+              assetId: 'a1',
+              trackId: 'v1',
+              start: 0,
+              end: 4,
+              sourceStart: 0,
+              sourceEnd: 4,
+              effects: [],
+              keyframes: [],
+              masks: [matte],
+            },
+          ],
+        },
+      ],
+    } as unknown as Timeline;
+
+    render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
+        timeline={timeline}
+        ensureSaved={vi.fn()}
+        onReveal={vi.fn()}
+      />,
+    );
+    openExportMenu();
+
+    expect(screen.getByText(/1 background removal moment hasn't been checked/)).toBeDefined();
+    // Never a block: the export button is still there, and Review is an offer beside it.
+    expect(screen.getByRole('button', { name: 'Review' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Export' })).toBeDefined();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    expect(maskToolStore.getState().reviewRequest?.clipId).toBe('c1');
   });
 });

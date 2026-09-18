@@ -68,6 +68,7 @@ import { TranscriptionPanel } from './TranscriptionPanel.js';
 import { Tooltip } from './Tooltip.js';
 import { CommandPalette } from './CommandPalette.js';
 import { useMatteJobCommits } from './inspector/masks/useMatteJob.js';
+import { useMaskTools } from './inspector/masks/useMaskTools.js';
 import type { SettingsSection } from './SettingsDialog.js';
 import {
   Captions,
@@ -793,6 +794,14 @@ export function Editor({
   // result is committed here, where the component is alive for the whole session, and lands on the
   // right clip even when the editor has moved on to another one.
   useMatteJobCommits(editor);
+
+  // "Review" in the export dialog (BR6.6): select the clip and open the Inspector on it.
+  const reviewRequest = useMaskTools().reviewRequest;
+  useEffect(() => {
+    if (reviewRequest === null) return;
+    editor.select(reviewRequest.clipId);
+    setRightTab('inspector');
+  }, [reviewRequest, editor.select, setRightTab]);
 
   return (
     <WorkspaceShell

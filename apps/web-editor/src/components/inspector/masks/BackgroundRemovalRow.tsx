@@ -18,10 +18,13 @@
  */
 import { useEffect, useState } from 'react';
 import { assetDisplaySize } from '@framepilot/editor-core';
-import type { Clip } from '@framepilot/timeline-schema';
+import { masksOf, type Clip } from '@framepilot/timeline-schema';
+import type { MatteValidationIssueWire } from '@framepilot/shared-types';
 import type { MattePromptRefWire } from '@framepilot/shared-types';
 import { Button } from '@framepilot/ui';
 import type { UseEditor } from '../../../editor/useEditor.js';
+import { runMaskCommand } from '../../../editor/mask-editing.js';
+import { hasPictureBehind } from '../../../editor/matteReview.js';
 import {
   MATTE_HANDLE_SECONDS,
   estimateMatteJob,
@@ -44,6 +47,7 @@ import {
   type MaskToolStore,
   type SubjectPoint,
 } from './useMaskTools.js';
+import { useMatteIssues } from './useMatteIssues.js';
 import { SUBJECT_MATTE_CAPABILITY, usePackStatus } from './usePackStatus.js';
 
 /** How the editor tells the pack which subject to keep. */
@@ -76,6 +80,8 @@ export interface BackgroundRemovalRowProps {
   readonly jobs?: MatteJobStore;
   /** Development builds can register a pack from disk; releases cannot. */
   readonly developmentBuild?: boolean;
+  /** STALE/BROKEN mattes main reported, with the engine's own remedy sentences. */
+  readonly issues?: readonly MatteValidationIssueWire[];
 }
 
 export function BackgroundRemovalRow({
@@ -84,6 +90,7 @@ export function BackgroundRemovalRow({
   store = maskToolStore,
   jobs = matteJobStore,
   developmentBuild = import.meta.env.DEV,
+  issues = [],
 }: BackgroundRemovalRowProps): JSX.Element {
   const { status, refresh } = usePackStatus(SUBJECT_MATTE_CAPABILITY);
   const tools = useMaskTools(store);
@@ -94,6 +101,7 @@ export function BackgroundRemovalRow({
   // this is which edge treatment the mask carries.
   const [edgeMode, setEdgeMode] = useState<'sharp' | 'smooth'>('smooth');
   const [message, setMessage] = useState<string | null>(null);
+  const [behindText, setBehindText] = useState('');
 
   const copy = packToolCopy(status, {
     pack: SMART_MASK_PACK,
@@ -110,6 +118,13 @@ export function BackgroundRemovalRow({
   };
   const estimate = estimateMatteJob(coverage.sourceEnd - coverage.sourceStart, size);
   const running = job !== null;
+  const matte = masksOf(clip).find((mask) => mask.kind === 'matte') ?? null;
+  const applied = matte !== null;
+  const detected = useMatteIssues(
+    applied ? clip.assetId : null,
+    matte?.kind === 'matte' ? matte.artifact.key : undefined,
+  );
+  const issue = [...issues, ...detected].find((candidate) => candidate.clipId === clip.id) ?? null;
 
   const run = (): void => {
     setMessage(null);
@@ -215,6 +230,49 @@ export function BackgroundRemovalRow({
       >
         Remove background
       </Button>
+      {applied && !running && (
+        <>
+          {issue !== null && (
+            <p className="inspector-empty" role="alert">
+              {/* The engine's own sentence, carried over the wire, so the Inspector, the export
+                  dialog and the render refusal never paraphrase each other. */}
+              {issue.remedy}
+            </p>
+          )}
+          {!hasPictureBehind(editor.state.timeline, clip.id) && (
+            <p className="inspector-empty" role="status">
+              Nothing below this clip, so the removed area exports as black. Put a clip, image or
+              colour on the track below.
+            </p>
+          )}
+          <label className="background-removal-text">
+            Text behind the subject
+            <input
+              type="text"
+              value={behindText}
+              placeholder="Type the text"
+              onChange={(event) => setBehindText(event.target.value)}
+            />
+          </label>
+          <Button
+            variant="secondary"
+            type="button"
+            disabled={behindText.trim() === ''}
+            onClick={() => {
+              const refusal = runMaskCommand(editor, {
+                type: 'text_behind_subject',
+                clipId: clip.id,
+                text: behindText,
+                maskId: matte.id,
+              });
+              setMessage(refusal ?? 'Text added behind the subject.');
+              if (refusal === null) setBehindText('');
+            }}
+          >
+            Put text behind subject
+          </Button>
+        </>
+      )}
       {message !== null && (
         <p className="inspector-empty" role="status">
           {message}
