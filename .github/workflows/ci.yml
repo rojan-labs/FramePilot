@@ -362,6 +362,65 @@ jobs:
             reports/e2e
             reports/e2e-results
 
+  # ── Masking end to end (plan/background-removal-ai/07, E2E.1–E2E.8) ──────────────────
+  # The real editor in desktop mode (web build in real Chrome, `window.framepilot` installed by
+  # the spec) against the REAL desktop host modules from apps/desktop/dist (matte IPC, relink
+  # re-check, matte validation, project file layer) and the REAL engine (frame grab, export,
+  # validation, sidecar text rasters and decoded-frame hashes). Simulated: Electron itself,
+  # fp-media://, signed pack installs and the pack workers' models — each spec's header says
+  # which, and why. Preview == export uses the PX4 oracle's own comparison and gates.
+  masking-e2e:
+    name: Masking end to end (E2E.1–E2E.8)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: pnpm install --frozen-lockfile
+      - name: Sync engine dependencies
+        working-directory: engine/python
+        run: uv sync --extra dev
+      - run: pnpm build
+      - name: Install Google Chrome for Playwright
+        run: pnpm --filter @framepilot/e2e exec playwright install --with-deps --force chrome
+      - name: Start the engine sidecar (sandboxed to the specs' workspaces, as the desktop does)
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/tests/e2e/.tmp-masking-e2e"
+          cd engine/python
+          FRAMEPILOT_PROJECTS_ROOT="$GITHUB_WORKSPACE/tests/e2e/.tmp-masking-e2e" \
+            nohup uv run framepilot serve --host 127.0.0.1 --port 8799 > "$RUNNER_TEMP/sidecar.log" 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8799/health && break; sleep 1; done
+      - name: Run the masking end-to-end specs
+        env:
+          MASKING_E2E_SIDECAR_URL: http://127.0.0.1:8799
+        run: pnpm --filter @framepilot/e2e test:masking
+      - name: Collect the sidecar log
+        if: always()
+        run: cp "$RUNNER_TEMP/sidecar.log" reports/e2e-results/masking-sidecar.log || true
+      # Always: the report carries each spec's parity numbers and bridge diagnostics.
+      - name: Upload the masking end-to-end report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: masking-e2e-report
+          path: |
+            reports/e2e
+            reports/e2e-results
+
   # ── PX5: performance evidence for the layer compositor on the Scale row ───────────────
   # plan/background-removal-ai/PX5-BUDGETS.md. This runner has no GPU (SwiftShader) and few
   # cores, so it GATES on the algorithm's invariants only (decoder pool cap, cache bound, GL

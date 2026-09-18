@@ -58,7 +58,7 @@ export default defineConfig({
     {
       name: 'chromium',
       testIgnore:
-        /(preview-(spike|webcodecs-p[0-9]+|parity-oracle|scale-perf)|mask-key-parity)\.spec\.ts/,
+        /(preview-(spike|webcodecs-p[0-9]+|parity-oracle|scale-perf)|mask-key-parity|masking-e2e-[a-z0-9-]+)\.spec\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
     // P0 WebCodecs feasibility spike (plan PREVIEW-WEBCODECS-COMPOSITOR.md).
@@ -136,6 +136,33 @@ export default defineConfig({
         // a screen recorder next to the thing being timed is part of the measurement.
         video: 'off',
         trace: 'off',
+        launchOptions: {
+          args: [
+            '--autoplay-policy=no-user-gesture-required',
+            '--disable-background-timer-throttling',
+            '--disable-renderer-backgrounding',
+            '--disable-backgrounding-occluded-windows',
+            '--enable-unsafe-swiftshader',
+          ],
+        },
+      },
+    },
+    // Masking end to end (plan/background-removal-ai/07, E2E.1-E2E.8): the real editor in desktop
+    // mode against the real desktop host modules and the engine (`specs/masking/fake-desktop.ts`
+    // says what is simulated). Real Chrome for H.264 WebCodecs decode, SwiftShader allowed, as the
+    // parity oracle. Needs uv + the engine, ffmpeg and a sidecar at MASKING_E2E_SIDECAR_URL, so it
+    // runs in its own CI job (`masking-e2e`), never in the smoke project.
+    // CI ONLY: do not run it on a workstation (the memory rule in AGENTS.md; each test renders).
+    {
+      name: 'masking-e2e',
+      testMatch: /masking-e2e-[a-z0-9-]+\.spec\.ts/,
+      fullyParallel: false,
+      workers: 1,
+      // Deterministic by construction: a retry would only hide a flake the report should show.
+      retries: 0,
+      use: {
+        ...devices['Desktop Chrome'],
+        channel: 'chrome',
         launchOptions: {
           args: [
             '--autoplay-policy=no-user-gesture-required',

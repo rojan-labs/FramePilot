@@ -109,6 +109,8 @@ logs/
 tests/e2e/.tmp-preview-spike-fixtures/
 # PX4 parity oracle: synthetic media, engine frames and spec results (pnpm px4:frames).
 tests/e2e/.tmp-px4-parity/
+# Masking end-to-end workspaces (tests/e2e/specs/masking-e2e-*.spec.ts)
+tests/e2e/.tmp-masking-e2e/
 # PX5 Scale fixture: generated 4K media, proxies, a 4K matte and probe files (pnpm px5:fixture).
 tests/e2e/.tmp-px5-scale/
 .coverage
