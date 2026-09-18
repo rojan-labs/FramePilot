@@ -233,9 +233,12 @@ read over `fp-media` on the desktop) in the same pass as every other kind:
   level; no byte moves more than one level), stored as byte planes in one intra-only FFV1 frame.
   At 960x540 it decodes in 14.5 ms against 38.5 ms for the 4K foreground it replaces, and uploads
   4 MB instead of 25 MB. **Who makes it:** the PX5 Scale fixture and the PX4 oracle generator
-  call `write_monitor_tier`; the desktop app does not yet (it needs a sidecar route and a host
-  call after an artifact commits, which changes the sidecar contract and waits for the
-  maintainer - see ADR 0181). Without a tier the monitor decodes the masters, correctly, slower.
+  call `write_monitor_tier`, and since PX5.9 the desktop app does too: after an artifact commits
+  (and on a cache hit) the host calls `POST /mattes/monitor-tier` in the background, sized by the
+  asset's proxy (approved by the maintainer, MO-17; limits and refusals in ADR 0181 and
+  `docs/api/capability-packs.md`). The monitor asks again for a missing `tier.json` every 30 s,
+  so a tier finished after the clip was first shown is picked up. Without a tier the monitor
+  decodes the masters, correctly, slower.
 - **The tier's alpha plane (PX5.8).** `alpha.mkv` beside the planes holds
   `resample(samples / maximum)` at the same size, 16-bit, as two byte planes. It stands in for the
   4K samples only for a matte whose source-resolution chain is the identity at every instant:
@@ -246,10 +249,10 @@ read over `fp-media` on the desktop) in the same pass as every other kind:
   twin). Everything else keeps decoding the samples, because its controls act before the resample
   and are not linear. The alpha drawn from the plane is the export's within 1/131070
   (`test_matte_alpha_tier.py`, `matte-edges.test.ts`); it decodes in 3.6 ms at 960x540 where the
-  4K samples take 19.6-20.1 ms. The PX4 oracle's soft matte rows (`matte-speed`, `matte-vfr`,
-  `matte-display-space`, `matte-progressive`, and the effect-target mattes of
-  `matte-text-behind-subject` and `matte-shape-stack`) draw from it at the unchanged gates, and
-  each sample records which path it took (`sample.mattes[].alphaFromTier`).
+  4K samples take 19.6-20.1 ms. In the PX4 oracle (CI run 35341329629) seven samples of
+  `matte-speed`, `matte-vfr`, `matte-progressive` and `matte-text-behind-subject` drew from it
+  and pass at the unchanged gates; each sample records which path it took
+  (`sample.mattes[].alphaFromTier`).
 - **Decoding: lossless masters, not the VP9 previews.** The pack also writes `preview.webm` and
   `foreground.preview.webm` (VP9, 540p by default, CRF 34). Measured against the export's
   composite on a hard-edged 1080p matte with one-pixel strands, the 540p VP9 matte gives 32.44 dB

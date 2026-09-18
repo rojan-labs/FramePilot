@@ -570,6 +570,27 @@ the engine). Both routes resolve every path inside the engine's projects-root sa
 file but `matte.mkv` for comparisons. A stopped sidecar, a 5xx or a refusal is a typed error, and
 every check that needs pixels fails closed.
 
+**Monitor tier (PX5.9, ADR 0181).** After an artifact commits (and on a cache hit) the host calls
+`POST /mattes/monitor-tier` in the background:
+
+| Field | Meaning |
+| --- | --- |
+| `project_dir` | The project folder (inside the projects root). |
+| `artifact` | What the mask pins: `key` (64 hex), `files` (1-8 `{name, sha256}`, names from the artifact contract), `width`, `height` (1-16384). |
+| `proxy_path` | The asset's proxy as stored: the picture the monitor decodes, which sizes the tier. |
+| `rotation` | `0`/`90`/`180`/`270`: the monitor turns the decoded picture by it, so 90/270 swap the size. |
+
+It answers `{status: "written" | "current", width, height, frame_count, alpha}` and writes
+`<project>/.framepilot-derived/matte-tiers/<key>/` (`tier.json`, `planes.mkv`, `alpha.mkv`) through
+`matte-tiers/.staging/<random>/`, probed back and renamed into place. Refusals, all path-free:
+`400` outside the projects folder or a link / non-regular file under `.framepilot-derived`,
+`404` artifact or proxy missing, `409` a master's digest is not the pinned one (checked before and
+after the pixels), `422` undecodable or malformed, `503` another tier is being made, `504` the
+deadline (600 s + 0.5 s per frame, capped at 6 h) passed. The host retries `503` for about 8
+minutes (`MONITOR_TIER_BUSY_RETRY_DELAYS_MS`), sizes its own timeout a minute beyond the engine's
+(`monitorTierTimeoutMs`), skips assets without a proxy and artifacts without a foreground, and
+logs a failure by code only: the tier is an accelerator, never part of the job's outcome.
+
 **Auto prompt (`matte-auto-prompt.ts`).** With no prompts, and only if a healthy Subject
 Intelligence pack is in the local index, `subject.detect` runs on the first in-range frame and the
 largest confident (≥ 0.5, ≥ 1% of the frame) person, else object, box becomes the prompt. Otherwise

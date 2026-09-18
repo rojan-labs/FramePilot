@@ -1,8 +1,8 @@
 # ADR 0181 — A matte's monitor tier is derived by the host, beside the artifact
 
 - **Status:** Accepted for the format, the engine function and the monitor's use of it (PX5.3).
-  **The desktop trigger is not built**: it needs a new sidecar route, which changes the sidecar
-  contract and waits for the maintainer (CLAUDE.md §5).
+  The desktop trigger — a new sidecar route — was **approved by the maintainer on 2026-09-18**
+  (MO-17, recorded per CLAUDE.md §5) and is built (PX5.9, section "The trigger" below).
 - **Date:** 2026-09-18
 - **Relates to:** ADR 0178 (mask stack), ADR 0179 (Smart Mask packs), ADR 0180 (the monitor
   composites every timeline); plan
@@ -52,21 +52,40 @@ the engine's own `resample`, has none of those problems.
   judges the tier path at its unchanged gates: its generator makes each tier at the size the
   export decoded the picture at.
 
-## Not decided here (the pending trigger)
+## The trigger (approved 2026-09-18, MO-17; built in PX5.9)
 
-The desktop app does not make tiers yet. The smallest design: after the host commits a verified
-artifact (BR4), it calls a sidecar route — shaped like `/mattes/frame-hashes` (one request at a
-time, a deadline, no path echoed, paths confined to the projects folder) — with the artifact and
-the size the monitor decodes the source's proxy at, and the route runs `write_monitor_tier`.
-Cost on an M1 Pro: 84 ms per 4K frame for a disc filling 22% of the frame, 205 ms for a subject
-filling it (a 3-minute 4K clip: roughly 8–18 minutes of sidecar CPU, in the background like a
-proxy). That route is new sidecar surface, so it is the maintainer's call; until then the
-monitor decodes the masters, correctly and slower.
+At PX5.3 this was left to the maintainer: the route is new sidecar surface (CLAUDE.md §5). It was
+approved on 2026-09-18 on the terms below, and built as `POST /mattes/monitor-tier`
+(`service.py`, `render/matte_tier_job.py`; API in `docs/api/capability-packs.md`):
+
+- **Inputs.** The project folder, the artifact exactly as the mask pins it (key, file digests,
+  size) and the asset's proxy path and display rotation. The route measures the proxy itself
+  (hardened ffprobe) and turns the size for 90/270, as the monitor turns the decoded picture.
+- **The BR4.12 limits of the other `/mattes/*` routes.** Every path through the projects-root
+  sandbox; one request at a time (503); one total deadline sized from the frame count (600 s +
+  0.5 s per frame, capped at 6 h; 504); `-protocol_whitelist file` / `-format_whitelist` (Matroska
+  forced) on every master read and a `pipe,fd` / `rawvideo` whitelist on every encode input;
+  bounded request fields (int64-safe sizes, hex digests, known file names); no path in any answer.
+- **Real folders, pinned digests, atomic write.** `.framepilot-derived/mattes/<key>` and
+  `matte-tiers` are walked with `lstat` (a link, or a master that is not a plain file, refuses
+  with 400); the masters are hashed against the pins before the first frame and after the last
+  (409); everything is written into `matte-tiers/.staging/<random>/`, probed back and renamed into
+  place. A tier that already names these digests, size and frame count is left alone.
+- **The host** (`capability-packs/matte.ts`) calls it after an artifact commits and on a cache
+  hit, for a video asset with a proxy and an artifact with a foreground, in the background. A busy
+  route is retried on a bounded schedule (about 8 minutes); any failure is logged by code and
+  never changes the job's outcome. The monitor asks again for a missing `tier.json` every 30 s,
+  so a tier made after it first looked is picked up without reopening the project.
+- Cost on an M1 Pro: 84 ms per 4K frame for a disc filling 22% of the frame, 205 ms for a subject
+  filling it, plus 24–84 ms for the alpha plane (a 3-minute 4K clip: roughly 10–25 minutes of
+  sidecar CPU, in the background like a proxy); the measured end-to-end run on the Scale row is
+  in `PX5-BUDGETS.md`, "PX5.9".
 
 ## Consequences
 
-- A matte in the monitor is fast only where a tier exists; the fixture and the oracle generator
-  make one, the desktop does not yet.
+- A matte in the monitor is fast only where a tier exists; since PX5.9 the desktop makes one in
+  the background after each committed artifact (and the fixture and the oracle generator make
+  theirs); until it is written the monitor decodes the masters.
 - Re-processing an artifact invalidates its tier by digest; nothing has to delete it.
 - A clip shown at a size other than the tier's (an inset decoded smaller) uses the masters.
 

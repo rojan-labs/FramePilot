@@ -339,8 +339,10 @@ widened; what changed, each step measured on the row:
   decoded size, 16-bit, lossless container) replaces the 4K foreground wherever it fits.
 
 Without the tier (masters only) the row holds the seek budget (90.6 ms p95) but drops 8.4% of
-frames, so the dropped-frame verdict depends on the tier, which only the fixture and the oracle
-generator make today: the desktop app's trigger waits for a maintainer decision (ADR 0181).
+frames, so the dropped-frame verdict depends on the tier. Since PX5.9 the desktop app makes it:
+`POST /mattes/monitor-tier` (maintainer-approved, ADR 0181) runs in the background after each
+committed artifact; on the Scale row it took 638 s for 5,400 4K frames (118 ms a frame) and wrote
+pixels identical to the fixture's tier (`PX5-BUDGETS.md`, "PX5.9").
 Numbers, per-step attribution and limits: `PX5-BUDGETS.md`, "PX5.3".
 
 An animated 200-vertex path costs 16 ms p95 of main-thread time per frame on the desktop path and

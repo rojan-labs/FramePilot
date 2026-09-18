@@ -386,6 +386,28 @@ cause, not verified. The other five rows do not decontaminate, so they have no t
   PX5.8 (below). Not for `sharp` or any edge control, which act at source resolution.
 - PX5.5 (two composites per project frame at 60 Hz) and PX5.4 (export ratio) are untouched.
 
+## PX5.6 — oracle rows carrying a `key` mask
+
+Three `alpha/key-*` cases (`tests/fixtures/frame-plan/alpha.json`), at the unchanged PX4 gates
+(40 dB PSNR, 99.5% of pixels within 8/255, exact sentinels, exact pts). The keyed source is a
+numpy picture (`key_picture` in `engine/python/tests/px4_parity_frames.py`: a green backdrop, a
+soft-edged warm subject, one-pixel holes, 3x3 specks, a green-to-red sweep; blue fixed at 92 so no
+pixel can read as a sentinel), stored as a lossless PNG and encoded to the asset's proxy like every
+other asset. Not an image clip: the export ignores masks on stills (`_compile_image_clip`).
+
+CI run 35337431818 (`b0de2027`), all 60 cases pass:
+
+| Case                    | Sample | What it carries                                                         | PSNR (dB) | Within 8/255 | Max error |
+| ----------------------- | ------ | ----------------------------------------------------------------------- | --------- | ------------ | --------- |
+| `alpha/key-alone`       | 0.5 s  | an inverted HSL key                                                     | 112.55    | 100%         | 1         |
+| `alpha/key-alone`       | 1.5 s  | the same key despilling green (limiter after the cut)                   | 73.66     | 99.99978%    | 19        |
+| `alpha/key-shape-stack` | 0.5 s  | key ∩ feathered ellipse − feathered rectangle                           | ∞         | 100%         | 0         |
+| `alpha/key-finesse`     | 0.5 s  | denoise, levels, open/close, shrink, blur, in/out ratio at opacity 0.85 | ∞         | 100%         | 0         |
+
+The despill sample has 2 pixels of 921,600 over 8/255 (max 19); where they sit and why was not
+examined, since the row passes its gates with a wide margin. CI's SwiftShader has float targets,
+so these rows judged the GPU path (a key stack has no CPU path).
+
 ## PX5.7 — the intermittent hang: the dev server replaced the editor mid-run
 
 Diagnosed 2026-09-18 on the same M1 Pro. **Not the engine.** Playwright's `webServer` is Vite's
@@ -498,6 +520,52 @@ flat disc, so the saving is larger).
 load 19: 41/612 dropped, seek p95 46.6 ms - the budget miss is the load (the same code measured
 1/602 at load ~10 an hour earlier, 17:09); re-measure on a quiet machine before quoting it.
 
-**PX4 oracle.** The soft mattes of `matte-speed`, `matte-vfr`, `matte-display-space`,
-`matte-progressive` and the effect-target mattes of `matte-text-behind-subject` and
-`matte-shape-stack` qualify; CI results below.
+**PX4 oracle, unchanged gates.** CI run 35341329629 (`09f7eb3d`): 65/65 cases pass (the 60 of
+PX5.6 plus five MK8 rows another agent added meanwhile). Seven samples in four rows drew their
+alpha from the tier's alpha plane (`sample.mattes[].alphaFromTier`): `matte-speed` at 1.3 s and
+3.1 s (∞), `matte-vfr` at 1.9 s (∞), `matte-progressive` at 0.5 s (∞), and the effect-target
+matte of `matte-text-behind-subject` at 1 s and 2.5 s (53.68 dB, 100% within 8/255: the same
+figure as before PX5.8, set by its burned text). The other qualifying samples drew from the
+samples: the first seek of a clip before its tier had loaded (`matte-speed` 0.4 s,
+`matte-vfr` 0.62 s), a tier whose size the picture was not decoded at (`matte-display-space`,
+404x720), or a frame cached earlier with its samples (`matte-shape-stack` 2.5 s). Every
+non-qualifying matte (`sharp`, edge shift, feather) kept the samples, as it must.
+
+## PX5.9 — the desktop makes the tier: the route, end to end
+
+The sidecar route the maintainer approved (MO-17), `POST /mattes/monitor-tier`, run for real on the
+Scale fixture's artifact: a sidecar started with `FRAMEPILOT_PROJECTS_ROOT` = the fixture folder,
+the fixture's own (cheaply looped) tier moved aside, and the request the host sends (the pinned
+artifact, `proxies/scale-d.mp4`, rotation 0). M1 Pro, 2026-09-18, machine shared (load 10-27).
+
+| Step                       | Result                                                                                                          |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| First call                 | 200 `written`, 960x540 (measured from the proxy), 5,400 frames, alpha plane: **638 s**                          |
+| Per 4K frame               | 118 ms (both masters decoded with the hardened options, planes + alpha, two encodes)                            |
+| Budget it ran under        | 600 + 0.5 x 5,400 = 3,300 s (host timeout 3,360 s)                                                              |
+| Peak memory                | sidecar ~0.6 GB + four ffmpeg (the 4K RGB decoder ~0.57 GB)                                                     |
+| Second call                | 200 `current` in 0.08 s; nothing rewritten                                                                      |
+| Against the fixture's tier | decoded pixels identical (framemd5 of 460 sampled frames of both files); files differ by 107 bytes of container |
+| Left behind                | `matte-tiers/.staging/` empty                                                                                   |
+
+Then the monitor on that route-made tier, `px5-local-run.py <variant>/proxy --budgets`, two rounds,
+load average 12-18 throughout:
+
+| Run            | Dropped       | Seek p50 / p95 | Full-res composite p50 | Picture decode p50 | Path                             |
+| -------------- | ------------- | -------------- | ---------------------- | ------------------ | -------------------------------- |
+| `scale` 1      | 2/602 (0.33%) | 37.3 / 47.7    | 12.3                   | 77.8               | planes from the tier, 4K samples |
+| `scale-soft` 1 | 26/600 (4.3%) | 29.8 / 45.9    | 7.7                    | 64.6               | planes + alpha plane             |
+| `scale` 2      | 24/608 (3.9%) | 46.8 / 65.9    | 12.5                   | 105.9              | planes from the tier, 4K samples |
+| `scale-soft` 2 | 42/601 (7.0%) | 31.8 / 38.6    | 8.2                    | 85.8               | planes + alpha plane             |
+
+**Verdict, honestly.** The route works end to end and the monitor takes what it made (every run
+recorded the tier; the soft matte's alpha from its plane). Seek-to-present holds its budget in all
+four runs (p95 38.6-65.9 ms against 100). Dropped frames do not hold the 1% budget in three of four
+runs at this load; the same `scale/proxy` measured 1/602 at load ~10 an hour earlier (17:09) and
+1/601 at PX5.3's final state, and the drops come in bursts with the load spikes, on both variants.
+So the dropped-frame verdict on the desktop path needs a quiet machine and is not re-stated here.
+Not measured: the packaged Electron app (the host call itself is covered by `matte.test.ts` and
+`matte-media-inspector.tier.test.ts`; this run drove the route with the host's request by hand),
+a camera-footage matte (a subject filling the frame costs about twice this disc per frame), and a
+second artifact queued behind a running tier (the route answers 503 and the host retries for ~8
+minutes, then gives up without a tier).

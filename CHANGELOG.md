@@ -182,8 +182,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   edge-colour data made at its own size instead of the full-resolution one. On a 3-minute 4K
   timeline with four layers, a title and a 4K matte, an M1 Pro now drops 1 frame in 600 and shows
   a seek in about 50 ms. The picture is the same: it still matches the export within the same
-  checks as before. The desktop app does not make that small copy yet, so there a matte plays
-  noticeably better than before but still drops some frames; seeks are fast either way.
+  checks as before. The desktop app makes that small copy in the background after background
+  removal finishes (a few minutes for a long 4K clip); until it is ready the matte plays from the
+  full-resolution files, noticeably better than before but with some dropped frames, and seeks
+  are fast either way.
 - **A background removal with its default soft edge costs the monitor less.** Its small copy now
   also holds the cut-out's outline at the monitor's size, so the monitor no longer decodes the
   full-resolution outline every frame (about 16 ms of background work per frame on a 4K clip).

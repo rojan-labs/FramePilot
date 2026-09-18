@@ -26,6 +26,7 @@ install consent are what keep hostile packs out.
 | Matte store access | `existingRealDirectory` | Nothing is listed, read or deleted through a symlinked parent |
 | Clean unused mattes | `matte-storage.ts` | Keeps anything referenced by any `.json`/`.fp.json` in the folder or the recovery snapshot; refuses on links or unreadable project files |
 | Hardened decodes | `media/untrusted.py`, `frame_hashes.py`, `matte-media-inspector.ts` | `file` protocol only, media demuxers only, `-max_pixels`, bounded threads; routes one at a time with work-sized deadlines |
+| Monitor tier writes (PX5.9) | `render/matte_tier_job.py`, `/mattes/monitor-tier` | Masters read with the hardened options (Matroska forced), encodes fed only from a whitelisted `rawvideo` pipe; every `.framepilot-derived` component `lstat`-checked (a link or non-regular master refuses); digests against the pins before and after the pixels; staged in `matte-tiers/.staging/`, probed back, renamed; one at a time, deadline sized by frames |
 
 ## Deferred, with the limit it leaves
 
@@ -54,6 +55,18 @@ install consent are what keep hostile packs out.
    never guesses.
 5. **Frame checks unavailable.** The sidecar is down or busy past the retries; lock checks and
    relink re-checks fail closed until it is back.
+6. **A matte plays slowly in the monitor after background removal.** Its monitor tier was not made
+   (`matteMonitorTierFailed` in the log, with a code: `tool_unavailable` = sidecar down, busy past
+   ~8 minutes or out of time; `probe_failed` = refused). Nothing is wrong with the matte: the monitor
+   decodes the masters. The tier is made again on the next run of the same job (a cache hit), or
+   delete `.framepilot-derived/matte-tiers/<key>/` to have it remade. A `.staging` folder left there
+   by a crash holds nothing a reader uses and can be deleted.
+
+**Checking the monitor tier's real-folder rule by hand.** With the app closed, replace
+`<project>/.framepilot-derived/matte-tiers` with a symlink to another folder and run background
+removal on a clip with a proxy: the job completes, the log shows `matteMonitorTierFailed` with
+`probe_failed` (the route answered 400), and nothing appears in the link's target. The same holds
+for a symlinked `mattes` folder or master (`test_matte_tier_route.py` covers all four).
 
 ## Changing any of this
 
