@@ -255,6 +255,7 @@ import { StockQuotaStore } from './media/stock-quota.js';
 import {
   IdentityClient,
   LedgerClient,
+  aiMaskingUnroutableTools,
   hostedTranscriptionUnavailable,
   silhouetteMasksToTrackSamples,
   localMusicAssetRefusal,
@@ -2889,18 +2890,31 @@ function registerIpcHandlers(): void {
       faceRecognitionConsent: async (project) => (await identityClient.state(project.id)).consent,
     },
   });
+  // RD2.1 kill switch for the AI masking tools. Read at RUNTIME, per call, so support can
+  // switch a shipped build off without a rebuild; unset means on when unpackaged and off in a
+  // release until RD3 flips the default (`masking/feature-flag.ts`).
+  const aiMaskingOff = (): readonly string[] =>
+    aiMaskingUnroutableTools({
+      explicit: process.env.FRAMEPILOT_AI_MASKING,
+      development: !app.isPackaged,
+    });
   const toolExecutor: HostToolExecutor = {
     async run(call, ctx, signal) {
       if (call.name === AUTOMATIC_TRACKING_TOOL_NAME || call.name === DETECT_SUBJECTS_TOOL_NAME) {
         return automaticTrackingExecutor.run(call, ctx, signal);
       }
-      if (MASKING_EXECUTOR_TOOLS.has(call.name)) return maskingExecutor.run(call, ctx, signal);
+      // Switched off, a masking call falls through to the sidecar executor, which answers
+      // what it answers for any tool this surface has no route for.
+      if (MASKING_EXECUTOR_TOOLS.has(call.name) && !aiMaskingOff().includes(call.name)) {
+        return maskingExecutor.run(call, ctx, signal);
+      }
       return sidecarToolExecutor.run(call, ctx, signal);
     },
     // Forwarded, not re-derived: the sidecar executor owns the list of tools this surface
     // cannot route, and a wrapper that swallowed it would leave the desktop advertising
     // `render_preview` to a model that then calls it — eight times in one captured run.
-    unroutableTools: () => sidecarToolExecutor.unroutableTools?.() ?? new Set<string>(),
+    unroutableTools: () =>
+      new Set([...(sidecarToolExecutor.unroutableTools?.() ?? []), ...aiMaskingOff()]),
   };
   const temporalEvidence = createTemporalEvidenceAcquirer({
     baseUrl: engineBaseUrl,

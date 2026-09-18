@@ -37,6 +37,7 @@ export * from './domain-tools/masking.js';
 export * from './identity-client.js';
 export * from './masking/candidate-id.js';
 export * from './masking/contracts.js';
+export * from './masking/feature-flag.js';
 export * from './masking/geometry-provenance.js';
 export * from './masking/intent-tables.js';
 export * from './masking/mask-builders.js';

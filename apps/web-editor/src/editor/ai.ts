@@ -68,7 +68,12 @@ import type { Project, Timeline, TranscriptWord } from '@framepilot/timeline-sch
 import { getBridge } from './bridge.js';
 import { type BrowserAiConfig, loadBrowserAiConfig } from './aiConfigStorage.js';
 import { readProjectUnderstanding, type UnderstandingReads } from './projectUnderstanding.js';
-import { LedgerClient, MASKING_HOST_TOOL_NAMES, type LedgerSnapshot } from '@framepilot/ai-sdk';
+import {
+  LedgerClient,
+  MASKING_HOST_TOOL_NAMES,
+  aiMaskingUnroutableTools,
+  type LedgerSnapshot,
+} from '@framepilot/ai-sdk';
 import { createVisualIndexClient } from './visualIndex.js';
 import { createBrowserRunStoreIO } from './browser-run-store.js';
 import {
@@ -81,6 +86,18 @@ import {
 function configuredEngineBaseUrl(): string | undefined {
   const env = (import.meta as { env?: Record<string, string | undefined> }).env;
   return env?.['VITE_FRAMEPILOT_PYTHON_API_URL']?.trim() || undefined;
+}
+
+/** Read `VITE_FRAMEPILOT_AI_MASKING` (RD2.1 kill switch); `undefined` when unset. */
+function aiMaskingEnvValue(): string | undefined {
+  const env = (import.meta as { env?: Record<string, string | undefined> }).env;
+  return env?.['VITE_FRAMEPILOT_AI_MASKING'];
+}
+
+/** A dev or test build — the same test the compositor and mask-tools flags use. */
+function isDevelopmentBuild(): boolean {
+  const env = (import.meta as { env?: { DEV?: boolean; MODE?: string } }).env;
+  return env?.DEV === true || env?.MODE === 'test';
 }
 
 /**
@@ -135,6 +152,11 @@ function browserOrchestratorOptions(): ConstructorParameters<typeof Orchestrator
         'detect_subjects',
         'track_subject_automatically',
         ...MASKING_HOST_TOOL_NAMES,
+        // RD2.1 kill switch: off removes the in-process masking tools too.
+        ...aiMaskingUnroutableTools({
+          explicit: aiMaskingEnvValue(),
+          development: isDevelopmentBuild(),
+        }),
       ],
     }),
   };

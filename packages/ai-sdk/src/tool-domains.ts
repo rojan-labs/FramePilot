@@ -378,6 +378,28 @@ export function requestedDomainsNeverLoaded(
   return out;
 }
 
-export const DOMAIN_INDEX = LOADABLE_DOMAINS.map(
-  (domain) => `${domain}: ${DOMAIN_SUMMARY[domain]}`,
-).join(' | ');
+/**
+ * What `masking` holds when the AI masking tools are switched off (RD2.1) and only the two
+ * tools folded in from `tracking` remain. The full summary would promise outcomes no tool on
+ * offer can deliver — and the summary is the whole discovery surface.
+ */
+const MASKING_SUMMARY_TRACKING_ONLY = 'make a mask the editor drew follow its subject';
+
+/**
+ * The domain index a run is shown, given the tools this host cannot offer.
+ *
+ * A domain whose every tool is unroutable is left out: naming it would invite a `load_tools`
+ * call that pins nothing. `masking` with its new tools switched off keeps its two older ones,
+ * and is described by what those do. With nothing unroutable this is {@link DOMAIN_INDEX},
+ * byte for byte, so the token goldens do not move.
+ */
+export function domainIndexFor(unroutable: ReadonlySet<string>): string {
+  return LOADABLE_DOMAINS.flatMap((domain) => {
+    const offered = DOMAIN_MEMBERS[domain].filter((name) => !unroutable.has(name));
+    if (offered.length === 0) return [];
+    const reduced = domain === 'masking' && !offered.includes('create_mask');
+    return [`${domain}: ${reduced ? MASKING_SUMMARY_TRACKING_ONLY : DOMAIN_SUMMARY[domain]}`];
+  }).join(' | ');
+}
+
+export const DOMAIN_INDEX = domainIndexFor(new Set());

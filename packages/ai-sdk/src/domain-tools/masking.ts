@@ -371,7 +371,9 @@ export function flagMaskForReviewOps(
 
 const HOST_MEASURED = {
   version: '1',
-  capabilities: ['masking', 'vision'],
+  // Not `vision`: that capability withholds a tool from a model that cannot SEE, because its
+  // output is a picture. These return measurements and ids, which any model can act on.
+  capabilities: ['masking'],
   cost: 'high',
   latency: 'slow',
   hostUiOnly: true,

@@ -244,6 +244,27 @@ without the consent that route already requires.
 button that opens the Inspector's review list through the same `maskToolStore.requestReview` the
 export dialog's "Review" uses. It shows the count whatever the model wrote.
 
+## Kill switch (RD2.1)
+
+`masking/feature-flag.ts`. The same mechanism as the compositor and mask-tools flags: one
+variable, `on` or `off`, no flag framework; unset means **on** in development and test and **off**
+in a packaged release until RD3 flips the default. A typo falls back to the build default, so it
+cannot enable the tools in a release.
+
+| Host                                             | Variable                     | Read                                                                            |
+| ------------------------------------------------ | ---------------------------- | ------------------------------------------------------------------------------- |
+| Desktop (the orchestrator runs in Electron main) | `FRAMEPILOT_AI_MASKING`      | At runtime, per call — support can switch a shipped build off without a rebuild |
+| Browser build                                    | `VITE_FRAMEPILOT_AI_MASKING` | Baked in by Vite                                                                |
+
+Off adds every tool `domain-tools/masking.ts` registers to the host's `unroutableTools`, so no
+run is offered them and a call by name is refused by scope. The `load_tools` domain index is
+rebuilt from what is actually on offer (`domainIndexFor`), so `masking` stops promising
+"remove backgrounds" when no offered tool can; with nothing unroutable the index is byte-identical
+and the token goldens do not move. The two tools folded in from `tracking`
+(`professional_tracking_mask`, `track_subject_automatically`) are **not** switched — a kill switch
+for a new feature must not take an old one with it. Masks already in a project still preview,
+export and edit by hand: the flag gates an agent capability, never a frame of output.
+
 ## Failures
 
 Every sentence the executor authors names the next move and carries no varying number, because a
