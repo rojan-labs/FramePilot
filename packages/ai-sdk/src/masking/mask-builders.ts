@@ -226,6 +226,18 @@ function fittedGeometry(
   };
 }
 
+/**
+ * The id the Inspector gives a clip's grade (`setColorGradePatch` in the web editor).
+ *
+ * The preview and the export both render only the FIRST `color_grade` on a clip, and the
+ * Inspector reads that one and writes back under this id. A masked grade added under any
+ * other id would be the one rendered while the Inspector's edits landed on a second, ignored
+ * effect — so the AI's grade takes the Inspector's id and stays editable by hand.
+ */
+export function inspectorGradeId(clipId: string): string {
+  return `${clipId}__grade`;
+}
+
 /** Add the clip effect an `effect` mask limits; returns its id. */
 function addLimitedEffect(
   chain: MaskCommandChain,
@@ -245,7 +257,7 @@ function addLimitedEffect(
         'add the mask to that grade in the Inspector.',
     );
   }
-  const effectId = `grade_${maskId}`;
+  const effectId = inspectorGradeId(clip.id);
   chain.append(
     [
       {

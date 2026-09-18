@@ -237,6 +237,35 @@ describe('create_mask from a measurement', () => {
     const grade = clip.effects.find((effect) => effect.type === 'color_grade')!;
     expect(grade.params).toMatchObject({ exposure: -0.6 });
     expect(masksOf(clip)[0]!.target).toEqual({ kind: 'effect', effectId: grade.id });
+    expect(grade.id).toBe('shot__grade');
+  });
+
+  it('leaves the masked grade editable from the Inspector, which writes under its own id', () => {
+    const p = project();
+    const edit = maskingOpsFromMeasurement(
+      'create_mask',
+      { ...args, purpose: 'effect', effect: 'darken' },
+      { kind: 'create_mask', precision: 'shape', clipId: 'shot', candidate: FACE },
+      ctxOf(p),
+    );
+    // What the web editor's `setColorGradePatch` sends when the editor moves a grade slider.
+    const inspectorEdit = [
+      {
+        type: 'apply_color_grade',
+        clipId: 'shot',
+        effect: {
+          id: 'shot__grade',
+          type: 'color_grade',
+          params: { exposure: 0.3 },
+          keyframes: [],
+        },
+      },
+    ] as never;
+    const clip = clipOf(land(land(p, edit.operations), inspectorEdit));
+    const grades = clip.effects.filter((effect) => effect.type === 'color_grade');
+    expect(grades).toHaveLength(1);
+    expect(grades[0]!.params).toMatchObject({ exposure: 0.3 });
+    expect(masksOf(clip)[0]!.target).toEqual({ kind: 'effect', effectId: 'shot__grade' });
   });
 
   it('refuses a masked blur, a second grade, and an effect purpose with no effect', () => {
