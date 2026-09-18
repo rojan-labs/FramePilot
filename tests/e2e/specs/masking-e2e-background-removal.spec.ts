@@ -171,6 +171,7 @@ test('E2E.1 background removal: install, remove, review and fix, verify, text be
   });
 
   // --- Remove background: one reversible add_matte_mask with the flagged moment -----------------
+  const answersBefore = desktop.results.length;
   await clickInInspector(removeBackground);
   await expect(
     row.getByText('Background removed. 1 moment needs a look.', { exact: true }),
@@ -191,7 +192,9 @@ test('E2E.1 background removal: install, remove, review and fix, verify, text be
     target: { kind: 'alpha' },
     review: { flagged: [{ start: FLAGGED.start, end: FLAGGED.end }], approved: [], locked: [] },
   });
-  // Nothing about a freshly made matte is stale or broken: the Inspector shows no remedy.
+  // Nothing about a freshly made matte is stale or broken. The Inspector re-checks it through
+  // main as soon as it lands (`useMatteIssues`); wait for THAT answer, then for the UI.
+  expect(await desktop.recheckAfter(answersBefore)).toEqual([]);
   await expect(row.getByRole('alert')).toHaveCount(0);
 
   // --- review: the flagged moment, fixed with the Keep brush, re-run from the previous matte -----

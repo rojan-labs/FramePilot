@@ -258,6 +258,8 @@ export interface BridgeCall {
 
 export class FakeDesktop {
   public readonly calls: BridgeCall[] = [];
+  /** What each call answered, in completion order (a thrown call records its message). */
+  public readonly results: { readonly method: string; readonly result: unknown }[] = [];
   /** Every project document the renderer saved, in order (asset paths as stored on disk). */
   public readonly saves: Project[] = [];
   /** Export results the dialog was sent, in order. */
@@ -337,7 +339,14 @@ export class FakeDesktop {
     await page.route(`**${MEDIA_ROUTE}**`, (route) => this.serve(route));
     await page.exposeFunction('__fpE2EInvoke', async (method: string, args: unknown[]) => {
       this.calls.push({ method, args });
-      return this.invoke(method, args);
+      try {
+        const result = await this.invoke(method, args);
+        this.results.push({ method, result });
+        return result;
+      } catch (error) {
+        this.results.push({ method, result: { thrown: String(error) } });
+        throw error;
+      }
     });
     await page.addInitScript(
       ({ invoke, subscriptions, prefix, root }) => {
@@ -423,6 +432,26 @@ export class FakeDesktop {
         root: relative(WORK_ROOT, this.options.workspace.projectDir).split(sep).join('/'),
       },
     );
+  }
+
+  /**
+   * Wait for the next `matteRecheckMedia` answer after `since` answers were recorded, and return
+   * its issues. The Inspector and the export dialog render exactly these.
+   */
+  public async recheckAfter(since: number, timeoutMs = 30_000): Promise<unknown[]> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const found = this.results
+        .slice(since)
+        .find((entry) => entry.method === 'matteRecheckMedia');
+      if (found !== undefined) {
+        const answer = found.result as { ok?: boolean; issues?: unknown[] };
+        if (answer.ok !== true) throw new Error(`matteRecheckMedia failed: ${JSON.stringify(answer)}`);
+        return answer.issues ?? [];
+      }
+      if (Date.now() > deadline) throw new Error('No matteRecheckMedia answer arrived.');
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   }
 
   /** Push a main → renderer event to a bridge subscription. */
