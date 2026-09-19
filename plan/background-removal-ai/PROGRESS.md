@@ -10,7 +10,7 @@ Read this first after a context reset. Updated after every commit.
 
 Maintainer 2026-09-19: "finish everything; you can run the things on this laptop as well" (local runs allowed, one heavy job at a time, guard: stop if free memory < 25% or swap grows > 1.5 GB).
 Running:
-- Security review of the watchdog scratch-space change (ae8ef8a5) and resume adopting leftover staging (4c227ec1)
+- Security follow-ups on ae8ef8a5/4c227ec1: review APPROVED WITH FOLLOW-UPS — F1 (disk guard off when free space unknown) and F2 (resume reuses windows from different media) Medium, F3–F6 Low, tracking jobs lack a watchdog → fix agent running
 - E2E.7 cross-OS reopen: CI run 35437415890
 - MK7.7 correction through occlusion (exclusion region + constraint), night-plate margin
 - BR7.5 Smart Mask accuracy levers (subject-crop SAM pass, temporal consistency first, box as second prompt) in the CI eval
