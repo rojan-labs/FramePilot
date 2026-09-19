@@ -419,13 +419,13 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm --filter '@framepilot/capability-packs...' run build
       - name: Download the darwin-arm64 platform record (required)
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: capability-pack-platform-${{ matrix.pack }}-darwin-arm64
           path: platforms/darwin-arm64
       - name: Download the win32-x64 platform record (present only when that job built one)
         id: download-windows
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: capability-pack-platform-${{ matrix.pack }}-win32-x64
@@ -505,7 +505,7 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm --filter '@framepilot/capability-packs...' run build
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: capability-pack-record-*
           path: records
@@ -629,7 +629,7 @@ jobs:
         run: echo "::warning title=Not published::CAPABILITY_PACK_CDN_ACCESS_KEY_ID/CAPABILITY_PACK_CDN_SECRET_ACCESS_KEY/CAPABILITY_PACK_CDN_BUCKET are not fully configured; the signed artifacts and catalog were built but not uploaded."
       - name: Download every darwin-arm64 built artifact archive
         if: steps.gate.outputs.sign == 'true' && env.CDN_ACCESS_KEY_ID != '' && env.CDN_SECRET_ACCESS_KEY != '' && env.CDN_BUCKET != ''
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           # Exact patterns, not a loose wildcard: `capability-pack-platform-*` and
           # `capability-pack-record-*` (the slim per-platform/per-pack inputs to
@@ -640,7 +640,7 @@ jobs:
           path: built
       - name: Download every win32-x64 built artifact archive
         if: steps.gate.outputs.sign == 'true' && env.CDN_ACCESS_KEY_ID != '' && env.CDN_SECRET_ACCESS_KEY != '' && env.CDN_BUCKET != ''
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         continue-on-error: true # absent whenever build-windows-x64 did not produce one
         with:
           pattern: capability-pack-*-win32-x64

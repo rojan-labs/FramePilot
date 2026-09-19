@@ -511,7 +511,7 @@ jobs:
       - name: Sync engine dependencies
         working-directory: engine/python
         run: uv sync --extra dev
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: masking-archive-${{ matrix.from }}
           path: ${{ runner.temp }}/moved/archive
