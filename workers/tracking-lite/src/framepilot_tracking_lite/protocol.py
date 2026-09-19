@@ -25,6 +25,9 @@ TRACKING_CAPABILITIES: Final = ("tracking.planar", "tracking.point", "tracking.r
 #: Most extra points one ``tracking.point`` request may follow. Matches the mask vertex budget
 #: the host enforces (``TRACK_MAX_POINTS``), and bounds the per-frame flow cost.
 MAX_EXTRA_POINTS: Final = 512
+#: Most exclusion regions one request may carry (MK7.7). An editor draws one per occluder; the
+#: bound keeps the per-frame masking cost trivially small.
+MAX_EXCLUSIONS: Final = 16
 
 REQUEST_ID_PATTERN: Final = re.compile(r"^[A-Za-z0-9._:-]{1,256}$")
 IDENTIFIER_PATTERN: Final = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
@@ -117,6 +120,10 @@ class TrackingRequest:
     #: the frames in that order — the features it follows are detected on the frame the mask
     #: was drawn on, which is the range's LAST frame (MK7.2 "Directions").
     reverse: bool = False
+    #: Regions of the frame the tracker must ignore (MK7.7), normalized to the coded frame: what
+    #: the editor marked as passing in front of the tracked surface. Registration, its check and
+    #: the features it follows leave these pixels out, in the reference frame and every other.
+    exclusions: tuple[NormalizedBox, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,13 +278,14 @@ def _media(value: Any) -> MediaHandle:
 
 def _parameters(capability: str, value: Any) -> dict[str, Any]:
     if capability == "tracking.point":
-        raw = _object(value, {"point", "points", "reverse"}, "parameters")
+        raw = _object(value, {"point", "points", "reverse", "exclusions"}, "parameters")
         if "point" not in raw:
             raise _invalid("tracking.point requires parameters.point.")
         return {
             "point": _point(raw["point"], "parameters.point"),
             "points": _extra_points(raw.get("points")),
             "reverse": _reverse(raw.get("reverse")),
+            "exclusions": _exclusions(raw.get("exclusions")),
         }
     if capability == "tracking.region":
         raw = _object(value, {"region", "reverse"}, "parameters")
@@ -287,7 +295,7 @@ def _parameters(capability: str, value: Any) -> dict[str, Any]:
             "region": _box(raw["region"], "parameters.region"),
             "reverse": _reverse(raw.get("reverse")),
         }
-    raw = _object(value, {"corners", "reverse"}, "parameters")
+    raw = _object(value, {"corners", "reverse", "exclusions"}, "parameters")
     corners = raw.get("corners")
     if not isinstance(corners, list) or len(corners) != 4:
         raise _invalid("tracking.planar requires exactly four corners.")
@@ -296,6 +304,7 @@ def _parameters(capability: str, value: Any) -> dict[str, Any]:
             _point(corner, f"parameters.corners[{index}]") for index, corner in enumerate(corners)
         ),
         "reverse": _reverse(raw.get("reverse")),
+        "exclusions": _exclusions(raw.get("exclusions")),
     }
 
 
@@ -305,6 +314,17 @@ def _reverse(value: Any) -> bool:
     if not isinstance(value, bool):
         raise _invalid("parameters.reverse must be true or false.")
     return value
+
+
+def _exclusions(value: Any) -> tuple[NormalizedBox, ...]:
+    """Validate ``parameters.exclusions``: the regions the tracker must ignore (MK7.7)."""
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise _invalid("parameters.exclusions must be a list of boxes.")
+    if len(value) > MAX_EXCLUSIONS:
+        raise _invalid(f"parameters.exclusions exceeds the {MAX_EXCLUSIONS} region bound.")
+    return tuple(_box(box, f"parameters.exclusions[{index}]") for index, box in enumerate(value))
 
 
 def _extra_points(value: Any) -> tuple[NormalizedPoint, ...]:
@@ -367,6 +387,7 @@ def parse_input_line(line: str) -> TrackingRequest | CancelMessage:
         corners=parameters.get("corners"),
         points=parameters.get("points", ()),
         reverse=bool(parameters.get("reverse", False)),
+        exclusions=parameters.get("exclusions", ()),
     )
 
 

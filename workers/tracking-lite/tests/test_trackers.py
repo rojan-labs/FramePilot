@@ -22,7 +22,12 @@ from conftest import (
 )
 
 from framepilot_tracking_lite.policy import run_tracker
-from framepilot_tracking_lite.protocol import TrackingRequest, TrackingSample
+from framepilot_tracking_lite.protocol import (
+    NormalizedBox,
+    NormalizedPoint,
+    TrackingRequest,
+    TrackingSample,
+)
 from framepilot_tracking_lite.runtime import build_tracker
 from framepilot_tracking_lite.trackers.point import MAX_ROUND_TRIP_PIXELS
 
@@ -200,3 +205,76 @@ def test_planar_feature_order_is_stable_regardless_of_detection_order() -> None:
         planar_request(media=media_handle(0, 5)),
     )
     assert [sample.box for sample in first] == [sample.box for sample in second]
+
+
+# --- exclusions (MK7.7) --------------------------------------------------------------------
+
+
+OCCLUDER = NormalizedBox(x=0.2, y=0.25, width=0.15, height=0.3)
+
+
+def occluder_pixels() -> tuple[float, float, float, float]:
+    return (
+        OCCLUDER.x * WIDTH,
+        OCCLUDER.y * HEIGHT,
+        OCCLUDER.width * WIDTH,
+        OCCLUDER.height * HEIGHT,
+    )
+
+
+def test_planar_exclusion_follows_the_occluder_it_was_drawn_around() -> None:
+    """The box stays where the editor drew it on the reference and moves with its content after."""
+    backend = ScriptedBackend(trajectory=linear_trajectory(2.0, 0.0), occluder_motion=(5.0, 1.0))
+    samples = track(backend, planar_request(media=media_handle(0, 5), exclusions=(OCCLUDER,)))
+    assert len(samples) == 5
+    drawn = occluder_pixels()
+    assert backend.detect_exclusions == [(drawn,)]
+    for current, on_reference, on_current in backend.align_exclusions:
+        assert on_reference == (drawn,)
+        (box,) = on_current
+        assert box[0] == pytest.approx(drawn[0] + 5.0 * current)
+        assert box[1] == pytest.approx(drawn[1] + 1.0 * current)
+        assert box[2:] == pytest.approx(drawn[2:])
+
+
+def test_an_exclusion_whose_content_is_lost_keeps_its_motion() -> None:
+    """An occluder does not stop because it became hard to see: it keeps its last velocity."""
+    backend = ScriptedBackend(occluder_motion=(4.0, 0.0), occluder_unseen_frames={3, 4})
+    track(backend, planar_request(media=media_handle(0, 5), exclusions=(OCCLUDER,)))
+    drawn = occluder_pixels()
+    by_frame = {current: on_current[0] for current, _, on_current in backend.align_exclusions}
+    assert by_frame[2][0] == pytest.approx(drawn[0] + 8.0)
+    assert by_frame[3][0] == pytest.approx(drawn[0] + 12.0)
+    assert by_frame[4][0] == pytest.approx(drawn[0] + 16.0)
+
+
+def test_a_track_without_exclusions_registers_exactly_as_before() -> None:
+    backend = ScriptedBackend()
+    track(backend, planar_request(media=media_handle(0, 4)))
+    assert all(
+        on_reference == () and on_current == ()
+        for _, on_reference, on_current in backend.align_exclusions
+    )
+
+
+def test_a_shape_keeps_measuring_when_the_occluder_sweeps_its_centre() -> None:
+    """With an exclusion the vertices are the measurement: a lost centre point drops nothing."""
+    vertices = (
+        NormalizedPoint(x=0.4, y=0.4),
+        NormalizedPoint(x=0.6, y=0.4),
+        NormalizedPoint(x=0.6, y=0.6),
+        NormalizedPoint(x=0.4, y=0.6),
+    )
+    lost_centre = {2: MAX_ROUND_TRIP_PIXELS + 5.0}
+    plain = track(
+        ScriptedBackend(round_trip_errors=lost_centre),
+        point_request(media=media_handle(0, 5), points=vertices),
+    )
+    assert plain[2].occluded is True
+    marked = track(
+        ScriptedBackend(round_trip_errors=lost_centre),
+        point_request(media=media_handle(0, 5), points=vertices, exclusions=(OCCLUDER,)),
+    )
+    assert marked[2].occluded is False
+    assert marked[2].points is not None
+    assert marked[2].confidence > 0.5

@@ -25,11 +25,15 @@ HOST's rule (confidence penalised by the model residual, under 0.5) flags it —
 `mask-track-solve.ts` applies, never the true error. A worker refusal (`target_lost`) is recorded
 as its own mode and never counted as a catch.
 
-**Correction** follows `mask-track-review.ts`: one constraint per flagged range, at its middle
-frame, carrying the editor's corrected geometry (the truth there); `retrackPlan` decides what is
-re-measured, each segment is measured outwards from its constraint and anchored ON it, and every
-frame takes the segment of its nearest constraint, the previous track elsewhere. A failing range
-(a flagged range holding a wrong frame) is recovered when every frame in it is within 2 px.
+**Correction** is what an editor does (MK7.7), scripted: per flagged range, at its middle frame,
+ONE mask adjustment (the mask put where the plane is on that frame — for a plane, the part the
+editor can see fixes the whole of it) and, when something is in front of the mask there, ONE
+exclusion box drawn around that occluder as it appears on that frame. Nothing else of the
+construction is read: not the occluder's path, not the truth on any other frame.
+`retrackPlan` decides what is re-measured; each segment is measured outwards from its constraint
+with the exclusion, and anchored ON it; every frame takes the segment of its nearest constraint,
+the previous track elsewhere. A failing range (a flagged range holding a wrong frame) is
+recovered when every frame in it is within 2 px.
 
 Every run writes `tracking-gates-real-texture.json` beside the test.
 """
@@ -388,10 +392,12 @@ def measure(
     first: int,
     last_exclusive: int,
     reverse: bool,
+    exclusions: list[rt.Box] | None = None,
 ) -> dict[int, rt.TrackedFrame]:
     """One worker measurement of the case's media, turned into host geometry per frame."""
     method = run.case.method
     size = run.scene.size
+    excluded = exclusions or []
     if method == "point-cloud":
         box = bounds_quad(geometry)
         centre = ((box[0][0] + box[2][0]) / 2, (box[0][1] + box[2][1]) / 2)
@@ -403,6 +409,7 @@ def measure(
             point=centre,
             points=geometry,
             reverse=reverse,
+            exclusions=excluded,
         )
     else:
         request = rt.request(
@@ -412,6 +419,7 @@ def measure(
             last_exclusive=last_exclusive,
             quad=bounds_quad(geometry),
             reverse=reverse,
+            exclusions=excluded,
         )
     samples = rt.run(request)
     return rt.host_track(
@@ -592,24 +600,18 @@ def test_confidence_flags_the_frames_the_tracker_measures_wrong(media: Path) -> 
     assert recall >= RECALL, f"recall {recall:.4f}: {caught}/{wrong} wrong frames flagged"
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "MK7.5 open row. Every failing range left is a ~40-frame partial occlusion, and one "
-        "constraint re-tracks the whole span through the same occlusion: from a constraint "
-        "inside it the reference itself shows the occluder, from its edges the hidden corners "
-        "are extrapolated as before. Measured 0-1 of 5 wherever the constraint is placed "
-        "(middle, first or last frame). Recorded in MK7-TRACKING-GATES.md with the design it "
-        "needs."
-    ),
-)
 def test_one_constraint_per_flagged_range_brings_it_back_within_the_gate(media: Path) -> None:
-    """Plan 06: one constraint frame brings a failing range back within gate in ≥ 95 % of cases."""
+    """Plan 06: one constraint frame brings a failing range back within gate in ≥ 95 % of cases.
+
+    The correction is the editor's (MK7.7): one mask adjustment on the range's middle frame and,
+    when an occluder is over the mask there, one exclusion box around it. Both are counted.
+    """
     failing = 0
     recovered = 0
     all_ranges = 0
     all_recovered = 0
     regressions = 0
+    actions = 0
     by_case: dict[str, Any] = {}
     for case in CASES:
         run = get_run(case.name, media)
@@ -620,9 +622,10 @@ def test_one_constraint_per_flagged_range_brings_it_back_within_the_gate(media: 
         if not ranges:
             continue
         anchors = [(start + end - 1) // 2 for start, end in ranges]
-        corrected = correct(run, anchors, confidence)
+        corrections = [editor_correction(run, anchor) for anchor in anchors]
+        corrected = correct(run, corrections, confidence)
         rows = []
-        for (start, end), anchor in zip(ranges, anchors, strict=True):
+        for (start, end), correction in zip(ranges, corrections, strict=True):
             was_failing = any(run.errors[f] > WRONG_PX for f in range(start, end))
             after = max(corrected[f] for f in range(start, end))
             ok = after <= WRONG_PX
@@ -631,10 +634,13 @@ def test_one_constraint_per_flagged_range_brings_it_back_within_the_gate(media: 
             if was_failing:
                 failing += 1
                 recovered += ok
+                actions += 1 + len(correction.exclusions)
             rows.append(
                 {
                     "range": [start, end],
-                    "constraint": anchor,
+                    "constraint": correction.frame,
+                    "exclusions": [list(box) for box in correction.exclusions],
+                    "actions": 1 + len(correction.exclusions),
                     "failing": was_failing,
                     "worstBeforePx": max(run.errors[f] for f in range(start, end)),
                     "worstAfterPx": after,
@@ -658,6 +664,7 @@ def test_one_constraint_per_flagged_range_brings_it_back_within_the_gate(media: 
             "failingRanges": failing,
             "recovered": recovered,
             "rate": rate,
+            "editorActions": actions,
             "flaggedRanges": all_ranges,
             "flaggedRangesWithinGate": all_recovered,
             "regressedFrames": regressions,
@@ -666,23 +673,72 @@ def test_one_constraint_per_flagged_range_brings_it_back_within_the_gate(media: 
     )
     assert failing > 0, "no failing ranges: there is nothing to measure correction on"
     assert rate >= CORRECTION, f"correction {rate:.3f}: {recovered}/{failing} failing ranges"
+    assert regressions == 0, f"{regressions} frames outside the flagged ranges were made worse"
 
 
-def correct(run: Run, anchors: list[int], confidence: dict[int, float]) -> dict[int, float]:
-    """Constraints at `anchors` → re-track → the worst error per frame after the merge."""
+@dataclass
+class Correction:
+    """What the editor did on one flagged range: fixed the mask on `frame`, and boxed what was
+    in front of it there."""
+
+    frame: int
+    geometry: list[tuple[float, float]]
+    exclusions: list[rt.Box]
+
+
+def editor_correction(run: Run, frame: int) -> Correction:
+    """The editor's two actions on `frame`, from what that frame shows and nothing else.
+
+    The mask goes where the plane is on that frame (for a plane, what is visible of it fixes the
+    corners it hides). An exclusion is drawn around each foreground element that sits over the
+    mask on that frame, as it appears there; a shadow or a light change is not an object and
+    gets none.
+    """
     scene = run.scene
-    plan = rt.retrack_plan(confidence, anchors, 0, scene.frames)
+    relative = scene.truth(frame) @ np.linalg.inv(scene.truth(0))
+    geometry = [rt.warp_point(relative, point) for point in run.geometry]
+    box = bounds_quad(geometry)
+    exclusions: list[rt.Box] = []
+    for layer in scene.layers:
+        if layer.extent is None:
+            continue
+        seen = layer.extent(float(frame))
+        if seen is None:
+            continue
+        if (
+            seen[0] < box[1][0]
+            and box[0][0] < seen[0] + seen[2]
+            and seen[1] < box[2][1]
+            and (box[0][1] < seen[1] + seen[3])
+        ):
+            exclusions.append(seen)
+    return Correction(frame=frame, geometry=geometry, exclusions=exclusions)
+
+
+def correct(
+    run: Run, corrections: list[Correction], confidence: dict[int, float]
+) -> dict[int, float]:
+    """Corrections → re-track → the worst error per frame after the merge."""
+    scene = run.scene
+    by_frame = {correction.frame: correction for correction in corrections}
+    plan = rt.retrack_plan(confidence, list(by_frame), 0, scene.frames)
     chosen: dict[int, tuple[int, float]] = {}
     for reference, first, last_exclusive, reverse in plan:
-        # The editor fixed the mask on the constraint frame: its geometry there is the truth.
-        relative = scene.truth(reference) @ np.linalg.inv(scene.truth(0))
-        geometry = [rt.warp_point(relative, point) for point in run.geometry]
+        correction = by_frame[reference]
         try:
-            segment = measure(run, geometry, reference, first, last_exclusive, reverse)
+            segment = measure(
+                run,
+                correction.geometry,
+                reference,
+                first,
+                last_exclusive,
+                reverse,
+                correction.exclusions,
+            )
         except TargetLostError:
             continue
         for frame, tracked in segment.items():
-            error = rt.frame_error(scene, tracked, reference, geometry)
+            error = rt.frame_error(scene, tracked, reference, correction.geometry)
             distance = abs(frame - reference)
             current = chosen.get(frame)
             if current is None or distance < current[0]:

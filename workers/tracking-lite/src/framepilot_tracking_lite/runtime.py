@@ -127,14 +127,18 @@ class ReversedFrameSource:
 def build_tracker(
     request: TrackingRequest, backend: TrackingBackend, width: int, height: int
 ) -> Tracker:
+    exclusions = tuple(
+        (box.x * width, box.y * height, box.width * width, box.height * height)
+        for box in request.exclusions
+    )
     if request.capability == "tracking.point":
         assert request.point is not None
-        return PointTracker(backend, request.point, width, height, request.points)
+        return PointTracker(backend, request.point, width, height, request.points, exclusions)
     if request.capability == "tracking.region":
         assert request.region is not None
         return RegionTracker(backend, request.region, width, height)
     assert request.corners is not None
-    return PlanarTracker(backend, request.corners, width, height)
+    return PlanarTracker(backend, request.corners, width, height, exclusions)
 
 
 def execute_request(

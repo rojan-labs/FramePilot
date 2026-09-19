@@ -32,9 +32,10 @@ homography to the motion model the editor asked for.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Final
 
-from ..backend import Alignment, Frame, TrackingBackend
+from ..backend import Alignment, Frame, PixelBox, TrackingBackend
 from ..geometry import (
     IDENTITY,
     Matrix3x3,
@@ -47,6 +48,7 @@ from ..geometry import (
 )
 from ..policy import Measurement, Tracker
 from ..protocol import NormalizedPoint
+from .exclusions import ExclusionFollower
 
 #: A homography needs four correspondences; below that no plane exists.
 MIN_CORRESPONDENCES: Final = 4
@@ -105,11 +107,17 @@ class PlanarTracker(Tracker):
         corners: tuple[NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint],
         width: int,
         height: int,
+        exclusions: Sequence[PixelBox] = (),
     ) -> None:
         self._backend = backend
         self._width = width
         self._height = height
         self._corners: list[Point] = [to_pixels(corner, width, height) for corner in corners]
+        #: Frame regions the editor said are not the plane (MK7.7), as drawn on the reference
+        #: frame. They follow what they cover (`ExclusionFollower`); no feature is taken from
+        #: them, no flow that lands in them votes, and registration and its check ignore them.
+        self._exclusions: tuple[PixelBox, ...] = tuple(exclusions)
+        self._follower: ExclusionFollower | None = None
         self._reference: list[Point] = []
         self._current: list[Point] = []
         self._previous: Frame | None = None
@@ -120,12 +128,16 @@ class PlanarTracker(Tracker):
     def initialize(self, frame: Frame) -> Measurement:
         self._previous = frame
         self._reference_frame = frame
+        if self._exclusions:
+            self._follower = ExclusionFollower(self._backend, frame, self._exclusions)
         xs = [corner[0] for corner in self._corners]
         ys = [corner[1] for corner in self._corners]
         quad = (min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
         # Stable ordering: features are sorted so the same frame always produces
         # the same correspondence order, and therefore the same RANSAC outcome.
-        features = sorted(self._backend.detect_features(frame, quad, MAX_FEATURES))
+        features = sorted(
+            self._backend.detect_features(frame, quad, MAX_FEATURES, self._exclusions)
+        )
         if len(features) < MIN_CORRESPONDENCES:
             return Measurement(box=None, confidence=0.0)
         self._reference = list(features)
@@ -142,11 +154,12 @@ class PlanarTracker(Tracker):
         reference_frame = self._reference_frame
         if previous is None or reference_frame is None or not self._reference:
             return Measurement(box=None, confidence=0.0)
-        flow_guesses, error_confidence, chained = self._flow_guesses(previous, frame)
+        covered = self._follower.follow(frame) if self._follower is not None else ()
+        flow_guesses, error_confidence, chained = self._flow_guesses(previous, frame, covered)
         self._previous = frame
         guesses = [*flow_guesses, self._anchor]
         alignment = self._backend.align(
-            reference_frame, frame, self._corners, guesses, "homography"
+            reference_frame, frame, self._corners, guesses, "homography", self._exclusions, covered
         )
         if alignment is None or alignment.cells == 0:
             self._current = chained
@@ -166,7 +179,7 @@ class PlanarTracker(Tracker):
         )
 
     def _flow_guesses(
-        self, previous: Frame, frame: Frame
+        self, previous: Frame, frame: Frame, covered: Sequence[PixelBox] = ()
     ) -> tuple[list[Matrix3x3], float, list[Point]]:
         """Planes the flow supports, as the registration's starting guesses.
 
@@ -184,6 +197,9 @@ class PlanarTracker(Tracker):
             if not sample.ok or index >= len(self._reference):
                 continue
             chained[index] = sample.point
+            if _inside_any(sample.point, covered):
+                # A feature the occluder has swept up moves with the occluder, not the plane.
+                continue
             reference.append(self._reference[index])
             tracked.append(sample.point)
             errors.append(sample.error)
@@ -222,3 +238,11 @@ class PlanarTracker(Tracker):
             moved = apply_homography(alignment.matrix, feature)
             anchored.append(moved if moved is not None else chained[index])
         self._current = anchored
+
+
+def _inside_any(point: Point, boxes: Sequence[PixelBox]) -> bool:
+    """Whether `point` falls in any of `boxes` (left, top, width, height), edges included."""
+    x, y = point
+    return any(
+        left <= x <= left + width and top <= y <= top + height for left, top, width, height in boxes
+    )

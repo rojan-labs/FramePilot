@@ -42,6 +42,7 @@ from framepilot_tracking_lite.opencv_backend import OpenCvBackend
 from framepilot_tracking_lite.policy import run_tracker
 from framepilot_tracking_lite.protocol import (
     MediaHandle,
+    NormalizedBox,
     NormalizedPoint,
     TrackingRequest,
     TrackingSample,
@@ -135,11 +136,19 @@ def render(image: np.ndarray, matrix: Matrix, size: tuple[int, int]) -> np.ndarr
 # --- the scene ------------------------------------------------------------------------------
 
 
+Box = tuple[float, float, float, float]
+
+
 @dataclass
 class Layer:
     """A foreground element: colour and alpha in frame pixels at time t, or None when absent."""
 
     draw: Callable[[float], tuple[np.ndarray, np.ndarray] | None]
+    #: Where the element is on the picture at time t, ``(left, top, width, height)`` in frame
+    #: pixels, or None when absent — what an editor SEES of an occluder, and so what they can
+    #: draw an exclusion region around (MK7.7). None for a layer that is not an object (a
+    #: shadow, a light change).
+    extent: Callable[[float], Box | None] | None = None
 
 
 @dataclass
@@ -222,7 +231,11 @@ def moving_patch(
         alpha = cv2.warpPerspective(mask, shift, size, flags=cv2.INTER_LINEAR)
         return colour, alpha
 
-    return Layer(draw)
+    def extent(t: float) -> Box | None:
+        where = path(t)
+        return None if where is None else (where[0], where[1], float(width), float(height))
+
+    return Layer(draw, extent)
 
 
 # --- encoding -------------------------------------------------------------------------------
@@ -298,6 +311,20 @@ def normalized(point: tuple[float, float], size: tuple[int, int]) -> NormalizedP
     return NormalizedPoint(x=point[0] / size[0], y=point[1] / size[1])
 
 
+def normalized_box(box: Box, size: tuple[int, int]) -> NormalizedBox:
+    """A frame-pixel box clipped to the frame and normalized, as the host sends an exclusion."""
+    left = min(max(box[0], 0.0), float(size[0]))
+    top = min(max(box[1], 0.0), float(size[1]))
+    right = min(max(box[0] + box[2], 0.0), float(size[0]))
+    bottom = min(max(box[1] + box[3], 0.0), float(size[1]))
+    return NormalizedBox(
+        x=left / size[0],
+        y=top / size[1],
+        width=(right - left) / size[0],
+        height=(bottom - top) / size[1],
+    )
+
+
 def request(
     *,
     path: Path,
@@ -308,6 +335,7 @@ def request(
     point: tuple[float, float] | None = None,
     points: Sequence[tuple[float, float]] = (),
     reverse: bool = False,
+    exclusions: Sequence[Box] = (),
 ) -> TrackingRequest:
     media = MediaHandle(
         handle_id="h",
@@ -319,6 +347,7 @@ def request(
         first_frame=first,
         last_frame_exclusive=last_exclusive,
     )
+    excluded = tuple(normalized_box(box, size) for box in exclusions)
     if quad is not None:
         corners = tuple(normalized(corner, size) for corner in quad)
         return TrackingRequest(
@@ -328,6 +357,7 @@ def request(
             media=media,
             corners=corners,  # type: ignore[arg-type]
             reverse=reverse,
+            exclusions=excluded,
         )
     assert point is not None
     return TrackingRequest(
@@ -338,6 +368,7 @@ def request(
         point=normalized(point, size),
         points=tuple(normalized(p, size) for p in points),
         reverse=reverse,
+        exclusions=excluded,
     )
 
 

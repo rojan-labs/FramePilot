@@ -17,6 +17,12 @@ from .geometry import Matrix3x3, Point
 #: An opaque decoded frame. Only the backend interprets it.
 Frame = Any
 
+#: A region of the frame the tracker must ignore, ``(left, top, width, height)`` in frame pixels
+#: (MK7.7). An editor draws one over whatever passes in front of the tracked surface — a hand, a
+#: passer-by — and the backend leaves those pixels out of registration and of the check, in the
+#: reference frame and in every tracked frame alike.
+PixelBox = tuple[float, float, float, float]
+
 
 class MediaUnreadableError(Exception):
     """The approved media handle could not be opened or decoded."""
@@ -128,7 +134,11 @@ class TrackingBackend(Protocol):
     ) -> RegionTracker: ...
 
     def detect_features(
-        self, frame: Frame, box_pixels: tuple[float, float, float, float], max_features: int
+        self,
+        frame: Frame,
+        box_pixels: tuple[float, float, float, float],
+        max_features: int,
+        exclusions: Sequence[PixelBox] = (),
     ) -> Sequence[Point]: ...
 
     def estimate_homography(
@@ -142,10 +152,28 @@ class TrackingBackend(Protocol):
         region: Sequence[Point],
         guesses: Sequence[Matrix3x3],
         motion: str,
+        reference_exclusions: Sequence[PixelBox] = (),
+        current_exclusions: Sequence[PixelBox] = (),
     ) -> Alignment | None:
         """Register ``region`` of ``reference`` onto ``current``, starting from each guess.
 
         ``motion`` is ``"homography"`` (a plane) or ``"affine"`` (a small patch around a shape
         vertex). The best-verified candidate wins; ``None`` means the region could not be
         registered at all (it left the frame, or is degenerate).
+
+        Exclusions (MK7.7) are where an occluder is in each of the two frames: those pixels take
+        no part in the fit or the check. The region's pixels an occluder hid in the REFERENCE
+        are not lost for good: once a frame registers cleanly with them in view, the backend
+        keeps them as part of the reference, so a plane uncovered after the frame the mask was
+        fixed on can be registered on all of what it shows.
+        """
+
+    def follow_region(
+        self, reference: Frame, box: PixelBox, current: Frame, predicted: PixelBox
+    ) -> tuple[PixelBox, float] | None:
+        """Where the content of ``box`` in ``reference`` is in ``current``, searched near
+        ``predicted``, and how well it matched (0..1).
+
+        This is how an exclusion follows the occluder it was drawn around (MK7.7). ``None``
+        when the content is too flat to follow or the search left the frame.
         """

@@ -23,6 +23,7 @@ from .backend import (
     Frame,
     HomographyEstimate,
     MediaUnreadableError,
+    PixelBox,
     RegionUpdate,
 )
 from .geometry import Matrix3x3, Point
@@ -101,7 +102,40 @@ DISAGREEMENT_MIN_CELLS: Final = 16
 REFIT_MIN_CELLS: Final = 8
 #: RANSAC tolerance for that re-fit, working pixels.
 REFIT_THRESHOLD: Final = 1.0
+#: Local lighting normalisation (MK7.7): each image divided by its own local contrast over this
+#: many working pixels, so a shadow edge across the plane is no longer a change ECC must explain.
+LIGHT_SIGMA: Final = 8.0
+#: Variance floor (grey levels squared) of that division, so flat noise is not amplified to
+#: texture.
+LIGHT_VARIANCE_FLOOR: Final = 4.0
+#: Verifiable cells a region needs before the light-normalised fit is offered to the check. The
+#: check chooses between fits by their agreeing cells; on a vertex patch's ~16 cells one cell is
+#: 6 %, and the normalised fit won there by a cell while measuring a shape 0.06 px worse (median,
+#: real foliage). A plane has 70-120 cells.
+LIGHT_MIN_CELLS: Final = 32
 _TEMPLATE_CACHE_LIMIT: Final = 1024
+#: Working pixels an exclusion is grown by (MK7.7). ECC smooths both images (5 px kernel) and the
+#: check blurs its cells, so the pixels just outside an occluder carry some of it; they are
+#: excluded with it rather than letting the blur leak the occluder back into the fit.
+EXCLUSION_MARGIN: Final = 4
+#: A plane's reference is averaged with this many cleanly verified frames, then left alone: the
+#: coding noise it carries falls with the square root of the count, and the gain had flattened
+#: by 8-16 on low-light proxy footage.
+LEARN_FRAMES: Final = 8
+#: Verifiable cells a region needs before its reference is averaged — a plane, not a vertex
+#: patch (the same reasoning as `LIGHT_MIN_CELLS`).
+LEARN_MIN_CELLS: Final = 32
+#: A registration this well verified may teach the reference the pixels an occluder hid there.
+REVEAL_AGREEMENT: Final = 0.95
+REVEAL_MIN_CELLS: Final = 8
+REVEAL_MAX_DISAGREEMENT_PX: Final = 0.5
+#: Following an exclusion's content: matched on at most this many pixels (sub-pixel is not
+#: needed — the exclusion is grown by a margin — and a large occluder must stay cheap), within a
+#: reach of this fraction of the box's larger side (at least FOLLOW_MIN_REACH px) of where its
+#: motion so far predicts it.
+FOLLOW_MAX_PIXELS: Final = 16_384
+FOLLOW_REACH_FRACTION: Final = 0.25
+FOLLOW_MIN_REACH: Final = 16
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,6 +401,14 @@ class _Template:
     #: Nominal working scale (1 on anything up to ~400 x 400 px of region).
     scale: float
     size: tuple[int, int]
+    #: The region's own polygon, before any exclusion: where ``mask`` is 0 inside it, an
+    #: occluder hid the plane on the reference frame, and those are the pixels a later frame
+    #: can reveal (MK7.7).
+    region_mask: Any = None
+    #: Per pixel, how many frames the template's value is the mean of (None: the reference's).
+    samples: Any = None
+    #: Verified frames averaged into the reference so far (`LEARN_FRAMES` at most).
+    learned: int = 0
 
 
 @dataclass(slots=True)
@@ -377,8 +419,12 @@ class _Working:
     image: Any
     #: Current pixels → working pixels.
     to_working: Any
-    #: 1 where the working image exists — the check ignores cells that left the frame.
+    #: 1 where the working image exists — the check ignores cells that left the frame, and
+    #: every pixel an exclusion covers (MK7.7).
     valid: Any
+    #: Whether any exclusion zeroed part of ``valid``: only then is registration masked by it,
+    #: so a request without exclusions registers exactly as before.
+    excluded: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -404,7 +450,9 @@ class OpenCvBackend:
         _configure_opencv()
         self._name = f"opencv-{cv2.__version__}-cpu"
         self._templates: dict[tuple[Any, ...], _Template] = {}
-        self._working: dict[float, _Working] = {}
+        self._working: dict[Any, _Working] = {}
+        #: Light-normalised images, by the id of the template or working frame they belong to.
+        self._lit: dict[int, tuple[Any, Any]] = {}
 
     @property
     def name(self) -> str:
@@ -458,12 +506,17 @@ class OpenCvBackend:
         return OpenCvRegionTracker(frame, box_pixels)
 
     def detect_features(
-        self, frame: Frame, box_pixels: tuple[float, float, float, float], max_features: int
+        self,
+        frame: Frame,
+        box_pixels: tuple[float, float, float, float],
+        max_features: int,
+        exclusions: Sequence[PixelBox] = (),
     ) -> Sequence[Point]:
         gray = frame.gray
         mask = np.zeros(gray.shape[:2], dtype=np.uint8)
         left, top, width, height = (round(value) for value in box_pixels)
         mask[max(top, 0) : top + max(height, 1), max(left, 0) : left + max(width, 1)] = 255
+        _clear_boxes(mask, exclusions, np.eye(3), EXCLUSION_MARGIN)
         found = cv2.goodFeaturesToTrack(
             gray, maxCorners=max_features, qualityLevel=0.01, minDistance=4, mask=mask
         )
@@ -500,11 +553,14 @@ class OpenCvBackend:
         region: Sequence[Point],
         guesses: Sequence[Matrix3x3],
         motion: str,
+        reference_exclusions: Sequence[PixelBox] = (),
+        current_exclusions: Sequence[PixelBox] = (),
     ) -> Alignment | None:
-        template = self._template(reference, region)
+        hidden = _boxes(reference_exclusions)
+        template = self._template(reference, region, hidden)
         if template is None or not guesses:
             return None
-        working = self._working_frame(current, template.scale)
+        working = self._working_frame(current, template.scale, _boxes(current_exclusions))
         best: _Checked | None = None
         for guess in guesses:
             start = np.array(guess, dtype=np.float64)
@@ -520,21 +576,155 @@ class OpenCvBackend:
                 break
         if best is None:
             return None
+        lit = False
+        if not _clean(best) and best.cells >= LIGHT_MIN_CELLS:
+            # ECC models a lighting change as one gain and offset. A shadow edge across the
+            # plane — on this frame or on the reference — is not one, and least squares bends
+            # the plane to absorb it (2-3 px at a corner, measured on real foliage). Registered
+            # on images normalised by their own local contrast the edge is gone; the check,
+            # which is locally normalised already, decides which fit shows the plane.
+            candidate = self._refine(template, working, best.matrix, motion, lit=True)
+            if candidate is not None:
+                checked = _check(template, working, candidate)
+                if _score(checked) > _score(best):
+                    best, lit = checked, True
         if best.agreement < 1.0 or best.cells >= REREGISTER_ALWAYS_CELLS:
-            best = self._reregister(template, working, best, motion)
+            best = self._reregister(template, working, best, motion, lit)
         if not _clean(best):
-            best = self._refit(template, working, best, motion)
+            best = self._refit(template, working, best, motion, lit)
+        disagreement = _disagreement(template, best, region, motion)
+        if _reveals(best, disagreement):
+            average = (
+                motion == "homography"
+                and best.cells >= LEARN_MIN_CELLS
+                and template.learned < LEARN_FRAMES
+            )
+            if hidden or average:
+                key = (id(reference), tuple(region), hidden)
+                self._learn(key, template, working, best.matrix, average)
         return Alignment(
             matrix=_rows(best.matrix),
             agreement=best.agreement,
             contradiction=best.contradiction,
             cells=best.cells,
             weakest_quadrant=best.weakest_quadrant,
-            disagreement=_disagreement(template, best, region, motion),
+            disagreement=disagreement,
         )
 
+    def _learn(
+        self,
+        key: tuple[Any, ...],
+        template: _Template,
+        working: _Working,
+        matrix: Any,
+        average: bool,
+    ) -> None:
+        """Teach the reference what a cleanly verified frame shows of the plane (MK7.7).
+
+        Two lessons, both taken through the frame's own verified registration, so the reference
+        keeps its geometry — it is still the frame the mask was drawn on:
+
+        * **Revealed pixels.** The mask may have been fixed on a frame where something covered
+          part of it. Pixels of the plane that frame hid, and this one shows, are filled in once
+          and never overwritten: later frames are registered on all the plane they show, not
+          only on what the reference happened to show.
+        * **A quieter reference** (`average`). The reference's own coding noise is a large share
+          of every frame's error on low-light, proxy-grade footage: the same plane measured
+          0.46-0.71 px depending only on which frame was the reference. Averaging it with the
+          first few frames that verify cleanly divides that noise.
+
+        Pixels the current frame does not show (excluded, or off the frame) teach nothing.
+        """
+        missing = (
+            (template.region_mask > 0) & (template.mask == 0)
+            if template.region_mask is not None
+            else None
+        )
+        fills = missing is not None and bool(missing.any())
+        if not fills and not average:
+            return
+        width, height = template.size
+        warp = working.to_working @ matrix @ template.to_reference
+        inverse = cv2.WARP_INVERSE_MAP
+        shown = cv2.warpPerspective(
+            working.valid,
+            warp,
+            (width, height),
+            flags=cv2.INTER_NEAREST | inverse,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
+        # Keep a margin from what is still hidden: the check and ECC both blur, and a pixel next
+        # to the occluder would carry some of it.
+        shown = cv2.erode(shown, np.ones((2 * EXCLUSION_MARGIN + 1,) * 2, np.uint8)) > 0
+        image = template.image.copy()
+        mask = template.mask.copy()
+        samples = (
+            template.samples.copy()
+            if template.samples is not None
+            else (template.mask > 0).astype(np.float32)
+        )
+        if fills and missing is not None:
+            fill = missing & shown
+            if fill.any():
+                rectified = cv2.warpPerspective(
+                    working.image, warp, (width, height), flags=cv2.INTER_LINEAR | inverse
+                )
+                image[fill] = rectified[fill]
+                mask[fill] = 255
+                samples[fill] = 1.0
+        if average:
+            blend = (template.mask > 0) & shown
+            rectified = cv2.warpPerspective(
+                working.image,
+                warp,
+                (width, height),
+                flags=cv2.INTER_CUBIC | inverse,
+                borderMode=cv2.BORDER_REPLICATE,
+            )
+            image[blend] = (image[blend] * samples[blend] + rectified[blend]) / (samples[blend] + 1)
+            samples[blend] += 1.0
+        self._templates[key] = _with_pixels(
+            template, image, mask, samples, template.learned + (1 if average else 0)
+        )
+
+    def follow_region(
+        self, reference: Frame, box: PixelBox, current: Frame, predicted: PixelBox
+    ) -> tuple[PixelBox, float] | None:
+        gray = reference.gray
+        height, width = gray.shape[:2]
+        x0, y0 = max(round(box[0]), 0), max(round(box[1]), 0)
+        x1, y1 = min(round(box[0] + box[2]), width), min(round(box[1] + box[3]), height)
+        if x1 - x0 < CHECK_CELL_MIN or y1 - y0 < CHECK_CELL_MIN:
+            return None
+        scale = min(1.0, float(np.sqrt(FOLLOW_MAX_PIXELS / float((x1 - x0) * (y1 - y0)))))
+        size = (max(round((x1 - x0) * scale), 8), max(round((y1 - y0) * scale), 8))
+        patch = cv2.resize(gray[y0:y1, x0:x1], size, interpolation=cv2.INTER_AREA)
+        if float(patch.std()) < CHECK_MIN_TEXTURE:
+            return None
+        fx, fy = size[0] / (x1 - x0), size[1] / (y1 - y0)
+        reach = max(FOLLOW_MIN_REACH, round(FOLLOW_REACH_FRACTION * max(x1 - x0, y1 - y0)))
+        # Where the crop would sit if the box moved exactly as predicted.
+        px, py = predicted[0] + (x0 - box[0]), predicted[1] + (y0 - box[1])
+        sx0, sy0 = max(round(px) - reach, 0), max(round(py) - reach, 0)
+        current_gray = current.gray
+        sx1 = min(round(px) + (x1 - x0) + reach, current_gray.shape[1])
+        sy1 = min(round(py) + (y1 - y0) + reach, current_gray.shape[0])
+        search_size = (round((sx1 - sx0) * fx), round((sy1 - sy0) * fy))
+        if search_size[0] <= size[0] or search_size[1] <= size[1]:
+            return None
+        search = cv2.resize(
+            current_gray[sy0:sy1, sx0:sx1], search_size, interpolation=cv2.INTER_AREA
+        )
+        scores = cv2.matchTemplate(search, patch, cv2.TM_CCOEFF_NORMED)
+        _, peak, _, location = cv2.minMaxLoc(scores)
+        found_x = sx0 + (location[0] + _vertex(scores, location, axis=1)) / fx
+        found_y = sy0 + (location[1] + _vertex(scores, location, axis=0)) / fy
+        moved = (found_x - (x0 - box[0]), found_y - (y0 - box[1]), box[2], box[3])
+        return moved, max(float(peak), 0.0)
+
     def _reregister(
-        self, template: _Template, working: _Working, best: _Checked, motion: str
+        self, template: _Template, working: _Working, best: _Checked, motion: str, lit: bool
     ) -> _Checked:
         """Register again on the cells that still show the plane — agreeing or contradicting.
 
@@ -551,7 +741,7 @@ class OpenCvBackend:
         mask = cv2.bitwise_and(mask, template.mask)
         pad = ECC_PADDING
         padded = cv2.copyMakeBorder(mask, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0)
-        candidate = self._refine(template, working, best.matrix, motion, padded)
+        candidate = self._refine(template, working, best.matrix, motion, padded, lit=lit)
         if candidate is None:
             return best
         checked = _check(template, working, candidate)
@@ -560,7 +750,7 @@ class OpenCvBackend:
         return checked if _score(checked) >= _score(best) else best
 
     def _refit(
-        self, template: _Template, working: _Working, best: _Checked, motion: str
+        self, template: _Template, working: _Working, best: _Checked, motion: str, lit: bool
     ) -> _Checked:
         """Re-estimate the region from the cells that DID match, then check that.
 
@@ -585,7 +775,7 @@ class OpenCvBackend:
         # template side: current = matrix · reference-from-template · correction.
         to_template = np.linalg.inv(template.to_reference)
         refitted = best.matrix @ template.to_reference @ correction @ to_template
-        for candidate in (self._refine(template, working, refitted, motion), refitted):
+        for candidate in (self._refine(template, working, refitted, motion, lit=lit), refitted):
             if candidate is None:
                 continue
             checked = _check(template, working, candidate)
@@ -593,8 +783,10 @@ class OpenCvBackend:
                 best = checked
         return best
 
-    def _template(self, reference: Frame, region: Sequence[Point]) -> _Template | None:
-        key = (id(reference), tuple(region))
+    def _template(
+        self, reference: Frame, region: Sequence[Point], exclusions: tuple[Any, ...] = ()
+    ) -> _Template | None:
+        key = (id(reference), tuple(region), exclusions)
         cached = self._templates.get(key)
         if cached is not None and cached.frame is reference:
             return cached
@@ -622,6 +814,9 @@ class OpenCvBackend:
             [[p[0] for p in region], [p[1] for p in region], [1.0] * len(region)]
         )
         cv2.fillPoly(mask, [np.round(polygon[:2] / polygon[2]).T.astype(np.int32)], 255)
+        region_mask = mask.copy() if exclusions else None
+        # What the editor excluded is not the plane, in the frame the mask was drawn on either.
+        _clear_boxes(mask, exclusions, np.linalg.inv(to_reference), EXCLUSION_MARGIN)
         pad = ECC_PADDING
         smoothed = cv2.GaussianBlur(image, (0, 0), CHECK_SMOOTHING)
         template = _Template(
@@ -634,14 +829,44 @@ class OpenCvBackend:
             to_reference=to_reference,
             scale=scale,
             size=size,
+            region_mask=region_mask,
         )
         if len(self._templates) >= _TEMPLATE_CACHE_LIMIT:
             self._templates.clear()
         self._templates[key] = template
         return template
 
-    def _working_frame(self, current: Frame, scale: float) -> _Working:
-        cached = self._working.get(scale)
+    def _lit_template(self, template: _Template) -> Any:
+        """The template's padded image, normalised by its local contrast (cached)."""
+        cached = self._lit.get(id(template))
+        if cached is not None and cached[0] is template:
+            return cached[1]
+        pad = ECC_PADDING
+        image = cv2.copyMakeBorder(
+            _light_normalized(template.image), pad, pad, pad, pad, cv2.BORDER_REPLICATE
+        )
+        self._remember_lit(template, image)
+        return image
+
+    def _lit_working(self, working: _Working) -> Any:
+        """The working frame, normalised by its local contrast (cached)."""
+        cached = self._lit.get(id(working))
+        if cached is not None and cached[0] is working:
+            return cached[1]
+        image = _light_normalized(working.image)
+        self._remember_lit(working, image)
+        return image
+
+    def _remember_lit(self, owner: Any, image: Any) -> None:
+        if len(self._lit) >= _TEMPLATE_CACHE_LIMIT:
+            self._lit.clear()
+        self._lit[id(owner)] = (owner, image)
+
+    def _working_frame(
+        self, current: Frame, scale: float, exclusions: tuple[Any, ...] = ()
+    ) -> _Working:
+        key = (scale, exclusions)
+        cached = self._working.get(key)
         if cached is not None and cached.frame is current:
             return cached
         gray = current.gray
@@ -653,15 +878,18 @@ class OpenCvBackend:
         else:
             image = gray
             to_working = np.eye(3)
+        valid = np.ones(image.shape[:2], dtype=np.uint8)
+        _clear_boxes(valid, exclusions, to_working, EXCLUSION_MARGIN)
         working = _Working(
             frame=current,
             image=image.astype(np.float32),
             to_working=to_working,
-            valid=np.ones(image.shape[:2], dtype=np.uint8),
+            valid=valid,
+            excluded=len(exclusions) > 0,
         )
         if len(self._working) >= 4:
             self._working.clear()
-        self._working[scale] = working
+        self._working[key] = working
         return working
 
     def _refine(
@@ -671,6 +899,7 @@ class OpenCvBackend:
         guess: Any,
         motion: str,
         mask: Any | None = None,
+        lit: bool = False,
     ) -> Any | None:
         """The guess, ECC-refined against the reference, or ``None`` if ECC cannot converge.
 
@@ -686,7 +915,7 @@ class OpenCvBackend:
         width, height = template.size
         unpad = np.array([[1.0, 0.0, -pad], [0.0, 1.0, -pad], [0.0, 0.0, 1.0]])
         rectified = cv2.warpPerspective(
-            working.image,
+            self._lit_working(working) if lit else working.image,
             guess_warp @ unpad,
             (width + 2 * pad, height + 2 * pad),
             flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
@@ -694,14 +923,27 @@ class OpenCvBackend:
         )
         homography = motion == "homography"
         residual = np.eye(3, dtype=np.float32) if homography else np.eye(2, 3, dtype=np.float32)
+        fit_mask = template.padded_mask if mask is None else mask
+        if working.excluded:
+            # The current frame's excluded pixels, carried into the template's frame through the
+            # guess: ECC fits only what is left. Outside the frame is excluded with them here.
+            shown = cv2.warpPerspective(
+                working.valid,
+                guess_warp @ unpad,
+                (width + 2 * pad, height + 2 * pad),
+                flags=cv2.INTER_NEAREST | cv2.WARP_INVERSE_MAP,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=0,
+            )
+            fit_mask = cv2.bitwise_and(fit_mask, fit_mask, mask=shown)
         try:
             _, found = cv2.findTransformECC(
-                template.padded_image,
+                self._lit_template(template) if lit else template.padded_image,
                 rectified,
                 residual,
                 cv2.MOTION_HOMOGRAPHY if homography else cv2.MOTION_AFFINE,
                 ECC_CRITERIA,
-                template.padded_mask if mask is None else mask,
+                fit_mask,
                 ECC_SMOOTHING,
             )
         except cv2.error:
@@ -713,6 +955,75 @@ class OpenCvBackend:
         if not np.all(np.isfinite(matrix)) or abs(matrix[2][2]) < 1e-12:
             return None
         return matrix / matrix[2][2]
+
+
+def _light_normalized(image: Any) -> Any:
+    """`image` divided by its own local contrast: a smooth lighting change becomes no change."""
+    mean = cv2.GaussianBlur(image, (0, 0), LIGHT_SIGMA)
+    variance = cv2.GaussianBlur(image * image, (0, 0), LIGHT_SIGMA) - mean * mean
+    return ((image - mean) / np.sqrt(np.maximum(variance, 0.0) + LIGHT_VARIANCE_FLOOR)).astype(
+        np.float32
+    )
+
+
+def _boxes(boxes: Sequence[PixelBox]) -> tuple[PixelBox, ...]:
+    """Exclusions as a hashable key (they are part of the template and working-frame caches)."""
+    return tuple((float(b[0]), float(b[1]), float(b[2]), float(b[3])) for b in boxes)
+
+
+def _reveals(checked: _Checked, disagreement: float) -> bool:
+    """Whether a registration is trustworthy enough to teach the reference new pixels."""
+    return (
+        checked.agreement >= REVEAL_AGREEMENT
+        and checked.contradiction == 0.0
+        and checked.cells >= REVEAL_MIN_CELLS
+        and disagreement <= REVEAL_MAX_DISAGREEMENT_PX
+    )
+
+
+def _with_pixels(
+    template: _Template, image: Any, mask: Any, samples: Any = None, learned: int = 0
+) -> _Template:
+    """`template` with new pixels and mask, and everything derived from them rebuilt."""
+    pad = ECC_PADDING
+    return _Template(
+        frame=template.frame,
+        image=image,
+        smoothed=cv2.GaussianBlur(image, (0, 0), CHECK_SMOOTHING),
+        mask=mask,
+        padded_image=cv2.copyMakeBorder(image, pad, pad, pad, pad, cv2.BORDER_REPLICATE),
+        padded_mask=cv2.copyMakeBorder(mask, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0),
+        to_reference=template.to_reference,
+        scale=template.scale,
+        size=template.size,
+        region_mask=template.region_mask,
+        samples=samples,
+        learned=learned,
+    )
+
+
+def _clear_boxes(image: Any, boxes: Sequence[PixelBox], to_image: Any, margin: int) -> None:
+    """Zero every pixel of `image` that a frame-pixel box covers, grown by `margin` image pixels.
+
+    ``to_image`` maps frame pixels to `image` pixels and is a scale plus a shift (a resize), so
+    an axis-aligned box stays axis-aligned. Coverage is conservative: a pixel any part of the box
+    touches is cleared.
+    """
+    if not boxes:
+        return
+    height, width = image.shape[:2]
+    for left, top, box_width, box_height in boxes:
+        corners = to_image @ np.array(
+            [[left, left + box_width], [top, top + box_height], [1.0, 1.0]], dtype=np.float64
+        )
+        xs = corners[0] / corners[2]
+        ys = corners[1] / corners[2]
+        x0 = max(int(np.floor(min(xs))) - margin, 0)
+        x1 = min(int(np.ceil(max(xs))) + margin + 1, width)
+        y0 = max(int(np.floor(min(ys))) - margin, 0)
+        y1 = min(int(np.ceil(max(ys))) + margin + 1, height)
+        if x0 < x1 and y0 < y1:
+            image[y0:y1, x0:x1] = 0
 
 
 def _cell_size(width: int, height: int) -> int:
