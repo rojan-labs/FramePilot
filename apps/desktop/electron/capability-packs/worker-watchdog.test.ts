@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -106,6 +106,42 @@ describe('worker watchdog limits and sampling', () => {
     expect(total).toBeLessThan(2_000);
     // The artifact alone: the host's inputs (and the worker's private folders) are left out.
     expect(total - (await stagingBytes(dir, { exclude: ['inputs', 'windows', 'scratch'] }))).toBe(24);
+  });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'treats an unreadable scratch folder as a disk breach, not as empty (F4)',
+    async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), 'framepilot-watchdog-000-'));
+      const scratch = path.join(dir, 'scratch');
+      await mkdir(scratch);
+      await writeFile(path.join(scratch, 'frames.u8'), Buffer.alloc(4096));
+      await chmod(scratch, 0o000);
+      try {
+        await expect(stagingBytes(dir)).rejects.toMatchObject({ code: 'EACCES' });
+        const onBreach = vi.fn();
+        const watchdog = new WorkerWatchdog(
+          { memoryBytes: 100, stallMs: 60_000, stagingBytes: 1_000_000, outputBytes: 1_000_000 },
+          {
+            footprintBytes: async () => undefined,
+            directoryBytes: stagingBytes,
+            outputBytes: (directory) => stagingBytes(directory, { exclude: ['scratch'] }),
+            now: () => 0,
+          },
+          { stagingDirectory: dir, onBreach },
+        );
+        await watchdog.tick();
+        expect(onBreach).toHaveBeenCalledWith('disk');
+      } finally {
+        await chmod(scratch, 0o700);
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('counts an entry that vanished mid-walk as nothing, and a missing folder as empty', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'framepilot-watchdog-gone-'));
+    await rm(dir, { recursive: true });
+    expect(await stagingBytes(dir)).toBe(0);
   });
 
   it('parses macOS top physical footprint and samples each platform with its own tool', async () => {

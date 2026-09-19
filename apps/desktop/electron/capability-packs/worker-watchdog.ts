@@ -27,7 +27,10 @@
  *   artifact's ceiling killed healthy jobs on short clips (found in E2E.6).
  *
  * A breach calls `onBreach` once with its kind; the caller kills the group and reports
- * `resource_exhausted`. A sample the platform cannot take is skipped, never treated as a breach.
+ * `resource_exhausted`. A memory sample the platform cannot take is skipped, never treated as a
+ * breach. A staging folder the host cannot measure is the opposite: a subfolder the worker made
+ * unreadable (or any other read failure but "it is gone") would otherwise count as 0 bytes and
+ * hide what it holds, so it is a `disk` breach (BR4.12 follow-up F4).
  */
 import { execFile } from 'node:child_process';
 import { lstat, readdir } from 'node:fs/promises';
@@ -143,19 +146,30 @@ export class WorkerWatchdog {
     try {
       if (this.probes.now() - this.lastProgress > this.limits.stallMs) return this.trip('stalled');
       const directory = this.options.stagingDirectory;
-      const staged = await this.probes.directoryBytes(directory).catch(() => 0);
-      if (staged > this.limits.stagingBytes) return this.trip('disk');
+      const staged = await this.measure(() => this.probes.directoryBytes(directory));
+      if (staged === undefined || staged > this.limits.stagingBytes) return this.trip('disk');
       const outputs =
         this.probes.outputBytes === undefined
           ? staged
-          : await this.probes.outputBytes(directory).catch(() => 0);
-      if (outputs > this.limits.outputBytes) return this.trip('disk');
+          : await this.measure(() => this.probes.outputBytes!(directory));
+      if (outputs === undefined || outputs > this.limits.outputBytes) return this.trip('disk');
       if (this.pid !== undefined) {
         const footprint = await this.probes.footprintBytes(this.pid).catch(() => undefined);
         if (footprint !== undefined && footprint > this.limits.memoryBytes) return this.trip('memory');
       }
     } finally {
       this.ticking = false;
+    }
+  }
+
+  /** Bytes, or `undefined` when the folder could not be measured (fail closed, F4). */
+  private async measure(probe: () => Promise<number>): Promise<number | undefined> {
+    try {
+      return await probe();
+    } catch (error) {
+      // The code only: fs messages carry paths.
+      log.warn('workerWatchdogUnmeasurable', { code: errorCode(error) ?? 'unknown' });
+      return undefined;
     }
   }
 
@@ -168,7 +182,12 @@ export class WorkerWatchdog {
   }
 }
 
-/** Bytes under a directory, never following links. */
+/**
+ * Bytes under a directory, never following links.
+ *
+ * An entry that vanished while it was being walked (the worker removed it) counts as nothing.
+ * Any other failure to read an entry throws: an unreadable folder is not an empty one (F4).
+ */
 export async function stagingBytes(
   directory: string,
   options: { readonly exclude?: readonly string[] } = {},
@@ -182,16 +201,36 @@ export async function stagingBytes(
     let stat;
     try {
       stat = await lstat(current);
-    } catch {
-      continue;
+    } catch (error) {
+      if (vanished(error)) continue;
+      throw error;
     }
     if (stat.isDirectory()) {
-      for (const entry of await readdir(current).catch(() => [] as string[])) pending.push(path.join(current, entry));
+      let entries: string[];
+      try {
+        entries = await readdir(current);
+      } catch (error) {
+        if (vanished(error)) continue;
+        throw error;
+      }
+      for (const entry of entries) pending.push(path.join(current, entry));
     } else {
       total += stat.size;
     }
   }
   return total;
+}
+
+/** The entry is gone (removed, or replaced by a file mid-walk), not unreadable. */
+function vanished(error: unknown): boolean {
+  const code = errorCode(error);
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+function errorCode(error: unknown): string | undefined {
+  return typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'
+    ? error.code
+    : undefined;
 }
 
 type Exec = (file: string, args: readonly string[]) => Promise<string>;
