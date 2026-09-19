@@ -16,6 +16,7 @@ agreement rather than plumbing.
 
 from __future__ import annotations
 
+import pytest
 from conftest import (
     HEIGHT,
     WIDTH,
@@ -105,6 +106,23 @@ def test_extra_points_follow_the_subject_in_one_decode() -> None:
         for vertex, tracked in zip(VERTICES, sample.points, strict=True):
             assert abs(tracked.x * WIDTH - (vertex.x * WIDTH + 2.0 * index)) < 1e-9
             assert abs(tracked.y * HEIGHT - (vertex.y * HEIGHT - 1.0 * index)) < 1e-9
+
+
+def test_a_shape_frame_is_only_as_confident_as_its_worst_vertex() -> None:
+    # Every vertex patch verifies 60 % at frame 2: 0.6² — a frame the host has to flag, however
+    # sure the primary point's own flow is.
+    backend = ScriptedBackend(agreement={2: 0.6})
+    samples = track(backend, point_request(media=media_handle(0, 4), points=VERTICES))
+    assert samples[2].confidence == pytest.approx(0.36, abs=1e-9)
+    assert samples[1].confidence == pytest.approx(1.0, abs=1e-9)
+
+
+def test_shape_vertices_are_registered_against_the_reference_frame() -> None:
+    backend = ScriptedBackend()
+    track(backend, point_request(media=media_handle(0, 3), points=VERTICES))
+    # One registration per vertex per frame, each against frame 0, starting with the affine
+    # patch (it verifies at once, so no larger patch is tried).
+    assert backend.alignments == [(0, frame, "affine", 2) for frame in (1, 2) for _ in VERTICES]
 
 
 def test_a_request_without_extra_points_reports_none() -> None:

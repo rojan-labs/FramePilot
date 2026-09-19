@@ -20,13 +20,14 @@ from dataclasses import dataclass, field
 import pytest
 
 from framepilot_tracking_lite.backend import (
+    Alignment,
     FlowSample,
     Frame,
     HomographyEstimate,
     MediaUnreadableError,
     RegionUpdate,
 )
-from framepilot_tracking_lite.geometry import Point
+from framepilot_tracking_lite.geometry import Matrix3x3, Point
 from framepilot_tracking_lite.protocol import (
     MediaHandle,
     NormalizedBox,
@@ -125,6 +126,13 @@ class ScriptedBackend:
     features: list[Point] | None = None
     #: Fraction of planar correspondences treated as outliers.
     outlier_frames: dict[int, int] = field(default_factory=dict)
+    #: Per-frame verified agreement / contradiction the registration check reports.
+    agreement: dict[int, float] = field(default_factory=dict)
+    contradiction: dict[int, float] = field(default_factory=dict)
+    #: Frames the registration cannot place at all (the region left the picture).
+    unregistrable_frames: set[int] = field(default_factory=set)
+    #: Every registration asked for, as (reference, current, motion, guesses).
+    alignments: list[tuple[int, int, str, int]] = field(default_factory=list)
     media_unreadable: bool = False
     frame_width: int = WIDTH
     frame_height: int = HEIGHT
@@ -225,6 +233,30 @@ class ScriptedBackend:
         )
         matrix = ((1.0, 0.0, median[0]), (0.0, 1.0, median[1]), (0.0, 0.0, 1.0))
         return HomographyEstimate(matrix=matrix, inliers=inliers)
+
+    def align(
+        self,
+        reference: Frame,
+        current: Frame,
+        region: Sequence[Point],
+        guesses: Sequence[Matrix3x3],
+        motion: str,
+    ) -> Alignment | None:
+        """Registration converges on the subject's TRUE motion, whatever the guesses were.
+
+        That is the property the real backend's ECC + check provides and the policy relies on:
+        a biased flow guess is corrected, and how much of the region verified is scripted.
+        """
+        self.alignments.append((int(reference), int(current), motion, len(guesses)))
+        if int(current) in self.unregistrable_frames or not guesses:
+            return None
+        dx, dy = self.offset(int(reference), int(current))
+        return Alignment(
+            matrix=((1.0, 0.0, dx), (0.0, 1.0, dy), (0.0, 0.0, 1.0)),
+            agreement=self.agreement.get(int(current), 1.0),
+            contradiction=self.contradiction.get(int(current), 0.0),
+            cells=16,
+        )
 
 
 def media_handle(first_frame: int = 0, last_frame_exclusive: int = 30) -> MediaHandle:

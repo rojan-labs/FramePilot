@@ -96,6 +96,15 @@ def apply_homography(matrix: Matrix3x3, point: Point) -> Point | None:
     return (projected_x, projected_y)
 
 
+IDENTITY: Final[Matrix3x3] = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+
+
+def translated(matrix: Matrix3x3, dx: float, dy: float) -> Matrix3x3:
+    """``T(dx, dy) · matrix``: the same warp, moved by a pixel offset."""
+    (a, b, c), (d, e, f), (g, h, i) = matrix
+    return ((a + dx * g, b + dx * h, c + dx * i), (d + dy * g, e + dy * h, f + dy * i), (g, h, i))
+
+
 def normalized_homography(matrix: Matrix3x3, width: int, height: int) -> tuple[float, ...]:
     """A pixel-space homography as a NORMALIZED one, row-major, nine numbers.
 

@@ -56,6 +56,27 @@ class HomographyEstimate:
     inliers: tuple[bool, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class Alignment:
+    """A region of the reference frame registered onto the current frame, and checked (MK7.5).
+
+    ``matrix`` maps reference pixels to current pixels. ``agreement`` is NOT a by-product of the
+    fit: it is an independent check of it — the fraction of the region's textured cells that,
+    block-matched between the reference and the current frame rectified through ``matrix``, land
+    within a pixel of where ``matrix`` says they are. A registration that locked onto an
+    occluder, an aliased repeat or a competing surface is contradicted by the cells that still
+    show the real plane, so this is the number a wrong-but-measured frame is caught by.
+    """
+
+    matrix: Matrix3x3
+    agreement: float
+    #: The fraction of cells that clearly match somewhere ELSE — positive evidence that the
+    #: registration is wrong, as opposed to cells that are merely unseen (occluded).
+    contradiction: float
+    #: Textured cells the check could measure; 0 means nothing in the region was verifiable.
+    cells: int
+
+
 @runtime_checkable
 class RegionTracker(Protocol):
     def update(self, frame: Frame) -> RegionUpdate: ...
@@ -106,3 +127,18 @@ class TrackingBackend(Protocol):
     def estimate_homography(
         self, source: Sequence[Point], destination: Sequence[Point]
     ) -> HomographyEstimate | None: ...
+
+    def align(
+        self,
+        reference: Frame,
+        current: Frame,
+        region: Sequence[Point],
+        guesses: Sequence[Matrix3x3],
+        motion: str,
+    ) -> Alignment | None:
+        """Register ``region`` of ``reference`` onto ``current``, starting from each guess.
+
+        ``motion`` is ``"homography"`` (a plane) or ``"affine"`` (a small patch around a shape
+        vertex). The best-verified candidate wins; ``None`` means the region could not be
+        registered at all (it left the frame, or is degenerate).
+        """

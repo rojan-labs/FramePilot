@@ -138,18 +138,45 @@ def test_planar_track_projects_the_requested_quad_through_the_homography() -> No
     assert samples[-1].confidence > 0.9
 
 
-def test_planar_confidence_falls_with_the_inlier_ratio() -> None:
-    # Four of nine correspondences drift onto something else at frame 2.
-    backend = ScriptedBackend(outlier_frames={2: 4})
+def test_planar_confidence_is_the_squared_verified_agreement() -> None:
+    # 80 % of the quad's cells confirm the plane at frame 2: 0.8² = 0.64.
+    backend = ScriptedBackend(agreement={2: 0.8})
     samples = track(backend, planar_request(media=media_handle(0, 5)))
-    assert samples[2].confidence == pytest.approx(5 / 9, abs=0.01)
+    assert samples[2].confidence == pytest.approx(0.64, abs=1e-9)
+    assert samples[1].confidence == pytest.approx(1.0, abs=1e-9)
 
 
-def test_planar_refuses_to_report_a_plane_below_the_inlier_floor() -> None:
-    backend = ScriptedBackend(outlier_frames={2: 6})
+def test_contradicting_cells_pull_planar_confidence_under_the_host_floor() -> None:
+    # 90 % agree, but 10 % clearly sit somewhere else: evidence the plane is wrong.
+    backend = ScriptedBackend(agreement={2: 0.9}, contradiction={2: 0.1})
+    samples = track(backend, planar_request(media=media_handle(0, 5)))
+    assert samples[2].confidence == pytest.approx(0.81 * 0.5, abs=1e-9)
+    assert samples[2].confidence < 0.5
+
+
+def test_planar_refuses_to_report_a_plane_the_check_cannot_confirm() -> None:
+    backend = ScriptedBackend(agreement={2: 0.1})
     samples = track(backend, planar_request(media=media_handle(0, 5)))
     assert samples[2].confidence == 0.0
     assert samples[2].occluded is True
+
+
+def test_a_flow_outlier_majority_does_not_decide_the_plane() -> None:
+    # Six of nine correspondences scatter at frame 2. The flow fit alone would refuse; the
+    # registration against the reference still places the plane where the subject is.
+    backend = ScriptedBackend(outlier_frames={2: 6}, trajectory=linear_trajectory(4.0, 2.0))
+    samples = track(backend, planar_request(media=media_handle(0, 5)))
+    expected = (centre(samples[0])[0] + 8.0, centre(samples[0])[1] + 4.0)
+    assert centre(samples[2]) == pytest.approx(expected, abs=1e-6)
+    assert samples[2].confidence == pytest.approx(1.0, abs=1e-9)
+
+
+def test_planar_registers_against_the_reference_frame_every_frame() -> None:
+    backend = ScriptedBackend()
+    track(backend, planar_request(media=media_handle(0, 5)))
+    assert [(ref, cur, motion) for ref, cur, motion, _ in backend.alignments] == [
+        (0, frame, "homography") for frame in range(1, 5)
+    ]
 
 
 def test_planar_requires_four_correspondences_to_initialize() -> None:
