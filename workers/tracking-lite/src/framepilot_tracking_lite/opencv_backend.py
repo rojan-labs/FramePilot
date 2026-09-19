@@ -92,6 +92,9 @@ ECC_PADDING: Final = 12
 #: re-registered on its agreeing textured cells: flat stretches then cannot let a sliver of
 #: occluder pull the fit even while every textured cell still agrees.
 REREGISTER_ALWAYS_CELLS: Final = 16
+#: Cells a quadrant needs before its own agreement is held against the plane: a corner is only
+#: verified when the cells around it confirm it, not when the far side of the plane does.
+QUADRANT_MIN_CELLS: Final = 6
 #: Agreeing cells an independent plane fit needs before its corners are trusted.
 DISAGREEMENT_MIN_CELLS: Final = 16
 #: Matched cells needed before they are trusted to re-fit a doubtful registration.
@@ -384,6 +387,8 @@ class _Checked:
     agreement: float
     contradiction: float
     cells: int
+    #: The lowest agreement over the region's four quadrants (1 when they are too small).
+    weakest_quadrant: float
     #: Matched cells as (template point, where it was found in template coordinates).
     matches: tuple[tuple[tuple[float, float], tuple[float, float]], ...]
     #: The cells that agreed, as (top, left, size) in template pixels.
@@ -524,6 +529,7 @@ class OpenCvBackend:
             agreement=best.agreement,
             contradiction=best.contradiction,
             cells=best.cells,
+            weakest_quadrant=best.weakest_quadrant,
             disagreement=_disagreement(template, best, region, motion),
         )
 
@@ -834,6 +840,8 @@ def _check(template: _Template, working: _Working, matrix: Any) -> _Checked:
     matches: list[tuple[tuple[float, float], tuple[float, float]]] = []
     agreeing: list[tuple[int, int, int]] = []
     seen: list[tuple[int, int, int]] = []
+    quadrant_cells = [0, 0, 0, 0]
+    quadrant_agree = [0, 0, 0, 0]
     agreeing_matches: list[tuple[tuple[float, float], tuple[float, float]]] = []
     for top in range(0, height - cell + 1, cell):
         for left in range(0, width - cell + 1, cell):
@@ -856,6 +864,10 @@ def _check(template: _Template, working: _Working, matrix: Any) -> _Checked:
                 continue
             cells += 1
             centre = (left + (cell - 1) / 2.0, top + (cell - 1) / 2.0)
+            quadrant = (1 if centre[0] >= width / 2.0 else 0) + (
+                2 if centre[1] >= height / 2.0 else 0
+            )
+            quadrant_cells[quadrant] += 1
             # Narrow first: nearly every cell of a right registration agrees within a few pixels,
             # and only the ones that do not pay for the wide search.
             found = None
@@ -868,6 +880,7 @@ def _check(template: _Template, working: _Working, matrix: Any) -> _Checked:
             dx, dy, _, peak, at_zero = found
             if _within(found, template.scale):
                 agree += 1
+                quadrant_agree[quadrant] += 1
                 agreeing.append((top, left, cell))
                 seen.append((top, left, cell))
                 matches.append((centre, (centre[0] + dx, centre[1] + dy)))
@@ -879,10 +892,22 @@ def _check(template: _Template, working: _Working, matrix: Any) -> _Checked:
                 contradict += 1
                 seen.append((top, left, cell))
                 matches.append((centre, (centre[0] + dx, centre[1] + dy)))
+    # Small-sample honesty: one pseudo-agreeing cell, and a lone contradicting cell is noise. On
+    # a 100-cell plane neither moves the number; on a 16-cell subject they stop one blurred cell
+    # from deciding the frame (it did, on one platform's decode and not another's).
+    weakest = min(
+        (
+            (quadrant_agree[q] + 1) / (quadrant_cells[q] + 1)
+            for q in range(4)
+            if quadrant_cells[q] >= QUADRANT_MIN_CELLS
+        ),
+        default=1.0,
+    )
     return _Checked(
         matrix=matrix,
-        agreement=agree / cells if cells else 0.0,
-        contradiction=contradict / cells if cells else 0.0,
+        agreement=(agree + 1) / (cells + 1) if cells else 0.0,
+        contradiction=max(contradict - 1, 0) / cells if cells else 0.0,
+        weakest_quadrant=weakest,
         cells=cells,
         matches=tuple(matches),
         agreeing=tuple(agreeing),

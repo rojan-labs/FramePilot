@@ -69,7 +69,7 @@ CONTRADICTION_CEILING: Final = 0.2
 ANCHOR_AGREEMENT: Final = 0.5
 
 
-def verified_confidence(alignment: Alignment) -> float:
+def verified_confidence(alignment: Alignment, *, per_corner: bool = False) -> float:
     """How much of the plane the check confirmed, as the number the host thresholds.
 
     Linear in agreement, zero at 80 %: the host flags below 0.5, so a plane is confident only
@@ -78,7 +78,10 @@ def verified_confidence(alignment: Alignment) -> float:
     of any gate sequence did. What is NOT verified is where a plane goes wrong without
     contradiction — with part of the quad hidden, the visible part fits and the hidden corners
     are extrapolated, and on real footage that extrapolation is off by pixels.
-    Any positive contradiction (cells that clearly sit somewhere else) scales it down further, and
+    For a plane (``per_corner``) the agreement is the WEAKEST quadrant's: a corner is where the
+    mask is drawn, and with the cells around one corner hidden it is extrapolated from the far
+    side, however well the rest verifies. Any positive contradiction (cells that clearly sit
+    somewhere else) scales it down further, and
     so does a dispute at the corners between the registration and an independent fit to the
     agreeing cells (`Alignment.disagreement`).
     """
@@ -88,9 +91,10 @@ def verified_confidence(alignment: Alignment) -> float:
     unconfirmed = clamp(
         1.0 - (alignment.disagreement - DISAGREEMENT_FREE_PX) / DISAGREEMENT_SPAN_PX, 0.0, 1.0
     )
-    verified = clamp(
-        (alignment.agreement - AGREEMENT_AT_ZERO) / (1.0 - AGREEMENT_AT_ZERO), 0.0, 1.0
+    agreement = (
+        min(alignment.agreement, alignment.weakest_quadrant) if per_corner else alignment.agreement
     )
+    verified = clamp((agreement - AGREEMENT_AT_ZERO) / (1.0 - AGREEMENT_AT_ZERO), 0.0, 1.0)
     return verified * penalty * unconfirmed
 
 
@@ -157,7 +161,7 @@ class PlanarTracker(Tracker):
             box=bounding_box(
                 [corner for corner in projected if corner is not None], self._width, self._height
             ),
-            confidence=verified_confidence(alignment) * error_confidence,
+            confidence=verified_confidence(alignment, per_corner=True) * error_confidence,
             transform=normalized_homography(alignment.matrix, self._width, self._height),
         )
 

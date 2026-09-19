@@ -79,6 +79,9 @@ class Alignment:
     #: own matches, at the region's corners (at its centre, for a vertex patch). A tilt of a
     #: pixel across the cells is several at a corner far from them; this is where it shows.
     disagreement: float = 0.0
+    #: The lowest agreement over the region's four quadrants — each corner's own verification.
+    #: 1.0 when the quadrants hold too few cells to judge on their own.
+    weakest_quadrant: float = 1.0
 
 
 @runtime_checkable
