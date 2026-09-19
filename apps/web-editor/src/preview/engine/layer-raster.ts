@@ -15,6 +15,7 @@ import {
   readAlignment,
   type FramePlanEdgeStyle,
   type FramePlanLayer,
+  type TrackArtifact,
 } from '@framepilot/editor-core';
 import type { Asset, Clip } from '@framepilot/timeline-schema';
 import {
@@ -281,6 +282,8 @@ export function pictureRasterStep(
   asset: Asset,
   target: PixelSize,
   sourceSize?: PixelSize,
+  /** MK7.1: the loaded track artifact of each tracked mask on `clip`, by mask id. */
+  tracks?: ReadonlyMap<string, TrackArtifact>,
 ): PictureRasterStep | null {
   const source = layer.source;
   const geometry = layer.geometry;
@@ -312,7 +315,7 @@ export function pictureRasterStep(
   const legacy = isVideo && layer.role === 'clip' ? legacyEnvelope(clip) : null;
   const wiping = legacy !== null && affectsWipe(legacy);
   // Only a video clip draws its stack: stills are placed without crop or mask (the export's rule).
-  const stack = isVideo && layer.role === 'clip' ? clipMaskStack(clip, asset.media) : null;
+  const stack = isVideo && layer.role === 'clip' ? clipMaskStack(clip, asset.media, tracks) : null;
   const drawable = stack !== null && stack.refusal === null ? stack : null;
   const mask: LayerMaskStack | null =
     drawable === null ? null : { stack: drawable, clipTime: layer.localTime };

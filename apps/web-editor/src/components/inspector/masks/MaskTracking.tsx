@@ -85,6 +85,9 @@ export function MaskTracking({
   const sourceTime = clipSourceTimeAt(clip, editor.state.playhead);
 
   const job = useMaskTrackJob({
+    // The constraints stay with the mask across a re-track: they are the editor's corrections,
+    // and the next "Re-track from constraints" needs them again (found in E2E.3).
+    constraints: mask?.tracking?.constraints ?? [],
     onComplete: (result) => {
       const refusal = runMaskCommand(editor, {
         type: 'set_mask_track',

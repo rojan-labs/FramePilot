@@ -25,8 +25,13 @@
  * not decoded in time the previous picture stays up and the tick is counted as missing; a
  * wrong picture is never shown.
  */
-import { framePlanAt, type FramePlan, type FramePlanLayer } from '@framepilot/editor-core';
-import type { Asset, Clip, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
+import {
+  framePlanAt,
+  type FramePlan,
+  type FramePlanLayer,
+  type TrackArtifact,
+} from '@framepilot/editor-core';
+import type { Asset, Clip, MaskLayer, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
 import { createLogger, type PreviewTextRasterRequest } from '@framepilot/shared-types';
 import { DecodeWorkerClient, type WorkerTraffic } from '../decode/worker-client.js';
 import type { WorkerStageReport } from '../decode/decode-worker.js';
@@ -56,6 +61,8 @@ import {
   type MatteStackInputs,
 } from '../masks/mask-stack.js';
 import { MatteSource } from '../masks/matte-source.js';
+import { TrackSource } from '../masks/track-source.js';
+import { resolveTrackArtifactLocator } from '../masks/track-location.js';
 import { resolveMatteArtifactLocator, resolveMatteTierLocator } from '../masks/matte-location.js';
 import {
   alphaPlaneFits,
@@ -253,6 +260,13 @@ export class LayerPreviewEngine {
   private readonly cache = new Map<string, CacheEntry>();
   /** BR5.1: matte artifact frames, decoded on the matte pool into the same cache. */
   private readonly mattes: MatteSource;
+  /**
+   * MK7.1: tracked masks' transform tracks (small, digest-checked `track.json`s). The locator
+   * is resolved per key, because the project folder it reads from changes with the project.
+   */
+  private readonly trackArtifacts = new TrackSource(
+    (key) => resolveTrackArtifactLocator()?.(key) ?? null,
+  );
   private lastMatteProcessing = false;
   /** BR5.2: review ranges per artifact key (`undefined` while `report.json` is being read). */
   private readonly flaggedRanges = new Map<string, readonly FlaggedRange[] | null>();
@@ -467,6 +481,12 @@ export class LayerPreviewEngine {
       ),
     );
     this.mattes.retain(new Set(matteMasks.map((mask) => mask.artifact.key)));
+    // MK7.1: start every tracked mask's track now; a seek awaits whichever are still loading.
+    void this.trackArtifacts.ensure(
+      project.timeline.tracks.flatMap((track) =>
+        track.clips.flatMap((clip) => (clip.masks ?? []).filter((mask) => mask.enabled)),
+      ),
+    );
     // PX5.3: open every artifact (and its monitor tier) now, as the pictures' sources are, not
     // on the first seek that needs it.
     this.mattes.prepare(matteMasks.filter((mask) => mask.enabled));
@@ -648,6 +668,35 @@ export class LayerPreviewEngine {
       }
     }
     return needs;
+  }
+
+  /** The enabled tracked masks of the clips `plan` draws (MK7.1). */
+  private trackedMasksOf(plan: FramePlan): MaskLayer[] {
+    const masks: MaskLayer[] = [];
+    for (const layer of plan.layers) {
+      if (layer.kind !== 'picture' || layer.role !== 'clip' || layer.clipId === null) continue;
+      const clip = this.clipsById.get(layer.clipId);
+      for (const mask of clip?.masks ?? []) {
+        if (mask.enabled && mask.tracking !== undefined) masks.push(mask);
+      }
+    }
+    return masks;
+  }
+
+  /**
+   * The loaded track of each tracked mask on `clip`, by mask id, or `pending` while one loads.
+   * A refused track is left out: the stack then refuses that mask with a remedy, as the export
+   * refuses it (`render/tracks.py`).
+   */
+  private tracksOf(clip: Clip): ReadonlyMap<string, TrackArtifact> | 'pending' {
+    const tracks = new Map<string, TrackArtifact>();
+    for (const mask of clip.masks ?? []) {
+      if (!mask.enabled || mask.tracking === undefined) continue;
+      const found = this.trackArtifacts.lookup(mask);
+      if (found.state === 'pending') return 'pending';
+      if (found.state === 'ready') tracks.set(mask.id, found.artifact);
+    }
+    return tracks;
   }
 
   private needsOf(plan: FramePlan): FrameNeed[] {
@@ -950,10 +999,17 @@ export class LayerPreviewEngine {
       const cached = this.cache.get(key);
       if (cached?.kind !== 'picture') return null;
       cached.lastUsed = ++this.useCounter;
-      let step = pictureRasterStep(layer, clip, asset, size, {
-        width: cached.picture.width,
-        height: cached.picture.height,
-      });
+      const tracks = this.tracksOf(clip);
+      // A track still loading: keep the previous presentation, as for a matte frame.
+      if (tracks === 'pending') return null;
+      let step = pictureRasterStep(
+        layer,
+        clip,
+        asset,
+        size,
+        { width: cached.picture.width, height: cached.picture.height },
+        tracks,
+      );
       if (!step) continue;
       let mattes: MatteStackInputs | null = null;
       if (step.mask !== null && step.mask.stack.mattes.length > 0) {
@@ -1215,6 +1271,11 @@ export class LayerPreviewEngine {
             'seek.mattes',
             `seek ${clamped}`,
             this.mattes.ensure(this.matteNeedsOf(current)),
+          ),
+          this.stages.track(
+            'seek.tracks',
+            `seek ${clamped}`,
+            this.trackArtifacts.ensure(this.trackedMasksOf(current)),
           ),
         ]);
         if (this.disposed || this.generation !== myGeneration) return;

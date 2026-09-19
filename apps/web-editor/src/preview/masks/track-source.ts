@@ -101,6 +101,23 @@ export class TrackSource {
     return { state: 'pending' };
   }
 
+  /**
+   * Start (or join) the loads for `masks`' tracks and resolve when each is known.
+   *
+   * The monitor awaits this before it presents a seek, as it awaits matte frames, so a tracked
+   * mask is drawn from its first presented frame instead of being refused while it loads.
+   */
+  public async ensure(masks: readonly MaskLayer[]): Promise<void> {
+    const loads: Promise<void>[] = [];
+    for (const mask of masks) {
+      if (mask.tracking === undefined) continue;
+      if (this.lookup(mask).state !== 'pending') continue;
+      const loading = this.inFlight.get(mask.tracking.artifact.key);
+      if (loading !== undefined) loads.push(loading);
+    }
+    await Promise.all(loads);
+  }
+
   /** Drop everything, for a project close or a re-track that reuses a key. */
   public clear(): void {
     this.cache.clear();

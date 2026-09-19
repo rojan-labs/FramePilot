@@ -197,6 +197,26 @@ describe('the tracking panel', () => {
     ).toBe(false);
   });
 
+  it('keeps the constraints across a re-track from them', async () => {
+    bridge.capabilityPackTrackMask
+      .mockResolvedValueOnce(result([{ start: 1, end: 1.5 }]))
+      .mockResolvedValueOnce({ ...result(), artifact: { key: 'c'.repeat(64), sha256: SHA } });
+    const Host = host(selected());
+    render(<Host />);
+    await track();
+    await waitFor(() => expect(screen.getByLabelText('Review')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Lock this frame' }));
+    await waitFor(() => expect(screen.getByTestId('constraints').textContent).toBe('1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Re-track from constraints' }));
+    await waitFor(() => expect(bridge.capabilityPackTrackMask).toHaveBeenCalledTimes(2));
+    expect(bridge.capabilityPackTrackMask.mock.calls[1]![0]).toMatchObject({
+      fromConstraints: true,
+    });
+    // The new track replaced the old one, and the editor's correction is still there for the next.
+    await waitFor(() => expect(screen.getByText('Tracked. Nothing needs review.')).toBeTruthy());
+    expect(screen.getByTestId('constraints').textContent).toBe('1');
+  });
+
   it('surfaces a typed refusal from main without touching the project', async () => {
     bridge.capabilityPackTrackMask.mockResolvedValue({
       ok: false,

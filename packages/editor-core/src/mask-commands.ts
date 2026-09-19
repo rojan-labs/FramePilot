@@ -1091,10 +1091,12 @@ function buildToggleKeyframe(
     const existing = mask.pathKeyframes.find((keyframe) => same(keyframe.sourceTime));
     if (existing !== undefined) {
       if (mask.pathKeyframes.length === 1) {
-        // Refused with words rather than silently: the editor clicked expecting something.
+        // Refused with words rather than silently: the editor clicked expecting something. With
+        // one keyframe the path is static and a reshape anywhere edits that one shape
+        // (`buildSetGeometry`), so the remedy is a second keyframe, not a reshape.
         throw new Rejection(
           'not_editable',
-          'This is the path’s only shape. Move the playhead and reshape the path to animate it.',
+          'This is the path’s only shape. Move the playhead to where it should change and press Animate there, then reshape it.',
         );
       }
       return {
