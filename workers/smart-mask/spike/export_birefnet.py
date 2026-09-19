@@ -77,6 +77,7 @@ def export(out_dir, size: int = SIZE) -> dict:
     import onnx
 
     m = onnx.load(str(fp32))
+    fp16_store.strip_trace_metadata(m)
     deduped = fp16_store.dedupe_fp32(m)
     onnx.save(m, str(fp32))
     ops = sorted({n.op_type for n in m.graph.node})

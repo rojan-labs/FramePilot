@@ -122,6 +122,36 @@ def dedupe_fp32(model: onnx.ModelProto) -> int:
     return _dedupe_initializers(model.graph)
 
 
+def strip_trace_metadata(model: onnx.ModelProto) -> None:
+    """Drop the exporter's per-node stack traces and doc strings (never read at runtime).
+
+    The dynamo exporter records each node's Python stack trace, absolute file paths included,
+    so the same export from two checkout paths produced different bytes and never matched its
+    pin (models.lock.toml). Without them the graph hashes the same wherever it is exported.
+    """
+
+    def strip_graph(graph: onnx.GraphProto) -> None:
+        for node in graph.node:
+            del node.metadata_props[:]
+            node.doc_string = ""
+            for attribute in node.attribute:
+                if attribute.type == onnx.AttributeProto.GRAPH:
+                    strip_graph(attribute.g)
+                for subgraph in attribute.graphs:
+                    strip_graph(subgraph)
+        del graph.metadata_props[:]
+        graph.doc_string = ""
+
+    strip_graph(model.graph)
+    for function in model.functions:
+        for node in function.node:
+            del node.metadata_props[:]
+            node.doc_string = ""
+        del function.metadata_props[:]
+    del model.metadata_props[:]
+    model.doc_string = ""
+
+
 def main(src: str, dst: str) -> None:
     model = onnx.load(src)
     report = convert(model)
