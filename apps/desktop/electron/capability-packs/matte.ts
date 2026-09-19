@@ -434,6 +434,9 @@ export class CapabilityPackMatteService {
       // directory from being adopted.
       staging = await createMatteStaging(context.projectDir, intent.requestId, MATTES_RELATIVE_DIR, {
         adoptOrphan: context.resume === true,
+        // Checkpoints are kept only for the same result: cache key (content, range, prompts,
+        // pack) and pipeline version (BR4.12 follow-up F2).
+        identity: { cacheKey: key, pipelineVersion: MATTE_PIPELINE_VERSION },
       });
     } catch (error) {
       if (error instanceof MatteStagingError && error.code === 'staging_exists') {
@@ -819,6 +822,8 @@ export class CapabilityPackMatteService {
         prompts: [...prompts],
         ...(intent.previousArtifactKey === undefined ? {} : { previousArtifact: intent.previousArtifactKey }),
         previewHeight: intent.previewHeight,
+        // The worker's checkpoints are keyed on the media's content too (F2).
+        contentFingerprint: media.fingerprint,
       },
     };
     return request;

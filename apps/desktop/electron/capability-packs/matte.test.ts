@@ -1,4 +1,4 @@
-import { readdirSync, rmSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { mkdtemp, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -188,32 +188,78 @@ describe('CapabilityPackMatteService lifecycle', () => {
 
   it('resumes a job an app stopped mid-way: the worker finds its finished windows (E2E.6)', async () => {
     const seen: string[][] = [];
+    let record: string | undefined;
     const h = await harness({
       onRequest: (request) => {
         if (request.capability !== 'subject.matte') return;
         const directory = request.parameters.output.absolutePath;
         seen.push(readdirSync(directory).sort());
+        record ??= readFileSync(path.join(directory, 'inputs', 'staging.json'), 'utf8');
         // The real worker reuses the checkpoint, then removes its private folders.
         rmSync(path.join(directory, 'windows'), { recursive: true, force: true });
       },
     });
-    // The app died while this job ran: its staging directory holds window 1's checkpoint and
-    // a half-written file, and nothing removed it.
-    const orphan = path.join(matteStagingRoot(h.projectDir), 'job1');
-    await import('node:fs/promises').then(async (fs) => {
-      await fs.mkdir(path.join(orphan, 'windows', '1'), { recursive: true });
-      await fs.writeFile(path.join(orphan, 'windows', '1', 'done.json'), '{}');
-      await fs.writeFile(path.join(orphan, 'matte.mkv'), 'partial');
-    });
+    // A first run of the same request, only to learn what its staging records (F2), then its
+    // artifact is removed so the resume is not a cache hit.
+    const first = await h.service.run(h.intent({ requestId: 'job0' }), h.context());
+    if (first.status !== 'completed') throw new Error('expected the first run to complete');
+    rmSync(path.join(path.dirname(matteStagingRoot(h.projectDir)), first.artifact.key), { recursive: true });
+    // The app died while this job ran: its staging directory holds window 1's checkpoint, a
+    // half-written file and the host's record of what the job was for; nothing removed it.
+    const orphan = (id: string) =>
+      import('node:fs/promises').then(async (fs) => {
+        const directory = path.join(matteStagingRoot(h.projectDir), id);
+        await fs.mkdir(path.join(directory, 'windows', '1'), { recursive: true });
+        await fs.writeFile(path.join(directory, 'windows', '1', 'done.json'), '{}');
+        await fs.writeFile(path.join(directory, 'matte.mkv'), 'partial');
+        await fs.mkdir(path.join(directory, 'inputs'));
+        await fs.writeFile(path.join(directory, 'inputs', 'staging.json'), record!, { mode: 0o400 });
+        return directory;
+      });
+    const directory = await orphan('job1');
     const outcome = await h.service.run(h.intent(), { ...h.context(), resume: true });
     expect(outcome.status).toBe('completed');
-    const request = h.requests[0]!;
+    const request = h.requests[1]!;
     if (request.capability !== 'subject.matte') throw new Error('expected a matte request');
-    expect(request.parameters.output.absolutePath).toBe(orphan);
+    expect(request.parameters.output.absolutePath).toBe(directory);
     // The worker started with the checkpoint and fresh host inputs, not the half-written file.
-    expect(seen).toEqual([['inputs', 'scratch', 'windows']]);
+    expect(seen[1]).toEqual(['inputs', 'scratch', 'windows']);
     // Committed and cleaned up as any other run.
     expect(await readdir(matteStagingRoot(h.projectDir))).toEqual([]);
+  });
+
+  it('recomputes every window of a job resumed after its media changed (F2)', async () => {
+    const seen: string[][] = [];
+    let record: string | undefined;
+    const h = await harness({
+      onRequest: (request) => {
+        if (request.capability !== 'subject.matte') return;
+        const directory = request.parameters.output.absolutePath;
+        seen.push(readdirSync(directory).sort());
+        record ??= readFileSync(path.join(directory, 'inputs', 'staging.json'), 'utf8');
+        rmSync(path.join(directory, 'windows'), { recursive: true, force: true });
+      },
+    });
+    const first = await h.service.run(h.intent({ requestId: 'job0' }), h.context());
+    expect(first.status).toBe('completed');
+    const directory = path.join(matteStagingRoot(h.projectDir), 'job1');
+    await import('node:fs/promises').then(async (fs) => {
+      await fs.mkdir(path.join(directory, 'windows', '1'), { recursive: true });
+      await fs.writeFile(path.join(directory, 'windows', '1', 'done.json'), '{}');
+      await fs.mkdir(path.join(directory, 'inputs'));
+      await fs.writeFile(path.join(directory, 'inputs', 'staging.json'), record!, { mode: 0o400 });
+      // Relinked while the app was closed: same asset id, same length, different bytes.
+      await fs.writeFile(h.mediaPath, 'fake camera BYTES');
+    });
+    const outcome = await h.service.run(h.intent(), { ...h.context(), resume: true });
+    expect(outcome).toMatchObject({ status: 'completed', cacheHit: false });
+    // The orphan's windows were for other media: the worker starts from nothing.
+    expect(seen[1]).toEqual(['inputs', 'scratch']);
+    // And the worker is told the media's content, so its own checkpoints disagree too.
+    const [before, after] = h.requests;
+    if (before?.capability !== 'subject.matte' || after?.capability !== 'subject.matte') throw new Error('expected matte requests');
+    expect(before.parameters.contentFingerprint).toMatch(/^[0-9a-f]{64}$/u);
+    expect(after.parameters.contentFingerprint).not.toBe(before.parameters.contentFingerprint);
   });
 
   it('reads imported media stored relative to the project file (E2E.6)', async () => {

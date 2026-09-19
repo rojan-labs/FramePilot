@@ -222,8 +222,56 @@ export interface MatteStagingOptions {
    * take `<jobId>.lock`, so a directory another live app instance is using is never adopted.
    */
   readonly adoptOrphan?: boolean;
+  /**
+   * What this job's result will be (BR4.12 follow-up F2): written to `inputs/staging.json`
+   * (0400) when the directory is created, and compared on adoption. The worker's `windows/`
+   * are kept only when the orphan's record is a regular, single-link file naming the same cache
+   * key (which covers the media's content fingerprint) and pipeline version; anything else
+   * empties the directory. Without it, adoption keeps nothing.
+   */
+  readonly identity?: MatteStagingIdentity;
   /** Test seam: whether a process id is running (`process.kill(pid, 0)`). */
   readonly isProcessAlive?: (pid: number) => boolean;
+}
+
+export interface MatteStagingIdentity {
+  readonly cacheKey: string;
+  readonly pipelineVersion: number;
+}
+
+/** The host's record of what a staging directory is for, inside its host-owned `inputs/`. */
+export const MATTE_STAGING_IDENTITY_FILE = 'staging.json';
+const STAGING_IDENTITY_VERSION = 1;
+const STAGING_IDENTITY_MAX_BYTES = 1024;
+
+async function writeStagingIdentity(inputsDirectory: string, identity: MatteStagingIdentity): Promise<void> {
+  const document = {
+    version: STAGING_IDENTITY_VERSION,
+    cacheKey: identity.cacheKey,
+    pipelineVersion: identity.pipelineVersion,
+  };
+  await writeFile(path.join(inputsDirectory, MATTE_STAGING_IDENTITY_FILE), JSON.stringify(document), {
+    flag: 'wx',
+    mode: 0o400,
+  });
+}
+
+/** True only when the orphan's record is the host's own file and names this identity. */
+async function stagingIdentityMatches(directory: string, identity: MatteStagingIdentity | undefined): Promise<boolean> {
+  if (identity === undefined) return false;
+  const file = path.join(directory, 'inputs', MATTE_STAGING_IDENTITY_FILE);
+  try {
+    const stat = await lstat(file);
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > STAGING_IDENTITY_MAX_BYTES) return false;
+    const document = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+    return (
+      document.version === STAGING_IDENTITY_VERSION &&
+      document.cacheKey === identity.cacheKey &&
+      document.pipelineVersion === identity.pipelineVersion
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -342,10 +390,11 @@ export async function createMatteStaging(
       if (options.adoptOrphan !== true) {
         throw new MatteStagingError('staging_exists', 'A matte job with this id is already staged.');
       }
-      await adoptOrphanedStaging(stagingRoot, jobId);
+      await adoptOrphanedStaging(stagingRoot, jobId, options.identity);
     }
     await mkdir(path.join(inputsDirectory, 'corrections'), { recursive: true, mode: 0o700 });
     await mkdir(path.join(inputsDirectory, 'locked'), { recursive: true, mode: 0o700 });
+    if (options.identity !== undefined) await writeStagingIdentity(inputsDirectory, options.identity);
   } catch (error) {
     await releaseStagingLock(lockPath);
     throw error;
@@ -477,17 +526,23 @@ async function linkFree(root: string): Promise<boolean> {
  * fingerprint and recomputes any that do not match). A checkpoint tree holding a link anywhere
  * is removed too: resume is an optimisation, never a reason to follow a planted link.
  */
-async function adoptOrphanedStaging(stagingRoot: string, jobId: string): Promise<void> {
+async function adoptOrphanedStaging(
+  stagingRoot: string,
+  jobId: string,
+  identity: MatteStagingIdentity | undefined,
+): Promise<void> {
   const directory = path.join(stagingRoot, jobId);
   const stat = await lstat(directory);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new MatteStagingError('unsafe_path', 'The staging folder is a link or a file.');
   }
   await assertStagingDirectoryReal(stagingRoot, jobId);
+  // Read before `inputs/` goes: a different job's (or different media's) windows never survive.
+  const sameJob = await stagingIdentityMatches(directory, identity);
   let keptWindows = false;
   for (const entry of await readdir(directory)) {
     const entryPath = path.join(directory, entry);
-    if (entry === MATTE_WINDOWS_DIR && (await linkFree(entryPath))) {
+    if (sameJob && entry === MATTE_WINDOWS_DIR && (await linkFree(entryPath))) {
       keptWindows = (await lstat(entryPath)).isDirectory();
       if (keptWindows) continue;
     }
@@ -495,7 +550,7 @@ async function adoptOrphanedStaging(stagingRoot: string, jobId: string): Promise
   }
   // Nothing moved the folder while it was being emptied (F6).
   await assertStagingDirectoryReal(stagingRoot, jobId);
-  log.action('matteStagingAdopted', { keptWindows });
+  log.action('matteStagingAdopted', { keptWindows, sameJob });
 }
 
 /** `realpath(<stagingRoot>/<jobId>)` must be the staging root's realpath plus the id. */

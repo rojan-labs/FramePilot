@@ -11,6 +11,8 @@ import {
 } from './matte-staging.js';
 
 const KEY = 'a'.repeat(64);
+/** What a matte job's staging records about its result (F2). */
+const IDENTITY = { cacheKey: 'c'.repeat(64), pipelineVersion: 1 } as const;
 
 async function project(): Promise<string> {
   return await mkdtemp(path.join(tmpdir(), 'framepilot-matte-staging-'));
@@ -108,7 +110,7 @@ describe('matte staging (MD-3)', () => {
 
   it('adopts an orphan of a stopped app, keeping only the worker’s finished windows', async () => {
     const dir = await project();
-    const first = await createMatteStaging(dir, 'job_1');
+    const first = await createMatteStaging(dir, 'job_1', undefined, { identity: IDENTITY });
     // What an app that died mid-job leaves: a finished window, scratch, a half-written output
     // and the old host inputs.
     await mkdir(path.join(first.directory, 'windows', '1'), { recursive: true });
@@ -117,21 +119,21 @@ describe('matte staging (MD-3)', () => {
     await writeFile(path.join(first.directory, 'matte.mkv'), 'partial');
     await first.writeInput('locked/0.png', new Uint8Array([1]));
 
-    const adopted = await createMatteStaging(dir, 'job_1', undefined, { adoptOrphan: true });
+    const adopted = await createMatteStaging(dir, 'job_1', undefined, { adoptOrphan: true, identity: IDENTITY });
     expect(adopted.directory).toBe(first.directory);
     expect((await readdir(adopted.directory)).sort()).toEqual(['inputs', 'windows']);
     expect(await readdir(path.join(adopted.directory, 'windows', '1'))).toEqual(['done.json']);
-    expect((await readdir(adopted.inputsDirectory)).sort()).toEqual(['corrections', 'locked']);
+    expect((await readdir(adopted.inputsDirectory)).sort()).toEqual(['corrections', 'locked', 'staging.json']);
     expect(await readdir(path.join(adopted.inputsDirectory, 'locked'))).toEqual([]);
   });
 
   it('never keeps a checkpoint tree holding a link, and refuses a linked staging folder', async () => {
     const dir = await project();
     const outside = await project();
-    const first = await createMatteStaging(dir, 'job_1');
+    const first = await createMatteStaging(dir, 'job_1', undefined, { identity: IDENTITY });
     await mkdir(path.join(first.directory, 'windows', '1'), { recursive: true });
     await symlink(outside, path.join(first.directory, 'windows', '1', 'segments'));
-    const adopted = await createMatteStaging(dir, 'job_1', undefined, { adoptOrphan: true });
+    const adopted = await createMatteStaging(dir, 'job_1', undefined, { adoptOrphan: true, identity: IDENTITY });
     expect((await readdir(adopted.directory)).sort()).toEqual(['inputs']);
     expect(await readdir(outside)).toEqual([]);
 
@@ -146,8 +148,8 @@ describe('matte staging (MD-3)', () => {
   it('drops a checkpoint tree holding a hard-linked file, or deeper or wider than its bounds (F6)', async () => {
     const dir = await project();
     const outside = await project();
-    const adopt = () => createMatteStaging(dir, 'job_1', undefined, { adoptOrphan: true });
-    const first = await createMatteStaging(dir, 'job_1');
+    const adopt = () => createMatteStaging(dir, 'job_1', undefined, { adoptOrphan: true, identity: IDENTITY });
+    const first = await createMatteStaging(dir, 'job_1', undefined, { identity: IDENTITY });
     await first.release();
     // A hard link aliasing a file outside staging.
     await writeFile(path.join(outside, 'precious.bin'), 'x');
@@ -165,6 +167,51 @@ describe('matte staging (MD-3)', () => {
     await writeFile(path.join(first.directory, 'windows', '1', 'done.json'), '{}');
     await (await adopt()).release();
     expect((await readdir(first.directory)).sort()).toEqual(['inputs', 'windows']);
+  });
+
+  it('keeps windows only when the orphan records the same cache key and pipeline version (F2)', async () => {
+    const dir = await project();
+    const orphan = async (identity?: typeof IDENTITY | { cacheKey: string; pipelineVersion: number }) => {
+      const staging = await createMatteStaging(dir, 'job_1', undefined, {
+        adoptOrphan: true,
+        ...(identity === undefined ? {} : { identity }),
+      });
+      await staging.release();
+      await mkdir(path.join(staging.directory, 'windows', '1'), { recursive: true });
+      await writeFile(path.join(staging.directory, 'windows', '1', 'done.json'), '{}');
+      return staging;
+    };
+    const kept = async (identity: typeof IDENTITY | { cacheKey: string; pipelineVersion: number }) => {
+      const adopted = await createMatteStaging(dir, 'job_1', undefined, { adoptOrphan: true, identity });
+      await adopted.release();
+      return (await readdir(adopted.directory)).includes('windows');
+    };
+    const record = path.join(matteStagingRoot(dir), 'job_1', 'inputs', 'staging.json');
+
+    await orphan(IDENTITY);
+    expect(JSON.parse(await readFile(record, 'utf8'))).toEqual({ version: 1, ...IDENTITY });
+    expect((await stat(record)).mode & 0o777).toBe(0o400);
+    expect(await kept(IDENTITY)).toBe(true);
+    // Other media (the key covers the content fingerprint) or another pipeline: recomputed.
+    await orphan(IDENTITY);
+    expect(await kept({ ...IDENTITY, cacheKey: 'd'.repeat(64) })).toBe(false);
+    await orphan(IDENTITY);
+    expect(await kept({ ...IDENTITY, pipelineVersion: 2 })).toBe(false);
+    // No record (an app from before F2), or a record that is not the host's own file.
+    await orphan();
+    expect(await kept(IDENTITY)).toBe(false);
+    const planted = await project();
+    await writeFile(path.join(planted, 'staging.json'), JSON.stringify({ version: 1, ...IDENTITY }));
+    const staging = await orphan();
+    await symlink(path.join(planted, 'staging.json'), path.join(staging.inputsDirectory, 'staging.json'));
+    expect(await kept(IDENTITY)).toBe(false);
+    const hard = await orphan();
+    await link(path.join(planted, 'staging.json'), path.join(hard.inputsDirectory, 'staging.json'));
+    expect(await kept(IDENTITY)).toBe(false);
+    // Adoption without an identity keeps nothing.
+    await orphan(IDENTITY);
+    const bare = await createMatteStaging(dir, 'job_1', undefined, { adoptOrphan: true });
+    expect(await readdir(bare.directory)).toEqual(['inputs']);
   });
 
   it.each(['../escape', 'a/b', '', '.', 'x'.repeat(65), 'job:1', '..'])(
