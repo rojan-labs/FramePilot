@@ -31,6 +31,26 @@ describe('matte staging (MD-3)', () => {
     expect(staging.inputHandle([])).toBeUndefined();
   });
 
+  it('makes the worker’s temp folder under scratch/, and clears only what the host made (F3)', async () => {
+    const dir = await project();
+    const staging = await createMatteStaging(dir, 'job_1');
+    const temp = await staging.temporaryDirectory();
+    expect(temp).toBe(path.join(staging.directory, 'scratch', 'tmp'));
+    expect((await stat(temp)).mode & 0o777).toBe(0o700);
+    await writeFile(path.join(temp, 'ffconcat.txt'), 'x');
+    await staging.clearTemporaryDirectory();
+    expect((await readdir(staging.directory)).sort()).toEqual(['inputs']);
+    // Something else the worker left in scratch/ stays, for verification to refuse.
+    await staging.temporaryDirectory();
+    await writeFile(path.join(staging.directory, 'scratch', 'frames.u8'), 'x');
+    await staging.clearTemporaryDirectory();
+    expect(await readdir(path.join(staging.directory, 'scratch'))).toEqual(['frames.u8']);
+    // A linked scratch/ is refused, never followed.
+    const other = await createMatteStaging(dir, 'job_2');
+    await symlink(await project(), path.join(other.directory, 'scratch'));
+    await expect(other.temporaryDirectory()).rejects.toMatchObject({ code: 'unsafe_path' });
+  });
+
   it('adopts an orphan of a stopped app, keeping only the worker’s finished windows', async () => {
     const dir = await project();
     const first = await createMatteStaging(dir, 'job_1');

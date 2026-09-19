@@ -18,7 +18,7 @@
  * half-written artifact under a cache key.
  */
 import { constants as fsConstants } from 'node:fs';
-import { copyFile, lstat, mkdir, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, readdir, realpath, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@framepilot/shared-types';
 import {
@@ -188,6 +188,19 @@ export interface MatteStaging {
   ): Promise<string[]>;
   outputHandle(allowedFiles: readonly MatteArtifactFileName[], maxBytes: number): MatteOutputHandle;
   inputHandle(files: readonly string[]): MatteInputHandle | undefined;
+  /**
+   * Create `scratch/tmp/` for the worker's temp files (TMPDIR, BR4.12 follow-up F3), so they
+   * are inside the folder the watchdog measures and go with the staging directory.
+   *
+   * @returns The absolute directory.
+   */
+  temporaryDirectory(): Promise<string>;
+  /**
+   * Remove `scratch/tmp/`, and `scratch/` when nothing else is in it, after the worker exits.
+   * A worker removes its own `scratch/`; this only takes away what the host made, so anything
+   * else a worker left there is still refused by verification.
+   */
+  clearTemporaryDirectory(): Promise<void>;
   /** Remove the whole staging directory (failure, cancel, stale result). Never throws. */
   discard(): Promise<void>;
 }
@@ -286,10 +299,43 @@ export async function createMatteStaging(
       if (files.length === 0) return undefined;
       return { handleId: `matte-in:${jobId}`, absolutePath: inputsDirectory, files: [...files] };
     },
+    async temporaryDirectory() {
+      const scratch = await realSubdirectory(directory, MATTE_SCRATCH_DIR);
+      return await realSubdirectory(scratch, MATTE_TEMP_DIR);
+    },
+    async clearTemporaryDirectory() {
+      const scratch = path.join(directory, MATTE_SCRATCH_DIR);
+      await rm(path.join(scratch, MATTE_TEMP_DIR), { recursive: true, force: true });
+      try {
+        // Not recursive: only an EMPTY scratch folder is the host's to remove.
+        await rmdir(scratch);
+      } catch (error) {
+        if (!isCode(error, 'ENOENT') && !isCode(error, 'ENOTEMPTY') && !isCode(error, 'ENOTDIR')) throw error;
+      }
+    },
     async discard() {
       await removeQuietly(directory, 'discard');
     },
   };
+}
+
+/** The worker's scratch folder, and the temp folder the host makes inside it (F3). */
+export const MATTE_SCRATCH_DIR = 'scratch';
+export const MATTE_TEMP_DIR = 'tmp';
+
+/** `parent/name` as a real directory (created 0700 when missing); a link or file refuses. */
+async function realSubdirectory(parent: string, name: string): Promise<string> {
+  const target = path.join(parent, name);
+  try {
+    await mkdir(target, { mode: 0o700 });
+  } catch (error) {
+    if (!isCode(error, 'EEXIST')) throw error;
+  }
+  const stat = await lstat(target);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw new MatteStagingError('unsafe_path', 'A staging folder is a link or a file.');
+  }
+  return target;
 }
 
 /** True when `root` and everything under it are real files and directories (no links). */

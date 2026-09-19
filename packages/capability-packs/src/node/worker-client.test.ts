@@ -103,6 +103,72 @@ describe('runCapabilityPackWorker environment contract', () => {
   });
 });
 
+describe('runCapabilityPackWorker temp folder (BR4.12 follow-up F3)', () => {
+  it('points TMPDIR, TEMP and TMP at the host temp directory, never the desktop temp folder', async () => {
+    const { root, media } = await sandbox();
+    const temp = path.join(root, 'scratch-tmp');
+    await mkdir(temp);
+    let seenEnv: Readonly<Record<string, string>> | undefined;
+    const capturingLauncher: CapabilityPackWorkerLauncher = (entrypoint, args, env) => {
+      seenEnv = env;
+      return launcher('success')(entrypoint, args, env);
+    };
+    const previous = process.env.TMPDIR;
+    process.env.TMPDIR = '/desktop/tmp';
+    try {
+      await runCapabilityPackWorker({
+        entrypoint: '/signed/worker',
+        mediaRoot: root,
+        request: request(media),
+        launch: capturingLauncher,
+        temporaryDirectory: temp,
+        extraEnvironment: { FRAMEPILOT_TMPDIR: '/elsewhere' },
+      });
+    } finally {
+      if (previous === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = previous;
+    }
+    expect(seenEnv?.TMPDIR).toBe(temp);
+    expect(seenEnv?.TEMP).toBe(temp);
+    expect(seenEnv?.TMP).toBe(temp);
+  });
+
+  it('refuses a temp directory that is a link, missing, or outside the staging root', async () => {
+    const { root, media } = await sandbox();
+    const real = path.join(root, 'real');
+    await mkdir(real);
+    const linked = path.join(root, 'linked');
+    await symlink(real, linked);
+    for (const temporaryDirectory of [linked, path.join(root, 'missing')]) {
+      await expect(
+        runCapabilityPackWorker({
+          entrypoint: '/signed/worker',
+          mediaRoot: root,
+          request: request(media),
+          launch: neverLaunchWorker,
+          temporaryDirectory,
+        }),
+      ).rejects.toMatchObject({ code: 'media_escape' });
+    }
+    const stagingRoot = path.join(root, 'staging');
+    await mkdir(stagingRoot);
+    await expect(
+      runCapabilityPackWorker({
+        entrypoint: '/signed/worker',
+        mediaRoot: root,
+        outputRoot: stagingRoot,
+        request: request(media),
+        launch: neverLaunchWorker,
+        temporaryDirectory: real,
+      }),
+    ).rejects.toMatchObject({ code: 'media_escape' });
+  });
+});
+
+const neverLaunchWorker: CapabilityPackWorkerLauncher = () => {
+  throw new Error('must not launch');
+};
+
 describe('runCapabilityPackWorker', () => {
   it('runs one bounded request and verifies progress/result identity', async () => {
     const { root, media } = await sandbox();

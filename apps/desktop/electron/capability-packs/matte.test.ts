@@ -211,7 +211,7 @@ describe('CapabilityPackMatteService lifecycle', () => {
     if (request.capability !== 'subject.matte') throw new Error('expected a matte request');
     expect(request.parameters.output.absolutePath).toBe(orphan);
     // The worker started with the checkpoint and fresh host inputs, not the half-written file.
-    expect(seen).toEqual([['inputs', 'windows']]);
+    expect(seen).toEqual([['inputs', 'scratch', 'windows']]);
     // Committed and cleaned up as any other run.
     expect(await readdir(matteStagingRoot(h.projectDir))).toEqual([]);
   });
@@ -229,6 +229,19 @@ describe('CapabilityPackMatteService lifecycle', () => {
     const request = h.requests[0]!;
     if (request.capability !== 'subject.matte') throw new Error('expected a matte request');
     expect(request.media.absolutePath).toBe(h.mediaPath);
+  });
+
+  it('points the worker’s temp folder into its staging directory and removes it after (F3)', async () => {
+    const h = await harness();
+    const outcome = await h.service.run(h.intent(), h.context());
+    expect(outcome.status).toBe('completed');
+    const options = h.worker.mock.calls[0]![0];
+    const request = h.requests[0]!;
+    if (request.capability !== 'subject.matte') throw new Error('expected a matte request');
+    expect(options.temporaryDirectory).toBe(path.join(request.parameters.output.absolutePath, 'scratch', 'tmp'));
+    expect(options.outputRoot).toBe(matteStagingRoot(h.projectDir));
+    // Committed without the host's temp folder: verification saw only declared files.
+    expect(await readdir(matteStagingRoot(h.projectDir))).toEqual([]);
   });
 
   it('reports phase timings, provider, flagged ratio and failure codes, never paths or prompts', async () => {

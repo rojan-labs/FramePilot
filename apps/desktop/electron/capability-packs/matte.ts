@@ -865,10 +865,13 @@ export class CapabilityPackMatteService {
     );
     watchdog.start();
     try {
+      // The worker's temp files go under staging, where the watchdog measures them (F3).
+      const temporaryDirectory = await staging.temporaryDirectory();
       const result = await (this.options.runWorker ?? runCapabilityPackWorker)({
         entrypoint,
         mediaRoot: path.dirname(media.asset.path),
         outputRoot: staging.stagingRoot,
+        temporaryDirectory,
         request,
         signal: workerController.signal,
         timeoutMs: Math.min(JOB_TIMEOUT_MAX_MS, JOB_TIMEOUT_BASE_MS + media.frameCount * JOB_TIMEOUT_PER_FRAME_MS),
@@ -883,6 +886,7 @@ export class CapabilityPackMatteService {
         },
       });
       if (watchdog.breach !== undefined) return resourceExhausted(watchdog.breach);
+      await staging.clearTemporaryDirectory();
       if (result.capability !== 'subject.matte') {
         return failed('worker_failed', 'The Smart Mask pack returned an unexpected result.', false);
       }

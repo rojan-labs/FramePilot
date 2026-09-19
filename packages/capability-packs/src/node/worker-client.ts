@@ -52,6 +52,13 @@ export interface CapabilityPackWorkerRunOptions {
    * host-owned protocol keys (network/runtime/identity) cannot be overridden.
    */
   readonly extraEnvironment?: Readonly<Record<string, string>>;
+  /**
+   * A host-created directory for the worker's temporary files (BR4.12 follow-up F3). TMPDIR,
+   * TEMP and TMP point here instead of the desktop's temp folder, so what the worker and the
+   * libraries and tools it runs write "to temp" lands where the host's watchdog measures it.
+   * It must be a real directory (not a link); with `outputRoot`, strictly inside it.
+   */
+  readonly temporaryDirectory?: string;
   readonly onProgress?: (progress: CapabilityPackWorkerProgress) => void;
   /** The worker's pid (its process-group id on POSIX), for a host watchdog (BR4.12 H2). */
   readonly onSpawn?: (pid: number) => void;
@@ -91,9 +98,18 @@ export function defaultLauncher(
   });
 }
 
-/** The scrubbed worker environment: launch essentials plus FRAMEPILOT_ extras, nothing else. */
+/** The variables a process and the libraries it loads read for their temp folder. */
+const TEMP_VARIABLES = ['TMPDIR', 'TEMP', 'TMP'] as const;
+
+/**
+ * The scrubbed worker environment: launch essentials plus FRAMEPILOT_ extras, nothing else.
+ *
+ * @param temporaryDirectory - When given, every temp variable points here and the desktop's own
+ *   temp folder is not passed (F3); otherwise the desktop's temp variables pass through.
+ */
 export function safeRuntimeEnvironment(
   extraEnvironment?: Readonly<Record<string, string>>,
+  temporaryDirectory?: string,
 ): Readonly<Record<string, string>> {
   const base: Record<string, string> = {
     FRAMEPILOT_CAPABILITY_PACK_NETWORK: 'disabled',
@@ -101,11 +117,34 @@ export function safeRuntimeEnvironment(
   };
   // Preserve only OS process-launch essentials. Provider keys and the rest of the desktop
   // environment never cross into a local media worker.
-  for (const name of ['PATH', 'SystemRoot', 'WINDIR', 'TMPDIR', 'TEMP', 'TMP']) {
+  const passed = temporaryDirectory === undefined ? ['PATH', 'SystemRoot', 'WINDIR', ...TEMP_VARIABLES] : ['PATH', 'SystemRoot', 'WINDIR'];
+  for (const name of passed) {
     const value = process.env[name];
     if (value !== undefined) base[name] = value;
   }
+  if (temporaryDirectory !== undefined) {
+    for (const name of TEMP_VARIABLES) base[name] = temporaryDirectory;
+  }
+  // Temp variables are not FRAMEPILOT_-prefixed, so no extra can override them.
   return mergeExtraWorkerEnvironment(base, extraEnvironment);
+}
+
+/** A temp directory must be a real directory the host made; inside the staging root when there is one. */
+async function assertTemporaryDirectory(temporaryDirectory: string, outputRoot: string | undefined): Promise<void> {
+  if (outputRoot !== undefined) {
+    await assertHandlesInsideOutputRoot(outputRoot, [temporaryDirectory]);
+    return;
+  }
+  try {
+    const stat = await lstat(temporaryDirectory);
+    if (stat.isDirectory() && !stat.isSymbolicLink()) return;
+  } catch {
+    // Refused below.
+  }
+  throw new CapabilityPackWorkerRuntimeError(
+    'media_escape',
+    'Capability Pack temporary directory is not a host-created directory.',
+  );
 }
 
 /**
@@ -223,6 +262,9 @@ export async function runCapabilityPackWorker(
       ...(inputs === undefined ? [] : [inputs.absolutePath]),
     ]);
   }
+  if (options.temporaryDirectory !== undefined) {
+    await assertTemporaryDirectory(options.temporaryDirectory, options.outputRoot);
+  }
   if (options.signal?.aborted === true) {
     throw new CapabilityPackWorkerRuntimeError('cancelled', 'Capability Pack request cancelled.');
   }
@@ -230,7 +272,7 @@ export async function runCapabilityPackWorker(
   const child = launch(
     options.entrypoint,
     ['--framepilot-worker-runtime'],
-    safeRuntimeEnvironment(options.extraEnvironment),
+    safeRuntimeEnvironment(options.extraEnvironment, options.temporaryDirectory),
   );
   if (child.pid !== undefined) {
     try {
