@@ -86,3 +86,24 @@ and measured size, throughput and memory on a 16 GB Apple M1 Pro.
 - **Verification is a gate, not a promise.** The verify stage's error-detection recall and
   review load on the construction-true pilot set are in BR0-FINDINGS; the human-labelled set
   (MO-8) is still required before the pack can claim "Verified".
+
+## Amendment (2026-09-19, E2E.6): resuming a stopped job, and the watchdog's disk bounds
+
+Two host behaviours the worker's progressive windows (BR3.14) depend on, found when E2E.6 ran the
+real pipeline (scripted models) under the real host:
+
+- **Resume after a crash.** A job the app stopped mid-way leaves `.staging/<requestId>/` with the
+  worker's `windows/` checkpoints. The resumed run (same request id) used to fail as
+  `job_running` on the existing folder, so the worker's resume was unreachable. The host now
+  adopts an orphaned folder that no live job owns: everything but a link-free `windows/` tree is
+  removed and the inputs are rebuilt; the worker re-checks each checkpoint's request and pipeline
+  fingerprint. The resumed output is byte-identical to an uninterrupted run.
+- **Watchdog disk bounds.** The watchdog held the whole staging folder to
+  min(byte ceiling, free − 1 GB). The ceiling is sized for the artifact, and a running worker also
+  holds `scratch/` and `windows/` (and a re-run, the cloned previous matte in `inputs/`), so short
+  clips were killed mid-window. Now the declared outputs are held to the ceiling and the whole
+  folder to free − 1 GB. The disk-exhaustion guard is unchanged
+  ([capability-pack-security runbook](../runbooks/capability-pack-security.md)); flagged for the
+  BR4.12 security reviewer.
+
+User guide: [docs/guides/masking.md](../guides/masking.md).

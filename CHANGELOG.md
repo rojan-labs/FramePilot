@@ -8,6 +8,50 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **A clip blur a mask can limit — a face blur that stays on the face.** Inspector → **Effects** →
+  **Add blur** puts a Gaussian blur on the clip (strength is a share of the picture, so it looks
+  the same at every resolution); **Add mask** on its row, or a mask's **Limits** set to the blur,
+  confines it to the mask, and a tracked mask keeps it on the subject. The assistant's
+  `blur_to_hide` ("blur the faces except the host") now uses it instead of refusing. The monitor
+  and the export apply it the same way (engine `render/clip_blur.py`, `editor-core/clip-blur.ts`;
+  a frame-plan parity case) (E2E.3, E2E.4).
+- **Masking end-to-end coverage E2E.3, E2E.4, E2E.6 and E2E.7** (`tests/e2e/specs/masking-e2e-*`):
+  pen path → animate → perspective track → constrain → masked blur → preview == export; the
+  sidebar's face picker, face-recognition consent and ambiguity questions; a crash mid-job that
+  resumes from the worker's finished windows with byte-identical output, and relink → STALE →
+  recompute; a project folder with mattes and tracks moved between folders, and (new CI jobs)
+  between macOS and Windows. Each spec header names what it simulates.
+- **`docs/guides/masking.md`:** one page for masking — tools, tracking, review and fixing,
+  limitations, keyboard, troubleshooting, what a computer needs (minimum still to be decided,
+  MO-12), privacy and face-recognition consent.
+
+### Fixed
+
+- **Tracked masks now show on the program monitor.** The monitor never loaded track artifacts, so
+  every tracked mask read "Mask not previewed yet" — and an effect it limited (a face blur) covered
+  the whole frame in the preview while the export limited it. The monitor loads each track (with
+  the export's refusal order) before presenting a seek.
+- **Background removal, mask tracking and hover highlight read imported media.** The desktop
+  stores imported media relative to the project file; the pack jobs refused any relative path
+  ("The media file could not be located"), so every imported clip was refused. They now resolve it
+  against the project folder, as the export does.
+- **A background removal that stopped with the app resumes.** The resumed run hit the folder the
+  stopped one left and failed as "already staged"; it now adopts that folder, keeping the worker's
+  finished windows.
+- **The worker is no longer killed for its own working space.** The watchdog held the whole job
+  folder (decoded frames, finished windows) to the size budget meant for the finished cut-out, so
+  short clips were stopped mid-job; the cut-out keeps that budget and the folder is held to free
+  disk space minus 1 GB.
+- **Running Remove background again replaces a stale or broken one**, instead of stacking a new
+  matte on the old one that kept refusing the export.
+- **STALE shows in the Inspector right after a relink**, not only in the media bin, and a stale
+  finding about a matte that has since been replaced no longer lingers.
+- **Re-track from constraints keeps the constraints**, so the next re-track can use them.
+- **A run's edits apply in order.** When an assistant run produced two edits back to back (a
+  cut-out, then a title behind it), the second was refused as stale; they now apply one at a time.
+- **"Animate path" on the only keyframe** now says to move the playhead and press Animate there;
+  it used to say to reshape the path, which edits the one shape.
+
 - **"The white car", "the silver car" and "the black ball" now resolve.** When you ask the
   assistant to mask an object by a white, grey, silver or black colour and several of that object
   are on screen, it used to ask you to pick most of the time, because the image model behind the

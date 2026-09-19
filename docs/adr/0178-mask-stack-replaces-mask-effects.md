@@ -238,6 +238,21 @@ distances) and polynomial falloffs; the picture goes over them. An effect-layer 
 the composited frame has no cut-out to trace. A schema field was rejected: the open effect params
 already carry them, validated against the catalog vocabulary.
 
+### E2E amendment (2026-09-19): a clip blur, so an effect-target mask can blur
+
+The Decision says a mask may limit any of the clip's effects ("face blur, sky grade"), but a
+clip's picture effects were only `color_grade` and `lut`; a blur existed only on an adjustment
+lane, whose masks are frame-space and cannot follow a track. E2E.3 ("effect-target blur") and
+E2E.4 ("blur the faces") found the gap. A clip `blur` picture effect now exists — Pillow's
+Gaussian at `params.amount` × the smaller side of the picture it runs on, applied after the
+grade and the LUT and mixed by the effect's mask stack like a grade
+(`render/clip_blur.py`, `editor-core/clip-blur.ts`, the compositor's per-layer effect chain; a
+frame-plan parity case and the PX4 oracle cover it). No schema change: `Effect.type` is a string
+and `apply_color_grade` already attaches clip picture effects. The AI's `blur_to_hide` uses it
+(docs/api/ai-masking.md). The same work found that the program monitor never read track artifacts
+at all (tracked masks showed "Mask not previewed yet"); the layer preview engine now loads them
+before presenting a seek. User guide: [docs/guides/masking.md](../guides/masking.md).
+
 ## Consequences
 
 - Keyframe curve math and the speed curve moved into `timeline-schema` (editor-core re-exports

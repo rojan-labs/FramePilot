@@ -47,6 +47,12 @@ being drawn: it is this clip's matte — "video inside text" is a title above a 
 clip's Alpha matte. The selected track matte shows its source and channel, and Shrink/grow, Soften,
 Clean black/white and Denoise instead of expansion and feathers (its edge is its source's).
 
+**Limiting an effect.** A mask can limit one of the clip's effects instead of cutting the clip: a
+grade, a LUT, or the clip **blur** (Inspector → **Effects** → **Add blur**; its strength is a share
+of the picture's smaller side, 4% by default). **Add mask** on an effect's row arms the drawing
+tool for that effect. A blur limited to a tracked mask is a face or plate blur that stays put
+(`editor-core/clip-blur.ts`, `render/clip_blur.py`).
+
 The Inspector lists the stack top first (drag or Alt+↑/↓ to reorder; colour, blend mode, invert,
 visibility, lock, delete) and, for the selected mask, what it limits (the clip or one effect),
 opacity, expansion, feathers, falloff and typed pixel geometry. Every animatable field has a

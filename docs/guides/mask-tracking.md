@@ -74,7 +74,8 @@ know half the problem.
 
 Fix the mask on a bad frame and **Lock this frame**. That instant becomes a constraint, and
 **Re-track from constraints** measures outwards from each constraint in both directions, over
-only the stretches still under the floor. Every frame belongs to its nearest constraint, so it is
+only the stretches still under the floor. The constraints stay on the mask after the re-track, so
+the next one can use them again (they were dropped before E2E.3). Every frame belongs to its nearest constraint, so it is
 always measured from the closest thing you confirmed.
 
 A constraint frame is exact by construction, not by tolerance: the re-measured segment is
@@ -100,19 +101,19 @@ tracker finds.
 
 ## Where things live
 
-| Piece                                          | File                                                                              |
-| ---------------------------------------------- | --------------------------------------------------------------------------------- |
-| Artifact format, frame lookup, point warp      | `packages/editor-core/src/mask-track.ts`                                          |
-| Host policy: methods, residual, flagged ranges | `packages/editor-core/src/mask-track-solve.ts`                                    |
-| Review list, constraints, re-track plan, merge | `packages/editor-core/src/mask-track-review.ts`                                   |
-| Export reader and path warp                    | `engine/python/framepilot_engine/render/tracks.py`                                |
-| Monitor reader                                 | `apps/web-editor/src/preview/masks/track-source.ts`, `track-location.ts`          |
-| The job: staging, verification, atomic commit  | `apps/desktop/electron/capability-packs/track-job.ts`                             |
-| The run: resolve, measure, join, commit        | `apps/desktop/electron/capability-packs/track-run.ts`                             |
-| Panel                                          | `apps/web-editor/src/components/inspector/masks/MaskTracking.tsx`                 |
-| Worker                                         | `workers/tracking-lite/src/framepilot_tracking_lite/`                             |
-| Parity vectors (TS == Python, byte-exact)      | `tests/fixtures/mask-track/transforms.json`                                       |
-| Measured gates                                 | [`MK7-TRACKING-GATES.md`](../../plan/background-removal-ai/MK7-TRACKING-GATES.md) |
+| Piece                                          | File                                                                                                               |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Artifact format, frame lookup, point warp      | `packages/editor-core/src/mask-track.ts`                                                                           |
+| Host policy: methods, residual, flagged ranges | `packages/editor-core/src/mask-track-solve.ts`                                                                     |
+| Review list, constraints, re-track plan, merge | `packages/editor-core/src/mask-track-review.ts`                                                                    |
+| Export reader and path warp                    | `engine/python/framepilot_engine/render/tracks.py`                                                                 |
+| Monitor reader (loaded before a seek presents) | `apps/web-editor/src/preview/masks/track-source.ts`, `track-location.ts`, `preview/engine/layer-preview-engine.ts` |
+| The job: staging, verification, atomic commit  | `apps/desktop/electron/capability-packs/track-job.ts`                                                              |
+| The run: resolve, measure, join, commit        | `apps/desktop/electron/capability-packs/track-run.ts`                                                              |
+| Panel                                          | `apps/web-editor/src/components/inspector/masks/MaskTracking.tsx`                                                  |
+| Worker                                         | `workers/tracking-lite/src/framepilot_tracking_lite/`                                                              |
+| Parity vectors (TS == Python, byte-exact)      | `tests/fixtures/mask-track/transforms.json`                                                                        |
+| Measured gates                                 | [`MK7-TRACKING-GATES.md`](../../plan/background-removal-ai/MK7-TRACKING-GATES.md)                                  |
 
 ## Refusals
 

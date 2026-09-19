@@ -972,6 +972,64 @@ effect (ADR 0113).
   - Fail if: white letters are drawn on top, the matte moves with the clip, or the export differs.
   - Result: **/**/____ · PASS / FAIL · notes:
 
+- [ ] **16.11 A face blur that stays on the face** — `UI` · desktop · **tracking needs Tracking Lite**
+  - Setup: a real clip of a person walking across frame (4K if you have one).
+  - Do: Inspector → **Effects** → **Add blur**; drag **Blur strength** from 4% to 10%. Press **Add
+    mask** on the blur's row and draw an ellipse over the face. Then (with the pack) **Track this
+    mask**, Perspective. Scrub, play, and export 5 s.
+  - Expect: only the inside of the ellipse is blurred, in the monitor and the export alike; the blur
+    follows the face; Undo takes back the mask, then the blur. With no track the monitor never says
+    "Mask not previewed yet" for more than a moment after a seek.
+  - Fail if: the whole frame blurs in the monitor while the export blurs only the face (or the
+    reverse), or the blurred area lags the face in one of them.
+  - Result: **/**/____ · PASS / FAIL · notes:
+
+- [ ] **16.12 Force-quit mid background removal, then reopen** — `UI` · desktop · **needs a registered Smart Mask pack**
+  - Do: start **Remove background** on a clip of at least 30 s; once the Jobs tab shows it past its
+    first window, force-quit FramePilot (Activity Monitor / Task Manager, not the menu). Reopen
+    the app and the project, and watch **Jobs**. When it finishes, press **Remove background**.
+  - Expect: the job reappears with "Resumed after restart" and finishes sooner than a fresh run
+    would (it does not redo the windows already done); pressing Remove background then applies
+    the cut-out at once. No leftover "already staged" error.
+  - Fail if: the resumed job fails, restarts from zero, or the cut-out differs visibly from a run
+    that was never interrupted.
+  - Result: **/**/____ · PASS / FAIL · notes:
+
+- [ ] **16.13 Relink to different footage, then run it again** — `UI` · desktop · **needs the pack**
+  - Do: on a clip with a background removal, Media bin → hover the clip's media → **relink** →
+    choose a different take. Read the bin status and the Inspector's Background removal row. Try an
+    export. Then press **Remove background** again.
+  - Expect: the bin says one background removal needs updating; the Inspector shows "Media
+    changed since background removal ran — run Remove background again." straight away (without
+    reselecting the clip); the export refuses with the same sentence. The re-run REPLACES the old
+    cut-out (one mask, not two), the warning clears, and the export works.
+  - Fail if: the Inspector shows nothing after the relink, or a second matte is stacked under the
+    new one.
+  - Result: **/**/____ · PASS / FAIL · notes:
+
+- [ ] **16.14 The assistant: blur the faces except the host; a title behind her** — `AI` · desktop · **needs Subject Intelligence; Smart Mask for the title**
+  - Setup: a two-person interview shot, host on one side.
+  - Do: ask _"Blur the faces except the host."_ In the face picker, press **Turn on for this
+    project**, select only the guest's face and **Use selected**. Then ask _"Put the title behind
+    her."_ and pick her when asked. Export 5 s.
+  - Expect: nothing is masked before you pick; the guest's face is blurred (and the host's is not)
+    with one blur on the clip; "her" is asked, not guessed; the cut-out and the title land in
+    order, each undoable; the reply states how many moments need a look and never says verified.
+    **Delete identity data** is offered once recognition is on, and it turns it off.
+  - Fail if: the host is blurred, a mask lands without your pick, or the second edit says "Couldn't
+    apply this edit".
+  - Result: **/**/____ · PASS / FAIL · notes:
+
+- [ ] **16.15 Move a masked project between computers** — `UI` · desktop macOS and Windows (MO-9)
+  - Setup: a project with a background removal, a tracked mask and a keyframed mask. Export 5 s.
+  - Do: copy the whole project folder (it includes the hidden `.framepilot-derived` folder) to the
+    other computer — Mac to Windows, and the reverse — open it there and export the same 5 s.
+  - Expect: it opens with no BROKEN or STALE warning; the mattes and tracks preview; the export
+    matches the original's pictures (compare a few frames). Then copy it again WITHOUT
+    `.framepilot-derived`: the clip names what is missing and the export refuses.
+  - Fail if: a matte or track silently disappears, or the export differs.
+  - Result: **/**/____ · PASS / FAIL · notes:
+
 ---
 
 ## 17. Footage understanding and semantic search

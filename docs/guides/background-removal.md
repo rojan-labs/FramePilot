@@ -3,7 +3,8 @@
 Cut a subject out of a shot so something else can sit behind it. This is what the editor sees,
 what each state means, and which part of the system owns it.
 
-> Related: [Mask tools](./mask-tools.md) for drawing a mask by hand,
+> Related: [Masking](./masking.md) for the overview (limitations, keyboard, troubleshooting,
+> hardware, privacy), [Mask tools](./mask-tools.md) for drawing a mask by hand,
 > [Mask tracking](./mask-tracking.md) for the review list the two features share,
 > [Preview masks](./preview-masks.md) for how a matte reaches the monitor,
 > [Media intelligence](./media-intelligence.md) for Capability Packs in general.
@@ -39,7 +40,7 @@ is deliberate: hiding a capability teaches you it does not exist.
 | Running              | The phase, a progress bar, elapsed time, the ETA, and **Cancel**        | Keep editing; the job survives.                 |
 | Needs review         | "_n_ moments need a look", with the list                                | Clear them (below).                             |
 | Verified             | A **VERIFIED** badge                                                    | Nothing.                                        |
-| Stale or broken      | The engine's own remedy sentence                                        | Run it again.                                   |
+| Stale or broken      | The engine's own remedy sentence                                        | Run it again; it replaces the old one.          |
 
 ## Choosing the subject
 
@@ -103,6 +104,14 @@ export, or finished — with the clip's media file, the phase, progress and ETA,
 **Resume**, **Cancel** and **Show clip**. Show clip selects the clip, moves the playhead to it and
 opens the Inspector, where the job's row is. A job resumed after a restart says so.
 
+**Quitting or crashing mid-job.** The job is journaled when it starts. Reopen the project and it
+is queued again ("Resumed after restart"); the Smart Mask worker keeps each finished window's
+checkpoint in the job's staging folder, and the host adopts that folder for the resumed run
+(everything but `windows/` is cleared and the inputs rebuilt), so only the unfinished windows are
+computed and the matte is byte-identical to an uninterrupted run (E2E.6). The finished job commits
+its matte; **Remove background** then applies it at once as a cache hit. A staging folder left
+more than a day is swept, and the job then starts over.
+
 The list is a view over the desktop host's scheduler (`capabilityPackJobs`), so it can never
 disagree with what is actually running. The browser build has no pack jobs, so it has no tab.
 
@@ -120,7 +129,7 @@ For each moment:
 - **Keep** and **Remove** brushes paint a fix on the monitor. A stroke is a draft: **Apply fix**
   saves it and re-runs only the window around that moment.
 - The **Edge brush** (BR6.10) is for hair, fur and motion blur: paint over an edge that came out
-  hard or chewed and **Apply fix**. It does not say what the edge *is* — it asks the pack to matte
+  hard or chewed and **Apply fix**. It does not say what the edge _is_ — it asks the pack to matte
   that band again. The pack adds the painted pixels to its unknown band on that frame and takes the
   matting model's alpha there, so an edge stroke never paints alpha itself, and a stroke across
   plain background leaves the background at 0.
@@ -144,6 +153,14 @@ between the two — one operation, one undo. Doing it by hand gives the same res
 
 If there is nothing below the clip, the row says so: the removed area exports as black until you
 put a clip, image or colour behind it.
+
+## Relinked or replaced media
+
+Relinking the clip's asset (Media bin → relink) makes main re-check the matte against the frames it
+was made from. Different footage is **STALE**: the bin says the background removal needs
+updating, the Inspector row shows the engine's sentence at once (before the relink reaches disk),
+and the export refuses it. **Remove background** on a clip that already has one REPLACES it — the
+same mask, a new artifact — so the stale one never lingers under the new one (E2E.6).
 
 ## Export
 
@@ -172,7 +189,7 @@ Hover highlight on real weights measured p95 431 ms on the M1 Pro, over the 100 
 | The review list (shared with tracking) | `.../masks/MaskReviewPanel.tsx`                                                                       |
 | Brush fixes → the host's PNG           | `.../masks/matteCorrectionPng.ts`                                                                     |
 | AI Object / AI Brush on the monitor    | `apps/web-editor/src/components/preview/MaskCanvasTools.tsx`                                          |
-| Hover highlight                        | `.../preview/useSubjectHover.ts`; host `apps/desktop/electron/capability-packs/segment-frame.ts`       |
+| Hover highlight                        | `.../preview/useSubjectHover.ts`; host `apps/desktop/electron/capability-packs/segment-frame.ts`      |
 | The warm worker session                | `packages/capability-packs/src/node/warm-worker.ts`                                                   |
 | Export's notice                        | `apps/web-editor/src/editor/matteReview.ts`, `.../ExportDialog.tsx`                                   |
 | The Jobs tab                           | `apps/web-editor/src/components/JobsPanel.tsx` (`JobsRail`), mounted in `.../Editor.tsx`              |
