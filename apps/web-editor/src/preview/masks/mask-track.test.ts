@@ -18,6 +18,8 @@ import {
   trackPointDelta,
   trackWarpPoint,
 } from '@framepilot/editor-core';
+import { MaskLayerSchema } from '@framepilot/timeline-schema';
+import { trackedMaskPathAt, type ShapeMask } from './mask-stack.js';
 
 interface VectorCase {
   readonly id: string;
@@ -74,6 +76,53 @@ describe('transform-track parity with the engine', () => {
       }
       expect(warped).toHaveLength(testCase.expected.count);
       expect(digest(warped)).toBe(testCase.expected.sha256);
+    },
+  );
+});
+
+interface CorrectedCase {
+  readonly id: string;
+  readonly mask: string;
+  readonly track: string;
+  readonly sourceSeconds: number;
+  readonly expected: { readonly sha256: string; readonly count: number };
+}
+
+const corrected = JSON.parse(
+  readFileSync(
+    path.resolve(__dirname, '../../../../../tests/fixtures/mask-track/corrected.json'),
+    'utf-8',
+  ),
+) as {
+  readonly masks: Readonly<Record<string, unknown>>;
+  readonly tracks: Readonly<Record<string, unknown>>;
+  readonly cases: readonly CorrectedCase[];
+};
+
+/**
+ * MK7.7: a mask corrected on one frame of its track — the correction keyed relative to the
+ * tracked motion, held across the corrected stretch — is drawn `T(t) · G(t)` by the monitor to
+ * the same bits as by the export, on, inside, before and after the stretch.
+ */
+describe('a corrected tracked mask draws the same as the export', () => {
+  it('covers a path under perspective, a rectangle under a similarity and a shape track', () => {
+    expect(Object.keys(corrected.masks).sort()).toEqual([
+      'path-perspective',
+      'path-shape',
+      'rectangle-similarity',
+    ]);
+  });
+
+  it.each(corrected.cases.map((testCase) => [testCase.id, testCase] as const))(
+    '%s',
+    (_id, testCase) => {
+      const mask = MaskLayerSchema.parse(corrected.masks[testCase.mask]) as ShapeMask;
+      const track = parseTrackArtifact(corrected.tracks[testCase.track]);
+      const drawn = trackedMaskPathAt(mask, track, testCase.sourceSeconds).vertices.flatMap(
+        (vertex) => [vertex.x, vertex.y, vertex.inX, vertex.inY, vertex.outX, vertex.outY],
+      );
+      expect(drawn).toHaveLength(testCase.expected.count);
+      expect(digest(drawn)).toBe(testCase.expected.sha256);
     },
   );
 });

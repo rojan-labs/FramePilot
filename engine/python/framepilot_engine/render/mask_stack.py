@@ -281,6 +281,19 @@ def mask_path_at(mask: Any, source_time: float) -> BezierPath:
 # --- One mask ---------------------------------------------------------------------------
 
 
+def tracked_mask_path_at(mask: Any, track: Any | None, source_time: float) -> BezierPath:
+    """A shape mask's path at ``source_time`` as it is drawn: ``T(t) · G(t)`` (MK7.1, MK7.7).
+
+    The mask's own animation ``G`` first — its keyframes, including a correction an editor made
+    relative to the tracked motion (hold keyframes around the corrected stretch) — then the
+    track ``T`` on its control points. This order is the contract a correction relies on; the
+    preview's ``trackedMaskPathAt`` is the same two steps, pinned by
+    ``tests/fixtures/mask-track/corrected.json``.
+    """
+    path = mask_path_at(mask, source_time)
+    return path if track is None else warp_path(track, path, source_time)
+
+
 def _is_legacy(mask: Any) -> bool:
     return str(mask.feather_model.value) == "gaussian-legacy"
 
@@ -723,9 +736,7 @@ def _drawn_alpha(
         spec = _legacy_spec(mask, clip, media_size, source_time)
         return rasterize_mask(spec, width, height)
     frame = raster_frame(mask, clip, media_size, width, height)
-    path = mask_path_at(mask, source_time)
-    if track is not None:
-        path = warp_path(track, path, source_time)
+    path = tracked_mask_path_at(mask, track, source_time)
     polyline = to_raster(
         flatten_path(path), frame.scale_x, frame.scale_y, frame.offset_x, frame.offset_y
     )

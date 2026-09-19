@@ -1,0 +1,1034 @@
+{
+ "version": 1,
+ "note": "Corrected tracked masks (MK7.7). masks[name] is a mask as correct_tracked_mask leaves it (hold keyframes around the corrected stretch); tracks are transforms.json's. Each case draws the mask at sourceSeconds as T(t) . G(t) (render.mask_stack.tracked_mask_path_at) and expects the sha256 of every control point of the drawn path — x, y, inX, inY, outX, outY per vertex — as float64 little-endian.",
+ "masks": {
+  "path-perspective": {
+   "kind": "path",
+   "id": "corrected-path",
+   "pathKeyframes": [
+    {
+     "id": "k0",
+     "sourceTime": 0.0,
+     "easing": "linear",
+     "points": [
+      100.0,
+      100.0,
+      -12.0,
+      4.0,
+      18.0,
+      -3.0,
+      300.0,
+      110.0,
+      -9.0,
+      -6.0,
+      7.0,
+      15.0,
+      310.0,
+      290.0,
+      11.0,
+      -8.0,
+      -14.0,
+      5.0,
+      95.0,
+      305.0,
+      6.0,
+      13.0,
+      -5.0,
+      -16.0
+     ],
+     "vertexTypes": [
+      0,
+      1,
+      2,
+      0
+     ]
+    },
+    {
+     "id": "before",
+     "sourceTime": 0.6,
+     "easing": "hold",
+     "points": [
+      100.0,
+      100.0,
+      -12.0,
+      4.0,
+      18.0,
+      -3.0,
+      300.0,
+      110.0,
+      -9.0,
+      -6.0,
+      7.0,
+      15.0,
+      310.0,
+      290.0,
+      11.0,
+      -8.0,
+      -14.0,
+      5.0,
+      95.0,
+      305.0,
+      6.0,
+      13.0,
+      -5.0,
+      -16.0
+     ],
+     "vertexTypes": [
+      0,
+      1,
+      2,
+      0
+     ]
+    },
+    {
+     "id": "start",
+     "sourceTime": 0.8,
+     "easing": "hold",
+     "points": [
+      109.5,
+      95.75,
+      -12.0,
+      4.0,
+      18.0,
+      -3.0,
+      309.5,
+      105.75,
+      -9.0,
+      -6.0,
+      7.0,
+      15.0,
+      319.5,
+      285.75,
+      11.0,
+      -8.0,
+      -14.0,
+      5.0,
+      104.5,
+      300.75,
+      6.0,
+      13.0,
+      -5.0,
+      -16.0
+     ],
+     "vertexTypes": [
+      0,
+      1,
+      2,
+      0
+     ]
+    },
+    {
+     "id": "end",
+     "sourceTime": 1.6,
+     "easing": "linear",
+     "points": [
+      100.0,
+      100.0,
+      -12.0,
+      4.0,
+      18.0,
+      -3.0,
+      300.0,
+      110.0,
+      -9.0,
+      -6.0,
+      7.0,
+      15.0,
+      310.0,
+      290.0,
+      11.0,
+      -8.0,
+      -14.0,
+      5.0,
+      95.0,
+      305.0,
+      6.0,
+      13.0,
+      -5.0,
+      -16.0
+     ],
+     "vertexTypes": [
+      0,
+      1,
+      2,
+      0
+     ]
+    },
+    {
+     "id": "later",
+     "sourceTime": 2.0,
+     "easing": "ease-in-out",
+     "points": [
+      97.0,
+      107.5,
+      -12.0,
+      4.0,
+      18.0,
+      -3.0,
+      297.0,
+      117.5,
+      -9.0,
+      -6.0,
+      7.0,
+      15.0,
+      307.0,
+      297.5,
+      11.0,
+      -8.0,
+      -14.0,
+      5.0,
+      92.0,
+      312.5,
+      6.0,
+      13.0,
+      -5.0,
+      -16.0
+     ],
+     "vertexTypes": [
+      0,
+      1,
+      2,
+      0
+     ]
+    }
+   ]
+  },
+  "rectangle-similarity": {
+   "kind": "rectangle",
+   "id": "corrected-rectangle",
+   "cx": 640.0,
+   "cy": 360.0,
+   "width": 300.0,
+   "height": 180.0,
+   "rotation": 10.0,
+   "roundness": 0.25,
+   "keyframes": [
+    {
+     "id": "cx-b",
+     "sourceTime": 0.024999999999999998,
+     "property": "cx",
+     "value": 640.0,
+     "easing": "hold"
+    },
+    {
+     "id": "cx-s",
+     "sourceTime": 0.03333333333333333,
+     "property": "cx",
+     "value": 655.5,
+     "easing": "hold"
+    },
+    {
+     "id": "cx-e",
+     "sourceTime": 0.06666666666666667,
+     "property": "cx",
+     "value": 640.0,
+     "easing": "linear"
+    },
+    {
+     "id": "cy-b",
+     "sourceTime": 0.024999999999999998,
+     "property": "cy",
+     "value": 360.0,
+     "easing": "hold"
+    },
+    {
+     "id": "cy-s",
+     "sourceTime": 0.03333333333333333,
+     "property": "cy",
+     "value": 348.25,
+     "easing": "hold"
+    },
+    {
+     "id": "cy-e",
+     "sourceTime": 0.06666666666666667,
+     "property": "cy",
+     "value": 360.0,
+     "easing": "linear"
+    },
+    {
+     "id": "width-b",
+     "sourceTime": 0.024999999999999998,
+     "property": "width",
+     "value": 300.0,
+     "easing": "hold"
+    },
+    {
+     "id": "width-s",
+     "sourceTime": 0.03333333333333333,
+     "property": "width",
+     "value": 290.0,
+     "easing": "hold"
+    },
+    {
+     "id": "width-e",
+     "sourceTime": 0.06666666666666667,
+     "property": "width",
+     "value": 300.0,
+     "easing": "linear"
+    },
+    {
+     "id": "rotation-b",
+     "sourceTime": 0.024999999999999998,
+     "property": "rotation",
+     "value": 10.0,
+     "easing": "hold"
+    },
+    {
+     "id": "rotation-s",
+     "sourceTime": 0.03333333333333333,
+     "property": "rotation",
+     "value": 3.5,
+     "easing": "hold"
+    },
+    {
+     "id": "rotation-e",
+     "sourceTime": 0.06666666666666667,
+     "property": "rotation",
+     "value": 10.0,
+     "easing": "linear"
+    }
+   ]
+  },
+  "path-shape": {
+   "kind": "path",
+   "id": "corrected-shape",
+   "pathKeyframes": [
+    {
+     "id": "k0",
+     "sourceTime": 0.16666666666666666,
+     "easing": "linear",
+     "points": [
+      100.0,
+      100.0,
+      -12.0,
+      4.0,
+      18.0,
+      -3.0,
+      300.0,
+      110.0,
+      -9.0,
+      -6.0,
+      7.0,
+      15.0,
+      310.0,
+      290.0,
+      11.0,
+      -8.0,
+      -14.0,
+      5.0,
+      95.0,
+      305.0,
+      6.0,
+      13.0,
+      -5.0,
+      -16.0
+     ],
+     "vertexTypes": [
+      0,
+      1,
+      2,
+      0
+     ]
+    },
+    {
+     "id": "before",
+     "sourceTime": 0.18666666666666665,
+     "easing": "hold",
+     "points": [
+      100.0,
+      100.0,
+      -12.0,
+      4.0,
+      18.0,
+      -3.0,
+      300.0,
+      110.0,
+      -9.0,
+      -6.0,
+      7.0,
+      15.0,
+      310.0,
+      290.0,
+      11.0,
+      -8.0,
+      -14.0,
+      5.0,
+      95.0,
+      305.0,
+      6.0,
+      13.0,
+      -5.0,
+      -16.0
+     ],
+     "vertexTypes": [
+      0,
+      1,
+      2,
+      0
+     ]
+    },
+    {
+     "id": "start",
+     "sourceTime": 0.19333333333333333,
+     "easing": "hold",
+     "points": [
+      109.5,
+      95.75,
+      -12.0,
+      4.0,
+      18.0,
+      -3.0,
+      309.5,
+      105.75,
+      -9.0,
+      -6.0,
+      7.0,
+      15.0,
+      319.5,
+      285.75,
+      11.0,
+      -8.0,
+      -14.0,
+      5.0,
+      104.5,
+      300.75,
+      6.0,
+      13.0,
+      -5.0,
+      -16.0
+     ],
+     "vertexTypes": [
+      0,
+      1,
+      2,
+      0
+     ]
+    },
+    {
+     "id": "end",
+     "sourceTime": 0.22,
+     "easing": "linear",
+     "points": [
+      100.0,
+      100.0,
+      -12.0,
+      4.0,
+      18.0,
+      -3.0,
+      300.0,
+      110.0,
+      -9.0,
+      -6.0,
+      7.0,
+      15.0,
+      310.0,
+      290.0,
+      11.0,
+      -8.0,
+      -14.0,
+      5.0,
+      95.0,
+      305.0,
+      6.0,
+      13.0,
+      -5.0,
+      -16.0
+     ],
+     "vertexTypes": [
+      0,
+      1,
+      2,
+      0
+     ]
+    },
+    {
+     "id": "later",
+     "sourceTime": 0.23333333333333334,
+     "easing": "ease-in-out",
+     "points": [
+      97.0,
+      107.5,
+      -12.0,
+      4.0,
+      18.0,
+      -3.0,
+      297.0,
+      117.5,
+      -9.0,
+      -6.0,
+      7.0,
+      15.0,
+      307.0,
+      297.5,
+      11.0,
+      -8.0,
+      -14.0,
+      5.0,
+      92.0,
+      312.5,
+      6.0,
+      13.0,
+      -5.0,
+      -16.0
+     ],
+     "vertexTypes": [
+      0,
+      1,
+      2,
+      0
+     ]
+    }
+   ]
+  }
+ },
+ "tracks": {
+  "perspective": {
+   "version": 1,
+   "method": "perspective",
+   "timeBase": [
+    1,
+    1000
+   ],
+   "originPts": 0,
+   "firstFrame": 0,
+   "pts": [
+    0,
+    1000,
+    2000
+   ],
+   "transforms": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    1.02,
+    0.031,
+    -6.5,
+    -0.017,
+    0.994,
+    3.25,
+    0.00012,
+    -4.5e-05,
+    1.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "confidence": [
+    1.0,
+    0.7,
+    0.0
+   ]
+  },
+  "similarity": {
+   "version": 1,
+   "method": "position-scale-rotation",
+   "timeBase": [
+    1,
+    24
+   ],
+   "originPts": 12,
+   "firstFrame": 0,
+   "pts": [
+    12,
+    13,
+    14
+   ],
+   "transforms": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    1.1033834404536342,
+    -0.21947661226814427,
+    4.0,
+    0.21947661226814427,
+    1.1033834404536342,
+    -9.0,
+    0.0,
+    0.0,
+    1.0,
+    1.1548494156391085,
+    -0.47835429045636224,
+    8.0,
+    0.47835429045636224,
+    1.1548494156391085,
+    -18.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "confidence": [
+    1.0,
+    0.8,
+    0.6
+   ]
+  },
+  "shape": {
+   "version": 1,
+   "method": "point-cloud",
+   "timeBase": [
+    1,
+    30
+   ],
+   "originPts": 0,
+   "firstFrame": 5,
+   "pts": [
+    5,
+    6,
+    7
+   ],
+   "transforms": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.5,
+    0.0,
+    1.0,
+    0.5,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "confidence": [
+    1.0,
+    0.9,
+    0.85
+   ],
+   "points": {
+    "count": 4,
+    "reference": [
+     0.0,
+     0.0,
+     100.0,
+     0.0,
+     100.0,
+     80.0,
+     0.0,
+     80.0
+    ],
+    "frames": [
+     0.0,
+     0.0,
+     100.0,
+     0.0,
+     100.0,
+     80.0,
+     0.0,
+     80.0,
+     0.5,
+     1.5,
+     101.25,
+     -0.75,
+     99.0,
+     81.5,
+     -1.25,
+     79.25,
+     1.0,
+     3.0,
+     102.5,
+     -1.5,
+     98.0,
+     83.0,
+     -2.5,
+     78.5
+    ]
+   }
+  }
+ },
+ "cases": [
+  {
+   "id": "path-perspective/q0",
+   "mask": "path-perspective",
+   "track": "perspective",
+   "sourceSeconds": -0.2,
+   "expected": {
+    "sha256": "2c85f8d6fab858afbdc9bc729a0ebd5bcd5a497aae2cdcaed3fc46740391072d",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-perspective/q1",
+   "mask": "path-perspective",
+   "track": "perspective",
+   "sourceSeconds": 0.0,
+   "expected": {
+    "sha256": "2c85f8d6fab858afbdc9bc729a0ebd5bcd5a497aae2cdcaed3fc46740391072d",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-perspective/q2",
+   "mask": "path-perspective",
+   "track": "perspective",
+   "sourceSeconds": 0.4,
+   "expected": {
+    "sha256": "2c85f8d6fab858afbdc9bc729a0ebd5bcd5a497aae2cdcaed3fc46740391072d",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-perspective/q3",
+   "mask": "path-perspective",
+   "track": "perspective",
+   "sourceSeconds": 0.6,
+   "expected": {
+    "sha256": "78033479c87c0ac6f9fe5469ddb2663beff1f0b71fb244a462d821c54b9dc6c1",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-perspective/q4",
+   "mask": "path-perspective",
+   "track": "perspective",
+   "sourceSeconds": 0.7,
+   "expected": {
+    "sha256": "78033479c87c0ac6f9fe5469ddb2663beff1f0b71fb244a462d821c54b9dc6c1",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-perspective/q5",
+   "mask": "path-perspective",
+   "track": "perspective",
+   "sourceSeconds": 0.8,
+   "expected": {
+    "sha256": "189969a410679da30693c90c8af924b1aca18d20f7ef24966b58ea3c1e1a530f",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-perspective/q6",
+   "mask": "path-perspective",
+   "track": "perspective",
+   "sourceSeconds": 1.0,
+   "expected": {
+    "sha256": "189969a410679da30693c90c8af924b1aca18d20f7ef24966b58ea3c1e1a530f",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-perspective/q7",
+   "mask": "path-perspective",
+   "track": "perspective",
+   "sourceSeconds": 1.58,
+   "expected": {
+    "sha256": "dfdefd585c0831dead4dfe68b79185d2abf051040fd55f94604351a58d9699b2",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-perspective/q8",
+   "mask": "path-perspective",
+   "track": "perspective",
+   "sourceSeconds": 1.6,
+   "expected": {
+    "sha256": "2c85f8d6fab858afbdc9bc729a0ebd5bcd5a497aae2cdcaed3fc46740391072d",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-perspective/q9",
+   "mask": "path-perspective",
+   "track": "perspective",
+   "sourceSeconds": 1.8,
+   "expected": {
+    "sha256": "fcee9f54a090e23dc52b2b39d2d1a4bfe98c3c5be06e294290b208e30b893974",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-perspective/q10",
+   "mask": "path-perspective",
+   "track": "perspective",
+   "sourceSeconds": 2.0,
+   "expected": {
+    "sha256": "a4fc71f16ab37eac43281d5f4488cf6848abd85e2c2fc24356a6edbf17492c9d",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-perspective/q11",
+   "mask": "path-perspective",
+   "track": "perspective",
+   "sourceSeconds": 2.2,
+   "expected": {
+    "sha256": "a4fc71f16ab37eac43281d5f4488cf6848abd85e2c2fc24356a6edbf17492c9d",
+    "count": 24
+   }
+  },
+  {
+   "id": "rectangle-similarity/q0",
+   "mask": "rectangle-similarity",
+   "track": "similarity",
+   "sourceSeconds": -0.008333333333333333,
+   "expected": {
+    "sha256": "e445c10b27d6cfc94116af652fbaa4847635d827422d015e49f29234f15ae42f",
+    "count": 48
+   }
+  },
+  {
+   "id": "rectangle-similarity/q1",
+   "mask": "rectangle-similarity",
+   "track": "similarity",
+   "sourceSeconds": 0.0,
+   "expected": {
+    "sha256": "e445c10b27d6cfc94116af652fbaa4847635d827422d015e49f29234f15ae42f",
+    "count": 48
+   }
+  },
+  {
+   "id": "rectangle-similarity/q2",
+   "mask": "rectangle-similarity",
+   "track": "similarity",
+   "sourceSeconds": 0.016666666666666666,
+   "expected": {
+    "sha256": "e445c10b27d6cfc94116af652fbaa4847635d827422d015e49f29234f15ae42f",
+    "count": 48
+   }
+  },
+  {
+   "id": "rectangle-similarity/q3",
+   "mask": "rectangle-similarity",
+   "track": "similarity",
+   "sourceSeconds": 0.024999999999999998,
+   "expected": {
+    "sha256": "2ac0a9b84da5001d97c3cfbf547346c11aebe4d1712b09a09d8b74faf9047893",
+    "count": 48
+   }
+  },
+  {
+   "id": "rectangle-similarity/q4",
+   "mask": "rectangle-similarity",
+   "track": "similarity",
+   "sourceSeconds": 0.029166666666666664,
+   "expected": {
+    "sha256": "2ac0a9b84da5001d97c3cfbf547346c11aebe4d1712b09a09d8b74faf9047893",
+    "count": 48
+   }
+  },
+  {
+   "id": "rectangle-similarity/q5",
+   "mask": "rectangle-similarity",
+   "track": "similarity",
+   "sourceSeconds": 0.03333333333333333,
+   "expected": {
+    "sha256": "eb01fd7348060027c732b74b01536212ff89830fc697567812f73a14418ffa47",
+    "count": 48
+   }
+  },
+  {
+   "id": "rectangle-similarity/q6",
+   "mask": "rectangle-similarity",
+   "track": "similarity",
+   "sourceSeconds": 0.041666666666666664,
+   "expected": {
+    "sha256": "eb01fd7348060027c732b74b01536212ff89830fc697567812f73a14418ffa47",
+    "count": 48
+   }
+  },
+  {
+   "id": "rectangle-similarity/q7",
+   "mask": "rectangle-similarity",
+   "track": "similarity",
+   "sourceSeconds": 0.06583333333333333,
+   "expected": {
+    "sha256": "01375aee1b09b04b57e8d60b685f0e2a87065685325a4f0c7d2895c9d5aab57a",
+    "count": 48
+   }
+  },
+  {
+   "id": "rectangle-similarity/q8",
+   "mask": "rectangle-similarity",
+   "track": "similarity",
+   "sourceSeconds": 0.06666666666666667,
+   "expected": {
+    "sha256": "6c43575186a9ec3cf0fb1f0957730e4bcf808208097ccaff6d8cd2c3f43dfbac",
+    "count": 48
+   }
+  },
+  {
+   "id": "rectangle-similarity/q9",
+   "mask": "rectangle-similarity",
+   "track": "similarity",
+   "sourceSeconds": 0.075,
+   "expected": {
+    "sha256": "6c43575186a9ec3cf0fb1f0957730e4bcf808208097ccaff6d8cd2c3f43dfbac",
+    "count": 48
+   }
+  },
+  {
+   "id": "rectangle-similarity/q10",
+   "mask": "rectangle-similarity",
+   "track": "similarity",
+   "sourceSeconds": 0.08333333333333333,
+   "expected": {
+    "sha256": "6c43575186a9ec3cf0fb1f0957730e4bcf808208097ccaff6d8cd2c3f43dfbac",
+    "count": 48
+   }
+  },
+  {
+   "id": "rectangle-similarity/q11",
+   "mask": "rectangle-similarity",
+   "track": "similarity",
+   "sourceSeconds": 0.09166666666666667,
+   "expected": {
+    "sha256": "6c43575186a9ec3cf0fb1f0957730e4bcf808208097ccaff6d8cd2c3f43dfbac",
+    "count": 48
+   }
+  },
+  {
+   "id": "path-shape/q0",
+   "mask": "path-shape",
+   "track": "shape",
+   "sourceSeconds": 0.15999999999999998,
+   "expected": {
+    "sha256": "2c85f8d6fab858afbdc9bc729a0ebd5bcd5a497aae2cdcaed3fc46740391072d",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-shape/q1",
+   "mask": "path-shape",
+   "track": "shape",
+   "sourceSeconds": 0.16666666666666666,
+   "expected": {
+    "sha256": "2c85f8d6fab858afbdc9bc729a0ebd5bcd5a497aae2cdcaed3fc46740391072d",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-shape/q2",
+   "mask": "path-shape",
+   "track": "shape",
+   "sourceSeconds": 0.18,
+   "expected": {
+    "sha256": "2c85f8d6fab858afbdc9bc729a0ebd5bcd5a497aae2cdcaed3fc46740391072d",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-shape/q3",
+   "mask": "path-shape",
+   "track": "shape",
+   "sourceSeconds": 0.18666666666666665,
+   "expected": {
+    "sha256": "535947aa3b50a1b07b629ffb5d1ee3e2d22ac16199707a72767c1994d096fd12",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-shape/q4",
+   "mask": "path-shape",
+   "track": "shape",
+   "sourceSeconds": 0.19,
+   "expected": {
+    "sha256": "535947aa3b50a1b07b629ffb5d1ee3e2d22ac16199707a72767c1994d096fd12",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-shape/q5",
+   "mask": "path-shape",
+   "track": "shape",
+   "sourceSeconds": 0.19333333333333333,
+   "expected": {
+    "sha256": "2c7634d2d7aa6fd04688bb038f75ec2482c35b2c20cc18cae92f769e4eb8bea2",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-shape/q6",
+   "mask": "path-shape",
+   "track": "shape",
+   "sourceSeconds": 0.2,
+   "expected": {
+    "sha256": "2c7634d2d7aa6fd04688bb038f75ec2482c35b2c20cc18cae92f769e4eb8bea2",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-shape/q7",
+   "mask": "path-shape",
+   "track": "shape",
+   "sourceSeconds": 0.21933333333333332,
+   "expected": {
+    "sha256": "b387a9d98ad2638ec7f59c51e346d39bfcb1cdebb91fa243faca22bd001cd7c0",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-shape/q8",
+   "mask": "path-shape",
+   "track": "shape",
+   "sourceSeconds": 0.22,
+   "expected": {
+    "sha256": "f236e56a7fcf81499593cf303f35202f72a9b8894534d682d5e599a9295bfde5",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-shape/q9",
+   "mask": "path-shape",
+   "track": "shape",
+   "sourceSeconds": 0.22666666666666668,
+   "expected": {
+    "sha256": "4715a39758641ccf4033b59ec0649a5c7653e89c7b58e3b9ba4b132d787f4780",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-shape/q10",
+   "mask": "path-shape",
+   "track": "shape",
+   "sourceSeconds": 0.23333333333333334,
+   "expected": {
+    "sha256": "d704ec35f1e6ad00e0c1430d615da5b5a388cd4cd7b21cba54f6eb8a223664c3",
+    "count": 24
+   }
+  },
+  {
+   "id": "path-shape/q11",
+   "mask": "path-shape",
+   "track": "shape",
+   "sourceSeconds": 0.24,
+   "expected": {
+    "sha256": "d704ec35f1e6ad00e0c1430d615da5b5a388cd4cd7b21cba54f6eb8a223664c3",
+    "count": 24
+   }
+  }
+ ]
+}

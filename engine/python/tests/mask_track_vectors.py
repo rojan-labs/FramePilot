@@ -9,6 +9,11 @@ already pinned byte-exact. These vectors are the pin:
   point-cloud) queried at source instants that fall on a frame, between two frames, exactly
   halfway, and outside the tracked range at both ends. ``expected.sha256`` is the SHA-256 of the
   warped coordinates as float64 little-endian, so a single ulp of difference fails.
+* ``corrected.json`` (MK7.7): a tracked mask an editor CORRECTED on one frame — the correction
+  stored relative to the tracked motion as hold keyframes around the corrected stretch, exactly
+  the shape ``correct_tracked_mask`` writes — drawn as ``T(t) · G(t)`` by
+  ``render.mask_stack.tracked_mask_path_at``, before, on, inside and after the stretch. The
+  expected digest is of every control point of the drawn path (vertex, in-tangent, out-tangent).
 
 Run after a deliberate change::
 
@@ -29,7 +34,11 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
+from pydantic import TypeAdapter
+
+from framepilot_engine.render.mask_stack import tracked_mask_path_at
 from framepilot_engine.render.tracks import parse_track, warp_point
+from framepilot_engine.timeline.models import MaskLayer
 
 _log = logging.getLogger(__name__)
 
@@ -249,11 +258,183 @@ def _digest(values: list[float]) -> str:
     return digest
 
 
+# --- corrected tracked masks (MK7.7) ----------------------------------------------------------
+
+
+def _span(document: dict[str, Any]) -> tuple[float, float]:
+    numerator, denominator = document["timeBase"]
+    origin = document["originPts"]
+    first, last = document["pts"][0], document["pts"][-1]
+    return (
+        float((first - origin) * numerator / denominator),
+        float((last - origin) * numerator / denominator),
+    )
+
+
+def _path_points(vertices: list[tuple[float, float, float, float, float, float]]) -> list[float]:
+    return [value for vertex in vertices for value in vertex]
+
+
+#: A curved quad: the tangents are what a perspective track has to bend, not just carry.
+_OUTLINE = [
+    (100.0, 100.0, -12.0, 4.0, 18.0, -3.0),
+    (300.0, 110.0, -9.0, -6.0, 7.0, 15.0),
+    (310.0, 290.0, 11.0, -8.0, -14.0, 5.0),
+    (95.0, 305.0, 6.0, 13.0, -5.0, -16.0),
+]
+#: The same outline where the editor put it on the corrected frame, relative to the track.
+_CORRECTED = [(x + 9.5, y - 4.25, ix, iy, ox, oy) for x, y, ix, iy, ox, oy in _OUTLINE]
+_LATER = [(x - 3.0, y + 7.5, ix, iy, ox, oy) for x, y, ix, iy, ox, oy in _OUTLINE]
+
+
+def _corrected_path(mask_id: str, span: tuple[float, float]) -> dict[str, Any]:
+    """A path mask as ``correct_tracked_mask`` leaves it: the old animation held up to the frame
+    before the stretch, the correction held across it, the old animation again after it."""
+    t0, t1 = span
+    at = lambda fraction: t0 + (t1 - t0) * fraction  # noqa: E731
+    types = [0, 1, 2, 0]
+
+    def keyframe(key: str, time: float, easing: str, outline: list[Any]) -> dict[str, Any]:
+        return {
+            "id": key,
+            "sourceTime": time,
+            "easing": easing,
+            "points": _path_points(outline),
+            "vertexTypes": types,
+        }
+
+    return {
+        "kind": "path",
+        "id": mask_id,
+        "pathKeyframes": [
+            keyframe("k0", at(0.0), "linear", _OUTLINE),
+            keyframe("before", at(0.3), "hold", _OUTLINE),
+            keyframe("start", at(0.4), "hold", _CORRECTED),
+            keyframe("end", at(0.8), "linear", _OUTLINE),
+            keyframe("later", at(1.0), "ease-in-out", _LATER),
+        ],
+    }
+
+
+def _corrected_rectangle(span: tuple[float, float]) -> dict[str, Any]:
+    """A rectangle corrected under a similarity track: its scalars keyed the same way."""
+    t0, t1 = span
+    at = lambda fraction: t0 + (t1 - t0) * fraction  # noqa: E731
+
+    def keys(name: str, old: float, corrected: float) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": f"{name}-b",
+                "sourceTime": at(0.3),
+                "property": name,
+                "value": old,
+                "easing": "hold",
+            },
+            {
+                "id": f"{name}-s",
+                "sourceTime": at(0.4),
+                "property": name,
+                "value": corrected,
+                "easing": "hold",
+            },
+            {
+                "id": f"{name}-e",
+                "sourceTime": at(0.8),
+                "property": name,
+                "value": old,
+                "easing": "linear",
+            },
+        ]
+
+    return {
+        "kind": "rectangle",
+        "id": "corrected-rectangle",
+        "cx": 640.0,
+        "cy": 360.0,
+        "width": 300.0,
+        "height": 180.0,
+        "rotation": 10.0,
+        "roundness": 0.25,
+        "keyframes": [
+            *keys("cx", 640.0, 655.5),
+            *keys("cy", 360.0, 348.25),
+            *keys("width", 300.0, 290.0),
+            *keys("rotation", 10.0, 3.5),
+        ],
+    }
+
+
+def _corrected_cases() -> list[tuple[str, dict[str, Any], str]]:
+    return [
+        (
+            "path-perspective",
+            _corrected_path("corrected-path", _span(TRACKS["perspective"])),
+            "perspective",
+        ),
+        ("rectangle-similarity", _corrected_rectangle(_span(TRACKS["similarity"])), "similarity"),
+        ("path-shape", _corrected_path("corrected-shape", _span(TRACKS["shape"])), "shape"),
+    ]
+
+
+#: Where along the track's span each case is drawn: before the correction's hold, on it, on the
+#: corrected keyframe, inside the stretch, on its end, and past the track at both sides.
+_FRACTIONS = (-0.1, 0.0, 0.2, 0.3, 0.35, 0.4, 0.5, 0.79, 0.8, 0.9, 1.0, 1.1)
+
+
+def _corrected_document() -> dict[str, Any]:
+    adapter: TypeAdapter[Any] = TypeAdapter(MaskLayer)
+    masks: dict[str, Any] = {}
+    cases: list[dict[str, Any]] = []
+    for name, raw_mask, track_name in _corrected_cases():
+        masks[name] = raw_mask
+        mask = adapter.validate_python(raw_mask)
+        track = parse_track(TRACKS[track_name])
+        t0, t1 = _span(TRACKS[track_name])
+        for index, fraction in enumerate(_FRACTIONS):
+            time = t0 + (t1 - t0) * fraction
+            path = tracked_mask_path_at(mask, track, time)
+            drawn = [
+                value
+                for vertex in path.vertices
+                for value in (
+                    vertex.x,
+                    vertex.y,
+                    vertex.in_x,
+                    vertex.in_y,
+                    vertex.out_x,
+                    vertex.out_y,
+                )
+            ]
+            cases.append(
+                {
+                    "id": f"{name}/q{index}",
+                    "mask": name,
+                    "track": track_name,
+                    "sourceSeconds": time,
+                    "expected": {"sha256": _digest(drawn), "count": len(drawn)},
+                }
+            )
+    return {
+        "version": 1,
+        "note": (
+            "Corrected tracked masks (MK7.7). masks[name] is a mask as correct_tracked_mask "
+            "leaves it (hold keyframes around the corrected stretch); tracks are "
+            "transforms.json's. Each case draws the mask at sourceSeconds as T(t) . G(t) "
+            "(render.mask_stack.tracked_mask_path_at) and expects the sha256 of every control "
+            "point of the drawn path — x, y, inX, inY, outX, outY per vertex — as float64 "
+            "little-endian."
+        ),
+        "masks": masks,
+        "tracks": {name: TRACKS[name] for _, _, name in _corrected_cases()},
+        "cases": cases,
+    }
+
+
 def serialize(doc: dict[str, Any]) -> str:
     return json.dumps(doc, indent=1, ensure_ascii=False) + "\n"
 
 
-DOCUMENTS = {"transforms": _document}
+DOCUMENTS = {"transforms": _document, "corrected": _corrected_document}
 
 
 def main() -> int:

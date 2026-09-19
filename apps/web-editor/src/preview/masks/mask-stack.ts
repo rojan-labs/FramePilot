@@ -90,7 +90,7 @@ const RECOVERY_ULPS = 8;
 /** Rasterised stacks kept for static and repeated masks. */
 const RASTER_CACHE_ENTRIES = 48;
 
-type ShapeMask = Extract<MaskLayer, { kind: 'rectangle' | 'ellipse' | 'path' }>;
+export type ShapeMask = Extract<MaskLayer, { kind: 'rectangle' | 'ellipse' | 'path' }>;
 type PathMask = Extract<MaskLayer, { kind: 'path' }>;
 export type MatteMask = Extract<MaskLayer, { kind: 'matte' }>;
 /** A split, band or gradient: drawn from a distance to a line or a centre (MK8.1). */
@@ -613,6 +613,21 @@ function maskPathAt(mask: ShapeMask, s: number): BezierPath {
   return pathFromPoints(points, feathers, Math.trunc(mask.firstVertex));
 }
 
+/**
+ * `tracked_mask_path_at`: a shape mask's path at source instant `s` as it is drawn, `T(t) · G(t)`
+ * (MK7.1, MK7.7) — the mask's own animation first (including a correction keyed relative to the
+ * tracked motion), then the track on its control points. The engine does the same two steps in
+ * the same order; `tests/fixtures/mask-track/corrected.json` pins them to the bit.
+ */
+export function trackedMaskPathAt(
+  mask: ShapeMask,
+  track: TrackArtifact | undefined,
+  s: number,
+): BezierPath {
+  const path = maskPathAt(mask, s);
+  return track === undefined ? path : warpPath(track, path, s);
+}
+
 /** `analytic_shape_at`: a split, band or gradient's geometry at source instant `s` (MK8.1). */
 export function analyticShapeAt(mask: AnalyticMask, s: number): AnalyticShape {
   const value = (name: string): number => maskScalar(mask, name, s);
@@ -947,8 +962,7 @@ export function singleMaskAlpha(
   const offsetX = -((crop?.x ?? 0.0) * sourceW) * scaleX;
   const offsetY = -((crop?.y ?? 0.0) * sourceH) * scaleY;
   const distance = Math.min(scaleX, scaleY);
-  const track = stack.tracks?.get(mask.id);
-  const path = track === undefined ? maskPathAt(mask, s) : warpPath(track, maskPathAt(mask, s), s);
+  const path = trackedMaskPathAt(mask, stack.tracks?.get(mask.id), s);
   const polyline = scaleFeathers(
     toRaster(flattenPath(path), scaleX, scaleY, offsetX, offsetY),
     distance,
