@@ -10038,7 +10038,7 @@ masking; AI masking; everything production-grade. **Parity and production audit 
 - [x] MK4 — canvas tools (rect/ellipse/pen/freehand, tangents, feather handles, zoom) + mask panel + keyframe lane
 - [x] MK5 — effect-target masks (face blur, secondary grade)
 - [x] MK6 — key mask (colour/luma qualifier, despill)
-- [~] MK7 — mask tracking (MK7.6 blocked on MO-14) with review and constraint frames
+- [~] MK7 — mask tracking (all gates pass; MK7.6 blocked on MO-14) with review and constraint frames
 - [~] BR0 — verification build (findings committed: SAM fp32 CPU passes, CoreML disabled, pack ≈ 1.47 GB, recall not yet demonstrated, licence MO-11, hardware MO-12/13): ONNX exports + per-EP parity, verify-stage recall, throughput, pack sizes (models already decided)
 - [~] BR2–BR7 — (BR2, BR3 bar accuracy, BR4, BR5, BR6 done) matte engine, Smart Mask pack, protocol + host, preview matte, UI + review, matte gates
 - [~] AM1–AM5 — (AM1, AM3, AM4, AM5 done — all five AI masking gates pass; AM2.4 text half + AM2.6 real-weights colour open) masking tools, target resolution, verification, surfaces/skill, eval gates

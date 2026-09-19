@@ -152,14 +152,14 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 - [x] MK6.4 (9463fef8, 57358449) Key finesse on Apple Silicon. Not a GPU drift: on arm64 the export decodes through imageio-ffmpeg's C swscale lookup tables, while the monitor copied the x86 converter — up to 3 levels apart on 80% of values, so the Apple Silicon monitor was a shade off from the export on every same-size clip. The monitor now uses the export host's converter; oracle 297/297 on Metal (key-finesse 99.494% → exact); PX4 baseline keyed by renderer class; CI green run 35397473824
 
-### MK7 — Mask tracking `[~]` (MK7.1–MK7.5 shipped, pack run 35294557292 green on both platforms; MK7.6 → MO-14; two gate rows open, see `MK7-TRACKING-GATES.md`)
+### MK7 — Mask tracking `[~]` (all gates pass on real texture; only MK7.6 open, blocked on MO-14)
 
 - [x] MK7.1 Transform-track artifact (per-frame 3×3, digest-pinned, project-owned) and host job via Tracking Lite
 - [x] MK7.2 Methods: position, position+scale+rotation, perspective, shape (vertex) track; forward/backward/one frame/to edge
 - [x] MK7.3 Per-frame confidence → shared review list; constraint frames; re-track from constraints
 - [x] MK7.4 Tracking panel UI with progress, cancel and review; interactive feature points and exclusion regions
 - [!] MK7.6 (blocked on MO-14: needs `Clip.transformTrack` in v24) `use_track`: a track drives another mask, a text clip or an overlay transform
-- [~] MK7.5 (69b42ef1…f9e70e68, local darwin-arm64 at 610eaa70: real-texture clips 14/15 rows pass — night perspective CRF28 0.522 px vs ≤ 0.5 (CI darwin 0.483); drift 0.022 px/300 frames ✓; confidence recall 92/92 by the confidence number itself (was 0%) ✓; review load 9.4%; correction 0/5 ✗ → MK7.7; win32 pending CI) The tracking gates from `06` on synthetic and real clips
+- [x] MK7.5 (69b42ef1…cd1280ba, local darwin-arm64: all 15 real-texture rows pass incl. night perspective 0.461 px; drift 0.11 px/300 frames; confidence recall 28/28 by the confidence number; correction 4/4 via MK7.7; win32 row from the tracking-lite pack workflow) The tracking gates from `06` on synthetic and real clips
 
 **DoD:** tracking gates pass on both platforms; tracked-mask oracle rows green.
 
