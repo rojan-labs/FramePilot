@@ -56,6 +56,7 @@ export * from './mask-shape-presets.js';
 export * from './mask-track.js';
 export * from './mask-track-solve.js';
 export * from './mask-track-review.js';
+export * from './mask-track-correction.js';
 export * from './track-samples.js';
 export * from './tracking-commands.js';
 export * from './audio-commands.js';

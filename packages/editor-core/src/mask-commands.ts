@@ -40,7 +40,8 @@ import {
   type DisplaySize,
   type MaskPathVertex,
 } from './mask-geometry.js';
-import { withConstraint } from './mask-track-review.js';
+import { withConstraint, type TrackStateAt } from './mask-track-review.js';
+import { correctionSpan, untrackGeometry } from './mask-track-correction.js';
 import {
   MASK_SHAPE_PRESET_NAMES,
   ShapePresetError,
@@ -498,6 +499,25 @@ export interface AddTrackConstraintCommand extends MaskCommandBase {
   readonly sourceTime: number;
 }
 
+/**
+ * Correct a tracked mask on one frame (MK7.7): what an editor does on a frame the tracker got
+ * wrong, and what the agent does on their behalf.
+ *
+ * `geometry` is where the mask belongs ON THE SCREEN at `sourceTime` — the tracked picture the
+ * editor is looking at — and `track` is the track's state at that instant, read from the same
+ * artifact the renderers read (`trackStateAt`). The command stores the geometry relative to the
+ * tracked motion (`T(c)⁻¹ · D`, `mask-track-correction.ts`), as hold keyframes over the stretch
+ * a re-track re-measures from this frame, and makes the frame a constraint — one reversible
+ * patch. "Re-track from constraints" then continues the track from here.
+ */
+export interface CorrectTrackedMaskCommand extends MaskCommandBase {
+  readonly type: 'correct_tracked_mask';
+  readonly maskId: string;
+  readonly sourceTime: number;
+  readonly geometry: MaskGeometry;
+  readonly track: TrackStateAt;
+}
+
 /** Replace a track's review state — approving a range, locking an instant (MK7.3). */
 export interface ReviewMaskTrackCommand extends MaskCommandBase {
   readonly type: 'review_mask_track';
@@ -596,6 +616,7 @@ export type MaskCommand =
   | SetMaskTrackCommand
   | ClearMaskTrackCommand
   | AddTrackConstraintCommand
+  | CorrectTrackedMaskCommand
   | ReviewMaskTrackCommand
   | SaveMaskPresetCommand
   | ApplyMaskPresetCommand
@@ -1028,6 +1049,194 @@ function buildSetGeometry(input: CompileMaskCommandInput, command: SetMaskGeomet
   }
   operations.push(...keyed);
   return { operations, reason };
+}
+
+/** Remedies for a correction the track cannot carry, without varying magnitudes. */
+const UNTRACK_REMEDIES = {
+  perspective_shape:
+    'A rectangle or an ellipse under a perspective track is no longer a rectangle on screen. Draw the mask as a path to correct it, or track it with position, scale and rotation.',
+  degenerate:
+    'The track has no usable transform on this frame. Track the mask again from a clearer frame.',
+} as const;
+
+function buildCorrectTrackedMask(
+  input: CompileMaskCommandInput,
+  command: CorrectTrackedMaskCommand,
+): Built {
+  const clip = findClip(input.timeline, command.clipId);
+  const mask = findMask(clip, command.maskId);
+  const tracking = mask.tracking;
+  if (tracking === undefined) {
+    throw new Rejection(
+      'missing_track',
+      'This mask has no track to correct. Track the mask first, or edit it directly.',
+    );
+  }
+  assertFiniteGeometry(command.geometry);
+  if (!isEditableMask(mask) || mask.kind !== command.geometry.kind || mask.units === 'normalized') {
+    throw new Rejection(
+      'not_editable',
+      `Mask "${mask.id}" is a ${mask.kind} mask; draw a new mask to change its kind.`,
+    );
+  }
+  const own = untrackGeometry(command.geometry, command.track);
+  if (typeof own === 'string') throw new Rejection('not_editable', UNTRACK_REMEDIES[own]);
+  const span = correctionSpan(
+    tracking.review?.flagged ?? [],
+    command.sourceTime,
+    command.track.frameSeconds,
+  );
+  const operations: MaskOperation[] =
+    own.kind === 'path' && mask.kind === 'path'
+      ? correctionPathOps(clip.id, mask, own.vertices, span)
+      : correctionScalarOps(clip.id, mask, geometryFields(own), span);
+  const constraints = withConstraint(tracking.constraints, command.sourceTime);
+  operations.push({
+    type: 'apply_mask_tracking',
+    clipId: clip.id,
+    maskId: mask.id,
+    tracking: { ...tracking, constraints: [...constraints] },
+  });
+  return { operations, reason: `Correct the tracked mask "${mask.name || mask.id}" on this frame` };
+}
+
+/**
+ * The instants a correction writes and what each holds: the old geometry just before the
+ * stretch, the correction from its start, the old geometry again from its end.
+ */
+function correctionInstants(
+  span: ReturnType<typeof correctionSpan>,
+): readonly { readonly time: number; readonly corrected: boolean; readonly hold: boolean }[] {
+  return [
+    ...(span.before === null ? [] : [{ time: span.before, corrected: false, hold: true }]),
+    { time: span.start, corrected: true, hold: true },
+    { time: span.end, corrected: false, hold: false },
+  ];
+}
+
+function sameInstant(left: number, right: number): boolean {
+  return Math.abs(left - right) <= MASK_KEYFRAME_SAME_INSTANT;
+}
+
+/** Keyframes strictly inside the corrected stretch belong to the animation it replaces. */
+function insideSpan(time: number, span: ReturnType<typeof correctionSpan>): boolean {
+  const low = span.before ?? span.start;
+  return time > low + MASK_KEYFRAME_SAME_INSTANT && time < span.end - MASK_KEYFRAME_SAME_INSTANT;
+}
+
+function correctionPathOps(
+  clipId: string,
+  mask: PathMask,
+  corrected: readonly MaskPathVertex[],
+  span: ReturnType<typeof correctionSpan>,
+): MaskOperation[] {
+  const count = mask.pathKeyframes[0]?.vertexTypes.length ?? 0;
+  if (corrected.length !== count) {
+    throw new Rejection(
+      'not_editable',
+      `Every keyframe of path mask "${mask.id}" must keep the same number of points. Add or remove points instead.`,
+    );
+  }
+  const instants = correctionInstants(span);
+  // The old animation is read BEFORE anything changes.
+  const old = new Map(
+    instants.map((instant) => [instant.time, maskGeometryAt(mask, instant.time)] as const),
+  );
+  const operations: MaskOperation[] = [];
+  for (const keyframe of mask.pathKeyframes) {
+    if (!insideSpan(keyframe.sourceTime, span)) continue;
+    if (instants.some((instant) => sameInstant(instant.time, keyframe.sourceTime))) continue;
+    operations.push({
+      type: 'remove_mask_keyframe',
+      clipId,
+      maskId: mask.id,
+      keyframeId: keyframe.id,
+    });
+  }
+  for (const instant of instants) {
+    const geometry = old.get(instant.time);
+    const vertices = instant.corrected
+      ? corrected
+      : geometry !== null && geometry !== undefined && geometry.kind === 'path'
+        ? geometry.vertices
+        : corrected;
+    const existing = mask.pathKeyframes.find((keyframe) =>
+      sameInstant(keyframe.sourceTime, instant.time),
+    );
+    const encoded = encodeMaskPath(vertices);
+    operations.push({
+      type: 'set_mask_path',
+      clipId,
+      maskId: mask.id,
+      keyframe: {
+        id: existing?.id ?? keyframeIdFor(mask, 'path', instant.time),
+        sourceTime: instant.time,
+        easing: instant.hold ? 'hold' : (existing?.easing ?? 'linear'),
+        ...(existing?.handles === undefined || instant.hold ? {} : { handles: existing.handles }),
+        ...encoded,
+      },
+    });
+  }
+  return operations;
+}
+
+function correctionScalarOps(
+  clipId: string,
+  mask: MaskLayer,
+  corrected: Readonly<Record<string, number>>,
+  span: ReturnType<typeof correctionSpan>,
+): MaskOperation[] {
+  const instants = correctionInstants(span);
+  const operations: MaskOperation[] = [];
+  for (const [field, value] of Object.entries(corrected)) {
+    const property = field as MaskScalarProperty;
+    const keyframes = mask.keyframes.filter((keyframe) => keyframe.property === property);
+    const old = new Map(
+      instants.map(
+        (instant) => [instant.time, maskScalarAt(mask, property, instant.time) ?? value] as const,
+      ),
+    );
+    if (
+      instants.every((instant) => (instant.corrected ? value : old.get(instant.time)) === value)
+    ) {
+      // Nothing changes for this property anywhere.
+      continue;
+    }
+    for (const keyframe of keyframes) {
+      if (!insideSpan(keyframe.sourceTime, span)) continue;
+      if (instants.some((instant) => sameInstant(instant.time, keyframe.sourceTime))) continue;
+      operations.push({
+        type: 'remove_mask_keyframe',
+        clipId,
+        maskId: mask.id,
+        keyframeId: keyframe.id,
+      });
+    }
+    for (const instant of instants) {
+      const existing = keyframes.find((keyframe) => sameInstant(keyframe.sourceTime, instant.time));
+      if (existing !== undefined) {
+        operations.push({
+          type: 'remove_mask_keyframe',
+          clipId,
+          maskId: mask.id,
+          keyframeId: existing.id,
+        });
+      }
+      operations.push({
+        type: 'add_mask_keyframe',
+        clipId,
+        maskId: mask.id,
+        keyframe: {
+          id: existing?.id ?? keyframeIdFor(mask, property, instant.time),
+          sourceTime: instant.time,
+          property,
+          value: clampMaskScalar(property, instant.corrected ? value : old.get(instant.time)!),
+          easing: instant.hold ? 'hold' : (existing?.easing ?? 'linear'),
+        },
+      });
+    }
+  }
+  return operations;
 }
 
 function buildSetProperties(
@@ -1496,6 +1705,8 @@ function build(input: CompileMaskCommandInput): Built {
         reason: `Lock the mask on this frame`,
       };
     }
+    case 'correct_tracked_mask':
+      return buildCorrectTrackedMask(input, command);
     case 'review_mask_track': {
       const clip = findClip(input.timeline, command.clipId);
       const mask = findMask(clip, command.maskId);
