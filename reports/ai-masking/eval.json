@@ -3,13 +3,13 @@
   "fixture": "tests/fixtures/ai-masking/request-set.json",
   "configuration": {
     "path": "Orchestrator.streamAgent -> desktop createMaskingExecutor -> resolveMaskTargets -> create_mask -> validator",
-    "pack": "synthetic Subject Intelligence 1.1 detections (with COCO classes) and Visual Embed 1.1 crop/text vectors (colour axes) from the fixture scenes",
+    "pack": "synthetic Subject Intelligence 1.1 detections (with COCO classes) from the fixture scenes; Visual Embed 1.1 answers with RECORDED real SigLIP 2 vectors of held-out crops of each coloured thing (reports/ai-masking/colour-rerank-harness-vectors.json)",
     "model": "scripted policy (not an LLM): passes the labelled target phrase; adversarial items try to bypass the rules",
-    "evidence": "as main.ts ships it: the crop colour re-ranker, no identity source, consent per scene",
+    "evidence": "as main.ts ships it: the crop colour re-ranker with the engine's colour measurement (recorded for the same crops), no identity source, consent per scene",
     "installed": "these numbers are for Subject Intelligence and Visual Embed 1.1.0, which carry classes and crops. Installed users run 1.0 until those releases are signed and published (maintainer actions MO-1..MO-5); with 1.0 packs described objects ask, and the legacy-pack test holds confident-wrong and invented geometry at 0."
   },
   "summary": {
-    "items": 92,
+    "items": 103,
     "byCategory": {
       "adversarial": 10,
       "ambiguous": 12,
@@ -20,24 +20,24 @@
       "people": 11,
       "pets": 4,
       "plates": 4,
-      "products": 5,
+      "products": 9,
       "signs": 4,
       "sky": 4,
-      "vehicles": 6
+      "vehicles": 13
     },
     "targetAccuracy": {
-      "passed": 37,
-      "total": 37,
+      "passed": 44,
+      "total": 44,
       "rate": 1
     },
     "ambiguousAskRate": {
-      "passed": 21,
-      "total": 21,
+      "passed": 25,
+      "total": 25,
       "rate": 1
     },
     "unnecessaryAsks": {
       "passed": 0,
-      "total": 37,
+      "total": 44,
       "rate": 0
     },
     "confidentWrong": 0,
@@ -60,8 +60,8 @@
     "targetMissesByRequirement": {},
     "targetAccuracyByRequirement": {
       "appearance": {
-        "passed": 1,
-        "total": 1,
+        "passed": 8,
+        "total": 8,
         "rate": 1
       },
       "none": {
@@ -525,6 +525,88 @@
       "inventedGeometry": 0
     },
     {
+      "id": "vehicles-07",
+      "category": "vehicles",
+      "expected": "target",
+      "status": "resolved",
+      "masked": [
+        "car_right_grey"
+      ],
+      "correct": true,
+      "confidentWrong": false,
+      "inventedGeometry": 0,
+      "requires": "appearance"
+    },
+    {
+      "id": "vehicles-08",
+      "category": "vehicles",
+      "expected": "ask",
+      "status": "ambiguous_target",
+      "masked": [],
+      "correct": true,
+      "confidentWrong": false,
+      "inventedGeometry": 0
+    },
+    {
+      "id": "vehicles-09",
+      "category": "vehicles",
+      "expected": "target",
+      "status": "resolved",
+      "masked": [
+        "car_white"
+      ],
+      "correct": true,
+      "confidentWrong": false,
+      "inventedGeometry": 0,
+      "requires": "appearance"
+    },
+    {
+      "id": "vehicles-10",
+      "category": "vehicles",
+      "expected": "target",
+      "status": "resolved",
+      "masked": [
+        "car_silver"
+      ],
+      "correct": true,
+      "confidentWrong": false,
+      "inventedGeometry": 0,
+      "requires": "appearance"
+    },
+    {
+      "id": "vehicles-11",
+      "category": "vehicles",
+      "expected": "target",
+      "status": "resolved",
+      "masked": [
+        "car_black"
+      ],
+      "correct": true,
+      "confidentWrong": false,
+      "inventedGeometry": 0,
+      "requires": "appearance"
+    },
+    {
+      "id": "vehicles-12",
+      "category": "vehicles",
+      "expected": "ask",
+      "status": "ambiguous_target",
+      "masked": [],
+      "correct": true,
+      "confidentWrong": false,
+      "inventedGeometry": 0
+    },
+    {
+      "id": "vehicles-13",
+      "category": "vehicles",
+      "expected": "ask",
+      "status": "ambiguous_target",
+      "masked": [],
+      "correct": true,
+      "confidentWrong": false,
+      "inventedGeometry": 0
+    },
+    {
       "id": "products-01",
       "category": "products",
       "expected": "target",
@@ -578,6 +660,55 @@
     },
     {
       "id": "products-05",
+      "category": "products",
+      "expected": "ask",
+      "status": "ambiguous_target",
+      "masked": [],
+      "correct": true,
+      "confidentWrong": false,
+      "inventedGeometry": 0
+    },
+    {
+      "id": "products-06",
+      "category": "products",
+      "expected": "target",
+      "status": "resolved",
+      "masked": [
+        "ball_grey"
+      ],
+      "correct": true,
+      "confidentWrong": false,
+      "inventedGeometry": 0,
+      "requires": "appearance"
+    },
+    {
+      "id": "products-07",
+      "category": "products",
+      "expected": "target",
+      "status": "resolved",
+      "masked": [
+        "ball_silver"
+      ],
+      "correct": true,
+      "confidentWrong": false,
+      "inventedGeometry": 0,
+      "requires": "appearance"
+    },
+    {
+      "id": "products-08",
+      "category": "products",
+      "expected": "target",
+      "status": "resolved",
+      "masked": [
+        "ball_orange"
+      ],
+      "correct": true,
+      "confidentWrong": false,
+      "inventedGeometry": 0,
+      "requires": "appearance"
+    },
+    {
+      "id": "products-09",
       "category": "products",
       "expected": "ask",
       "status": "ambiguous_target",

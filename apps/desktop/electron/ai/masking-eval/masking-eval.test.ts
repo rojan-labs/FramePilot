@@ -47,6 +47,24 @@ describe('AI masking eval (AM5)', () => {
     expect(none?.passed).toBe(none?.total);
   }, 120_000);
 
+  it('owes its neutral-colour picks to the measured colour: SigLIP alone asks (AM2.7)', async () => {
+    // An engine that cannot measure: the re-ranker falls back to SigLIP's evidence alone, which
+    // on these real held-out crops separates chromatic colours but not white, grey, silver, black.
+    const siglipOnly = await runMaskingEval(
+      loadRequestSet(path.join(repoRoot, FIXTURE)),
+      FIXTURE,
+      undefined,
+      false,
+    );
+    const { summary } = siglipOnly;
+    expect(summary.confidentWrong).toBe(0);
+    expect(summary.inventedGeometry).toBe(0);
+    const appearance = summary.targetAccuracyByRequirement.appearance!;
+    const withMeasurement = (await measured()).summary.targetAccuracyByRequirement.appearance!;
+    expect(withMeasurement.passed).toBe(withMeasurement.total);
+    expect(appearance.passed).toBeLessThan(withMeasurement.passed);
+  }, 120_000);
+
   it('with the installed 1.0 packs (no classes, no crops) still never guesses', async () => {
     // What users have until the AM2.5 releases are signed: every request passes through the real
     // negotiation, so classes are dropped and crops refused, and objects ask instead.

@@ -97,3 +97,19 @@ def test_regenerated_crops_measure_as_committed(
     cosines = {crop_id: value["cosines"] for crop_id, value in entry["crops"].items()}
     rescored = replay.score_set(entry["frames"], cosines, fresh.measurements, thresholds, "am2.7")
     assert rescored == replay.replay_report(committed)[name]["am2.7"]
+
+
+def test_the_am5_eval_crops_are_the_replayed_held_out_crops(committed: dict[str, Any]) -> None:
+    """The AM5 eval's coloured things answer with exactly the vectors and measurements scored
+    here: every crop the request set names, from the held-out set, with the same cosines."""
+    harness = _load(replay.HARNESS_FILE)
+    refs = replay.harness_refs()
+    assert refs and sorted(harness["crops"]) == sorted(refs)
+    for ref in refs:
+        set_name, crop_id = ref.split("/", 1)
+        assert committed["sets"][set_name]["role"] == "heldOut", ref
+        recorded, scored = harness["crops"][ref], committed["sets"][set_name]["crops"][crop_id]
+        assert recorded["measurement"] == scored["measurement"], ref
+        vectors = {"prompts": harness["prompts"], "crops": {crop_id: recorded["vector"]}}
+        cosines = replay.crop_cosines(vectors, [crop_id], {crop_id: recorded["noun"]})
+        assert cosines[crop_id] == pytest.approx(scored["cosines"], abs=1e-12), ref

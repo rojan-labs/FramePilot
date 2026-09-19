@@ -1,6 +1,6 @@
 {
   "$comment": "AM5.1 labelled request set for the AI masking eval (plan/background-removal-ai/06 'AI masking', 11 'Evals').",
-  "labelling": "Ground truth BY CONSTRUCTION, written by hand, not by a model. Each scene is a synthetic frame context: the detector hits the Subject Intelligence pack would return (label, normalised box, confidence, optional drift and visibility) plus the things on screen it cannot box (detector: null). Because the scene is built rather than observed, which thing each request means is known exactly. Labelling rules, fixed before any run: (1) 'target' \u2014 exactly one thing on screen matches the request's noun, or a plural/'all' request names a definite set, or a position/size word singles one out with centres at least 0.2 of the frame apart or at least 2x the area (no borderline positions are included); appearance words (colour) count as singling out, because a person looking at the frame can see them \u2014 such items are tagged requires='appearance'. (2) 'ask' \u2014 more than one thing matches the noun and nothing in the words singles one out. (3) 'face_selection' \u2014 the request depends on WHO someone is (a role such as host/presenter/guest, or an exclusion); plan 11 rule 6 makes the editor pick. (4) 'click' \u2014 the target is outside the detector vocabulary (plates, signs, sky, clothing, hair...); plan 11 makes this needs_click by design. (5) 'refuse' / 'typed_shape' \u2014 adversarial items where the scripted model misbehaves: nothing it invents may land; a shape the editor typed in the current request may. requires='object_class' marks targets the detector boxes only as a generic 'object'. Pack outputs are synthetic and follow the AM2.5 packs: every 'object' thing carries the COCO class Subject Intelligence >= 1.1.0 reports for it (a mug is COCO 'cup'), person detections are reported as class 'person', and a thing whose colour the scene states carries it, which the synthetic Visual Embed turns into a crop vector on that colour's axis. Classes and colours were added to the scenes as they are described, not tuned to any result.",
+  "labelling": "Ground truth BY CONSTRUCTION, written by hand, not by a model. Each scene is a synthetic frame context: the detector hits the Subject Intelligence pack would return (label, normalised box, confidence, optional drift and visibility) plus the things on screen it cannot box (detector: null). Because the scene is built rather than observed, which thing each request means is known exactly. Labelling rules, fixed before any run: (1) 'target' \u2014 exactly one thing on screen matches the request's noun, or a plural/'all' request names a definite set, or a position/size word singles one out with centres at least 0.2 of the frame apart or at least 2x the area (no borderline positions are included); appearance words (colour) count as singling out, because a person looking at the frame can see them \u2014 such items are tagged requires='appearance'. (2) 'ask' \u2014 more than one thing matches the noun and nothing in the words singles one out. (3) 'face_selection' \u2014 the request depends on WHO someone is (a role such as host/presenter/guest, or an exclusion); plan 11 rule 6 makes the editor pick. (4) 'click' \u2014 the target is outside the detector vocabulary (plates, signs, sky, clothing, hair...); plan 11 makes this needs_click by design. (5) 'refuse' / 'typed_shape' \u2014 adversarial items where the scripted model misbehaves: nothing it invents may land; a shape the editor typed in the current request may. requires='object_class' marks targets the detector boxes only as a generic 'object'. Pack outputs are synthetic and follow the AM2.5 packs: every 'object' thing carries the COCO class Subject Intelligence >= 1.1.0 reports for it (a mug is COCO 'cup'), person detections are reported as class 'person', and a thing whose colour the scene states carries it, which the synthetic Visual Embed turns into a crop vector on that colour's axis. Classes and colours were added to the scenes as they are described, not tuned to any result. AM2.7: a thing whose colour the scene states names a recordedCrop: a crop of that colour and noun from the held-out set of the real-weights colour eval (reports/ai-masking/colour-rerank-replay.json, seed 424242), whose real SigLIP 2 vectors and engine colour measurement the eval replays (colour-rerank-harness-vectors.json). The neutral-colour scenes and their items were added in AM2.7 with their crops chosen by colour and noun before any run, not by result.",
   "clip": {
     "fps": 24,
     "seconds": 2,
@@ -188,7 +188,8 @@
           "box": [0.05, 0.4, 0.4, 0.35],
           "confidence": 0.9,
           "class": "car",
-          "colour": "red"
+          "colour": "red",
+          "recordedCrop": "heldOut-424242/f24-red"
         },
         {
           "id": "car_right_grey",
@@ -197,7 +198,8 @@
           "box": [0.55, 0.4, 0.4, 0.35],
           "confidence": 0.9,
           "class": "car",
-          "colour": "grey"
+          "colour": "grey",
+          "recordedCrop": "heldOut-424242/f24-grey"
         },
         {
           "id": "plates",
@@ -774,6 +776,76 @@
           "identity": "cluster_g2"
         }
       ]
+    },
+    "three_cars_neutral": {
+      "picture": "Three cars of the same size parked in a row: white on the left, silver in the middle, black on the right; no people.",
+      "things": [
+        {
+          "id": "car_white",
+          "truth": "car",
+          "detector": "object",
+          "box": [0.02, 0.42, 0.3, 0.3],
+          "confidence": 0.9,
+          "class": "car",
+          "colour": "white",
+          "recordedCrop": "heldOut-424242/f11-white"
+        },
+        {
+          "id": "car_silver",
+          "truth": "car",
+          "detector": "object",
+          "box": [0.35, 0.42, 0.3, 0.3],
+          "confidence": 0.9,
+          "class": "car",
+          "colour": "silver",
+          "recordedCrop": "heldOut-424242/f8-silver"
+        },
+        {
+          "id": "car_black",
+          "truth": "car",
+          "detector": "object",
+          "box": [0.68, 0.42, 0.3, 0.3],
+          "confidence": 0.9,
+          "class": "car",
+          "colour": "black",
+          "recordedCrop": "heldOut-424242/f8-black"
+        }
+      ]
+    },
+    "three_balls": {
+      "picture": "Three balls on a lawn: grey on the left, silver in the middle, orange on the right; no people.",
+      "things": [
+        {
+          "id": "ball_grey",
+          "truth": "ball",
+          "detector": "object",
+          "box": [0.05, 0.5, 0.2, 0.3],
+          "confidence": 0.85,
+          "class": "sports ball",
+          "colour": "grey",
+          "recordedCrop": "heldOut-424242/f13-grey"
+        },
+        {
+          "id": "ball_silver",
+          "truth": "ball",
+          "detector": "object",
+          "box": [0.4, 0.5, 0.2, 0.3],
+          "confidence": 0.85,
+          "class": "sports ball",
+          "colour": "silver",
+          "recordedCrop": "heldOut-424242/f7-silver"
+        },
+        {
+          "id": "ball_orange",
+          "truth": "ball",
+          "detector": "object",
+          "box": [0.75, 0.5, 0.2, 0.3],
+          "confidence": 0.85,
+          "class": "sports ball",
+          "colour": "orange",
+          "recordedCrop": "heldOut-424242/f13-orange"
+        }
+      ]
     }
   },
   "requests": [
@@ -1210,6 +1282,91 @@
       "purpose": "hide"
     },
     {
+      "id": "vehicles-07",
+      "category": "vehicles",
+      "scene": "two_cars_parked",
+      "request": "blur the grey car",
+      "description": "the grey car",
+      "expect": {
+        "outcome": "target",
+        "things": ["car_right_grey"]
+      },
+      "purpose": "hide",
+      "requires": "appearance"
+    },
+    {
+      "id": "vehicles-08",
+      "category": "vehicles",
+      "scene": "two_cars_parked",
+      "request": "hide the blue car",
+      "description": "the blue car",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "vehicles-09",
+      "category": "vehicles",
+      "scene": "three_cars_neutral",
+      "request": "blur the white car",
+      "description": "the white car",
+      "expect": {
+        "outcome": "target",
+        "things": ["car_white"]
+      },
+      "purpose": "hide",
+      "requires": "appearance"
+    },
+    {
+      "id": "vehicles-10",
+      "category": "vehicles",
+      "scene": "three_cars_neutral",
+      "request": "hide the silver car",
+      "description": "the silver car",
+      "expect": {
+        "outcome": "target",
+        "things": ["car_silver"]
+      },
+      "purpose": "hide",
+      "requires": "appearance"
+    },
+    {
+      "id": "vehicles-11",
+      "category": "vehicles",
+      "scene": "three_cars_neutral",
+      "request": "blur the black car",
+      "description": "the black car",
+      "expect": {
+        "outcome": "target",
+        "things": ["car_black"]
+      },
+      "purpose": "hide",
+      "requires": "appearance"
+    },
+    {
+      "id": "vehicles-12",
+      "category": "vehicles",
+      "scene": "three_cars_neutral",
+      "request": "blur the grey car",
+      "description": "the grey car",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "vehicles-13",
+      "category": "vehicles",
+      "scene": "three_cars_neutral",
+      "request": "blur the car",
+      "description": "the car",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide"
+    },
+    {
       "id": "products-01",
       "category": "products",
       "scene": "product_hero",
@@ -1275,6 +1432,56 @@
       },
       "purpose": "effect",
       "effect": "brighten"
+    },
+    {
+      "id": "products-06",
+      "category": "products",
+      "scene": "three_balls",
+      "request": "hide the grey ball",
+      "description": "the grey ball",
+      "expect": {
+        "outcome": "target",
+        "things": ["ball_grey"]
+      },
+      "purpose": "hide",
+      "requires": "appearance"
+    },
+    {
+      "id": "products-07",
+      "category": "products",
+      "scene": "three_balls",
+      "request": "hide the silver ball",
+      "description": "the silver ball",
+      "expect": {
+        "outcome": "target",
+        "things": ["ball_silver"]
+      },
+      "purpose": "hide",
+      "requires": "appearance"
+    },
+    {
+      "id": "products-08",
+      "category": "products",
+      "scene": "three_balls",
+      "request": "blur the orange ball",
+      "description": "the orange ball",
+      "expect": {
+        "outcome": "target",
+        "things": ["ball_orange"]
+      },
+      "purpose": "hide",
+      "requires": "appearance"
+    },
+    {
+      "id": "products-09",
+      "category": "products",
+      "scene": "three_balls",
+      "request": "blur the white ball",
+      "description": "the white ball",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide"
     },
     {
       "id": "pets-01",

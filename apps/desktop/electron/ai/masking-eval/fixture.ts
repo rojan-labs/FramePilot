@@ -34,6 +34,13 @@ export interface SceneThing {
   readonly class?: CocoClassName;
   /** Its colour, by construction, when the scene says so: what a crop re-rank would see. */
   readonly colour?: string;
+  /**
+   * AM2.7: the real crop that stands in for this thing's picture — `set/cropId` in the
+   * real-weights colour eval (`reports/ai-masking/colour-rerank-harness-vectors.json`), whose
+   * SigLIP 2 vectors and engine colour measurement the eval packs answer with. Required on every
+   * thing that states a colour, and of that colour.
+   */
+  readonly recordedCrop?: string;
 }
 
 export interface Scene {
@@ -119,6 +126,13 @@ function checkThing(sceneId: string, thing: SceneThing): void {
   if (typeof thing.truth !== 'string') fail(where, 'needs a truth label');
   if (thing.colour !== undefined && !COLOUR_WORDS.includes(thing.colour)) {
     fail(where, `colour ${thing.colour} is not one the re-ranker scores`);
+  }
+  if (thing.colour !== undefined || thing.recordedCrop !== undefined) {
+    const recorded = /^[\w-]+\/f\d+-([a-z]+)$/u.exec(thing.recordedCrop ?? '');
+    if (recorded === null) fail(where, 'a coloured thing names the real crop that pictures it');
+    if (recorded[1] !== thing.colour) {
+      fail(where, `recorded crop ${String(thing.recordedCrop)} is not ${String(thing.colour)}`);
+    }
   }
   if (thing.class !== undefined) {
     if (thing.detector !== 'object') fail(where, 'only an object thing names its class');

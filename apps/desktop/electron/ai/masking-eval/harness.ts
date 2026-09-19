@@ -10,23 +10,26 @@
  *   hits — the "recorded or synthetic" pack output the plan allows — with the COCO class a 1.1
  *   pack reports when the request asks for it (AM2.5). Every box it emits is logged, so a landed
  *   mask can be traced back to a labelled thing. A fake Visual Embed answers crop and text
- *   requests with synthetic vectors: a crop sits on its thing's colour axis (no colour → no
- *   axis), a prompt on the axis of the colour it names. That proves the wiring and the decision
- *   rules with ground truth by construction; it says nothing about SigLIP's accuracy.
+ *   requests with RECORDED real SigLIP 2 vectors (AM2.7): each coloured thing names a held-out
+ *   crop of its colour and noun from the real-weights colour eval
+ *   (`reports/ai-masking/colour-rerank-harness-vectors.json`), and a prompt gets the real vector
+ *   of that palette sentence. The engine's colour measurement is answered the same way, from the
+ *   same crop. A thing with no recorded crop gets no vector: the job fails and the resolver asks.
  * - **The model.** A scripted policy, not an LLM: it passes the item's target phrase to
  *   `find_mask_targets` and masks what was chosen, or — for the adversarial items — tries to get
  *   round a rule (use an id the editor was asked to pick, strip its `pick.` marker, send a shape
  *   the editor never typed, invent a candidate id). The model's own phrasing is therefore NOT
  *   measured here; a real-model run would measure it, and is not run on this machine.
  * - **Evidence sources exactly as `main.ts` ships them:** the crop re-ranker (built by the same
- *   `createCropReranker`, over the fake packs), no identity source, and face-recognition consent
- *   read per scene.
+ *   `createCropReranker`, over the fake packs, with the recorded colour measurement as its
+ *   `measure` source), no identity source, and face-recognition consent read per scene.
  *
  * Deterministic: no clock, no randomness, no network. Same fixture ⇒ byte-identical report.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   COLOUR_WORDS,
   MaskTargetsResultSchema,
@@ -36,6 +39,7 @@ import {
   type AiProvider,
   type AiResponse,
   type ContextInput,
+  type CropColourMeasurement,
   type HostExecutionContext,
   type HostToolExecutor,
   type HostToolOutcome,
@@ -50,9 +54,9 @@ import { createLogger } from '@framepilot/shared-types';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import type { CapabilityPackMatteService } from '../../capability-packs/matte.js';
 import type { CapabilityPackTrackingService } from '../../capability-packs/tracking.js';
+import type { CropColourSource } from '../crop-colour-client.js';
 import { createCropReranker } from '../crop-reranker.js';
 import { createMaskingExecutor } from '../masking-executor.js';
-import { packFp16 } from '../packed-vector.js';
 import type { EvalRequest, RequestSet, Scene, SceneThing } from './fixture.js';
 import {
   judge,
@@ -160,11 +164,49 @@ function overlap(a: NormalisedBox, b: NormalisedBox): number {
   return union <= 0 ? 0 : inter / union;
 }
 
-/** A unit vector on one colour's axis, or an even spread when the colour is unknown. */
-function colourAxis(colour: string | undefined): number[] {
-  const known = colour !== undefined && COLOUR_WORDS.includes(colour);
-  const spread = 1 / Math.sqrt(COLOUR_WORDS.length);
-  return COLOUR_WORDS.map((each) => (known ? (each === colour ? 1 : 0) : spread));
+/** One held-out crop of the real-weights colour eval, as the AM5 packs answer for it. */
+interface RecordedCrop {
+  readonly noun: string;
+  readonly colour: string;
+  /** The Visual Embed worker's own fp16 base64 vector. */
+  readonly vector: string;
+  readonly measurement: CropColourMeasurement | null;
+}
+
+/** Real SigLIP 2 vectors and engine measurements of the crops the fixture's things name. */
+export interface RecordedCrops {
+  readonly colours: readonly string[];
+  /** Per noun, the fp16 vector of each palette prompt, in palette order. */
+  readonly prompts: Readonly<Record<string, readonly string[]>>;
+  readonly crops: Readonly<Record<string, RecordedCrop>>;
+}
+
+const RECORDED_CROPS = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../../..',
+  'reports/ai-masking/colour-rerank-harness-vectors.json',
+);
+/** The noun a recorded crop pictures, per the COCO class the scene gives the thing. */
+const RECORDED_NOUN: Readonly<Record<string, string>> = { car: 'car', 'sports ball': 'ball' };
+
+/** Read the recorded crops and check every coloured thing of `set` has its crop, of its kind. */
+export function loadRecordedCrops(set: RequestSet, file = RECORDED_CROPS): RecordedCrops {
+  const recorded = JSON.parse(readFileSync(file, 'utf8')) as RecordedCrops;
+  if (recorded.colours.join() !== COLOUR_WORDS.join()) {
+    throw new Error('The recorded crops were scored against another palette.');
+  }
+  for (const [sceneId, scene] of Object.entries(set.scenes)) {
+    for (const thing of scene.things) {
+      if (thing.recordedCrop === undefined) continue;
+      const crop = recorded.crops[thing.recordedCrop];
+      const where = `scene ${sceneId}, thing ${thing.id}`;
+      if (crop === undefined) throw new Error(`${where}: no recorded crop ${thing.recordedCrop}`);
+      if (crop.colour !== thing.colour || crop.noun !== RECORDED_NOUN[thing.class ?? '']) {
+        throw new Error(`${where}: ${thing.recordedCrop} is a ${crop.colour} ${crop.noun}`);
+      }
+    }
+  }
+  return recorded;
 }
 
 interface SceneRequest {
@@ -209,19 +251,36 @@ function detect(
   };
 }
 
-/** Visual Embed's crop answer: each crop on its thing's colour axis, found by the crop's box. */
-function embedCrops(scene: Scene, request: SceneRequest, version: string): unknown {
-  const fps = request.media!.fps;
-  const shots = (request.parameters.shots ?? []).map((shot) => {
-    const frame = Math.round(shot.keyframeT * fps);
-    const thing = scene.things.find((candidate) => {
-      const box = hitOn(candidate, frame);
-      return (
-        box !== null && shot.region !== undefined && overlap(box, shot.region) >= CROP_MATCH_IOU
-      );
-    });
-    return { shotIndex: shot.shotIndex, vector: packFp16(colourAxis(thing?.colour)) };
+/** The thing whose box on `frame` is (nearly) `region`: what a crop of that region pictures. */
+function thingAt(scene: Scene, frame: number, region: NormalisedBox | undefined) {
+  return scene.things.find((candidate) => {
+    const box = hitOn(candidate, frame);
+    return box !== null && region !== undefined && overlap(box, region) >= CROP_MATCH_IOU;
   });
+}
+
+const noVector = (detail: string) => ({
+  status: 'failed',
+  code: 'worker_failed',
+  detail,
+  retryable: false,
+});
+
+/** Visual Embed's crop answer: each crop's recorded real vector, found by the crop's box. */
+function embedCrops(
+  scene: Scene,
+  recorded: RecordedCrops,
+  request: SceneRequest,
+  version: string,
+): unknown {
+  const fps = request.media!.fps;
+  const shots = [];
+  for (const shot of request.parameters.shots ?? []) {
+    const thing = thingAt(scene, Math.round(shot.keyframeT * fps), shot.region);
+    const crop = thing?.recordedCrop === undefined ? undefined : recorded.crops[thing.recordedCrop];
+    if (crop === undefined) return noVector('The eval has no recorded picture for this crop.');
+    shots.push({ shotIndex: shot.shotIndex, vector: crop.vector });
+  }
   return {
     status: 'completed',
     identity: embedIdentity(version),
@@ -229,16 +288,32 @@ function embedCrops(scene: Scene, request: SceneRequest, version: string): unkno
   };
 }
 
-/** Visual Embed's text answer: each prompt on the axis of the colour it names. */
-function embedTexts(request: SceneRequest, version: string): unknown {
-  const vectors = (request.parameters.texts ?? []).map((text) =>
-    packFp16(colourAxis(COLOUR_WORDS.find((colour) => text.split(' ').includes(colour)))),
-  );
+/** Visual Embed's text answer: the recorded real vector of each palette sentence. */
+function embedTexts(recorded: RecordedCrops, request: SceneRequest, version: string): unknown {
+  const vectors = [];
+  for (const text of request.parameters.texts ?? []) {
+    const match = /^a photo of a ([a-z]+) ([a-z ]+)$/u.exec(text);
+    const prompt =
+      match === null ? undefined : recorded.prompts[match[2]!]?.[COLOUR_WORDS.indexOf(match[1]!)];
+    if (prompt === undefined) return noVector(`The eval has no recorded vector for "${text}".`);
+    vectors.push(prompt);
+  }
   return {
     status: 'completed',
     identity: embedIdentity(version),
     result: { capability: 'visual.text', vectors },
   };
+}
+
+/** The engine's colour measurement, answered from each crop's recorded measurement (AM2.7). */
+function measuredColours(scene: Scene, recorded: RecordedCrops): CropColourSource {
+  return async (query) =>
+    query.crops.map((crop) => {
+      const thing = thingAt(scene, Math.round(crop.timeSeconds * query.fps), crop.box);
+      const measured =
+        thing?.recordedCrop === undefined ? undefined : recorded.crops[thing.recordedCrop];
+      return measured?.measurement ?? undefined;
+    });
 }
 
 /**
@@ -248,6 +323,7 @@ function embedTexts(request: SceneRequest, version: string): unknown {
  */
 function scenePack(
   scene: Scene,
+  recorded: RecordedCrops,
   emitted: EmittedBox[],
   version: string,
 ): () => Promise<CapabilityPackTrackingService> {
@@ -263,8 +339,10 @@ function scenePack(
     }
     const request = negotiated.request as unknown as SceneRequest;
     if (request.capability === 'subject.detect') return detect(scene, emitted, request, version);
-    if (request.capability === 'visual.embed') return embedCrops(scene, request, version);
-    if (request.capability === 'visual.text') return embedTexts(request, version);
+    if (request.capability === 'visual.embed') {
+      return embedCrops(scene, recorded, request, version);
+    }
+    if (request.capability === 'visual.text') return embedTexts(recorded, request, version);
     return {
       status: 'failed',
       code: 'worker_failed',
@@ -460,19 +538,25 @@ export async function runItem(
   item: EvalRequest,
   dir: string,
   packVersion = CURRENT_PACK_VERSION,
+  recorded: RecordedCrops = loadRecordedCrops(set),
+  measureColour = true,
 ): Promise<{ verdict: ItemVerdict }> {
   const scene = set.scenes[item.scene]!;
   const emitted: EmittedBox[] = [];
   const observed: Observed = {};
-  const packs = scenePack(scene, emitted, packVersion);
+  const packs = scenePack(scene, recorded, emitted, packVersion);
   const executor = createMaskingExecutor({
     tracking: packs,
     matte: noMatte,
     activeProjectPath: async () => path.join(dir, 'project.fp.json'),
-    // As main.ts ships it: consent, and the crop re-ranker over the same packs; no identity source.
+    // As main.ts ships it: consent, and the crop re-ranker over the same packs with the engine's
+    // colour measurement beside it (AM2.7); no identity source.
     evidence: {
       faceRecognitionConsent: async () => scene.consent === true,
-      rerank: createCropReranker({ tracking: packs }),
+      rerank: createCropReranker({
+        tracking: packs,
+        ...(measureColour ? { measure: measuredColours(scene, recorded) } : {}),
+      }),
     },
   });
   const input: ContextInput = {
@@ -524,17 +608,21 @@ export interface MaskingEvalReport {
  * @param fixture - Repo-relative path of the set, recorded in the report.
  * @param packVersion - The pack releases to stand in for. `1.0.0` replays what installed users
  *   have until the AM2.5 releases are signed: no classes, no crops.
+ * @param measureColour - Whether the engine's colour measurement stands beside SigLIP, as
+ *   `main.ts` ships it (AM2.7). `false` replays an engine that cannot measure.
  */
 export async function runMaskingEval(
   set: RequestSet,
   fixture: string,
   packVersion = CURRENT_PACK_VERSION,
+  measureColour = true,
 ): Promise<MaskingEvalReport> {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'fp-masking-eval-'));
   try {
+    const recorded = loadRecordedCrops(set);
     const verdicts: ItemVerdict[] = [];
     for (const item of set.requests) {
-      verdicts.push((await runItem(set, item, dir, packVersion)).verdict);
+      verdicts.push((await runItem(set, item, dir, packVersion, recorded, measureColour)).verdict);
     }
     const summary = summarise(verdicts);
     log.action('maskingEvalComplete', {
@@ -552,11 +640,11 @@ export async function runMaskingEval(
       fixture,
       configuration: {
         path: 'Orchestrator.streamAgent -> desktop createMaskingExecutor -> resolveMaskTargets -> create_mask -> validator',
-        pack: 'synthetic Subject Intelligence 1.1 detections (with COCO classes) and Visual Embed 1.1 crop/text vectors (colour axes) from the fixture scenes',
+        pack: 'synthetic Subject Intelligence 1.1 detections (with COCO classes) from the fixture scenes; Visual Embed 1.1 answers with RECORDED real SigLIP 2 vectors of held-out crops of each coloured thing (reports/ai-masking/colour-rerank-harness-vectors.json)',
         model:
           'scripted policy (not an LLM): passes the labelled target phrase; adversarial items try to bypass the rules',
         evidence:
-          'as main.ts ships it: the crop colour re-ranker, no identity source, consent per scene',
+          "as main.ts ships it: the crop colour re-ranker with the engine's colour measurement (recorded for the same crops), no identity source, consent per scene",
         installed:
           'these numbers are for Subject Intelligence and Visual Embed 1.1.0, which carry classes and crops. ' +
           'Installed users run 1.0 until those releases are signed and published (maintainer actions MO-1..MO-5); ' +

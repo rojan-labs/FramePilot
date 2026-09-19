@@ -29,6 +29,11 @@ Build (maintainer, after a SigLIP run wrote ``v-<seed>.json`` with ``--all-vecto
     cd engine/python && uv run python -m tests.colour_rerank_replay build \\
         --vectors-dir <dir> --mission-dir <tests/fixtures/mission>
 
+``harness`` (same ``--vectors-dir``) writes ``colour-rerank-harness-vectors.json``: the real fp16
+vectors and measurements of the held-out crops the AM5 eval's coloured things name
+(``tests/fixtures/ai-masking/request-set.json`` ``recordedCrop``). ``report`` re-scores the
+committed replay into ``colour-rerank.json`` (``pnpm colour-rerank:replay``).
+
 CI (``test_colour_rerank_replay.py``) re-derives every number from the committed files, and
 regenerates the synthetic crops to check the committed measurements against a fresh decode.
 """
@@ -64,6 +69,8 @@ REPORTS = REPO / "reports" / "ai-masking"
 REPLAY_FILE = REPORTS / "colour-rerank-replay.json"
 VECTORS_FILE = REPORTS / "colour-rerank-siglip2-vectors.json"
 REPORT_FILE = REPORTS / "colour-rerank.json"
+HARNESS_FILE = REPORTS / "colour-rerank-harness-vectors.json"
+REQUEST_SET = REPO / "tests" / "fixtures" / "ai-masking" / "request-set.json"
 
 #: (set name, role, seed). Held-out was generated after the thresholds were frozen.
 SYNTHETIC_SETS = (
@@ -628,16 +635,63 @@ def _fraction(rate: Mapping[str, Any]) -> str:
     return f"{rate['passed']}/{rate['total']}"
 
 
+def harness_refs() -> list[str]:
+    """Every recorded crop the AM5 request set names (``set/crop id``), in first-use order."""
+    request_set = json.loads(REQUEST_SET.read_text(encoding="utf-8"))
+    refs: list[str] = []
+    for scene in request_set["scenes"].values():
+        for thing in scene["things"]:
+            ref = thing.get("recordedCrop")
+            if ref is not None and ref not in refs:
+                refs.append(ref)
+    return refs
+
+
+def build_harness(vectors_dir: Path, replay: Mapping[str, Any]) -> dict[str, Any]:
+    """The real fp16 vectors and measurements of the crops the AM5 eval's colour things use."""
+    crops: dict[str, Any] = {}
+    prompts: dict[str, list[str]] = {}
+    for ref in harness_refs():
+        set_name, crop_id = ref.split("/", 1)
+        entry = replay["sets"][set_name]
+        vectors = json.loads((vectors_dir / f"v-{entry['seed']}.json").read_text(encoding="utf-8"))
+        frame = next(f for f in entry["frames"] if any(c["id"] == crop_id for c in f["crops"]))
+        colour = next(c["colour"] for c in frame["crops"] if c["id"] == crop_id)
+        noun = frame["noun"]
+        if prompts.setdefault(noun, vectors["prompts"][noun]) != vectors["prompts"][noun]:
+            raise ValueError(f"the {noun} prompt vectors differ between SigLIP runs")
+        crops[ref] = {
+            "noun": noun,
+            "colour": colour,
+            "vector": vectors["crops"][crop_id],
+            "measurement": entry["crops"][crop_id]["measurement"],
+        }
+    return {
+        "$comment": (
+            "AM2.7: real SigLIP 2 vectors (fp16, base64, as the Visual Embed worker packs them) "
+            "and the engine's colour measurement of the held-out crops the AM5 eval's coloured "
+            "things name (tests/fixtures/ai-masking/request-set.json recordedCrop). Written by "
+            "engine/python/tests/colour_rerank_replay.py harness; do not edit."
+        ),
+        "colours": list(eval_tool().COLOURS),
+        "prompts": prompts,
+        "crops": crops,
+    }
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("part", choices=("build", "report"))
+    parser.add_argument("part", choices=("build", "harness", "report"))
     parser.add_argument("--vectors-dir", type=Path, help="v-<seed>.json from the SigLIP runs")
     parser.add_argument("--mission-dir", type=Path, help="tests/fixtures/mission (real crops)")
     args = parser.parse_args()
+    if args.part in ("build", "harness") and args.vectors_dir is None:
+        parser.error(f"{args.part} needs --vectors-dir")
+    if args.part == "harness":
+        harness = build_harness(args.vectors_dir, json.loads(REPLAY_FILE.read_text("utf-8")))
+        HARNESS_FILE.write_text(json.dumps(harness, indent=1) + "\n", encoding="utf-8")
     if args.part == "build":
-        if args.vectors_dir is None:
-            parser.error("build needs --vectors-dir")
         replay = build(args.vectors_dir, args.mission_dir)
         REPLAY_FILE.write_text(json.dumps(replay, indent=1) + "\n", encoding="utf-8")
         annotate_vectors_file(replay)
