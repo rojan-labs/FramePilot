@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import type { CropColourMeasurement } from './colour-measure.js';
 import {
   ACHROMATIC_RIVAL_SHARE,
   COLOUR_RERANK_TEMPERATURE,
+  agreedColourPick,
   colourEvidence,
   colourRerankPlan,
   colourRerankScores,
@@ -144,7 +146,6 @@ describe('colourEvidence (AM2.6)', () => {
   });
 });
 
-
 describe('colour re-ranking decides only what it can', () => {
   const FRAMES = [0, 8, 16, 24];
   const car = (x: number): TargetDetection[] =>
@@ -191,5 +192,133 @@ describe('colour re-ranking decides only what it can', () => {
 
   it('asks when both cars are red', () => {
     expect(scored(['red', 'red']).result.status).toBe('ambiguous_target');
+  });
+});
+
+describe('agreedColourPick (AM2.7): SigLIP and the measurement must agree', () => {
+  /** A SigLIP classification whose top colour is `top` (0.7), the rest spread evenly. */
+  const reads = (top: string): number[] =>
+    COLOUR_WORDS.map((colour) => (colour === top ? 0.7 : 0.3 / (COLOUR_WORDS.length - 1)));
+  const at = (colour: string): number => COLOUR_WORDS.indexOf(colour);
+  const evidenceFor = (colour: string, distributions: number[][]): number[] =>
+    distributions.map((distribution) => colourEvidence(distribution, at(colour)));
+  const pick = (
+    colour: string,
+    tops: string[],
+    classes: Parameters<typeof agreedColourPick>[3],
+  ) => {
+    const distributions = tops.map(reads);
+    return agreedColourPick(colour, distributions, evidenceFor(colour, distributions), classes);
+  };
+
+  it('picks SigLIP’s chromatic choice only when its crop measures chromatic', () => {
+    expect(pick('red', ['red', 'blue'], ['chromatic', 'chromatic'])).toBe(0);
+    expect(pick('red', ['red', 'blue'], ['white', 'chromatic'])).toBeUndefined();
+    expect(pick('red', ['red', 'blue'], ['mixed', 'chromatic'])).toBeUndefined();
+    expect(pick('red', ['red', 'blue'], ['unmeasured', 'chromatic'])).toBeUndefined();
+    // The measurement never promotes a crop SigLIP did not choose.
+    expect(pick('red', ['blue', 'green'], ['chromatic', 'chromatic'])).toBeUndefined();
+  });
+
+  it('picks the one crop measured in a neutral class when SigLIP reads it neutral nearby', () => {
+    // SigLIP reads flat silver as white: one step away, so the measurement decides.
+    expect(pick('silver', ['white', 'white'], ['silver', 'white'])).toBe(0);
+    expect(pick('white', ['white', 'white'], ['silver', 'white'])).toBe(1);
+    expect(pick('black', ['grey', 'red'], ['black', 'chromatic'])).toBe(0);
+  });
+
+  it('asks when SigLIP reads the measured crop as a colour, or two steps away', () => {
+    expect(pick('white', ['yellow', 'red'], ['white', 'chromatic'])).toBeUndefined();
+    expect(pick('white', ['black', 'red'], ['white', 'chromatic'])).toBeUndefined();
+    expect(pick('black', ['silver', 'red'], ['black', 'chromatic'])).toBeUndefined();
+  });
+
+  it('asks when SigLIP names the colour for a rival but not for the measured crop', () => {
+    expect(pick('silver', ['white', 'silver'], ['silver', 'white'])).toBeUndefined();
+    // Both named: SigLIP does not prefer the rival, the measurement decides.
+    expect(pick('white', ['white', 'white'], ['white', 'silver'])).toBe(0);
+  });
+
+  it('asks when the measurement cannot single one crop out', () => {
+    expect(pick('white', ['white', 'white'], ['white', 'white'])).toBeUndefined();
+    expect(pick('white', ['white', 'white'], ['white', 'silver|white'])).toBeUndefined();
+    expect(pick('grey', ['grey', 'red'], ['grey', 'mixed'])).toBeUndefined();
+  });
+});
+
+describe('colourRerankScores with measurements (AM2.7)', () => {
+  const FRAMES = [0, 8, 16, 24];
+  const car = (x: number): TargetDetection[] =>
+    FRAMES.map((frame) => ({
+      frame,
+      label: 'object',
+      box: { x, y: 0.4, width: 0.3, height: 0.35 },
+      confidence: 0.9,
+      objectClass: 'car',
+      classScore: 0.9,
+    }));
+  const input = {
+    clipId: 'shot',
+    assetId: 'asset',
+    fps: 24,
+    sampledFrames: FRAMES,
+    detections: [...car(0.02), ...car(0.35), ...car(0.68)],
+    engine: 'test',
+  };
+  const WHITE: CropColourMeasurement = { neutralShare: 0.97, neutralLightness: 90 };
+  const SILVER: CropColourMeasurement = { neutralShare: 0.97, neutralLightness: 72 };
+  const BLUE: CropColourMeasurement = { neutralShare: 0.05, neutralLightness: null };
+  /** SigLIP on real weights reads both white and silver crops as white. */
+  const vectors = ['white', 'white', 'blue'];
+
+  const resolve = (
+    description: string,
+    measurements: readonly (CropColourMeasurement | undefined)[] | undefined,
+  ) => {
+    const plain = rankCandidates({ ...input, description });
+    const plan = colourRerankPlan(description, plain)!;
+    const rerank = colourRerankScores(
+      plan,
+      plan.candidates.map((_candidate, index) => axis(vectors[index]!)),
+      COLOUR_WORDS.map(axis),
+      measurements,
+    );
+    return {
+      plain,
+      rerank,
+      result: resolveMaskTargets({ ...input, description, evidence: { rerank } }),
+    };
+  };
+
+  it('resolves "the silver car" SigLIP alone could not, and "the white car" beside it', () => {
+    const measured = [SILVER, WHITE, BLUE];
+    expect(resolve('the silver car', undefined).result.status).toBe('ambiguous_target');
+    const silver = resolve('the silver car', measured);
+    expect(silver.result.status).toBe('resolved');
+    expect(silver.result.chosenCandidateIds).toEqual([silver.plain[0]!.candidateId]);
+    const white = resolve('the white car', measured);
+    expect(white.result.chosenCandidateIds).toEqual([white.plain[1]!.candidateId]);
+  });
+
+  it('holds every candidate under the floor when the signals disagree', () => {
+    const { rerank, result } = resolve('the white car', [WHITE, WHITE, BLUE]);
+    expect(result.status).toBe('ambiguous_target');
+    expect(Math.max(...rerank.values())).toBeLessThan(RERANK_MIN_GROUNDING);
+  });
+
+  it('asks for a colour no car has, even where SigLIP alone is sure of a chromatic one', () => {
+    expect(resolve('the grey car', [SILVER, WHITE, BLUE]).result.status).toBe('ambiguous_target');
+    expect(resolve('the blue car', undefined).result.status).toBe('resolved');
+    expect(resolve('the blue car', [SILVER, WHITE, WHITE]).result.status).toBe('ambiguous_target');
+  });
+
+  it('treats a crop too small to measure as unknown, never as a match', () => {
+    expect(resolve('the white car', [SILVER, undefined, BLUE]).result.status).toBe(
+      'ambiguous_target',
+    );
+  });
+
+  it('refuses measurements that do not answer the plan', () => {
+    expect(() => resolve('the white car', [WHITE])).toThrow(/3 colour measurements/);
   });
 });
