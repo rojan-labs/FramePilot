@@ -84,16 +84,25 @@ def test_regenerated_crops_measure_as_committed(
     fresh = replay.measure_synthetic(seed)
     assert fresh.digest == entry["sceneDigest"], "the scene generator no longer draws these crops"
     thresholds = committed["thresholds"]["frozen"]
+    drifted = []
     for crop_id, value in entry["crops"].items():
         was, now = value["measurement"], fresh.measurements[crop_id]
-        assert now is not None, crop_id
-        assert abs(now["neutralShare"] - was["neutralShare"]) <= replay.SHARE_TOLERANCE, crop_id
-        if was["neutralLightness"] is not None and now["neutralLightness"] is not None:
-            drift = abs(now["neutralLightness"] - was["neutralLightness"])
-            assert drift <= replay.LIGHTNESS_TOLERANCE, crop_id
-        assert replay.measured_class(now, thresholds) == replay.measured_class(was, thresholds), (
-            crop_id
-        )
+        if now is None:
+            drifted.append(f"{crop_id}: not measured")
+            continue
+        share_drift = abs(now["neutralShare"] - was["neutralShare"])
+        if share_drift > replay.SHARE_TOLERANCE:
+            drifted.append(f"{crop_id}: share {was['neutralShare']} -> {now['neutralShare']}")
+        # Lightness is read only for a crop that is mostly neutral: a chromatic crop's handful of
+        # neutral pixels (glass, tyres) has no stable dominant tone, and no rule looks at it.
+        read = replay.measured_class(was, thresholds) not in ("chromatic", "mixed")
+        if read and abs(now["neutralLightness"] - was["neutralLightness"]) > (
+            replay.LIGHTNESS_TOLERANCE
+        ):
+            drifted.append(f"{crop_id}: L* {was['neutralLightness']} -> {now['neutralLightness']}")
+        if replay.measured_class(now, thresholds) != replay.measured_class(was, thresholds):
+            drifted.append(f"{crop_id}: class changed")
+    assert drifted == []
     cosines = {crop_id: value["cosines"] for crop_id, value in entry["crops"].items()}
     rescored = replay.score_set(entry["frames"], cosines, fresh.measurements, thresholds, "am2.7")
     assert rescored == replay.replay_report(committed)[name]["am2.7"]
