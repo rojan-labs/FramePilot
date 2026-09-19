@@ -14,8 +14,8 @@
 #    own LGPL build instead.
 # 2. The ONNX graphs (~1.4 GB), DERIVED from the pinned SAM 2.1 / BiRefNet checkpoints and
 #    required to hash to pack/models.lock.toml. Exported by eval/ci_export_graphs.sh (the same
-#    recipe CI uses; its exports are byte-identical to the pins) under the spike's memory
-#    watchdog, then copied into workers/smart-mask/models/. First run downloads ~1.3 GB of
+#    recipe CI uses; its exports are byte-identical to the pins), one after another with no
+#    memory gate (each peaks at ~7.5 GB), then copied into workers/smart-mask/models/. First run downloads ~1.3 GB of
 #    checkpoints plus a PyTorch build environment and needs ~8 GB of free disk. Once models/
 #    verifies, later runs skip all of this. SMART_MASK_MODELS_FROM points at a directory of
 #    already-exported graphs instead.
@@ -75,9 +75,7 @@ elif [[ -n "${SMART_MASK_MODELS_FROM:-}" ]]; then
 else
   EXPORT_DIR="$WORKER_DIR/.cache/graphs"
   echo "Exporting the model graphs from the pinned checkpoints into $EXPORT_DIR." >&2
-  echo "One export at a time under the memory watchdog; progress: $WORKER_DIR/.cache/export.log" >&2
-  echo "(an export waits there while less than 40% of memory is free — close heavy apps)." >&2
-  (cd "$WORKER_DIR" && SMART_MASK_EXPORT_WATCHDOG=1 bash eval/ci_export_graphs.sh "$EXPORT_DIR" 2048 1024 768)
+  (cd "$WORKER_DIR" && bash eval/ci_export_graphs.sh "$EXPORT_DIR" 2048 1024 768)
   fetch_models --from "$EXPORT_DIR"
   # models/ now holds the verified copies and is what later runs check; the export directory
   # (with the eval-only fp32 reference graph) would only duplicate ~2.6 GB.

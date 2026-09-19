@@ -32,8 +32,8 @@ PACKS=(
   "subject-intelligence:dev-register-subject-intelligence.sh"
   "visual-embed:dev-register-visual-embed.sh"
   "visual-describe:dev-register-visual-describe.sh"
-  # First run builds an LGPL-only ffmpeg and exports ~1.4 GB of graphs (one at a time,
-  # under a memory watchdog); both are cached. See the script.
+  # First run builds an LGPL-only ffmpeg and exports ~1.4 GB of graphs; both are cached.
+  # See the script.
   "smart-mask:dev-register-smart-mask.sh"
 )
 
