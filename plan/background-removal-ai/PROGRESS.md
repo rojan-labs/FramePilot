@@ -11,7 +11,7 @@ Read this first after a context reset. Updated after every commit.
 Maintainer 2026-09-19: "finish everything; you can run the things on this laptop as well" (local runs allowed, one heavy job at a time, guard: stop if free memory < 25% or swap grows > 1.5 GB).
 Running:
 - E2E.3/E2E.4/E2E.6/E2E.7 + DOC.1 (qa-e2e agent; finishes the untracked draft masking-e2e-pro-masking.spec.ts)
-- MK7.5 real-texture tracking gates (known synthetic motion on real broll frames), confidence recall, correction rate
+- MK7.7 correction through occlusion (exclusion region + constraint), night-plate margin
 - BR7.5 Smart Mask accuracy levers (subject-crop SAM pass, temporal consistency first, box as second prompt) in the CI eval
 Blocked on maintainer only: see MAINTAINER_ONLY_ACTIONS.md (MO-1..MO-20). RD3 last.
 Agent rules: single-file tests with `--no-file-parallelism`; local Playwright/model runs one at a time under the guard; poll CI yourself in bounded rounds; explicit `git add`, never stage others' files; no stash, force-push or trailers; don't edit plan files.
@@ -122,6 +122,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
+
+- MK7.5 real texture (local darwin-arm64): 14/15 rows ✓ (night perspective CRF28 0.522 px ✗ vs 0.5); drift 0.022 px ✓; confidence recall 92/92 ✓ (was 0%); correction 0/5 ✗; tracking cost now 30–50 ms/720p frame (plane), ~100 ms (shape) — measured, not budgeted
 
 - BR7.4 final (linux-x64 CPU, 2048², scored split; it0 → final): mean IoU 2/10 → 5/10 categories ≥ 0.98 (worst 0.807 → 0.903 crossing) ✗; BF@2px 2/10 → 4/10 ✗; leak 58% → 21% ✗; recall 99.2% → 100% (Wilson low 97.4%) ~; review load 87.5% → 79% ✗; fg ΔE 8.8 → 6.7 ✗; one-click worst 0.50 → 0.856 ✗; hair band SAD/Grad ✓; dtSSD ✗ (stabilisation adds error on 7/10); correction 2/4 ✗; locked frames 4/4 ✓; alignment 320/320 ✓
 

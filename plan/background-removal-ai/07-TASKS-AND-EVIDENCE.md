@@ -159,7 +159,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [x] MK7.3 Per-frame confidence → shared review list; constraint frames; re-track from constraints
 - [x] MK7.4 Tracking panel UI with progress, cancel and review; interactive feature points and exclusion regions
 - [!] MK7.6 (blocked on MO-14: needs `Clip.transformTrack` in v24) `use_track`: a track drives another mask, a text clip or an overlay transform
-- [~] MK7.5 (synthetic gates pass on darwin-arm64 + win32-x64; recall 100% is BY REFUSAL — `target_lost`, not the confidence number; real hand-labelled clips and the ≥95% correction rate still open) Tracking gates from `06` on synthetic and real clips
+- [~] MK7.5 (69b42ef1…f9e70e68, local darwin-arm64 at 610eaa70: real-texture clips 14/15 rows pass — night perspective CRF28 0.522 px vs ≤ 0.5 (CI darwin 0.483); drift 0.022 px/300 frames ✓; confidence recall 92/92 by the confidence number itself (was 0%) ✓; review load 9.4%; correction 0/5 ✗ → MK7.7; win32 pending CI) The tracking gates from `06` on synthetic and real clips
 
 **DoD:** tracking gates pass on both platforms; tracked-mask oracle rows green.
 
