@@ -109,8 +109,26 @@ describe('AI operation normalization', () => {
         clipId: 'c',
         effect: { id: 'e', type: 'color_grade', params: {}, keyframes: [keyframe] },
       }),
-      asOperation({ type: 'add_mask', clipId: 'c', shape: 'rectangle', keyframes: [keyframe] }),
-      asOperation({ type: 'add_mask', clipId: 'c', shape: 'ellipse' }),
+      // Mask keyframes are on the SOURCE clock (schema v22): project frames never move them.
+      asOperation({
+        type: 'add_mask',
+        clipId: 'c',
+        mask: {
+          kind: 'rectangle',
+          id: 'm',
+          cx: 1,
+          cy: 1,
+          width: 1,
+          height: 1,
+          keyframes: [{ id: 'mk', sourceTime: 0.049, property: 'cx', value: 2 }],
+        },
+      }),
+      asOperation({
+        type: 'add_mask_keyframe',
+        clipId: 'c',
+        maskId: 'm',
+        keyframe: { id: 'k2', sourceTime: 0.049, property: 'cy', value: 1 },
+      }),
       asOperation({ type: 'track_object', clipId: 'c', target: 'object', keyframes: [keyframe] }),
       asOperation({ type: 'track_object', clipId: 'c', target: 'object' }),
       asOperation({
@@ -133,8 +151,8 @@ describe('AI operation normalization', () => {
     expect(operations[0]).toMatchObject({ keyframes: [{ time: frameTime(1), value: 1.2 }] });
     expect(operations[1]).toMatchObject({ targets: [{ time: frameTime(1) }, { property: 'x' }] });
     expect(operations[2]).toMatchObject({ effect: { keyframes: [{ time: frameTime(1) }] } });
-    expect(operations[3]).toMatchObject({ keyframes: [{ time: frameTime(1) }] });
-    expect(operations[4]).not.toHaveProperty('keyframes');
+    expect(operations[3]).toMatchObject({ mask: { keyframes: [{ sourceTime: 0.049 }] } });
+    expect(operations[4]).toMatchObject({ keyframe: { sourceTime: 0.049 } });
     expect(operations[5]).toMatchObject({ keyframes: [{ time: frameTime(1) }] });
     expect(operations[6]).not.toHaveProperty('keyframes');
     expect(operations[7]).toMatchObject({

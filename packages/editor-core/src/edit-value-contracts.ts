@@ -1,4 +1,5 @@
 import type { Effect, Keyframe } from '@framepilot/timeline-schema';
+import { CLIP_BLUR_EFFECT_TYPE, MAX_CLIP_BLUR_AMOUNT } from './clip-blur.js';
 
 /** The clip-level animation properties the Python renderer actually composites. */
 export const CLIP_KEYFRAME_PROPERTIES = ['scale', 'x', 'y', 'rotation', 'opacity'] as const;
@@ -347,6 +348,20 @@ export function audioAutomationContractIssue(
 
 /** Validate the effect produced by `apply_color_grade`. */
 export function colorGradeContractIssues(effect: Effect): ContractIssue[] {
+  if (effect.type === CLIP_BLUR_EFFECT_TYPE) {
+    const amount = effect.params.amount;
+    return typeof amount === 'number' &&
+      Number.isFinite(amount) &&
+      amount > 0 &&
+      amount <= MAX_CLIP_BLUR_AMOUNT
+      ? []
+      : [
+          {
+            field: 'params.amount',
+            message: `A blur needs an amount above 0 and at most ${String(MAX_CLIP_BLUR_AMOUNT)} (a fraction of the picture's smaller side).`,
+          },
+        ];
+  }
   if (effect.type === 'lut') {
     const path = effect.params.path;
     return typeof path === 'string' && path.trim() !== ''
@@ -357,7 +372,7 @@ export function colorGradeContractIssues(effect: Effect): ContractIssue[] {
     return [
       {
         field: 'type',
-        message: `Unsupported color effect type "${effect.type}". Use color_grade or lut.`,
+        message: `Unsupported color effect type "${effect.type}". Use color_grade, lut or blur.`,
       },
     ];
   }

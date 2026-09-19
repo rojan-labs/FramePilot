@@ -123,6 +123,8 @@ import type {
 import {
   type ToolDomain,
   domainsForSkill,
+  DOMAIN_INDEX,
+  domainIndexFor,
   domainMembers,
   toolDomain,
   toolIsAdvertised,
@@ -266,11 +268,33 @@ import {
   type ReviewFindingScope,
   type TouchedRegion,
 } from './review-findings.js';
-import { BUNDLED_SKILLS, skillsByName } from './skills.js';
+import { BUNDLED_SKILLS, skillsByName, skillsOnOffer } from './skills.js';
 import { rebaseEditorInteractionContext } from './editor-context/interaction-context.js';
 import { MAX_IDENTITY_KEY_CHARS, boundedKeySegment } from './stable-key.js';
 import type { ToolContext } from './tool-context.js';
 import { stockCutawayCapRefusal } from './domain-tools/timeline.js';
+import {
+  flagMaskForReviewOps,
+  maskingOpsFromMeasurement,
+  preflightMaskingCall,
+  UnusableMaskingPayloadError,
+  type MaskingMeasuredEdit,
+} from './domain-tools/masking.js';
+import {
+  framesToSourceRanges,
+  spotCheckIsWarranted,
+  spotCheckMask,
+  type MaskSpotCheckControls,
+  type MaskSpotCheckResult,
+} from './masking/spot-check.js';
+import { MASKING_HOST_MUTATION_TOOL_NAMES, type MaskReviewReport } from './masking/contracts.js';
+import { assertMaskGeometrySourced, geometryNumbersIn } from './masking/geometry-provenance.js';
+import { candidateIdsIn } from './masking/candidate-id.js';
+import {
+  maskReviewSentence,
+  maskTargetsDigest,
+  maskTargetsForRecall,
+} from './masking/review-report.js';
 import {
   ToolInvocationError,
   describeArgValidationError,
@@ -278,7 +302,7 @@ import {
   sanitizeToolArgs,
 } from './tool-dispatch.js';
 import { type HostToolExecutor, type HostToolOutcome } from './tool-executor.js';
-import type { RefusalCause } from './tool-refusal.js';
+import { ToolRefusalError, type RefusalCause } from './tool-refusal.js';
 import { withToolInputContract } from './tool-input-contract.js';
 import { toolContract } from './tool-contract.js';
 import { concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
@@ -543,6 +567,17 @@ const USER_WAIT_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 /** The default when no executor declares anything unroutable: nothing is withheld. */
 const EMPTY_TOOL_NAMES: ReadonlySet<string> = new Set();
 const AGENT_LOG_RECENT = 6;
+
+/**
+ * The refusal for a call that names a tool this host does not offer (unroutable here, or
+ * switched off). Keyed by the tool's name only, so a repeat is one guard key.
+ */
+function toolNotOnThisSurfaceNote(name: string): string {
+  return (
+    `"${name}" is not available here, so nothing was changed. Use only the tools you were ` +
+    'offered, and tell the editor if what they asked for needs this one.'
+  );
+}
 
 /**
  * How many model turns the question route (`streamChat`) may spend on tools (E5.5)
@@ -1712,6 +1747,18 @@ export interface OrchestratorOptions {
    */
   readonly executor?: HostToolExecutor;
   /**
+   * Tools this host has switched OFF — a kill switch such as RD2.1's AI masking flag
+   * (`masking/feature-flag.ts`). Read on every request, so a switch flipped at runtime holds
+   * from the next one.
+   *
+   * Unioned with the executor's `unroutableTools` and enforced in EVERY mode: not offered to
+   * the model in agent, question, edit or autocomplete, and refused if a call names one
+   * anyway. It is not an executor method because a host may have no executor (the browser
+   * with no sidecar configured), and a kill switch that depended on one would switch nothing
+   * there.
+   */
+  readonly disabledTools?: () => Iterable<string>;
+  /**
    * Dev/debug affordance (P7.3, plan/AGENT-NATIVE-COMPLETION-PLAN.md): when true, every
    * effect an agent run executes is captured via
    * `createRecordingEffectRuntime` and, once the run settles, handed to
@@ -1751,6 +1798,8 @@ export interface OrchestratorOptions {
 
 /** Per-call host context threaded through {@link Orchestrator.runAgentCall}. */
 interface HostCallContext {
+  /** The run's vision reviewer, for the one look an AI mask may get (masking/spot-check.ts). */
+  readonly maskSpotCheck?: MaskSpotCheckControls;
   /** The run's abort signal — Stop cancels an in-flight host tool too. */
   readonly signal?: AbortSignal;
   /** The sole execution boundary for host I/O, deduplication, and durable observation. */
@@ -2452,6 +2501,10 @@ const SOURCING_RECORD_KEY: Record<string, string> = {
  * just without the dead weight — and it means the run's memory holds what the run can use.
  */
 export function evidencePayload(toolName: string, value: unknown): unknown {
+  // The model never handles coordinates (plan 11 rule 1), so a recalled target list carries
+  // the ids, labels and scores it can act on and not the boxes it cannot. The sidebar picker
+  // reads the full result from the tool event, which this projection does not touch.
+  if (toolName === 'find_mask_targets') return maskTargetsForRecall(value);
   const recordKey = SOURCING_RECORD_KEY[toolName];
   if (recordKey === undefined || typeof value !== 'object' || value === null) return value;
   const obj = value as Record<string, unknown>;
@@ -3279,6 +3332,23 @@ export function summarizeReadResult(
         return previewJson(value, ANALYSIS_PREVIEW_MAX);
       return `selection ${round3(obj.start)}–${round3(obj.end)}s (${round2(obj.end - obj.start)}s) in timeline time`;
     }
+    case 'find_mask_targets':
+      return maskTargetsDigest(value) ?? previewJson(value, ANALYSIS_PREVIEW_MAX);
+    case 'get_masks': {
+      const masks = (Array.isArray(obj.masks) ? obj.masks : []) as Record<string, unknown>[];
+      if (!Array.isArray(obj.masks)) return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      if (masks.length === 0) return `${String(obj.clipId ?? '?')} has no masks`;
+      return `${masks.length} mask${masks.length === 1 ? '' : 's'} on ${String(obj.clipId ?? '?')}:\n${masks
+        .map(
+          (mask) =>
+            `${String(mask.maskId)} · ${String(mask.kind)} · limits ${String(mask.target)} · ${
+              mask.tracked === true ? 'tracked' : 'not tracked'
+            } · ${String(mask.review)}${
+              Number(mask.flaggedCount) > 0 ? ` (${String(mask.flaggedCount)} flagged)` : ''
+            }`,
+        )
+        .join('\n')}`;
+    }
     case 'track_subject_automatically': {
       // Per-frame geometry, one record per frame: previewJson cut it after a handful of
       // sample rows, which is both useless and misleading. The samples are applied to the
@@ -3460,6 +3530,8 @@ function unknownClipHelp(project: Project, issues: readonly ValidationIssue[]): 
 
 export class Orchestrator {
   private readonly executor: HostToolExecutor | undefined;
+  /** See {@link OrchestratorOptions.disabledTools}. */
+  private readonly disabledTools: (() => Iterable<string>) | undefined;
   /** P7.3 dev/debug affordance — see {@link OrchestratorOptions.recordEffects}. */
   private readonly recordEffects: boolean;
   private readonly onRecording: ((recording: RunRecording) => void) | undefined;
@@ -3473,6 +3545,7 @@ export class Orchestrator {
     options: OrchestratorOptions = {},
   ) {
     this.executor = options.executor;
+    this.disabledTools = options.disabledTools;
     this.recordEffects = options.recordEffects ?? false;
     this.onRecording = options.onRecording;
     this.replayRuntime = options.replayRuntime;
@@ -3623,9 +3696,18 @@ export class Orchestrator {
   private toolContext(input: ContextInput): ToolContext {
     // The cutaway cap the brief states, so the placement tools can hold the run to it
     // (`domain-tools/timeline.ts`). Read here, once, from the same reader the Critic uses.
-    const cap = explicitCutawayCount(deriveObjectiveText(input.userPrompt, input.history));
+    const objective = deriveObjectiveText(input.userPrompt, input.history);
+    const cap = explicitCutawayCount(objective);
     return {
       project: input.project,
+      // What the EDITOR wrote — not the model, not a tool. It is the one source two masking
+      // rules trust. The numbers a `userShape` may carry come from the CURRENT request only,
+      // and only those bound to a size or position there (AM1.6): a "20" from three messages
+      // ago, or one next to "seconds", is not a coordinate (masking/geometry-provenance.ts).
+      // A pick-required candidate becomes usable from any of the editor's messages
+      // (masking/candidate-id.ts), because the sidebar picker writes the id into one.
+      userNumbers: geometryNumbersIn(input.userPrompt),
+      userPickedCandidateIds: candidateIdsIn(editorWords(input)),
       ...(cap === undefined ? {} : { stockCutawayCap: cap }),
       ...(input.projectRevision === undefined ? {} : { projectRevision: input.projectRevision }),
       // The turn number is the conversation's own clock: the user's messages so far
@@ -3665,7 +3747,8 @@ export class Orchestrator {
    * {@link ContextInput.skills}.
    */
   private withSkills(input: ContextInput): ContextInput {
-    return input.skills ? input : { ...input, skills: BUNDLED_SKILLS };
+    if (input.skills) return input;
+    return { ...input, skills: skillsOnOffer(BUNDLED_SKILLS, this.unroutableToolNames()) };
   }
 
   /**
@@ -3676,7 +3759,29 @@ export class Orchestrator {
    * the live planner path's `propose_edit` task uses the exact same logic.
    */
   private operationsFor(call: ToolCall, ctx: ToolContext): AnyOperation[] {
+    // The offer is filtered too; this holds for a model that names a tool it was not shown.
+    if (this.unroutableToolNames().has(call.name)) {
+      throw new ToolRefusalError(toolNotOnThisSurfaceNote(call.name));
+    }
     return operationsForCall(call, ctx);
+  }
+
+  /**
+   * What this host cannot or will not run: the executor's unroutable tools plus the ones the
+   * host switched off ({@link OrchestratorOptions.disabledTools}). The executor's own set is
+   * returned untouched when nothing is switched off, so the common path allocates nothing.
+   */
+  private unroutableToolNames(): ReadonlySet<string> {
+    const fromExecutor = this.executor?.unroutableTools?.() ?? EMPTY_TOOL_NAMES;
+    const disabled = [...(this.disabledTools?.() ?? [])];
+    if (disabled.length === 0) return fromExecutor;
+    return new Set([...fromExecutor, ...disabled]);
+  }
+
+  /** The mutating tools the single-shot modes (edit, variations, autocomplete) offer. */
+  private mutatingToolsOnOffer(): ReturnType<typeof toolDescriptors> {
+    const unroutable = this.unroutableToolNames();
+    return toolDescriptors((tool) => tool.mutates && !unroutable.has(tool.name));
   }
 
   /** Build + validate + diff a patch from a set of operations. */
@@ -3775,7 +3880,7 @@ export class Orchestrator {
 
   /** Cmd+K small reviewable edit → returns a validated, diffable patch (PRD §7.2). */
   public async edit(input: ContextInput): Promise<EditResult> {
-    const editTools = toolDescriptors((t) => t.mutates);
+    const editTools = this.mutatingToolsOnOffer();
     const response = await this.provider.complete({
       messages: buildContext(this.budgeted(input, toolSchemaCost(editTools))),
       tools: editTools,
@@ -3813,7 +3918,7 @@ export class Orchestrator {
     readonly variants: readonly EditResult[];
     readonly cost: { tokens: number; usd: number };
   }> {
-    const tools = toolDescriptors((t) => t.mutates);
+    const tools = this.mutatingToolsOnOffer();
     const messages = buildContext(this.budgeted(input, toolSchemaCost(tools)));
     const ctx = this.toolContext(input);
     const variants: EditResult[] = [];
@@ -3860,7 +3965,7 @@ export class Orchestrator {
 
   /** Next-best-edit suggestions: each tool call becomes its own small patch (PRD §7.5). */
   public async autocomplete(input: ContextInput): Promise<EditResult[]> {
-    const suggestTools = toolDescriptors((t) => t.mutates);
+    const suggestTools = this.mutatingToolsOnOffer();
     const response = await this.provider.complete({
       messages: buildContext(this.budgeted(input, toolSchemaCost(suggestTools))),
       tools: suggestTools,
@@ -3947,8 +4052,8 @@ export class Orchestrator {
     // guard: a tool the model can see, it will call. Run 6 of 2026-09-05 called
     // `render_preview` eight times on a surface with no route for it, and paid the two
     // render descriptors' schema on every one of its 308 requests besides.
-    const unroutable = this.executor?.unroutableTools?.() ?? EMPTY_TOOL_NAMES;
-    return toolDescriptors((tool) => {
+    const unroutable = this.unroutableToolNames();
+    const offered = toolDescriptors((tool) => {
       if (unroutable.has(tool.name)) return false;
       // Lifecycle work the orchestrator owns is never model-selectable. `tool-scope.ts`
       // declares this and `autonomous-tool-contract.ts` throws over it, but the filter lived
@@ -4038,6 +4143,8 @@ export class Orchestrator {
       if (loadedDomains !== undefined && !toolIsAdvertised(tool.name, loadedDomains)) return false;
       return stage === undefined || stageAllowsTool(stage, tool.name, tool.mutates);
     });
+    // `load_tools` names every domain; it must not name one this host cannot offer.
+    return withDomainIndexFor(unroutable, offered);
   }
 
   /**
@@ -4613,6 +4720,26 @@ export class Orchestrator {
           deterministicFailure: true,
         };
       }
+      // A masking call that cannot land is refused BEFORE a pack worker runs for it: numbers
+      // the editor never typed, or a candidate they were asked to choose and have not. Both
+      // are verdicts over the conversation, which only this side holds (plan 11 rules 1, 2).
+      if (MASKING_HOST_MUTATION_TOOL_NAMES.includes(call.name)) {
+        try {
+          preflightMaskingCall(call.name, args, ctx);
+        } catch (cause) {
+          const reason = cause instanceof Error ? cause.message : String(cause);
+          const note = `Rejected "${call.name}" — ${reason}`;
+          return {
+            ops: [],
+            note,
+            summary: note,
+            status: 'failed',
+            data: reason,
+            deterministicFailure: true,
+            rejectedOpCount: 1,
+          };
+        }
+      }
       const result = await host.effectRuntime.run(
         {
           kind: 'host_tool',
@@ -5023,6 +5150,7 @@ export class Orchestrator {
         }
         try {
           const ops = automaticTrackingOpsFromMeasurement(parsedMeasurement.data, ctx);
+          assertMaskGeometrySourced(ops);
           const probe = assembleEdit(ctx.project, ops, 'Track subject automatically', 'agent');
           if (!probe.validation.valid) {
             return hostBackedValidatorRejection(call.name, probe.validation.issues, ops);
@@ -5072,6 +5200,19 @@ export class Orchestrator {
             rejectedOpCount: 1,
           };
         }
+      }
+      // The masking domain's host-measured edits (plan 11): the desktop executor measured the
+      // media in a pack worker; the measurement becomes the SAME editor-core commands the
+      // Inspector dispatches. A malformed payload, a measurement for another clip or a
+      // compiler refusal never becomes a fabricated mask.
+      if (MASKING_HOST_MUTATION_TOOL_NAMES.includes(call.name) && outcome.status === 'completed') {
+        return await maskingOutcomeFromMeasurement(
+          call,
+          outcome,
+          ctx,
+          host.maskSpotCheck,
+          host.signal,
+        );
       }
       // A cached replay reports the call itself (`desc`), not the original outcome's
       // summary text — the summary can be data-derived ("No silent ranges") and would
@@ -6833,6 +6974,8 @@ export class Orchestrator {
      * twice). The refusal now says which it is.
      */
     stageWithheld?: boolean,
+    /** The run's vision reviewer, for an AI mask's spot check. Absent ⇒ the check is `not_run`. */
+    maskSpotCheck?: MaskSpotCheckControls,
   ): AsyncGenerator<
     AiEvent,
     {
@@ -6908,6 +7051,7 @@ export class Orchestrator {
       loadedToolDomains,
       ...(askUser ? { askUser } : {}),
       ...(rememberDecision ? { rememberDecision } : {}),
+      ...(maskSpotCheck ? { maskSpotCheck } : {}),
       // `analysisBudget` is created once up front (always truthy) and threaded
       // through every turn of this loop — see `HostCallContext.analysisBudget`.
       analysisBudget,
@@ -8262,7 +8406,7 @@ export class Orchestrator {
     }
     const emit = createTurnEmitter(options);
     yield emit.status('editing');
-    const editTools = toolDescriptors((t) => t.mutates);
+    const editTools = this.mutatingToolsOnOffer();
     const assembled = assembleContext({
       ...input,
       budget: resolveContextBudget(input, this.provider, toolSchemaCost(editTools)),
@@ -8343,7 +8487,7 @@ export class Orchestrator {
       budget: resolveContextBudget(
         input,
         this.provider,
-        toolSchemaCost(toolDescriptors((t) => t.mutates)),
+        toolSchemaCost(this.mutatingToolsOnOffer()),
       ),
     });
     yield* trimNotices(emit, assembled.trimmed);
@@ -9357,6 +9501,9 @@ export class Orchestrator {
           // A recovery turn is a latch (next turn is different); anything else narrowed here
           // is the stage rule, and stays narrowed until the stage changes.
           !effect.actionRecovery,
+          // The same reviewer picture verification uses; a mask's spot check is one more
+          // bounded question to it, never a second reviewer.
+          review.visionReview,
         );
         // Some calls survived the stream and some did not. The survivors already ran, so the
         // turn is usable — but the model must be told which of its asks never arrived, or it
@@ -10098,6 +10245,165 @@ function withheldCallOutcome(
     status: 'warning',
     withheld: true,
   };
+}
+
+/**
+ * A host-measured masking call, settled: measurement → editor-core commands → validated patch.
+ *
+ * Everything that can throw here is a pure verdict over the working copy and the measurement
+ * (the compiler's rejection codes, the geometry-provenance check, the validator), so a failure
+ * is KEYED as deterministic for the reason `track_subject_automatically`'s is: without a key
+ * the refusal could be re-earned every turn, and each repeat re-runs a pack worker over the
+ * media. `rejectedOpCount: 1` because the throw comes out of the op builder — one refused call
+ * is one thing the run could not do.
+ *
+ * The result's `data` is the deterministic review report (AM3.1): the pack's flagged ranges,
+ * the track's residual and the validator verdict, plus the one visual spot check where those
+ * numbers could not decide (AM3.2). It never says "verified" — the Inspector's review list is
+ * the only place that word is earned (plan 11 rule 3).
+ */
+async function maskingOutcomeFromMeasurement(
+  call: ToolCall,
+  outcome: HostToolOutcome,
+  ctx: ToolContext,
+  spotCheck: MaskSpotCheckControls | undefined,
+  signal: AbortSignal | undefined,
+): Promise<AgentCallOutcome> {
+  const reason = MASKING_PATCH_REASON[call.name] ?? call.name;
+  try {
+    const edit = maskingOpsFromMeasurement(call.name, call.arguments, outcome.data, ctx);
+    assertMaskGeometrySourced(edit.operations);
+    const probe = assembleEdit(ctx.project, edit.operations, reason, 'agent');
+    if (!probe.validation.valid) {
+      return hostBackedValidatorRejection(call.name, probe.validation.issues, edit.operations);
+    }
+    const masked = applyProjectPatch(ctx.project, probe.patch);
+    const looked = await maskSpotCheckFor(edit, masked, spotCheck, signal);
+    if (looked?.verdict === 'no') {
+      // NOT deterministic: a judge's opinion, which a more specific target can change. The
+      // mask never reaches the timeline — "remove the mask" by never applying it.
+      const note =
+        `Rejected "${call.name}" — a spot check of the result says the masked region is not the ` +
+        `${edit.target?.label ?? 'target'} (${looked.reason}). Nothing was applied. Call ` +
+        'find_mask_targets again with a more specific description, or ask the editor which ' +
+        'one they mean; do not apply the same candidate again.';
+      return { ops: [], note, summary: note, status: 'failed', data: note, rejectedOpCount: 1 };
+    }
+    // `unsure`: the mask stands, and the frames nobody could vouch for go on its review list.
+    const unsureRanges =
+      looked?.verdict === 'unsure' ? framesToSourceRanges(masked, edit.clipId, looked.frames) : [];
+    const reviewOps = flagMaskForReviewOps(masked, edit.clipId, edit.maskId, unsureRanges);
+    const operations = [...edit.operations, ...reviewOps];
+    const final =
+      reviewOps.length === 0 ? probe : assembleEdit(ctx.project, operations, reason, 'agent');
+    if (!final.validation.valid) {
+      return hostBackedValidatorRejection(call.name, final.validation.issues, operations);
+    }
+    const needsReview = [...edit.needsReview, ...unsureRanges];
+    const report: MaskReviewReport = {
+      maskId: edit.maskId,
+      needsReview,
+      flaggedCount: needsReview.length,
+      ...(edit.trackConfidence === undefined ? {} : { trackConfidence: edit.trackConfidence }),
+      ...(edit.frames === undefined ? {} : { frames: edit.frames }),
+      validator: {
+        valid: true,
+        issues: final.validation.issues.map((issue) => issue.message),
+      },
+      // `no` returned above: a mask the look rejected was never applied.
+      ...(looked === undefined
+        ? {}
+        : { spotCheck: { verdict: looked.verdict, reason: looked.reason, frames: looked.frames } }),
+    };
+    const note = `${outcome.summary} ${maskReviewSentence(report)}`;
+    return {
+      ops: operations,
+      note,
+      summary: outcome.summary,
+      status: 'completed',
+      project: reviewOps.length === 0 ? masked : applyProjectPatch(ctx.project, final.patch),
+      data: { kind: 'mask_review', tool: call.name, clipId: edit.clipId, ...report },
+    };
+  } catch (cause) {
+    if (cause instanceof UnusableMaskingPayloadError) {
+      const note = unusableHostPayload(call.name);
+      return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
+    }
+    const why = cause instanceof Error ? cause.message : String(cause);
+    const note = `Rejected "${call.name}" — ${why}`;
+    return {
+      ops: [],
+      note,
+      summary: note,
+      status: 'failed',
+      data: why,
+      deterministicFailure: true,
+      rejectedOpCount: 1,
+    };
+  }
+}
+
+/** The one look, only where the numbers left the question open (AM3.2). */
+async function maskSpotCheckFor(
+  edit: MaskingMeasuredEdit,
+  masked: Project,
+  controls: MaskSpotCheckControls | undefined,
+  signal: AbortSignal | undefined,
+): Promise<MaskSpotCheckResult | undefined> {
+  if (edit.target === undefined) return undefined;
+  const warranted = spotCheckIsWarranted({
+    flaggedCount: edit.needsReview.length,
+    editorChose: edit.target.editorChose,
+    ...(edit.target.candidateScore === undefined
+      ? {}
+      : { candidateScore: edit.target.candidateScore }),
+  });
+  if (!warranted) return undefined;
+  return await spotCheckMask({
+    project: masked,
+    clipId: edit.clipId,
+    maskId: edit.maskId,
+    label: edit.target.label,
+    purpose: edit.target.purpose,
+    flagged: edit.needsReview,
+    ...(controls === undefined ? {} : { controls }),
+    ...(signal === undefined ? {} : { signal }),
+  });
+}
+
+/** Patch reasons for the host-measured masking tools, in the editor's words. */
+const MASKING_PATCH_REASON: Readonly<Record<string, string>> = {
+  create_mask: 'Create mask',
+  remove_background: 'Remove background',
+  track_mask: 'Track mask',
+  create_shape_mask: 'Create shape mask',
+};
+
+/**
+ * `load_tools` names every domain in its description. When this host cannot offer some tools
+ * (a kill switch, a surface with no pack workers), the index is rebuilt so it never invites a
+ * call that pins nothing. With nothing unroutable the descriptors are returned untouched.
+ */
+function withDomainIndexFor<T extends { readonly name: string; readonly description: string }>(
+  unroutable: ReadonlySet<string>,
+  descriptors: T[],
+): T[] {
+  if (unroutable.size === 0) return descriptors;
+  const index = domainIndexFor(unroutable);
+  if (index === DOMAIN_INDEX) return descriptors;
+  return descriptors.map((descriptor) =>
+    descriptor.name === 'load_tools'
+      ? { ...descriptor, description: descriptor.description.replace(DOMAIN_INDEX, index) }
+      : descriptor,
+  );
+}
+
+/** Everything the editor has written in this conversation, the current request included. */
+function editorWords(input: Pick<ContextInput, 'userPrompt' | 'history'>): string {
+  const earlier = (input.history ?? [])
+    .filter((message) => message.role === 'user')
+    .map((message) => message.content);
+  return [...earlier, input.userPrompt].join('\n');
 }
 
 /**

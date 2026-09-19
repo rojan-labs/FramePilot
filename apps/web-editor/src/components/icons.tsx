@@ -10,6 +10,7 @@
  * Icon-only controls must still carry an `aria-label`/`title` at the call site.
  */
 export {
+  Link2,
   Film,
   Lightbulb,
   Monitor,
@@ -82,6 +83,7 @@ export {
   MessageSquare,
   ArrowLeftRight,
   Scan,
+  Pipette,
   Palette,
   MoreHorizontal,
   Headphones,
@@ -115,6 +117,18 @@ export {
   // apart by shape weight and not by colour alone.
   Diamond,
   Paperclip,
+  // Mask tools (MK4): shape tools on the monitor and the mask list's drag grip.
+  Circle,
+  PenTool,
+  GripVertical,
+  // Analytic mask tools (MK8.1): split, mirror band, gradient.
+  SquareSplitHorizontal,
+  FlipVertical2,
+  Blend,
+  // Shape presets (MK8.3).
+  Shapes,
+  // The Jobs rail tab (BR6.12).
+  ListChecks,
 } from 'lucide-react';
 export type { LucideIcon } from 'lucide-react';
 

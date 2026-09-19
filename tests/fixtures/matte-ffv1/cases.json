@@ -1,0 +1,315 @@
+{
+ "cases": [
+  {
+   "id": "gray-pack",
+   "file": "gray-pack.mkv",
+   "width": 64,
+   "height": 48,
+   "frames": 4,
+   "format": "gray8",
+   "encoder": [
+    "-level",
+    "3",
+    "-g",
+    "1",
+    "-slicecrc",
+    "1"
+   ],
+   "sha256": [
+    "d121944b81469d033459a30bee733d541eab73bb091d110491ccdfdd3c89885f",
+    "5d7ca45680d4905e4e3efb6928eae5da31e90fe369eb611ba249fe1d713db487",
+    "10507f2627195ad30fc594cb44ec59f1e65137ebc644d1d5a8497ab73a087a29",
+    "199b870ff08ad1ec9dcf924bdb4a8a1f45b730bbaab693c100f24e12d10d4368"
+   ]
+  },
+  {
+   "id": "gray-gop",
+   "file": "gray-gop.mkv",
+   "width": 32,
+   "height": 24,
+   "frames": 15,
+   "format": "gray8",
+   "encoder": [
+    "-level",
+    "3"
+   ],
+   "sha256": [
+    "55344f7ec96069ee5e7fc1e9450ed8cf2fb7a2ef94d0e3eaad583191a0702f39",
+    "5b7f61faa220a532f3db33c2dc5b0c7e29e100990061746bf88eec33fc9ec308",
+    "9db9f19dd9b12400041ecb8e9a8d7fe6f12580707b3619b97d549822aab8eec9",
+    "6b1183edab666ce1add2f02003ddb9cd0f2c3063720de082c7c7c64272fb813f",
+    "6092f11b07c1a95faa35fd44a4dc8642336f9c84fa860cb3c0a152ce27f42d55",
+    "6a9ea40d361d5a63f03dd37a7afc804fa18425072e13bfde2045c01910a60968",
+    "7eff74f739766e1997838c6361dca617006c8f529d3a9ca9b9989fceccf53964",
+    "50ee1fa5f9d251d4806f452d29abfacd66d4b11971b853eee19ef9c2c4440f3d",
+    "0abff1f8818c4778c06647b98bba4e71043de5bf09f0456bf5c9b7fdcb7ffe64",
+    "04cf042dbf2534056cc4872a0f2c42cedfee89bffa0fb1e65c36750185007317",
+    "9c1adcd8e64c4f61a853c3aefc1b65fa605c8843598047446e82b91d260873e2",
+    "8ed4b859a8fb301d8a2d6d17398f4cbc08651eb08617b17523d973ae907d9c29",
+    "2dcf5c14b661b63da42f22247af0130e795adfc20e141079f8a455b2c48ad8d2",
+    "7379e405810f564a9d0feecedb674fcfe225f0ce41d9f3778f7cf936f135d9af",
+    "37821ad93a25ea549d1293c50d7f4b5df746194e8645db52aed7caabba139279"
+   ]
+  },
+  {
+   "id": "gray-noise-rice",
+   "file": "gray-noise-rice.mkv",
+   "width": 40,
+   "height": 30,
+   "frames": 3,
+   "format": "gray8",
+   "encoder": [
+    "-level",
+    "3",
+    "-g",
+    "1"
+   ],
+   "sha256": [
+    "31f49881daee0af827027b44513dfbf70590bc1011e95cd83f86b97ca21cc9f5",
+    "8bc0e66c14eef80bf2eb1814e416e7a0147dbd9b65f305ca602dc448dc60286f",
+    "5266e54bdd153f7d59022742c3143228e57255f35d2356d3f9a93b442375aac8"
+   ]
+  },
+  {
+   "id": "gray-range-custom",
+   "file": "gray-range-custom.mkv",
+   "width": 64,
+   "height": 48,
+   "frames": 5,
+   "format": "gray8",
+   "encoder": [
+    "-level",
+    "3",
+    "-coder",
+    "range_tab",
+    "-context",
+    "1",
+    "-slices",
+    "4",
+    "-g",
+    "2"
+   ],
+   "sha256": [
+    "d121944b81469d033459a30bee733d541eab73bb091d110491ccdfdd3c89885f",
+    "5d7ca45680d4905e4e3efb6928eae5da31e90fe369eb611ba249fe1d713db487",
+    "10507f2627195ad30fc594cb44ec59f1e65137ebc644d1d5a8497ab73a087a29",
+    "199b870ff08ad1ec9dcf924bdb4a8a1f45b730bbaab693c100f24e12d10d4368",
+    "6053c68f4638f11ab34db56de9763e5fae4dbb4371f20e9036f7be388400d76d"
+   ]
+  },
+  {
+   "id": "gray-range-default-odd",
+   "file": "gray-range-default-odd.mkv",
+   "width": 37,
+   "height": 23,
+   "frames": 3,
+   "format": "gray8",
+   "encoder": [
+    "-level",
+    "3",
+    "-coder",
+    "range_def",
+    "-slices",
+    "6"
+   ],
+   "sha256": [
+    "ee1c79e5a0ceddc21039c2a50de3a81377d4c956d5d7a2935158f300798e87b0",
+    "d7cfda9cd669717fa19aba5f034d4f83ec1d266ff3df621f102a959f1b111538",
+    "fa1cce252b21dbd6cc15f8d75e73f1c84cc42fee49b09b060a69facd9a85ff2c"
+   ]
+  },
+  {
+   "id": "gray-multislice-default",
+   "file": "gray-multislice-default.mkv",
+   "width": 400,
+   "height": 300,
+   "frames": 2,
+   "format": "gray8",
+   "encoder": [
+    "-level",
+    "3",
+    "-g",
+    "1",
+    "-slicecrc",
+    "1"
+   ],
+   "sha256": [
+    "4244a1ac708125d1321bdc8d2e041531ea3b7d8b632a221804eeff9de6375c6d",
+    "90a981e744e1b7da3ed3107cad350385d41db3529c2cabb9a6179d8110bc74c4"
+   ]
+  },
+  {
+   "id": "gray16-range",
+   "file": "gray16-range.mkv",
+   "width": 48,
+   "height": 36,
+   "frames": 3,
+   "format": "gray16",
+   "encoder": [
+    "-level",
+    "3",
+    "-coder",
+    "range_tab",
+    "-g",
+    "1"
+   ],
+   "sha256": [
+    "9d6b529996ed7e521b3b556fa681ce0f9b6f04d30b30976e079f89bc87fb7333",
+    "549d2691109dd62876b474e5b8d8c988d60229677def8b99ad72b6facc2e95c0",
+    "4226a175794a5348abe156f2e1234dd8f1c69e1e7cac891dbd3d914312de9c74"
+   ]
+  },
+  {
+   "id": "gray16-rice",
+   "file": "gray16-rice.mkv",
+   "width": 48,
+   "height": 36,
+   "frames": 3,
+   "format": "gray16",
+   "encoder": [
+    "-level",
+    "3",
+    "-g",
+    "1"
+   ],
+   "sha256": [
+    "06c0ceabd46248ec4c30143b8e76554458bb65773a6297a2268d8867d8329d54",
+    "ef2c3e4b38c86b02c93360d0c326007a579b70072247a073b031d394eb3159d9",
+    "1f13760d54eb8a527e4e5922ae9d72e0203bc5ad676fe2f22a41f2a8fc16306c"
+   ]
+  },
+  {
+   "id": "bgr0-pack",
+   "file": "bgr0-pack.mkv",
+   "width": 64,
+   "height": 48,
+   "frames": 3,
+   "format": "rgb24",
+   "encoder": [
+    "-level",
+    "3",
+    "-g",
+    "1",
+    "-slicecrc",
+    "1"
+   ],
+   "sha256": [
+    "db1b1524e7c541133105022ba97634d1367a5027f408ebbe4a464a4bd90423d2",
+    "5b0174ef60182c3aa48a275b66b78d30ac490af3187ccf9638949b791f7560f3",
+    "c0dcad4ac88ef707bd905f0de00e87e451bd3e5e7e18263675223e3b86329188"
+   ]
+  },
+  {
+   "id": "bgr0-range-custom",
+   "file": "bgr0-range-custom.mkv",
+   "width": 50,
+   "height": 34,
+   "frames": 4,
+   "format": "rgb24",
+   "encoder": [
+    "-level",
+    "3",
+    "-coder",
+    "range_tab",
+    "-context",
+    "1",
+    "-slices",
+    "4",
+    "-g",
+    "3"
+   ],
+   "sha256": [
+    "323176675378ca40c84574b8e512cd53a73c22ddbf3647444e9840a1e5b9e261",
+    "5d98db17d425a54f10ef2877abc2278dabcad5b6cd330e6b096ed256814e630f",
+    "99a8b9619748e463818d94782c41284d8be40a581129eeb39a353d3b76940c6b",
+    "a9fd38c496e8dc1004558e77b194759303ceb0d4b4f1a0969d667a86d386a14c"
+   ]
+  },
+  {
+   "id": "bgra-range",
+   "file": "bgra-range.mkv",
+   "width": 40,
+   "height": 30,
+   "frames": 2,
+   "format": "rgb24",
+   "encoder": [
+    "-level",
+    "3",
+    "-coder",
+    "range_tab",
+    "-g",
+    "1"
+   ],
+   "sha256": [
+    "3e5c1e7f11981fd4c92c0350eea450f664839c6d21d0e49b0e02a08480f0250e",
+    "c68e6904e5f27cace22293262de5aeff479d61ac4b6ae630080d4682b3c45327"
+   ]
+  },
+  {
+   "id": "gray-v4",
+   "file": "gray-v4.mkv",
+   "width": 64,
+   "height": 48,
+   "frames": 3,
+   "format": "gray8",
+   "encoder": [
+    "-level",
+    "4",
+    "-strict",
+    "experimental",
+    "-g",
+    "1",
+    "-slicecrc",
+    "1"
+   ],
+   "sha256": [
+    "d121944b81469d033459a30bee733d541eab73bb091d110491ccdfdd3c89885f",
+    "5d7ca45680d4905e4e3efb6928eae5da31e90fe369eb611ba249fe1d713db487",
+    "10507f2627195ad30fc594cb44ec59f1e65137ebc644d1d5a8497ab73a087a29"
+   ]
+  },
+  {
+   "id": "bgr0-v4",
+   "file": "bgr0-v4.mkv",
+   "width": 64,
+   "height": 48,
+   "frames": 3,
+   "format": "rgb24",
+   "encoder": [
+    "-level",
+    "4",
+    "-strict",
+    "experimental",
+    "-coder",
+    "range_tab",
+    "-g",
+    "1"
+   ],
+   "sha256": [
+    "db1b1524e7c541133105022ba97634d1367a5027f408ebbe4a464a4bd90423d2",
+    "5b0174ef60182c3aa48a275b66b78d30ac490af3187ccf9638949b791f7560f3",
+    "c0dcad4ac88ef707bd905f0de00e87e451bd3e5e7e18263675223e3b86329188"
+   ]
+  },
+  {
+   "id": "bgr0-v4-rice",
+   "file": "bgr0-v4-rice.mkv",
+   "width": 44,
+   "height": 40,
+   "frames": 2,
+   "format": "rgb24",
+   "encoder": [
+    "-level",
+    "4",
+    "-strict",
+    "experimental",
+    "-g",
+    "1"
+   ],
+   "sha256": [
+    "7a5900fee79d2fb1ce7a59ea2d54b7f1c06575f27367281009ac0a0a0850992b",
+    "72405ac6dd9c27d8ce9575ed726fc6d63b1a62ea3c12ee9d070fc3c70e7b81b4"
+   ]
+  }
+ ]
+}

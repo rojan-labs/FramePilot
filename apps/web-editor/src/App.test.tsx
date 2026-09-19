@@ -11,7 +11,9 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import type { ExternalProjectChange, ExportProgressMessage } from './editor/bridge.js';
 import { App } from './App.js';
 import type { RendererBridge } from './editor/bridge.js';
+import { MaskLayerSchema } from '@framepilot/timeline-schema';
 import { demoProject } from './editor/demo.js';
+import { newProjectFromVideo } from './editor/project.js';
 import { listBrowserProjectSummaries, loadBrowserProject } from './editor/persistence.js';
 
 const STORAGE_PREFIX = 'framepilot:project:';
@@ -330,6 +332,66 @@ describe('App shell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'File' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Open projects folder' }));
     await waitFor(() => expect(bridge.revealProject).toHaveBeenCalledWith(''));
+  });
+
+  it('shows a matte main found broken on open in the export dialog at once (BR4.15)', async () => {
+    const remedy = 'Background removal data is missing — run Remove background again.';
+    const key = 'a'.repeat(64);
+    const base = newProjectFromVideo('Broken matte', { path: '/media/a1.mp4', durationSeconds: 4 });
+    const matte = MaskLayerSchema.parse({
+      id: 'm1',
+      kind: 'matte',
+      artifact: {
+        key,
+        files: [{ name: 'matte.mkv', sha256: 'b'.repeat(64) }],
+        width: 64,
+        height: 36,
+        coverage: { sourceStart: 0, sourceEnd: 4 },
+        packId: 'smart-mask',
+        packVersion: '1',
+        modelDigests: ['b'.repeat(64)],
+      },
+      review: { flagged: [], approved: [], locked: [] },
+    });
+    const track = base.timeline.tracks[0]!;
+    const project = JSON.parse(
+      JSON.stringify({
+        ...base,
+        timeline: {
+          ...base.timeline,
+          tracks: [{ ...track, clips: [{ ...track.clips[0]!, id: 'c1', masks: [matte] }] }],
+        },
+      }),
+    );
+    installBridge({
+      openProjectDialog: async () => ({
+        ok: true as const,
+        path: '/tmp/broken.fp.json',
+        project,
+        mattes: [
+          {
+            clipId: 'c1',
+            maskId: 'm1',
+            artifactKey: key,
+            code: 'matte_missing',
+            status: 'broken' as const,
+            remedy,
+          },
+        ],
+      }),
+    });
+    render(<App />);
+    navigateToEditor();
+    openFileMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open…' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('project name').textContent).toBe('Broken matte'),
+    );
+
+    // This bridge has no `matteRecheckMedia`: the only source is what main said on open.
+    fireEvent.click(screen.getByRole('button', { name: 'Export video' }));
+    const dialog = screen.getByRole('dialog', { name: 'Export video' });
+    expect(within(dialog).getByRole('alert').textContent).toBe(remedy);
   });
 
   it('opens the export dialog from the topbar', () => {

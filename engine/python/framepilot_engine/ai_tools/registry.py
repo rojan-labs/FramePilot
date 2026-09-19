@@ -17,9 +17,10 @@ validation gate and the advertised schema can never drift.
 
 Build-order invariant (PRD §23): tools whose underlying engine capability does
 not exist yet are registered for discoverability but marked ``available=False``
-so the dispatcher refuses to invoke them rather than fabricate a result:
-``generate_mask`` (dependency-gated CV work; ``detect_faces`` was superseded by the
-desktop-only pack-backed ``detect_subjects`` in 2026-08). ``render_preview``
+so the dispatcher refuses to invoke them rather than fabricate a result. None
+is registered today: ``generate_mask`` was replaced by the desktop-only, pack-backed
+``create_mask`` (masking runs in Capability Pack workers and editor-core's TS mask
+commands, neither of which the sidecar has). ``render_preview``
 / ``export_video`` are available, non-mutating *actions*. ``analyze_silence`` /
 ``detect_scenes`` are available, non-mutating *analysis* tools: their ffmpeg
 engine (``framepilot_engine.analysis``) exists, and — like actions — the host
@@ -468,12 +469,6 @@ class ApplyLookArgs(BaseModel):
         "warmer", "cooler", "punchier", "flatter", "brighter", "darker", "cinematic", "clean"
     ]
     amount: Literal["subtle", "medium", "strong"] | None = None
-
-
-class AddMaskArgs(BaseModel):
-    model_config = _STRICT
-    clip_id: str = Field(alias="clipId")
-    shape: Literal["rectangle", "ellipse", "polygon"]
 
 
 class BoundsArg(BaseModel):
@@ -1702,13 +1697,6 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         input_model=AddTransitionArgs,
         mutating=True,
     ),
-    "add_mask": _spec(
-        "add_mask",
-        "Add a mask shape to a clip.",
-        kind="mutate",
-        input_model=AddMaskArgs,
-        mutating=True,
-    ),
     "track_object": _spec(
         "track_object",
         "Attach an object tracker to a clip.",
@@ -1984,17 +1972,9 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         input_model=SessionContextArgs,
     ),
     # --- Not-yet-available tools (engine TBD; build-order invariant) ---
-    # detect_faces was superseded by the pack-backed `detect_subjects` on the TS
-    # side (2026-08); detection is desktop-host-only and stays off this surface.
-    "generate_mask": _spec(
-        "generate_mask",
-        "Generate a subject mask (unavailable — segmentation produces bitmap masks, "
-        "and timeline masks steer by rectangle bounds). The measured alternative on "
-        "the desktop host is track_subject_automatically with subject=silhouette.",
-        kind="unavailable",
-        mutating=True,
-        available=False,
-    ),
+    # None today. `generate_mask` was the last; the desktop-only `create_mask` replaced it
+    # once masks had a measured raster kind (plan/background-removal-ai/11). The
+    # `available=False` refusal in the dispatcher stays for the next unbuilt tool.
 }
 
 

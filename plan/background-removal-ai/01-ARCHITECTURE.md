@@ -1,0 +1,70 @@
+# 01 — Architecture
+
+## End-to-end flow
+
+```mermaid
+sequenceDiagram
+  participant UI as Inspector (web-editor)
+  participant Main as Desktop main (pack host)
+  participant W as Smart Mask worker
+  participant FS as project/.framepilot-derived/mattes
+  participant Core as editor-core
+  participant Eng as engine (export)
+
+  UI->>Main: capabilityPackStatus(subject.matte)
+  Main-->>UI: installed+healthy | missing(proposal) | unhealthy(reason)
+  Note over UI: missing ⇒ warning + Install; Remove disabled
+  UI->>Main: capabilityPackMatte(intent: asset, source range, prompts, revision)
+  Main->>Main: cache key → hit? return artifact
+  Main->>FS: create empty staging dir (request-scoped)
+  Main->>W: request(subject.matte, media handle, output handle)
+  W-->>Main: progress(decode/segment/refine/matte/encode)
+  W->>FS: matte.mkv (FFV1 gray, lossless) + preview.webm + frames.json
+  W-->>Main: result(artifact descriptor, digests, low-confidence ranges)
+  Main->>FS: verify (ffprobe, frame count, pts, sha256) → atomic rename
+  Main-->>UI: MatteArtifactWire
+  UI->>Core: add_mask {kind: matte} op → validate → applyPatchChecked (undoable)
+  UI->>UI: preview: framePlanAt() → N-layer compositor → matte pass (09)
+  Eng->>FS: export reads matte.mkv by pts, verifies digest, composites
+```
+
+## Ownership
+
+| Concern                                                                 | Owner                                                                                                                                     | Rule                                                                                         |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Inference (segmentation, refinement, matting)                           | `workers/smart-mask` pack                                                                                                                 | The only place an ML runtime runs (ADR 0114). The frozen engine gains no dependency.         |
+| Where a matte is written, verified, cached                              | `apps/desktop/electron/capability-packs/matte.ts` (new)                                                                                   | The host issues the output handle and owns the atomic rename. The worker never picks a path. |
+| What a mask (any kind, including a matte) means on the timeline         | `packages/timeline-schema` (`Clip.masks`, v22, [`10`](./10-PROFESSIONAL-MASKING.md#schema-v22-the-mask-stack-needs-md-1)) + Pydantic twin | Zod and Pydantic stay in sync, with a migration.                                             |
+| Adding, animating, tracking, reviewing and removing masks               | `packages/editor-core` mask operations with `apply` + `invert`                                                                            | Every change is a typed op, validated before apply; UI and AI use the same ops.              |
+| Deciding which object a request means                                   | `packages/ai-sdk/src/domain-tools/masking.ts` ([`11`](./11-AI-MASKING.md))                                                                | Resolve or ask; the model never invents geometry.                                            |
+| Pixels at export                                                        | `engine/.../render/mattes.py` (new), called from `compiler.py`                                                                            | Renders only. Never infers, and never renders a missing or mismatched matte silently.        |
+| Pixels in the monitor (via the frame plan and N-layer compositor, `09`) | `apps/web-editor/src/preview/clip-matte.ts` (new) + compositor                                                                            | Parity with the engine on edge shift, feather, invert and the combination with shape masks.  |
+| When the feature is usable, and how it is started                       | `apps/web-editor/src/components/inspector/BackgroundRemovalSection.tsx` (new)                                                             | Reads pack status before offering the action.                                                |
+
+## Invariants
+
+1. **The project never depends on the pack to render.** After a matte is computed, export and
+   reopen need only the artifact, which is pinned by digest (ADR 0114: "analysis outputs are
+   baked"). Uninstalling the pack disables _recomputing and correcting_, not playing or exporting.
+2. **A matte is addressed by source media time.** Trims, splits, moves and ripple edits never
+   invalidate it while the clip's source range stays within the matte's coverage.
+3. **Preview and export agree.** Both consume the same frame plan (`framePlanAt` ↔ `frame_plan_at`); the preview uses the lossy proxy of the matte and the export the lossless master, with identical passes. Proven by the pixel oracle in [`09`](./09-PREVIEW-EXPORT-PARITY.md), not by a bespoke test.
+4. **Missing, stale or mismatched is loud.** A missing artifact, a digest mismatch or
+   out-of-coverage source time is a validation issue with a remedy. Nothing falls back to
+   the unmatted picture silently.
+5. **Nothing downloads without approval.** The warning offers a signed proposal. The click is the consent.
+6. **Media never leaves the machine.** The pack manifest has `network = "disabled"`, and the consent copy says so.
+
+## Cache key
+
+```
+sha256( asset.contentHash
+      | sourceStartPts | sourceEndPts        # coverage, including handles
+      | canonical(prompts)                    # clicks, boxes, corrections (sorted, rounded to 1e-4)
+      | packId@version | modelDigests[]       # from the worker's handshake
+      | MATTE_PIPELINE_VERSION )              # bumped when refinement changes
+```
+
+The same request on the same media returns the existing artifact instantly. A correction
+changes `prompts`, so it gets a new key and the old artifact stays referenced by undo history
+(see [`03`](./03-PROTOCOL-AND-HOST.md#retention)).

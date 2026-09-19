@@ -95,11 +95,27 @@ class MediaHandle:
 
 
 @dataclass(frozen=True, slots=True)
+class NormalizedBox:
+    """A box in ``[0, 1]`` frame coordinates, top-left origin; always inside the frame."""
+
+    x: float
+    y: float
+    width: float
+    height: float
+
+
+@dataclass(frozen=True, slots=True)
 class ShotPrompt:
-    """One shot to embed: which shot it is, and the source second to decode for it."""
+    """One shot to embed: which shot it is, and the source second to decode for it.
+
+    ``region`` (AM2.5, additive) embeds only that part of the keyframe — a detection's crop —
+    so the host can score a text query ("the red car") against each candidate separately. A
+    host that predates it never sends it, and without it the whole frame is embedded as before.
+    """
 
     shot_index: int
     keyframe_t: float
+    region: NormalizedBox | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +248,33 @@ _MEDIA_KEYS: Final = {
 }
 
 
+def _unit(value: Any, where: str) -> float:
+    number = _number(value, where)
+    if not 0.0 <= number <= 1.0:
+        raise _invalid(f"{where} must be normalized to [0, 1].")
+    return number
+
+
+def _box(value: Any, where: str) -> NormalizedBox:
+    raw = _object(value, {"x", "y", "width", "height"}, where)
+    for key in ("x", "y", "width", "height"):
+        if key not in raw:
+            raise _invalid(f"{where} requires {key}.")
+    box = NormalizedBox(
+        x=_unit(raw["x"], f"{where}.x"),
+        y=_unit(raw["y"], f"{where}.y"),
+        width=_number(raw["width"], f"{where}.width"),
+        height=_number(raw["height"], f"{where}.height"),
+    )
+    if not 0.0 < box.width <= 1.0 or not 0.0 < box.height <= 1.0:
+        raise _invalid(f"{where} must have a positive normalized size.")
+    # Refused rather than clamped, like a keyframe outside the handle: a clamped crop would
+    # silently embed a different picture from the one the host asked about.
+    if box.x + box.width > 1.0 or box.y + box.height > 1.0:
+        raise _invalid(f"{where} must stay inside the frame.")
+    return box
+
+
 def _media(value: Any) -> MediaHandle:
     raw = _object(value, set(_MEDIA_KEYS), "media")
     missing = sorted(_MEDIA_KEYS - set(raw))
@@ -268,7 +311,9 @@ def _shots(value: Any, media: MediaHandle) -> tuple[ShotPrompt, ...]:
         raise _invalid(f"visual.embed requires between 1 and {MAX_SHOTS} shots.")
     shots: list[ShotPrompt] = []
     for index, entry in enumerate(value):
-        raw = _object(entry, {"shotIndex", "keyframeT"}, f"parameters.shots[{index}]")
+        raw = _object(
+            entry, {"shotIndex", "keyframeT", "region"}, f"parameters.shots[{index}]"
+        )
         for key in ("shotIndex", "keyframeT"):
             if key not in raw:
                 raise _invalid(f"parameters.shots[{index}] requires {key}.")
@@ -288,6 +333,9 @@ def _shots(value: Any, media: MediaHandle) -> tuple[ShotPrompt, ...]:
                     raw["shotIndex"], f"parameters.shots[{index}].shotIndex", minimum=0
                 ),
                 keyframe_t=keyframe,
+                region=_box(raw["region"], f"parameters.shots[{index}].region")
+                if "region" in raw
+                else None,
             )
         )
     if len({shot.shot_index for shot in shots}) != len(shots):

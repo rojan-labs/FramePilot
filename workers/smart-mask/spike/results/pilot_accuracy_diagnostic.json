@@ -1,0 +1,62 @@
+{
+  "recordedAt": "2026-09-17T05:57:59",
+  "host": {
+    "platform": "darwin",
+    "machine": "arm64",
+    "python": "3.12.13",
+    "onnxruntime": "1.30.0",
+    "torch": "2.14.0",
+    "cpu": "Apple M1 Pro"
+  },
+  "meanIoU": {
+    "crossing": {
+      "final": 0.8319,
+      "samFwd": 0.7804,
+      "birefnet": 0.8319,
+      "finalNoThin": 0.8447
+    },
+    "fast_motion": {
+      "final": 0.7683,
+      "samFwd": 0.9434,
+      "birefnet": 0.7683,
+      "finalNoThin": 0.7709
+    },
+    "hair_busy": {
+      "final": 0.821,
+      "samFwd": 0.73,
+      "birefnet": 0.821,
+      "finalNoThin": 0.8634
+    },
+    "leave_reenter": {
+      "final": 0.6504,
+      "samFwd": 0.8149,
+      "birefnet": 0.6504,
+      "finalNoThin": 0.7155
+    },
+    "low_light": {
+      "final": 0.0064,
+      "samFwd": 0.604,
+      "birefnet": 0.0064,
+      "finalNoThin": 0.0065
+    },
+    "similar_colour": {
+      "final": 0.9669,
+      "samFwd": 0.8013,
+      "birefnet": 0.9669,
+      "finalNoThin": 0.9787
+    },
+    "twin_distractor": {
+      "final": 0.4966,
+      "samFwd": 0.7956,
+      "birefnet": 0.4966,
+      "finalNoThin": 0.5033
+    },
+    "walk_pan": {
+      "final": 0.9483,
+      "samFwd": 0.942,
+      "birefnet": 0.9483,
+      "finalNoThin": 0.975
+    }
+  },
+  "note": "finalNoThin = both masks opened with a 7 px disk (removes hair strands); diagnostic only, not a gate"
+}

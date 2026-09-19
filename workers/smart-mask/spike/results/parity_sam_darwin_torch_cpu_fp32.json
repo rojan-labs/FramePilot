@@ -1,0 +1,30 @@
+{
+  "recordedAt": "2026-09-16T23:52:30",
+  "host": {
+    "platform": "darwin",
+    "machine": "arm64",
+    "python": "3.12.13",
+    "onnxruntime": "1.30.0",
+    "torch": "2.14.0",
+    "cpu": "Apple M1 Pro"
+  },
+  "model": "sam2.1_hiera_large",
+  "variant": "torch_cpu_fp32",
+  "gate": {
+    "perFrameIoU": 0.999
+  },
+  "clips": {
+    "sintel_000240": {
+      "frames": 24,
+      "meanSecondsPerFrame": 5.255,
+      "foregroundFraction": 0.0011
+    },
+    "sintel_000705": {
+      "frames": 20,
+      "meanSecondsPerFrame": 40.563,
+      "foregroundFraction": 0.0015
+    }
+  },
+  "mediaLicence": "Sintel (c) Blender Foundation | durian.blender.org, CC-BY 3.0",
+  "peakRssMiB": 2216
+}

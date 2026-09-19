@@ -247,3 +247,24 @@ def render_text_overlay_image(
         y += line_height + line_gap
 
     return np.asarray(image, dtype=np.uint8)
+
+
+def rasterize_text_overlay(
+    text: str, style_params: Mapping[str, Any], frame_width: int, frame_height: int
+) -> np.ndarray:
+    """A text clip's RGBA raster exactly as the export composites it.
+
+    The one call both the compiler (``_compile_text_clip``) and the desktop preview's text
+    raster route make, so the monitor's glyphs are the export's glyphs by construction.
+    """
+    layout = text_overlay_layout(style_params, frame_width, frame_height)
+    return render_text_overlay_image(
+        text,
+        frame_width,
+        frame_height,
+        font_size=layout.font_size,
+        color=layout.color,
+        max_width=layout.box_width,
+        align=layout.align,
+        background=layout.background,
+    )

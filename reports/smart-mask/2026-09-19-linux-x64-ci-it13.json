@@ -1,0 +1,2950 @@
+{
+  "date": "2026-09-19",
+  "platform": "linux-x64",
+  "releaseGatePlatform": false,
+  "platformNote": "06's matte gates are specified for darwin-arm64 and win32-x64 (release platforms; MO-9, MO-13 are maintainer hardware). linux-x64 numbers are evidence of the pipeline's accuracy, not the release gate.",
+  "harness": "workers/smart-mask/eval/run_eval.py (installed entrypoint, BR7.2)",
+  "groundTruth": {
+    "kinds": [
+      "construction"
+    ],
+    "constructionTrueOnly": true,
+    "humanLabelledFixtures": [],
+    "machineLabelsIgnored": {},
+    "note": "MO-8's human-labelled set does not exist yet; every gate below is judged on construction-true clips only."
+  },
+  "fixtures": {
+    "run": [
+      "crossing__calibration",
+      "crossing__scored",
+      "hair_busy__calibration",
+      "leave_reenter__scored",
+      "low_light__calibration",
+      "low_light__scored",
+      "similar_colour__calibration",
+      "talking_head__calibration",
+      "talking_head__scored",
+      "twin_distractor__calibration",
+      "twin_distractor__scored",
+      "walk_pan__calibration"
+    ],
+    "failed": [],
+    "notRun": [
+      "fast_motion__calibration",
+      "fast_motion__scored",
+      "hair_busy__scored",
+      "product_table__calibration",
+      "similar_colour__scored",
+      "walk_pan__scored"
+    ],
+    "refused": [],
+    "oneClickRuns": [
+      "crossing__scored",
+      "fast_motion__scored",
+      "leave_reenter__scored"
+    ],
+    "ablationRuns": {
+      "band_off": [],
+      "stab_off": [
+        "fast_motion__scored",
+        "twin_distractor__scored",
+        "walk_pan__scored"
+      ],
+      "fp32": []
+    },
+    "variantFailures": {
+      "click": [
+        "hair_busy__scored",
+        "talking_head__scored"
+      ]
+    }
+  },
+  "definitions": {
+    "wrongFrame": {
+      "iou": 0.98,
+      "bf": 0.95
+    },
+    "recallGate": 0.995,
+    "reviewLoadGate": 0.1
+  },
+  "gates": [
+    {
+      "id": "mean_iou_auto",
+      "gate": "Mean IoU, auto prompt, every category",
+      "threshold": ">= 0.98",
+      "status": "fail",
+      "value": 0.8985,
+      "worstCategory": "crossing",
+      "failingCategories": [
+        "crossing",
+        "leave_reenter",
+        "low_light",
+        "twin_distractor"
+      ],
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "worst_category_iou_click",
+      "gate": "Worst-category mean IoU, one click",
+      "threshold": ">= 0.97",
+      "status": "fail",
+      "value": 0.8974,
+      "worstCategory": "crossing",
+      "categories": 3,
+      "boxAskedFor": [],
+      "note": null,
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "p5_iou_click",
+      "gate": "5th-percentile per-frame IoU, one click",
+      "threshold": ">= 0.95",
+      "status": "fail",
+      "value": 0.8125,
+      "boxAskedFor": [],
+      "note": null,
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "bf_every_category",
+      "gate": "BF@2px, every category",
+      "threshold": ">= 0.95",
+      "status": "fail",
+      "value": 0.6835,
+      "worstCategory": "leave_reenter",
+      "failingCategories": [
+        "crossing",
+        "leave_reenter",
+        "low_light",
+        "twin_distractor"
+      ],
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "band_sad_grad_hair",
+      "gate": "Band SAD / Grad, hair category",
+      "threshold": ">= 25% lower than band alpha disabled; within 2% of the fp32 reference",
+      "status": "not_measured",
+      "value": null,
+      "note": "No scored hair_busy run."
+    },
+    {
+      "id": "foreground_delta_e",
+      "gate": "Foreground colour error",
+      "threshold": "mean \u0394E2000 <= 2.0 in the band",
+      "status": "fail",
+      "value": 9.09,
+      "byCategory": {
+        "crossing": 4.283,
+        "leave_reenter": 14.254,
+        "low_light": 15.378,
+        "talking_head": 4.55,
+        "twin_distractor": 4.765
+      },
+      "pixels": 1962874,
+      "background": "magenta (1, 0, 1)",
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "dtssd",
+      "gate": "dtSSD",
+      "threshold": ">= 30% lower than stabilisation disabled; no visible crawl (blind review)",
+      "status": "fail",
+      "value": {
+        "twin_distractor": {
+          "dtSSD": 2.78,
+          "stabilisationOff": 2.898,
+          "reduction": 0.0408
+        }
+      },
+      "numericStatus": "fail",
+      "failingCategories": [
+        "twin_distractor"
+      ],
+      "categoriesCompared": 1,
+      "note": "The numeric part is judged here; 'no visible crawl' needs a person's blind side-by-side review, so a numeric pass is still not a gate pass."
+    },
+    {
+      "id": "leak_rate",
+      "gate": "Leak rate",
+      "threshold": "<= 0.5% of frames before review",
+      "status": "fail",
+      "value": 0.3937,
+      "leakFrames": 63,
+      "frames": 160,
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "error_detection_recall",
+      "gate": "Error-detection recall",
+      "threshold": ">= 99.5%",
+      "status": "pass",
+      "value": 1.0,
+      "wilson95Lower": 0.9577,
+      "wrongFrames": 87,
+      "caught": 87,
+      "thresholds": "calibrated on the calibration split, frozen",
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "review_load",
+      "gate": "Review load",
+      "threshold": "<= 10% of frames on medium categories",
+      "status": "fail",
+      "value": 0.9375,
+      "actuallyWrongFraction": 0.5437,
+      "note": "06 does not define 'medium'; judged on every scored category. No honest detector can flag fewer frames than are actually wrong.",
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "correction_convergence",
+      "gate": "Correction convergence",
+      "threshold": "<= 3 actions -> IoU >= 0.995, BF@2px >= 0.98",
+      "status": "not_measured",
+      "value": null,
+      "note": "No replay was run."
+    },
+    {
+      "id": "locked_frames",
+      "gate": "Locked frames",
+      "threshold": "100% bit-identical after any later re-run",
+      "status": "not_measured",
+      "value": null,
+      "note": "No replay was run."
+    },
+    {
+      "id": "frame_alignment",
+      "gate": "Frame alignment",
+      "threshold": "100%",
+      "status": "pass",
+      "value": "160/160",
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "preview_export",
+      "gate": "Preview <-> export",
+      "threshold": "the matte and text-behind-subject rows of the 09 oracle pass",
+      "status": "not_measured",
+      "value": null,
+      "note": "Not measured by this harness. BR5.3's oracle rows (8 matte rows, 7 bit-identical) pass in CI run 35281873504; they judge rendering, not the pack."
+    }
+  ],
+  "attribution": {
+    "estimates": [
+      "fwd",
+      "bwd",
+      "birefnet",
+      "prestab",
+      "final"
+    ],
+    "note": "Per estimate vs ground truth: SAM forward/backward, BiRefNet (gated, a >= 0.5), the consensus before stabilisation, and the delivered matte.",
+    "scored": {
+      "crossing": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.8927,
+          "meanBF": 0.8866,
+          "leakRate": 0.1562,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.8923,
+          "meanBF": 0.883,
+          "leakRate": 0.1875,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.8338,
+          "meanBF": 0.8295,
+          "leakRate": 0.5938,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.8983,
+          "meanBF": 0.8759,
+          "leakRate": 0.375,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.8985,
+          "meanBF": 0.8722,
+          "leakRate": 0.375,
+          "frames": 32
+        }
+      },
+      "leave_reenter": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9078,
+          "meanBF": 0.6494,
+          "leakRate": 0.5625,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9115,
+          "meanBF": 0.666,
+          "leakRate": 0.5,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.8154,
+          "meanBF": 0.63,
+          "leakRate": 0.5625,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9093,
+          "meanBF": 0.6708,
+          "leakRate": 0.4688,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9116,
+          "meanBF": 0.6835,
+          "leakRate": 0.4688,
+          "frames": 32
+        }
+      },
+      "low_light": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9582,
+          "meanBF": 0.8374,
+          "leakRate": 0.4688,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9587,
+          "meanBF": 0.841,
+          "leakRate": 0.4688,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.8073,
+          "meanBF": 0.5788,
+          "leakRate": 0.9688,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9478,
+          "meanBF": 0.7552,
+          "leakRate": 0.75,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9486,
+          "meanBF": 0.7524,
+          "leakRate": 0.7188,
+          "frames": 32
+        }
+      },
+      "talking_head": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9934,
+          "meanBF": 0.9494,
+          "leakRate": 0.0938,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9946,
+          "meanBF": 0.9757,
+          "leakRate": 0.0625,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9477,
+          "meanBF": 0.683,
+          "leakRate": 0.875,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9972,
+          "meanBF": 0.9932,
+          "leakRate": 0.0312,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9977,
+          "meanBF": 0.9964,
+          "leakRate": 0.0,
+          "frames": 32
+        }
+      },
+      "twin_distractor": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9624,
+          "meanBF": 0.9033,
+          "leakRate": 0.3438,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9637,
+          "meanBF": 0.9148,
+          "leakRate": 0.3438,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9279,
+          "meanBF": 0.8181,
+          "leakRate": 0.75,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9728,
+          "meanBF": 0.911,
+          "leakRate": 0.4062,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.973,
+          "meanBF": 0.9104,
+          "leakRate": 0.4062,
+          "frames": 32
+        }
+      }
+    },
+    "calibration": {
+      "crossing": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9158,
+          "meanBF": 0.8909,
+          "leakRate": 0.1875,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9161,
+          "meanBF": 0.8946,
+          "leakRate": 0.1562,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.8405,
+          "meanBF": 0.81,
+          "leakRate": 0.6562,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9228,
+          "meanBF": 0.8788,
+          "leakRate": 0.4062,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.924,
+          "meanBF": 0.8789,
+          "leakRate": 0.375,
+          "frames": 32
+        }
+      },
+      "hair_busy": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9936,
+          "meanBF": 0.9717,
+          "leakRate": 0.1875,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9943,
+          "meanBF": 0.9807,
+          "leakRate": 0.125,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9968,
+          "meanBF": 0.9898,
+          "leakRate": 0.0938,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9967,
+          "meanBF": 0.9886,
+          "leakRate": 0.0938,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9969,
+          "meanBF": 0.9901,
+          "leakRate": 0.0312,
+          "frames": 32
+        }
+      },
+      "low_light": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9608,
+          "meanBF": 0.8536,
+          "leakRate": 0.4688,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9618,
+          "meanBF": 0.8602,
+          "leakRate": 0.5,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.8153,
+          "meanBF": 0.6068,
+          "leakRate": 0.9688,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9488,
+          "meanBF": 0.7703,
+          "leakRate": 0.7188,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9498,
+          "meanBF": 0.7693,
+          "leakRate": 0.7188,
+          "frames": 32
+        }
+      },
+      "similar_colour": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9717,
+          "meanBF": 0.9281,
+          "leakRate": 0.0,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9717,
+          "meanBF": 0.9281,
+          "leakRate": 0.0,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9836,
+          "meanBF": 0.9778,
+          "leakRate": 0.0,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9825,
+          "meanBF": 0.9693,
+          "leakRate": 0.0625,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9819,
+          "meanBF": 0.9676,
+          "leakRate": 0.0312,
+          "frames": 32
+        }
+      },
+      "talking_head": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9941,
+          "meanBF": 0.9652,
+          "leakRate": 0.1875,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9944,
+          "meanBF": 0.9748,
+          "leakRate": 0.125,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9555,
+          "meanBF": 0.7252,
+          "leakRate": 0.7812,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9974,
+          "meanBF": 0.9936,
+          "leakRate": 0.0,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9978,
+          "meanBF": 0.9969,
+          "leakRate": 0.0,
+          "frames": 32
+        }
+      },
+      "twin_distractor": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9737,
+          "meanBF": 0.9366,
+          "leakRate": 0.1562,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9722,
+          "meanBF": 0.9381,
+          "leakRate": 0.0938,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9383,
+          "meanBF": 0.8423,
+          "leakRate": 0.8438,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9765,
+          "meanBF": 0.911,
+          "leakRate": 0.375,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9777,
+          "meanBF": 0.9148,
+          "leakRate": 0.3438,
+          "frames": 32
+        }
+      },
+      "walk_pan": {
+        "frames": 32,
+        "fwd": {
+          "meanIoU": 0.9752,
+          "meanBF": 0.9125,
+          "leakRate": 0.2188,
+          "frames": 32
+        },
+        "bwd": {
+          "meanIoU": 0.9765,
+          "meanBF": 0.914,
+          "leakRate": 0.1875,
+          "frames": 32
+        },
+        "birefnet": {
+          "meanIoU": 0.9734,
+          "meanBF": 0.9276,
+          "leakRate": 0.2188,
+          "frames": 32
+        },
+        "prestab": {
+          "meanIoU": 0.9745,
+          "meanBF": 0.8821,
+          "leakRate": 0.375,
+          "frames": 32
+        },
+        "final": {
+          "meanIoU": 0.9751,
+          "meanBF": 0.8874,
+          "leakRate": 0.3125,
+          "frames": 32
+        }
+      }
+    }
+  },
+  "oneClickAccuracy": {
+    "crossing": {
+      "frames": 32,
+      "meanIoU": 0.8974,
+      "p5IoU": 0.186,
+      "meanBF": 0.8616,
+      "wrong": 16
+    },
+    "fast_motion": {
+      "frames": 32,
+      "meanIoU": 0.9666,
+      "p5IoU": 0.9501,
+      "meanBF": 0.8791,
+      "wrong": 30
+    },
+    "leave_reenter": {
+      "frames": 32,
+      "meanIoU": 0.9022,
+      "p5IoU": 0.8043,
+      "meanBF": 0.6426,
+      "wrong": 20
+    }
+  },
+  "accuracy": {
+    "calibration": {
+      "meanIoU": 0.9719,
+      "p5IoU": 0.9379,
+      "meanBF": 0.915,
+      "wrongFraction": 0.4509,
+      "byCategory": {
+        "crossing": {
+          "frames": 32,
+          "meanIoU": 0.924,
+          "p5IoU": 0.6093,
+          "meanBF": 0.8789,
+          "wrong": 15
+        },
+        "hair_busy": {
+          "frames": 32,
+          "meanIoU": 0.9969,
+          "p5IoU": 0.9941,
+          "meanBF": 0.9901,
+          "wrong": 1
+        },
+        "low_light": {
+          "frames": 32,
+          "meanIoU": 0.9498,
+          "p5IoU": 0.9353,
+          "meanBF": 0.7693,
+          "wrong": 32
+        },
+        "similar_colour": {
+          "frames": 32,
+          "meanIoU": 0.9819,
+          "p5IoU": 0.9731,
+          "meanBF": 0.9676,
+          "wrong": 9
+        },
+        "talking_head": {
+          "frames": 32,
+          "meanIoU": 0.9978,
+          "p5IoU": 0.9958,
+          "meanBF": 0.9969,
+          "wrong": 1
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "meanIoU": 0.9777,
+          "p5IoU": 0.9536,
+          "meanBF": 0.9148,
+          "wrong": 19
+        },
+        "walk_pan": {
+          "frames": 32,
+          "meanIoU": 0.9751,
+          "p5IoU": 0.9542,
+          "meanBF": 0.8874,
+          "wrong": 24
+        }
+      }
+    },
+    "scored": {
+      "meanIoU": 0.9459,
+      "p5IoU": 0.8589,
+      "meanBF": 0.843,
+      "wrongFraction": 0.5437,
+      "byCategory": {
+        "crossing": {
+          "frames": 32,
+          "meanIoU": 0.8985,
+          "p5IoU": 0.1861,
+          "meanBF": 0.8722,
+          "wrong": 14
+        },
+        "leave_reenter": {
+          "frames": 32,
+          "meanIoU": 0.9116,
+          "p5IoU": 0.8001,
+          "meanBF": 0.6835,
+          "wrong": 20
+        },
+        "low_light": {
+          "frames": 32,
+          "meanIoU": 0.9486,
+          "p5IoU": 0.9348,
+          "meanBF": 0.7524,
+          "wrong": 32
+        },
+        "talking_head": {
+          "frames": 32,
+          "meanIoU": 0.9977,
+          "p5IoU": 0.9962,
+          "meanBF": 0.9964,
+          "wrong": 1
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "meanIoU": 0.973,
+          "p5IoU": 0.9287,
+          "meanBF": 0.9104,
+          "wrong": 20
+        }
+      }
+    }
+  },
+  "shippedThresholds": {
+    "thresholds": {
+      "a_rewarp_mismatch": 0.05,
+      "b_components": true,
+      "c_edge_corr": 0.2,
+      "c2_unexplained": 0.5,
+      "d_area_logratio": 0.15,
+      "d_centroid_frac": 0.25,
+      "e_sam_pair_iou": 0.98,
+      "e_sam_birefnet_iou": 0.98,
+      "e_hard_disagreement": 0.02,
+      "e_band_frac": 0.4,
+      "f_object_score": true,
+      "g_single_estimate": false,
+      "h_presence_window": 3,
+      "m_flow_px": null,
+      "m_band_frac": null,
+      "a_either": false,
+      "n_dilate": 0,
+      "version": "br0-attempt-4"
+    },
+    "calibration": {
+      "frames": 224,
+      "wrongFrames": 101,
+      "caught": 101,
+      "flagged": 214,
+      "recall": 1.0,
+      "recallWilson95Lower": 0.9633580563440465,
+      "reviewLoad": 0.9553571428571429,
+      "perCategory": {
+        "crossing": {
+          "frames": 32,
+          "wrong": 15,
+          "caught": 15,
+          "flagged": 26,
+          "meanIoU": 0.924,
+          "p5IoU": 0.6093,
+          "meanBF": 0.8789
+        },
+        "hair_busy": {
+          "frames": 32,
+          "wrong": 1,
+          "caught": 1,
+          "flagged": 32,
+          "meanIoU": 0.9969,
+          "p5IoU": 0.9941,
+          "meanBF": 0.9901
+        },
+        "low_light": {
+          "frames": 32,
+          "wrong": 32,
+          "caught": 32,
+          "flagged": 32,
+          "meanIoU": 0.9498,
+          "p5IoU": 0.9353,
+          "meanBF": 0.7693
+        },
+        "similar_colour": {
+          "frames": 32,
+          "wrong": 9,
+          "caught": 9,
+          "flagged": 32,
+          "meanIoU": 0.9819,
+          "p5IoU": 0.9731,
+          "meanBF": 0.9676
+        },
+        "talking_head": {
+          "frames": 32,
+          "wrong": 1,
+          "caught": 1,
+          "flagged": 32,
+          "meanIoU": 0.9978,
+          "p5IoU": 0.9958,
+          "meanBF": 0.9969
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "wrong": 19,
+          "caught": 19,
+          "flagged": 29,
+          "meanIoU": 0.9777,
+          "p5IoU": 0.9536,
+          "meanBF": 0.9148
+        },
+        "walk_pan": {
+          "frames": 32,
+          "wrong": 24,
+          "caught": 24,
+          "flagged": 31,
+          "meanIoU": 0.9751,
+          "p5IoU": 0.9542,
+          "meanBF": 0.8874
+        }
+      },
+      "missed": []
+    },
+    "scored": {
+      "frames": 160,
+      "wrongFrames": 87,
+      "caught": 87,
+      "flagged": 142,
+      "recall": 1.0,
+      "recallWilson95Lower": 0.9577110046498521,
+      "reviewLoad": 0.8875,
+      "perCategory": {
+        "crossing": {
+          "frames": 32,
+          "wrong": 14,
+          "caught": 14,
+          "flagged": 25,
+          "meanIoU": 0.8985,
+          "p5IoU": 0.1861,
+          "meanBF": 0.8722
+        },
+        "leave_reenter": {
+          "frames": 32,
+          "wrong": 20,
+          "caught": 20,
+          "flagged": 26,
+          "meanIoU": 0.9116,
+          "p5IoU": 0.8001,
+          "meanBF": 0.6835
+        },
+        "low_light": {
+          "frames": 32,
+          "wrong": 32,
+          "caught": 32,
+          "flagged": 32,
+          "meanIoU": 0.9486,
+          "p5IoU": 0.9348,
+          "meanBF": 0.7524
+        },
+        "talking_head": {
+          "frames": 32,
+          "wrong": 1,
+          "caught": 1,
+          "flagged": 32,
+          "meanIoU": 0.9977,
+          "p5IoU": 0.9962,
+          "meanBF": 0.9964
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "wrong": 20,
+          "caught": 20,
+          "flagged": 27,
+          "meanIoU": 0.973,
+          "p5IoU": 0.9287,
+          "meanBF": 0.9104
+        }
+      },
+      "missed": []
+    }
+  },
+  "calibratedThresholds": {
+    "thresholds": {
+      "a_rewarp_mismatch": null,
+      "b_components": false,
+      "c_edge_corr": null,
+      "c2_unexplained": null,
+      "d_area_logratio": 0.05,
+      "d_centroid_frac": null,
+      "e_sam_pair_iou": null,
+      "e_sam_birefnet_iou": null,
+      "e_hard_disagreement": 0.005,
+      "e_band_frac": null,
+      "f_object_score": false,
+      "g_single_estimate": false,
+      "h_presence_window": 0,
+      "m_flow_px": null,
+      "m_band_frac": null,
+      "a_either": false,
+      "n_dilate": 2,
+      "version": "br7.3-calibrated"
+    },
+    "fittedOn": "calibration",
+    "trace": {
+      "chosen": "forward",
+      "coordinate": {
+        "trace": [
+          {
+            "step": "start",
+            "recall": 1.0,
+            "reviewLoad": 0.9553571428571429
+          }
+        ],
+        "calibration": {
+          "recall": 1.0,
+          "reviewLoad": 0.9553571428571429
+        }
+      },
+      "forward": {
+        "trace": [
+          {
+            "add": "e_sam_birefnet_iou=0.9",
+            "caught": 45,
+            "extraFlags": 3
+          },
+          {
+            "add": "d_area_logratio=0.05",
+            "caught": 16,
+            "extraFlags": 7
+          },
+          {
+            "add": "n_dilate=1",
+            "caught": 21,
+            "extraFlags": 9
+          },
+          {
+            "add": "n_dilate=2",
+            "caught": 13,
+            "extraFlags": 10
+          },
+          {
+            "add": "a_rewarp_mismatch=0.05",
+            "caught": 2,
+            "extraFlags": 7
+          },
+          {
+            "add": "a_either=True",
+            "caught": 1,
+            "extraFlags": 8
+          },
+          {
+            "add": "e_hard_disagreement=0.005",
+            "caught": 2,
+            "extraFlags": 45
+          },
+          {
+            "drop": "a_rewarp_mismatch",
+            "reviewLoad": 0.8482142857142857
+          },
+          {
+            "drop": "e_sam_birefnet_iou",
+            "reviewLoad": 0.8482142857142857
+          },
+          {
+            "drop": "a_either",
+            "reviewLoad": 0.8482142857142857
+          }
+        ],
+        "calibration": {
+          "recall": 1.0,
+          "reviewLoad": 0.8482142857142857
+        }
+      }
+    },
+    "calibration": {
+      "frames": 224,
+      "wrongFrames": 101,
+      "caught": 101,
+      "flagged": 190,
+      "recall": 1.0,
+      "recallWilson95Lower": 0.9633580563440465,
+      "reviewLoad": 0.8482142857142857,
+      "perCategory": {
+        "crossing": {
+          "frames": 32,
+          "wrong": 15,
+          "caught": 15,
+          "flagged": 31,
+          "meanIoU": 0.924,
+          "p5IoU": 0.6093,
+          "meanBF": 0.8789
+        },
+        "hair_busy": {
+          "frames": 32,
+          "wrong": 1,
+          "caught": 1,
+          "flagged": 4,
+          "meanIoU": 0.9969,
+          "p5IoU": 0.9941,
+          "meanBF": 0.9901
+        },
+        "low_light": {
+          "frames": 32,
+          "wrong": 32,
+          "caught": 32,
+          "flagged": 32,
+          "meanIoU": 0.9498,
+          "p5IoU": 0.9353,
+          "meanBF": 0.7693
+        },
+        "similar_colour": {
+          "frames": 32,
+          "wrong": 9,
+          "caught": 9,
+          "flagged": 32,
+          "meanIoU": 0.9819,
+          "p5IoU": 0.9731,
+          "meanBF": 0.9676
+        },
+        "talking_head": {
+          "frames": 32,
+          "wrong": 1,
+          "caught": 1,
+          "flagged": 31,
+          "meanIoU": 0.9978,
+          "p5IoU": 0.9958,
+          "meanBF": 0.9969
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "wrong": 19,
+          "caught": 19,
+          "flagged": 28,
+          "meanIoU": 0.9777,
+          "p5IoU": 0.9536,
+          "meanBF": 0.9148
+        },
+        "walk_pan": {
+          "frames": 32,
+          "wrong": 24,
+          "caught": 24,
+          "flagged": 32,
+          "meanIoU": 0.9751,
+          "p5IoU": 0.9542,
+          "meanBF": 0.8874
+        }
+      },
+      "missed": []
+    },
+    "scored": {
+      "frames": 160,
+      "wrongFrames": 87,
+      "caught": 87,
+      "flagged": 150,
+      "recall": 1.0,
+      "recallWilson95Lower": 0.9577110046498521,
+      "reviewLoad": 0.9375,
+      "perCategory": {
+        "crossing": {
+          "frames": 32,
+          "wrong": 14,
+          "caught": 14,
+          "flagged": 31,
+          "meanIoU": 0.8985,
+          "p5IoU": 0.1861,
+          "meanBF": 0.8722
+        },
+        "leave_reenter": {
+          "frames": 32,
+          "wrong": 20,
+          "caught": 20,
+          "flagged": 26,
+          "meanIoU": 0.9116,
+          "p5IoU": 0.8001,
+          "meanBF": 0.6835
+        },
+        "low_light": {
+          "frames": 32,
+          "wrong": 32,
+          "caught": 32,
+          "flagged": 32,
+          "meanIoU": 0.9486,
+          "p5IoU": 0.9348,
+          "meanBF": 0.7524
+        },
+        "talking_head": {
+          "frames": 32,
+          "wrong": 1,
+          "caught": 1,
+          "flagged": 32,
+          "meanIoU": 0.9977,
+          "p5IoU": 0.9962,
+          "meanBF": 0.9964
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "wrong": 20,
+          "caught": 20,
+          "flagged": 29,
+          "meanIoU": 0.973,
+          "p5IoU": 0.9287,
+          "meanBF": 0.9104
+        }
+      },
+      "missed": []
+    }
+  },
+  "correctionReplays": [],
+  "secondsPerClip": {
+    "crossing__calibration": 2426.5,
+    "crossing__scored": 3856.4,
+    "hair_busy__calibration": 2626.5,
+    "leave_reenter__scored": 2053.8,
+    "low_light__calibration": 3594.7,
+    "low_light__scored": 3568.3,
+    "similar_colour__calibration": 1578.9,
+    "talking_head__calibration": 3142.4,
+    "talking_head__scored": 1641.9,
+    "twin_distractor__calibration": 3877.5,
+    "twin_distractor__scored": 3298.2,
+    "walk_pan__calibration": 3365.1
+  },
+  "perFrame": {
+    "crossing__scored": [
+      {
+        "iou": 0.9863742507041575,
+        "bf": 0.9908341565351462,
+        "leak": false,
+        "checks": [
+          "d"
+        ]
+      },
+      {
+        "iou": 0.9616554120759784,
+        "bf": 0.8038242401358038,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9864201631056496,
+        "bf": 0.9832914948370985,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9909986752082464,
+        "bf": 0.9939192724482999,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9944051400519781,
+        "bf": 0.9987599645704163,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9947298126556691,
+        "bf": 0.9987573229185159,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9921039225674987,
+        "bf": 0.9992684711046086,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9890301300819034,
+        "bf": 0.9892089508396277,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9684056132561643,
+        "bf": 0.8226046006158305,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9849886204057915,
+        "bf": 0.970201757635566,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9652762220529594,
+        "bf": 0.8082880128973499,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9889125614157137,
+        "bf": 0.975391437843758,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9938830649519075,
+        "bf": 0.9995296331138288,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9933713547831702,
+        "bf": 0.9995398067188219,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9919681309216193,
+        "bf": 0.9967686060038893,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9940054967646995,
+        "bf": 0.9997642065550577,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9921629409710094,
+        "bf": 0.9940927914368254,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9541950317839593,
+        "bf": 0.7131668906191705,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9916132930513595,
+        "bf": 0.9965484781926577,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9688361667096467,
+        "bf": 0.8138608673419706,
+        "leak": true,
+        "checks": [
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9502083648219722,
+        "bf": 0.8013799322356412,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9614823161830615,
+        "bf": 0.8999564883542359,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9594380511134359,
+        "bf": 0.9016174884542083,
+        "leak": false,
+        "checks": [
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9528631533908579,
+        "bf": 0.8790026037914732,
+        "leak": false,
+        "checks": [
+          "a",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.1799412310547479,
+        "bf": 0.3977406058762382,
+        "leak": true,
+        "checks": [
+          "a",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.016438398373106965,
+        "bf": 0.21169330168130984,
+        "leak": true,
+        "checks": [
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.19113781449493053,
+        "bf": 0.41575890862856946,
+        "leak": true,
+        "checks": [
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9268842729970327,
+        "bf": 0.793961523604958,
+        "leak": true,
+        "checks": [
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9637160006488942,
+        "bf": 0.8419503872951172,
+        "leak": true,
+        "checks": [
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9842673595385092,
+        "bf": 0.955886734995713,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9914276521419378,
+        "bf": 0.9827183342379794,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9903654485049834,
+        "bf": 0.9813114014720784,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      }
+    ],
+    "leave_reenter__scored": [
+      {
+        "iou": 0.9637415908191531,
+        "bf": 0.8009555048488305,
+        "leak": false,
+        "checks": [
+          "a",
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9160828874547227,
+        "bf": 0.5204920720080642,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8866692345402339,
+        "bf": 0.464740285987825,
+        "leak": true,
+        "checks": [
+          "a",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.858974129442306,
+        "bf": 0.3999016933041473,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8580666254949686,
+        "bf": 0.3950600611408846,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8691315929675013,
+        "bf": 0.33275808040899124,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8305781235295963,
+        "bf": 0.261004256706788,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8709353000335233,
+        "bf": 0.657344486107105,
+        "leak": true,
+        "checks": [
+          "a",
+          "b",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.4418604651162791,
+        "bf": 0.078125,
+        "leak": false,
+        "checks": [
+          "a",
+          "c",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "d",
+          "e",
+          "h"
+        ]
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "h"
+        ]
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "h"
+        ]
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "h"
+        ]
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "h"
+        ]
+      },
+      {
+        "iou": 1.0,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "d",
+          "h"
+        ]
+      },
+      {
+        "iou": 0.7628865979381443,
+        "bf": 0.7672873311427527,
+        "leak": false,
+        "checks": [
+          "a",
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8846597462514417,
+        "bf": 0.6231505657093125,
+        "leak": false,
+        "checks": [
+          "a",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9546821736514939,
+        "bf": 0.9031830749443558,
+        "leak": false,
+        "checks": [
+          "a",
+          "b",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8983611602677541,
+        "bf": 0.5336543284180962,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8625022931572188,
+        "bf": 0.363761153054221,
+        "leak": true,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8550202806758779,
+        "bf": 0.35170057923659587,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8662669664418353,
+        "bf": 0.29026112294071504,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8947678454968128,
+        "bf": 0.4657055828655912,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9014258495425138,
+        "bf": 0.5621863836289673,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8928401058155168,
+        "bf": 0.5913186359954097,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9007113773576075,
+        "bf": 0.5097222765528042,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "d",
+          "e"
+        ]
+      }
+    ],
+    "low_light__scored": [
+      {
+        "iou": 0.9582843713278496,
+        "bf": 0.7636967035226295,
+        "leak": false,
+        "checks": [
+          "c2",
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.93930683461799,
+        "bf": 0.6136060962089384,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.936329845814978,
+        "bf": 0.6490064097415219,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9514035058177716,
+        "bf": 0.8122456153757975,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9618452827046382,
+        "bf": 0.9043537665106737,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9600631543958783,
+        "bf": 0.8831077001499085,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.952998215548298,
+        "bf": 0.8192575638202618,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9432359465547779,
+        "bf": 0.7128766368477482,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9421094223806811,
+        "bf": 0.6791855701337121,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9602845556084189,
+        "bf": 0.8131929449747547,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9404511903524275,
+        "bf": 0.6893381013145884,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9458141041211238,
+        "bf": 0.7345253221368819,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9547466009891672,
+        "bf": 0.8080335004683454,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9626926518842597,
+        "bf": 0.8851424884319411,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9658265868358761,
+        "bf": 0.8931497331169203,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9613735617285182,
+        "bf": 0.8438566699257276,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9432091771703724,
+        "bf": 0.7022073383555504,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9369656783018474,
+        "bf": 0.6262755976685472,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9592811134633575,
+        "bf": 0.7738342880916568,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9348638061401111,
+        "bf": 0.5898436199258307,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9363408435224618,
+        "bf": 0.6839918627177851,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9534547167906303,
+        "bf": 0.8316606985626598,
+        "leak": false,
+        "checks": [
+          "a",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9591765294215703,
+        "bf": 0.8953795253554531,
+        "leak": false,
+        "checks": [
+          "a",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9559078771695594,
+        "bf": 0.8638017113442615,
+        "leak": true,
+        "checks": [
+          "a",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9469915733657565,
+        "bf": 0.784053822242375,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.936886250280448,
+        "bf": 0.6849748956899497,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9385494489237369,
+        "bf": 0.5908932907295673,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9562556869881711,
+        "bf": 0.7199471598414795,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9320756279898114,
+        "bf": 0.6235159415139935,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.93479579458148,
+        "bf": 0.6713921107092982,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9410234345294083,
+        "bf": 0.7049393380032816,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9530087897227857,
+        "bf": 0.8262785906162794,
+        "leak": true,
+        "checks": [
+          "a",
+          "c2",
+          "e"
+        ]
+      }
+    ],
+    "talking_head__scored": [
+      {
+        "iou": 0.995566551668498,
+        "bf": 0.9437200850438905,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9971278841310792,
+        "bf": 0.9876778169881263,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.997095025375242,
+        "bf": 0.99268593223714,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9968200192492781,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9975658979217699,
+        "bf": 0.9988750893087879,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9977620707586233,
+        "bf": 0.9980222109144917,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9986705202312138,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9995414311202568,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9992873596869005,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9995454142701395,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9993605670152732,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2"
+        ]
+      },
+      {
+        "iou": 0.9984016330303497,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.998020206222099,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9971289140675513,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9969151354532482,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9968060450689717,
+        "bf": 0.9960693854838232,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9967236538365514,
+        "bf": 0.992712672347214,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9963039439949645,
+        "bf": 0.997758207472516,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9960697702061742,
+        "bf": 0.9983309344488339,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9969497708496191,
+        "bf": 0.9997241379310344,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9970513110177572,
+        "bf": 0.9991728575201686,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9973018175416305,
+        "bf": 0.9986320109439125,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9979570678184622,
+        "bf": 0.9980879541108987,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9982941027975184,
+        "bf": 0.9953536047443095,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9992005263520285,
+        "bf": 0.9934663512903987,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9990512878385047,
+        "bf": 0.9959078657779975,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9990088211094315,
+        "bf": 0.9989019673161021,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9984071189529871,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9979119413964322,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9974386404855847,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9970795020186359,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.996651125636555,
+        "bf": 1.0,
+        "leak": false,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      }
+    ],
+    "twin_distractor__scored": [
+      {
+        "iou": 0.9759024577572964,
+        "bf": 0.9074927318813386,
+        "leak": false,
+        "checks": [
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.974892775307965,
+        "bf": 0.9005715699425183,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9864147032149401,
+        "bf": 0.9853295764081009,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9921186917754735,
+        "bf": 0.9910272445946446,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.992790714440199,
+        "bf": 0.9979872581575676,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9884725189880236,
+        "bf": 0.9787218356339853,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9874166079080111,
+        "bf": 0.9880464529302498,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.98708719851577,
+        "bf": 0.9640891049156727,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9849984291548853,
+        "bf": 0.9352073571124919,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9735153649476579,
+        "bf": 0.8968778453314536,
+        "leak": false,
+        "checks": [
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9731304558147716,
+        "bf": 0.879422304129497,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9733410419477099,
+        "bf": 0.8423834264477938,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9863874121077002,
+        "bf": 0.9868722726895837,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9940615788454504,
+        "bf": 0.9950083194675541,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9947470398277718,
+        "bf": 0.9947494033412888,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9883923389437028,
+        "bf": 0.9850848358498864,
+        "leak": false,
+        "checks": []
+      },
+      {
+        "iou": 0.9698244564985264,
+        "bf": 0.7993672599791937,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9725067741722292,
+        "bf": 0.8458353664415882,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.98338902377461,
+        "bf": 0.9224508613889559,
+        "leak": false,
+        "checks": [
+          "d",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9694554094967999,
+        "bf": 0.8143161062461902,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9675135886739983,
+        "bf": 0.8458630725939881,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9809494793813509,
+        "bf": 0.9790969766351714,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.981103202846975,
+        "bf": 0.965389852814339,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9699893955461294,
+        "bf": 0.9518339489118723,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9763486818475684,
+        "bf": 0.9384138142566015,
+        "leak": true,
+        "checks": [
+          "b",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9704170175374364,
+        "bf": 0.9121158838801039,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9790386628998162,
+        "bf": 0.9248855685707165,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9703234171288626,
+        "bf": 0.8560715078960678,
+        "leak": false,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9699030208449448,
+        "bf": 0.8750188817325826,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9086092715231788,
+        "bf": 0.7162368414798098,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      },
+      {
+        "iou": 0.9450482712403929,
+        "bf": 0.7735823598855184,
+        "leak": true,
+        "checks": [
+          "c2",
+          "e"
+        ]
+      },
+      {
+        "iou": 0.8680499980945848,
+        "bf": 0.7832585190845608,
+        "leak": true,
+        "checks": [
+          "e"
+        ]
+      }
+    ]
+  },
+  "job": {
+    "ablations": [],
+    "backend": "onnxruntime-1.30.0:birefnet=cpu:sam=cpu",
+    "clickChoices": [],
+    "frameCount": 32,
+    "memory": {
+      "breach": null,
+      "ceilingBytes": 64424509440,
+      "peakFootprintBytes": 13003341824
+    },
+    "memoryCeilingBytes": 64424509440,
+    "promptFrames": 1,
+    "providers": {
+      "chosen": {
+        "birefnet": "cpu",
+        "sam": "cpu"
+      },
+      "fallbacks": [],
+      "skipped": {
+        "birefnet": [],
+        "sam": []
+      }
+    },
+    "reusedFrames": 0,
+    "selfCorrectionRounds": 1,
+    "size": [
+      1280,
+      720
+    ],
+    "thresholds": {
+      "a_either": false,
+      "a_rewarp_mismatch": 0.05,
+      "b_components": true,
+      "c2_unexplained": 0.5,
+      "c_edge_corr": 0.2,
+      "d_area_logratio": 0.15,
+      "d_centroid_frac": 0.25,
+      "e_band_frac": 0.4,
+      "e_hard_disagreement": 0.02,
+      "e_sam_birefnet_iou": 0.98,
+      "e_sam_pair_iou": 0.98,
+      "f_object_score": true,
+      "g_single_estimate": false,
+      "h_presence_window": 3,
+      "m_band_frac": null,
+      "m_flow_px": null,
+      "n_dilate": 0,
+      "version": "br0-attempt-4"
+    },
+    "tile": {
+      "ceilingBytes": 64424509440,
+      "reason": "configured",
+      "size": 2048
+    },
+    "timeBase": [
+      1,
+      1000
+    ],
+    "timingsSeconds": {
+      "consensus": 2.363,
+      "crop_pass": 233.781,
+      "decode": 0.419,
+      "encode": 0.359,
+      "foreground": 2.845,
+      "matte": 33.199,
+      "refine": 1499.13,
+      "segment": 583.464,
+      "self_correct": 39.153,
+      "stabilise": 27.674,
+      "temporal_vote": 29.677,
+      "verify": 3.134,
+      "windows": 2426.033
+    },
+    "tools": {
+      "approved": true,
+      "ffmpeg": "ffmpeg version 7.1.1 Copyright (c) 2000-2025 the FFmpeg developers",
+      "licence": "LGPL-2.1-or-later",
+      "origin": "override",
+      "reasons": []
+    },
+    "windowSecondsPerFrame": 600.0,
+    "windows": {
+      "frames": 300,
+      "overlap": 60
+    }
+  },
+  "provenance": {
+    "graphs": {
+      "files": {
+        "sam21l_image_encoder.fp32.onnx": {
+          "pinned": "320ed56abe3142d383aecf5f55aeea7b76cf60fb7e7ffe10ca654b834d695e86",
+          "runner": "320ed56abe3142d383aecf5f55aeea7b76cf60fb7e7ffe10ca654b834d695e86",
+          "identical": true
+        },
+        "sam21l_decoder_multi_n1.fp32.onnx": {
+          "pinned": "e2dde51052f71db13bc8a247b9012c03537b783835a2d3b692328f0265be7c0c",
+          "runner": "e2dde51052f71db13bc8a247b9012c03537b783835a2d3b692328f0265be7c0c",
+          "identical": true
+        },
+        "sam21l_decoder_points.fp32.onnx": {
+          "pinned": "290b4746cfb966bd224b2bebdd7244083a21d9d25469ff39b7eda97f52ab1136",
+          "runner": "290b4746cfb966bd224b2bebdd7244083a21d9d25469ff39b7eda97f52ab1136",
+          "identical": true
+        },
+        "sam21l_decoder_mask.fp32.onnx": {
+          "pinned": "aa2f74b50555f9109b20b3063c6d7273360ff865e4353474ad250a7735552d8e",
+          "runner": "aa2f74b50555f9109b20b3063c6d7273360ff865e4353474ad250a7735552d8e",
+          "identical": true
+        },
+        "sam21l_memory_attention.fp32.onnx": {
+          "pinned": "e5d6c81df8fb2005f2b2a95dacff181ce00231dd666baba43b0a04226ba48960",
+          "runner": "388bec2bef75b3c49f21dc0254bbfc561f96eb1ab375b876ff453c807bc63c9b",
+          "identical": false
+        },
+        "sam21l_memory_encoder.fp32.onnx": {
+          "pinned": "c2b48f90b9970d06f313ac6fdf0b427573decde1b3e81483caccf76fe26cf0f3",
+          "runner": "c2b48f90b9970d06f313ac6fdf0b427573decde1b3e81483caccf76fe26cf0f3",
+          "identical": true
+        },
+        "sam21l_constants.npz": {
+          "pinned": "60f9f947605a1c054034a8933ed2aa6568c2a56b6024e558db5960bb2a2722b6",
+          "runner": "60f9f947605a1c054034a8933ed2aa6568c2a56b6024e558db5960bb2a2722b6",
+          "identical": true
+        },
+        "birefnet_hr_matting_768.fp16s.onnx": {
+          "pinned": "37738f15337ff1c11cdf49cdcfdc9e4d57b91a4c3a8f911582c1597bf1f38ef4",
+          "runner": null,
+          "identical": null
+        },
+        "birefnet_hr_matting_1024.fp16s.onnx": {
+          "pinned": "ea5d48fc2e6795e317b351caa3da164a2b6a8c85231193c34d7ebbefb58ab41d",
+          "runner": "813e639f495e285884505c7fbd0bf317f0515b868facedaf082b31f0dd492132",
+          "identical": false
+        },
+        "birefnet_hr_matting_2048.fp16s.onnx": {
+          "pinned": "b6c710045302a90f0e5c87a65a42768a9bbaa3394d80a5167cfe459e54a4d3b5",
+          "runner": "daf1275f462933fa7ccb581fdbcfc5c02bf42937d9b71d1b8b3549d506040775",
+          "identical": false
+        }
+      },
+      "allPresentIdentical": false,
+      "missing": [
+        "birefnet_hr_matting_768.fp16s.onnx"
+      ],
+      "note": "exported on ubuntu-latest (linux-x64) by eval/ci_export_graphs.sh from the pinned checkpoints"
+    },
+    "ci-run": {
+      "workflowRunId": "35430014279",
+      "scoredInRun": "35436041101",
+      "commit": "dc057e6e7f9e2c66352d29f85b85b6c6580d6162",
+      "scoringCommit": "4c4f83d8b6e1988e810f517484af2f072da2c150",
+      "label": "it13",
+      "tileRequested": 2048,
+      "runner": {
+        "image": "ubuntu-latest",
+        "vcpus": 4,
+        "memGiB": 15,
+        "cpu": "AMD EPYC 7763 64-Core Processor"
+      },
+      "windowSecondsPerFrame": "600",
+      "memoryCeilingMiB": "61440",
+      "jobs": [
+        {
+          "variant": "auto",
+          "clip": "crossing__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12707968"
+        },
+        {
+          "variant": "auto",
+          "clip": "crossing__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12767692"
+        },
+        {
+          "variant": "auto",
+          "clip": "hair_busy__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12811620"
+        },
+        {
+          "variant": "auto",
+          "clip": "leave_reenter__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12683352"
+        },
+        {
+          "variant": "auto",
+          "clip": "low_light__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12761424"
+        },
+        {
+          "variant": "auto",
+          "clip": "low_light__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12757860"
+        },
+        {
+          "variant": "auto",
+          "clip": "similar_colour__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12811888"
+        },
+        {
+          "variant": "auto",
+          "clip": "talking_head__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12824608"
+        },
+        {
+          "variant": "auto",
+          "clip": "talking_head__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12721216"
+        },
+        {
+          "variant": "auto",
+          "clip": "twin_distractor__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12759528"
+        },
+        {
+          "variant": "auto",
+          "clip": "twin_distractor__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12712844"
+        },
+        {
+          "variant": "auto",
+          "clip": "walk_pan__calibration",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12764692"
+        },
+        {
+          "variant": "click",
+          "clip": "crossing__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12710644"
+        },
+        {
+          "variant": "click",
+          "clip": "fast_motion__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12721324"
+        },
+        {
+          "variant": "click",
+          "clip": "leave_reenter__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12719512"
+        },
+        {
+          "variant": "stab_off",
+          "clip": "fast_motion__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12644824"
+        },
+        {
+          "variant": "stab_off",
+          "clip": "twin_distractor__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12669056"
+        },
+        {
+          "variant": "stab_off",
+          "clip": "walk_pan__scored",
+          "tileRequested": 2048,
+          "tileUsed": 2048,
+          "fallback": "",
+          "status": 0,
+          "workerExit": "0",
+          "maxRssKiB": "12717008"
+        }
+      ]
+    },
+    "pilot-provenance": {
+      "generator": "workers/smart-mask/eval/pilot.py",
+      "backgrounds": {
+        "bg_000110": {
+          "timestamp": "00:01:10",
+          "fetched": true,
+          "pixelsSha256": "a733fc88aa3863e1cb7b6e4e8a6163ab853e7236e71befb517580bf557e31ca9",
+          "matchesBR73": false
+        },
+        "bg_000330": {
+          "timestamp": "00:03:30",
+          "fetched": true,
+          "pixelsSha256": "1d8a9061bd68018b45b1fb32b68ba04828de107debb53b6e66765595205f4b27",
+          "matchesBR73": false
+        },
+        "bg_000440": {
+          "timestamp": "00:04:40",
+          "fetched": true,
+          "pixelsSha256": "c8e14dc1f002df08f2dcc59b66a98cc2509f5f0728a77b50c04a78cfb5e05439",
+          "matchesBR73": false
+        },
+        "bg_000550": {
+          "timestamp": "00:05:50",
+          "fetched": true,
+          "pixelsSha256": "8d07147e204aeeae6a062034dbec5102eecdca561eb6d7b3a04c8a7267039e52",
+          "matchesBR73": false
+        },
+        "bg_000920": {
+          "timestamp": "00:09:20",
+          "fetched": true,
+          "pixelsSha256": "d8811c8b402b4f6067f8b8af259b3ec005de0dd608c6cd469dfee823e669f710",
+          "matchesBR73": false
+        },
+        "bg_001130": {
+          "timestamp": "00:11:30",
+          "fetched": true,
+          "pixelsSha256": "4dcd613c1bba7181491ebfb57ac25808d069b0308a619d272707ca2bda10fd20",
+          "matchesBR73": false
+        }
+      },
+      "allBackgroundsMatchBR73": false
+    }
+  },
+  "contactSheet": "reports/smart-mask/2026-09-19-linux-x64-ci-it13-contact-sheet.jpg"
+}

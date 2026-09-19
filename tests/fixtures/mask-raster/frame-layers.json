@@ -1,0 +1,273 @@
+{
+ "area": "frame-layers",
+ "spec": "engine/python/tests/mask_stack_vectors.py; render/frame_masks.py FrameMaskStack",
+ "cases": [
+  {
+   "id": "frame-rectangle",
+   "layer": {
+    "id": "fx-rect",
+    "effectId": "soft-veil",
+    "kind": "blur-gaussian",
+    "start": 1.5,
+    "end": 3.5,
+    "params": {},
+    "keyframes": [],
+    "masks": [
+     {
+      "id": "m1",
+      "kind": "rectangle",
+      "space": "frame",
+      "cx": 140.0,
+      "cy": 70.0,
+      "width": 120.5,
+      "height": 60.25,
+      "rotation": 12.0,
+      "roundness": 0.3,
+      "featherOuterPx": 6.0,
+      "falloff": "smooth"
+     }
+    ]
+   },
+   "sizes": [
+    [
+     256,
+     144
+    ],
+    [
+     128,
+     72
+    ]
+   ],
+   "times": [
+    0.0,
+    1.0
+   ],
+   "expected": [
+    {
+     "width": 256,
+     "height": 144,
+     "localTime": 0.0,
+     "alpha": "8a3aa1531c6ecb92635ac9d028f365c80d192919d56c5c64c93ab2fb29ffa11b"
+    },
+    {
+     "width": 256,
+     "height": 144,
+     "localTime": 1.0,
+     "alpha": "8a3aa1531c6ecb92635ac9d028f365c80d192919d56c5c64c93ab2fb29ffa11b"
+    },
+    {
+     "width": 128,
+     "height": 72,
+     "localTime": 0.0,
+     "alpha": "3cd19b335a0b28a6574b868e5f808059345b9dcc88a1a20ad71d75c492cf3195"
+    },
+    {
+     "width": 128,
+     "height": 72,
+     "localTime": 1.0,
+     "alpha": "3cd19b335a0b28a6574b868e5f808059345b9dcc88a1a20ad71d75c492cf3195"
+    }
+   ]
+  },
+  {
+   "id": "frame-combine",
+   "layer": {
+    "id": "fx-combine",
+    "effectId": "halo-bloom",
+    "kind": "bloom",
+    "start": 0.0,
+    "end": 2.0,
+    "params": {},
+    "keyframes": [],
+    "masks": [
+     {
+      "id": "m1",
+      "kind": "ellipse",
+      "space": "frame",
+      "cx": 128.0,
+      "cy": 72.0,
+      "rx": 70.0,
+      "ry": 40.0,
+      "featherOuterPx": 4.0,
+      "featherInnerPx": 2.0
+     },
+     {
+      "id": "m2",
+      "kind": "rectangle",
+      "space": "frame",
+      "mode": "subtract",
+      "cx": 128.0,
+      "cy": 100.0,
+      "width": 90.0,
+      "height": 40.0,
+      "expansionPx": 3.0
+     }
+    ]
+   },
+   "sizes": [
+    [
+     256,
+     144
+    ]
+   ],
+   "times": [
+    0.0,
+    0.75
+   ],
+   "expected": [
+    {
+     "width": 256,
+     "height": 144,
+     "localTime": 0.0,
+     "alpha": "c7e479961d21397cb0f1677bd06369f142fff4503ef0f425f4568166f17166fe"
+    },
+    {
+     "width": 256,
+     "height": 144,
+     "localTime": 0.75,
+     "alpha": "c7e479961d21397cb0f1677bd06369f142fff4503ef0f425f4568166f17166fe"
+    }
+   ]
+  },
+  {
+   "id": "frame-keyframed",
+   "layer": {
+    "id": "fx-keyed",
+    "effectId": "mosaic-blocks",
+    "kind": "mosaic",
+    "start": 4.0,
+    "end": 6.0,
+    "params": {},
+    "keyframes": [],
+    "masks": [
+     {
+      "id": "m1",
+      "kind": "rectangle",
+      "space": "frame",
+      "cx": 60.0,
+      "cy": 72.0,
+      "width": 80.0,
+      "height": 80.0,
+      "keyframes": [
+       {
+        "id": "k0",
+        "property": "cx",
+        "sourceTime": 0.0,
+        "value": 60.0
+       },
+       {
+        "id": "k1",
+        "property": "cx",
+        "sourceTime": 2.0,
+        "value": 196.0,
+        "easing": "ease-in-out"
+       }
+      ]
+     }
+    ]
+   },
+   "sizes": [
+    [
+     256,
+     144
+    ]
+   ],
+   "times": [
+    0.0,
+    0.5,
+    1.0,
+    2.0
+   ],
+   "expected": [
+    {
+     "width": 256,
+     "height": 144,
+     "localTime": 0.0,
+     "alpha": "88b9c2264548e116f32ef037e9b6b52aa3da2effe3a46ad831550380c176f068"
+    },
+    {
+     "width": 256,
+     "height": 144,
+     "localTime": 0.5,
+     "alpha": "e4b4a94d02c1bbb641c5ce5ca16fcfda856801788d31c3981c9ae7fdf943def7"
+    },
+    {
+     "width": 256,
+     "height": 144,
+     "localTime": 1.0,
+     "alpha": "5010009320ca2a7b56bd23b95f40dc71ffcb21ebcd3fa3211ed7f48625ec8ee7"
+    },
+    {
+     "width": 256,
+     "height": 144,
+     "localTime": 2.0,
+     "alpha": "dbb23b2e1e9756793592992219a77e209b80c305e78c86453db712d59c8ea8c1"
+    }
+   ]
+  },
+  {
+   "id": "frame-analytic",
+   "layer": {
+    "id": "fx-analytic",
+    "effectId": "soft-veil",
+    "kind": "blur-gaussian",
+    "start": 0.0,
+    "end": 2.0,
+    "params": {},
+    "keyframes": [],
+    "masks": [
+     {
+      "id": "m1",
+      "kind": "gradient",
+      "space": "frame",
+      "shape": "radial",
+      "startX": 128.0,
+      "startY": 72.0,
+      "endX": 250.0,
+      "endY": 72.0,
+      "curve": "smooth",
+      "invert": true
+     },
+     {
+      "id": "m2",
+      "kind": "linear",
+      "space": "frame",
+      "mode": "intersect",
+      "originX": 0.0,
+      "originY": 40.0,
+      "angle": 0.0,
+      "softnessPx": 24.0,
+      "invert": true
+     }
+    ]
+   },
+   "sizes": [
+    [
+     256,
+     144
+    ],
+    [
+     128,
+     72
+    ]
+   ],
+   "times": [
+    0.0
+   ],
+   "expected": [
+    {
+     "width": 256,
+     "height": 144,
+     "localTime": 0.0,
+     "alpha": "9c11e028c18fa454f3a96f8fa72121c0d3d732069c3df6017a5172a206754659"
+    },
+    {
+     "width": 128,
+     "height": 72,
+     "localTime": 0.0,
+     "alpha": "6415e2f39b71c5e49ff28a6daa06f58aebb798f377d5fe7f8c7c8c1084d3f440"
+    }
+   ]
+  }
+ ]
+}

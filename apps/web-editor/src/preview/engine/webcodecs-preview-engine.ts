@@ -35,7 +35,8 @@ import { AudioMasterClock } from '../clock/audio-clock.js';
 import { GlEffectChain } from '../effects/gl-effect-chain.js';
 import type { TimedEffectLayer } from '../effects/gl-effect-chain.js';
 import { cropFillPlacement } from '../crop-fill.js';
-import { isIdentityMask, maskAt, paintClipMask } from '../clip-mask.js';
+import { MaskStackRasterCache, type MaskPreviewRefusal } from '../masks/mask-stack.js';
+import { paintMaskRaster } from '../masks/mask-canvas.js';
 import { heldFrameIsPreviousSegment } from '../held-frame.js';
 import {
   type ClipCompositing,
@@ -82,6 +83,9 @@ const DEFAULT_RESOLUTION: Resolution = { width: 1280, height: 720 };
  */
 let sharedMaskLayer: CanvasRenderingContext2D | null = null;
 
+/** Mask stack rasters for this legacy path, cached by semantic signature. */
+const legacyMaskRasters = new MaskStackRasterCache();
+
 function maskLayer(width: number, height: number): CanvasRenderingContext2D | null {
   sharedMaskLayer ??= document.createElement('canvas').getContext('2d');
   /* v8 ignore next -- a 2d context on a fresh canvas is only null when the browser refuses one
@@ -111,11 +115,50 @@ function sourceDims(source: CanvasImageSource): { w: number; h: number } {
   return { w: s.naturalWidth ?? s.width ?? 0, h: s.naturalHeight ?? s.height ?? 0 };
 }
 
+/**
+ * One picture the canvas last drew, back to front — the preview's own account of WHICH source
+ * frame it presented. Read by the PX4 parity oracle (`preview-parity-oracle.spec.ts`), which
+ * asserts it equals the frame plan's source pts; pixels alone cannot tell an off-by-one frame
+ * from a correct one on static footage.
+ */
+export interface PresentedLayer {
+  /** `held`: the previous shot's snapshot drawn under a transition; `clip`: the active segment. */
+  readonly role: 'clip' | 'held';
+  readonly sourceId: string | undefined;
+  readonly kind: 'video' | 'image';
+  /** `VideoFrame.timestamp` (µs) of the decoded frame drawn; `null` for a still image. */
+  readonly timestampUs: number | null;
+}
+
+/** The last presentation: the time it was drawn for and its picture layers (empty = cleared). */
+export interface PresentedFrame {
+  readonly projectTimeSec: number;
+  readonly layers: readonly PresentedLayer[];
+}
+
 export interface PreviewEngineCallbacks {
   onTimeUpdate?(currentTimeSec: number): void;
   onDurationChange?(durationSec: number): void;
   onPlayingChange?(playing: boolean): void;
   onError?(message: string): void;
+  /**
+   * PX2.8: the layer compositor lowered (scale < 1) or restored (1) the resolution it composites
+   * playback at to keep up. Content is unchanged; the monitor says "Preview reduced".
+   */
+  onRenderScaleChange?(scale: number): void;
+  /**
+   * PX2.3: text or captions are drawn by the browser's canvas instead of the engine's own Pillow
+   * rasters (no engine, or it refused). The monitor says "Preview text approximate".
+   */
+  onTextApproximateChange?(approximate: boolean): void;
+  /**
+   * MK3.2: a clip in the presented frame has a mask stack the monitor cannot draw (the export
+   * refuses the same stack), or `null` once none does. The monitor says so instead of silently
+   * drawing the clip unmasked.
+   */
+  onMaskRefusalChange?(refusal: MaskPreviewRefusal | null): void;
+  /** BR5.1: a presented clip's matte has frames still being processed (drawn without it). */
+  onMatteProcessingChange?(processing: boolean): void;
 }
 
 /** One span of the engine's input EDL, in PROJECT-timeline seconds.
@@ -212,6 +255,9 @@ export class WebCodecsPreviewEngine {
   private heldFrame: { canvas: HTMLCanvasElement; forSegmentStart: number } | null = null;
   /** Which segment the canvas last painted, so a cut can be noticed as it happens. */
   private lastPaintedSegmentStart: number | null = null;
+  /** What the canvas shows now, and what the held frame shows (see {@link PresentedFrame}). */
+  private presented: PresentedFrame = { projectTimeSec: 0, layers: [] };
+  private heldLayers: readonly PresentedLayer[] = [];
   /** Text/caption overlays composited on top of every picture draw (P3b),
    * ordered back-to-front. Independent of the picture EDL — an overlay can
    * span cuts and gaps — so refreshed via `setOverlays`, never reloaded. */
@@ -697,7 +743,8 @@ export class WebCodecsPreviewEngine {
     }
   }
 
-  private clearCanvas(): void {
+  private clearCanvas(projectTimeSec: number): void {
+    this.presented = { projectTimeSec, layers: [] };
     this.ctx2d.clearRect(0, 0, this.ctx2d.canvas.width, this.ctx2d.canvas.height);
   }
 
@@ -763,6 +810,19 @@ export class WebCodecsPreviewEngine {
     held.clearRect(0, 0, width, height);
     held.drawImage(this.ctx2d.canvas, 0, 0);
     this.heldFrame = { canvas, forSegmentStart };
+    this.heldLayers = this.presented.layers.map((layer) => ({ ...layer, role: 'held' as const }));
+  }
+
+  /** The {@link PresentedLayer} record of a source drawn for the segment starting at `segmentStartSec`. */
+  private presentedLayerOf(source: CanvasImageSource, segmentStartSec: number): PresentedLayer {
+    const segment = this.segments.find((candidate) => candidate.projectStart === segmentStartSec);
+    const isFrame = typeof VideoFrame !== 'undefined' && source instanceof VideoFrame;
+    return {
+      role: 'clip',
+      sourceId: segment?.sourceId,
+      kind: isFrame ? 'video' : 'image',
+      timestampUs: isFrame ? source.timestamp : null,
+    };
   }
 
   /**
@@ -773,10 +833,13 @@ export class WebCodecsPreviewEngine {
    * timeline is not the shot this cut is coming from, and painting it would be a worse lie
    * than the black it replaces.
    */
-  private drawHeldFrame(segmentStartSec: number, width: number, height: number): void {
+  private drawHeldFrame(segmentStartSec: number, width: number, height: number): boolean {
     const held = this.heldFrame;
-    if (!heldFrameIsPreviousSegment(this.segments, segmentStartSec, held?.forSegmentStart)) return;
+    if (!heldFrameIsPreviousSegment(this.segments, segmentStartSec, held?.forSegmentStart)) {
+      return false;
+    }
     this.ctx2d.drawImage(held!.canvas, 0, 0, width, height);
+    return true;
   }
 
   /**
@@ -805,6 +868,8 @@ export class WebCodecsPreviewEngine {
     }
     this.lastPaintedSegmentStart = segmentStartSec;
     ctx.clearRect(0, 0, cw, ch);
+    const presentedLayers: PresentedLayer[] = [];
+    this.presented = { projectTimeSec, layers: presentedLayers };
 
     const clipTime = Math.max(0, projectTimeSec - segmentStartSec);
 
@@ -846,7 +911,10 @@ export class WebCodecsPreviewEngine {
     // reveal happens over it — without this the ramp composited against the cleared canvas,
     // which is a dissolve from black rather than from the previous shot.
     const rampingNow = transition !== null || catalog !== null;
-    if (rampingNow) this.drawHeldFrame(segmentStartSec, cw, ch);
+    if (rampingNow && this.drawHeldFrame(segmentStartSec, cw, ch)) {
+      presentedLayers.push(...this.heldLayers);
+    }
+    presentedLayers.push(this.presentedLayerOf(source, segmentStartSec));
 
     if (
       (!compositing || isIdentityCompositing(compositing)) &&
@@ -881,14 +949,22 @@ export class WebCodecsPreviewEngine {
         : NO_TRANSITION,
     );
 
-    // THE CLIP'S MASK, resolved at this frame exactly as the export's `_attach_mask` resolves
-    // it (`clip-mask.ts`). Nothing drew one here, so every mask — and every tracked subject,
-    // whose motion lives on the mask's keyframes — was visible only in a render. A masked
-    // picture is drawn on its own layer (see `maskLayer`) and masked INSIDE the transform
-    // below, in the clip's own frame, because the export masks the picture before it places
-    // it: the mask moves, scales and rotates with the clip.
-    const liveMask = compositing?.mask ? maskAt(compositing.mask, clipTime) : null;
-    const mask = liveMask !== null && !isIdentityMask(liveMask) ? liveMask : null;
+    // THE CLIP'S MASK STACK, rasterised at this frame by the export's own algorithm
+    // (`masks/mask-stack.ts`). A masked picture is drawn on its own layer (see `maskLayer`) and
+    // masked INSIDE the transform below, in the clip's own frame, because the export masks the
+    // picture before it places it: the mask moves, scales and rotates with the clip. A stack
+    // the export refuses is not drawn here; the layer compositor's monitor names the refusal.
+    const stack = compositing?.mask ?? null;
+    const mask =
+      stack !== null && stack.refusal === null && stack.alpha.length > 0
+        ? legacyMaskRasters.raster(
+            stack,
+            { kind: 'alpha' },
+            Math.max(1, Math.round(cw)),
+            Math.max(1, Math.round(ch)),
+            clipTime,
+          )
+        : null;
     const layer = mask !== null ? maskLayer(cw, ch) : null;
     const pictureCtx = layer ?? ctx;
 
@@ -944,7 +1020,7 @@ export class WebCodecsPreviewEngine {
     }
     // Still inside the picture's transform, so the frame box is the clip's own frame.
     if (layer !== null && mask !== null) {
-      paintClipMask(layer, mask, { x: -cw / 2, y: -ch / 2, width: cw, height: ch });
+      paintMaskRaster(layer, mask, { x: -cw / 2, y: -ch / 2, width: cw, height: ch });
     }
     pictureCtx.restore();
     if (layer !== null) {
@@ -1060,7 +1136,7 @@ export class WebCodecsPreviewEngine {
       // previous full composite stays untouched.
       let painted = true;
       if (!segment || segment.kind === 'gap') {
-        this.clearCanvas();
+        this.clearCanvas(clamped);
       } else if (segment.kind === 'image') {
         if (segment.image) {
           this.drawSource(segment.image, segment.compositing, clamped, segment.projectStart);
@@ -1197,7 +1273,7 @@ export class WebCodecsPreviewEngine {
       // overlays must not be painted again on top of themselves.
       let painted = true;
       if (!segment || segment.kind === 'gap') {
-        this.clearCanvas();
+        this.clearCanvas(nowSec);
       } else if (segment.kind === 'image') {
         if (segment.image) {
           const segmentIndex = this.segmentIndexAt(nowSec);
@@ -1327,6 +1403,11 @@ export class WebCodecsPreviewEngine {
    * `wrongSegment` + `missing` over `ticks` is the jitter rate. */
   debugStats(): Record<string, number> {
     return { ...this.dbg, durationSec: this.durationSec, segCount: this.segments.length };
+  }
+
+  /** The last presented picture layers, for the PX4 parity oracle's frame-identity check. */
+  debugPresentedFrame(): PresentedFrame {
+    return this.presented;
   }
 
   dispose(): void {

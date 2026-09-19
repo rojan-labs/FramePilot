@@ -1,0 +1,503 @@
+/**
+ * WebGL2 plumbing for the layer compositor: programs, a render-target pool, integer data
+ * textures. Kept apart from `layer-compositor.ts` so that file reads as the export's pipeline
+ * rather than as GL bookkeeping.
+ */
+import { FULLSCREEN_VERTEX } from './raster-shaders.js';
+
+/** A texture unit no pass samples from: allocations and uploads bind there (see useScratchUnit). */
+const SCRATCH_TEXTURE_UNIT = 15;
+
+export type TargetFormat = 'rgba8' | 'r16i' | 'rgba32f' | 'r32f' | 'r8ui';
+
+/** A texture that can be drawn into. */
+export interface RenderTarget {
+  readonly texture: WebGLTexture;
+  readonly framebuffer: WebGLFramebuffer;
+  readonly width: number;
+  readonly height: number;
+  readonly format: TargetFormat;
+}
+
+/** A compiled program with its uniform locations resolved on first use. */
+export class Program {
+  private readonly locations = new Map<string, WebGLUniformLocation | null>();
+
+  constructor(
+    private readonly gl: WebGL2RenderingContext,
+    readonly handle: WebGLProgram,
+  ) {}
+
+  location(name: string): WebGLUniformLocation | null {
+    if (!this.locations.has(name)) {
+      this.locations.set(name, this.gl.getUniformLocation(this.handle, name));
+    }
+    return this.locations.get(name) ?? null;
+  }
+
+  int(name: string, value: number): void {
+    this.gl.uniform1i(this.location(name), value);
+  }
+
+  ivec2(name: string, x: number, y: number): void {
+    this.gl.uniform2i(this.location(name), x, y);
+  }
+
+  vec4(name: string, value: readonly [number, number, number, number]): void {
+    this.gl.uniform4f(this.location(name), value[0], value[1], value[2], value[3]);
+  }
+}
+
+function compile(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
+  const shader = gl.createShader(type);
+  if (!shader) throw new Error('WebGL2 could not allocate a shader.');
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const info = gl.getShaderInfoLog(shader) ?? 'unknown error';
+    gl.deleteShader(shader);
+    throw new Error(`Compositor shader failed to compile: ${info}`);
+  }
+  return shader;
+}
+
+/** Bytes per texel of each render-target format (for {@link GlResources.poolBytes}). */
+const TARGET_FORMAT_BYTES: Record<TargetFormat, number> = {
+  rgba8: 4,
+  r16i: 2,
+  rgba32f: 16,
+  r32f: 4,
+  r8ui: 1,
+};
+/**
+ * Uploaded source textures kept by key ({@link GlResources.keyedTexture}): two matte frames
+ * (alpha + foreground each), enough for the two composites a 60 Hz display runs per frame.
+ */
+const KEYED_TEXTURE_CAPACITY = 4;
+const FLOAT_PLANE_BYTES = 4;
+
+interface KeyedTexture {
+  readonly texture: WebGLTexture;
+  readonly bytes: number;
+  /** Layout and size: which spare list it returns to. */
+  readonly shape: string;
+}
+const INT_TABLE_BYTES = 4;
+
+/** Shared GL objects for one context. */
+export class GlResources {
+  private readonly programs = new Map<string, Program>();
+  private readonly vertexArray: WebGLVertexArrayObject;
+  private readonly vertexBuffer: WebGLBuffer;
+  private readonly free = new Map<string, RenderTarget[]>();
+  private readonly dataTextures = new Map<string, WebGLTexture>();
+  private readonly planeTextures = new Map<string, WebGLTexture[]>();
+  private readonly planeInUse: WebGLTexture[] = [];
+  private readonly inUse: RenderTarget[] = [];
+  private readonly dataTextureBytes = new Map<string, number>();
+  private readonly keyedTextures = new Map<string, KeyedTexture>();
+  /** Evicted keyed textures by storage shape, re-filled instead of re-created (PX5.3). */
+  private readonly spareKeyed = new Map<string, WebGLTexture[]>();
+  private allocatedBytes = 0;
+  private allocatedTextures = 0;
+
+  /**
+   * Bytes of texture storage this context holds (pooled targets, planes and filter tables), by
+   * the formats' sizes. The pools never shrink before {@link dispose}, so this is also their
+   * high-water mark; PX5 reads it to show the pools stay bounded on a steady timeline.
+   */
+  get poolBytes(): number {
+    return this.allocatedBytes;
+  }
+
+  /** Textures behind {@link poolBytes}. */
+  get poolTextures(): number {
+    return this.allocatedTextures;
+  }
+
+  private account(bytes: number): void {
+    this.allocatedBytes += bytes;
+    this.allocatedTextures += 1;
+  }
+
+  constructor(readonly gl: WebGL2RenderingContext) {
+    const vertexArray = gl.createVertexArray();
+    const vertexBuffer = gl.createBuffer();
+    if (!vertexArray || !vertexBuffer) throw new Error('WebGL2 could not allocate buffers.');
+    this.vertexArray = vertexArray;
+    this.vertexBuffer = vertexBuffer;
+    gl.bindVertexArray(vertexArray);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+    // One triangle covering clip space: no seam on the diagonal.
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+  }
+
+  program(name: string, fragment: string): Program {
+    const cached = this.programs.get(name);
+    if (cached) return cached;
+    const gl = this.gl;
+    const handle = gl.createProgram();
+    if (!handle) throw new Error('WebGL2 could not allocate a program.');
+    const vs = compile(gl, gl.VERTEX_SHADER, FULLSCREEN_VERTEX);
+    const fs = compile(gl, gl.FRAGMENT_SHADER, fragment);
+    gl.attachShader(handle, vs);
+    gl.attachShader(handle, fs);
+    gl.bindAttribLocation(handle, 0, 'a_position');
+    gl.linkProgram(handle);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+    if (!gl.getProgramParameter(handle, gl.LINK_STATUS)) {
+      const info = gl.getProgramInfoLog(handle) ?? 'unknown error';
+      gl.deleteProgram(handle);
+      throw new Error(`Compositor program ${name} failed to link: ${info}`);
+    }
+    const program = new Program(gl, handle);
+    this.programs.set(name, program);
+    return program;
+  }
+
+  /** A render target for this frame; returned to the pool by {@link endFrame}. */
+  target(width: number, height: number, format: TargetFormat): RenderTarget {
+    const key = `${width}x${height}:${format}`;
+    const pooled = this.free.get(key)?.pop();
+    const target = pooled ?? this.createTarget(width, height, format);
+    this.inUse.push(target);
+    return target;
+  }
+
+  private createTarget(width: number, height: number, format: TargetFormat): RenderTarget {
+    const gl = this.gl;
+    const texture = gl.createTexture();
+    const framebuffer = gl.createFramebuffer();
+    if (!texture || !framebuffer) throw new Error('WebGL2 could not allocate a render target.');
+    this.useScratchUnit();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    if (format === 'rgba8') {
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, width, height);
+    } else if (format === 'rgba32f') {
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, width, height);
+    } else if (format === 'r32f') {
+      // One float channel (PX5.3): a matte's alpha at its artifact's own size, a quarter of
+      // the storage `rgba32f` would hold for the three channels nothing reads.
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, width, height);
+    } else if (format === 'r8ui') {
+      // The one integer coverage format the mask shaders sample (`usampler2D u_mask`), so a
+      // stack built on the GPU binds exactly where an uploaded CPU raster binds.
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8UI, width, height);
+    } else {
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16I, width, height);
+    }
+    setNearest(gl);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+      gl.deleteFramebuffer(framebuffer);
+      gl.deleteTexture(texture);
+      throw new Error(`Compositor render target ${width}x${height} ${format} is incomplete.`);
+    }
+    this.account(width * height * TARGET_FORMAT_BYTES[format]);
+    return { texture, framebuffer, width, height, format };
+  }
+
+  /** Keep a target alive past {@link endFrame} (the caller releases it with {@link recycle}). */
+  retain(target: RenderTarget): void {
+    const index = this.inUse.indexOf(target);
+    if (index >= 0) this.inUse.splice(index, 1);
+  }
+
+  recycle(target: RenderTarget): void {
+    const key = `${target.width}x${target.height}:${target.format}`;
+    const list = this.free.get(key) ?? [];
+    list.push(target);
+    this.free.set(key, list);
+  }
+
+  /**
+   * An 8-bit unsigned single-channel texture holding `data` (a video plane).
+   * Pooled by size and released at {@link endFrame}.
+   */
+  plane(width: number, height: number, data: Uint8Array): WebGLTexture {
+    const gl = this.gl;
+    const key = `${width}x${height}`;
+    const pooled = this.planeTextures.get(key)?.pop();
+    let texture = pooled;
+    if (!texture) {
+      const created = gl.createTexture();
+      if (!created) throw new Error('WebGL2 could not allocate a plane texture.');
+      texture = created;
+      this.useScratchUnit();
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8UI, width, height);
+      setNearest(gl);
+      this.account(width * height);
+    } else {
+      this.useScratchUnit();
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+    }
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RED_INTEGER, gl.UNSIGNED_BYTE, data);
+    this.planeInUse.push(texture);
+    (texture as { __planeKey?: string }).__planeKey = key;
+    return texture;
+  }
+
+  /**
+   * A single-channel FLOAT texture holding `data`, for a mask layer that must not be quantised
+   * before the stack is combined (MK6.1: the export quantises the stack once, at the end).
+   * Pooled by size and released at {@link endFrame}.
+   */
+  floatPlane(width: number, height: number, data: Float32Array): WebGLTexture {
+    const gl = this.gl;
+    const key = `f${width}x${height}`;
+    const pooled = this.planeTextures.get(key)?.pop();
+    let texture = pooled;
+    if (!texture) {
+      const created = gl.createTexture();
+      if (!created) throw new Error('WebGL2 could not allocate a float plane texture.');
+      texture = created;
+      this.useScratchUnit();
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, width, height);
+      setNearest(gl);
+      this.account(width * height * FLOAT_PLANE_BYTES);
+    } else {
+      this.useScratchUnit();
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+    }
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RED, gl.FLOAT, data);
+    this.planeInUse.push(texture);
+    (texture as { __planeKey?: string }).__planeKey = key;
+    return texture;
+  }
+
+  /** An `RGBA8` render target holding an image, canvas or `VideoFrame` exactly as decoded. */
+  imageTarget(source: TexImageSource, width: number, height: number): RenderTarget {
+    const gl = this.gl;
+    const target = this.target(width, height, 'rgba8');
+    this.useScratchUnit();
+    gl.bindTexture(gl.TEXTURE_2D, target.texture);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    return target;
+  }
+
+  /** An `RGBA8` render target holding straight RGBA bytes, rows top first. */
+  bytesTarget(data: Uint8Array, width: number, height: number): RenderTarget {
+    const gl = this.gl;
+    const target = this.target(width, height, 'rgba8');
+    this.useScratchUnit();
+    gl.bindTexture(gl.TEXTURE_2D, target.texture);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    return target;
+  }
+
+  /**
+   * A persistent `R32I` data texture (`width × height`), built once per key: filter tables.
+   */
+  intTable(key: string, width: number, height: number, build: () => Int32Array): WebGLTexture {
+    const cached = this.dataTextures.get(key);
+    if (cached) return cached;
+    const gl = this.gl;
+    const texture = gl.createTexture();
+    if (!texture) throw new Error('WebGL2 could not allocate a data texture.');
+    this.useScratchUnit();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32I, width, height);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RED_INTEGER, gl.INT, build());
+    setNearest(gl);
+    this.dataTextures.set(key, texture);
+    this.dataTextureBytes.set(key, width * height * INT_TABLE_BYTES);
+    this.account(width * height * INT_TABLE_BYTES);
+    this.boundDataTextures(key);
+    return texture;
+  }
+
+  /**
+   * An unsigned-integer source texture uploaded ONCE per `key` and kept while it is among the
+   * most recently used (PX5.3).
+   *
+   * WHY not the per-frame plane pool: a matte frame is composited more than once — twice per
+   * project frame on a 60 Hz display, and again on every paused repaint — and a 4K master is
+   * 8 MB of alpha plus 25 MB of foreground. Uploading that per composite would cost more than
+   * the passes that read it. The cache is a fixed handful of frames, so the pool bytes it adds
+   * are constant on a steady timeline.
+   *
+   * @param layout - `r8`/`r16`: one channel; `rgb8`: interleaved R, G, B bytes.
+   */
+  keyedTexture(
+    key: string,
+    width: number,
+    height: number,
+    layout: 'r8' | 'r16' | 'rgb8',
+    data: Uint8Array | Uint16Array,
+  ): WebGLTexture {
+    const cached = this.keyedTextures.get(key);
+    if (cached !== undefined) {
+      this.keyedTextures.delete(key);
+      this.keyedTextures.set(key, cached);
+      return cached.texture;
+    }
+    const gl = this.gl;
+    const shape = `${layout}:${width}x${height}`;
+    const bytes = width * height * (layout === 'rgb8' ? 3 : layout === 'r16' ? 2 : 1);
+    const format =
+      layout === 'rgb8'
+        ? { internal: gl.RGB8UI, upload: gl.RGB_INTEGER, type: gl.UNSIGNED_BYTE }
+        : layout === 'r16'
+          ? { internal: gl.R16UI, upload: gl.RED_INTEGER, type: gl.UNSIGNED_SHORT }
+          : { internal: gl.R8UI, upload: gl.RED_INTEGER, type: gl.UNSIGNED_BYTE };
+    // A matte frame is replaced by the next one of the same shape about 30 times a second.
+    // Creating and deleting a 25 MB texture at that rate lets the driver's deferred frees pile
+    // up (PX5.3 measured the footprint doing it), so an evicted texture is re-filled instead.
+    let texture = this.spareKeyed.get(shape)?.pop() ?? null;
+    this.useScratchUnit();
+    if (texture === null) {
+      texture = gl.createTexture();
+      if (!texture) throw new Error('WebGL2 could not allocate a source texture.');
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, format.internal, width, height);
+      setNearest(gl);
+      this.account(bytes);
+    } else {
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+    }
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, format.upload, format.type, data);
+    this.keyedTextures.set(key, { texture, bytes, shape });
+    while (this.keyedTextures.size > KEYED_TEXTURE_CAPACITY) {
+      const oldest = this.keyedTextures.keys().next().value!;
+      const entry = this.keyedTextures.get(oldest)!;
+      this.keyedTextures.delete(oldest);
+      const spares = this.spareKeyed.get(entry.shape) ?? [];
+      if (spares.length < KEYED_TEXTURE_CAPACITY) {
+        spares.push(entry.texture);
+        this.spareKeyed.set(entry.shape, spares);
+      } else {
+        gl.deleteTexture(entry.texture);
+        this.allocatedBytes -= entry.bytes;
+        this.allocatedTextures -= 1;
+      }
+    }
+    return texture;
+  }
+
+  /** A persistent `R32F` data texture (`width × height`), built once per key: filter weights. */
+  floatTable(key: string, width: number, height: number, build: () => Float32Array): WebGLTexture {
+    const name = `f:${key}`;
+    const cached = this.dataTextures.get(name);
+    if (cached) return cached;
+    const gl = this.gl;
+    const texture = gl.createTexture();
+    if (!texture) throw new Error('WebGL2 could not allocate a data texture.');
+    this.useScratchUnit();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, width, height);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RED, gl.FLOAT, build());
+    setNearest(gl);
+    this.dataTextures.set(name, texture);
+    this.dataTextureBytes.set(name, width * height * FLOAT_PLANE_BYTES);
+    this.account(width * height * FLOAT_PLANE_BYTES);
+    this.boundDataTextures(name);
+    return texture;
+  }
+
+  /** Filter tables are small but one exists per size pair; keep a bound on a long session. */
+  private boundDataTextures(justAdded: string): void {
+    if (this.dataTextures.size <= 256) return;
+    const oldest = this.dataTextures.keys().next().value;
+    if (oldest === undefined || oldest === justAdded) return;
+    this.gl.deleteTexture(this.dataTextures.get(oldest)!);
+    this.dataTextures.delete(oldest);
+    this.allocatedBytes -= this.dataTextureBytes.get(oldest) ?? 0;
+    this.allocatedTextures -= 1;
+    this.dataTextureBytes.delete(oldest);
+  }
+
+  /** Draw a fullscreen pass into `target` (or the canvas when `null`). */
+  draw(target: RenderTarget | null, width: number, height: number): void {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target?.framebuffer ?? null);
+    gl.viewport(0, 0, width, height);
+    gl.bindVertexArray(this.vertexArray);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindVertexArray(null);
+  }
+
+  /**
+   * Make the scratch unit active before binding a texture only to allocate or upload it.
+   *
+   * Uploading on whatever unit is active replaced a sampler binding a pass had already made
+   * (a pooled target allocated after `bind` only on a pool miss, so the first frames of a new
+   * size composited another texture: the CI oracle's intermittent garbage reads).
+   */
+  useScratchUnit(): void {
+    this.gl.activeTexture(this.gl.TEXTURE0 + SCRATCH_TEXTURE_UNIT);
+  }
+
+  /** Bind `texture` to `unit` and point `name` of `program` at it. */
+  bind(program: Program, name: string, unit: number, texture: WebGLTexture): void {
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    program.int(name, unit);
+  }
+
+  /** Return this frame's transient targets and planes to their pools. */
+  endFrame(): void {
+    for (const target of this.inUse.splice(0)) this.recycle(target);
+    for (const texture of this.planeInUse.splice(0)) {
+      const key = (texture as { __planeKey?: string }).__planeKey ?? '';
+      const list = this.planeTextures.get(key) ?? [];
+      list.push(texture);
+      this.planeTextures.set(key, list);
+    }
+  }
+
+  dispose(): void {
+    const gl = this.gl;
+    for (const program of this.programs.values()) gl.deleteProgram(program.handle);
+    for (const list of this.free.values()) {
+      for (const target of list) {
+        gl.deleteFramebuffer(target.framebuffer);
+        gl.deleteTexture(target.texture);
+      }
+    }
+    for (const target of this.inUse) {
+      gl.deleteFramebuffer(target.framebuffer);
+      gl.deleteTexture(target.texture);
+    }
+    for (const texture of this.dataTextures.values()) gl.deleteTexture(texture);
+    for (const entry of this.keyedTextures.values()) gl.deleteTexture(entry.texture);
+    this.keyedTextures.clear();
+    for (const list of this.spareKeyed.values())
+      for (const texture of list) gl.deleteTexture(texture);
+    this.spareKeyed.clear();
+    for (const list of this.planeTextures.values())
+      for (const texture of list) gl.deleteTexture(texture);
+    for (const texture of this.planeInUse) gl.deleteTexture(texture);
+    gl.deleteBuffer(this.vertexBuffer);
+    gl.deleteVertexArray(this.vertexArray);
+    this.programs.clear();
+    this.free.clear();
+    this.dataTextures.clear();
+    this.planeTextures.clear();
+    this.dataTextureBytes.clear();
+    this.allocatedBytes = 0;
+    this.allocatedTextures = 0;
+  }
+}
+
+function setNearest(gl: WebGL2RenderingContext): void {
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+}

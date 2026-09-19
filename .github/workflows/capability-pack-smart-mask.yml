@@ -1,0 +1,101 @@
+# Smart Mask Capability Pack verification (no weights).
+#
+# Deliberately SEPARATE from CI, on the same terms as the other packs: `workers/smart-mask`
+# is a standalone artifact project, not a workspace member, and neither onnxruntime nor its
+# ~1.4 GB of derived model graphs may ever enter the base application's environment.
+#
+# This workflow runs everything that needs no weights: the protocol/sandbox/runtime contract,
+# every pipeline stage with scripted models, real ffmpeg on generated clips, lint, types, and
+# the licence record. The real-weight proof (`-m decoded_media`) needs the exported graphs and
+# ~8 GB of memory per job; it runs on the pack build machine under spike/watchdog.py, not here.
+# The accuracy harness (eval/run_eval.py) runs in smart-mask-eval.yml, dispatch only (BR7.4).
+name: Capability Pack — Smart Mask
+
+on:
+  pull_request:
+    paths:
+      - 'workers/smart-mask/**'
+      - 'scripts/dev-register-smart-mask.sh'
+      - '.github/workflows/capability-pack-smart-mask.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'workers/smart-mask/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pack-smart-mask-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: workers/smart-mask
+
+jobs:
+  contract:
+    name: Protocol, sandbox and runtime (no third-party dependency)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - name: Contract suites run with the standard library alone
+        run: >-
+          uv run --python 3.13 --with pytest --no-project pytest -q
+          tests/test_protocol.py tests/test_runtime.py tests/test_sandbox.py tests/test_identity_and_models.py
+      - name: Weights, exports and media must never be committed
+        working-directory: .
+        run: |
+          if git ls-files workers/smart-mask/models workers/smart-mask/.cache | grep -v '^workers/smart-mask/models/.gitignore$'; then
+            echo "::error::model graphs and media must not be committed; they are exported and verified by digest"
+            exit 1
+          fi
+          if git ls-files workers/smart-mask | grep -Ei '\.(onnx|npz|pt|safetensors|mkv|mp4|mov|webm)$'; then
+            echo "::error::binary model or media files are committed under workers/smart-mask"
+            exit 1
+          fi
+      - name: Base app must not depend on this worker
+        working-directory: .
+        run: |
+          if grep -rn "framepilot_smart_mask" --include='*.py' engine/python/framepilot_engine; then
+            echo "::error::the base render engine must never import the Smart Mask worker"
+            exit 1
+          fi
+          if grep -n '"workers/' pnpm-workspace.yaml pyproject.toml; then
+            echo "::error::the worker must not be a workspace member"
+            exit 1
+          fi
+
+  pipeline:
+    name: Pipeline with scripted models (no weights)
+    needs: contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - name: ffmpeg for generated test clips
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Install the cv extra from the exact lock
+        run: uv sync --extra cv --extra dev --locked --python 3.13
+      - name: Unit suite (decoded_media excluded by default)
+        run: uv run --no-sync pytest -q
+      - name: Lint
+        run: uv run --no-sync ruff check src tests tools
+      - name: Typecheck
+        run: uv run --no-sync mypy
+      - name: Licence record (LGPL ffmpeg verified on the pack build machine)
+        # Placeholder pins and the shipped ffmpeg are pack-build facts; this tier checks the
+        # distributions, PyAV absence, OpenCV's notice and the hand-reviewed LICENSES.md.
+        run: |
+          uv run --no-sync python tools/generate_sbom.py --check 2> drift.txt || true
+          cat drift.txt
+          if grep -v -e 'has no recorded digest' -e 'no ffmpeg binary given' -e 'record problem' -e 'Traceback' -e '^  ' -e 'RecordDriftError' drift.txt | grep -q 'drift:'; then
+            echo "::error::licence/SBOM record drift"
+            exit 1
+          fi

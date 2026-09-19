@@ -43,7 +43,9 @@ Progress identifies the decode/initialize/track/detect/segment/encode phase and 
 total count. It can never report more completed work than its declared total.
 
 Tracking results contain frame-indexed normalized boxes, confidence, and explicit occlusion. Detection
-results contain frame, label, box, and confidence. Segmentation results contain bounded COCO-style
+results contain frame, label, box, and confidence; when the request sets `classes: true` (Subject
+Intelligence 1.1.0 and newer), person/object detections also carry `class`, one of the model's 80
+COCO names, and `classScore`. Segmentation results contain bounded COCO-style
 row-major binary-mask run lengths plus dimensions and confidence. All results record the backend and
 exact model digests. A worker cannot return more than 18,000 temporal samples in one request.
 
@@ -116,6 +118,12 @@ there is `target_lost`, because a guessed rectangle would produce a confident ma
 thing. An empty or near-empty mask is `target_lost` rather than an all-zero "mask". Detections are
 emitted in a stable total order (frame, label, descending confidence, position), and masks as
 row-major run lengths beginning with the zero run.
+
+YOLOX already scores 80 COCO classes per box. Since 1.1.0 the worker reports the winning class name
+(`coco_classes.py`, in the model's own output order) and its conditional class probability, but only
+when the host asks: without `classes` the output is the 1.0 shape exactly, so a host that predates the
+field never sees it. The `label` stays `face`/`person`/`object`. See "Additive request fields" in
+`capability-packs.md` for how the host negotiates it per installed release.
 
 PPHumanSeg is trained for portrait and half-body subjects, so it runs **inside** the caller's prompt
 region rather than over the whole frame: measured on the pinned proof photograph, whole-frame

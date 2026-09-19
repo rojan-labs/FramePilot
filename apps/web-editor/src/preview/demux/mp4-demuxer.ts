@@ -44,6 +44,42 @@ export interface DemuxedSampleTable {
    * a display-step fallback only; exact times live in
    * `presentationTimestampsUs`. */
   frameDurationUs: number;
+  /**
+   * `timescale / first sample duration`: the nominal rate the export's reader indexes frames
+   * by (`int(fps * t)`). Exact for the constant-rate proxies (e.g. 15360 / 512 = 30).
+   */
+  frameRate: number;
+  /**
+   * Variable-frame-rate sources only: each frame's pts in seconds from the first frame, in
+   * presentation order; `null` for a constant rate. The export's pts-exact reader
+   * (`render/pts_reader.py`) numbers these frames by pts, and the frame plan follows it.
+   */
+  frameTimesSec: number[] | null;
+}
+
+/**
+ * `VideoTiming.constant_rate` / `relative_seconds` of `render/pts_reader.py`: a source is
+ * variable-rate when its frame steps differ by more than one tick.
+ *
+ * @param ctsTicks - Every sample's composition time in `timescale` ticks, any order.
+ * @returns Seconds from the first frame, ascending, or `null` for a constant rate.
+ */
+export function variableFrameTimes(
+  ctsTicks: readonly number[],
+  timescale: number,
+): number[] | null {
+  if (ctsTicks.length < 3 || timescale <= 0) return null;
+  const sorted = [...ctsTicks].sort((a, b) => a - b);
+  let minStep = Infinity;
+  let maxStep = -Infinity;
+  for (let i = 1; i < sorted.length; i++) {
+    const step = sorted[i]! - sorted[i - 1]!;
+    if (step < minStep) minStep = step;
+    if (step > maxStep) maxStep = step;
+  }
+  if (maxStep - minStep <= 1) return null;
+  const first = sorted[0]!;
+  return sorted.map((ticks) => (ticks - first) / timescale);
 }
 
 /** One demuxed sample as a plain object — the mp4box-facing half of this
@@ -81,8 +117,11 @@ export function demuxAllVideoSamples(
     /** Per decode-order chunk: presentation timestamp (µs) + keyframe flag,
      * kept to build the presentation-order translation arrays afterwards. */
     const sampleMeta: { ctsUs: number; isSync: boolean }[] = [];
+    const ctsTicks: number[] = [];
+    let timescale = 0;
     let config: VideoDecoderConfig | undefined;
     let frameDurationUs: number | undefined;
+    let frameRate: number | undefined;
 
     file.onError = (module, message) => {
       reject(new Error(`mp4box demux error in ${module}: ${message}`));
@@ -111,9 +150,12 @@ export function demuxAllVideoSamples(
           }
           if (frameDurationUs === undefined) {
             frameDurationUs = Math.round((sample.duration * 1_000_000) / sample.timescale);
+            frameRate = sample.duration > 0 ? sample.timescale / sample.duration : 0;
           }
           const ctsUs = Math.round((sample.cts * 1_000_000) / sample.timescale);
           sampleMeta.push({ ctsUs, isSync: Boolean(sample.is_sync) });
+          ctsTicks.push(sample.cts);
+          timescale = sample.timescale;
           rawInits.push({
             type: sample.is_sync ? 'key' : 'delta',
             timestamp: ctsUs,
@@ -145,7 +187,14 @@ export function demuxAllVideoSamples(
       chunkFactory({ ...init, timestamp: init.timestamp - minCtsUs }),
     );
     const normalizedMeta = sampleMeta.map((m) => ({ ctsUs: m.ctsUs - minCtsUs, isSync: m.isSync }));
-    resolve({ config, chunks, frameDurationUs, ...buildPresentationTables(normalizedMeta) });
+    resolve({
+      config,
+      chunks,
+      frameDurationUs,
+      frameRate: frameRate ?? 0,
+      frameTimesSec: variableFrameTimes(ctsTicks, timescale),
+      ...buildPresentationTables(normalizedMeta),
+    });
   });
 }
 
@@ -299,4 +348,91 @@ export function nearestKeyframeIndexAtOrBefore(
     }
   }
   return best;
+}
+
+/** Random access to a media file's bytes (a `fetch` with `Range`, or an in-memory buffer). */
+export interface ByteRangeReader {
+  readonly size: number;
+  /** Bytes `[start, end)`. */
+  read(start: number, end: number): Promise<ArrayBuffer>;
+}
+
+/** One sample's location in the file, in decode order (PX2.6). */
+export interface SampleLocation {
+  readonly offset: number;
+  readonly size: number;
+  readonly type: 'key' | 'delta';
+  /** Normalised presentation timestamp (µs), as {@link DemuxedSampleTable} chunks carry. */
+  readonly timestamp: number;
+  readonly duration: number;
+}
+
+/** A sample table whose sample bytes stay in the file until a decode needs them. */
+export interface StreamedSampleTable extends Omit<DemuxedSampleTable, 'chunks'> {
+  readonly samples: readonly SampleLocation[];
+}
+
+/** How much of the file one parse step reads while looking for `moov`. */
+const STREAM_PARSE_STEP_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Parse only the sample tables of an MP4 through range reads (PX2.6): `ftyp`/`moov` are read,
+ * `mdat` is skipped, so opening a feature-length camera original costs its index, not its size.
+ *
+ * @throws Error when there is no video track or no decodable codec configuration.
+ */
+export async function demuxSampleTableStreaming(
+  reader: ByteRangeReader,
+): Promise<StreamedSampleTable> {
+  const file = createFile();
+  let failure: Error | null = null;
+  let ready = false;
+  file.onError = (module, message) => {
+    failure = new Error(`mp4box demux error in ${module}: ${message}`);
+  };
+  file.onReady = () => {
+    ready = true;
+  };
+  let position = 0;
+  while (!ready && failure === null && position < reader.size) {
+    const end = Math.min(reader.size, position + STREAM_PARSE_STEP_BYTES);
+    const bytes = await reader.read(position, end);
+    const next = file.appendBuffer(
+      MP4BoxBuffer.fromArrayBuffer(bytes, position),
+      end >= reader.size,
+    );
+    position = next > position ? next : end;
+  }
+  if (!ready) file.flush();
+  if (failure !== null) throw failure;
+  const info = file.getInfo();
+  const track = info.videoTracks[0];
+  if (!track?.video) throw new Error('No video track found in media.');
+  const samples = file.getTrackSamplesInfo(track.id);
+  const first = samples[0];
+  if (!first) throw new Error('No video samples were found in the media.');
+  const config = buildVideoDecoderConfig(track.codec, track.video.width, track.video.height, first);
+  const meta = samples.map((sample) => ({
+    ctsUs: Math.round((sample.cts * 1_000_000) / sample.timescale),
+    isSync: Boolean(sample.is_sync),
+  }));
+  const minCtsUs = Math.min(...meta.map((m) => m.ctsUs));
+  const normalizedMeta = meta.map((m) => ({ ctsUs: m.ctsUs - minCtsUs, isSync: m.isSync }));
+  return {
+    config,
+    frameDurationUs: Math.round((first.duration * 1_000_000) / first.timescale),
+    frameRate: first.duration > 0 ? first.timescale / first.duration : 0,
+    frameTimesSec: variableFrameTimes(
+      samples.map((sample) => sample.cts),
+      first.timescale,
+    ),
+    samples: samples.map((sample, index) => ({
+      offset: sample.offset,
+      size: sample.size,
+      type: sample.is_sync ? 'key' : 'delta',
+      timestamp: normalizedMeta[index]!.ctsUs,
+      duration: Math.round((sample.duration * 1_000_000) / sample.timescale),
+    })),
+    ...buildPresentationTables(normalizedMeta),
+  };
 }

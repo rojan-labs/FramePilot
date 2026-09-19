@@ -1,36 +1,27 @@
 /**
- * Tracking and mask tools — including the one that still does not work.
+ * The tracker effect. Masks are not made here any more (plan 11, AM1.2).
  *
- * `detect_faces` became real through the Subject Intelligence pack (see
- * `automatic-tracking.ts`'s `detect_subjects`, which supersedes it with
- * person/object labels included). `generate_mask` remains registered and
- * explicitly unavailable because a segmentation is a bitmap and the timeline
- * mask model steers by rectangle bounds; the measured path that DOES exist is
- * `track_subject_automatically` with subject="silhouette", which segments
- * inside a drawn mask and follows the silhouette's bounding box. This file
- * keeps the honest statement of what the domain cannot do beside what it can.
+ * This file used to hold `add_mask` (a whole-frame shape the model placed by naming it) and
+ * `generate_mask` (registered and unavailable, because a segmentation was a bitmap and masks
+ * steered by rectangle bounds). Schema v22 gave masks a raster kind and the Smart Mask pack
+ * gave them a measured one, so both are replaced by `create_mask` in `masking.ts`, where a
+ * mask's geometry always comes from a candidate, a measurement or the editor's own numbers.
  */
 import { z } from 'zod/v4';
 import type { ToolSpec } from '../tool-registry.js';
-import { mutateTool, unavailableTool } from './tool-factories.js';
+import { mutateTool } from './tool-factories.js';
 import { filterString, seconds } from './tool-args.js';
 
 export const TRACKING_MASK_TOOLS: readonly ToolSpec[] = [
-  mutateTool(
-    { name: 'add_mask', description: 'Add a mask shape to a clip.' },
-    z.object({ clipId: z.string(), shape: z.enum(['rectangle', 'ellipse', 'polygon']) }).strict(),
-    (a) => [{ type: 'add_mask', clipId: a.clipId, shape: a.shape }],
-  ),
   mutateTool(
     {
       name: 'track_object',
       description:
         'Attach an object tracker EFFECT to a clip, with NO motion in it: it marks the region ' +
         '(frame fractions) a highlight or mask should follow, and nothing here computes the ' +
-        'path. The measured track comes from track_subject_automatically, which needs a mask ' +
-        'the editor draws around the subject in the editor and an installed CV pack. So: ' +
-        'attach the tracker, tell the editor to draw the mask and run the automatic tracking, ' +
-        'and never describe the subject as tracked. Attaching a second tracker to the same ' +
+        'path. To make a MASK follow a subject, load the masking tools and use create_mask with ' +
+        'track:true, or track_mask on an existing mask. Never describe the subject as tracked ' +
+        'from this call alone. Attaching a second tracker to the same ' +
         'clip replaces the first — repeating the call does not compute anything.',
     },
     z
@@ -53,16 +44,5 @@ export const TRACKING_MASK_TOOLS: readonly ToolSpec[] = [
         ...(a.engine ? { engine: a.engine } : {}),
       },
     ],
-  ),
-  unavailableTool(
-    {
-      name: 'generate_mask',
-      description:
-        'Generate a subject mask (unavailable — segmentation produces bitmap masks, and timeline ' +
-        'masks steer by rectangle bounds). The measured alternative is ' +
-        'track_subject_automatically with subject="silhouette": it segments inside a drawn mask ' +
-        'and animates that mask to follow the measured silhouette.',
-    },
-    true,
   ),
 ];

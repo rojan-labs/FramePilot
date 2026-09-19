@@ -48,7 +48,7 @@
  *
  * Do not read the empty `speedRamps` slice below as evidence the op is missing.
  */
-import type { Clip, Effect, Project, Track } from '@framepilot/timeline-schema';
+import { masksOf, type Clip, type Effect, type Project, type Track } from '@framepilot/timeline-schema';
 import { clipKindOf, indexFor, type ProjectIndex } from '../../project-index.js';
 import { projectAssetSpan } from './picture.js';
 
@@ -383,6 +383,11 @@ function deriveClipDerived(index: ProjectIndex): {
           category: effectCategory(effect.type),
         });
       }
+    }
+    // Schema v22: masks are the clip's mask stack, not effects (ADR 0178). They index under
+    // the same 'mask' category, keyed by mask id, so retrieval grouping is unchanged.
+    for (const mask of masksOf(clip)) {
+      effects.push({ clipId: clip.id, effectId: mask.id, type: 'mask', category: 'mask' });
     }
   }
   return { captions, transitions, effects };

@@ -1,0 +1,141 @@
+# Pinned model files for the Smart Mask Capability Pack.
+#
+# WHY THIS FILE EXISTS
+#
+# The pack ships ONNX graphs derived from two upstream checkpoints. They are never committed:
+# `tools/export_onnx.py` produces them at pack build time from the pinned checkpoints below
+# (PyTorch is a build-time dependency only and never ships), and every produced file must
+# hash to the digest recorded here and compiled into `src/framepilot_smart_mask/models.py`.
+# A file that does not match is refused (`model_unavailable`).
+#
+# These digests are what the worker reports in `modelDigests` on every handshake and result,
+# so an edit's evidence lineage names the exact graphs that produced a matte.
+#
+# WHY THESE MODELS: plan/background-removal-ai/02-WORKER-PACK.md and ADR 0179 (decided).
+# PRECISION: SAM 2.1 ships fp32 (its fp16-stored export failed parity, BR0.2). BiRefNet ships
+# fp16-stored / fp32-computed (passed parity at 768² on the CPU EP). A (model, EP) pair that
+# fails parity is disabled by rule (models.py PARITY_TABLE).
+#
+# OPEN FINDING (BR0.5, carried forward, blocks shipping): BiRefNet_HR-matting training-data
+# terms are unverified. See LICENSES.md.
+
+schemaVersion = 1
+
+[source.sam2]
+checkpoint = "sam2.1_hiera_large.pt"
+url = "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt"
+sha256 = "2647878d5dfa5098f2f8649825738a9345572bae2d4350a2468587ece47dd318"
+bytes = 898083611
+code = "https://github.com/facebookresearch/sam2"
+commit = "2b90b9f5ceec907a1c18123530e92e794ad901a4"
+config = "configs/sam2.1/sam2.1_hiera_l.yaml"
+license = "Apache-2.0"
+
+[source.birefnet]
+checkpoint = "model.safetensors"
+url = "https://huggingface.co/ZhengPeng7/BiRefNet_HR-matting/resolve/5d6b6f8adcb5b417c871b1d84ceaae9871355b7f/model.safetensors"
+sha256 = "a5a4de698739ea5e0e8bbab28e1b293dde95092b87a442d566cbc585c53cef55"
+bytes = 444473596
+code = "https://github.com/ZhengPeng7/BiRefNet"
+commit = "ebcc0bc8ec7fe919cec829f2dea656b3078acddc"
+license = "MIT"
+training_data_terms = "unverified (BR0.5 open finding; maintainer item MO-11)"
+
+[export]
+tool = "tools/export_onnx.py (wraps spike/export_sam.py, spike/export_birefnet.py, spike/fp16_store.py)"
+opset = 19
+torch = "2.14.0"
+onnx = "1.22.0"
+
+[[model]]
+id = "sam_image_encoder"
+file = "sam21l_image_encoder.fp32.onnx"
+source = "sam2"
+precision = "fp32"
+sha256 = "320ed56abe3142d383aecf5f55aeea7b76cf60fb7e7ffe10ca654b834d695e86"
+bytes = 852442220
+license = "Apache-2.0"
+
+[[model]]
+id = "sam_decoder_multi_n1"
+file = "sam21l_decoder_multi_n1.fp32.onnx"
+source = "sam2"
+precision = "fp32"
+sha256 = "e2dde51052f71db13bc8a247b9012c03537b783835a2d3b692328f0265be7c0c"
+bytes = 17738335
+license = "Apache-2.0"
+
+[[model]]
+id = "sam_decoder_points"
+file = "sam21l_decoder_points.fp32.onnx"
+source = "sam2"
+precision = "fp32"
+sha256 = "290b4746cfb966bd224b2bebdd7244083a21d9d25469ff39b7eda97f52ab1136"
+bytes = 17894692
+license = "Apache-2.0"
+
+[[model]]
+id = "sam_decoder_mask"
+file = "sam21l_decoder_mask.fp32.onnx"
+source = "sam2"
+precision = "fp32"
+sha256 = "aa2f74b50555f9109b20b3063c6d7273360ff865e4353474ad250a7735552d8e"
+bytes = 17769499
+license = "Apache-2.0"
+
+[[model]]
+id = "sam_memory_attention"
+file = "sam21l_memory_attention.fp32.onnx"
+source = "sam2"
+precision = "fp32"
+sha256 = "e5d6c81df8fb2005f2b2a95dacff181ce00231dd666baba43b0a04226ba48960"
+bytes = 28008575
+license = "Apache-2.0"
+
+[[model]]
+id = "sam_memory_encoder"
+file = "sam21l_memory_encoder.fp32.onnx"
+source = "sam2"
+precision = "fp32"
+sha256 = "c2b48f90b9970d06f313ac6fdf0b427573decde1b3e81483caccf76fe26cf0f3"
+bytes = 5582325
+license = "Apache-2.0"
+
+[[model]]
+id = "sam_constants"
+file = "sam21l_constants.npz"
+source = "sam2"
+precision = "fp32"
+sha256 = "60f9f947605a1c054034a8933ed2aa6568c2a56b6024e558db5960bb2a2722b6"
+bytes = 71510
+license = "Apache-2.0"
+
+[[model]]
+id = "birefnet_768"
+file = "birefnet_hr_matting_768.fp16s.onnx"
+source = "birefnet"
+precision = "fp16-stored"
+tile = 768
+sha256 = "37738f15337ff1c11cdf49cdcfdc9e4d57b91a4c3a8f911582c1597bf1f38ef4"
+bytes = 448273052
+license = "MIT"
+
+[[model]]
+id = "birefnet_1024"
+file = "birefnet_hr_matting_1024.fp16s.onnx"
+source = "birefnet"
+precision = "fp16-stored"
+tile = 1024
+sha256 = "ea5d48fc2e6795e317b351caa3da164a2b6a8c85231193c34d7ebbefb58ab41d"
+bytes = 449002377
+license = "MIT"
+
+[[model]]
+id = "birefnet_2048"
+file = "birefnet_hr_matting_2048.fp16s.onnx"
+source = "birefnet"
+precision = "fp16-stored"
+tile = 2048
+sha256 = "b6c710045302a90f0e5c87a65a42768a9bbaa3394d80a5167cfe459e54a4d3b5"
+bytes = 449580627
+license = "MIT"

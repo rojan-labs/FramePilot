@@ -222,10 +222,6 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
       const durationFrames = Math.max(1, secondsToFrame(op.durationSeconds, fps));
       return { ...op, durationSeconds: frameToSeconds(durationFrames, fps) };
     }
-    case 'add_mask': {
-      const keyframes = snapKeyframes(op.keyframes, fps);
-      return { ...op, ...(keyframes === undefined ? {} : { keyframes }) };
-    }
     case 'track_object': {
       const keyframes = snapKeyframes(op.keyframes, fps);
       return { ...op, ...(keyframes === undefined ? {} : { keyframes }) };
@@ -247,11 +243,35 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
     case 'add_asset':
     case 'remove_asset':
     case 'move_asset':
+    case 'relink_asset':
     case 'create_folder':
     case 'rename_folder':
     case 'move_folder':
     case 'delete_folder':
     case 'reorder_clips': // ids, not times: apply derives every start and snaps it itself
+    case 'add_mask': // mask keyframes use the media's SOURCE clock (v22); project frames would move them
+    case 'add_effect_layer_mask':
+    case 'remove_mask':
+    case 'update_mask':
+    case 'set_mask_path':
+    case 'add_mask_keyframe':
+    case 'remove_mask_keyframe':
+    case 'move_mask_keyframe':
+    case 'insert_mask_vertex':
+    case 'remove_mask_vertex':
+    case 'reorder_masks':
+    case 'set_mask_target':
+    case 'apply_mask_tracking':
+    case 'clear_mask_tracking':
+    case 'use_track':
+    case 'set_mask_space':
+    case 'review_mask':
+    case 'paste_masks':
+    case 'add_text_behind_subject':
+    case 'save_mask_preset':
+    case 'remove_mask_preset':
+    case 'restore_mask_presets':
+    case 'restore_masks':
     case 'set_clip_source_range':
     case 'set_clip_media':
     case 'set_transcript':
@@ -260,6 +280,7 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
     case 'restore_folders':
     case 'set_ai_memory':
     case 'set_effect_params':
+    case 'set_clip_edge_style':
     case 'set_track_flags':
     case 'set_track_caption_style':
     case 'set_caption_style':

@@ -211,13 +211,13 @@ vec3 effect(vec3 c, vec2 uv) {
   float blockH = max(2.0, (0.02 + uParams[1] * 0.14) * uResolution.y);
   int row = int(floor(uv.y * uResolution.y / blockH));
   float pick = noise01(ivec2(0, row), 41);
-  float active = pick > (1.0 - density * 0.45) ? 1.0 : 0.0;
+  float isActive = pick > (1.0 - density * 0.45) ? 1.0 : 0.0;
   float amt = (noise01(ivec2(0, row), 42) - 0.5) * 2.0;
-  float offset = active * amt * displace * 0.25 * uResolution.x;
+  float offset = isActive * amt * displace * 0.25 * uResolution.x;
   vec3 torn = texPx(uv, vec2(offset, 0.0));
   // Displaced blocks also lose colour registration, which is what reads as
   // digital corruption rather than a pan.
-  float shift = active * displace * 0.01 * uResolution.x;
+  float shift = isActive * displace * 0.01 * uResolution.x;
   float r = texPx(uv, vec2(offset + shift, 0.0)).r;
   return vec3(r, torn.g, torn.b);
 }`,

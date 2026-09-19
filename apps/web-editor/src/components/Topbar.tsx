@@ -10,7 +10,7 @@
  * All project IO is owned by {@link App}; this is the presentation.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Asset } from '@framepilot/timeline-schema';
+import type { Asset, Timeline } from '@framepilot/timeline-schema';
 import { Button } from '@framepilot/ui';
 import { Menu, MenuItem } from './Menu.js';
 import { Tooltip } from './Tooltip.js';
@@ -74,6 +74,8 @@ export interface TopbarProps {
   readonly onRevealExport: (path: string) => void;
   /** The project's media bin, for the export dialog's Credits list (schema v20). */
   readonly assets: readonly Asset[];
+  /** The timeline, for the export dialog's background-removal notice (BR6.6). */
+  readonly exportTimeline?: Timeline;
   /** The project's frame and length, for the export dialog's summary and size estimate. */
   readonly exportFrame: { readonly width: number; readonly height: number; readonly fps: number };
   readonly exportDurationSeconds: number;
@@ -120,6 +122,7 @@ export function Topbar({
   ensureSavedForExport,
   onRevealExport,
   assets,
+  exportTimeline,
   exportFrame,
   exportDurationSeconds,
   projectId,
@@ -381,6 +384,7 @@ export function Topbar({
           ensureSaved={ensureSavedForExport}
           onReveal={onRevealExport}
           assets={assets}
+          {...(exportTimeline === undefined ? {} : { timeline: exportTimeline })}
           frame={exportFrame}
           durationSeconds={exportDurationSeconds}
           projectId={projectId}

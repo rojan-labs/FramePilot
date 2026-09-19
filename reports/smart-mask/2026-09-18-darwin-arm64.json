@@ -1,0 +1,1115 @@
+{
+  "date": "2026-09-18",
+  "platform": "darwin-arm64",
+  "harness": "workers/smart-mask/eval/run_eval.py (installed entrypoint, BR7.2)",
+  "groundTruth": {
+    "kinds": [
+      "construction"
+    ],
+    "constructionTrueOnly": true,
+    "humanLabelledFixtures": [],
+    "machineLabelsIgnored": {},
+    "note": "MO-8's human-labelled set does not exist yet; every gate below is judged on construction-true clips only."
+  },
+  "fixtures": {
+    "run": [
+      "crossing__calibration",
+      "crossing__scored",
+      "fast_motion__calibration",
+      "fast_motion__scored",
+      "hair_busy__calibration",
+      "hair_busy__scored",
+      "leave_reenter__calibration",
+      "leave_reenter__scored",
+      "low_light__calibration",
+      "low_light__scored",
+      "product_table__calibration",
+      "product_table__scored",
+      "similar_colour__calibration",
+      "similar_colour__scored",
+      "talking_head__calibration",
+      "talking_head__scored",
+      "twin_distractor__calibration",
+      "twin_distractor__scored",
+      "walk_pan__calibration",
+      "walk_pan__scored"
+    ],
+    "failed": [],
+    "notRun": [],
+    "refused": [],
+    "oneClickRuns": []
+  },
+  "definitions": {
+    "wrongFrame": {
+      "iou": 0.98,
+      "bf": 0.95
+    },
+    "recallGate": 0.995,
+    "reviewLoadGate": 0.1
+  },
+  "gates": [
+    {
+      "id": "mean_iou_auto",
+      "gate": "Mean IoU, auto prompt, every category",
+      "threshold": ">= 0.98",
+      "status": "fail",
+      "value": 0.8113,
+      "worstCategory": "low_light",
+      "failingCategories": [
+        "crossing",
+        "fast_motion",
+        "leave_reenter",
+        "low_light",
+        "product_table",
+        "similar_colour",
+        "twin_distractor",
+        "walk_pan"
+      ],
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "worst_category_iou_click",
+      "gate": "Worst-category mean IoU, one click",
+      "threshold": ">= 0.97",
+      "status": "not_measured",
+      "value": null,
+      "note": "No one-click runs: `run --prompt click` was not run for these fixtures."
+    },
+    {
+      "id": "p5_iou_click",
+      "gate": "5th-percentile per-frame IoU, one click",
+      "threshold": ">= 0.95",
+      "status": "not_measured",
+      "value": null,
+      "note": "No one-click runs: `run --prompt click` was not run for these fixtures."
+    },
+    {
+      "id": "bf_every_category",
+      "gate": "BF@2px, every category",
+      "threshold": ">= 0.95",
+      "status": "fail",
+      "value": 0.3322,
+      "worstCategory": "low_light",
+      "failingCategories": [
+        "crossing",
+        "fast_motion",
+        "leave_reenter",
+        "low_light",
+        "product_table",
+        "similar_colour",
+        "talking_head",
+        "twin_distractor",
+        "walk_pan"
+      ],
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "band_sad_grad_hair",
+      "gate": "Band SAD / Grad, hair category",
+      "threshold": ">= 25% lower than band alpha disabled; within 2% of the fp32 PyTorch reference",
+      "status": "not_measured",
+      "value": {
+        "bandSAD": 0.888,
+        "bandGrad": 0.502
+      },
+      "note": "Needs two ablation runs (band alpha disabled; fp32 PyTorch reference of the same pipeline). The absolute band errors of this run are recorded for the next comparison."
+    },
+    {
+      "id": "foreground_delta_e",
+      "gate": "Foreground colour error",
+      "threshold": "mean \u0394E2000 <= 2.0 in the band",
+      "status": "not_measured",
+      "value": null,
+      "note": "The pilot stores no ground-truth foreground colour, and eval runs do not write foreground.mkv; needs a fixture with a known foreground plate."
+    },
+    {
+      "id": "dtssd",
+      "gate": "dtSSD",
+      "threshold": ">= 30% lower than stabilisation disabled; no visible crawl (blind review)",
+      "status": "not_measured",
+      "value": {
+        "crossing": 5.427,
+        "fast_motion": 3.586,
+        "hair_busy": 1.675,
+        "leave_reenter": 3.383,
+        "low_light": 10.538,
+        "product_table": 2.759,
+        "similar_colour": 2.66,
+        "talking_head": 5.702,
+        "twin_distractor": 3.605,
+        "walk_pan": 3.02
+      },
+      "note": "Needs a stabilisation-disabled ablation run and a blind side-by-side review; absolute dtSSD per category is recorded."
+    },
+    {
+      "id": "leak_rate",
+      "gate": "Leak rate",
+      "threshold": "<= 0.5% of frames before review",
+      "status": "fail",
+      "value": 0.5,
+      "leakFrames": 160,
+      "frames": 320,
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "error_detection_recall",
+      "gate": "Error-detection recall",
+      "threshold": ">= 99.5%",
+      "status": "fail",
+      "value": 0.9913,
+      "wilson95Lower": 0.9689,
+      "wrongFrames": 230,
+      "caught": 228,
+      "thresholds": "calibrated on the calibration split, frozen",
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "review_load",
+      "gate": "Review load",
+      "threshold": "<= 10% of frames on medium categories",
+      "status": "fail",
+      "value": 0.8719,
+      "actuallyWrongFraction": 0.7188,
+      "note": "06 does not define 'medium'; judged on every scored category. No honest detector can flag fewer frames than are actually wrong.",
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "correction_convergence",
+      "gate": "Correction convergence",
+      "threshold": "<= 3 actions -> corrected frame IoU >= 0.995, BF@2px >= 0.98; neighbours within 1 s do not regress",
+      "status": "not_measured",
+      "value": "0/1",
+      "incomplete": [
+        "talking_head__scored"
+      ],
+      "note": "A replay that did not finish (a watchdog abort) is not judged: the gate is not measured locally until every replay completes within the memory budget.",
+      "actionsFrom": [
+        "scripted-from-ground-truth"
+      ],
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "locked_frames",
+      "gate": "Locked frames",
+      "threshold": "100% bit-identical after any later re-run",
+      "status": "pass",
+      "value": "1/1 replays",
+      "reRuns": 2,
+      "judgedOn": [
+        "construction"
+      ]
+    },
+    {
+      "id": "frame_alignment",
+      "gate": "Frame alignment",
+      "threshold": "100%",
+      "status": "pass",
+      "value": "320/320",
+      "judgedOn": [
+        "construction"
+      ],
+      "constructionTrueOnly": true
+    },
+    {
+      "id": "preview_export",
+      "gate": "Preview <-> export",
+      "threshold": "the matte and text-behind-subject rows of the 09 oracle pass",
+      "status": "not_measured",
+      "value": null,
+      "note": "Not measured by this harness. BR5.3's oracle rows (8 matte rows, 7 bit-identical) pass in CI run 35281873504; they judge rendering, not the pack."
+    }
+  ],
+  "accuracy": {
+    "calibration": {
+      "meanIoU": 0.9362,
+      "p5IoU": 0.7572,
+      "meanBF": 0.7676,
+      "wrongFraction": 0.7219,
+      "byCategory": {
+        "crossing": {
+          "frames": 32,
+          "meanIoU": 0.9041,
+          "p5IoU": 0.587,
+          "meanBF": 0.8216,
+          "wrong": 18
+        },
+        "fast_motion": {
+          "frames": 32,
+          "meanIoU": 0.9454,
+          "p5IoU": 0.8942,
+          "meanBF": 0.7805,
+          "wrong": 32
+        },
+        "hair_busy": {
+          "frames": 32,
+          "meanIoU": 0.9973,
+          "p5IoU": 0.9956,
+          "meanBF": 0.9884,
+          "wrong": 0
+        },
+        "leave_reenter": {
+          "frames": 32,
+          "meanIoU": 0.8839,
+          "p5IoU": 0.5467,
+          "meanBF": 0.6833,
+          "wrong": 20
+        },
+        "low_light": {
+          "frames": 32,
+          "meanIoU": 0.7635,
+          "p5IoU": 0.5883,
+          "meanBF": 0.2071,
+          "wrong": 32
+        },
+        "product_table": {
+          "frames": 32,
+          "meanIoU": 0.9724,
+          "p5IoU": 0.9413,
+          "meanBF": 0.8191,
+          "wrong": 22
+        },
+        "similar_colour": {
+          "frames": 32,
+          "meanIoU": 0.9741,
+          "p5IoU": 0.9652,
+          "meanBF": 0.9244,
+          "wrong": 25
+        },
+        "talking_head": {
+          "frames": 32,
+          "meanIoU": 0.9852,
+          "p5IoU": 0.9707,
+          "meanBF": 0.6833,
+          "wrong": 30
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "meanIoU": 0.9594,
+          "p5IoU": 0.8691,
+          "meanBF": 0.8521,
+          "wrong": 25
+        },
+        "walk_pan": {
+          "frames": 32,
+          "meanIoU": 0.9769,
+          "p5IoU": 0.9647,
+          "meanBF": 0.9161,
+          "wrong": 27
+        }
+      }
+    },
+    "scored": {
+      "meanIoU": 0.9382,
+      "p5IoU": 0.7846,
+      "meanBF": 0.7796,
+      "wrongFraction": 0.7188,
+      "byCategory": {
+        "crossing": {
+          "frames": 32,
+          "meanIoU": 0.8891,
+          "p5IoU": 0.3004,
+          "meanBF": 0.8258,
+          "wrong": 19
+        },
+        "fast_motion": {
+          "frames": 32,
+          "meanIoU": 0.9514,
+          "p5IoU": 0.9041,
+          "meanBF": 0.8224,
+          "wrong": 32
+        },
+        "hair_busy": {
+          "frames": 32,
+          "meanIoU": 0.9972,
+          "p5IoU": 0.9954,
+          "meanBF": 0.9881,
+          "wrong": 0
+        },
+        "leave_reenter": {
+          "frames": 32,
+          "meanIoU": 0.871,
+          "p5IoU": 0.4425,
+          "meanBF": 0.6793,
+          "wrong": 20
+        },
+        "low_light": {
+          "frames": 32,
+          "meanIoU": 0.8113,
+          "p5IoU": 0.5662,
+          "meanBF": 0.3322,
+          "wrong": 32
+        },
+        "product_table": {
+          "frames": 32,
+          "meanIoU": 0.9724,
+          "p5IoU": 0.9413,
+          "meanBF": 0.8191,
+          "wrong": 22
+        },
+        "similar_colour": {
+          "frames": 32,
+          "meanIoU": 0.9745,
+          "p5IoU": 0.9655,
+          "meanBF": 0.9342,
+          "wrong": 27
+        },
+        "talking_head": {
+          "frames": 32,
+          "meanIoU": 0.9824,
+          "p5IoU": 0.9692,
+          "meanBF": 0.6328,
+          "wrong": 31
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "meanIoU": 0.9581,
+          "p5IoU": 0.8738,
+          "meanBF": 0.8504,
+          "wrong": 23
+        },
+        "walk_pan": {
+          "frames": 32,
+          "meanIoU": 0.9745,
+          "p5IoU": 0.952,
+          "meanBF": 0.9114,
+          "wrong": 24
+        }
+      }
+    }
+  },
+  "shippedThresholds": {
+    "thresholds": {
+      "a_rewarp_mismatch": 0.05,
+      "b_components": true,
+      "c_edge_corr": 0.2,
+      "c2_unexplained": 0.5,
+      "d_area_logratio": 0.15,
+      "d_centroid_frac": 0.25,
+      "e_sam_pair_iou": 0.98,
+      "e_sam_birefnet_iou": 0.98,
+      "e_hard_disagreement": 0.02,
+      "e_band_frac": 0.4,
+      "f_object_score": true,
+      "g_single_estimate": false,
+      "h_presence_window": 3,
+      "m_flow_px": null,
+      "m_band_frac": null,
+      "a_either": false,
+      "n_dilate": 0,
+      "version": "br0-attempt-4"
+    },
+    "calibration": {
+      "frames": 320,
+      "wrongFrames": 231,
+      "caught": 231,
+      "flagged": 306,
+      "recall": 1.0,
+      "recallWilson95Lower": 0.9836417397939718,
+      "reviewLoad": 0.95625,
+      "perCategory": {
+        "crossing": {
+          "frames": 32,
+          "wrong": 18,
+          "caught": 18,
+          "flagged": 28,
+          "meanIoU": 0.9041,
+          "p5IoU": 0.587,
+          "meanBF": 0.8216
+        },
+        "fast_motion": {
+          "frames": 32,
+          "wrong": 32,
+          "caught": 32,
+          "flagged": 32,
+          "meanIoU": 0.9454,
+          "p5IoU": 0.8942,
+          "meanBF": 0.7805
+        },
+        "hair_busy": {
+          "frames": 32,
+          "wrong": 0,
+          "caught": 0,
+          "flagged": 32,
+          "meanIoU": 0.9973,
+          "p5IoU": 0.9956,
+          "meanBF": 0.9884
+        },
+        "leave_reenter": {
+          "frames": 32,
+          "wrong": 20,
+          "caught": 20,
+          "flagged": 25,
+          "meanIoU": 0.8839,
+          "p5IoU": 0.5467,
+          "meanBF": 0.6833
+        },
+        "low_light": {
+          "frames": 32,
+          "wrong": 32,
+          "caught": 32,
+          "flagged": 32,
+          "meanIoU": 0.7635,
+          "p5IoU": 0.5883,
+          "meanBF": 0.2071
+        },
+        "product_table": {
+          "frames": 32,
+          "wrong": 22,
+          "caught": 22,
+          "flagged": 32,
+          "meanIoU": 0.9724,
+          "p5IoU": 0.9413,
+          "meanBF": 0.8191
+        },
+        "similar_colour": {
+          "frames": 32,
+          "wrong": 25,
+          "caught": 25,
+          "flagged": 32,
+          "meanIoU": 0.9741,
+          "p5IoU": 0.9652,
+          "meanBF": 0.9244
+        },
+        "talking_head": {
+          "frames": 32,
+          "wrong": 30,
+          "caught": 30,
+          "flagged": 32,
+          "meanIoU": 0.9852,
+          "p5IoU": 0.9707,
+          "meanBF": 0.6833
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "wrong": 25,
+          "caught": 25,
+          "flagged": 31,
+          "meanIoU": 0.9594,
+          "p5IoU": 0.8691,
+          "meanBF": 0.8521
+        },
+        "walk_pan": {
+          "frames": 32,
+          "wrong": 27,
+          "caught": 27,
+          "flagged": 30,
+          "meanIoU": 0.9769,
+          "p5IoU": 0.9647,
+          "meanBF": 0.9161
+        }
+      },
+      "missed": []
+    },
+    "scored": {
+      "frames": 320,
+      "wrongFrames": 230,
+      "caught": 230,
+      "flagged": 306,
+      "recall": 1.0,
+      "recallWilson95Lower": 0.9835717853452937,
+      "reviewLoad": 0.95625,
+      "perCategory": {
+        "crossing": {
+          "frames": 32,
+          "wrong": 19,
+          "caught": 19,
+          "flagged": 25,
+          "meanIoU": 0.8891,
+          "p5IoU": 0.3004,
+          "meanBF": 0.8258
+        },
+        "fast_motion": {
+          "frames": 32,
+          "wrong": 32,
+          "caught": 32,
+          "flagged": 32,
+          "meanIoU": 0.9514,
+          "p5IoU": 0.9041,
+          "meanBF": 0.8224
+        },
+        "hair_busy": {
+          "frames": 32,
+          "wrong": 0,
+          "caught": 0,
+          "flagged": 32,
+          "meanIoU": 0.9972,
+          "p5IoU": 0.9954,
+          "meanBF": 0.9881
+        },
+        "leave_reenter": {
+          "frames": 32,
+          "wrong": 20,
+          "caught": 20,
+          "flagged": 25,
+          "meanIoU": 0.871,
+          "p5IoU": 0.4425,
+          "meanBF": 0.6793
+        },
+        "low_light": {
+          "frames": 32,
+          "wrong": 32,
+          "caught": 32,
+          "flagged": 32,
+          "meanIoU": 0.8113,
+          "p5IoU": 0.5662,
+          "meanBF": 0.3322
+        },
+        "product_table": {
+          "frames": 32,
+          "wrong": 22,
+          "caught": 22,
+          "flagged": 32,
+          "meanIoU": 0.9724,
+          "p5IoU": 0.9413,
+          "meanBF": 0.8191
+        },
+        "similar_colour": {
+          "frames": 32,
+          "wrong": 27,
+          "caught": 27,
+          "flagged": 32,
+          "meanIoU": 0.9745,
+          "p5IoU": 0.9655,
+          "meanBF": 0.9342
+        },
+        "talking_head": {
+          "frames": 32,
+          "wrong": 31,
+          "caught": 31,
+          "flagged": 32,
+          "meanIoU": 0.9824,
+          "p5IoU": 0.9692,
+          "meanBF": 0.6328
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "wrong": 23,
+          "caught": 23,
+          "flagged": 32,
+          "meanIoU": 0.9581,
+          "p5IoU": 0.8738,
+          "meanBF": 0.8504
+        },
+        "walk_pan": {
+          "frames": 32,
+          "wrong": 24,
+          "caught": 24,
+          "flagged": 32,
+          "meanIoU": 0.9745,
+          "p5IoU": 0.952,
+          "meanBF": 0.9114
+        }
+      },
+      "missed": []
+    }
+  },
+  "calibratedThresholds": {
+    "thresholds": {
+      "a_rewarp_mismatch": 0.02,
+      "b_components": false,
+      "c_edge_corr": null,
+      "c2_unexplained": 1.2,
+      "d_area_logratio": 0.08,
+      "d_centroid_frac": null,
+      "e_sam_pair_iou": null,
+      "e_sam_birefnet_iou": null,
+      "e_hard_disagreement": 0.02,
+      "e_band_frac": null,
+      "f_object_score": false,
+      "g_single_estimate": false,
+      "h_presence_window": 0,
+      "m_flow_px": null,
+      "m_band_frac": null,
+      "a_either": false,
+      "n_dilate": 2,
+      "version": "br7.3-calibrated"
+    },
+    "fittedOn": "calibration",
+    "trace": {
+      "chosen": "forward",
+      "coordinate": {
+        "trace": [
+          {
+            "step": "start",
+            "recall": 1.0,
+            "reviewLoad": 0.95625
+          },
+          {
+            "step": "sweep0:h_presence_window=0",
+            "recallGap": 0.0,
+            "reviewLoad": 0.94375
+          }
+        ],
+        "calibration": {
+          "recall": 1.0,
+          "reviewLoad": 0.94375
+        }
+      },
+      "forward": {
+        "trace": [
+          {
+            "add": "e_sam_birefnet_iou=0.95",
+            "caught": 98,
+            "extraFlags": 0
+          },
+          {
+            "add": "e_hard_disagreement=0.02",
+            "caught": 56,
+            "extraFlags": 4
+          },
+          {
+            "add": "c_edge_corr=0.3",
+            "caught": 5,
+            "extraFlags": 0
+          },
+          {
+            "add": "d_area_logratio=0.25",
+            "caught": 4,
+            "extraFlags": 0
+          },
+          {
+            "add": "n_dilate=1",
+            "caught": 33,
+            "extraFlags": 10
+          },
+          {
+            "add": "d_area_logratio=0.08",
+            "caught": 4,
+            "extraFlags": 0
+          },
+          {
+            "add": "n_dilate=2",
+            "caught": 14,
+            "extraFlags": 12
+          },
+          {
+            "add": "a_rewarp_mismatch=0.03",
+            "caught": 1,
+            "extraFlags": 0
+          },
+          {
+            "add": "c2_unexplained=1.2",
+            "caught": 11,
+            "extraFlags": 19
+          },
+          {
+            "add": "a_rewarp_mismatch=0.02",
+            "caught": 2,
+            "extraFlags": 7
+          },
+          {
+            "drop": "c_edge_corr",
+            "reviewLoad": 0.884375
+          },
+          {
+            "drop": "e_sam_birefnet_iou",
+            "reviewLoad": 0.884375
+          }
+        ],
+        "calibration": {
+          "recall": 0.9956709956709957,
+          "reviewLoad": 0.884375
+        }
+      }
+    },
+    "calibration": {
+      "frames": 320,
+      "wrongFrames": 231,
+      "caught": 230,
+      "flagged": 283,
+      "recall": 0.9956709956709957,
+      "recallWilson95Lower": 0.9758899261575624,
+      "reviewLoad": 0.884375,
+      "perCategory": {
+        "crossing": {
+          "frames": 32,
+          "wrong": 18,
+          "caught": 18,
+          "flagged": 27,
+          "meanIoU": 0.9041,
+          "p5IoU": 0.587,
+          "meanBF": 0.8216
+        },
+        "fast_motion": {
+          "frames": 32,
+          "wrong": 32,
+          "caught": 32,
+          "flagged": 32,
+          "meanIoU": 0.9454,
+          "p5IoU": 0.8942,
+          "meanBF": 0.7805
+        },
+        "hair_busy": {
+          "frames": 32,
+          "wrong": 0,
+          "caught": 0,
+          "flagged": 18,
+          "meanIoU": 0.9973,
+          "p5IoU": 0.9956,
+          "meanBF": 0.9884
+        },
+        "leave_reenter": {
+          "frames": 32,
+          "wrong": 20,
+          "caught": 20,
+          "flagged": 25,
+          "meanIoU": 0.8839,
+          "p5IoU": 0.5467,
+          "meanBF": 0.6833
+        },
+        "low_light": {
+          "frames": 32,
+          "wrong": 32,
+          "caught": 32,
+          "flagged": 32,
+          "meanIoU": 0.7635,
+          "p5IoU": 0.5883,
+          "meanBF": 0.2071
+        },
+        "product_table": {
+          "frames": 32,
+          "wrong": 22,
+          "caught": 21,
+          "flagged": 24,
+          "meanIoU": 0.9724,
+          "p5IoU": 0.9413,
+          "meanBF": 0.8191
+        },
+        "similar_colour": {
+          "frames": 32,
+          "wrong": 25,
+          "caught": 25,
+          "flagged": 32,
+          "meanIoU": 0.9741,
+          "p5IoU": 0.9652,
+          "meanBF": 0.9244
+        },
+        "talking_head": {
+          "frames": 32,
+          "wrong": 30,
+          "caught": 30,
+          "flagged": 32,
+          "meanIoU": 0.9852,
+          "p5IoU": 0.9707,
+          "meanBF": 0.6833
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "wrong": 25,
+          "caught": 25,
+          "flagged": 29,
+          "meanIoU": 0.9594,
+          "p5IoU": 0.8691,
+          "meanBF": 0.8521
+        },
+        "walk_pan": {
+          "frames": 32,
+          "wrong": 27,
+          "caught": 27,
+          "flagged": 32,
+          "meanIoU": 0.9769,
+          "p5IoU": 0.9647,
+          "meanBF": 0.9161
+        }
+      },
+      "missed": [
+        {
+          "clip": "product_table__calibration",
+          "frame": 7,
+          "iou": 0.9848,
+          "bf": 0.9213
+        }
+      ]
+    },
+    "scored": {
+      "frames": 320,
+      "wrongFrames": 230,
+      "caught": 228,
+      "flagged": 279,
+      "recall": 0.991304347826087,
+      "recallWilson95Lower": 0.9688540486373068,
+      "reviewLoad": 0.871875,
+      "perCategory": {
+        "crossing": {
+          "frames": 32,
+          "wrong": 19,
+          "caught": 19,
+          "flagged": 26,
+          "meanIoU": 0.8891,
+          "p5IoU": 0.3004,
+          "meanBF": 0.8258
+        },
+        "fast_motion": {
+          "frames": 32,
+          "wrong": 32,
+          "caught": 32,
+          "flagged": 32,
+          "meanIoU": 0.9514,
+          "p5IoU": 0.9041,
+          "meanBF": 0.8224
+        },
+        "hair_busy": {
+          "frames": 32,
+          "wrong": 0,
+          "caught": 0,
+          "flagged": 20,
+          "meanIoU": 0.9972,
+          "p5IoU": 0.9954,
+          "meanBF": 0.9881
+        },
+        "leave_reenter": {
+          "frames": 32,
+          "wrong": 20,
+          "caught": 20,
+          "flagged": 25,
+          "meanIoU": 0.871,
+          "p5IoU": 0.4425,
+          "meanBF": 0.6793
+        },
+        "low_light": {
+          "frames": 32,
+          "wrong": 32,
+          "caught": 32,
+          "flagged": 32,
+          "meanIoU": 0.8113,
+          "p5IoU": 0.5662,
+          "meanBF": 0.3322
+        },
+        "product_table": {
+          "frames": 32,
+          "wrong": 22,
+          "caught": 21,
+          "flagged": 24,
+          "meanIoU": 0.9724,
+          "p5IoU": 0.9413,
+          "meanBF": 0.8191
+        },
+        "similar_colour": {
+          "frames": 32,
+          "wrong": 27,
+          "caught": 27,
+          "flagged": 32,
+          "meanIoU": 0.9745,
+          "p5IoU": 0.9655,
+          "meanBF": 0.9342
+        },
+        "talking_head": {
+          "frames": 32,
+          "wrong": 31,
+          "caught": 31,
+          "flagged": 32,
+          "meanIoU": 0.9824,
+          "p5IoU": 0.9692,
+          "meanBF": 0.6328
+        },
+        "twin_distractor": {
+          "frames": 32,
+          "wrong": 23,
+          "caught": 22,
+          "flagged": 24,
+          "meanIoU": 0.9581,
+          "p5IoU": 0.8738,
+          "meanBF": 0.8504
+        },
+        "walk_pan": {
+          "frames": 32,
+          "wrong": 24,
+          "caught": 24,
+          "flagged": 32,
+          "meanIoU": 0.9745,
+          "p5IoU": 0.952,
+          "meanBF": 0.9114
+        }
+      },
+      "missed": [
+        {
+          "clip": "product_table__scored",
+          "frame": 7,
+          "iou": 0.9848,
+          "bf": 0.9213
+        },
+        {
+          "clip": "twin_distractor__scored",
+          "frame": 3,
+          "iou": 0.9777,
+          "bf": 0.9482
+        }
+      ]
+    }
+  },
+  "correctionReplays": [
+    {
+      "complete": false,
+      "fixture": "talking_head__scored",
+      "category": "talking_head",
+      "groundTruth": "construction",
+      "actionsFrom": "scripted-from-ground-truth",
+      "targetFrame": 2,
+      "lockedFrame": 31,
+      "neighbourFrames": 26,
+      "before": {
+        "iou": 0.96436,
+        "bf": 0.5999
+      },
+      "actions": [
+        {
+          "action": 1,
+          "seconds": 1941.8,
+          "brushPixels": {
+            "keep": 2,
+            "remove": 8566,
+            "edge": 0
+          },
+          "target": {
+            "iou": 0.99369,
+            "bf": 0.82457
+          },
+          "lockBitIdentical": true,
+          "worstNeighbourIoUDrop": 0.01361,
+          "neighboursRegressed": 16,
+          "converged": false
+        },
+        {
+          "action": 2,
+          "failed": {
+            "type": "aborted",
+            "reason": "watchdog: system swap grew 3.04 GiB (limit 3.0) during action 2"
+          }
+        }
+      ],
+      "convergedAtAction": null,
+      "converged": false,
+      "locksBitIdentical": true
+    }
+  ],
+  "secondsPerClip": {
+    "crossing__calibration": 576.8,
+    "crossing__scored": 821.7,
+    "fast_motion__calibration": 557.9,
+    "fast_motion__scored": 678.4,
+    "hair_busy__calibration": 697.1,
+    "hair_busy__scored": 690.2,
+    "leave_reenter__calibration": 472.2,
+    "leave_reenter__scored": 474.2,
+    "low_light__calibration": 574.5,
+    "low_light__scored": 561.1,
+    "product_table__calibration": 590.9,
+    "product_table__scored": 565.4,
+    "similar_colour__calibration": 1588.9,
+    "similar_colour__scored": 556.5,
+    "talking_head__calibration": 778.8,
+    "talking_head__scored": 750.5,
+    "twin_distractor__calibration": 1914.7,
+    "twin_distractor__scored": 595.7,
+    "walk_pan__calibration": 651.0,
+    "walk_pan__scored": 840.7
+  },
+  "job": {
+    "backend": "onnxruntime-1.30.0:birefnet=cpu:sam=cpu",
+    "frameCount": 32,
+    "memory": {
+      "breach": null,
+      "ceilingBytes": 8053063680,
+      "peakFootprintBytes": 4741150976
+    },
+    "memoryCeilingBytes": 8053063680,
+    "promptFrames": 1,
+    "providers": {
+      "chosen": {
+        "birefnet": "cpu",
+        "sam": "cpu"
+      },
+      "fallbacks": [],
+      "skipped": {
+        "birefnet": [
+          {
+            "provider": "coreml",
+            "reason": "disabled by parity rule: BR0.2: session build exceeded the memory budget at 768\u00b2"
+          }
+        ],
+        "sam": [
+          {
+            "provider": "coreml",
+            "reason": "disabled by parity rule: BR0.2: decoder does not build; memory attention 8.4 GB footprint; slower than CPU"
+          }
+        ]
+      }
+    },
+    "reusedFrames": 0,
+    "selfCorrectionRounds": 1,
+    "size": [
+      1280,
+      720
+    ],
+    "thresholds": {
+      "a_rewarp_mismatch": 0.05,
+      "b_components": true,
+      "c2_unexplained": 0.5,
+      "c_edge_corr": 0.2,
+      "d_area_logratio": 0.15,
+      "d_centroid_frac": 0.25,
+      "e_band_frac": 0.4,
+      "e_hard_disagreement": 0.02,
+      "e_sam_birefnet_iou": 0.98,
+      "e_sam_pair_iou": 0.98,
+      "f_object_score": true,
+      "g_single_estimate": false,
+      "h_presence_window": 3,
+      "m_band_frac": null,
+      "m_flow_px": null,
+      "version": "br0-attempt-4"
+    },
+    "tile": {
+      "ceilingBytes": 8053063680,
+      "reason": "configured",
+      "size": 768
+    },
+    "timeBase": [
+      1,
+      1000
+    ],
+    "timingsSeconds": {
+      "consensus": 0.56,
+      "decode": 0.223,
+      "encode": 0.079,
+      "foreground": 0.0,
+      "matte": 127.362,
+      "refine": 128.303,
+      "segment": 290.603,
+      "self_correct": 24.641,
+      "stabilise": 1.385,
+      "verify": 3.116,
+      "windows": 576.376
+    },
+    "tools": {
+      "approved": true,
+      "ffmpeg": "ffmpeg version 7.1.1 Copyright (c) 2000-2025 the FFmpeg developers",
+      "licence": "LGPL-2.1-or-later",
+      "origin": "override",
+      "reasons": []
+    },
+    "windows": {
+      "frames": 300,
+      "overlap": 60
+    }
+  },
+  "contactSheet": "reports/smart-mask/2026-09-18-darwin-arm64-contact-sheet.jpg"
+}

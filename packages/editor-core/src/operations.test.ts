@@ -80,6 +80,132 @@ const expectRoundTrip = (before: Timeline, op: Operation): Timeline => {
 
 // --- type guard ------------------------------------------------------------
 
+describe('MK1.5: trim, split and delete_range re-base EFFECT keyframes', () => {
+  /** A clip whose grade fades exposure 0 → 1 across 0–10s of its own clock. */
+  const graded = (): Timeline => ({
+    tracks: [
+      {
+        id: 'video_1',
+        type: 'video',
+        clips: [
+          clip({
+            id: 'a',
+            trackId: 'video_1',
+            start: 0,
+            end: 10,
+            sourceStart: 0,
+            sourceEnd: 10,
+            effects: [
+              {
+                id: 'grade',
+                type: 'color_grade',
+                params: {},
+                keyframes: [
+                  { id: 'g0', property: 'exposure', time: 0, value: 0, easing: 'linear' },
+                  { id: 'g10', property: 'exposure', time: 10, value: 1, easing: 'linear' },
+                ],
+              },
+            ],
+          }),
+        ],
+      },
+    ],
+  });
+
+  /** The grade's exposure at a FOOTAGE instant, wherever the piece showing it now sits. */
+  const exposureAtSource = (tl: Timeline, sourceSeconds: number): number | undefined => {
+    const piece = tl.tracks[0]!.clips.find(
+      (candidate) => candidate.sourceStart <= sourceSeconds && sourceSeconds <= candidate.sourceEnd,
+    )!;
+    const grade = piece.effects.find((effect) => effect.id === 'grade')!;
+    return evaluateKeyframes(grade.keyframes, 'exposure', sourceSeconds - piece.sourceStart);
+  };
+
+  it('keeps an effect animation on the footage through a head trim, resampling at the cut', () => {
+    const after = applyOperation(graded(), { type: 'trim_clip', clipId: 'a', start: 4, end: 10 });
+    const keyframes = findClipById(after, 'a')!.effects[0]!.keyframes;
+    expect(keyframes.map((keyframe) => [keyframe.id, keyframe.time])).toEqual([
+      ['kf_a_grade_exposure_0', 0],
+      ['g10', 6],
+    ]);
+    for (const source of [4, 7, 10]) {
+      expect(exposureAtSource(after, source)).toBeCloseTo(source / 10, 9);
+    }
+    expect(() => TimelineSchema.parse(after)).not.toThrow();
+  });
+
+  it('gives the right half of a split its own clock instead of replaying the left half', () => {
+    const after = applyOperation(graded(), { type: 'split_clip', clipId: 'a', at: 6 });
+    // REGRESSION: the right piece used to carry the effect keyframes unchanged, so its
+    // grade restarted at exposure 0 on its first frame — footage that had been at 0.6.
+    for (const source of [0, 3, 6, 8, 10]) {
+      expect(exposureAtSource(after, source)).toBeCloseTo(source / 10, 9);
+    }
+  });
+
+  it('re-bases the surviving tail of a delete_range', () => {
+    const after = applyOperation(graded(), {
+      type: 'delete_range',
+      trackId: 'video_1',
+      start: 2,
+      end: 5,
+    });
+    for (const source of [0, 1, 5, 9]) {
+      expect(exposureAtSource(after, source)).toBeCloseTo(source / 10, 9);
+    }
+  });
+
+  it('undoes a head trim of an effect-animated clip exactly, by restoring the track', () => {
+    const before = graded();
+    const op: Operation = { type: 'trim_clip', clipId: 'a', start: 4, end: 10 };
+    expect(invertOperation(before, op)[0]!.type).toBe('restore_clips');
+    expectRoundTrip(before, op);
+  });
+
+  it('leaves mask keyframes alone: they are on the source clock already', () => {
+    const masked: Timeline = {
+      tracks: [
+        {
+          ...graded().tracks[0]!,
+          clips: [
+            {
+              ...graded().tracks[0]!.clips[0]!,
+              masks: [
+                {
+                  ...({ kind: 'rectangle', id: 'm', cx: 1, cy: 1, width: 1, height: 1 } as const),
+                  name: '',
+                  color: '#3b82f6',
+                  enabled: true,
+                  locked: false,
+                  target: { kind: 'alpha' },
+                  mode: 'add',
+                  opacity: 1,
+                  invert: false,
+                  expansionPx: 0,
+                  featherInnerPx: 0,
+                  featherOuterPx: 0,
+                  falloff: 'smooth',
+                  featherModel: 'distance',
+                  space: 'source',
+                  rotation: 0,
+                  roundness: 0,
+                  keyframes: [
+                    { id: 'mk', sourceTime: 7, property: 'cx', value: 5, easing: 'linear' },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const after = applyOperation(masked, { type: 'split_clip', clipId: 'a', at: 6 });
+    for (const piece of after.tracks[0]!.clips) {
+      expect(piece.masks![0]!.keyframes[0]!.sourceTime).toBe(7);
+    }
+  });
+});
+
 describe('trimming re-bases clip-relative keyframes', () => {
   /** A clip animating `scale` 1 → 2 across 0–10s of its own timeline. */
   const animated = (): Timeline => ({
@@ -1377,39 +1503,26 @@ describe('clip-attribute operations', () => {
     });
   });
 
-  it('add_mask attaches a mask effect, reversibly', () => {
-    const before = baseTimeline();
-    const after = expectRoundTrip(before, { type: 'add_mask', clipId: 'a', shape: 'ellipse' });
-    const mask = findClipById(after, 'a')!.effects.find((e) => e.type === 'mask');
-    expect(mask).toBeDefined();
-    expect(mask!.params).toEqual({ shape: 'ellipse' });
-  });
-
-  it('add_mask stores geometry params and effect keyframes', () => {
+  it('add_mask adds a v22 mask layer (not an effect), reversibly', () => {
     const before = baseTimeline();
     const after = expectRoundTrip(before, {
       type: 'add_mask',
       clipId: 'a',
-      shape: 'rectangle',
-      bounds: { x: 0.1, y: 0.2, width: 0.5, height: 0.6 },
-      points: [
-        [0, 0],
-        [1, 1],
-      ],
-      feather: 0.05,
-      opacity: 0.8,
-      invert: true,
-      keyframes: [{ id: 'mk', time: 0, property: 'x', value: 0.1, easing: 'linear' }],
+      mask: { kind: 'ellipse', id: 'a__mask', cx: 960, cy: 540, rx: 200, ry: 100, opacity: 0.8 },
     });
-    const mask = findClipById(after, 'a')!.effects.find((e) => e.type === 'mask')!;
-    expect(mask.params).toMatchObject({
-      shape: 'rectangle',
-      bounds: { x: 0.1, y: 0.2, width: 0.5, height: 0.6 },
-      feather: 0.05,
-      opacity: 0.8,
-      invert: true,
-    });
-    expect(mask.keyframes).toHaveLength(1);
+    const clipAfter = findClipById(after, 'a')!;
+    expect(clipAfter.effects.some((e) => (e.type as string) === 'mask')).toBe(false);
+    expect(clipAfter.masks).toEqual([
+      expect.objectContaining({
+        id: 'a__mask',
+        kind: 'ellipse',
+        rx: 200,
+        opacity: 0.8,
+        enabled: true,
+      }),
+    ]);
+    // A mask never changes the source↔sequence mapping.
+    expect(after.revision).toBe(before.revision);
   });
 
   it('track_object attaches a tracking effect, reversibly', () => {
@@ -1437,47 +1550,39 @@ describe('clip-attribute operations', () => {
     expect(track.keyframes).toHaveLength(1);
   });
 
-  it('replaces canonical masks and tracks instead of stacking duplicate ids', () => {
-    const masked = applyOperation(
-      applyOperation(baseTimeline(), { type: 'add_mask', clipId: 'a', shape: 'ellipse' }),
-      { type: 'add_mask', clipId: 'a', shape: 'rectangle' },
-    );
+  it('replaces the canonical tracker in place, and refuses a duplicate mask id instead of replacing it', () => {
     const tracked = applyOperation(
-      applyOperation(masked, { type: 'track_object', clipId: 'a', target: 'face' }),
+      applyOperation(baseTimeline(), { type: 'track_object', clipId: 'a', target: 'face' }),
       { type: 'track_object', clipId: 'a', target: 'object', engine: 'manual' },
     );
     const effects = findClipById(tracked, 'a')!.effects;
-    expect(effects.filter((effect) => effect.id === 'a__mask')).toHaveLength(1);
     expect(effects.filter((effect) => effect.id === 'a__track')).toHaveLength(1);
-    expect(effects.find((effect) => effect.id === 'a__mask')?.params.shape).toBe('rectangle');
     expect(effects.find((effect) => effect.id === 'a__track')?.params.target).toBe('object');
+    const mask = { kind: 'rectangle', id: 'a__mask', cx: 1, cy: 1, width: 1, height: 1 } as const;
+    const masked = applyOperation(tracked, { type: 'add_mask', clipId: 'a', mask });
+    // v22 restates a mask as remove + add at its index (the tracking command's pattern);
+    // a bare second add is refused rather than silently replacing a different mask.
+    expect(() => applyOperation(masked, { type: 'add_mask', clipId: 'a', mask })).toThrow(
+      /already exists/,
+    );
   });
 
-  it('S3 residual: restating add_mask keeps the mask at its ORIGINAL index, rather than moving it to the end', () => {
-    // The tracking command re-states `<clip>__mask` on every tracked-region update
-    // (commit f494917e). `add_mask` used to filter the existing mask out and push
-    // the new one back on, which silently moved it BEHIND any effect added after it
-    // (a grade, a blur...) — effects composite in list order, so that is a visible
-    // re-ordering of the stack, not just bookkeeping.
-    const withMaskFirst = applyOperation(baseTimeline(), {
-      type: 'add_mask',
-      clipId: 'a',
-      shape: 'ellipse',
-    });
-    const withGradeAfter = applyOperation(withMaskFirst, {
-      type: 'apply_color_grade',
-      clipId: 'a',
-      effect: { id: 'a__grade', type: 'color_grade', params: { exposure: 0.2 }, keyframes: [] },
-    });
-    const restated = applyOperation(withGradeAfter, {
-      type: 'add_mask',
-      clipId: 'a',
-      shape: 'rectangle',
-    });
-    const ids = findClipById(restated, 'a')!.effects.map((e) => e.id);
-    expect(ids.indexOf('a__mask')).toBe(0);
-    expect(ids.indexOf('a__grade')).toBe(1);
-    expect(findClipById(restated, 'a')!.effects[0]?.params.shape).toBe('rectangle');
+  it('S3 residual: restating a mask as remove + add at its index keeps its stack position', () => {
+    const rect = (id: string) =>
+      ({ kind: 'rectangle', id, cx: 1, cy: 1, width: 1, height: 1 }) as const;
+    const stacked = [rect('first'), rect('a__mask'), rect('last')].reduce(
+      (current, mask) => applyOperation(current, { type: 'add_mask', clipId: 'a', mask }),
+      baseTimeline(),
+    );
+    const restated = [
+      { type: 'remove_mask', clipId: 'a', maskId: 'a__mask' },
+      { type: 'add_mask', clipId: 'a', mask: { ...rect('a__mask'), width: 5 }, index: 1 },
+    ].reduce((current, op) => applyOperation(current, op as Operation), stacked);
+    expect(findClipById(restated, 'a')!.masks!.map((mask) => mask.id)).toEqual([
+      'first',
+      'a__mask',
+      'last',
+    ]);
   });
 
   it('S3 residual: restating track_object keeps the tracker at its ORIGINAL index, rather than moving it to the end', () => {
@@ -2934,7 +3039,11 @@ describe('set_clip_speed_ramp', () => {
     });
     expect(result.issues.map((i) => i.code)).not.toContain('speed_duration_mismatch');
     expect(result.valid).toBe(true);
-  });
+    // The joint solve and the bisection that inverts the eased curve are the most arithmetic in
+    // this file: ~0.6 s uninstrumented, but ~5.2 s under coverage on CI's 2-vCPU runner, which
+    // straddles vitest's 5 s default and made this the branch's flakiest red. The generous ceiling
+    // is about the instrumented runner, not about what the product is allowed to cost.
+  }, 30_000);
 
   it('L5 review finding: split_clip/delete_range can ALSO reach a same-segment double cut, via a boundary artifact — and still conserve area', () => {
     // `jointSyntheticPoints` exists for `trim_clip` (previous test). `split_clip`

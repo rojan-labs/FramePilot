@@ -4,7 +4,15 @@
  * gate (unknown / unavailable / invalid-args).
  */
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// The registry has no unavailable tool of its own any more (plan 11, AM1.2), and the refusal
+// of one is still a contract. `getTool` resolves a test-only unbuilt tool beside the real ones.
+vi.mock('./tool-registry.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./tool-registry.js')>();
+  const { getToolWithUnbuilt } = await import('./__fixtures__/unbuilt-tool.js');
+  return { ...actual, getTool: getToolWithUnbuilt(actual.getTool) };
+});
 import {
   Orchestrator,
   ToolInvocationError,
@@ -127,7 +135,7 @@ describe('edit', () => {
   });
 
   it('rejects a tool whose engine is not available yet', async () => {
-    const provider = new FakeProvider({ text: '', toolCalls: [call('generate_mask', {})] });
+    const provider = new FakeProvider({ text: '', toolCalls: [call('unbuilt_tool', {})] });
     await expect(new Orchestrator(provider).edit(input)).rejects.toBeInstanceOf(
       ToolInvocationError,
     );
@@ -665,7 +673,7 @@ describe('agent mode', () => {
         call('get_selected_range', {}), // short (null) → not truncated
         call('get_transcript', { bogus: 1 }), // junk key on a read tool → sanitized away
         call('frobnicate', {}),
-        call('generate_mask', {}),
+        call('unbuilt_tool', {}),
       ],
     });
     const run = await new Orchestrator(provider).agent(input, { maxSteps: 1 });
@@ -686,7 +694,7 @@ describe('agent mode', () => {
     // The unknown-tool verdict is now one sentence shared with the concurrent path: it
     // says the name does not exist AND not to send it again (goal.md C).
     expect(note).toContain(unknownToolNote('frobnicate'));
-    expect(note).toMatch(/Skipped "generate_mask"/);
+    expect(note).toMatch(/Skipped "unbuilt_tool"/);
   });
 
   it('surfaces a genuinely malformed read call (non-object args) as a failure', async () => {

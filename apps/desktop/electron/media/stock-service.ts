@@ -945,7 +945,16 @@ export class StockService {
         // warn that a 16:9 clip will letterbox in a vertical sequence, and the review's
         // reframe check degrades to a generic warning instead of naming the clips.
         ...(typeof derivedMedia?.width === 'number' && typeof derivedMedia.height === 'number'
-          ? { width: derivedMedia.width, height: derivedMedia.height }
+          ? {
+              width: derivedMedia.width,
+              height: derivedMedia.height,
+              // Display geometry (v22) belongs to the probed shape only; the provider's
+              // declared rendition size says nothing about pixel aspect or rotation.
+              ...(derivedMedia.pixelAspectRatio !== undefined
+                ? { pixelAspectRatio: derivedMedia.pixelAspectRatio }
+                : {}),
+              ...(derivedMedia.rotation !== undefined ? { rotation: derivedMedia.rotation } : {}),
+            }
           : { width: variant.width, height: variant.height }),
         proxyPath: derivedMedia?.proxyPath ?? null,
         peaks: derivedMedia?.peaks ?? null,

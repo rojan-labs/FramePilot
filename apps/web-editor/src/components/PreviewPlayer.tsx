@@ -37,7 +37,12 @@ import type {
 } from '@framepilot/timeline-schema';
 import { useFramePlayhead, type UseEditor } from '../editor/useEditor.js';
 import { PreviewEffectOverlay } from './PreviewEffectOverlay.js';
-import { clipMaskEffect, isIdentityMask, maskAt, maskCssImage } from '../preview/clip-mask.js';
+import {
+  MaskStackRasterCache,
+  clipMaskStack,
+  stackNeedsCompositor,
+} from '../preview/masks/mask-stack.js';
+import { maskRasterCssImage } from '../preview/masks/mask-canvas.js';
 import { previewMediaSrc } from '../editor/media.js';
 import {
   EMPTY_POOL,
@@ -112,6 +117,26 @@ import {
   SkipForward,
 } from './icons.js';
 import { hintFor } from '../editor/shortcuts.js';
+
+/** Mask stack rasters for the DOM monitor, cached by semantic signature. */
+const domMaskRasters = new MaskStackRasterCache(8);
+/** The DOM monitor's mask raster is at most this wide (a CSS mask is scaled to the element). */
+const DOM_MASK_MAX_WIDTH = 960;
+
+function domMaskFrame(
+  resolution: { readonly width: number; readonly height: number } | undefined,
+): {
+  width: number;
+  height: number;
+} {
+  const width = resolution?.width ?? 1920;
+  const height = resolution?.height ?? 1080;
+  const scale = Math.min(1, DOM_MASK_MAX_WIDTH / width);
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
 
 export interface PreviewPlayerProps {
   readonly editor: UseEditor;
@@ -842,18 +867,34 @@ export function PreviewPlayer({
       : gradeFilter;
   // Soft-edged directional reveal — the CSS analog of the engine's wipe mask.
   const wipeMask = transition ? wipeCssMask(transition, transitionWipeProgress) : undefined;
-  // THE CLIP'S OWN MASK, resolved at the playhead exactly as the export's `_attach_mask`
-  // resolves it (see preview/clip-mask.ts). The monitor drew no mask at all, so a mask — and
-  // every tracked subject, whose motion lives on the mask's keyframes — was visible only in
-  // a render. On the element, not the frame: the export masks the clip's own picture before
-  // placing it, so the mask moves with the clip's transform, as a CSS mask on a transformed
-  // element does.
-  const clipMaskSource = videoClip ? clipMaskEffect(videoClip.effects) : null;
-  const clipMask = clipMaskSource ? maskAt(clipMaskSource, clipTime) : null;
-  const clipMaskImage =
-    clipMask && !isIdentityMask(clipMask)
-      ? maskCssImage(clipMask, resolution ?? { width: 1920, height: 1080 })
-      : undefined;
+  // THE CLIP'S OWN MASK STACK, rasterised at the playhead by the export's algorithm
+  // (`preview/masks/mask-stack.ts`) and applied as a CSS mask image. On the element, not the
+  // frame: the export masks the clip's own picture before placing it, so the mask moves with
+  // the clip's transform, as a CSS mask on a transformed element does. The raster is capped in
+  // size because this DOM monitor is a fallback; the layer compositor is the exact path.
+  const clipStack = videoClip
+    ? clipMaskStack(videoClip, assetById.get(videoClip.assetId)?.media)
+    : null;
+  const maskFrame = domMaskFrame(resolution);
+  // A stack that reads a PICTURE — a `key` (its own) or a track matte (another layer's, MK8.2) —
+  // has no CPU raster to make into a CSS mask: both are built by the layer compositor, which this
+  // fallback does not have. It is skipped here, as a refused stack already is, so this monitor
+  // shows the clip uncut. That is a known gap of the DOM fallback: the canvas monitor is the path
+  // these masks are designed for, and PX3 deletes this one.
+  const clipMaskRaster =
+    clipStack !== null &&
+    clipStack.refusal === null &&
+    clipStack.alpha.length > 0 &&
+    !stackNeedsCompositor(clipStack.alpha)
+      ? domMaskRasters.raster(
+          clipStack,
+          { kind: 'alpha' },
+          maskFrame.width,
+          maskFrame.height,
+          clipTime,
+        )
+      : null;
+  const clipMaskImage = clipMaskRaster ? maskRasterCssImage(clipMaskRaster) : undefined;
   const visibleMaskLayers = [clipMaskImage, wipeMask].filter(
     (layer): layer is string => layer !== undefined,
   );

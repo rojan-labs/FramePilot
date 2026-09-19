@@ -1,9 +1,10 @@
 /** Safe one-shot runtime client for an installed Capability Pack worker. */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { realpath } from 'node:fs/promises';
+import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { createLogger } from '@framepilot/shared-types';
+import { createLogger, maskingEventPayload } from '@framepilot/shared-types';
 import {
+  CAPABILITY_PACK_OUTPUT_HANDLE_CAPABILITIES,
   CAPABILITY_PACK_WORKER_MAX_LINE_BYTES,
   CapabilityPackWorkerCancelSchema,
   CapabilityPackWorkerFailureSchema,
@@ -14,11 +15,14 @@ import {
   type CapabilityPackWorkerRequest,
   type CapabilityPackWorkerResult,
 } from '../worker-protocol.js';
+import { ensureWorkerGroupGone, killWorkerGroup, workerGroupSpawnOptions } from './process-group.js';
 import { mergeExtraWorkerEnvironment } from './worker-env.js';
 
 const log = createLogger('capability-packs:worker-client');
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1_000;
 const MAX_STDERR_BYTES = 64 * 1024;
+/** How long after `exit` the client waits for `close` before settling without it. */
+const EXIT_GRACE_MS = 1_000;
 
 export type CapabilityPackWorkerLauncher = (
   entrypoint: string,
@@ -30,6 +34,12 @@ export interface CapabilityPackWorkerRunOptions {
   readonly entrypoint: string;
   /** Project/media sandbox root already selected by the desktop authority. */
   readonly mediaRoot: string;
+  /**
+   * The host's matte staging root (`<project>/.framepilot-derived/mattes/.staging`). Required
+   * for a capability that carries a write handle: its output and inputs directories must be
+   * real (non-symlink) directories strictly inside this root (MD-3).
+   */
+  readonly outputRoot?: string;
   readonly request: CapabilityPackWorkerRequest;
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
@@ -42,7 +52,16 @@ export interface CapabilityPackWorkerRunOptions {
    * host-owned protocol keys (network/runtime/identity) cannot be overridden.
    */
   readonly extraEnvironment?: Readonly<Record<string, string>>;
+  /**
+   * A host-created directory for the worker's temporary files (BR4.12 follow-up F3). TMPDIR,
+   * TEMP and TMP point here instead of the desktop's temp folder, so what the worker and the
+   * libraries and tools it runs write "to temp" lands where the host's watchdog measures it.
+   * It must be a real directory (not a link); with `outputRoot`, strictly inside it.
+   */
+  readonly temporaryDirectory?: string;
   readonly onProgress?: (progress: CapabilityPackWorkerProgress) => void;
+  /** The worker's pid (its process-group id on POSIX), for a host watchdog (BR4.12 H2). */
+  readonly onSpawn?: (pid: number) => void;
   readonly launch?: CapabilityPackWorkerLauncher;
 }
 
@@ -53,7 +72,8 @@ export class CapabilityPackWorkerRuntimeError extends Error {
       | 'timed_out'
       | 'media_escape'
       | 'protocol_error'
-      | 'worker_failed',
+      | 'worker_failed'
+      | 'lingering_process',
     message: string,
     public readonly workerCode?: string,
   ) {
@@ -62,7 +82,8 @@ export class CapabilityPackWorkerRuntimeError extends Error {
   }
 }
 
-function defaultLauncher(
+/** Spawn a worker in its own process group with a clean stdio pipe (shared with the warm session). */
+export function defaultLauncher(
   entrypoint: string,
   args: readonly string[],
   env: Readonly<Record<string, string>>,
@@ -72,11 +93,23 @@ function defaultLauncher(
     windowsHide: true,
     env: { ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
+    // Own process group, so a timeout, abort or finish can end every descendant (BR4.12 H1).
+    ...workerGroupSpawnOptions(),
   });
 }
 
-function safeRuntimeEnvironment(
+/** The variables a process and the libraries it loads read for their temp folder. */
+const TEMP_VARIABLES = ['TMPDIR', 'TEMP', 'TMP'] as const;
+
+/**
+ * The scrubbed worker environment: launch essentials plus FRAMEPILOT_ extras, nothing else.
+ *
+ * @param temporaryDirectory - When given, every temp variable points here and the desktop's own
+ *   temp folder is not passed (F3); otherwise the desktop's temp variables pass through.
+ */
+export function safeRuntimeEnvironment(
   extraEnvironment?: Readonly<Record<string, string>>,
+  temporaryDirectory?: string,
 ): Readonly<Record<string, string>> {
   const base: Record<string, string> = {
     FRAMEPILOT_CAPABILITY_PACK_NETWORK: 'disabled',
@@ -84,11 +117,34 @@ function safeRuntimeEnvironment(
   };
   // Preserve only OS process-launch essentials. Provider keys and the rest of the desktop
   // environment never cross into a local media worker.
-  for (const name of ['PATH', 'SystemRoot', 'WINDIR', 'TMPDIR', 'TEMP', 'TMP']) {
+  const passed = temporaryDirectory === undefined ? ['PATH', 'SystemRoot', 'WINDIR', ...TEMP_VARIABLES] : ['PATH', 'SystemRoot', 'WINDIR'];
+  for (const name of passed) {
     const value = process.env[name];
     if (value !== undefined) base[name] = value;
   }
+  if (temporaryDirectory !== undefined) {
+    for (const name of TEMP_VARIABLES) base[name] = temporaryDirectory;
+  }
+  // Temp variables are not FRAMEPILOT_-prefixed, so no extra can override them.
   return mergeExtraWorkerEnvironment(base, extraEnvironment);
+}
+
+/** A temp directory must be a real directory the host made; inside the staging root when there is one. */
+async function assertTemporaryDirectory(temporaryDirectory: string, outputRoot: string | undefined): Promise<void> {
+  if (outputRoot !== undefined) {
+    await assertHandlesInsideOutputRoot(outputRoot, [temporaryDirectory]);
+    return;
+  }
+  try {
+    const stat = await lstat(temporaryDirectory);
+    if (stat.isDirectory() && !stat.isSymbolicLink()) return;
+  } catch {
+    // Refused below.
+  }
+  throw new CapabilityPackWorkerRuntimeError(
+    'media_escape',
+    'Capability Pack temporary directory is not a host-created directory.',
+  );
 }
 
 /**
@@ -101,7 +157,8 @@ function safeRuntimeEnvironment(
  */
 const MEDIA_FREE_CAPABILITIES: ReadonlySet<string> = new Set(['visual.text']);
 
-async function assertMediaInsideRoot(mediaRoot: string, mediaPath: string): Promise<void> {
+/** Refuse a media path whose real location is outside the approved project root. */
+export async function assertMediaInsideRoot(mediaRoot: string, mediaPath: string): Promise<void> {
   const [root, media] = await Promise.all([realpath(mediaRoot), realpath(mediaPath)]);
   const relative = path.relative(root, media);
   if (relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))) return;
@@ -111,8 +168,48 @@ async function assertMediaInsideRoot(mediaRoot: string, mediaPath: string): Prom
   );
 }
 
+/**
+ * A write handle (and its inputs handle) must name a real directory strictly inside the
+ * host's staging root. Symlinked handle directories are refused outright: the host created
+ * them, so a link means something else touched the tree.
+ */
+async function assertHandlesInsideOutputRoot(
+  outputRoot: string | undefined,
+  directories: readonly string[],
+): Promise<void> {
+  if (outputRoot === undefined) {
+    throw new CapabilityPackWorkerRuntimeError(
+      'media_escape',
+      'A capability with a write handle needs the host staging root to check it against.',
+    );
+  }
+  const root = await realpath(outputRoot);
+  for (const directory of directories) {
+    let resolved: string;
+    try {
+      const stat = await lstat(directory);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('not a directory');
+      resolved = await realpath(directory);
+    } catch {
+      throw new CapabilityPackWorkerRuntimeError(
+        'media_escape',
+        'Capability Pack write handle is not a host-created directory.',
+      );
+    }
+    const relative = path.relative(root, resolved);
+    if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new CapabilityPackWorkerRuntimeError(
+        'media_escape',
+        'Capability Pack write handle escapes the host staging root.',
+      );
+    }
+  }
+}
+
 /** How many items a terminal result carried, for the completion log line only. */
 function terminalSampleCount(terminal: CapabilityPackWorkerResult): number {
+  if ('artifact' in terminal) return terminal.artifact.frameCount;
+  if ('maskPng' in terminal) return 1;
   if ('samples' in terminal) return terminal.samples.length;
   if ('detections' in terminal) return terminal.detections.length;
   if ('masks' in terminal) return terminal.masks.length;
@@ -152,6 +249,22 @@ export async function runCapabilityPackWorker(
     }
     await assertMediaInsideRoot(options.mediaRoot, request.media.absolutePath);
   }
+  if (CAPABILITY_PACK_OUTPUT_HANDLE_CAPABILITIES.has(request.capability)) {
+    if (request.capability !== 'subject.matte') {
+      throw new CapabilityPackWorkerRuntimeError(
+        'media_escape',
+        `Capability "${request.capability}" has no write-handle check.`,
+      );
+    }
+    const { output, inputs } = request.parameters;
+    await assertHandlesInsideOutputRoot(options.outputRoot, [
+      output.absolutePath,
+      ...(inputs === undefined ? [] : [inputs.absolutePath]),
+    ]);
+  }
+  if (options.temporaryDirectory !== undefined) {
+    await assertTemporaryDirectory(options.temporaryDirectory, options.outputRoot);
+  }
   if (options.signal?.aborted === true) {
     throw new CapabilityPackWorkerRuntimeError('cancelled', 'Capability Pack request cancelled.');
   }
@@ -159,8 +272,15 @@ export async function runCapabilityPackWorker(
   const child = launch(
     options.entrypoint,
     ['--framepilot-worker-runtime'],
-    safeRuntimeEnvironment(options.extraEnvironment),
+    safeRuntimeEnvironment(options.extraEnvironment, options.temporaryDirectory),
   );
+  if (child.pid !== undefined) {
+    try {
+      options.onSpawn?.(child.pid);
+    } catch (error) {
+      log.warn('spawnObserverFailed', { error: error instanceof Error ? error.name : 'unknown' });
+    }
+  }
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   return await new Promise<CapabilityPackWorkerResult>((resolve, reject) => {
     let settled = false;
@@ -180,6 +300,7 @@ export async function runCapabilityPackWorker(
       else if (result !== undefined) resolve(result);
     };
     const terminate = (): void => {
+      killWorkerGroup(child.pid);
       child.kill('SIGKILL');
     };
     const abort = (): void => {
@@ -230,7 +351,7 @@ export async function runCapabilityPackWorker(
         try {
           options.onProgress?.(parsed.data);
         } catch (error) {
-          log.warn('progressObserverFailed', { error: String(error) });
+          log.warn('progressObserverFailed', { error: error instanceof Error ? error.name : 'unknown' });
         }
         return;
       }
@@ -283,13 +404,21 @@ export async function runCapabilityPackWorker(
       stderr = Buffer.concat([stderr, chunk]).subarray(0, MAX_STDERR_BYTES);
     });
     child.on('error', (error) => finish(protocolError(`Capability Pack worker failed to start: ${error.message}`)));
-    child.on('close', (exitCode) => {
-      if (settled) return;
+    // Settle on `exit` + a grace period, not only `close`: a descendant that inherited stdout
+    // would otherwise keep `close` from ever firing and the job would never settle (BR4.12 H1).
+    let ended = false;
+    let exitGrace: ReturnType<typeof setTimeout> | undefined;
+    const onEnded = (exitCode: number | null): void => {
+      if (settled || ended) return;
+      ended = true;
+      if (exitGrace !== undefined) clearTimeout(exitGrace);
       if (options.signal?.aborted === true) {
+        terminate();
         finish(new CapabilityPackWorkerRuntimeError('cancelled', 'Capability Pack request cancelled.'));
         return;
       }
       if (timedOut) {
+        terminate();
         finish(
           new CapabilityPackWorkerRuntimeError(
             'timed_out',
@@ -301,6 +430,7 @@ export async function runCapabilityPackWorker(
       if (stdout.byteLength > 0) acceptLine(stdout);
       if (settled) return;
       if (exitCode !== 0 || terminal === undefined) {
+        terminate();
         const detail = stderr.toString('utf8').trim().slice(0, 2_000);
         finish(
           protocolError(
@@ -311,13 +441,37 @@ export async function runCapabilityPackWorker(
         );
         return;
       }
-      log.action('workerComplete', {
-        requestId: request.requestId,
-        capability: request.capability,
-        samples: terminalSampleCount(terminal),
+      const result = terminal;
+      // Nothing the worker started may outlive the job: the host verifies the staging
+      // directory next, and a live descendant could still be writing into it.
+      void ensureWorkerGroupGone(child.pid).then((gone) => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        if (!gone) {
+          finish(
+            new CapabilityPackWorkerRuntimeError(
+              'lingering_process',
+              'A process started by the Capability Pack worker would not stop.',
+            ),
+          );
+          return;
+        }
+        // The request id is not logged: catalogued events carry no ids (RD2.2).
+        log.action(
+          'workerComplete',
+          maskingEventPayload('workerComplete', {
+            capability: request.capability,
+            samples: terminalSampleCount(result),
+          }),
+        );
+        finish(undefined, result);
       });
-      finish(undefined, terminal);
+    };
+    child.on('exit', (exitCode) => {
+      if (settled || ended) return;
+      exitGrace = setTimeout(() => onEnded(exitCode), EXIT_GRACE_MS);
     });
+    child.on('close', (exitCode) => onEnded(exitCode));
     // A worker that exits before reading stdin turns the write below into an EPIPE.
     // Without a listener here, that EPIPE is an uncaught 'error' event on the stream
     // and crashes the Electron main process instead of resolving this promise.

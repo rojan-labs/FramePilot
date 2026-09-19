@@ -17,7 +17,15 @@ function project(withMask = true): Project {
     version: 1,
     fps: 24,
     resolution: { width: 1920, height: 1080 },
-    assets: [{ id: 'asset', path: 'shot.mp4', kind: 'video', durationSeconds: 4 }],
+    assets: [
+      {
+        id: 'asset',
+        path: 'shot.mp4',
+        kind: 'video',
+        durationSeconds: 4,
+        media: { width: 1920, height: 1080 },
+      },
+    ],
     timeline: {
       revision: 2,
       tracks: [
@@ -33,22 +41,26 @@ function project(withMask = true): Project {
               end: 4,
               sourceStart: 0,
               sourceEnd: 4,
-              effects: withMask
-                ? [
-                    {
-                      id: 'shot__mask',
-                      type: 'mask',
-                      params: {
-                        shape: 'ellipse',
-                        bounds: { x: 0.2, y: 0.1, width: 0.25, height: 0.4 },
+              effects: [],
+              // Schema v22: an ellipse around {x 0.2, y 0.1, w 0.25, h 0.4}, sweeping right.
+              ...(withMask
+                ? {
+                    masks: [
+                      {
+                        kind: 'ellipse',
+                        id: 'shot__mask',
+                        cx: 624,
+                        cy: 324,
+                        rx: 240,
+                        ry: 216,
+                        keyframes: [
+                          { id: 'mx0', sourceTime: 0, property: 'cx', value: 624 },
+                          { id: 'mx1', sourceTime: 4, property: 'cx', value: 1200 },
+                        ],
                       },
-                      keyframes: [
-                        { id: 'mx0', time: 0, property: 'x', value: 0.2 },
-                        { id: 'mx1', time: 4, property: 'x', value: 0.5 },
-                      ],
-                    },
-                  ]
-                : [],
+                    ],
+                  }
+                : {}),
               keyframes: [],
             },
           ],
@@ -92,8 +104,9 @@ describe('professional_tracking_mask domain tool', () => {
   it('tracks the selected shot from its existing mask geometry and corrections', () => {
     const base = project();
     const edited = dispatch(base, context(base), { intent: 'track_existing_mask' });
+    // Schema v22: the mask stays on the clip's mask stack; the tracker is the one effect.
+    expect(edited.tracks[0]!.clips[0]!.masks?.map((mask) => mask.id)).toEqual(['shot__mask']);
     expect(edited.tracks[0]!.clips[0]!.effects).toEqual([
-      expect.objectContaining({ id: 'shot__mask', type: 'mask' }),
       expect.objectContaining({
         id: 'shot__track',
         type: 'object_track',

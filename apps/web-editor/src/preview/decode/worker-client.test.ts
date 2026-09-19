@@ -142,3 +142,46 @@ describe('DecodeWorkerClient frame hygiene', () => {
     expect(accounting.framesClosedTotal).toBe(accounting.framesCreatedTotal);
   });
 });
+
+describe('DecodeWorkerClient hang report (PX5.7)', () => {
+  it('reports where each source is when the worker answers', async () => {
+    const client = new DecodeWorkerClient();
+    const asked = client.debugStages(1_000);
+    await Promise.resolve();
+    await Promise.resolve();
+    const worker = FakeWorker.latest!;
+    const request = worker.sent[0] as { type: string; requestId: number };
+    expect(request.type).toBe('stages');
+    const session = {
+      sourceId: 'a',
+      stage: 'flush',
+      ageMs: 12_000,
+      from: 8,
+      to: 15,
+      queuedCalls: 1,
+      decoderState: 'configured',
+      decodeQueueSize: 0,
+      lastOutputPresentation: 14,
+      feedCursor: 16,
+      stashedFrames: 0,
+      pendingCopies: 0,
+    } as const;
+    worker.deliver({ type: 'stages', requestId: request.requestId, sessions: [session] });
+    await expect(asked).resolves.toEqual([session]);
+    const traffic = client.debugTraffic();
+    expect(traffic.sent[0]).toMatch(/^stages #\d+ \+\d+$/);
+    expect(traffic.received[0]).toMatch(/^stages #\d+ \+\d+$/);
+    expect(traffic.pending).toEqual([]);
+    expect(traffic.silentForMs).not.toBeNull();
+    client.dispose();
+  });
+
+  it('says the worker is silent instead of waiting for it', async () => {
+    const client = new DecodeWorkerClient();
+    expect(client.debugTraffic().silentForMs).toBeNull();
+    // The worker never answers: the report still comes back, as `null`.
+    await expect(client.debugStages(5)).resolves.toBeNull();
+    expect(client.debugTraffic().pending).toHaveLength(1);
+    client.dispose();
+  });
+});

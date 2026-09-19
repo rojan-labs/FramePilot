@@ -6,7 +6,16 @@
  * mode of a missing check is not an exception, it is a malformed or out-of-scope edit
  * being applied to a real project.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { UNBUILT_TOOL_NAME } from './__fixtures__/unbuilt-tool.js';
+
+// The registry has no unavailable tool of its own any more (plan 11, AM1.2), and the refusal
+// of one is still a contract. `getTool` resolves a test-only unbuilt tool beside the real ones.
+vi.mock('./tool-registry.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./tool-registry.js')>();
+  const { getToolWithUnbuilt } = await import('./__fixtures__/unbuilt-tool.js');
+  return { ...actual, getTool: getToolWithUnbuilt(actual.getTool) };
+});
 import {
   compileAutonomousPatchProposal,
   isProjectOperation,
@@ -132,7 +141,7 @@ describe('compileAutonomousPatchProposal — the builder gate', () => {
     expect(() =>
       compileAutonomousPatchProposal(
         project,
-        proposal({ operations: [{ tool: 'generate_mask', arguments: {} }] }),
+        proposal({ operations: [{ tool: UNBUILT_TOOL_NAME, arguments: {} }] }),
       ),
     ).toThrow(/is unavailable/);
   });

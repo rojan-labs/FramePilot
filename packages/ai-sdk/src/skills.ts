@@ -151,6 +151,26 @@ export function loadSkills(
 /** The skills bundled with this SDK build, parsed once at module init. */
 export const BUNDLED_SKILLS: readonly Skill[] = Object.freeze(loadSkills(RAW_SKILLS));
 
+/**
+ * The skills a host can honour: a skill whose every listed tool is unroutable there is left
+ * out, because its playbook would send the model to tools it is not offered (ADR 0055: never
+ * advertise a capability that does not exist). The masking playbook with the RD2.1 kill switch
+ * off is the case. A skill that lists no tools, or keeps at least one, stays as it is.
+ *
+ * @returns `skills` itself when nothing is dropped, so a host with nothing switched off has
+ *   byte-identical prompts.
+ */
+export function skillsOnOffer(
+  skills: readonly Skill[],
+  unroutable: ReadonlySet<string>,
+): readonly Skill[] {
+  if (unroutable.size === 0) return skills;
+  const kept = skills.filter(
+    (skill) => skill.tools.length === 0 || skill.tools.some((name) => !unroutable.has(name)),
+  );
+  return kept.length === skills.length ? skills : kept;
+}
+
 /** Name → skill lookup for the `load_skill` tool. */
 export function skillsByName(skills: readonly Skill[]): ReadonlyMap<string, Skill> {
   return new Map(skills.map((s) => [s.name, s]));

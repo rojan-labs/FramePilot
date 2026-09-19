@@ -106,7 +106,6 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     "match_color": (True, True),
     "normalize_exposure": (True, True),
     "apply_look": (True, True),
-    "add_mask": (True, True),
     "track_object": (True, True),
     "set_track_flags": (True, True),
     "set_track_caption_style": (True, True),
@@ -135,7 +134,6 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     "map_footage": (True, False),
     "read_edit_signals": (True, False),
     "session_context": (True, False),
-    "generate_mask": (False, True),
 }
 
 
@@ -217,8 +215,9 @@ def test_available_and_mutating_flags_match_contract() -> None:
 
 
 def test_unavailable_tools_are_exactly_the_engine_tbd_set() -> None:
+    # `generate_mask` was the last; the desktop-only `create_mask` replaced it (plan 11).
     unavailable = {name for name, s in TOOL_REGISTRY.items() if not s.available}
-    assert unavailable == {"generate_mask"}
+    assert unavailable == set()
 
 
 def test_analysis_tools_are_available_non_mutating() -> None:
@@ -256,11 +255,15 @@ def test_unknown_tool_raises(ctx: ToolContext) -> None:
     assert exc.value.name == "frobnicate"
 
 
-def test_unavailable_tool_raises(ctx: ToolContext) -> None:
-    for name in ("generate_mask",):
-        with pytest.raises(ToolUnavailableError) as exc:
-            run_tool(name, {}, ctx)
-        assert exc.value.name == name
+def test_unavailable_tool_raises(ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The refusal outlives the last unavailable tool: PRD §23 forbids faking the next one too."""
+    unbuilt = TOOL_REGISTRY["trim_clip"].model_copy(
+        update={"name": "unbuilt_tool", "available": False}
+    )
+    monkeypatch.setitem(TOOL_REGISTRY, "unbuilt_tool", unbuilt)
+    with pytest.raises(ToolUnavailableError) as exc:
+        run_tool("unbuilt_tool", {}, ctx)
+    assert exc.value.name == "unbuilt_tool"
 
 
 def test_analysis_tools_validate_args_and_return_kind(ctx: ToolContext) -> None:
@@ -1111,8 +1114,7 @@ def test_remove_filler_words_skips_freeze_clips(project: Project) -> None:
                         track.model_copy(
                             update={
                                 "clips": [
-                                    clip.model_copy(update={"speed": 0.0})
-                                    for clip in track.clips
+                                    clip.model_copy(update={"speed": 0.0}) for clip in track.clips
                                 ]
                             }
                         )
@@ -1210,11 +1212,6 @@ def test_add_transition_requires_positive_duration(ctx: ToolContext) -> None:
             },
             ctx,
         )
-
-
-def test_add_mask(ctx: ToolContext, project: Project) -> None:
-    result = run_tool("add_mask", {"clipId": "A", "shape": "ellipse"}, ctx)
-    _assert_patch_ok(result, project)
 
 
 def test_track_object(ctx: ToolContext, project: Project) -> None:

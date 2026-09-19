@@ -29,6 +29,15 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// The registry has no unavailable tool of its own any more (plan 11, AM1.2); the
+// `unavailable-tool-refusal` session calls a test-only one. It is never advertised — an
+// unavailable tool has no descriptor — so no other session's recording moves.
+vi.mock('../../tool-registry.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../tool-registry.js')>();
+  const { getToolWithUnbuilt } = await import('../../__fixtures__/unbuilt-tool.js');
+  return { ...actual, getTool: getToolWithUnbuilt(actual.getTool) };
+});
 import { Orchestrator, type StreamOptions } from '../../orchestrator.js';
 import type { AgentOptions } from '../../agent.js';
 import type { AiEvent } from '../../events.js';
@@ -201,12 +210,13 @@ const SCENARIOS: readonly Scenario[] = [
   {
     name: 'unavailable-tool-refusal',
     covers:
-      'A registered-but-unavailable tool (`generate_mask`). PRD §23 requires refusal at ' +
+      'A registered-but-unavailable tool (the test-only `unbuilt_tool`; the registry has had ' +
+      'none of its own since `create_mask` replaced `generate_mask`). PRD §23 requires refusal at ' +
       'invocation, never a fabricated result — the invariant §5.3 puts INSIDE the tool ' +
       'wrapper so it holds whatever calls the tool.',
     prompt: 'who is on screen?',
     build: () => ({
-      provider: new ScriptedProvider([turn(call('f', 'generate_mask', {})), done]),
+      provider: new ScriptedProvider([turn(call('f', 'unbuilt_tool', {})), done]),
     }),
   },
   {

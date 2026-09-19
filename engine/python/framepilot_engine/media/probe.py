@@ -11,9 +11,10 @@ parser is unit-testable without the binary.
 from __future__ import annotations
 
 import json
+import logging
 from fractions import Fraction
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -22,6 +23,12 @@ from framepilot_engine.media.ffmpeg import FFmpegError, Runner, find_ffprobe, ru
 # ffprobe stream codec_type values we care about.
 _VIDEO = "video"
 _AUDIO = "audio"
+
+_log = logging.getLogger(__name__)
+
+#: A clockwise display rotation in quarter turns (``Asset.media.rotation``, schema v22).
+QuarterTurn = Literal[0, 90, 180, 270]
+_QUARTER_TURNS: dict[int, QuarterTurn] = {0: 0, 90: 90, 180: 180, 270: 270}
 
 # ffprobe container-format tokens for single-frame still images (photos). A
 # still image decodes as ONE video stream with no audio, and ffprobe reports a
@@ -59,6 +66,14 @@ class StreamInfo(BaseModel):
     duration_seconds: float | None = None
     sample_rate: int | None = Field(default=None, description="Audio sample rate (Hz).")
     channels: int | None = Field(default=None, description="Audio channel count.")
+    pixel_aspect_ratio: float | None = Field(
+        default=None,
+        description="Non-square pixel aspect ratio (sample_aspect_ratio); None means square.",
+    )
+    rotation: QuarterTurn | None = Field(
+        default=None,
+        description="Clockwise display rotation; None means unrotated.",
+    )
 
 
 class MediaInfo(BaseModel):
@@ -123,6 +138,16 @@ class MediaInfo(BaseModel):
         """Frame rate of the first video stream, if any."""
         return self.video_streams[0].fps if self.video_streams else None
 
+    @property
+    def pixel_aspect_ratio(self) -> float | None:
+        """Pixel aspect ratio of the first video stream; ``None`` means square."""
+        return self.video_streams[0].pixel_aspect_ratio if self.video_streams else None
+
+    @property
+    def rotation(self) -> QuarterTurn | None:
+        """Clockwise display rotation of the first video stream; ``None`` means 0."""
+        return self.video_streams[0].rotation if self.video_streams else None
+
 
 def _to_float(value: Any) -> float | None:
     """Best-effort float parse; ffprobe emits numbers as strings or 'N/A'."""
@@ -155,6 +180,53 @@ def _parse_fps(rate: Any) -> float | None:
     return float(fraction) if fraction != 0 else None
 
 
+def _parse_sample_aspect_ratio(value: Any) -> float | None:
+    """Parse ffprobe ``sample_aspect_ratio`` (``"4:3"``) into a float PAR.
+
+    Square (``1:1``), unknown (``0:1``, ``N/A``) and unparseable values all yield ``None``:
+    the schema reads an absent PAR as square, so only a real non-square ratio is recorded.
+    """
+    if not isinstance(value, str) or ":" not in value:
+        return None
+    numerator, _, denominator = value.partition(":")
+    try:
+        ratio = Fraction(int(numerator), int(denominator))
+    except (ValueError, ZeroDivisionError):
+        return None
+    if ratio <= 0 or ratio == 1:
+        return None
+    return float(ratio)
+
+
+def _parse_rotation(raw: dict[str, Any]) -> QuarterTurn | None:
+    """The clockwise display rotation of a video stream, or ``None`` when unrotated.
+
+    Two places carry it. Modern muxers write a *display matrix* side-data entry whose
+    ``rotation`` is COUNTER-clockwise degrees (a portrait iPhone clip reports ``-90``);
+    older files carry a ``rotate`` tag that is already clockwise. The display matrix wins
+    when both exist, because it is what ffmpeg's own autorotate applies. A rotation that is
+    not a quarter turn is not something a display-corrected pixel space can express, so it
+    is logged and treated as unrotated, which is also what ffmpeg's autorotate does.
+    """
+    clockwise: float | None = None
+    for side_data in raw.get("side_data_list") or []:
+        if isinstance(side_data, dict) and side_data.get("side_data_type") == "Display Matrix":
+            counter_clockwise = _to_float(side_data.get("rotation"))
+            if counter_clockwise is not None:
+                clockwise = -counter_clockwise
+                break
+    if clockwise is None:
+        tags = raw.get("tags")
+        clockwise = _to_float(tags.get("rotate")) if isinstance(tags, dict) else None
+    if clockwise is None or clockwise != clockwise:
+        return None
+    if clockwise % 90 != 0:
+        _log.warning("Ignoring non-quarter-turn display rotation of %s degrees", clockwise)
+        return None
+    turn = _QUARTER_TURNS[int(clockwise) % 360]
+    return turn or None
+
+
 def _parse_stream(raw: dict[str, Any]) -> StreamInfo:
     """Map one ffprobe stream object to :class:`StreamInfo`.
 
@@ -162,16 +234,21 @@ def _parse_stream(raw: dict[str, Any]) -> StreamInfo:
     reflects the real played-back rate for variable-frame-rate sources.
     """
     fps = _parse_fps(raw.get("avg_frame_rate")) or _parse_fps(raw.get("r_frame_rate"))
+    is_video = raw.get("codec_type") == _VIDEO
     return StreamInfo(
         index=_to_int(raw.get("index")) or 0,
         codec_type=str(raw.get("codec_type", "unknown")),
         codec_name=raw.get("codec_name"),
         width=_to_int(raw.get("width")),
         height=_to_int(raw.get("height")),
-        fps=fps if raw.get("codec_type") == _VIDEO else None,
+        fps=fps if is_video else None,
         duration_seconds=_to_float(raw.get("duration")),
         sample_rate=_to_int(raw.get("sample_rate")),
         channels=_to_int(raw.get("channels")),
+        pixel_aspect_ratio=_parse_sample_aspect_ratio(raw.get("sample_aspect_ratio"))
+        if is_video
+        else None,
+        rotation=_parse_rotation(raw) if is_video else None,
     )
 
 

@@ -38,7 +38,7 @@ on:
       packs:
         description: 'Space-separated packs to build'
         required: true
-        default: 'tracking-lite subject-intelligence visual-embed visual-describe'
+        default: 'tracking-lite subject-intelligence visual-embed visual-describe smart-mask'
       min_app_version:
         description: 'Minimum FramePilot app version the release record requires (semver)'
         required: true

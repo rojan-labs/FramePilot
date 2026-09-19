@@ -18,7 +18,8 @@ import type { Clip, Marker } from '@framepilot/timeline-schema';
 import { type UseEditor, useFramePlayhead } from '../../editor/useEditor.js';
 import { secondsToPx } from '../../editor/selectors.js';
 import { KeyframeLane } from './KeyframeLane.js';
-import { KEYFRAME_LANE_HEIGHT, clipKeyframeLanes } from './keyframe-lanes.js';
+import { MaskKeyframeLane } from './MaskKeyframeLane.js';
+import { KEYFRAME_LANE_HEIGHT, clipKeyframeLanes, clipMaskLanes } from './keyframe-lanes.js';
 
 export interface ClipKeyframeLanesProps {
   readonly editor: UseEditor;
@@ -51,6 +52,8 @@ export function ClipKeyframeLanes({
 }: ClipKeyframeLanesProps): JSX.Element {
   const playhead = useFramePlayhead(editor, fps);
   const lanes = clipKeyframeLanes(clip);
+  // Animated masks get one lane each, below the property lanes (MK4.3).
+  const maskLanes = clipMaskLanes(clip);
   // `null` when the playhead is not over this clip, so a marker at 2s does not read
   // as "at the playhead" because the playhead is at 2s on a different clip.
   const relative = playhead - clip.start;
@@ -78,7 +81,7 @@ export function ClipKeyframeLanes({
       style={{
         left: `${secondsToPx(clip.start, pxPerSecond)}px`,
         width: `${secondsToPx(clip.end - clip.start, pxPerSecond)}px`,
-        height: `${lanes.length * KEYFRAME_LANE_HEIGHT}px`,
+        height: `${(lanes.length + maskLanes.length) * KEYFRAME_LANE_HEIGHT}px`,
       }}
     >
       {lanes.map((lane, index) => (
@@ -97,6 +100,18 @@ export function ClipKeyframeLanes({
           onSelect={onSelect}
           onMove={onMove}
           onAddAt={(property, clipTime) => onAddAt(clip.id, property, clipTime)}
+        />
+      ))}
+      {maskLanes.map((lane, index) => (
+        <MaskKeyframeLane
+          key={`mask-${lane.maskId}`}
+          editor={editor}
+          clip={clip}
+          lane={lane}
+          row={lanes.length + index}
+          pxPerSecond={pxPerSecond}
+          fps={fps}
+          playheadClipTime={playheadClipTime}
         />
       ))}
     </div>

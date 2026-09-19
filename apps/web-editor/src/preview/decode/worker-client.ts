@@ -5,14 +5,51 @@
  * both the P0 spike harness and the real single-clip preview engine (P1).
  */
 import { createLogger } from '@framepilot/shared-types';
-import type { DecodedFrameMessage, WorkerRequest, WorkerResponse } from './decode-worker.js';
+import type {
+  DecodedFrameMessage,
+  DecodedPictureMessage,
+  WorkerRequest,
+  WorkerResponse,
+  WorkerStageReport,
+} from './decode-worker.js';
 
 const log = createLogger('web-editor:preview:decode-worker-client');
+
+/** PX5.7: messages remembered each way for a hang report. */
+const TRAFFIC_KEPT = 16;
+
+/** One request or response, summarised for a hang report (ids and ranges, never a URL). */
+function summarise(message: WorkerRequest | WorkerResponse): string {
+  const parts: string[] = [message.type, `#${message.requestId}`];
+  if ('sourceId' in message) parts.push(message.sourceId);
+  if ('fromChunkIndex' in message) parts.push(`${message.fromChunkIndex}-${message.toChunkIndex}`);
+  if ('chunkIndex' in message) parts.push(`@${message.chunkIndex}`);
+  if ('frame' in message && typeof message.frame === 'number') parts.push(`@${message.frame}`);
+  return parts.join(' ');
+}
+
+/** What the client last sent to and heard from its worker (PX5.7). */
+export interface WorkerTraffic {
+  /** Milliseconds since the worker last posted anything; `null` if it never has. */
+  readonly silentForMs: number | null;
+  /** Oldest first, each `summary +ms-ago`. */
+  readonly sent: readonly string[];
+  readonly received: readonly string[];
+  /** Requests still waiting for their answer. */
+  readonly pending: readonly number[];
+}
 
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 
 export interface DecodeRangeResult {
   frames: DecodedFrameMessage[];
+  decodeDurationMs: number;
+  reconfigured: boolean;
+}
+
+export interface DecodePicturesResult {
+  /** In presentation order. */
+  pictures: DecodedPictureMessage[];
   decodeDurationMs: number;
   reconfigured: boolean;
 }
@@ -31,14 +68,21 @@ export class DecodeWorkerClient {
     { resolve: (msg: WorkerResponse) => void; reject: (err: Error) => void }
   >();
   private frameWaiters = new Map<number, DecodedFrameMessage[]>();
+  private pictureWaiters = new Map<number, DecodedPictureMessage[]>();
   private framesCreatedTotal = 0;
   private framesClosedTotal = 0;
   private inFlightPeak = 0;
   private disposed = false;
   /** Desired worker-owned source registrations. Replayed after a worker-level failure. */
   private readonly sourceUrls = new Map<string, string>();
+  /** Matte artifact files (BR5.1), replayed the same way. */
+  private readonly matteUrls = new Map<string, { url: string; expectedFrames: number }>();
   private workerNeedsRehydrate = false;
   private rehydratePromise: Promise<void> | undefined;
+  /** PX5.7: recent traffic each way, `[summary, atMs]`, for {@link debugTraffic}. */
+  private readonly sentLog: [string, number][] = [];
+  private readonly receivedLog: [string, number][] = [];
+  private lastHeardAtMs: number | null = null;
 
   private ensureWorker(): Worker {
     if (this.disposed) throw new Error('DecodeWorkerClient used after dispose().');
@@ -62,7 +106,7 @@ export class DecodeWorkerClient {
       this.failPending(error);
     };
     this.worker = worker;
-    this.workerNeedsRehydrate = this.sourceUrls.size > 0;
+    this.workerNeedsRehydrate = this.sourceUrls.size > 0 || this.matteUrls.size > 0;
     return worker;
   }
 
@@ -80,6 +124,14 @@ export class DecodeWorkerClient {
             type: 'load',
             sourceId,
             url,
+          });
+        }
+        for (const [sourceId, { url, expectedFrames }] of [...this.matteUrls.entries()]) {
+          await this.sendToWorker<Extract<WorkerResponse, { type: 'matteLoaded' }>>(worker, {
+            type: 'loadMatte',
+            sourceId,
+            url,
+            expectedFrames,
           });
         }
         if (this.worker !== worker) {
@@ -114,7 +166,52 @@ export class DecodeWorkerClient {
     };
   }
 
+  /** Release a picture nobody will consume (a `VideoFrame` fallback must be closed). */
+  releasePicture(message: DecodedPictureMessage): void {
+    if (message.picture.kind === 'frame') this.closeFrame(message.picture.frame);
+  }
+
+  /** PX5.7: what went to and came from the worker lately, for a hang report. */
+  debugTraffic(): WorkerTraffic {
+    const now = performance.now();
+    const ago = ([summary, at]: [string, number]): string => `${summary} +${Math.round(now - at)}`;
+    return {
+      silentForMs: this.lastHeardAtMs === null ? null : now - this.lastHeardAtMs,
+      sent: this.sentLog.map(ago),
+      received: this.receivedLog.map(ago),
+      pending: [...this.pending.keys()],
+    };
+  }
+
+  private remember(entries: [string, number][], message: WorkerRequest | WorkerResponse): void {
+    entries.push([summarise(message), performance.now()]);
+    if (entries.length > TRAFFIC_KEPT) entries.shift();
+  }
+
+  private post(worker: Worker, request: WorkerRequest): void {
+    this.remember(this.sentLog, request);
+    worker.postMessage(request);
+  }
+
   private handleMessage(message: WorkerResponse): void {
+    this.lastHeardAtMs = performance.now();
+    this.remember(this.receivedLog, message);
+    if (message.type === 'picture') {
+      if (message.picture.kind === 'frame') {
+        this.framesCreatedTotal++;
+        this.inFlightPeak = Math.max(
+          this.inFlightPeak,
+          this.framesCreatedTotal - this.framesClosedTotal,
+        );
+      }
+      const waiter = this.pictureWaiters.get(message.requestId);
+      if (waiter) {
+        waiter.push(message);
+        return;
+      }
+      this.releasePicture(message);
+      return;
+    }
     if (message.type === 'frame') {
       this.framesCreatedTotal++;
       this.inFlightPeak = Math.max(
@@ -151,7 +248,7 @@ export class DecodeWorkerClient {
     return new Promise<T>((resolve, reject) => {
       this.pending.set(requestId, { resolve: resolve as (msg: WorkerResponse) => void, reject });
       try {
-        worker.postMessage({ ...request, requestId } as WorkerRequest);
+        this.post(worker, { ...request, requestId } as WorkerRequest);
       } catch (error) {
         this.pending.delete(requestId);
         reject(error instanceof Error ? error : new Error(String(error)));
@@ -173,8 +270,11 @@ export class DecodeWorkerClient {
     frameCount: number;
     frameDurationUs: number;
     presentationTimestampsUs: number[];
+    frameRate: number;
+    frameTimesSec: number[] | null;
     codec: string;
     fileBytes: ArrayBuffer;
+    streamed: boolean;
   }> {
     const response = await this.send<Extract<WorkerResponse, { type: 'loaded' }>>({
       type: 'load',
@@ -185,14 +285,78 @@ export class DecodeWorkerClient {
     return response;
   }
 
+  /** Open a matte artifact file (FFV1 in Matroska) in the worker (BR5.1). */
+  async loadMatte(
+    sourceId: string,
+    url: string,
+    expectedFrames: number,
+  ): Promise<Extract<WorkerResponse, { type: 'matteLoaded' }>> {
+    const response = await this.send<Extract<WorkerResponse, { type: 'matteLoaded' }>>({
+      type: 'loadMatte',
+      sourceId,
+      url,
+      expectedFrames,
+    });
+    this.matteUrls.set(sourceId, { url, expectedFrames });
+    return response;
+  }
+
+  /** Decode one matte frame (file order); the planes are transferred to the caller. */
+  decodeMatte(
+    sourceId: string,
+    frame: number,
+  ): Promise<Extract<WorkerResponse, { type: 'matteFrame' }>> {
+    return this.send<Extract<WorkerResponse, { type: 'matteFrame' }>>({
+      type: 'decodeMatte',
+      sourceId,
+      frame,
+    });
+  }
+
   unloadSource(sourceId: string): Promise<void> {
     // Desired state changes before transport: if this request itself loses the worker, a later
     // replacement must not resurrect the source the caller already asked to unload.
     this.sourceUrls.delete(sourceId);
+    this.matteUrls.delete(sourceId);
     return this.send<Extract<WorkerResponse, { type: 'unloaded' }>>({
       type: 'unload',
       sourceId,
     }).then(() => undefined);
+  }
+
+  /** PX5.1: how many `VideoDecoder`s the worker holds now, its peak, and the pool's cap. */
+  decoderPoolStats(): Promise<{
+    liveDecoders: number;
+    peakLiveDecoders: number;
+    capacity: number;
+  }> {
+    return this.send<Extract<WorkerResponse, { type: 'poolStats' }>>({ type: 'poolStats' }).then(
+      ({ liveDecoders, peakLiveDecoders, capacity }) => ({
+        liveDecoders,
+        peakLiveDecoders,
+        capacity,
+      }),
+    );
+  }
+
+  /**
+   * PX5.7: where each source's decode call is (`decode-worker.ts` `StagesRequest`), for a hang
+   * report. `null` when the worker does not answer within `timeoutMs`: its event loop is blocked
+   * or it is gone, which is then the finding.
+   */
+  async debugStages(timeoutMs: number): Promise<WorkerStageReport[] | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const silent = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), timeoutMs);
+    });
+    try {
+      const answer = this.send<Extract<WorkerResponse, { type: 'stages' }>>({
+        type: 'stages',
+      }).then((response) => response.sessions);
+      return await Promise.race([answer, silent]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   reconfigureCountFor(sourceId: string): Promise<number> {
@@ -225,7 +389,7 @@ export class DecodeWorkerClient {
       },
     );
 
-    worker.postMessage({
+    this.post(worker, {
       type: 'decodeRange',
       requestId,
       sourceId,
@@ -249,6 +413,57 @@ export class DecodeWorkerClient {
     }
   }
 
+  /**
+   * Decode an inclusive presentation range as planes (`decoded-picture.ts`) for the layer
+   * compositor. Same streaming session and cancellation rules as {@link decodeRange}; the
+   * caller owns the returned pictures (see {@link releasePicture}).
+   */
+  async decodePictures(
+    sourceId: string,
+    fromChunkIndex: number,
+    toChunkIndex: number,
+  ): Promise<DecodePicturesResult> {
+    const worker = await this.ensureWorkerReady();
+    const requestId = this.nextRequestId++;
+    this.pictureWaiters.set(requestId, []);
+    const rangeDone = new Promise<{ decodeDurationMs: number; reconfigured: boolean }>(
+      (resolve, reject) => {
+        this.pending.set(requestId, {
+          resolve: (msg) => {
+            if (msg.type !== 'rangeDone') {
+              reject(new Error(`Expected rangeDone, got ${msg.type}`));
+              return;
+            }
+            resolve({ decodeDurationMs: msg.decodeDurationMs, reconfigured: msg.reconfigured });
+          },
+          reject,
+        });
+      },
+    );
+    this.post(worker, {
+      type: 'decodeRange',
+      requestId,
+      sourceId,
+      fromChunkIndex,
+      toChunkIndex,
+      output: 'picture',
+    } satisfies WorkerRequest);
+    let delivered = false;
+    try {
+      const { decodeDurationMs, reconfigured } = await rangeDone;
+      const pictures = (this.pictureWaiters.get(requestId) ?? []).sort(
+        (a, b) => a.chunkIndex - b.chunkIndex,
+      );
+      delivered = true;
+      return { pictures, decodeDurationMs, reconfigured };
+    } finally {
+      const collected = this.pictureWaiters.get(requestId) ?? [];
+      this.pictureWaiters.delete(requestId);
+      this.pending.delete(requestId);
+      if (!delivered) for (const message of collected) this.releasePicture(message);
+    }
+  }
+
   /** Terminate the worker and reject every request that can no longer complete. */
   dispose(): void {
     if (this.disposed) return;
@@ -260,6 +475,7 @@ export class DecodeWorkerClient {
     this.workerNeedsRehydrate = false;
     this.rehydratePromise = undefined;
     this.sourceUrls.clear();
+    this.matteUrls.clear();
     // Requests rejected above now run their decodeRange finally blocks in microtasks. Close
     // anything still owned here immediately, then clear the waiter map so those finally blocks
     // see an empty collection and cannot double-close frames.
@@ -267,5 +483,9 @@ export class DecodeWorkerClient {
       for (const message of collected) this.closeFrame(message.frame);
     }
     this.frameWaiters.clear();
+    for (const collected of this.pictureWaiters.values()) {
+      for (const message of collected) this.releasePicture(message);
+    }
+    this.pictureWaiters.clear();
   }
 }

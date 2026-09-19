@@ -28,6 +28,16 @@ import {
   paramsForKind,
 } from './effect-params.js';
 import {
+  EDGE_STYLE_CATALOG,
+  EDGE_STYLE_KINDS,
+  EDGE_STYLE_PARAMS,
+  clampEdgeStyleParams,
+  defaultEdgeStyleParams,
+  edgeStyleParamsIssue,
+  findEdgeStyle,
+  resolveEdgeStyleParams,
+} from './edge-styles.js';
+import {
   EffectLayerSchema,
   EffectRenderKindSchema,
   TrackSchema,
@@ -402,7 +412,10 @@ describe('activeEffectLayersAt', () => {
   it('applies LOWER tracks first — the bottom-up compositing contract', () => {
     // tracks[0] is the visual front, so it must run LAST: an effect on a track
     // above receives the frame the one below already changed.
-    const tl = timelineOf(fxTrack('front', [layer('front-fx', 0, 5)]), fxTrack('back', [layer('back-fx', 0, 5)]));
+    const tl = timelineOf(
+      fxTrack('front', [layer('front-fx', 0, 5)]),
+      fxTrack('back', [layer('back-fx', 0, 5)]),
+    );
     expect(activeEffectLayersAt(tl, 1).map((e) => e.layer.id)).toEqual(['back-fx', 'front-fx']);
   });
 
@@ -441,6 +454,60 @@ describe('committed schema/effect-catalog.json (cross-language contract)', () =>
       categories: EFFECT_CATEGORIES,
       params: EFFECT_PARAMS,
       effects: EFFECT_CATALOG,
+      edgeStyles: {
+        kinds: EDGE_STYLE_KINDS,
+        params: EDGE_STYLE_PARAMS,
+        styles: EDGE_STYLE_CATALOG,
+      },
     }).toEqual(committed);
+  });
+});
+
+describe('edge styles (MK9.2): the cut-out outline, glow and shadow catalog', () => {
+  it('declares params for every kind, defaults inside their ranges, unique names', () => {
+    for (const kind of EDGE_STYLE_KINDS) {
+      const params = EDGE_STYLE_PARAMS[kind];
+      expect(params.length).toBeGreaterThan(0);
+      expect(new Set(params.map((p) => p.name)).size).toBe(params.length);
+      for (const p of params) {
+        expect(p.default).toBeGreaterThanOrEqual(p.min);
+        expect(p.default).toBeLessThanOrEqual(p.max);
+      }
+      expect(Object.keys(defaultEdgeStyleParams(kind))).toEqual(params.map((p) => p.name));
+    }
+  });
+
+  it('has an entry per kind, unique ids and labels, overrides inside the declared ranges', () => {
+    expect(new Set(EDGE_STYLE_CATALOG.map((entry) => entry.kind))).toEqual(
+      new Set(EDGE_STYLE_KINDS),
+    );
+    expect(new Set(EDGE_STYLE_CATALOG.map((entry) => entry.id)).size).toBe(
+      EDGE_STYLE_CATALOG.length,
+    );
+    expect(new Set(EDGE_STYLE_CATALOG.map((entry) => entry.label)).size).toBe(
+      EDGE_STYLE_CATALOG.length,
+    );
+    for (const entry of EDGE_STYLE_CATALOG) {
+      const resolved = resolveEdgeStyleParams(entry);
+      expect(edgeStyleParamsIssue({ kind: entry.kind, ...resolved }), entry.id).toBeNull();
+      expect(entry.tags.length).toBeGreaterThan(0);
+    }
+    expect(findEdgeStyle('white-outline')?.kind).toBe('stroke');
+    expect(findEdgeStyle('nope')).toBeUndefined();
+  });
+
+  it('clamps, drops unknown names and falls back on NaN', () => {
+    expect(clampEdgeStyleParams('stroke', { widthPx: 9999, bogus: 1, red: Number.NaN })).toEqual({
+      ...defaultEdgeStyleParams('stroke'),
+      widthPx: 200,
+    });
+  });
+
+  it('refuses a missing kind, an unknown setting and an out-of-range value, without numbers', () => {
+    expect(edgeStyleParamsIssue({ widthPx: 4 })).toMatch(/needs a kind/);
+    expect(edgeStyleParamsIssue({ kind: 'stroke', radiusPx: 4 })).toMatch(/does not use/);
+    const range = edgeStyleParamsIssue({ kind: 'shadow', softnessPx: -3 });
+    expect(range).toMatch(/outside its range/);
+    expect(range).not.toMatch(/\d/);
   });
 });

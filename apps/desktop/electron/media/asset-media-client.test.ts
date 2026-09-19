@@ -139,6 +139,72 @@ describe('importAssetViaSidecar', () => {
     });
   });
 
+  it('carries probed display geometry beside the shape (schema v22)', async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        durationSeconds: 4,
+        kind: 'video',
+        width: 1920,
+        height: 1080,
+        pixelAspectRatio: 4 / 3,
+        rotation: 90,
+      }),
+    );
+    const result = await importAssetViaSidecar(
+      BASE,
+      { inputPath: 'media/p/phone.mov' },
+      fetchFn as unknown as typeof fetch,
+    );
+    expect(result).toEqual({
+      ok: true,
+      durationSeconds: 4,
+      kind: 'video',
+      media: { width: 1920, height: 1080, pixelAspectRatio: 4 / 3, rotation: 90 },
+    });
+  });
+
+  it('drops display geometry that is null, invalid, or has no shape to describe', async () => {
+    const invalid = vi.fn(async () =>
+      jsonResponse({
+        durationSeconds: 4,
+        kind: 'video',
+        width: 1920,
+        height: 1080,
+        pixelAspectRatio: 0,
+        rotation: 45,
+      }),
+    );
+    const unshaped = vi.fn(async () =>
+      jsonResponse({ durationSeconds: 4, kind: 'video', pixelAspectRatio: 4 / 3, rotation: 90 }),
+    );
+    const nulls = vi.fn(async () =>
+      jsonResponse({
+        durationSeconds: 4,
+        kind: 'video',
+        width: 1920,
+        height: 1080,
+        pixelAspectRatio: null,
+        rotation: null,
+      }),
+    );
+    const request = { inputPath: 'media/p/clip.mp4' };
+    expect(await importAssetViaSidecar(BASE, request, invalid as unknown as typeof fetch)).toEqual({
+      ok: true,
+      durationSeconds: 4,
+      kind: 'video',
+      media: { width: 1920, height: 1080 },
+    });
+    expect(await importAssetViaSidecar(BASE, request, unshaped as unknown as typeof fetch)).toEqual(
+      { ok: true, durationSeconds: 4, kind: 'video', media: {} },
+    );
+    expect(await importAssetViaSidecar(BASE, request, nulls as unknown as typeof fetch)).toEqual({
+      ok: true,
+      durationSeconds: 4,
+      kind: 'video',
+      media: { width: 1920, height: 1080 },
+    });
+  });
+
   it('drops a HALF-measured shape rather than passing one dimension on', async () => {
     // Both or neither. A reader that finds only a width cannot decide anything with it,
     // and an absent pair must keep meaning "not probed" rather than "square".

@@ -28,6 +28,7 @@ import {
 } from '@framepilot/editor-core';
 import type { Operation } from '@framepilot/editor-core';
 import { createLaneAllocator } from '@framepilot/editor-core';
+import { maskSummaryFor } from '../masking/mask-row-facts.js';
 import {
   type PictureBlockView,
   cutHasFacts,
@@ -183,7 +184,14 @@ const clipRow = (
   // answered from asset identity and deleted two different moments of one camera file.
   // Omitted when the clip repeats nothing, which is the common case.
   ...(replaysSourceOf === undefined ? {} : { replaysSourceOf }),
+  // What the clip's masks do (AM4.1). Omitted when it has none, which is nearly every clip.
+  ...maskField(clip),
 });
+
+function maskField(clip: Track['clips'][number]): { masks?: string } {
+  const masks = maskSummaryFor(clip);
+  return masks === undefined ? {} : { masks };
+}
 
 const deleteSchema = z.object({ trackId: z.string(), start: seconds, end: seconds }).strict();
 
@@ -1141,7 +1149,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       name: 'trim_clip',
       description:
         "Set a clip's new start and/or end in timeline seconds (leave one out to keep " +
-        'it); the source in/out follows, scaled by the clip\'s speed. Use to tighten or ' +
+        "it); the source in/out follows, scaled by the clip's speed. Use to tighten or " +
         "extend one clip's edges. It cannot change " +
         'WHERE IN THE ASSET a clip reads from while keeping its timeline position and ' +
         'length — to do that, delete_clip it and add_clip the same span with a different ' +

@@ -54,6 +54,9 @@ import { Button } from '@framepilot/ui';
 import { toReviewCard } from '../../editor/ai.js';
 import { DiffPreviewModal } from './DiffPreviewModal.js';
 import { PackInstallInlineCard, packMissingProposal } from './PackInstallInlineCard.js';
+import { MatteStartInlineCard, matteStartProposal } from './MatteStartInlineCard.js';
+import { MaskTargetPicker, maskTargetChoice } from './MaskTargetPicker.js';
+import { MaskReviewCard, maskReviewSummary } from './MaskReviewCard.js';
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -1035,8 +1038,17 @@ function ToolCard({
   runEnded,
   expanded: controlledOpen,
   onToggleExpanded,
+  timelineRevision,
+  project,
+  onSendMessage,
 }: {
   node: ToolNode;
+  /** The current project: a target picker crops its thumbnails from the clip's own media. */
+  project?: Project;
+  /** Send a message as the editor — how a mask target pick reaches the next turn. */
+  onSendMessage?: (text: string) => void;
+  /** The editor's current timeline revision, for a card that starts a job (see below). */
+  timelineRevision?: number;
   onReveal?: RevealHandler;
   /** Answers the model's question when this call is an `ask_user` (P12). */
   onAnswer?: AnswerHandler;
@@ -1102,6 +1114,19 @@ function ToolCard({
     if (status !== 'failed') return null;
     return packMissingProposal(result?.result);
   }, [status, result]);
+  // A cut-out too long for the agent to start carries the exact job instead; starting it is
+  // the editor's decision, and this is where they make it (plan/background-removal-ai/11).
+  const matteStart = useMemo(() => {
+    if (status !== 'failed') return null;
+    return matteStartProposal(result?.result);
+  }, [status, result]);
+  // A landed AI mask: how many moments need a look, and the way to the review list (AM3.3).
+  const maskReview = useMemo(
+    () => (status === 'completed' ? maskReviewSummary(result?.result) : null),
+    [status, result],
+  );
+  // `find_mask_targets` asking "which one?" — never settled by the model (plan 11 rule 2).
+  const targetChoice = useMemo(() => maskTargetChoice(result?.result), [result]);
   const expanded = open && canExpand;
   const Chevron = expanded ? ChevronDown : ChevronRight;
   // Live elapsed while the call runs (from the running event's timestamp);
@@ -1178,6 +1203,25 @@ function ToolCard({
             below is the only thing worth reading then. */}
         {expanded && result && !isAsk && <ToolOutput result={result} />}
         {missingPackProposal !== null && <PackInstallInlineCard proposal={missingPackProposal} />}
+        {maskReview !== null && <MaskReviewCard summary={maskReview} />}
+        {targetChoice !== null && (
+          <MaskTargetPicker
+            choice={targetChoice}
+            project={project}
+            onPick={onSendMessage}
+            // The pick is a message of its own, so it waits for the run that asked to end.
+            disabled={runEnded !== true}
+            {...(onReveal
+              ? {
+                  onOpenMaskTools: (clipId: string) =>
+                    onReveal({ kind: 'clip', id: clipId, label: clipId }),
+                }
+              : {})}
+          />
+        )}
+        {matteStart !== null && (
+          <MatteStartInlineCard proposal={matteStart} timelineRevision={timelineRevision ?? 0} />
+        )}
         {isAsk && <AskReceipt node={node} reply={askReply} {...(runEnded ? { runEnded } : {})} />}
         {onAnswer && (
           <AskPrompt node={node} onAnswer={answerAndRemember} {...(runEnded ? { runEnded } : {})} />
@@ -1745,8 +1789,11 @@ export const EventNode = memo(function EventNode({
   retryDisabled,
   dismissedReferenceIds,
   onDismissReference,
+  onSendMessage,
 }: {
   node: ViewNode;
+  /** Send a message as the editor (a mask target pick). Tool nodes only. */
+  onSendMessage?: (text: string) => void;
   /** Reference attachments the editor has taken out of force (user nodes only). */
   dismissedReferenceIds?: readonly string[];
   /** Stop using one of this message's attachments as a reference on later turns. */
@@ -1808,6 +1855,8 @@ export const EventNode = memo(function EventNode({
           {...(runEnded ? { runEnded } : {})}
           {...(expanded !== undefined ? { expanded } : {})}
           {...(onToggleExpanded ? { onToggleExpanded } : {})}
+          {...(project ? { timelineRevision: project.timeline.revision ?? 0, project } : {})}
+          {...(onSendMessage ? { onSendMessage } : {})}
         />
       );
     case 'timeline_action':

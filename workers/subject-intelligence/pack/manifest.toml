@@ -8,7 +8,7 @@
 
 [pack]
 id = "framepilot.subject-intelligence"
-version = "1.0.0"
+version = "1.1.0"
 display_name = "Subject Intelligence"
 description = "Face, person, and object detection plus subject segmentation masks."
 channel = "stable"

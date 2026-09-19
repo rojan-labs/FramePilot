@@ -1,0 +1,578 @@
+{
+  "description": "v21 clips with mask effects (MK2.4). legacy-v21.migrated.json is the TS v21->v22 migration of each (written by packages/timeline-schema/src/mask-legacy-render-fixture.test.ts with vitest -u); engine/python/tests/test_mask_legacy_render.py requires the v22 stack to rasterise byte-identically to the v21 renderer at every frame the export renders (clip-local n / fps - start). The keyframed-ellipse-mid-timeline case is the E2E.5 clip exactly (start 4 s, 1 s long); `timings` re-times every moving case to 1 s clips that start mid-timeline at other frame rates (MK2.5), migrated into legacy-v21.timings.migrated.json by the same test.",
+  "media": {
+    "width": 320,
+    "height": 240
+  },
+  "clipTemplate": {
+    "id": "c1",
+    "assetId": "a1",
+    "trackId": "v1",
+    "start": 0,
+    "end": 4,
+    "sourceStart": 3,
+    "sourceEnd": 7,
+    "keyframes": []
+  },
+  "cases": [
+    {
+      "id": "static-rectangle",
+      "clip": {
+        "effects": [
+          {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+              "shape": "rectangle",
+              "bounds": {
+                "x": 0.25,
+                "y": 0.2,
+                "width": 0.5,
+                "height": 0.55
+              }
+            },
+            "keyframes": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "feathered-inverted-rectangle",
+      "clip": {
+        "effects": [
+          {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+              "shape": "rectangle",
+              "bounds": {
+                "x": 0.1,
+                "y": 0.15,
+                "width": 0.6,
+                "height": 0.5
+              },
+              "feather": 0.04,
+              "invert": true,
+              "opacity": 0.7
+            },
+            "keyframes": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "static-ellipse-feathered",
+      "clip": {
+        "effects": [
+          {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+              "shape": "ellipse",
+              "bounds": {
+                "x": 0.2,
+                "y": 0.1,
+                "width": 0.55,
+                "height": 0.7
+              },
+              "feather": 0.02
+            },
+            "keyframes": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "polygon",
+      "clip": {
+        "effects": [
+          {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+              "shape": "polygon",
+              "points": [
+                [0.1, 0.1],
+                [0.9, 0.2],
+                [0.6, 0.95],
+                [0.2, 0.7]
+              ]
+            },
+            "keyframes": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "keyframed-ellipse",
+      "clip": {
+        "effects": [
+          {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+              "shape": "ellipse",
+              "bounds": {
+                "x": 0.0,
+                "y": 0.25,
+                "width": 0.5,
+                "height": 0.5
+              }
+            },
+            "keyframes": [
+              {
+                "id": "a",
+                "time": 0.0,
+                "property": "x",
+                "value": 0.0,
+                "easing": "linear"
+              },
+              {
+                "id": "b",
+                "time": 2.0,
+                "property": "x",
+                "value": 0.5,
+                "easing": "ease-in-out"
+              },
+              {
+                "id": "c",
+                "time": 0.0,
+                "property": "feather",
+                "value": 0.0,
+                "easing": "linear"
+              },
+              {
+                "id": "d",
+                "time": 2.0,
+                "property": "feather",
+                "value": 0.05,
+                "easing": "linear"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "cropped-ellipse",
+      "clip": {
+        "crop": {
+          "x": 0.25,
+          "y": 0.1,
+          "width": 0.5,
+          "height": 0.8
+        },
+        "effects": [
+          {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+              "shape": "ellipse",
+              "bounds": {
+                "x": 0.1,
+                "y": 0.2,
+                "width": 0.6,
+                "height": 0.5
+              },
+              "feather": 0.03
+            },
+            "keyframes": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "double-speed-keyframed",
+      "clip": {
+        "speed": 2.0,
+        "end": 2.0,
+        "effects": [
+          {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+              "shape": "rectangle",
+              "bounds": {
+                "x": 0.1,
+                "y": 0.1,
+                "width": 0.3,
+                "height": 0.3
+              }
+            },
+            "keyframes": [
+              {
+                "id": "a",
+                "time": 0.0,
+                "property": "x",
+                "value": 0.1,
+                "easing": "linear"
+              },
+              {
+                "id": "b",
+                "time": 2.0,
+                "property": "x",
+                "value": 0.6,
+                "easing": "linear"
+              },
+              {
+                "id": "o1",
+                "time": 0.0,
+                "property": "opacity",
+                "value": 1.0,
+                "easing": "linear"
+              },
+              {
+                "id": "o2",
+                "time": 2.0,
+                "property": "opacity",
+                "value": 0.4,
+                "easing": "linear"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "unmeasured-media",
+      "media": null,
+      "clip": {
+        "effects": [
+          {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+              "shape": "rectangle",
+              "bounds": {
+                "x": 0.3,
+                "y": 0.3,
+                "width": 0.4,
+                "height": 0.4
+              },
+              "feather": 0.02
+            },
+            "keyframes": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "second-mask-disabled",
+      "clip": {
+        "effects": [
+          {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+              "shape": "ellipse",
+              "bounds": {
+                "x": 0.2,
+                "y": 0.2,
+                "width": 0.6,
+                "height": 0.6
+              }
+            },
+            "keyframes": []
+          },
+          {
+            "id": "c1__mask2",
+            "type": "mask",
+            "params": {
+              "shape": "rectangle",
+              "bounds": {
+                "x": 0,
+                "y": 0,
+                "width": 0.1,
+                "height": 0.1
+              }
+            },
+            "keyframes": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "drag-fractions-rectangle",
+      "clip": {
+        "crop": {
+          "x": 0.0625,
+          "y": 0.13333333333333333,
+          "width": 0.8541666666666666,
+          "height": 0.7291666666666666
+        },
+        "effects": [
+          {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+              "shape": "rectangle",
+              "bounds": {
+                "x": 0.3333333333333333,
+                "y": 0.123456789,
+                "width": 0.4166666666666667,
+                "height": 0.5714285714285714
+              },
+              "feather": 0.017857142857142856,
+              "opacity": 0.35
+            },
+            "keyframes": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "drag-fractions-ellipse",
+      "clip": {
+        "effects": [
+          {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+              "shape": "ellipse",
+              "bounds": {
+                "x": 0.14285714285714285,
+                "y": 0.2857142857142857,
+                "width": 0.7142857142857143,
+                "height": 0.42857142857142855
+              },
+              "invert": true
+            },
+            "keyframes": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "drag-fractions-polygon",
+      "clip": {
+        "crop": {
+          "x": 0.1,
+          "y": 0.05,
+          "width": 0.7,
+          "height": 0.9
+        },
+        "effects": [
+          {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+              "shape": "polygon",
+              "points": [
+                [0.11764705882352941, 0.07692307692307693],
+                [0.9411764705882353, 0.15384615384615385],
+                [0.6470588235294118, 0.9230769230769231],
+                [0.058823529411764705, 0.6923076923076923]
+              ],
+              "feather": 0.01
+            },
+            "keyframes": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "reverse-keyframed",
+      "clip": {
+        "speed": -1.0,
+        "effects": [
+          {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+              "shape": "ellipse",
+              "bounds": {
+                "x": 0.2,
+                "y": 0.2,
+                "width": 0.3,
+                "height": 0.3
+              }
+            },
+            "keyframes": [
+              {
+                "id": "a",
+                "time": 0.0,
+                "property": "y",
+                "value": 0.1,
+                "easing": "ease-in"
+              },
+              {
+                "id": "b",
+                "time": 2.0,
+                "property": "y",
+                "value": 0.6,
+                "easing": "linear"
+              },
+              {
+                "id": "f1",
+                "time": 0.0,
+                "property": "feather",
+                "value": 0.0,
+                "easing": "linear"
+              },
+              {
+                "id": "f2",
+                "time": 4.0,
+                "property": "feather",
+                "value": 0.03,
+                "easing": "linear"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ramped-keyframed",
+      "clip": {
+        "end": 2.0,
+        "speedRamp": [
+          {
+            "id": "r0",
+            "sourceTime": 0.0,
+            "rate": 1.0
+          },
+          {
+            "id": "r1",
+            "sourceTime": 4.0,
+            "rate": 3.0
+          }
+        ],
+        "effects": [
+          {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+              "shape": "rectangle",
+              "bounds": {
+                "x": 0.1,
+                "y": 0.3,
+                "width": 0.4,
+                "height": 0.2
+              }
+            },
+            "keyframes": [
+              {
+                "id": "a",
+                "time": 0.0,
+                "property": "x",
+                "value": 0.1,
+                "easing": "linear"
+              },
+              {
+                "id": "b",
+                "time": 1.5,
+                "property": "x",
+                "value": 0.5,
+                "easing": "linear"
+              },
+              {
+                "id": "w1",
+                "time": 0.0,
+                "property": "width",
+                "value": 0.4,
+                "easing": "linear"
+              },
+              {
+                "id": "w2",
+                "time": 1.5,
+                "property": "width",
+                "value": 0.2,
+                "easing": "linear"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "keyframed-ellipse-mid-timeline",
+      "clip": {
+        "effects": [
+          {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+              "shape": "ellipse",
+              "bounds": {
+                "x": 0.0,
+                "y": 0.25,
+                "width": 0.5,
+                "height": 0.5
+              }
+            },
+            "keyframes": [
+              {
+                "id": "a",
+                "time": 0.0,
+                "property": "x",
+                "value": 0.0,
+                "easing": "linear"
+              },
+              {
+                "id": "b",
+                "time": 2.0,
+                "property": "x",
+                "value": 0.5,
+                "easing": "ease-in-out"
+              },
+              {
+                "id": "c",
+                "time": 0.0,
+                "property": "feather",
+                "value": 0.0,
+                "easing": "linear"
+              },
+              {
+                "id": "d",
+                "time": 2.0,
+                "property": "feather",
+                "value": 0.05,
+                "easing": "linear"
+              }
+            ]
+          }
+        ],
+        "start": 4,
+        "end": 5,
+        "sourceStart": 1,
+        "sourceEnd": 2
+      }
+    }
+  ],
+  "timings": {
+    "cases": [
+      "keyframed-ellipse",
+      "double-speed-keyframed",
+      "reverse-keyframed",
+      "ramped-keyframed"
+    ],
+    "duration": 1,
+    "variants": [
+      {
+        "start": 4,
+        "fps": 30
+      },
+      {
+        "start": 1.37,
+        "fps": 30
+      },
+      {
+        "start": 7.5,
+        "fps": 24
+      },
+      {
+        "start": 3.1,
+        "fps": 29.97
+      },
+      {
+        "start": 10.05,
+        "fps": 60
+      },
+      {
+        "start": 0.7,
+        "fps": 23.976
+      }
+    ]
+  },
+  "fps": 30
+}

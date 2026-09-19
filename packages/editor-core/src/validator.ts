@@ -6,6 +6,7 @@
  */
 import { createLogger } from '@framepilot/shared-types';
 import type {
+  Asset,
   Clip,
   EffectLayer,
   EffectRenderKind,
@@ -26,12 +27,24 @@ import {
 } from './operations.js';
 import {
   isProjectOperation,
+  isValidAssetPath,
   wouldCreateFolderCycle,
   type ProjectOperation,
 } from './project-operations.js';
 import { clipTimelineDuration, hasSpeedRamp } from './speed-curve.js';
 import { TRANSITION_OUT_EFFECT_TYPE } from './transitions.js';
 import { postValidationScope } from './validation-scope.js';
+import {
+  MASK_OPERATION_TYPES,
+  isMaskOperation,
+  type MaskOperationErrorCode,
+} from './mask-operations.js';
+import {
+  maskOperationIssues,
+  matteCoverageIssues,
+  retiredMaskEffectIssues,
+  type MaskValidationContext,
+} from './mask-validation.js';
 import type { AnyOperation } from './patch.js';
 
 const log = createLogger('editor-core:validator');
@@ -52,6 +65,7 @@ export type ValidationCode =
   | 'duplicate_asset'
   | 'asset_in_use'
   | 'missing_folder'
+  | 'invalid_asset_path'
   | 'duplicate_folder'
   | 'folder_cycle'
   | 'duplicate_layer'
@@ -69,6 +83,22 @@ export type ValidationCode =
   | 'duplicate_effect_layer'
   | 'unsupported_effect_kind'
   | 'invalid_effect_params'
+  /** A mask value, keyframe or structural rule is broken (schema v22). */
+  | 'invalid_mask'
+  /** Two masks, keyframes or new tracks would share an id. */
+  | 'duplicate_mask'
+  /** A path mask's vertices or path keyframes are inconsistent. */
+  | 'invalid_mask_path'
+  /** A mask targets an effect that is not on its clip. */
+  | 'invalid_mask_target'
+  /** A mask was added or pasted on media whose size was never measured. */
+  | 'mask_needs_media_dimensions'
+  /** A mask keyframe sits outside the clip's source range (plus the handle). */
+  | 'mask_keyframe_out_of_range'
+  /** Layer masks refer to each other in a loop. */
+  | 'mask_layer_cycle'
+  /** An enabled matte does not cover the source range its clip plays. */
+  | 'matte_out_of_coverage'
   /** An apply path threw something the operations layer did not raise deliberately. */
   | 'invalid_operation';
 
@@ -102,6 +132,12 @@ export interface ValidateOptions {
    * durations — right for hand-built timelines that never went through a commit.
    */
   readonly fps?: number;
+  /**
+   * The project's assets, so mask rules can check measured media sizes (schema v22): a mask
+   * is stored in source pixels, and adding one to media nobody measured is refused with
+   * "Measure this media first". Omitted, those size rules are skipped rather than guessed.
+   */
+  readonly assets?: Iterable<Pick<Asset, 'id' | 'media'>>;
 }
 
 const SUPPORTED_OPERATIONS: ReadonlySet<OperationType> = new Set<OperationType>([
@@ -132,6 +168,7 @@ const SUPPORTED_OPERATIONS: ReadonlySet<OperationType> = new Set<OperationType>(
   'set_clip_speed_ramp',
   'set_clip_crop',
   'set_clip_blend_mode',
+  'set_clip_edge_style',
   'add_layer',
   'remove_layer',
   'move_layer',
@@ -143,6 +180,7 @@ const SUPPORTED_OPERATIONS: ReadonlySet<OperationType> = new Set<OperationType>(
   'set_effect_layer_enabled',
   'restore_effect_layer',
   'restore_clips',
+  ...MASK_OPERATION_TYPES,
 ]);
 
 interface PatchLike {
@@ -195,6 +233,12 @@ export function validatePatch(
   const fps = gridFps(options.fps);
   const issues: ValidationIssue[] = [];
   const clipTracks = clipTrackIndex(timeline);
+  const maskContext: MaskValidationContext = {
+    fps,
+    ...(options.assets === undefined
+      ? {}
+      : { assets: new Map([...options.assets].map((asset) => [asset.id, asset])) }),
+  };
   let working = timeline;
 
   patch.operations.forEach((op, index) => {
@@ -214,13 +258,19 @@ export function validatePatch(
     }
 
     issues.push(...staticChecks(working, op, index, assetIds, clipTracks));
+    issues.push(...retiredMaskEffectIssues(op, index));
     const scope = postValidationScope(op, clipTracks);
     try {
       const next = applyOperation(working, op, fps === null ? undefined : { fps });
       const tracks = tracksById(next, scope.trackIds);
       if (scope.overlap) issues.push(...overlapChecks(tracks, index));
       if (scope.transitions) issues.push(...transitionOverlapChecks(tracks, index));
-      if (scope.speed) issues.push(...speedConsistencyChecks(tracks, index, fps));
+      if (scope.speed) {
+        issues.push(...speedConsistencyChecks(tracks, index, fps));
+        // A trim, slip, split or retime can move a clip's source range past its matte.
+        issues.push(...matteCoverageIssues(tracks, index, maskContext));
+      }
+      if (isMaskOperation(op)) issues.push(...maskOperationIssues(next, op, index, maskContext));
       refreshClipTrackIndex(clipTracks, next, scope.trackIds);
       working = next;
     } catch (cause) {
@@ -548,6 +598,12 @@ function projectChecks(
         );
       }
       break;
+    case 'relink_asset':
+      if (!assetExists(op.assetId)) issue('missing_asset', `Unknown asset '${op.assetId}'.`);
+      if (!isValidAssetPath(op.path)) {
+        issue('invalid_asset_path', 'relink_asset needs an absolute file path. Choose the file again.');
+      }
+      break;
     case 'move_asset':
       if (!assetExists(op.assetId)) issue('missing_asset', `Unknown asset '${op.assetId}'.`);
       if (op.folderId !== null && !folderExists(op.folderId)) {
@@ -681,6 +737,7 @@ function advanceProjectState(
       }
       break;
     case 'move_asset':
+    case 'relink_asset':
     case 'set_transcript':
     case 'set_ai_memory':
       break;
@@ -698,9 +755,23 @@ function mutateFolder(
 }
 
 function fromOperationError(cause: unknown, index: number): ValidationIssue {
-  const error = cause as OperationError;
+  const error = cause as {
+    readonly code?: OperationError['code'] | MaskOperationErrorCode;
+    readonly message: string;
+  };
   const message = error.message;
   switch (error.code) {
+    case 'missing_effect_layer':
+    case 'missing_mask':
+    case 'missing_keyframe':
+      return { code: 'missing_reference', severity: 'error', message, operationIndex: index };
+    case 'duplicate_mask':
+    case 'duplicate_keyframe':
+      return { code: 'duplicate_mask', severity: 'error', message, operationIndex: index };
+    case 'invalid_mask':
+    case 'invalid_mask_path':
+    case 'invalid_mask_target':
+      return { code: error.code, severity: 'error', message, operationIndex: index };
     case 'missing_clip':
     case 'missing_track':
     case 'missing_effect':

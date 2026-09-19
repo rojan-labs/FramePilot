@@ -994,20 +994,15 @@ def test_compile_applies_rectangle_mask(
     (tmp_project_dir / "m.mp4").write_bytes(src.read_bytes())
 
     clip = _clip("c1", "v", 0, 1, asset="a1")
-    clip["effects"] = [
-        {
-            "id": "c1__mask",
-            "type": "mask",
-            "params": {
-                "shape": "rectangle",
-                "bounds": {"x": 0.25, "y": 0.25, "width": 0.5, "height": 0.5},
-            },
-            "keyframes": [],
-        }
+    # Schema v22: the centre half of a 320x240 source, in source pixels.
+    clip["masks"] = [
+        {"kind": "rectangle", "id": "c1__mask", "cx": 160, "cy": 120, "width": 160, "height": 120}
     ]
     project = _project(
         [{"id": "v", "type": "video", "clips": [clip]}],
-        assets=[{"id": "a1", "path": "m.mp4", "kind": "video"}],
+        assets=[
+            {"id": "a1", "path": "m.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
+        ],
     )
 
     composite = compile_timeline(project, _index(project, tmp_project_dir), REELS)
@@ -1031,23 +1026,26 @@ def test_compile_applies_animated_mask(
     (tmp_project_dir / "am.mp4").write_bytes(src.read_bytes())
 
     clip = _clip("c1", "v", 0, 1, asset="a1")
-    clip["effects"] = [
+    # Schema v22: an ellipse sweeping left → right, keyed on the SOURCE clock.
+    clip["masks"] = [
         {
+            "kind": "ellipse",
             "id": "c1__mask",
-            "type": "mask",
-            "params": {
-                "shape": "ellipse",
-                "bounds": {"x": 0.0, "y": 0.25, "width": 0.5, "height": 0.5},
-            },
+            "cx": 80,
+            "cy": 120,
+            "rx": 80,
+            "ry": 60,
             "keyframes": [
-                {"id": "x0", "time": 0.0, "property": "x", "value": 0.0, "easing": "linear"},
-                {"id": "x1", "time": 1.0, "property": "x", "value": 0.5, "easing": "linear"},
+                {"id": "x0", "sourceTime": 0.0, "property": "cx", "value": 80.0},
+                {"id": "x1", "sourceTime": 1.0, "property": "cx", "value": 240.0},
             ],
         }
     ]
     project = _project(
         [{"id": "v", "type": "video", "clips": [clip]}],
-        assets=[{"id": "a1", "path": "am.mp4", "kind": "video"}],
+        assets=[
+            {"id": "a1", "path": "am.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
+        ],
     )
 
     composite = compile_timeline(project, _index(project, tmp_project_dir), REELS)
@@ -1065,31 +1063,23 @@ def test_compile_moves_a_tracked_mask_over_time(
 ) -> None:
     """A measured track, applied the way the TS tracking compiler emits it, MOVES the render.
 
-    ``compileTrackingCommand`` emits ``track_object`` (provenance) plus ``add_mask``
-    re-stating the drawn mask with the tracked x/y/width/height keyframes. Applying
-    those ops through the engine and compiling must put the visible hole in a
-    different place early and late — the tracked-motion-never-renders regression.
+    ``compileTrackingCommand`` emits ``track_object`` (provenance) plus the clip's mask
+    re-stated with tracked ``cx`` keyframes on the SOURCE clock (schema v22). Applying those
+    ops through the engine and compiling must put the visible hole in a different place
+    early and late — the tracked-motion-never-renders regression.
     """
     from framepilot_engine.timeline.operations import AddMask, TrackObject, apply_operation
 
     src = media_factory("tm.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
     (tmp_project_dir / "tm.mp4").write_bytes(src.read_bytes())
     clip = _clip("c1", "v", 0, 1, asset="a1")
-    clip["effects"] = [
-        {
-            "id": "c1__mask",
-            "type": "mask",
-            "params": {
-                "shape": "rectangle",
-                "bounds": {"x": 0.0, "y": 0.0, "width": 0.5, "height": 1.0},
-            },
-            "keyframes": [],
-        }
-    ]
     project = _project(
         [{"id": "v", "type": "video", "clips": [clip]}],
-        assets=[{"id": "a1", "path": "tm.mp4", "kind": "video"}],
+        assets=[
+            {"id": "a1", "path": "tm.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
+        ],
     )
+
     def box_keyframes(prefix: str) -> list[dict[str, Any]]:
         return [
             {
@@ -1102,6 +1092,7 @@ def test_compile_moves_a_tracked_mask_over_time(
             for time, x in ((0.0, 0.0), (1.0, 0.5))
             for prop, value in (("x", x), ("y", 0.0), ("width", 0.5), ("height", 1.0))
         ]
+
     timeline = apply_operation(
         project.timeline,
         TrackObject.model_validate(
@@ -1121,9 +1112,23 @@ def test_compile_moves_a_tracked_mask_over_time(
             {
                 "type": "add_mask",
                 "clipId": "c1",
-                "shape": "rectangle",
-                "bounds": {"x": 0.0, "y": 0.0, "width": 0.5, "height": 1.0},
-                "keyframes": box_keyframes("tracking__c1__mask"),
+                "mask": {
+                    "kind": "rectangle",
+                    "id": "c1__mask",
+                    "cx": 80,
+                    "cy": 120,
+                    "width": 160,
+                    "height": 240,
+                    "keyframes": [
+                        {
+                            "id": f"tracking__c1__mask__cx__{round(time * 1_000_000)}",
+                            "sourceTime": time,
+                            "property": "cx",
+                            "value": (x + 0.25) * 320,
+                        }
+                        for time, x in ((0.0, 0.0), (1.0, 0.5))
+                    ],
+                },
             }
         ),
     )
@@ -2638,3 +2643,210 @@ def test_fitted_decode_size_is_always_even() -> None:
         size = fitted_decode_size(source, (1080, 1920))
         assert size is not None
         assert size[0] % 2 == 0 and size[1] % 2 == 0, size
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_compile_refuses_a_frame_space_mask_that_follows_the_picture(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """A mask the export cannot draw stops the export with a remedy, not a guess.
+
+    Every mask kind renders since MK8 and frame-space clip masks since MK9.1; what is left is a
+    frame-space mask of a kind that reads the clip's own picture (a key), which has no frame
+    variant.
+    """
+    src = media_factory("r.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
+    (tmp_project_dir / "r.mp4").write_bytes(src.read_bytes())
+    clip = _clip("c1", "v", 0, 1, asset="a1")
+    clip["masks"] = [
+        {"kind": "rectangle", "id": "a", "cx": 160, "cy": 120, "width": 100, "height": 100},
+        {"kind": "key", "id": "k", "model": "hsl", "space": "frame"},
+    ]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [clip]}],
+        assets=[
+            {"id": "a1", "path": "r.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
+        ],
+    )
+    with pytest.raises(CompileError, match="Set its space to Source"):
+        compile_timeline(project, _index(project, tmp_project_dir), REELS)
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_a_frame_space_clip_mask_stays_fixed_on_the_frame(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """MK9.1: a clip mask in frame space cuts by OUTPUT-frame pixels, wherever the picture lands.
+
+    The 320x240 picture is fitted to the 1080-wide frame (810 tall, centred). The frame-space
+    rectangle is the left half of the FRAME, so the left half of the picture shows and the right
+    half is cut, even though the rectangle's numbers would be far outside the source picture.
+    """
+    src = media_factory("r.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
+    (tmp_project_dir / "r.mp4").write_bytes(src.read_bytes())
+    clip = _clip("c1", "v", 0, 1, asset="a1")
+    clip["masks"] = [
+        {
+            "kind": "rectangle",
+            "id": "left",
+            "space": "frame",
+            "cx": 270.0,
+            "cy": 960.0,
+            "width": 540.0,
+            "height": 1920.0,
+        }
+    ]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [clip]}],
+        assets=[
+            {"id": "a1", "path": "r.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
+        ],
+    )
+    composition = compile_timeline(project, _index(project, tmp_project_dir), REELS)
+    frame = np.asarray(composition.get_frame(0.5), dtype=np.int16)
+    assert frame[960, 200, 0] > 200, "the frame's left half keeps the picture"
+    assert frame[960, 880].max() < 24, "the frame's right half is cut"
+    assert frame[300, 200].max() < 24, "above the fitted picture there is nothing to keep"
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_an_edge_style_outlines_the_cut_out_under_the_picture(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """MK9.2: a white outline traces the ellipse the stack keeps, outside it, over nothing.
+
+    The 320x240 picture fills the 1080-wide frame at 3.375x. The ellipse keeps source x 60..260
+    on the centre row; a 10 px outline therefore shows around source x 265 (frame ~894), the
+    subject stays red inside, and past the outline the frame is the empty background.
+    """
+    src = media_factory("r.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
+    (tmp_project_dir / "r.mp4").write_bytes(src.read_bytes())
+    clip = _clip("c1", "v", 0, 1, asset="a1")
+    clip["masks"] = [{"kind": "ellipse", "id": "e", "cx": 160, "cy": 120, "rx": 100, "ry": 80}]
+    clip["effects"] = [
+        {"id": "c1__edge_stroke", "type": "edge_style", "params": {"kind": "stroke", "widthPx": 10}}
+    ]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [clip]}],
+        assets=[
+            {"id": "a1", "path": "r.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
+        ],
+    )
+    composition = compile_timeline(project, _index(project, tmp_project_dir), REELS)
+    frame = np.asarray(composition.get_frame(0.5), dtype=np.int16)
+    assert frame[960, 540, 0] > 200 and frame[960, 540, 1] < 60, "the subject stays red"
+    assert frame[960, 894].min() > 200, "the outline is white just outside the ellipse"
+    assert frame[960, 1000].max() < 24, "past the outline there is nothing"
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_compile_refuses_a_malformed_edge_style(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    src = media_factory("r.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
+    (tmp_project_dir / "r.mp4").write_bytes(src.read_bytes())
+    clip = _clip("c1", "v", 0, 1, asset="a1")
+    clip["masks"] = [{"kind": "ellipse", "id": "e", "cx": 160, "cy": 120, "rx": 100, "ry": 80}]
+    clip["effects"] = [{"id": "x", "type": "edge_style", "params": {"kind": "glow", "widthPx": 3}}]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [clip]}],
+        assets=[
+            {"id": "a1", "path": "r.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
+        ],
+    )
+    with pytest.raises(CompileError, match="does not use"):
+        compile_timeline(project, _index(project, tmp_project_dir), REELS)
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_a_key_mask_cuts_the_backing_out_of_the_picture(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """MK6.1: a green frame keyed on hue and inverted composites as an empty frame.
+
+    The whole clip is the backing colour, so inverting the key leaves nothing of it: what lands
+    is the composition's background. That is the end-to-end proof that the qualifier reached the
+    alpha the compositor attached, not just that it compiled.
+    """
+    src = media_factory("g.mp4", seconds=1.0, with_audio=False, color="green", size="320x240")
+    (tmp_project_dir / "g.mp4").write_bytes(src.read_bytes())
+    clip = _clip("c1", "v", 0, 1, asset="a1")
+    clip["masks"] = [
+        {
+            "kind": "key",
+            "id": "k",
+            "model": "hsl",
+            "invert": True,
+            "ranges": [
+                {"channel": "hue", "low": 0.2, "high": 0.5, "softness": 0.1},
+                {"channel": "saturation", "low": 0.2, "high": 1.0, "softness": 0.1},
+            ],
+        }
+    ]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [clip]}],
+        assets=[
+            {"id": "a1", "path": "g.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
+        ],
+    )
+    composition = compile_timeline(project, _index(project, tmp_project_dir), REELS)
+    frame = composition.get_frame(0.5)
+    assert int(frame.max()) < 24, "the keyed backing should not reach the composite"
+
+
+def test_rotated_anamorphic_source_stretches_its_upright_height(tmp_path: Path) -> None:
+    """PX2.11 golden: storage 96x72 at PAR 4/3, turned a quarter, displays 72x128.
+
+    The sample aspect ratio stretches storage width, which after ffmpeg's autorotate (and
+    MoviePy's size swap) is the upright HEIGHT. Stretching the upright width decoded it 96x96.
+    The storage top-right secondary quadrant must land as one undistorted 36x64 corner block.
+    """
+    from moviepy import VideoFileClip
+
+    from framepilot_engine.media.ffmpeg import find_ffmpeg
+    from framepilot_engine.render.compiler import _open_source_reader
+    from tests.px4_parity_frames import VideoSpec, encode_video
+
+    primary, secondary = (236, 44, 44), (44, 44, 236)
+    spec = VideoSpec(
+        "rot-anam.mp4", 96, 72, 10.0, 0.3, primary, secondary, pixel_aspect_ratio=4 / 3, rotation=90
+    )
+    encode_video(find_ffmpeg(), tmp_path, spec)
+    clip = _open_source_reader(VideoFileClip, str(tmp_path / "rot-anam.mp4"), None, None, 4 / 3)
+    try:
+        assert tuple(clip.size) == (72, 128)
+        frame = np.asarray(clip.get_frame(0.1), dtype=np.int16)
+    finally:
+        clip.close()
+    assert frame.shape == (128, 72, 3)
+    is_secondary = np.abs(frame - np.array(secondary)).max(axis=2) <= 40
+    rows = np.nonzero(is_secondary.sum(axis=1) >= 18)[0]
+    cols = np.nonzero(is_secondary.sum(axis=0) >= 32)[0]
+    assert rows.size > 0 and cols.size > 0
+    # A corner block of half the upright width and half the upright height (chroma bleed aside).
+    assert abs(int(rows.max() - rows.min() + 1) - 64) <= 2
+    assert abs(int(cols.max() - cols.min() + 1) - 36) <= 2
+    assert rows.min() <= 1 or rows.max() >= 126
+    assert cols.min() <= 1 or cols.max() >= 70
+
+
+def test_anamorphic_source_decodes_to_its_display_corrected_size() -> None:
+    """PX2.9: MoviePy ignores the sample aspect ratio, so the reader is opened square-pixelled."""
+    from framepilot_engine.render.compiler import _open_source_reader
+
+    # 3840x2160 storage with PAR 4/3 displays 5120x2160; fitted into 1920x1080 by height.
+    _SizedReader.opened.clear()
+    _open_source_reader(_SizedReader, "big.mov", None, (1920, 1080), 4 / 3)
+    assert _SizedReader.opened[-1] == ("big.mov", (1920, 810))
+    # Unfitted and uncapped: still stretched, to even dimensions.
+    _SizedReader.opened.clear()
+    _open_source_reader(_SizedReader, "big.mov", None, None, 4 / 3)
+    assert _SizedReader.opened[-1] == ("big.mov", (5120, 2160))
+    # Capped on the display size, not the storage size.
+    _SizedReader.opened.clear()
+    _open_source_reader(_SizedReader, "big.mov", 2560, None, 4 / 3)
+    assert _SizedReader.opened[-1] == ("big.mov", (2560, 1080))
+    # Square pixels behave exactly as before.
+    _SizedReader.opened.clear()
+    _open_source_reader(_SizedReader, "big.mov", None, None, 1.0)
+    assert _SizedReader.opened == [("big.mov", None)]

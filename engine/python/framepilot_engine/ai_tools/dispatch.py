@@ -127,7 +127,6 @@ _HANDLERS: dict[str, Callable[[Any, ToolContext], Any]] = {
     "apply_color_grade": handlers.apply_color_grade,
     "adjust_audio": handlers.adjust_audio,
     "add_transition": handlers.add_transition,
-    "add_mask": handlers.add_mask,
     "track_object": handlers.track_object,
     "set_track_flags": handlers.set_track_flags,
     "set_track_caption_style": handlers.set_track_caption_style,

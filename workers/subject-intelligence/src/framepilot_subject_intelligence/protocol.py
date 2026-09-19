@@ -16,6 +16,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Final, Literal
 
+from .coco_classes import COCO_CLASSES
+
 PROTOCOL_VERSION: Final = 1
 MAX_LINE_BYTES: Final = 1024 * 1024
 MAX_SAMPLES: Final = 18_000
@@ -24,6 +26,9 @@ MAX_MEDIA_PATH_LENGTH: Final = 4096
 
 SUBJECT_CAPABILITIES: Final = ("subject.detect", "subject.segment")
 DETECTION_LABELS: Final = ("face", "object", "person")
+#: Labels whose detections come from the COCO detector and so can name a class.
+#: A face comes from YuNet, which has no classes, and never carries one.
+CLASSED_LABELS: Final = ("object", "person")
 #: Matches the schema's `maxDetections` default, applied here because the host
 #: may legally omit the field.
 DEFAULT_MAX_DETECTIONS: Final = 20
@@ -114,6 +119,10 @@ class SubjectRequest:
     #: subject.detect
     labels: tuple[DetectionLabel, ...] = ()
     max_detections: int = DEFAULT_MAX_DETECTIONS
+    #: subject.detect, additive (AM2.5): name each person/object detection's COCO
+    #: class. Off unless the host asks, so a host that predates the field — whose
+    #: strict schema would refuse an unknown key — never receives one.
+    include_classes: bool = False
     #: subject.segment — exactly one of these is set.
     region: NormalizedBox | None = None
     point: NormalizedPoint | None = None
@@ -130,6 +139,10 @@ class Detection:
     label: DetectionLabel
     box: NormalizedBox
     confidence: float
+    #: The COCO class name (``COCO_CLASSES``) and the detector's conditional
+    #: probability for it. Both or neither; only for person/object detections.
+    object_class: str | None = None
+    class_score: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,7 +275,7 @@ def _media(value: Any) -> MediaHandle:
 
 
 def _detect_parameters(value: Any) -> dict[str, Any]:
-    raw = _object(value, {"labels", "maxDetections"}, "parameters")
+    raw = _object(value, {"labels", "maxDetections", "classes"}, "parameters")
     labels = raw.get("labels")
     if not isinstance(labels, list) or not 1 <= len(labels) <= len(DETECTION_LABELS):
         raise _invalid(
@@ -277,9 +290,16 @@ def _detect_parameters(value: Any) -> dict[str, Any]:
     bounded = _integer(maximum, "parameters.maxDetections", minimum=1)
     if bounded > MAX_DETECTIONS_LIMIT:
         raise _invalid(f"parameters.maxDetections must be <= {MAX_DETECTIONS_LIMIT}.")
+    classes = raw.get("classes", False)
+    if not isinstance(classes, bool):
+        raise _invalid("parameters.classes must be a boolean.")
     # Sorted so an identical request phrased in a different label order produces
     # byte-identical output.
-    return {"labels": tuple(sorted(labels)), "max_detections": bounded}
+    return {
+        "labels": tuple(sorted(labels)),
+        "max_detections": bounded,
+        "include_classes": classes,
+    }
 
 
 def _segment_parameters(value: Any) -> dict[str, Any]:
@@ -343,6 +363,7 @@ def parse_input_line(line: str) -> SubjectRequest | CancelMessage:
         media=_media(request.get("media")),
         labels=parameters.get("labels", ()),
         max_detections=parameters.get("max_detections", DEFAULT_MAX_DETECTIONS),
+        include_classes=parameters.get("include_classes", False),
         region=parameters.get("region"),
         point=parameters.get("point"),
     )
@@ -431,12 +452,7 @@ def detection_result_message(
         request_id, project_revision, "subject.detect", backend, model_digests
     )
     message["detections"] = [
-        {
-            "frame": detection.frame,
-            "label": detection.label,
-            "box": detection.box.as_json(),
-            "confidence": detection.confidence,
-        }
+        _detection_json(detection)
         # Stable total order: frame, then label, then descending confidence, then
         # position. Two runs over the same media emit byte-identical lines.
         for detection in sorted(
@@ -451,6 +467,35 @@ def detection_result_message(
         )
     ]
     return message
+
+
+def _detection_json(detection: Detection) -> dict[str, Any]:
+    """One detection on the wire; ``class``/``classScore`` only when the detection has them."""
+    encoded: dict[str, Any] = {
+        "frame": detection.frame,
+        "label": detection.label,
+        "box": detection.box.as_json(),
+        "confidence": detection.confidence,
+    }
+    if detection.object_class is None and detection.class_score is None:
+        return encoded
+    # The host refuses a half-classed detection, a class on a face and a name the
+    # model does not have; refusing here fails the worker early and typed instead.
+    if detection.object_class is None or detection.class_score is None:
+        raise ProtocolError("internal_error", "a detection class needs both a name and a score.")
+    if detection.label not in CLASSED_LABELS:
+        raise ProtocolError(
+            "internal_error", f"a {detection.label} detection cannot carry a class."
+        )
+    if detection.object_class not in COCO_CLASSES:
+        raise ProtocolError(
+            "internal_error", f"'{detection.object_class}' is not one of the model's COCO classes."
+        )
+    if not 0.0 <= detection.class_score <= 1.0:
+        raise ProtocolError("internal_error", "a detection class score must be in [0, 1].")
+    encoded["class"] = detection.object_class
+    encoded["classScore"] = detection.class_score
+    return encoded
 
 
 def mask_result_message(

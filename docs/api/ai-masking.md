@@ -1,0 +1,661 @@
+# AI masking tools
+
+The `masking` tool domain lets the agent do what an editor does in the Inspector's Mask tab,
+from a plain request: "blur her face", "remove the background", "put the title behind him",
+"darken everything but the presenter". Spec:
+[`plan/background-removal-ai/11-AI-MASKING.md`](../../plan/background-removal-ai/11-AI-MASKING.md).
+Gates: [`06`](../../plan/background-removal-ai/06-PRECISION-AND-EVAL.md#ai-masking).
+
+**Why it is built this way.** A mask the model places by guessing coordinates is wrong in a way
+nobody notices until export, and a confident mask on the wrong person is the worst failure this
+feature has. So the model never supplies a coordinate and never settles a tie:
+
+1. **The model picks which and why; code makes the shape.** Every vertex, box and track comes from
+   a detection, a segmentation, a track, the picture frame, or a number the editor typed.
+2. **Resolve the target or ask.** Anything the resolver cannot settle goes to the editor.
+3. **Same operations, same packs, same review list** as the manual path. The agent reports how
+   many moments need a look and never says _verified_.
+4. **Packs are consent.** A missing pack comes back as the signed install offer.
+
+Desktop only. The tools are `hostUiOnly`: they run in Capability Pack workers and compile through
+editor-core's TypeScript mask commands, so the Python sidecar does not mirror them and the
+standalone MCP server does not serve them. The browser build declares the measured ones
+unroutable, so they are never advertised there.
+
+## Tools
+
+| Tool                      | Kind               | What it does                                                                                                                                                       | Compiles to                                                                                                     |
+| ------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `find_mask_targets`       | host-measured read | Ranked candidates for a description on one clip, and a status                                                                                                      | —                                                                                                               |
+| `create_mask`             | host-measured edit | Cut-out (matte) or fitted shape from one candidate; purpose, edge, optional track                                                                                  | `add_matte_mask` / `draw_mask`, `set_mask_properties`, `set_mask_target`, `apply_color_grade`, `set_mask_track` |
+| `remove_background`       | host-measured edit | `create_mask` preset: main subject (or a candidate), cut-out                                                                                                       | `add_matte_mask`                                                                                                |
+| `track_mask`              | host-measured edit | Track an existing rectangle, ellipse or path                                                                                                                       | `set_mask_track`                                                                                                |
+| `create_shape_mask`       | host-measured edit | MK8: split, mirror band, linear/radial gradient, heart, star, polygon, speech bubble, arrow, rounded frame — on a candidate, on the frame, or in a typed `userBox` | `draw_mask` (analytic geometry) / `draw_shape_preset`, `set_mask_properties`, `apply_color_grade`               |
+| `mask_with_layer`         | in-process edit    | MK8.2: another clip (a title: video inside text) or a whole track as this clip's mask, alpha or luma, either inverted                                              | `add_track_matte`                                                                                               |
+| `refine_mask`             | in-process edit    | `edge`, `grow` (one step), `mode`, `invert`, `space` (frame / source, MK9.4) — by intent                                                                           | `set_mask_properties`, `set_mask_space`                                                                         |
+| `put_text_behind_subject` | in-process edit    | Title between subject and background; needs a matte first                                                                                                          | `text_behind_subject`                                                                                           |
+| `get_masks`               | read               | id, kind, what it limits, tracked, space, review state, flagged count                                                                                              | —                                                                                                               |
+| `delete_mask`             | in-process edit    | Remove one mask                                                                                                                                                    | `remove_mask`                                                                                                   |
+
+Every edit goes through `compileMaskCommand`, the entry point the monitor tools and the Inspector
+use, so an agent mask gets the same id, name, colour, validation and undo as a drawn one. A tool
+call is one patch: `MaskCommandChain` compiles commands in sequence against a timeline that
+advances after each.
+
+**Host-measured** tools follow `track_subject_automatically`'s split. The model states an
+objective; `apps/desktop/electron/ai/masking-executor.ts` measures in a pack worker; the
+orchestrator validates the payload against `masking/contracts.ts` and builds the operations
+(`maskingOpsFromMeasurement`). A payload that fails its schema, or answers a different clip or
+candidate, is refused — never substituted.
+
+## Target resolution
+
+`find_mask_targets` answers "what does the editor mean?" with a ranked candidate list and one of
+five statuses. The measuring is the host's (`masking-executor.ts`); everything that DECIDES is
+pure and lives in `masking/target-resolution.ts`, where it is tested against the gates: ≥ 99% on
+unambiguous requests, ≥ 97% asks on ambiguous ones, and **a confident wrong pick counts as a
+failure, not an ask** — so every tie, every unverifiable class and every identity question asks.
+
+| Status                 | When                                                                                                                         | What happens next                                       |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `resolved`             | One candidate (or, for "all the faces", every one) is decisively meant                                                       | Pass `chosenCandidateIds` to `create_mask`              |
+| `ambiguous_target`     | Several match and nothing separates them; a selector or re-ranker margin is thin; or an object's class cannot be vouched for | The editor picks in the sidebar                         |
+| `needs_click`          | The target is outside the detector's vocabulary ("the sky", "the sign", a licence plate)                                     | The editor clicks it once; matte precision is identical |
+| `needs_face_selection` | WHO matters ("everyone except the host")                                                                                     | The editor picks faces                                  |
+| `no_candidates`        | Nothing of that class is on screen                                                                                           | The agent says so; it never offers something else       |
+
+**How it ranks.** Detections are grouped into things that persist (greedy IoU across frames);
+flicker seen on under 15% of the sampled frames is dropped. `score = grounding × agreement ×
+persistence`, where grounding is the re-ranker's similarity when there is one and the detector's
+confidence otherwise, agreement demotes (never removes) a candidate the shot ledger's
+`subjectKind` disagrees with, and persistence is the share of sampled frames it was seen on. A
+long clip is sampled in three 48-frame windows rather than detected on every frame.
+
+**The score only ranks.** A decision needs one of: a single candidate of a class the detector can
+vouch for; a positional selector ("on the left") whose winner leads by a tenth of the frame; a
+size selector ("the main subject") whose winner is 1.5× the runner-up; or a re-ranker whose best
+match is plausible (≥ 0.5) and 1.25× the runner-up.
+
+**No text-grounding model** (MD-6). The vocabulary table (`masking/target-vocabulary.ts`) is that
+decision written down, including the out-of-vocabulary list that makes "the sky" a designed
+`needs_click` rather than a miss.
+
+**The head of the phrase.** A face word wins wherever it appears ("the man's face"). Otherwise
+the head is the first class word that is not a possessive. So "the car's plate" and "the man's
+shirt" are the plate and the shirt, and "her hair" is the hair; a pronoun counts as a possessive
+only when a noun follows it before "and", "on", "behind" and similar words. Before AM5.3, "her
+hair" resolved to the whole presenter. If every class word is a possessive ("the car's
+hubcap"), the target is unknown and the request asks for a click.
+
+**"All" is complete or it asks.** A resolution chooses AND lists every candidate it chose, up to
+`MAX_CHOSEN_CANDIDATES` (40, the desktop's per-frame detection cap). A crowd that reaches the cap
+may be larger than what was seen, so "blur all the faces" asks instead. Before AM5.3 the list
+was cut at twelve, so a crowd of 20 got 12 masks and 8 unblurred faces.
+
+### Object classes (AM2.5)
+
+Subject Intelligence 1.1.0 names each person/object detection's COCO class when asked
+(`subject.detect` `classes: true`; see `docs/api/capability-packs.md` for the negotiation). The
+executor always asks; the tracking service drops the flag for an older pack.
+
+The request's head noun maps to COCO classes through `OBJECT_CLASS_SYNONYMS`
+(`masking/target-vocabulary.ts`: 134 nouns, plurals derived, plus the generic "object", "thing",
+"item" meaning any class). The mapping is **only a candidate filter**:
+
+- An object whose detected class the noun cannot mean is not a candidate ("the truck" never offers
+  the car; "the product" never offers a person). None left is `no_candidates`.
+- The table is deliberately wide where COCO's boundaries are soft ("car" admits `car`, `truck`,
+  `bus`, because the detector calls many SUVs trucks). Wider can only mean more asks, never a
+  wrong pick.
+- A thing the detector called a matching class on some frames but another class on most is
+  plausibly meant and not clearly meant: `ambiguous_target`.
+- Two plausible candidates still ask ("the pet" with a cat and a dog), unless a selector or the
+  colour re-ranker separates them decisively.
+- A noun outside the table and the person/face words is `needs_click`.
+- A pack that reports no classes (1.0) leaves every object in and marks the class unverified, so
+  a described object asks exactly as before. A re-ranker never vouches for a class.
+
+A colour word before a noun is an adjective ("the orange car" is a car, not the fruit). Candidates
+carry `objectClass` when it was measured.
+
+### Colour re-ranking (AM2.5)
+
+"The red car" with two cars on screen: the detector says both are `car`. When the request's only
+descriptive word is one colour and at least two candidates survive the class filter, the desktop's
+`rerank` source (`apps/desktop/electron/ai/crop-reranker.ts`) asks Visual Embed to embed each
+candidate's crop (`visual.embed` shot `region`) and "a photo of a {colour} {noun}" for every colour
+in the palette (`visual.text`). Each crop is classified over the palette at the pack's own label
+temperature (0.01) and scored head to head: the named colour's share against the crop's strongest
+other colour, `named / (named + rival)` (AM2.6). The resolver then needs the usual margin (≥ 0.5 and
+1.25× the runner-up). Planning and scoring are pure (`masking/colour-rerank.ts`, `colourEvidence`).
+
+- **It re-ranks, never finds.** Only candidates already classed as the noun are cropped; an
+  unclassed or other-class candidate is never shown to SigLIP and a score cannot vouch for a class.
+- **A classification, not a nearest colour.** A blue car and a grey car asked about as "the red
+  car" both score low, so the resolver asks instead of picking the closer one.
+- **Only colour.** "The shiny car", two colours, or a colour on a person get no re-rank and ask.
+- **Optional.** No Visual Embed, one older than 1.1.0 (it cannot crop; the host refuses the request
+  as `pack_outdated` before spawning), or a failed job: no evidence, and the resolver asks. A
+  missing pack is never proposed for install from here.
+- **Undecided stays under the floor.** A crop whose named colour is not strictly ahead, or an
+  achromatic request (white, grey, silver, black) whose crop holds ≥ 0.1 on another achromatic
+  word, scores just under 0.5: it can block a rival but is never picked. White, grey and silver are
+  one lightness scale to SigLIP; without this, "the white ball" took a pale silver ball.
+- **One process per request once warm.** The host keeps the palette prompt vectors per pack release
+  (`PromptVectorCache`), so `visual.text` runs once per noun; it passes the release's cache folder
+  (`FRAMEPILOT_CAPABILITY_PACK_CACHE`, the one the engine's shot-ledger runs already use), so the
+  crop run never re-encodes the prompt bank; and the pack loads a tower only when a request uses it,
+  on the CPU provider.
+
+#### Measured on real weights (AM2.6)
+
+`workers/visual-embed/tools/colour_rerank_eval.py` runs the real worker on generated crops with
+known colours (48 frames: cars and balls, three colours to a frame, six backgrounds, H.264 4:2:0)
+and three hand-boxed objects from a fixture clip, and applies the shipped rule. Every colour on a
+frame is asked (must pick) and every colour not on it (must ask). Full numbers:
+`reports/ai-masking/colour-rerank.json`. M1 Pro, 2026-09-19:
+
+|                                                      | AM2.5 share       | AM2.6 (shipped)   |
+| ---------------------------------------------------- | ----------------- | ----------------- |
+| Target picked (reported set / held-out set)          | 130/144 / 127/144 | 116/144 / 113/144 |
+| Confident-wrong (of 432 absent-colour requests each) | 5 / 7             | **0 / 0**         |
+| Chromatic colours picked                             | 101/101 / 101/101 | 101/101 / 101/101 |
+| White, grey, black, silver picked                    | 29/43 / 26/43     | 15/43 / 12/43     |
+| Real crops (purple monitor, black mic, white lamp)   | 2/3, 0 wrong      | 3/3, 0 wrong      |
+
+What real crops show: chromatic colours are reliable; the achromatic words are not, and asking is
+the right answer there. The AM2.5 rule's wrong picks were all "the white/grey X" taking a silver
+one. Silver never resolves on these flat renderings: SigLIP reads every one as white or grey. The
+AM5 accuracy (≥ 0.99) and unnecessary-ask (≤ 3%) gates were **not met** by SigLIP alone on real
+crops (80.6% picked, 19.4% asked); they were not lowered, and confident-wrong was 0. AM2.7 below
+is what meets them. `colour-rerank.real-weights.test.ts` replays 36 real crop vectors
+(`reports/ai-masking/colour-rerank-siglip2-vectors.json`) through the shipped code in CI.
+
+Cost of one "the red car" request with three candidates: before AM2.6 it never finished on this
+machine (two processes each loading both towers on CoreML; the local watchdog stopped it at a
+7.5 GiB footprint). After: 7.8 s for the first request per noun, 1.8 s after that, 1.9 GiB peak.
+
+#### The measured colour beside SigLIP (AM2.7)
+
+SigLIP's text-image similarity barely separates white, grey, silver and black, so the host also
+**measures** each candidate's colour and a candidate is picked only when both signals agree.
+
+**The measurement** (`engine/python/framepilot_engine/masking/crop_colour.py`, sidecar route
+`POST /masking/crop-colour`). Body: `input_path` (the asset, inside the projects root), `fps`, and
+1–64 `crops` of `{time_seconds, x, y, width, height}` (normalised). Answer: one entry per crop,
+`{neutral_share, neutral_lightness, lightness, chroma, pixels}`, or `null` for a box too small to
+measure. Same hardening as `/mattes/*`: sandboxed path (400 outside the root, 503 without one),
+whitelisted containers and protocols, bounded decode, one request at a time (503 busy), one 60 s
+deadline (504), no path echoed in any error.
+
+- **Which RGB:** the export's. Each distinct frame is decoded once with the export's own ffmpeg
+  (`find_export_ffmpeg`), `scale` + `bicubic` + `rgb24` — MoviePy's reader arguments — so the
+  file's tagged BT.601/BT.709 matrix and limited/full range are applied by the same libswscale
+  call the export makes (a test encodes the same patch in all four and gets it back within 3
+  levels). R'G'B' is read as sRGB (BT.709 primaries, D65) and converted to CIELAB.
+- **Which pixels:** the object's, not its background's. Each pixel of the detection box is
+  weighted `(1 − (u² + v²))²` — 1 at the centre, 0 on the inscribed ellipse and in the corners.
+  No matte is used: none exists for a candidate when `find_mask_targets` runs, and a segmentation
+  job just to read a colour is not started.
+- **The two numbers the rule reads:** `neutral_share`, the weighted share of pixels with
+  C* < 16 (warm or cool light puts a white surface at C* 10–15), and `neutral_lightness`, the
+  object's dominant neutral L*: the weighted median of neutral pixels within 12 L* of the densest
+  tone, so a white car's windows and tyres do not drag it towards grey.
+
+**The classes** (`packages/ai-sdk/src/masking/colour-measure.ts`, frozen):
+
+| Measured                | Class                               |
+| ----------------------- | ----------------------------------- |
+| `neutral_share` ≤ 0.50  | chromatic                           |
+| 0.50 < share < 0.72     | mixed (blocks every neutral colour) |
+| share ≥ 0.72, L* ≤ 21.6 | black                               |
+| 21.6 < L* < 39.3        | black\|grey band (blocks both)      |
+| 39.3 ≤ L* ≤ 55.1        | grey                                |
+| 55.1 < L* < 65.4        | grey\|silver band                   |
+| 65.4 ≤ L* ≤ 77.7        | silver                              |
+| 77.7 < L* < 83.8        | silver\|white band                  |
+| L* ≥ 83.8               | white                               |
+
+Fitted, then frozen: for each pair of neighbouring classes the band is the middle half of the gap
+between the darker class's highest and the lighter class's lowest value on the **calibration**
+crops (generated seeds 20260919 and 7, plus the three real crops); the frozen values are the fit
+rounded (shares to 2 decimals, L* to 1). Only then was the **held-out** set (seed 424242,
+generated for this) scored. `colour-measure.test.ts` fails if the constants drift from the fit
+recorded in the replay file, and `test_colour_rerank_replay.py` recomputes the fit.
+
+"Silver" is the lighter grey. The test crops are flat renderings with no metallic sheen, so there
+is no specular variance to measure, and lightness is what separates silver from grey in them (as
+in the named colours: CSS silver is L* 78, grey L* 54). Resolving "silver" only to a single
+grey-ish candidate, as first proposed, is not safe on this set: "the silver ball" beside only a
+grey ball would take it, a confident wrong pick. A real silver car in shadow can measure grey; it
+then asks or is refused by SigLIP's check. No real silver object was measured.
+
+**The rule** (`agreedColourPick` in `colour-rerank.ts`): pick only when both agree, else hold every
+candidate under the resolver's floor so it asks.
+
+- Chromatic colour: SigLIP decides (AM2.6 evidence ≥ 0.5 and ≥ 1.25× the runner-up) and the
+  picked crop must measure **chromatic**.
+- White, grey, silver, black: the measurement decides — exactly one crop in that class, and no
+  crop in a band next to it, mixed, or unmeasured — and SigLIP must agree: the crop's top palette
+  word is neutral and at most one step from the named colour on black–grey–silver–white, and
+  SigLIP does not name the colour for a rival while not naming it for the pick.
+- No measurement (engine down, busy, media outside the root, malformed answer): SigLIP decides
+  alone, the AM2.6 behaviour. The host measures in parallel with the Visual Embed job
+  (0.2–0.5 s for a 1080p frame, about 1 s for 4K on the M1 Pro), so a request is no slower.
+
+**Measured** (`reports/ai-masking/colour-rerank.json` → `am2.7`; every target and every
+absent-colour request of each set; real SigLIP 2 vectors, M1 Pro, 2026-09-19):
+
+| Set                          | Role         | Targets picked | White/grey/silver/black | Unnecessary asks | Confident-wrong (absent colours) | SigLIP alone |
+| ---------------------------- | ------------ | -------------- | ----------------------- | ---------------- | -------------------------------- | ------------ |
+| Seed 20260919                | calibration  | 144/144        | 43/43                   | 0                | 0 of 432                         | 116/144      |
+| Seed 7                       | calibration  | 144/144        | 43/43                   | 0                | 0 of 432                         | 113/144      |
+| Real crops (b4 fixture clip) | calibration  | 3/3            | 2/2                     | 0                | 0 of 9                           | 3/3          |
+| **Seed 424242**              | **held out** | **144/144**    | **52/52**               | **0**            | **0 of 432**                     | 109/144      |
+
+Every AM5 gate is met on every set. How close the held-out crops came to leaving their class:
+3.0 L* (white, silver), 5.1 (grey), 14 (black). The honest limits: these are flat renderings
+(no metallic sheen, no coloured light, no shadowed whites), and real footage is three objects, so
+these numbers are about the method on clean pictures, not about every camera file.
+
+**How CI checks it without the weights.** `engine/python/tests/colour_rerank_replay.py` turned the
+SigLIP runs' vectors into `reports/ai-masking/colour-rerank-replay.json`: every crop's cosine with
+its noun's twelve prompts and its measurement, per set, with each set's scene digest.
+`test_colour_rerank_replay.py` re-scores the report from it, recomputes the fit, and regenerates
+the synthetic crops from their seeds (same pixels, by digest), encodes and decodes them on the CI
+machine's ffmpeg and checks every crop measures within 0.05 share / 2 L* of the committed value
+and in the same class. `colour-rerank.replay.test.ts` puts every request of every set through the
+shipped TypeScript (each crop's cosines embedded in a 13-d unit vector, so `colourRerankScores`
+sees exactly them) and must match the Python numbers. Rebuilding needs new SigLIP runs:
+`colour_rerank_eval.py accuracy --all-vectors-out`, then
+`uv run python -m tests.colour_rerank_replay build --vectors-dir … --mission-dir …` and `harness`.
+
+### What installed users get today
+
+Classes and crops arrive only with new signed releases: **Subject Intelligence 1.1.0** and
+**Visual Embed 1.1.0**. Signing and publishing them is a maintainer action (MO-1..MO-5). Until
+then every installed pack is 1.0: the `classes` flag is negotiated away, the crop request is
+refused as `pack_outdated`, and described objects ask as before.
+
+### Candidate ids
+
+An id is a pure function of the measurement — asset, frame, label, and the box quantised to a
+thousandth of the picture (`masking/candidate-id.ts`) — e.g. `f48_1a2b3c4d`. The agent log keeps
+only the two freshest payloads, so an id used ten turns later must resolve with no payload: the
+host re-detects the one frame the id names and reproduces it. Ids survive an app restart for the
+same reason.
+
+### Asking the editor
+
+An ask is enforced by the tool, not left to the model's restraint. Every candidate a result lists
+that was NOT chosen — every candidate of an ask, and the runners-up of a resolution — carries a
+`pick.` prefix, and `create_mask` / `remove_background` accept a `pick.` id only when it appears
+in the **editor's own messages** (`ToolContext.userPickedCandidateIds`, read from every user
+message of the conversation). The check runs before the host is asked, so a guessed id costs no
+pack job.
+
+A pick id keeps the plain id's label and frame but has **its own hash** (`requirePick` salts it),
+so removing the marker does not give back a usable id (AM5.3). Before that change a pick id was
+the plain id with a prefix, and the AM5 eval's adversarial model masked the candidate the editor
+had been asked to choose by stripping `pick.`. That was four confident wrong picks. The host caches
+candidates under the id exactly as a result listed it, and after a restart it resolves a pick id
+by recomputing `requirePick` for each re-detected candidate on the id's frame
+(`candidateIdMatches`). A stripped id matches nothing, so the host refuses it.
+
+The sidebar's `MaskTargetPicker` renders on the `find_mask_targets` result itself: thumbnails
+cropped in the renderer from the clip's own media (no new IPC, no thumbnail files), the label and
+where it sits in frame. Picking sends an ordinary message — `For "the face" on clip shot, use
+pick.f48_… (the face at the left).` — through the composer's own `runTurn`, once the run that
+asked has ended. `needs_face_selection` collects several faces before sending; `needs_click`
+points at the Inspector's Remove background subject tool.
+
+What the model can recall later is deliberately narrow. The digest's FIRST line carries the
+chosen id, because the state briefing keeps a result's head as the run's durable fact and the
+agent log clears payloads after two turns. The evidence store keeps ids, labels and scores for
+`recall_evidence` and drops the boxes (`maskTargetsForRecall`): the model never handles
+coordinates.
+
+### Identity ("everyone except the host")
+
+WHO someone is cannot be read off a detection, so an identity request always resolves to
+`needs_face_selection` and the editor picks the faces (several, then **Use selected**).
+
+Recognising the same person across shots is biometric processing (plan 12 P15, MD-7), so:
+
+- **Opt-in, per project, off by default.** The face picker shows the consent line where the
+  question arises, not buried in settings. The state is a human-provenance field in the project
+  brain (`fields`: `project.face_recognition_consent`); no model write can set it.
+- **Local only.** Nothing about identity leaves the machine.
+- **Deletable in one action.** "Delete identity data" removes every `person` row of the brain's
+  `entities` table (the only face-derived vectors it keeps), the `person` refs on every shot, and
+  `people` in every asset digest — in one transaction — and withdraws consent with them. Face
+  counts and every other fact stay: "two faces" says nothing about who.
+- **Unreadable is no consent.** `IdentityClient` returns `consent: false` for a timeout, a down
+  engine or a malformed body; the executor reads it on every resolution and treats a rejected
+  read as no consent.
+
+Engine routes: `GET /brain/identity?projectId=`, `POST /brain/identity/consent`
+`{projectId, consent}`, `POST /brain/identity/delete` `{projectId}`.
+
+Two honest limits. The desktop supplies no identity source for the resolver, because no shipped
+capability embeds a DETECTION crop (tier-1 face vectors are per shot and carry no boxes), so
+consent does not yet save the editor a pick. And the shot ledger's own tier-1 clustering
+(VU5.3, `_cluster_local_entities`) still runs at index time whatever the consent says — it
+predates this work and belongs to another subsystem; whether it must also wait for consent is a
+maintainer decision. Until then, deletion removes those clusters and a later index pass can
+recreate them.
+
+## Intent, not numbers
+
+`masking/intent-tables.ts` maps what the model says to numbers, scaled by the picture's smaller
+side so 4K and 720p get the same look.
+
+| Argument  | Values                             | Becomes                                                                               |
+| --------- | ---------------------------------- | ------------------------------------------------------------------------------------- |
+| `edge`    | `exact`, `soft`, `very_soft`       | Shape: outer feather 0 / 1% / 3%. Matte: `sharp` / `smooth` / `smooth` + finesse blur |
+| `grow`    | `tighter`, `looser`                | ∓1% per call, on `expansionPx` (shape) or `edgeShiftPx` (matte)                       |
+| `purpose` | `cutout`, `hide`, `effect`         | `hide` inverts and, for a shape, adds a 1.5% margin; `effect` retargets the mask      |
+| `effect`  | `brighten`, `darken`, `desaturate` | A clip `color_grade` with fixed offsets, limited by the mask                          |
+| `effect`  | `blur_to_hide`                     | The clip `blur` at 4% of the picture's smaller side, limited by the mask              |
+
+`blur_to_hide` is the clip `blur` picture effect (`editor-core/clip-blur.ts`,
+`render/clip_blur.py`, added for E2E.3/E2E.4): Pillow's Gaussian at `amount` × the smaller side of
+the picture it runs on, after the grade and LUT, mixed by the effect's mask stack like a grade.
+Because the mask is the clip's own, a tracked face blur stays on the face. A clip has one blur
+(id `<clipId>__blur`, the one the Inspector's Effects tab edits); a second face adds a mask to it
+rather than a second blur. Until this effect existed `blur_to_hide` was refused, because a blur
+lived only on an adjustment lane whose masks cannot follow a track.
+
+`grade_match_to` is accepted and **refused with a remedy** (no solver for a masked region yet). A
+second grade on a clip that already has one is refused too: only one renders.
+
+Shapes come from `masking/shape-fit.ts`: rectangle and ellipse from a box; bounding rectangle and
+moment ellipse (it follows a lean) from a bitmap; and a closed Bezier path around the bitmap's
+largest region within a vertex budget, by doubling the curve-fit tolerance until it fits.
+
+## The geometry rule is enforced, not asked for
+
+`masking/geometry-provenance.ts`. Builders that derive a shape from a source **attest** the
+operations they produce (`candidate`, `measurement`, `frame`, `user_numbers`). `operationsForCall`
+— the boundary the agent loop, the autonomous proposal compiler and the MCP session all cross —
+refuses any `add_mask`, `add_effect_layer_mask`, `set_mask_path`, `paste_masks`,
+`apply_mask_tracking`, or geometry-bearing `update_mask` / `add_mask_keyframe` nobody attested. The
+two host-measured branches in the orchestrator run the same check. A new tool that passes the
+model's numbers to a mask therefore fails closed without being added to a list. The attestation
+is keyed on the operation object, so identical numbers built elsewhere are still unsourced.
+
+`userShape` is the one argument that carries a box. It is admitted only when every number in it
+is a number the editor's **current** request binds to geometry, as written or as a percentage
+(`ToolContext.userNumbers`, from `geometryNumbersIn`; AM1.6). A number is bound when:
+
+- a unit follows it: `%`, `percent`, `px`, `pixel(s)` (`20%`, `200px`);
+- a shape or position word sits in its phrase, at most three tokens away across filler such as
+  "of", "from", "the", "=" and ":" (`width 0.5`, `x = 20`, `20 from the left`, `0.3 wide`,
+  `radius of about 0.1`); a comma or full stop ends the phrase;
+- it is one side of a dimension (`400x300`, `20 by 50`), or is listed straight after a bound
+  number and nothing else claims it (`position 0.2, 0.3`).
+
+A time or count unit after a number (`20 seconds`, `50 frames`, `2x`, `1080p`) makes it not
+geometry whatever precedes it. Numbers from earlier messages are never a source, so geometry the
+editor typed three turns ago has to be restated. The looser rule it replaced accepted any number
+anywhere in the conversation, so "keep the 20 second intro … 50 cuts" let a model-authored
+`x: 0.2, width: 0.5` through. A refused `userShape` carries the fixed `USER_NUMBERS_NOT_TYPED`
+sentence and its remedy (find a candidate, or ask for the numbers).
+
+Known limit: a pixel size reaches the tool as a fraction of the frame, which no longer matches
+the typed number, so `200px` is refused and the model asks. Converting it needs the frame size
+at the check, which the conversation-level check does not have.
+
+## Jobs the agent may not start
+
+Background removal is measured at hundreds of compute-seconds per footage-second on the CPU
+provider (`packages/shared-types/src/matte-estimate.ts`, shared with the Inspector's estimate).
+The Inspector asks before a job over ten minutes; the agent gets no way round that question. A
+cut-out over the threshold returns `needs_editor_start` with the exact intent, and the sidebar's
+`MatteStartInlineCard` starts the Inspector's own job — same store, jobs panel, `add_matte_mask`
+commit and review list. On today's CPU numbers that is nearly every real clip; the threshold is
+the Inspector's, so it moves when measured throughput does.
+
+Two other panel policies are deliberately not the agent's. The executor hands the pack services
+the **run's working project**, not the file on disk (the panel re-reads disk because a renderer
+is not an authority; the saved revision would refuse every agent job as stale, and a mask being
+tracked may exist only in the patch under construction). And the mask-track job itself is shared:
+`capability-packs/mask-track-service.ts` is called by both the IPC handler and the executor.
+
+## Verification after apply
+
+**Deterministic first (AM3.1).** Every host-measured edit returns a `mask_review` result:
+
+| Field                         | Meaning                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `needsReview`, `flaggedCount` | Source-second ranges the pack or the tracker flagged, plus any the spot check added        |
+| `frames`                      | For a cut-out: `passedChecks` and `flagged` frame counts (never a `verified` field)        |
+| `trackConfidence`             | For a track: frames measured, worst model residual in source pixels, flagged count         |
+| `validator`                   | `valid` and any non-blocking warnings. An error would have refused the edit                |
+| `spotCheck`                   | The one visual look, when it ran: `yes`, `unsure` or `not_run`, with the reason and frames |
+
+There is deliberately no `verified` field. The sentence the model reads states the count and
+forbids the word; `get_masks` reports `nothing flagged` / `needs a look`, never verified; and
+`claimsMaskVerified(text)` exists so the AM5 eval can audit what the agent SAID for the
+"Verification honesty" gate, not only what the tools returned.
+
+**One look, where the numbers cannot decide (AM3.2).** `masking/spot-check.ts` asks the existing
+vision-review route a single question — "is the masked region the {label}?" — at no more than
+four frames (the middle of each flagged range first, then an even spread), against the project
+WITH the mask applied. It runs only when something was flagged or the candidate scored under
+0.8, and never when the editor picked the candidate or typed the shape: they said which thing,
+and a model disagreeing is not evidence.
+
+| Answer    | What happens                                                                                                                                                              |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `yes`     | The mask lands. Recorded as a second opinion; it is not a review and the card does not show it as reassurance                                                             |
+| `no`      | **The mask is never applied.** The call fails, telling the model to resolve again more specifically or ask the editor, and not to re-apply the same candidate             |
+| `unsure`  | The mask lands, and the frames looked at go on its review list (`review_matte` / `review_mask_track`). An untracked shape has no list; the ranges are still in the result |
+| `not_run` | No reviewer, a cloud reviewer without media-egress consent, or a cancelled run. A fact about the check, never an opinion about the mask                                   |
+
+It uses the run's own reviewer (`AgentReviewControls.visionReview`, the same objects picture
+verification uses), so there is no second reviewer to configure and no frame leaves the machine
+without the consent that route already requires.
+
+**The sidebar card (AM3.3).** `MaskReviewCard` renders on a landed `mask_review`: the count, and a
+button that opens the Inspector's review list through the same `maskToolStore.requestReview` the
+export dialog's "Review" uses. It shows the count whatever the model wrote.
+
+## What the model sees of a project's masks (AM4.1)
+
+`masking/mask-row-facts.ts`. A clip row in the prompt's timeline summary gains a suffix only when
+the clip has masks, top first, in `create_mask`'s purpose words:
+
+```
+clip_a[0–6s] · masks: matte-cutout (3 flagged), ellipse-hide tracked, rectangle-effect off
+```
+
+`get_clips` rows carry the same summary as a `masks` field. Ids stay with `get_masks`, which the
+refine and delete tools need anyway. No checkmark and no "verified": a mask with nothing flagged
+simply has no count. A project without masks gets its row facts back as the same object, so its
+prompt and cached prefix do not move; the three token-golden suites pass unregenerated.
+
+## The playbook and what it costs (AM4.2, AM4.3)
+
+`packages/ai-sdk/skills/masking-and-compositing.md` is the masking playbook: the tools in the
+order the work uses them, recipes (background removal, title behind a subject, spotlight with
+`refine_mask` `invert`, out-of-vocabulary targets via `needs_click`, hide, identity requests) and
+the review etiquette. It is grounded in what renders: a title that follows a subject is named as
+unavailable, the body never recommends `grade_match_to`, and the face/plate blur recipe names
+`blur_to_hide` (a test pins all three); since MK8 it teaches split screen, gradients, shape
+presets and video inside text through `create_shape_mask` and `mask_with_layer`. Its description
+is 298 of the 300 characters the manifest allows (it names "blur a face" since E2E.4, because the
+model chooses skills by description).
+
+A host that cannot offer any of a playbook's tools does not advertise it (`skillsOnOffer`): with
+the kill switch off the agent's manifest drops this skill, and the MCP server's `load_skill`
+never serves it, because every masking tool is `hostUiOnly` there. With nothing unroutable the
+bundled list is returned as the same array.
+
+Measured by the three token-golden regenerations: **+115 tokens** in the skills manifest on every
+agent request where masking is on (1,684 → 1,799), plus 1 token of estimator rounding, so a
+request moves by +115 or +116 (e.g. 12,177 → 12,293). A turn that follows a failed `load_skill`
+lists the skill names and moves by +122. Tool definitions and the `load_tools` index do not move,
+and AM4.1 adds nothing to a project without masks.
+
+## Kill switch (RD2.1)
+
+`masking/feature-flag.ts`. The same mechanism as the compositor and mask-tools flags: one
+variable, `on` or `off`, no flag framework; unset means **on** in development and test and **off**
+in a packaged release until RD3 flips the default. A typo falls back to the build default, so it
+cannot enable the tools in a release.
+
+| Host                                             | Variable                     | Read                                                                            |
+| ------------------------------------------------ | ---------------------------- | ------------------------------------------------------------------------------- |
+| Desktop (the orchestrator runs in Electron main) | `FRAMEPILOT_AI_MASKING`      | At runtime, per call — support can switch a shipped build off without a rebuild |
+| Browser build                                    | `VITE_FRAMEPILOT_AI_MASKING` | Baked in by Vite                                                                |
+
+Each host reads its variable in one small module (`apps/desktop/electron/ai/ai-masking-switch.ts`,
+`apps/web-editor/src/editor/ai-masking-flag.ts`) and hands the result to the orchestrator as
+`OrchestratorOptions.disabledTools`. Not through the executor's `unroutableTools`: the browser
+without a sidecar URL has no executor, and a switch that lived there would switch nothing.
+
+Off, the orchestrator unions those names with the executor's unroutable set and enforces them in
+**every** mode. Agent and question runs are not offered them and a call by name is withheld by
+scope; edit, variations and autocomplete are not offered them either, and a call that names one
+anyway is refused with one fixed sentence (`"<tool>" is not available here, so nothing was
+changed.`). The desktop's executor also stops routing them to the masking executor, so no road
+reaches a pack worker. The `load_tools` domain index is rebuilt from what is actually on offer
+(`domainIndexFor`), so `masking` stops promising "remove backgrounds" when no offered tool can;
+with nothing switched off the index is byte-identical and the token goldens do not move. The two
+tools folded in from `tracking` (`professional_tracking_mask`, `track_subject_automatically`) are
+**not** switched — a kill switch for a new feature must not take an old one with it. Masks
+already in a project still preview, export and edit by hand: the flag gates an agent capability,
+never a frame of output.
+
+## Eval (AM5)
+
+**The request set** (`tests/fixtures/ai-masking/request-set.json`, AM5.1) is 103 requests over 20
+synthetic scenes (AM2.7 added two scenes and 11 colour items: white, grey, silver and black
+targets, and colours that are not on screen). Its labels are ground truth by construction: each scene lists the detector hits
+the Subject Intelligence pack would return and the things it cannot box, so which thing a request
+means is known exactly. The labels were written by hand, not by a model, under rules fixed in the
+file before any run. Each item expects one outcome: `target`, `ask`, `face_selection`, `click`,
+`refuse` or `typed_shape`. A target the detector reports only as a generic `object` is tagged
+`requires: "object_class"`, and one that needs colour is tagged `"appearance"`, so a miss can be
+attributed.
+
+**The harness** (`apps/desktop/electron/ai/masking-eval/`, AM5.2) runs every item through the
+real path: `Orchestrator.streamAgent` → the desktop `createMaskingExecutor` → `resolveMaskTargets`
+→ `create_mask` → the builders, the geometry-provenance boundary and the validator. Three things
+are supplied instead of measured:
+
+- **The pack.** A stand-in Subject Intelligence service emits the scene's hits and logs every
+  box it emitted. Visual Embed answers with **recorded real SigLIP 2 vectors** (AM2.7): every
+  coloured thing names a held-out crop of its colour and noun (`recordedCrop`), and the crop and
+  palette-prompt requests get that crop's and those sentences' real fp16 vectors
+  (`reports/ai-masking/colour-rerank-harness-vectors.json`). A thing with no recorded crop gets
+  no vector, so the job fails and the resolver asks.
+- **The model.** A scripted policy, not an LLM. It passes the labelled target phrase and masks
+  what was chosen. The adversarial items try to get round a rule instead: they use an id the
+  editor was asked to pick, strip its `pick.` marker, send a shape the editor never typed, or
+  invent an id.
+- **The evidence sources**, set exactly as `main.ts` ships them: the crop re-ranker with the
+  engine's colour measurement beside it (answered from the same recorded crop's measurement), no
+  identity source, and consent read per scene.
+
+Scoring reads the patch, not what the tools said about themselves. Every landed mask is traced
+back to a box the pack emitted (and so to a labelled thing) or to the shape the editor typed.
+Anything else is invented geometry. A mask on something the request did not mean, or any mask
+where the right answer was to ask, is a confident wrong pick, never an ask.
+
+The report `reports/ai-masking/eval.json` is a vitest file snapshot. CI recomputes it with the
+desktop tests and fails on any difference, so the committed numbers are the ones CI measured.
+After a deliberate change, regenerate it with
+`pnpm --filter @framepilot/desktop exec vitest run electron/ai/masking-eval/masking-eval.test.ts -u`
+and review the diff like a golden. The model's own phrasing is not measured, and there is no
+real-model run. Such a run would need provider configuration, and it is not run on this machine.
+The test also asserts the gates that must hold: zero confident wrong picks, zero invented
+geometry, every adversarial item held, the ambiguous-ask gate, and every target the shipped
+detector can name. A dedicated CI step prints the summary on the run page.
+
+**Results, plan 06 gates, never lowered:**
+
+| Gate                                           | First run (AM5.2) | AM5.3 | AM2.7 (now, 1.1 packs) | Pass |
+| ---------------------------------------------- | ----------------- | ----- | ---------------------- | ---- |
+| Target accuracy, unambiguous (≥ 99%)           | 22/37             | 25/37 | 44/44                  | yes  |
+| Asks on ambiguous requests (≥ 97%)             | 18/21             | 21/21 | 25/25                  | yes  |
+| Unnecessary asks (≤ 3%)                        | 13/37             | 12/37 | 0/44                   | yes  |
+| Confident wrong picks (0)                      | 5                 | 0     | 0                      | yes  |
+| Invented geometry (0)                          | 0                 | 0     | 0                      | yes  |
+| `needs_click` on out-of-vocabulary (by design) | 18/22             | 22/22 | 22/22                  | —    |
+| Face picker on identity requests (by design)   | 6/7               | 7/7   | 7/7                    | —    |
+
+The AM2.7 column scores the 8 colour targets on recorded real-weights crops (8/8; SigLIP alone,
+with the engine unable to measure, resolves 3 of them and asks on the rest — a test holds that
+difference). The numbers are for Subject Intelligence and Visual Embed 1.1.0; with the installed
+1.0 packs described objects ask, and the legacy-pack test holds confident-wrong at 0.
+
+The AM5.3 history follows.
+
+The eval found four defects, now fixed: pick ids could be forged by stripping the marker, "her
+hair" masked the whole presenter, "all the faces" stopped at twelve, and "the pedestrian" was
+not a person. The vocabulary now also covers people named by what they do: cyclists, runners,
+shoppers, owners and the like.
+
+Every remaining miss is an object. Faces and people score 25/25. The 12 misses are 11
+`object_class` targets (vehicles, products, pets) and one `appearance` target ("the red car").
+Each of them asks. None is picked wrongly. They are the pack limits described under
+[Two limits of the shipped packs](#two-limits-of-the-shipped-packs-and-what-the-resolver-does-about-them).
+Two changes would move them, and both are signed-pack releases for the maintainer:
+
+- Subject Intelligence reporting the COCO class on each detection would resolve the 11
+  `object_class` items. That is a worker-protocol field plus a pack release.
+- A crop parameter on `visual.embed` would feed the re-ranker and resolve "the red car".
+
+## Failures
+
+Every sentence the executor authors names the next move and carries no varying number, because a
+refusal's text is the repeated-failure guard's key. `maskingFailureNoteEntries()` is walked by
+the desktop failure-quality gate. `pack_missing` (Smart Mask, Tracking Lite, Subject Intelligence)
+carries the signed proposal to `PackInstallInlineCard`.
+
+## Shape presets and track mattes (MK8)
+
+`create_shape_mask` became available once both renderers drew its kinds (MK8.1, MK8.3). The model
+names the preset and where it goes; `masking/shape-presets.ts` picks every number from the
+placement box:
+
+| Placement             | Box                                                                                    | Geometry source (attested) |
+| --------------------- | -------------------------------------------------------------------------------------- | -------------------------- |
+| `candidateId`         | the candidate's measured box (re-resolved by the desktop executor on its frame)        | `candidate`                |
+| none                  | the frame: split/band/gradient/frame span it; heart/star/polygon a centred 60 % square | `frame` (the preset)       |
+| `userBox` (fractions) | only numbers the editor typed in this request (`numbersWereTyped`)                     | `user_numbers`             |
+
+A split keeps `side` (left of its line's travel, editor-core's convention); a mirror band runs
+`direction` (a third of the frame, or the subject's extent); a gradient is opaque at `side`; a
+radial gradient reaches the box's half-diagonal; `points` is a count (star points, polygon sides),
+never a coordinate. `edge` becomes softness on a split or band and outer feather on a path; a
+gradient has none. `purpose` is `create_mask`'s (`hide` inverts; `effect` adds the Inspector's
+grade and targets it). A rounded frame is two paths, so `hide` is refused for it with a remedy. The
+tool is host-measured because a preset ON a subject needs its candidate; on the frame or from
+numbers the desktop executor measures nothing and echoes the clip (`CreateShapeMaskMeasurementSchema`).
+
+`mask_with_layer` compiles `add_track_matte`, the Mask tab's own command. It carries no geometry
+(a `layer` mask is coordinate-free), and editor-core refuses a clip as its own matte, a missing
+track, and a loop (a clip reading a track it sits on included).
+
+What the two tools cost the model, measured by the three token-golden regenerations: the skills
+manifest moves **1,799 → 1,811 (+12 tokens)** on every request where masking is on (the playbook's
+description and tool list), and one estimator-rounding token moves the other way, so a request moves
+**+11** (e.g. 12,293 → 12,304). The goldens' tool definitions do not move: the masking domain's
+schemas are sent only after `load_tools` loads it, and then these two add **≈590 tokens**
+(`create_shape_mask` 421, `mask_with_layer` 169, by the same 4-characters-per-token estimate; they
+were withheld while unavailable).
+
+## Not built
+
+- `create_shape_mask` with a candidate follows the candidate's box on its frame; it is not
+  tracked. Tracking an analytic kind is refused (only shapes carry control points); a path preset
+  can be tracked afterwards with `track_mask`.
+- `follow_subject` for a **title or overlay** is refused with a remedy: a clip transform that
+  follows a track needs `Clip.transformTrack`, an unapproved schema change (**MO-14**). The mask
+  half works.
+- `refine_mask` `add` / `remove` candidate (a matte re-run with include/exclude prompts).
+- `grade_match_to` (no solver; see above).
+- MCP and Python mirrors (by design, see the top of this page).

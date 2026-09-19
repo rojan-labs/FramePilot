@@ -41,6 +41,7 @@ import { projectForAi, restoreStrippedHistory } from '../editor/project-for-ai.j
 import { Toolbar } from './Toolbar.js';
 import { TimelineView } from './TimelineView.js';
 import { WebCodecsPreviewPlayer } from './WebCodecsPreviewPlayer.js';
+import { layerCompositorEnabled } from '../preview/compositor-flag.js';
 import { PreviewPlayer } from './PreviewPlayer.js';
 import { SourceMonitor } from './SourceMonitor.js';
 import { Inspector } from './Inspector.js';
@@ -62,10 +63,13 @@ import {
 import { isDesktop } from '../editor/bridge.js';
 import { Toasts } from './Toasts.js';
 import { HistoryPanel } from './HistoryPanel.js';
+import { JobsRail } from './JobsPanel.js';
 import { FootageUnderstandingPanel } from './FootageUnderstandingPanel.js';
 import { TranscriptionPanel } from './TranscriptionPanel.js';
 import { Tooltip } from './Tooltip.js';
 import { CommandPalette } from './CommandPalette.js';
+import { useMatteJobCommits } from './inspector/masks/useMatteJob.js';
+import { useMaskToolValue } from './inspector/masks/useMaskTools.js';
 import type { SettingsSection } from './SettingsDialog.js';
 import {
   Captions,
@@ -74,6 +78,7 @@ import {
   Folder,
   ICON_SIZE,
   ImagePlus,
+  ListChecks,
   type LucideIcon,
   SlidersHorizontal,
   Sparkles,
@@ -135,7 +140,7 @@ const LEFT_TAB_IDS = [
   'sounds',
   'stock',
 ] as const;
-const RIGHT_TAB_IDS = ['ai', 'inspector'] as const;
+const RIGHT_TAB_IDS = ['ai', 'inspector', 'jobs'] as const;
 
 type LeftTab = (typeof LEFT_TAB_IDS)[number];
 type RightTab = (typeof RIGHT_TAB_IDS)[number];
@@ -179,7 +184,14 @@ function visibleLeftTabs(): readonly { id: LeftTab; label: string; icon: LucideI
 }
 
 const isLeftTab = oneOf<LeftTab>(LEFT_TAB_IDS);
-const coerceRightTab = oneOf<RightTab>(RIGHT_TAB_IDS);
+const isRightTab = oneOf<RightTab>(RIGHT_TAB_IDS);
+
+/** Jobs are pack jobs the desktop host schedules; a browser build has none, so no tab. */
+function coerceRightTab(raw: unknown): RightTab | undefined {
+  const tab = isRightTab(raw);
+  if (tab === undefined) return undefined;
+  return tab !== 'jobs' || isDesktop() ? tab : undefined;
+}
 
 /**
  * Restore a left tab only if THIS build actually renders it.
@@ -200,7 +212,15 @@ function coerceLeftTab(raw: unknown): LeftTab | undefined {
 const RIGHT_TABS: readonly { id: RightTab; label: string; icon: LucideIcon }[] = [
   { id: 'ai', label: 'AI', icon: Wand2 },
   { id: 'inspector', label: 'Inspector', icon: SlidersHorizontal },
+  // BR6.12 (plan 05 "Jobs panel"): every background pack job in the project — background
+  // removal, mask tracking — with pause, cancel and Show clip. Beside the Inspector because
+  // Show clip lands there, and a tab (not an overlay) so it is one Tab/Enter away.
+  { id: 'jobs', label: 'Jobs', icon: ListChecks },
 ];
+
+function visibleRightTabs(): readonly { id: RightTab; label: string; icon: LucideIcon }[] {
+  return isDesktop() ? RIGHT_TABS : RIGHT_TABS.filter((tab) => tab.id !== 'jobs');
+}
 
 interface RailTabsProps<T extends string> {
   readonly label: string;
@@ -353,6 +373,18 @@ export function Editor({
     setMonitorTab('source');
   }, []);
   const [rightTab, setRightTab] = useViewPreference<RightTab>('rightTab', 'ai', coerceRightTab);
+  const showJobClip = useCallback(
+    (clipId: string) => {
+      const clip = editor.state.timeline.tracks
+        .flatMap((track) => track.clips)
+        .find((candidate) => candidate.id === clipId);
+      if (clip === undefined) return;
+      editor.select(clipId);
+      editor.seek(clip.start);
+      setRightTab('inspector');
+    },
+    [editor, setRightTab],
+  );
   const dockLayout = useDockHeight();
 
   // Mirror live editable slices upward without turning restart serialization into
@@ -539,10 +571,12 @@ export function Editor({
     [project.assets],
   );
   const useWebCodecsPreview = useMemo(
-    // The project's own frame: coverage is a relation between the stacked clips AND the
-    // frame they are fitted into (ADR 0170), so the same stack is honest in one aspect
-    // ratio and divergent in another.
-    () => webCodecsPreviewEligible(editor.state.timeline, programAssetById, project.resolution),
+    // RD2.1: the layer compositor composites every timeline, so it needs no gate. The legacy
+    // engine (kill switch) keeps its eligibility: coverage is a relation between the stacked
+    // clips AND the frame they are fitted into (ADR 0170).
+    () =>
+      layerCompositorEnabled() ||
+      webCodecsPreviewEligible(editor.state.timeline, programAssetById, project.resolution),
     [editor.state.timeline, programAssetById, project.resolution],
   );
   const ProgramPreview = useWebCodecsPreview ? WebCodecsPreviewPlayer : PreviewPlayer;
@@ -785,6 +819,20 @@ export function Editor({
     ],
   );
 
+  // A background-removal job outlives the Inspector row that started it (BR6.4), so the finished
+  // result is committed here, where the component is alive for the whole session, and lands on the
+  // right clip even when the editor has moved on to another one.
+  useMatteJobCommits(editor);
+
+  // "Review" in the export dialog (BR6.6): select the clip and open the Inspector on it.
+  // One field, not the whole store: the store changes on every move of a mask drag.
+  const reviewRequest = useMaskToolValue((state) => state.reviewRequest);
+  useEffect(() => {
+    if (reviewRequest === null) return;
+    editor.select(reviewRequest.clipId);
+    setRightTab('inspector');
+  }, [reviewRequest, editor.select, setRightTab]);
+
   return (
     <WorkspaceShell
       railAnimating={railAnimating}
@@ -885,7 +933,7 @@ export function Editor({
             <div className="rail-head">
               <RailTabs
                 label="rail tabs"
-                tabs={RIGHT_TABS}
+                tabs={visibleRightTabs()}
                 active={rightTab}
                 onSelect={setRightTab}
               />
@@ -912,6 +960,13 @@ export function Editor({
                   fps={project.fps}
                   selectedEffectLayerIds={selectedEffectLayerIds}
                   onClearEffectLayers={() => setSelectedEffectLayerIds([])}
+                />
+              )}
+              {rightTab === 'jobs' && (
+                <JobsRail
+                  timeline={editor.state.timeline}
+                  assets={editor.state.assets}
+                  onShowClip={showJobClip}
                 />
               )}
             </div>

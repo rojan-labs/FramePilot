@@ -1654,6 +1654,53 @@ describe('AiSidebar', () => {
     expect(screen.queryByRole('button', { name: 'Apply all' })).toBeNull();
   });
 
+  it('applies a run’s edits one at a time, so the next validates against the last (E2E.4)', async () => {
+    // Two diffs that arrive together: the second (a title behind the subject) depends on the
+    // first (the cut-out). Applied in one pass, the store validated the second against the
+    // timeline as last rendered, without the first, and refused it as stale.
+    let callsWhenFirstSettled = -1;
+    const applyPatchChecked = vi.fn((patch: { patchId: string }) => {
+      if (patch.patchId === 'p1') {
+        queueMicrotask(() => {
+          callsWhenFirstSettled = applyPatchChecked.mock.calls.length;
+        });
+      }
+      return [];
+    });
+    const editor = { applyPatchChecked } as unknown as UseEditor;
+    const secondEdit = {
+      ...fakeEdit,
+      patch: { ...fakeEdit.patch, patchId: 'p2' },
+    } as unknown as EditResult;
+    class TogetherSession implements AiSession {
+      public async *run(_mode: string, input: AiSessionInput): AsyncIterable<AiEvent> {
+        const e = createTurnEmitter({ conversationId: input.conversationId, turnId: input.turnId });
+        yield e.status('editing');
+        yield e.diff(fakeEdit, undefined, { scope: 'turn', turnIndex: 1 });
+        yield e.diff(secondEdit, undefined, { scope: 'turn', turnIndex: 2 });
+        yield e.status('completed');
+      }
+      public abort(): void {}
+      public answer(): void {}
+    }
+    render(
+      <AiSidebar
+        project={project}
+        editor={editor}
+        session={new TogetherSession()}
+        persistence={new MemoryPersistence()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Message FramePilot'), { target: { value: 'Trim it' } });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Send'));
+    });
+    await waitFor(() => expect(applyPatchChecked).toHaveBeenCalledTimes(2));
+    expect(applyPatchChecked.mock.calls.map(([patch]) => patch.patchId)).toEqual(['p1', 'p2']);
+    // The second was not started in the pass that applied the first.
+    expect(callsWhenFirstSettled).toBe(1);
+  });
+
   it('folds a planned step’s edit into the step row instead of a second card', async () => {
     // A step and its edit are the same event described twice. Before this, the sidebar told
     // the story in two parallel narratives the reader had to join by eye.

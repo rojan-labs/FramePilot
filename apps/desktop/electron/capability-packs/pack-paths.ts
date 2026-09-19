@@ -15,6 +15,27 @@ export function resolveInside(rootInput: string, relativePath: string): string {
   return resolved;
 }
 
+/**
+ * A project asset's media file on disk. A saved desktop project stores imported media relative
+ * to the project file (`media/<projectId>/clip.mp4`, `importMediaFile`), and the engine, the
+ * `fp-media://` handler and the relink re-check all resolve it against the project's folder; a
+ * pack job must read the same file. Absolute paths (linked media) pass through unchanged.
+ */
+export function projectMediaPath(projectDir: string, assetPath: string): string {
+  return path.isAbsolute(assetPath) ? assetPath : path.resolve(projectDir, assetPath);
+}
+
+/** `project` with every asset path resolved by {@link projectMediaPath}; nothing else changes. */
+export function withProjectMediaPaths<T extends { readonly assets: readonly { readonly path: string }[] }>(
+  project: T,
+  projectDir: string,
+): T {
+  return {
+    ...project,
+    assets: project.assets.map((asset) => ({ ...asset, path: projectMediaPath(projectDir, asset.path) })),
+  };
+}
+
 /** Compare release versions by their numeric core; pre-release order is not meaningful here. */
 export function compareSemver(left: string, right: string): number {
   const numeric = (value: string): readonly number[] =>

@@ -14,7 +14,13 @@ import threading
 from collections.abc import Callable, Iterable
 from typing import Final, Protocol, TextIO
 
-from .backend import BackendUnavailableError, MediaUnreadableError, TrackingBackend
+from .backend import (
+    BackendUnavailableError,
+    Frame,
+    FrameSource,
+    MediaUnreadableError,
+    TrackingBackend,
+)
 from .policy import Tracker, run_tracker
 from .protocol import (
     CancelMessage,
@@ -33,6 +39,10 @@ from .trackers import PlanarTracker, PointTracker, RegionTracker
 PROGRESS_INTERVAL_FRAMES: Final = 24
 #: Request id used when a failure happens before a request id could be parsed.
 UNIDENTIFIED_REQUEST_ID: Final = "unidentified"
+#: Frames a reverse track decodes into memory at once. A decoder streams forwards, so playing
+#: the range backwards means decoding it in chunks and handing each one back in reverse; the
+#: chunk bounds how much decoded video is held at any moment.
+REVERSE_CHUNK_FRAMES: Final = 60
 
 
 class LineWriter(Protocol):
@@ -55,17 +65,80 @@ class CancellationFlag:
             return self._cancelled
 
 
+class ReversedFrameSource:
+    """A frame source that walks the approved range from its LAST frame to its first.
+
+    A backward track's features are detected on the frame the mask was drawn on, which is the
+    range's last frame, so the tracker has to see that frame first (MK7.2 "Directions"). Video
+    decoders only stream forwards, so the range is decoded in :data:`REVERSE_CHUNK_FRAMES`
+    chunks and each chunk is handed back in reverse. Nothing outside the host-approved range is
+    ever opened: every chunk is a sub-range of it.
+    """
+
+    def __init__(
+        self,
+        open_range: Callable[[int, int], FrameSource],
+        first_frame: int,
+        last_frame_exclusive: int,
+        chunk: int = REVERSE_CHUNK_FRAMES,
+    ) -> None:
+        self._open_range = open_range
+        self._first = first_frame
+        self._next_end = last_frame_exclusive
+        self._chunk = chunk
+        self._buffer: list[Frame] = []
+        probe = open_range(last_frame_exclusive - 1, last_frame_exclusive)
+        self._width, self._height = probe.width, probe.height
+        probe.close()
+
+    @property
+    def width(self) -> int:
+        return self._width
+
+    @property
+    def height(self) -> int:
+        return self._height
+
+    def read(self) -> Frame | None:
+        if not self._buffer:
+            if self._next_end <= self._first:
+                return None
+            start = max(self._first, self._next_end - self._chunk)
+            source = self._open_range(start, self._next_end)
+            try:
+                frames: list[Frame] = []
+                while True:
+                    frame = source.read()
+                    if frame is None:
+                        break
+                    frames.append(frame)
+            finally:
+                source.close()
+            self._next_end = start
+            self._buffer = frames
+            if not frames:
+                return self.read()
+        return self._buffer.pop()
+
+    def close(self) -> None:
+        self._buffer = []
+
+
 def build_tracker(
     request: TrackingRequest, backend: TrackingBackend, width: int, height: int
 ) -> Tracker:
+    exclusions = tuple(
+        (box.x * width, box.y * height, box.width * width, box.height * height)
+        for box in request.exclusions
+    )
     if request.capability == "tracking.point":
         assert request.point is not None
-        return PointTracker(backend, request.point, width, height)
+        return PointTracker(backend, request.point, width, height, request.points, exclusions)
     if request.capability == "tracking.region":
         assert request.region is not None
         return RegionTracker(backend, request.region, width, height)
     assert request.corners is not None
-    return PlanarTracker(backend, request.corners, width, height)
+    return PlanarTracker(backend, request.corners, width, height, exclusions)
 
 
 def execute_request(
@@ -77,12 +150,17 @@ def execute_request(
     """Run one tracking request, writing progress and exactly one terminal message."""
     total = request.media.frame_count
     write(encode_line(progress_message(request.request_id, "decode", 0, total)))
+
+    def open_range(first: int, last: int) -> FrameSource:
+        return backend.open_frames(request.media.absolute_path, first, last, fps=request.media.fps)
+
     try:
-        source = backend.open_frames(
-            request.media.absolute_path,
-            request.media.first_frame,
-            request.media.last_frame_exclusive,
-            fps=request.media.fps,
+        source: FrameSource = (
+            ReversedFrameSource(
+                open_range, request.media.first_frame, request.media.last_frame_exclusive
+            )
+            if request.reverse
+            else open_range(request.media.first_frame, request.media.last_frame_exclusive)
         )
     except MediaUnreadableError as error:
         raise ProtocolError("media_unreadable", str(error), retryable=False) from error

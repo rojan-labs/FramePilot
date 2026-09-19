@@ -1,3 +1,5 @@
+import { appendFileSync, existsSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   CapabilityPackWorkerRuntimeError,
@@ -10,6 +12,7 @@ import type {
   InstalledCapabilityPack,
 } from '@framepilot/capability-packs';
 import type { CapabilityPackProposalResultWire } from '@framepilot/shared-types';
+import { VISUAL_EMBED_PACK_ID } from './visual-packs.js';
 import {
   CapabilityPackTrackingService,
   SUBJECT_PACK_ID,
@@ -123,6 +126,9 @@ function harness(options: {
   records?: readonly InstalledCapabilityPack[];
   runWorker?: (input: unknown) => Promise<CapabilityPackWorkerResult>;
   exists?: boolean;
+  cacheRoot?: string;
+  ensureDirectory?: (absolutePath: string) => Promise<void>;
+  watchdog?: ConstructorParameters<typeof CapabilityPackTrackingService>[0]['watchdog'];
 }): Harness {
   const leases = { acquired: 0, released: 0 };
   const store: TrackingPackStore = {
@@ -145,9 +151,104 @@ function harness(options: {
     propose,
     exists: async () => options.exists ?? true,
     runWorker: (options.runWorker ?? (async () => result())) as never,
+    ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
+    ensureDirectory: options.ensureDirectory ?? (async () => {}),
+    // Tests never sample real processes: a tiny footprint unless a test says otherwise.
+    watchdog: { footprintBytes: async () => 1024, killGroup: () => undefined, ...options.watchdog },
   });
   return { service, leases, propose };
 }
+
+/** A worker that runs until it is aborted, as a stuck or runaway one does. */
+function untilAborted(
+  input: unknown,
+  work?: (typed: { temporaryDirectory: string }) => void,
+): Promise<CapabilityPackWorkerResult> {
+  const typed = input as {
+    signal: AbortSignal;
+    temporaryDirectory: string;
+    onSpawn?: (pid: number) => void;
+  };
+  typed.onSpawn?.(4242);
+  const timer = work === undefined ? undefined : setInterval(() => work(typed), 5);
+  return new Promise((_resolve, reject) => {
+    typed.signal.addEventListener('abort', () => {
+      if (timer !== undefined) clearInterval(timer);
+      reject(new CapabilityPackWorkerRuntimeError('cancelled', 'Capability Pack request cancelled.'));
+    });
+  });
+}
+
+describe('pack job watchdog (BR4.12 H2 for tracking, follow-up review)', () => {
+  const GIB = 1024 ** 3;
+
+  it('gives the worker a private temp folder and removes it after the job', async () => {
+    let temp: string | undefined;
+    let existedDuringRun = false;
+    const { service } = harness({
+      runWorker: async (input) => {
+        temp = (input as { temporaryDirectory: string }).temporaryDirectory;
+        existedDuringRun = existsSync(temp);
+        return result();
+      },
+    });
+    expect((await service.run(request(), { projectRevision: 12, mediaRoot: MEDIA_ROOT })).status).toBe('completed');
+    expect(existedDuringRun).toBe(true);
+    expect(path.basename(temp!)).toMatch(/^framepilot-pack-/u);
+    expect(existsSync(temp!)).toBe(false);
+  });
+
+  it('stops a worker whose process group grows past 0.6 x RAM and kills the group', async () => {
+    const killGroup = vi.fn();
+    const { service, leases } = harness({
+      runWorker: (input) => untilAborted(input),
+      watchdog: { intervalMs: 5, totalMemoryBytes: 8 * GIB, footprintBytes: async () => 6 * GIB, killGroup },
+    });
+    expect(await service.run(request(), { projectRevision: 12, mediaRoot: MEDIA_ROOT })).toMatchObject({
+      status: 'failed',
+      code: 'resource_exhausted',
+      retryable: false,
+    });
+    expect(killGroup).toHaveBeenCalledWith(4242);
+    expect(leases).toEqual({ acquired: 1, released: 1 });
+  });
+
+  it('stops a silent worker after the stall limit', async () => {
+    const { service } = harness({
+      runWorker: (input) => untilAborted(input),
+      watchdog: { intervalMs: 5, stallMs: 20 },
+    });
+    expect(await service.run(request(), { projectRevision: 12, mediaRoot: MEDIA_ROOT })).toMatchObject({
+      code: 'resource_exhausted',
+      retryable: true,
+    });
+  });
+
+  it('stops a worker filling its temp folder past the budget', async () => {
+    let temp: string | undefined;
+    const { service } = harness({
+      runWorker: (input) =>
+        untilAborted(input, (typed) => {
+          temp = typed.temporaryDirectory;
+          appendFileSync(path.join(typed.temporaryDirectory, 'spill.bin'), Buffer.alloc(64 * 1024));
+        }),
+      watchdog: { intervalMs: 5, tempBudgetBytes: 256 * 1024, freeDiskBytes: async () => { throw new Error('statfs'); } },
+    });
+    expect(await service.run(request(), { projectRevision: 12, mediaRoot: MEDIA_ROOT })).toMatchObject({
+      code: 'resource_exhausted',
+      detail: expect.stringContaining('temporary data'),
+    });
+    expect(existsSync(temp!)).toBe(false);
+  });
+
+  it('still reports the caller’s own cancel as cancelled', async () => {
+    const controller = new AbortController();
+    const { service } = harness({ runWorker: (input) => untilAborted(input), watchdog: { intervalMs: 5 } });
+    const outcome = service.run(request(), { projectRevision: 12, mediaRoot: MEDIA_ROOT, signal: controller.signal });
+    setTimeout(() => controller.abort(), 20);
+    expect(await outcome).toMatchObject({ status: 'failed', code: 'cancelled' });
+  });
+});
 
 describe('CapabilityPackTrackingService', () => {
   it('runs the resolved signed entrypoint and returns measurements', async () => {
@@ -472,5 +573,148 @@ describe('CapabilityPackTrackingService', () => {
     expect(outcome.status).toBe('pack_missing');
     expect(propose).toHaveBeenCalledWith('subject.segment');
     expect(leases.acquired).toBe(0);
+  });
+
+  describe('AM2.5 negotiation: subject.detect classes', () => {
+    const detect = (): CapabilityPackWorkerRequest =>
+      request({
+        capability: 'subject.detect',
+        parameters: { labels: ['object', 'person'], maxDetections: 12, classes: true },
+      } as Partial<CapabilityPackWorkerRequest>);
+    const subjectAt = (version: string): InstalledCapabilityPack => ({
+      ...installedSubject(),
+      identity: { ...installedSubject().identity, version },
+      installRelativePath: `${SUBJECT_PACK_ID}/${version}/darwin-arm64`,
+    });
+    const sentBy = async (version: string): Promise<Record<string, unknown>> => {
+      let sent: Record<string, unknown> = {};
+      const { service } = harness({
+        records: [subjectAt(version)],
+        runWorker: async (input) => {
+          sent = (input as { request: { parameters: Record<string, unknown> } }).request.parameters;
+          return result();
+        },
+      });
+      const outcome = await service.run(detect(), { projectRevision: 12, mediaRoot: MEDIA_ROOT });
+      expect(outcome.status).toBe('completed');
+      return sent;
+    };
+
+    it('new host, old pack: the 1.0 pack is asked without `classes`, which it would refuse', async () => {
+      const sent = await sentBy('1.0.0');
+      expect(sent).not.toHaveProperty('classes');
+      expect(sent).toMatchObject({ labels: ['object', 'person'], maxDetections: 12 });
+    });
+
+    it('new host, new pack: a 1.1 pack is asked for classes', async () => {
+      expect(await sentBy('1.1.0')).toMatchObject({ classes: true });
+      expect(await sentBy('2.0.0')).toMatchObject({ classes: true });
+    });
+  });
+
+  describe('AM2.5: Visual Embed crops for the colour re-ranker', () => {
+    const embedAt = (version: string): InstalledCapabilityPack => ({
+      ...installed(),
+      identity: { ...identity(version), id: VISUAL_EMBED_PACK_ID, artifactDigest: 'f'.repeat(64) },
+      installRelativePath: `${VISUAL_EMBED_PACK_ID}/${version}/darwin-arm64`,
+    });
+    const crops = (): CapabilityPackWorkerRequest =>
+      request({
+        capability: 'visual.embed',
+        parameters: {
+          promptBankVersion: 1,
+          shots: [{ shotIndex: 0, keyframeT: 1, region: { x: 0.1, y: 0.1, width: 0.3, height: 0.3 } }],
+        },
+      } as Partial<CapabilityPackWorkerRequest>);
+
+    it('runs visual.embed with the installed Visual Embed pack and its model root', async () => {
+      const seen: { entrypoint?: string; env?: Record<string, string> } = {};
+      const { service } = harness({
+        records: [embedAt('1.1.0')],
+        runWorker: async (input) => {
+          const typed = input as { entrypoint: string; extraEnvironment: Record<string, string> };
+          seen.entrypoint = typed.entrypoint;
+          seen.env = typed.extraEnvironment;
+          return result();
+        },
+      });
+      const outcome = await service.run(crops(), { projectRevision: 12, mediaRoot: MEDIA_ROOT });
+      expect(outcome.status).toBe('completed');
+      expect(seen.entrypoint).toBe(
+        `${STORAGE_ROOT}/${VISUAL_EMBED_PACK_ID}/1.1.0/darwin-arm64/bin/framepilot-visual-embed`,
+      );
+      expect(seen.env?.FRAMEPILOT_CAPABILITY_PACK_ROOT).toBe(
+        `${STORAGE_ROOT}/${VISUAL_EMBED_PACK_ID}/1.1.0/darwin-arm64`,
+      );
+    });
+
+    it('gives Visual Embed the release’s cache folder for its prompt-bank vectors (AM2.6)', async () => {
+      const made: string[] = [];
+      const envs: Record<string, string>[] = [];
+      const { service } = harness({
+        records: [embedAt('1.1.0'), installedSubject()],
+        cacheRoot: '/app-data/capability-pack-cache',
+        ensureDirectory: async (folder) => {
+          made.push(folder);
+        },
+        runWorker: async (input) => {
+          envs.push((input as { extraEnvironment: Record<string, string> }).extraEnvironment);
+          return result();
+        },
+      });
+      await service.run(crops(), { projectRevision: 12, mediaRoot: MEDIA_ROOT });
+      const cache = `/app-data/capability-pack-cache/${VISUAL_EMBED_PACK_ID}/1.1.0`;
+      expect(envs[0]?.FRAMEPILOT_CAPABILITY_PACK_CACHE).toBe(cache);
+      expect(made).toEqual([cache]);
+      // Only the pack that keeps derived data gets one.
+      const detect = request({ capability: 'subject.detect' } as Partial<CapabilityPackWorkerRequest>);
+      await service.run(detect, { projectRevision: 12, mediaRoot: MEDIA_ROOT });
+      expect(envs[1]).not.toHaveProperty('FRAMEPILOT_CAPABILITY_PACK_CACHE');
+    });
+
+    it('runs without the cache when its folder cannot be made', async () => {
+      const envs: Record<string, string>[] = [];
+      const { service } = harness({
+        records: [embedAt('1.1.0')],
+        cacheRoot: '/read-only',
+        ensureDirectory: async () => {
+          throw new Error('EACCES: permission denied, mkdir /read-only/…');
+        },
+        runWorker: async (input) => {
+          envs.push((input as { extraEnvironment: Record<string, string> }).extraEnvironment);
+          return result();
+        },
+      });
+      const outcome = await service.run(crops(), { projectRevision: 12, mediaRoot: MEDIA_ROOT });
+      expect(outcome.status).toBe('completed');
+      expect(envs[0]).not.toHaveProperty('FRAMEPILOT_CAPABILITY_PACK_CACHE');
+      expect(envs[0]?.FRAMEPILOT_CAPABILITY_PACK_ROOT).toBeDefined();
+    });
+
+    it('refuses a crop to a 1.0 pack before spawning it: a whole frame is not a crop', async () => {
+      let spawned = 0;
+      const { service, leases } = harness({
+        records: [embedAt('1.0.0')],
+        runWorker: async () => {
+          spawned += 1;
+          return result();
+        },
+      });
+      const outcome = await service.run(crops(), { projectRevision: 12, mediaRoot: MEDIA_ROOT });
+      expect(outcome).toMatchObject({ status: 'failed', code: 'pack_outdated' });
+      expect(spawned).toBe(0);
+      expect(leases.acquired).toBe(0);
+    });
+
+    it('answers pack_absent without building an install proposal when the caller skips', async () => {
+      const { service, propose } = harness({ records: [installed()] });
+      const outcome = await service.run(crops(), {
+        projectRevision: 12,
+        mediaRoot: MEDIA_ROOT,
+        whenMissing: 'skip',
+      });
+      expect(outcome).toMatchObject({ status: 'failed', code: 'pack_absent' });
+      expect(propose).not.toHaveBeenCalled();
+    });
   });
 });

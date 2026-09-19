@@ -133,6 +133,21 @@ def test_host_ui_only_tools_are_detected_and_excluded() -> None:
         # does not assemble the request, so mirroring it would give the engine a tool that
         # reports having loaded something and changes nothing.
         "load_tools",
+        # The masking domain's in-process tools (plan 11). They compile through editor-core's
+        # mask commands, which exist in TypeScript only, so there is nothing here to mirror
+        # them with. The domain's four pack-measured tools are named by constant on the TS
+        # side (the desktop executor routes on them), like `detect_subjects`.
+        "refine_mask",
+        "put_text_behind_subject",
+        "get_masks",
+        "delete_mask",
+        "follow_subject",
+        # MK8.2: a track matte compiles through editor-core's `add_track_matte`. Its sibling
+        # `create_shape_mask` is pack-measured (a preset placed on a subject re-resolves the
+        # candidate), so it is named by constant on the TS side like `create_mask`.
+        "mask_with_layer",
+        # MK9.2: the cut-out edge styles compile to editor-core's `set_clip_edge_style`.
+        "style_cutout_edge",
     }
     assert "trim_clip" not in host_ui_only
 

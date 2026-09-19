@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Final
 
 PACK_ID: Final = "framepilot.visual-embed"
-PACK_VERSION: Final = "1.0.0"
+PACK_VERSION: Final = "1.1.0"
 #: Sorted, and exactly what this worker can actually do.
 PACK_CAPABILITIES: Final = ("visual.embed", "visual.text")
 #: The vector space this pack produces. Stored on every ``visual_vectors`` row so the

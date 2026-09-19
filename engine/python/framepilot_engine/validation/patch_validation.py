@@ -52,6 +52,8 @@ ValidationCode = Literal[
     # An apply path rejected the operation's SHAPE rather than its times. Mirrors the
     # TS validator's `invalid_operation` arm.
     "invalid_operation",
+    # Two masks on one clip would share an id (schema v22). Mirrors the TS code.
+    "duplicate_mask",
 ]
 ValidationSeverity = Literal["error", "warning"]
 
@@ -341,6 +343,8 @@ def _from_operation_error(error: OperationError, index: int) -> ValidationIssue:
         code = "broken_audio_link"
     elif error.code == "invalid_order":
         code = "invalid_operation"
+    elif error.code == "duplicate_mask":
+        code = "duplicate_mask"
     else:  # duplicate_clip
         code = "overlap_error"
     return ValidationIssue(code=code, severity="error", message=str(error), operation_index=index)

@@ -103,6 +103,72 @@ describe('runCapabilityPackWorker environment contract', () => {
   });
 });
 
+describe('runCapabilityPackWorker temp folder (BR4.12 follow-up F3)', () => {
+  it('points TMPDIR, TEMP and TMP at the host temp directory, never the desktop temp folder', async () => {
+    const { root, media } = await sandbox();
+    const temp = path.join(root, 'scratch-tmp');
+    await mkdir(temp);
+    let seenEnv: Readonly<Record<string, string>> | undefined;
+    const capturingLauncher: CapabilityPackWorkerLauncher = (entrypoint, args, env) => {
+      seenEnv = env;
+      return launcher('success')(entrypoint, args, env);
+    };
+    const previous = process.env.TMPDIR;
+    process.env.TMPDIR = '/desktop/tmp';
+    try {
+      await runCapabilityPackWorker({
+        entrypoint: '/signed/worker',
+        mediaRoot: root,
+        request: request(media),
+        launch: capturingLauncher,
+        temporaryDirectory: temp,
+        extraEnvironment: { FRAMEPILOT_TMPDIR: '/elsewhere' },
+      });
+    } finally {
+      if (previous === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = previous;
+    }
+    expect(seenEnv?.TMPDIR).toBe(temp);
+    expect(seenEnv?.TEMP).toBe(temp);
+    expect(seenEnv?.TMP).toBe(temp);
+  });
+
+  it('refuses a temp directory that is a link, missing, or outside the staging root', async () => {
+    const { root, media } = await sandbox();
+    const real = path.join(root, 'real');
+    await mkdir(real);
+    const linked = path.join(root, 'linked');
+    await symlink(real, linked);
+    for (const temporaryDirectory of [linked, path.join(root, 'missing')]) {
+      await expect(
+        runCapabilityPackWorker({
+          entrypoint: '/signed/worker',
+          mediaRoot: root,
+          request: request(media),
+          launch: neverLaunchWorker,
+          temporaryDirectory,
+        }),
+      ).rejects.toMatchObject({ code: 'media_escape' });
+    }
+    const stagingRoot = path.join(root, 'staging');
+    await mkdir(stagingRoot);
+    await expect(
+      runCapabilityPackWorker({
+        entrypoint: '/signed/worker',
+        mediaRoot: root,
+        outputRoot: stagingRoot,
+        request: request(media),
+        launch: neverLaunchWorker,
+        temporaryDirectory: real,
+      }),
+    ).rejects.toMatchObject({ code: 'media_escape' });
+  });
+});
+
+const neverLaunchWorker: CapabilityPackWorkerLauncher = () => {
+  throw new Error('must not launch');
+};
+
 describe('runCapabilityPackWorker', () => {
   it('runs one bounded request and verifies progress/result identity', async () => {
     const { root, media } = await sandbox();
@@ -245,5 +311,155 @@ describe('runCapabilityPackWorker', () => {
     ).rejects.toEqual(
       expect.objectContaining<Partial<CapabilityPackWorkerRuntimeError>>({ code: 'timed_out' }),
     );
+  });
+});
+
+describe('runCapabilityPackWorker write handles (MD-3)', () => {
+  async function matteSandbox() {
+    const { root, media } = await sandbox();
+    const stagingRoot = path.join(root, '.framepilot-derived', 'mattes', '.staging');
+    const output = path.join(stagingRoot, 'req-1');
+    await mkdir(path.join(output, 'inputs'), { recursive: true });
+    return { root, media, stagingRoot, output };
+  }
+  function matteRequest(media: string, output: string, inputs?: string): CapabilityPackWorkerRequest {
+    return {
+      ...request(media),
+      requestId: 'matte:req-1',
+      capability: 'subject.matte',
+      parameters: {
+        output: {
+          handleId: 'matte-out:req-1',
+          absolutePath: output,
+          allowedFiles: ['matte.mkv', 'frames.json'],
+          maxBytes: 1_000_000,
+        },
+        ...(inputs === undefined
+          ? {}
+          : {
+              inputs: {
+                handleId: 'matte-in:req-1',
+                absolutePath: inputs,
+                files: ['locked/0.png'],
+              },
+            }),
+        prompts: [
+          { kind: 'box', pts: 0, box: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 } },
+          ...(inputs === undefined ? [] : [{ kind: 'lock' as const, pts: 0, file: 'locked/0.png' }]),
+        ],
+        previewHeight: 540,
+      },
+    } as CapabilityPackWorkerRequest;
+  }
+  const neverLaunch: CapabilityPackWorkerLauncher = () => {
+    throw new Error('the worker must not start');
+  };
+
+  it('refuses a write handle without a staging root to check it against', async () => {
+    const { root, media, output } = await matteSandbox();
+    await expect(
+      runCapabilityPackWorker({
+        entrypoint: '/signed/worker',
+        mediaRoot: root,
+        request: matteRequest(media, output),
+        launch: neverLaunch,
+      }),
+    ).rejects.toMatchObject({ code: 'media_escape' });
+  });
+
+  it('refuses output or inputs outside the staging root, the root itself, and symlinks', async () => {
+    const { root, media, stagingRoot, output } = await matteSandbox();
+    const outside = path.join(root, 'elsewhere');
+    await mkdir(outside);
+    const linked = path.join(stagingRoot, 'linked');
+    await symlink(outside, linked);
+    for (const [out, inputs] of [
+      [outside, undefined],
+      [stagingRoot, undefined],
+      [linked, undefined],
+      [output, outside],
+      [path.join(stagingRoot, 'missing'), undefined],
+    ] as const) {
+      await expect(
+        runCapabilityPackWorker({
+          entrypoint: '/signed/worker',
+          mediaRoot: root,
+          outputRoot: stagingRoot,
+          request: matteRequest(media, out, inputs),
+          launch: neverLaunch,
+        }),
+      ).rejects.toMatchObject({ code: 'media_escape' });
+    }
+  });
+
+  it('starts the worker when both handles are host-created directories inside the root', async () => {
+    const { root, media, stagingRoot, output } = await matteSandbox();
+    let started = false;
+    const launch: CapabilityPackWorkerLauncher = (entrypoint, args, env) => {
+      started = true;
+      return launcher('malformed')(entrypoint, args, env);
+    };
+    await expect(
+      runCapabilityPackWorker({
+        entrypoint: '/signed/worker',
+        mediaRoot: root,
+        outputRoot: stagingRoot,
+        request: matteRequest(media, output, path.join(output, 'inputs')),
+        launch,
+      }),
+    ).rejects.toMatchObject({ code: 'protocol_error' });
+    expect(started).toBe(true);
+  });
+});
+
+describe('runCapabilityPackWorker process group (BR4.12 H1)', () => {
+  it.skipIf(process.platform === 'win32')(
+    'settles when a descendant holds stdout, and kills that descendant before resolving',
+    async () => {
+      const { readFile } = await import('node:fs/promises');
+      const { workerGroupSpawnOptions } = await import('./process-group.js');
+      const { root, media } = await sandbox();
+      const pidFile = path.join(root, 'linger.pid');
+      const groupLauncher: CapabilityPackWorkerLauncher = (_entrypoint, _args, env) =>
+        spawn(process.execPath, [fixture, 'lingering'], {
+          shell: false,
+          env: { ...env },
+          stdio: ['pipe', 'pipe', 'pipe'],
+          ...workerGroupSpawnOptions(),
+        });
+      const started = Date.now();
+      const result = await runCapabilityPackWorker({
+        entrypoint: '/signed/worker',
+        mediaRoot: root,
+        request: request(media),
+        launch: groupLauncher,
+        extraEnvironment: { FRAMEPILOT_FIXTURE_PID_FILE: pidFile },
+        timeoutMs: 20_000,
+      });
+      expect(result.capability).toBe('tracking.region');
+      expect(Date.now() - started).toBeLessThan(10_000);
+      const lingering = Number(await readFile(pidFile, 'utf8'));
+      expect(() => process.kill(lingering, 0)).toThrow();
+    },
+  );
+
+  it('kills and waits for the whole group', async () => {
+    const { ensureWorkerGroupGone, isWorkerGroupAlive, killWorkerGroup } = await import('./process-group.js');
+    const alive = new Set([-42, 42]);
+    const kill = (pid: number, signal: NodeJS.Signals | 0) => {
+      if (!alive.has(pid)) throw Object.assign(new Error('ESRCH'), { code: 'ESRCH' });
+      if (signal === 'SIGKILL') {
+        alive.delete(-42);
+        alive.delete(42);
+      }
+    };
+    expect(isWorkerGroupAlive(42, { kill, platform: 'darwin' })).toBe(true);
+    expect(await ensureWorkerGroupGone(42, 200, { kill, platform: 'darwin' })).toBe(true);
+    expect(killWorkerGroup(undefined)).toBe('none');
+    const trees: number[] = [];
+    expect(killWorkerGroup(7, { platform: 'win32', killTree: (pid) => void trees.push(pid) })).toBe('group');
+    expect(trees).toEqual([7]);
+    const stubborn = (_pid: number, _signal: NodeJS.Signals | 0) => undefined;
+    expect(await ensureWorkerGroupGone(9, 60, { kill: stubborn, platform: 'linux' })).toBe(false);
   });
 });

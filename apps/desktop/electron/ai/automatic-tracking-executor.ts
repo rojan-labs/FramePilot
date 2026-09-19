@@ -265,7 +265,7 @@ async function runTracking(
   // dependency explicit instead of asserting.
   if (plan.maskEffectId === undefined) {
     // Its OWN code, not `target_unresolved`: the target resolved fine, and this is the one
-    // failure in this file the model can actually repair itself (`add_mask`). Sharing the
+    // failure in this file the model can actually repair itself (`create_mask`). Sharing the
     // "only the editor can fix this" code would have hidden that.
     return failed(
       AUTOMATIC_TRACKING_TOOL_NAME,
@@ -388,8 +388,9 @@ const FAILURE_GUIDANCE: Readonly<Record<string, string>> = {
     'selected with get_selected_range; if it is not the clip you meant, tell the editor ' +
     'which clip to select and carry on with the rest of the edit.',
   mask_missing:
-    'A track steers an existing mask, so there is nothing to move yet. Add one with ' +
-    'add_mask on that clip and then call {tool} again for it.',
+    'A track steers an existing mask, so there is nothing to move yet. Make one with ' +
+    'find_mask_targets and create_mask on that clip (track:true follows the subject in the ' +
+    'same call), rather than calling {tool} again.',
   worker_failed:
     'This is the measurement itself failing, not your arguments, and repeating it measures ' +
     'the same shot the same way. Do not call {tool} again for this clip — tell the editor ' +

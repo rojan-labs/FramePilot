@@ -211,6 +211,8 @@ def test_asset_media_route_returns_peaks(
     assert body["durationSeconds"] is not None
     assert body["peaks"] and len(body["peaks"]) == 64
     assert body["peaksPerSecond"] and body["peaksPerSecond"] > 0
+    # Square, unrotated media records no display geometry (absent = square, 0; v22).
+    assert body["pixelAspectRatio"] is None and body["rotation"] is None
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -272,6 +274,9 @@ def _fake_media_module(
             # the response exists to make visible.
             self.width = 1920 if has_video else None
             self.height = 1080 if has_video else None
+            # Schema v22 display geometry: square and unrotated unless probed otherwise.
+            self.pixel_aspect_ratio = None
+            self.rotation = None
 
         @property
         def is_image(self) -> bool:
@@ -683,6 +688,8 @@ def test_asset_media_threads_configured_timeout_to_subprocesses(
             self.is_image = False  # a real-duration video clip
             self.width = 1920
             self.height = 1080
+            self.pixel_aspect_ratio = None
+            self.rotation = None
 
     def _fake_inspect(_p: Path, *, timeout: float | None = None) -> _FakeInfo:
         seen["inspect"] = timeout

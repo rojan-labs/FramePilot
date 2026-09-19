@@ -44,7 +44,11 @@ describe('planVisionObjectivesForEdit', () => {
   it('declares tracking, mask, crop, and transition questions but not measured-only edits', () => {
     const semantic = edit([
       { type: 'set_clip_crop', clipId: 'clip_a', crop: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 } },
-      { type: 'add_mask', clipId: 'clip_a', shape: 'ellipse' },
+      {
+        type: 'add_mask',
+        clipId: 'clip_a',
+        mask: { kind: 'ellipse', id: 'clip_a__mask', cx: 960, cy: 540, rx: 200, ry: 100 },
+      },
       { type: 'track_object', clipId: 'clip_a', target: 'face', engine: 'manual' },
       {
         type: 'add_transition',

@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Final
 
 PACK_ID: Final = "framepilot.subject-intelligence"
-PACK_VERSION: Final = "1.0.0"
+PACK_VERSION: Final = "1.1.0"
 #: Sorted, and exactly what this worker can actually do.
 PACK_CAPABILITIES: Final = ("subject.detect", "subject.segment")
 

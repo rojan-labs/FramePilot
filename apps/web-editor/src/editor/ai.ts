@@ -68,7 +68,8 @@ import type { Project, Timeline, TranscriptWord } from '@framepilot/timeline-sch
 import { getBridge } from './bridge.js';
 import { type BrowserAiConfig, loadBrowserAiConfig } from './aiConfigStorage.js';
 import { readProjectUnderstanding, type UnderstandingReads } from './projectUnderstanding.js';
-import { LedgerClient, type LedgerSnapshot } from '@framepilot/ai-sdk';
+import { LedgerClient, MASKING_HOST_TOOL_NAMES, type LedgerSnapshot } from '@framepilot/ai-sdk';
+import { aiMaskingDisabledTools } from './ai-masking-flag.js';
 import { createVisualIndexClient } from './visualIndex.js';
 import { createBrowserRunStoreIO } from './browser-run-store.js';
 import {
@@ -112,6 +113,9 @@ let warnedMissingEngineUrl = false;
  * failure instead of fabricating success — see `apps/web-editor/.env.example`.
  */
 function browserOrchestratorOptions(): ConstructorParameters<typeof Orchestrator>[1] {
+  // RD2.1 kill switch. On the orchestrator, not the executor: without a sidecar URL there is
+  // no executor, and the switch must hold there as well (`ai-masking-flag.ts`).
+  const switchedOff = { disabledTools: () => aiMaskingDisabledTools() };
   const baseUrl = configuredEngineBaseUrl();
   if (!baseUrl) {
     if (import.meta.env.DEV && !warnedMissingEngineUrl) {
@@ -122,14 +126,21 @@ function browserOrchestratorOptions(): ConstructorParameters<typeof Orchestrator
           '(see apps/web-editor/.env.example).',
       );
     }
-    return {};
+    return switchedOff;
   }
   return {
+    ...switchedOff,
     executor: createSidecarExecutor({
       baseUrl,
       // Routed only by the desktop's Capability Pack tracking executor. Offered here, both
       // failed on their first call with "no implementation on this surface".
-      unroutableToolNames: ['detect_subjects', 'track_subject_automatically'],
+      // The masking domain's measured tools are the same case (plan 11): they run in the
+      // desktop's pack workers, and the browser build has none.
+      unroutableToolNames: [
+        'detect_subjects',
+        'track_subject_automatically',
+        ...MASKING_HOST_TOOL_NAMES,
+      ],
     }),
   };
 }

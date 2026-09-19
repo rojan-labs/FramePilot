@@ -34,10 +34,11 @@
  */
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { dirname, resolve as resolvePath } from 'node:path';
+import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 import { createLogger } from '@framepilot/shared-types';
-import type { Project } from './index.js';
-import { deserializeProject, serializeProject } from './serialization.js';
+import { SCHEMA_VERSION, type Project } from './index.js';
+import { readSchemaVersion } from './migrations.js';
+import { parseProjectDocument, projectFromDocument, serializeProject } from './serialization.js';
 
 const log = createLogger('timeline-schema:project-file');
 
@@ -200,6 +201,67 @@ function findArrayEnd(text: string, open: number): number {
 // self-writes by comparing this exact serialization (ADR 0030).
 export { serializeProject } from './serialization.js';
 
+/** Options for {@link readProjectFile}. */
+export interface ReadProjectFileOptions {
+  /**
+   * Before a file written by an older FramePilot is migrated, copy its exact bytes to
+   * {@link preMigrationBackupPath} (schema v22, ADR 0178).
+   *
+   * Opt-in, and on for the desktop app's reads: the first save after opening rewrites
+   * the file in the new format, and a migration that changes data (v22 turns `mask`
+   * effects into the mask stack) must leave the user a way back that does not depend on
+   * the migration being right. An existing backup is never overwritten, so the copy is
+   * of the file as it was before FramePilot first touched it, and it stays until the
+   * user deletes it.
+   */
+  readonly backupBeforeMigration?: boolean;
+}
+
+/**
+ * Where the pre-migration copy of `path` goes: `<project>.v<N>.backup.fp.json` beside it.
+ *
+ * @param path - The project file.
+ * @param version - The schema version the file was written with.
+ */
+export function preMigrationBackupPath(path: string, version: number): string {
+  const name = basename(path);
+  const stem = name.endsWith('.fp.json')
+    ? name.slice(0, -'.fp.json'.length)
+    : name.endsWith('.json')
+      ? name.slice(0, -'.json'.length)
+      : name;
+  return join(dirname(path), `${stem}.v${String(version)}.backup.fp.json`);
+}
+
+/**
+ * Copy the on-disk bytes aside before migrating them, never replacing an earlier copy.
+ *
+ * A failure is thrown, not logged: opening the project would migrate it in memory and the
+ * next save would publish the new format with no way back, which is exactly what the
+ * backup exists to prevent.
+ */
+async function writePreMigrationBackup(path: string, text: string, version: number): Promise<void> {
+  const target = preMigrationBackupPath(path, version);
+  try {
+    const handle = await open(target, 'wx');
+    try {
+      await handle.writeFile(text, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    log.action('wrote pre-migration project backup', { path, backup: target, version });
+  } catch (error) {
+    if ((error as { code?: unknown }).code === 'EEXIST') return;
+    throw new Error(
+      `Could not back up this project before upgrading it to the current format ` +
+        `(${errorText(error)}). Free disk space or fix folder permissions, then open it again. ` +
+        `Backup path: ${target}`,
+      { cause: error },
+    );
+  }
+}
+
 /**
  * Read, migrate, and validate a project file from disk.
  *
@@ -209,10 +271,17 @@ export { serializeProject } from './serialization.js';
  * refreshes the baseline within the watcher's coalescing window and the next save is
  * allowed again rather than refused forever.
  *
+ * A file saved by a NEWER FramePilot is refused with `NewerSchemaError` ("Update
+ * FramePilot to open this project."), never downgraded or partially loaded.
+ *
  * @param path - Absolute path to a `project.fp.json` file.
+ * @param options - See {@link ReadProjectFileOptions}.
  * @returns The validated, current-schema project.
  */
-export async function readProjectFile(path: string): Promise<Project> {
+export async function readProjectFile(
+  path: string,
+  options: ReadProjectFileOptions = {},
+): Promise<Project> {
   const text = await readFile(path, 'utf8');
   // Record ONLY after a successful parse. A read that lands mid-rename returns a
   // half-written file, and half a document is not evidence of what is on disk — trusting
@@ -220,8 +289,17 @@ export async function readProjectFile(path: string): Promise<Project> {
   const record = (): void => {
     observedContent.set(resolvePath(path), digest(text));
   };
+  const load = async (source: string): Promise<Project> => {
+    const document = parseProjectDocument(source);
+    const version = readSchemaVersion(document);
+    if (options.backupBeforeMigration === true && version < SCHEMA_VERSION) {
+      // The ORIGINAL bytes, even when history is being dropped from what we parse.
+      await writePreMigrationBackup(path, text, version);
+    }
+    return projectFromDocument(document);
+  };
   if (text.length <= MAX_PARSED_PROJECT_BYTES) {
-    const project = deserializeProject(text);
+    const project = await load(text);
     record();
     return project;
   }
@@ -242,7 +320,7 @@ export async function readProjectFile(path: string): Promise<Project> {
     bytes: text.length,
     budget: MAX_PARSED_PROJECT_BYTES,
   });
-  const project = deserializeProject(withoutHistory);
+  const project = await load(withoutHistory);
   // The baseline is the bytes ON DISK (`text`), not the history-stripped document we
   // hand back: the next write has to compare against what the file actually holds.
   record();

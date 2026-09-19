@@ -68,10 +68,28 @@ import type {
   MusicDownloadProgressWire,
   CapabilityPackRelocationProgressWire,
   TrackingProgressWire,
+  MaskTrackIntentWire,
+  MaskTrackResultWire,
   TrackingRequestIntentWire,
   TrackingRunResultWire,
   CapabilityPackRelocationResultWire,
   CapabilityPackProjectResolutionWire,
+  CapabilityPackStatusWire,
+  CapabilityPackInstalledEventWire,
+  MatteRunIntentWire,
+  MatteRunResultWire,
+  MatteProgressWire,
+  MatteSaveCorrectionWire,
+  MatteSaveCorrectionResultWire,
+  MatteSegmentFrameIntentWire,
+  MatteSegmentFrameResultWire,
+  MatteStorageResultWire,
+  MatteCleanRequestWire,
+  MatteCleanResultWire,
+  RelinkFileChoiceWire,
+  MatteRecheckResultWire,
+  CapabilityPackJobWire,
+  CapabilityPackJobActionWire,
 } from './ipc/contract.js';
 import type {
   MediaImportChunkBridge,
@@ -80,6 +98,8 @@ import type {
   ProjectSnapshotBridge,
   AnalyzeReferenceRequest,
   AnalyzeReferenceResult,
+  PreviewTextRasterRequest,
+  PreviewTextRasterResult,
 } from '@framepilot/shared-types';
 import type { IpcRendererEvent } from 'electron';
 
@@ -111,6 +131,7 @@ const Channels = {
   mediaImportChunk: 'framepilot:media:import-chunk',
   mediaImportAsset: 'framepilot:media:import-asset',
   referencesAnalyze: 'framepilot:references:analyze',
+  previewTextRaster: 'framepilot:preview:text-raster',
   transcribe: 'framepilot:ai:transcribe',
   aiChat: 'framepilot:ai:chat',
   aiPlan: 'framepilot:ai:plan',
@@ -149,6 +170,22 @@ const Channels = {
   capabilityPackTrack: 'framepilot:capability-pack:track',
   capabilityPackCancelTrack: 'framepilot:capability-pack:cancel-track',
   capabilityPackTrackProgress: 'framepilot:capability-pack:track-progress',
+  capabilityPackTrackMask: 'framepilot:capability-pack:track-mask',
+  capabilityPackStatus: 'framepilot:capability-pack:status',
+  capabilityPackInstalled: 'framepilot:capability-pack:installed',
+  capabilityPackMatte: 'framepilot:capability-pack:matte',
+  capabilityPackCancelMatte: 'framepilot:capability-pack:cancel-matte',
+  capabilityPackMatteProgress: 'framepilot:capability-pack:matte-progress',
+  matteSaveCorrection: 'framepilot:capability-pack:matte-save-correction',
+  matteSegmentFrame: 'framepilot:capability-pack:matte-segment-frame',
+  matteStorage: 'framepilot:capability-pack:matte-storage',
+  matteCleanUnused: 'framepilot:capability-pack:matte-clean-unused',
+  projectChooseRelinkFile: 'framepilot:project:choose-relink-file',
+  matteRecheckMedia: 'framepilot:capability-pack:matte-recheck-media',
+  capabilityPackJobs: 'framepilot:capability-pack:jobs',
+  capabilityPackJobsChanged: 'framepilot:capability-pack:jobs-changed',
+  capabilityPackJobAction: 'framepilot:capability-pack:job-action',
+  capabilityPackExportDiagnostics: 'framepilot:capability-pack:export-diagnostics',
   musicSearch: 'framepilot:music:search',
   musicPreview: 'framepilot:music:preview',
   musicDownload: 'framepilot:music:download',
@@ -218,8 +255,62 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
     ipcRenderer.on(Channels.capabilityPackProgress, handler);
     return () => ipcRenderer.removeListener(Channels.capabilityPackProgress, handler);
   },
+  capabilityPackStatus: (capability: string) =>
+    ipcRenderer.invoke(
+      Channels.capabilityPackStatus,
+      capability,
+    ) as Promise<CapabilityPackStatusWire>,
+  onCapabilityPackInstalled: (listener: (event: CapabilityPackInstalledEventWire) => void) => {
+    const handler = (_event: IpcRendererEvent, payload: CapabilityPackInstalledEventWire): void =>
+      listener(payload);
+    ipcRenderer.on(Channels.capabilityPackInstalled, handler);
+    return () => ipcRenderer.removeListener(Channels.capabilityPackInstalled, handler);
+  },
+  capabilityPackMatte: (intent: MatteRunIntentWire) =>
+    ipcRenderer.invoke(Channels.capabilityPackMatte, intent) as Promise<MatteRunResultWire>,
+  capabilityPackCancelMatte: (requestId: string) => {
+    ipcRenderer.send(Channels.capabilityPackCancelMatte, requestId);
+  },
+  onCapabilityPackMatteProgress: (listener: (progress: MatteProgressWire) => void) => {
+    const handler = (_event: IpcRendererEvent, payload: MatteProgressWire): void =>
+      listener(payload);
+    ipcRenderer.on(Channels.capabilityPackMatteProgress, handler);
+    return () => ipcRenderer.removeListener(Channels.capabilityPackMatteProgress, handler);
+  },
+  matteSaveCorrection: (correction: MatteSaveCorrectionWire) =>
+    ipcRenderer.invoke(
+      Channels.matteSaveCorrection,
+      correction,
+    ) as Promise<MatteSaveCorrectionResultWire>,
+  matteSegmentFrame: (intent: MatteSegmentFrameIntentWire) =>
+    ipcRenderer.invoke(Channels.matteSegmentFrame, intent) as Promise<MatteSegmentFrameResultWire>,
+  matteStorage: (request?: { readonly protectedKeys?: readonly string[] }) =>
+    ipcRenderer.invoke(Channels.matteStorage, request ?? {}) as Promise<MatteStorageResultWire>,
+  capabilityPackExportDiagnostics: () =>
+    ipcRenderer.invoke(Channels.capabilityPackExportDiagnostics) as Promise<
+      | { readonly ok: true }
+      | { readonly ok: false; readonly code: 'cancelled' | 'write_failed'; readonly error: string }
+    >,
+  capabilityPackJobs: () =>
+    ipcRenderer.invoke(Channels.capabilityPackJobs) as Promise<readonly CapabilityPackJobWire[]>,
+  onCapabilityPackJobsChanged: (listener: (jobs: readonly CapabilityPackJobWire[]) => void) => {
+    const handler = (_event: IpcRendererEvent, payload: readonly CapabilityPackJobWire[]): void =>
+      listener(payload);
+    ipcRenderer.on(Channels.capabilityPackJobsChanged, handler);
+    return () => ipcRenderer.removeListener(Channels.capabilityPackJobsChanged, handler);
+  },
+  capabilityPackJobAction: (action: CapabilityPackJobActionWire) =>
+    ipcRenderer.invoke(Channels.capabilityPackJobAction, action) as Promise<boolean>,
+  projectChooseRelinkFile: (assetId: string) =>
+    ipcRenderer.invoke(Channels.projectChooseRelinkFile, assetId) as Promise<RelinkFileChoiceWire>,
+  matteRecheckMedia: (request: { readonly assetIds: readonly string[] }) =>
+    ipcRenderer.invoke(Channels.matteRecheckMedia, request) as Promise<MatteRecheckResultWire>,
+  matteCleanUnused: (request: MatteCleanRequestWire) =>
+    ipcRenderer.invoke(Channels.matteCleanUnused, request) as Promise<MatteCleanResultWire>,
   capabilityPackTrack: (intent: TrackingRequestIntentWire) =>
     ipcRenderer.invoke(Channels.capabilityPackTrack, intent) as Promise<TrackingRunResultWire>,
+  capabilityPackTrackMask: (intent: MaskTrackIntentWire) =>
+    ipcRenderer.invoke(Channels.capabilityPackTrackMask, intent) as Promise<MaskTrackResultWire>,
   capabilityPackCancelTrack: (requestId: string) => {
     ipcRenderer.send(Channels.capabilityPackCancelTrack, requestId);
   },
@@ -329,6 +420,8 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
     ipcRenderer.invoke(Channels.mediaImportChunk, req) as Promise<MediaImportChunkResult>,
   importAsset: (req: ImportAssetRequest) =>
     ipcRenderer.invoke(Channels.mediaImportAsset, req) as Promise<ImportAssetResult>,
+  previewTextRaster: (req: PreviewTextRasterRequest) =>
+    ipcRenderer.invoke(Channels.previewTextRaster, req) as Promise<PreviewTextRasterResult>,
   analyzeReference: (req: AnalyzeReferenceRequest) =>
     ipcRenderer.invoke(Channels.referencesAnalyze, req) as Promise<AnalyzeReferenceResult>,
   transcribe: (req: TranscriptionRequest) =>

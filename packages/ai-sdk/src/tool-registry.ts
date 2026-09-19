@@ -25,11 +25,11 @@
  *   sidecar computes it. No patch, no in-process data.
  * - **unavailable** (`available: false`): registered for discoverability but its
  *   engine does not exist yet. Per the build-order invariant we must NOT fake the
- *   capability. `generate_mask` is the only one left, and it is not waiting on a
- *   model: segmentation yields a bitmap while timeline masks steer by rectangle
- *   bounds, so the measured path is `track_subject_automatically` with
- *   `subject="silhouette"` (see `domain-tools/tracking-mask.ts`). The orchestrator
- *   refuses to invoke these rather than fabricate a result.
+ *   capability. None is registered today: `generate_mask` was the last, and
+ *   `create_mask` replaced it once masks had a measured raster kind (plan 11). The
+ *   kind stays, because the orchestrator's refusal of one — never a fabricated
+ *   result — is a contract the next unbuilt tool inherits (`__fixtures__/unbuilt-tool.ts`
+ *   is how the suites keep proving it).
  */
 import { z } from 'zod/v4';
 import { createLogger } from '@framepilot/shared-types';
@@ -55,6 +55,7 @@ import { MEDIA_TOOLS } from './domain-tools/media.js';
 import { PROJECT_TOOLS } from './domain-tools/project.js';
 import { VERIFICATION_TOOLS } from './domain-tools/verification.js';
 import { TRACKING_MASK_TOOLS } from './domain-tools/tracking-mask.js';
+import { MASKING_TOOLS } from './domain-tools/masking.js';
 import { boolean, filterString, numeric, seconds } from './domain-tools/tool-args.js';
 import { analysisTool, askTool, noArgs, readTool } from './domain-tools/tool-factories.js';
 // `tool-input-contract.ts` only imports the `ToolSpec`/`ToolParameterSchema` *types* from
@@ -549,6 +550,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
   ...COLOR_TOOLS,
   ...SOLVED_COLOR_TOOLS,
   ...TRACKING_MASK_TOOLS,
+  ...MASKING_TOOLS,
   ...AUDIO_TOOLS,
   ...CAPTION_TOOLS,
   ...GRAPHICS_TOOLS,

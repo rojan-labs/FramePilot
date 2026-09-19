@@ -5,6 +5,7 @@ import { TrackingMaskObjectiveSchema } from '../controllers/tracking-mask-contro
 import type { ToolContext } from '../tool-context.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { validateProfessionalOperationBatch } from './professional-batch.js';
+import { attestMaskGeometry } from '../masking/geometry-provenance.js';
 import { TRACKING_MASK_SPECIALIST, runSpecialist, sliceOf } from '../specialists/index.js';
 
 function jsonSchema(schema: z.ZodType): Record<string, unknown> {
@@ -40,7 +41,9 @@ function buildProfessionalTrackingMask(rawArgs: unknown, ctx: ToolContext) {
         `professional_tracking_mask compiler rejected ${result.code}: ${result.detail}`,
       );
     }
-    return [...result.patch.operations];
+    // The corrections are positions the EDITOR set on a mask the editor drew; the compiler
+    // interpolates between them and authors nothing (AM1.4's "user" source).
+    return attestMaskGeometry([...result.patch.operations], { kind: 'user_numbers' });
   });
   return validateProfessionalOperationBatch(ctx, 'professional_tracking_mask', operations);
 }

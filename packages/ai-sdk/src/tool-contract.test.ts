@@ -134,6 +134,12 @@ describe('analysis-kind tools are exhaustively classified by project-state effec
     'index_media',
     'track_subject_automatically',
     'transcribe',
+    // The masking domain's measure-then-edit tools (plan 11).
+    'create_mask',
+    // MK8: a preset shape drawn into a resolved subject's box — measure, then edit.
+    'create_shape_mask',
+    'remove_background',
+    'track_mask',
   ];
 
   /** Host-backed ANALYSIS tools that only measure and report. */
@@ -143,6 +149,7 @@ describe('analysis-kind tools are exhaustively classified by project-state effec
     'detect_beats',
     'detect_scenes',
     'detect_subjects',
+    'find_mask_targets',
     'find_similar',
     'get_frame',
     'map_footage',

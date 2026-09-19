@@ -1,7 +1,7 @@
 ---
 name: motion-design
 description: Create a coherent motion language for text, overlays, and emphasis using hierarchy, timing, easing, repetition, and restraint across the whole piece.
-tools: [get_timeline, add_text_layer, add_keyframes, punch_in, set_clip_blend_mode, add_mask, render_preview]
+tools: [get_timeline, add_text_layer, add_keyframes, punch_in, set_clip_blend_mode, render_preview]
 ---
 
 # Motion design

@@ -7,11 +7,12 @@ import pytest
 from framepilot_engine.render.masks import (
     MaskSpec,
     has_mask_keyframes,
+    mask_frame_box,
     mask_spec_at,
     mask_spec_from_params,
     rasterize_mask,
 )
-from framepilot_engine.timeline.models import Effect, Keyframe
+from framepilot_engine.timeline.models import Clip, Effect, Keyframe
 
 W, H = 40, 40
 
@@ -125,3 +126,32 @@ def test_has_mask_keyframes() -> None:
     assert not has_mask_keyframes(
         _mask_effect(Keyframe(id="s", time=0.0, property="scale", value=1.0))
     )
+
+
+# --- Schema v22 helpers -------------------------------------------------------------
+
+
+_SIZE = (1920, 1080)
+
+
+def _v22_clip(*masks: dict[str, object], **fields: object) -> Clip:
+    return Clip.model_validate(
+        {
+            "id": "c",
+            "assetId": "a",
+            "trackId": "v",
+            "start": 10.0,
+            "end": 14.0,
+            "sourceStart": 3.0,
+            "sourceEnd": 7.0,
+            "masks": list(masks),
+            **fields,
+        }
+    )
+
+
+def test_mask_frame_box_reads_fractions_at_a_source_instant() -> None:
+    clip = _v22_clip({"kind": "ellipse", "id": "m", "cx": 960, "cy": 540, "rx": 480, "ry": 270})
+    mask = clip.masks[0]  # type: ignore[index]
+    assert mask_frame_box(mask, _SIZE, 3.0) == pytest.approx((0.25, 0.25, 0.5, 0.5))
+    assert mask_frame_box(mask, None, 3.0) is None

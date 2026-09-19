@@ -31,10 +31,12 @@ import {
 } from '@framepilot/editor-core';
 import {
   BUNDLED_SKILLS,
+  TOOL_REGISTRY,
   type ToolContext,
   assembleEdit,
   getTool,
   skillsByName,
+  skillsOnOffer,
   withToolInputContract,
 } from '@framepilot/ai-sdk';
 import { TranscriptWordSchema, type Project } from '@framepilot/timeline-schema';
@@ -53,6 +55,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { resolveWithin } from './safety.js';
 import { servableOverMcp } from './tools.js';
+
+/** The bundled skills an MCP client can act on; see `EditorSession#context`. */
+const MCP_SKILLS = skillsByName(
+  skillsOnOffer(
+    BUNDLED_SKILLS,
+    new Set(TOOL_REGISTRY.filter((tool) => !servableOverMcp(tool)).map((tool) => tool.name)),
+  ),
+);
 
 /** Why a tool call could not be honoured — the tool boundary gate (PRD §8.3). */
 export type SessionErrorCode =
@@ -142,8 +152,10 @@ export class EditorSession {
 
   private context(open: OpenProject): ToolContext {
     // Bundled skills (ADR 0057) so `load_skill` serves the same playbooks over MCP
-    // as it does in the desktop/web orchestrator.
-    return { project: open.project, skills: skillsByName(BUNDLED_SKILLS) };
+    // as it does in the desktop/web orchestrator — less any playbook whose every tool this
+    // surface cannot serve (the masking one: all `hostUiOnly`), which would only send an MCP
+    // client to tools it cannot call.
+    return { project: open.project, skills: MCP_SKILLS };
   }
 
   /** Open a `project.fp.json` (sandbox-checked) and make it the active project. */
@@ -408,26 +420,27 @@ export class EditorSession {
   }
 
   /**
-   * Reject any `add_asset` operation whose media path escapes the projects
-   * sandbox. The path is the only untrusted, filesystem-bound field an agent can
-   * inject through a mutating tool, so it is contained here before it reaches the
-   * project file. Resolution mirrors the open/save path checks.
+   * Reject any operation that carries a media path escaping the projects sandbox. Paths are the
+   * only untrusted, filesystem-bound fields an agent can inject through a mutating tool, so every
+   * path-carrying operation is checked here before it reaches the project file (BR4.12 L5):
+   * `add_asset`, `restore_assets` and `relink_asset` (see {@link operationMediaPaths}).
    *
    * @throws {SessionError} `unsafe_path` when a path resolves outside the sandbox.
    */
   private assertAssetPathsSandboxed(operations: readonly AnyOperation[]): void {
     for (const op of operations) {
-      if (op.type !== 'add_asset') continue;
-      try {
-        resolveWithin(this.projectsRoot, op.asset.path);
-      } catch (cause) {
-        // resolveWithin only throws PathTraversalError, so any failure here is a
-        // containment violation — surface it as a typed, agent-readable error.
-        throw new SessionError(
-          'unsafe_path',
-          `add_asset path escapes the projects sandbox: ${op.asset.path}`,
-          { cause },
-        );
+      for (const mediaPath of operationMediaPaths(op)) {
+        try {
+          resolveWithin(this.projectsRoot, mediaPath);
+        } catch (cause) {
+          // resolveWithin only throws PathTraversalError, so any failure here is a
+          // containment violation — surface it as a typed, agent-readable error.
+          throw new SessionError(
+            'unsafe_path',
+            `${op.type} path escapes the projects sandbox: ${mediaPath}`,
+            { cause },
+          );
+        }
       }
     }
   }
@@ -497,3 +510,20 @@ export const sessionFromEnv = (env: NodeJS.ProcessEnv = process.env): EditorSess
   const root = resolveProjectsRoot(env, path.join(os.homedir(), 'Documents'));
   return new EditorSession(root);
 };
+
+/**
+ * Every media path an operation would write into the project file. A new path-carrying
+ * operation must be added here, or the MCP sandbox check would let it through unchecked.
+ */
+export function operationMediaPaths(op: AnyOperation): readonly string[] {
+  switch (op.type) {
+    case 'add_asset':
+      return [op.asset.path];
+    case 'restore_assets':
+      return op.assets.map((asset) => asset.path);
+    case 'relink_asset':
+      return [op.path];
+    default:
+      return [];
+  }
+}

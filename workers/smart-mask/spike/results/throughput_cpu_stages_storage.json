@@ -1,0 +1,39 @@
+{
+  "recordedAt": "2026-09-17T06:01:16",
+  "host": {
+    "platform": "darwin",
+    "machine": "arm64",
+    "python": "3.12.13",
+    "onnxruntime": "1.30.0",
+    "torch": "2.14.0",
+    "cpu": "Apple M1 Pro"
+  },
+  "clip": "walk_pan",
+  "cpuStages": {
+    "1080p": {
+      "flowWarpSeconds": 0.053,
+      "bandConsensusSeconds": 0.009,
+      "verifySeconds": 0.093
+    },
+    "4K": {
+      "flowWarpSeconds": 0.208,
+      "bandConsensusSeconds": 0.042,
+      "verifySeconds": 0.267
+    }
+  },
+  "storage": {
+    "1080p": {
+      "matteMiBPerMinute": 23.2,
+      "foregroundMiBPerMinute": 81.4,
+      "framesMeasured": 32,
+      "bandPixelFractionAtSource": 0.01061
+    },
+    "4K": {
+      "matteMiBPerMinute": 61.2,
+      "foregroundMiBPerMinute": 218.6,
+      "framesMeasured": 32,
+      "bandPixelFractionAtSource": 0.01061
+    }
+  },
+  "peakRssMiB": 2029
+}

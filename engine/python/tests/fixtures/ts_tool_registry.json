@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 99,
+  "toolCount": 109,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -315,39 +315,6 @@
               "number"
             ],
             "minimum": 0
-          }
-        }
-      }
-    },
-    "add_mask": {
-      "kind": "mutate",
-      "mutates": true,
-      "available": true,
-      "hostUiOnly": false,
-      "schema": {
-        "type": [
-          "object"
-        ],
-        "additionalProperties": false,
-        "required": [
-          "clipId",
-          "shape"
-        ],
-        "properties": {
-          "clipId": {
-            "type": [
-              "string"
-            ]
-          },
-          "shape": {
-            "type": [
-              "string"
-            ],
-            "enum": [
-              "ellipse",
-              "polygon",
-              "rectangle"
-            ]
           }
         }
       }
@@ -1065,6 +1032,289 @@
         }
       }
     },
+    "create_mask": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId",
+          "precision",
+          "purpose"
+        ],
+        "properties": {
+          "candidateId": {
+            "type": [
+              "string"
+            ]
+          },
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "edge": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "exact",
+              "soft",
+              "very_soft"
+            ]
+          },
+          "effect": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "blur_to_hide",
+              "brighten",
+              "darken",
+              "desaturate",
+              "grade_match_to"
+            ]
+          },
+          "precision": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "cutout",
+              "shape"
+            ]
+          },
+          "purpose": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "cutout",
+              "effect",
+              "hide"
+            ]
+          },
+          "shape": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "ellipse",
+              "path",
+              "rectangle"
+            ]
+          },
+          "track": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "userShape": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "height",
+              "shape",
+              "width",
+              "x",
+              "y"
+            ],
+            "properties": {
+              "height": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "shape": {
+                "type": [
+                  "string"
+                ],
+                "enum": [
+                  "ellipse",
+                  "rectangle"
+                ]
+              },
+              "width": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "x": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "y": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "create_shape_mask": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId",
+          "preset"
+        ],
+        "properties": {
+          "candidateId": {
+            "type": [
+              "string"
+            ]
+          },
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "count": {
+            "type": [
+              "integer"
+            ],
+            "minimum": 3,
+            "maximum": 64
+          },
+          "direction": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "horizontal",
+              "vertical"
+            ]
+          },
+          "edge": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "exact",
+              "soft",
+              "very_soft"
+            ]
+          },
+          "effect": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "blur_to_hide",
+              "brighten",
+              "darken",
+              "desaturate",
+              "grade_match_to"
+            ]
+          },
+          "preset": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "arrow",
+              "gradient",
+              "heart",
+              "mirror",
+              "polygon",
+              "radial_gradient",
+              "rounded_frame",
+              "speech_bubble",
+              "split",
+              "star"
+            ]
+          },
+          "purpose": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "cutout",
+              "effect",
+              "hide"
+            ]
+          },
+          "side": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "bottom",
+              "left",
+              "right",
+              "top"
+            ]
+          },
+          "userBox": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "height",
+              "width",
+              "x",
+              "y"
+            ],
+            "properties": {
+              "height": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "width": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "x": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "y": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        }
+      }
+    },
     "delete_clip": {
       "kind": "mutate",
       "mutates": true,
@@ -1119,6 +1369,34 @@
           "ripple": {
             "type": [
               "boolean"
+            ]
+          }
+        }
+      }
+    },
+    "delete_mask": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId",
+          "maskId"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "maskId": {
+            "type": [
+              "string"
             ]
           }
         }
@@ -1466,6 +1744,58 @@
         "properties": {}
       }
     },
+    "find_mask_targets": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId",
+          "description"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "description": {
+            "type": [
+              "string"
+            ]
+          },
+          "range": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "end",
+              "start"
+            ],
+            "properties": {
+              "end": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0
+              },
+              "start": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
     "find_similar": {
       "kind": "analysis",
       "mutates": false,
@@ -1495,17 +1825,43 @@
         }
       }
     },
-    "generate_mask": {
-      "kind": "unavailable",
+    "follow_subject": {
+      "kind": "mutate",
       "mutates": true,
-      "available": false,
-      "hostUiOnly": false,
+      "available": true,
+      "hostUiOnly": true,
       "schema": {
         "type": [
           "object"
         ],
         "additionalProperties": false,
-        "properties": {}
+        "required": [
+          "clipId",
+          "maskId",
+          "targetClipId"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "maskId": {
+            "type": [
+              "string"
+            ]
+          },
+          "targetClipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "targetMaskId": {
+            "type": [
+              "string"
+            ]
+          }
+        }
       }
     },
     "get_clip": {
@@ -1631,6 +1987,28 @@
               "number"
             ],
             "minimum": 0
+          }
+        }
+      }
+    },
+    "get_masks": {
+      "kind": "read",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
           }
         }
       }
@@ -1855,6 +2233,7 @@
                 "color",
                 "effects",
                 "footage",
+                "masking",
                 "media",
                 "motion",
                 "professional",
@@ -1999,6 +2378,49 @@
               "number"
             ],
             "minimum": 0
+          }
+        }
+      }
+    },
+    "mask_with_layer": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId"
+        ],
+        "properties": {
+          "channel": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "alpha",
+              "inverted-alpha",
+              "inverted-luma",
+              "luma"
+            ]
+          },
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "sourceClipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "sourceTrackId": {
+            "type": [
+              "string"
+            ]
           }
         }
       }
@@ -2822,6 +3244,78 @@
         }
       }
     },
+    "put_text_behind_subject": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId",
+          "text"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "style": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "align": {
+                "type": [
+                  "string"
+                ],
+                "enum": [
+                  "center",
+                  "left",
+                  "right"
+                ]
+              },
+              "color": {
+                "type": [
+                  "string"
+                ]
+              },
+              "sizePercent": {
+                "type": [
+                  "number"
+                ],
+                "maximum": 100,
+                "exclusiveMinimum": 0
+              },
+              "xPercent": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              },
+              "yPercent": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              }
+            }
+          },
+          "text": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
     "read_edit_signals": {
       "kind": "read",
       "mutates": false,
@@ -2987,6 +3481,77 @@
         }
       }
     },
+    "refine_mask": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId",
+          "maskId"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "edge": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "exact",
+              "soft",
+              "very_soft"
+            ]
+          },
+          "grow": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "looser",
+              "tighter"
+            ]
+          },
+          "invert": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "maskId": {
+            "type": [
+              "string"
+            ]
+          },
+          "mode": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "add",
+              "intersect",
+              "subtract"
+            ]
+          },
+          "space": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "frame",
+              "source"
+            ]
+          }
+        }
+      }
+    },
     "remember_preference": {
       "kind": "mutate",
       "mutates": true,
@@ -3020,6 +3585,33 @@
             ]
           },
           "value": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
+    "remove_background": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId"
+        ],
+        "properties": {
+          "candidateId": {
+            "type": [
+              "string"
+            ]
+          },
+          "clipId": {
             "type": [
               "string"
             ]
@@ -4735,6 +5327,63 @@
         }
       }
     },
+    "style_cutout_edge": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId",
+          "style"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "color": {
+            "type": [
+              "string"
+            ]
+          },
+          "preset": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "black-outline",
+              "drop-shadow",
+              "hard-shadow",
+              "neon-glow",
+              "soft-halo",
+              "sticker-outline",
+              "white-outline"
+            ]
+          },
+          "remove": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "style": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "glow",
+              "outline",
+              "shadow"
+            ]
+          }
+        }
+      }
+    },
     "tighten_clips": {
       "kind": "mutate",
       "mutates": true,
@@ -4782,6 +5431,44 @@
           "trackId": {
             "type": [
               "string"
+            ]
+          }
+        }
+      }
+    },
+    "track_mask": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId",
+          "maskId"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "maskId": {
+            "type": [
+              "string"
+            ]
+          },
+          "method": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "perspective",
+              "position",
+              "position-scale-rotation"
             ]
           }
         }

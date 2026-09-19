@@ -640,15 +640,38 @@ describe('Inspector keyframes', () => {
     expect(screen.getByLabelText('inspector').textContent).toContain('Nothing selected');
   });
 
-  it('adds a mask effect to the selected clip', () => {
-    render(<Host />);
+  it("opens the mask panel on the selected clip's mask stack", () => {
+    // Schema v22 (ADR 0178): a mask is a layer on `clip.masks` in source pixels, so the
+    // clip's media must carry a probed size. Shapes are drawn on the monitor (MK4.1); the
+    // Inspector lists the stack and picks the drawing tool.
+    const measured = demoProject.assets.map((asset) =>
+      asset.id === 'asset_intro' ? { ...asset, media: { width: 1920, height: 1080 } } : asset,
+    );
+    function MeasuredHost(): JSX.Element {
+      const editor = useEditor(demoProject.timeline, { assets: measured });
+      return (
+        <>
+          <button type="button" onClick={() => editor.select('clip_intro')}>
+            pick
+          </button>
+          <Inspector editor={editor} />
+        </>
+      );
+    }
+    render(<MeasuredHost />);
     fireEvent.click(screen.getByRole('button', { name: 'pick' }));
     // Mask lives under its own category tab (industry inspector panel revamp).
     fireEvent.click(screen.getByRole('tab', { name: 'Mask' }));
-    fireEvent.click(screen.getByRole('combobox', { name: 'mask shape' }));
-    fireEvent.click(screen.getByRole('option', { name: 'rectangle' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add mask' }));
-    expect(screen.getByLabelText('effects').textContent).toContain('mask');
+    expect(screen.getByText('No masks yet. Draw one on the monitor.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Draw rectangle mask' })).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('says to measure the media instead of silently not adding a mask', () => {
+    render(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: 'pick' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Mask' }));
+    expect(screen.getByRole('alert').textContent).toContain('Measure this media first');
   });
 
   it('sets audio fade + mute on the selected clip', () => {

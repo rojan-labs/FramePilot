@@ -250,17 +250,29 @@ Adjusts volume/fades/ducking on an audio clip.
 Adds a transition between adjacent clips (`cut`, `fade`, `cross_dissolve`, `push`, `zoom`,
 `blur`).
 
-### `add_mask`
+### `add_mask` and the mask operations (schema v22)
 
-```json
-{
-  "type": "add_mask",
-  "clipId": "clip_001",
-  "mask": { "kind": "ellipse", "feather": 8, "opacity": 1, "keyframes": [] }
-}
-```
+`add_mask { clipId, mask: MaskLayer, index? }` adds one mask to a clip's stack (a duplicate id is
+refused). The rest of the mask vocabulary, all with exact inverses (`editor-core/mask-operations.ts`):
 
-Adds a mask (`rectangle` | `ellipse` | `polygon` | `subject`) — used for blur, text-behind-object, etc.
+| Operation | Shape | Inverse |
+| --- | --- | --- |
+| `add_effect_layer_mask` | `{ layerId, mask, index? }` (frame space, alpha) | `remove_mask` |
+| `remove_mask` | `{ clipId \| layerId, maskId }` | `add_mask` at the prior index |
+| `update_mask` | `{ …owner, maskId, changes }` (not id/kind/keyframes/path/target/space/tracking) | `restore_masks` |
+| `set_mask_path` | `{ …owner, maskId, keyframe }` (upsert by id, equal vertex count) | `restore_masks` |
+| `add_mask_keyframe` / `remove_mask_keyframe` / `move_mask_keyframe` | `keyframe` / `keyframeId` / `keyframeId, sourceTime` | remove / restore / move back |
+| `insert_mask_vertex` / `remove_mask_vertex` | `segment, t` / `vertex` — every path keyframe | `restore_masks` |
+| `reorder_masks` | `{ …owner, maskIds }` (a permutation) | prior order |
+| `set_mask_target` / `set_mask_space` | `target` / `space` | prior value |
+| `apply_mask_tracking` / `clear_mask_tracking` | `tracking` / — | prior tracking |
+| `use_track` | `{ fromClipId, fromMaskId, to: { …owner, maskId } }` | `restore_masks` |
+| `review_mask` | `{ …owner, maskId, subject: 'matte' \| 'tracking', review }` | prior review |
+| `paste_masks` | `{ clipId, masks, from: { assetId, width, height, sourceStart }, to: { width, height }, ids? }` | `restore_masks` |
+| `add_text_behind_subject` | `{ clipId, text, style?, maskId?, …ids }` | remove both tracks, restore the clip's track |
+
+Validation adds the mask rules in `mask-validation.ts` (see ADR 0178). The AI `add_mask` tool keeps
+its `{ clipId, shape }` arguments and converts them through the clip media's measured size.
 
 ### `track_object`
 

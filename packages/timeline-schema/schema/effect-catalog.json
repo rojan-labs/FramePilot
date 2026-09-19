@@ -2751,5 +2751,279 @@
         "radial"
       ]
     }
-  ]
+  ],
+  "edgeStyles": {
+    "kinds": [
+      "shadow",
+      "glow",
+      "stroke"
+    ],
+    "params": {
+      "stroke": [
+        {
+          "name": "widthPx",
+          "label": "Width",
+          "min": 0.5,
+          "max": 200,
+          "step": 0.5,
+          "default": 8,
+          "unit": "px",
+          "hint": "Outline thickness."
+        },
+        {
+          "name": "red",
+          "label": "Red",
+          "min": 0,
+          "max": 255,
+          "step": 1,
+          "default": 255
+        },
+        {
+          "name": "green",
+          "label": "Green",
+          "min": 0,
+          "max": 255,
+          "step": 1,
+          "default": 255
+        },
+        {
+          "name": "blue",
+          "label": "Blue",
+          "min": 0,
+          "max": 255,
+          "step": 1,
+          "default": 255
+        },
+        {
+          "name": "opacity",
+          "label": "Opacity",
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "default": 1
+        }
+      ],
+      "glow": [
+        {
+          "name": "radiusPx",
+          "label": "Radius",
+          "min": 1,
+          "max": 200,
+          "step": 0.5,
+          "default": 24,
+          "unit": "px",
+          "hint": "How far the glow reaches."
+        },
+        {
+          "name": "red",
+          "label": "Red",
+          "min": 0,
+          "max": 255,
+          "step": 1,
+          "default": 255
+        },
+        {
+          "name": "green",
+          "label": "Green",
+          "min": 0,
+          "max": 255,
+          "step": 1,
+          "default": 255
+        },
+        {
+          "name": "blue",
+          "label": "Blue",
+          "min": 0,
+          "max": 255,
+          "step": 1,
+          "default": 255
+        },
+        {
+          "name": "opacity",
+          "label": "Opacity",
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "default": 0.8
+        }
+      ],
+      "shadow": [
+        {
+          "name": "offsetXPx",
+          "label": "Offset X",
+          "min": -200,
+          "max": 200,
+          "step": 0.5,
+          "default": 12,
+          "unit": "px",
+          "hint": "Right is positive."
+        },
+        {
+          "name": "offsetYPx",
+          "label": "Offset Y",
+          "min": -200,
+          "max": 200,
+          "step": 0.5,
+          "default": 12,
+          "unit": "px",
+          "hint": "Down is positive."
+        },
+        {
+          "name": "softnessPx",
+          "label": "Softness",
+          "min": 0,
+          "max": 200,
+          "step": 0.5,
+          "default": 16,
+          "unit": "px",
+          "hint": "Blur of the shadow edge."
+        },
+        {
+          "name": "red",
+          "label": "Red",
+          "min": 0,
+          "max": 255,
+          "step": 1,
+          "default": 0
+        },
+        {
+          "name": "green",
+          "label": "Green",
+          "min": 0,
+          "max": 255,
+          "step": 1,
+          "default": 0
+        },
+        {
+          "name": "blue",
+          "label": "Blue",
+          "min": 0,
+          "max": 255,
+          "step": 1,
+          "default": 0
+        },
+        {
+          "name": "opacity",
+          "label": "Opacity",
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "default": 0.6
+        }
+      ]
+    },
+    "styles": [
+      {
+        "id": "white-outline",
+        "label": "White Outline",
+        "kind": "stroke",
+        "description": "A clean white line around the cut-out subject.",
+        "tags": [
+          "outline",
+          "stroke",
+          "border",
+          "cutout",
+          "white"
+        ]
+      },
+      {
+        "id": "sticker-outline",
+        "label": "Sticker",
+        "kind": "stroke",
+        "params": {
+          "widthPx": 20
+        },
+        "description": "A thick white border that makes the subject read as a sticker.",
+        "tags": [
+          "sticker",
+          "thick outline",
+          "border",
+          "cutout"
+        ]
+      },
+      {
+        "id": "black-outline",
+        "label": "Black Outline",
+        "kind": "stroke",
+        "params": {
+          "widthPx": 5,
+          "red": 0,
+          "green": 0,
+          "blue": 0
+        },
+        "description": "A thin dark line that separates the subject from a busy background.",
+        "tags": [
+          "outline",
+          "stroke",
+          "black",
+          "separation"
+        ]
+      },
+      {
+        "id": "neon-glow",
+        "label": "Neon Glow",
+        "kind": "glow",
+        "params": {
+          "radiusPx": 30,
+          "red": 0,
+          "green": 240,
+          "blue": 255,
+          "opacity": 0.9
+        },
+        "description": "A saturated glow that spills out from the subject edge.",
+        "tags": [
+          "glow",
+          "neon",
+          "halo",
+          "cutout"
+        ]
+      },
+      {
+        "id": "soft-halo",
+        "label": "Soft Halo",
+        "kind": "glow",
+        "params": {
+          "radiusPx": 48,
+          "opacity": 0.55
+        },
+        "description": "A wide, gentle white halo around the subject.",
+        "tags": [
+          "halo",
+          "glow",
+          "soft",
+          "dreamy"
+        ]
+      },
+      {
+        "id": "drop-shadow",
+        "label": "Drop Shadow",
+        "kind": "shadow",
+        "description": "A soft shadow behind and below the subject.",
+        "tags": [
+          "shadow",
+          "drop shadow",
+          "depth",
+          "cutout"
+        ]
+      },
+      {
+        "id": "hard-shadow",
+        "label": "Hard Shadow",
+        "kind": "shadow",
+        "params": {
+          "offsetXPx": 10,
+          "offsetYPx": 10,
+          "softnessPx": 0,
+          "opacity": 0.85
+        },
+        "description": "A crisp offset shadow, poster style.",
+        "tags": [
+          "shadow",
+          "hard",
+          "offset",
+          "poster"
+        ]
+      }
+    ]
+  }
 }

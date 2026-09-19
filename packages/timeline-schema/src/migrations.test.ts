@@ -4,6 +4,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   LEGACY_PRESET_TO_TEMPLATE_ID,
+  NEWER_SCHEMA_MESSAGE,
+  NewerSchemaError,
   migrateToCurrent,
   readSchemaVersion,
   type Migration,
@@ -40,7 +42,7 @@ describe('migrateToCurrent', () => {
     };
     const result = migrateToCurrent(raw);
     expect(result.appliedTo).toEqual([
-      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
     ]);
     expect(result.raw.schemaVersion).toBe(SCHEMA_VERSION);
     // Additive: the v1 asset is preserved untouched (no `media`/`folderId` required).
@@ -58,7 +60,7 @@ describe('migrateToCurrent', () => {
     };
     const result = migrateToCurrent(raw);
     expect(result.appliedTo).toEqual([
-      3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
     ]);
     expect(result.raw.schemaVersion).toBe(SCHEMA_VERSION);
     expect(result.raw.assets).toEqual([{ id: 'a', path: 'a.mp4', media: { peaks: [0.1] } }]);
@@ -72,7 +74,7 @@ describe('migrateToCurrent', () => {
     };
     const result = migrateToCurrent(raw);
     expect(result.appliedTo).toEqual([
-      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
     ]);
     expect(result.raw.schemaVersion).toBe(SCHEMA_VERSION);
     // Additive: no locked/hidden/muted is injected; the schema supplies the
@@ -111,7 +113,9 @@ describe('migrateToCurrent', () => {
       },
     };
     const result = migrateToCurrent(raw);
-    expect(result.appliedTo).toEqual([5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
+    expect(result.appliedTo).toEqual([
+      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+    ]);
     expect(result.raw.schemaVersion).toBe(SCHEMA_VERSION);
     // Additive: no `captionStyle` is injected; the schema treats absent as
     // "unstyled" on parse, and the pre-existing caption clip is untouched.
@@ -148,7 +152,9 @@ describe('migrateToCurrent', () => {
       },
     };
     const result = migrateToCurrent(raw);
-    expect(result.appliedTo).toEqual([6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
+    expect(result.appliedTo).toEqual([
+      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+    ]);
     expect(result.raw.schemaVersion).toBe(SCHEMA_VERSION);
     // Additive: no `speed` is injected; the schema treats absent as 1x on parse,
     // and the pre-existing clip is untouched.
@@ -185,7 +191,9 @@ describe('migrateToCurrent', () => {
       },
     };
     const result = migrateToCurrent(raw);
-    expect(result.appliedTo).toEqual([7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
+    expect(result.appliedTo).toEqual([
+      7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+    ]);
     expect(result.raw.schemaVersion).toBe(SCHEMA_VERSION);
     // Additive: no `crop` is injected; the schema treats absent as "uncropped"
     // (the full source frame) on parse, and the pre-existing clip is untouched.
@@ -222,7 +230,9 @@ describe('migrateToCurrent', () => {
       },
     };
     const result = migrateToCurrent(raw);
-    expect(result.appliedTo).toEqual([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
+    expect(result.appliedTo).toEqual([
+      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+    ]);
     expect(result.raw.schemaVersion).toBe(SCHEMA_VERSION);
     // Additive: no `blendMode` is injected; the schema treats absent as
     // 'normal' (today's default compositing) on parse, and the pre-existing
@@ -240,7 +250,7 @@ describe('migrateToCurrent', () => {
       timeline: { tracks: [{ id: 'video_1', type: 'video', clips: [] }] },
     };
     const result = migrateToCurrent(raw);
-    expect(result.appliedTo).toEqual([9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
+    expect(result.appliedTo).toEqual([9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
     expect(result.raw.schemaVersion).toBe(SCHEMA_VERSION);
     // Additive: no `markers` is injected; the schema treats absent as `[]`
     // (no markers placed) on parse.
@@ -445,7 +455,7 @@ describe('migrateToCurrent', () => {
 
     it('attributes the transcript when the project has exactly one asset', () => {
       const result = migrateToCurrent(v11Project(single));
-      expect(result.appliedTo).toEqual([12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
+      expect(result.appliedTo).toEqual([12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
       expect(result.raw.transcript).toEqual([
         { word: 'we', start: 6.9, end: 7.2, assetId: 'asset_a' },
         { word: 'shipped', start: 7.2, end: 7.8, assetId: 'asset_a' },
@@ -509,7 +519,7 @@ describe('migrateToCurrent', () => {
       },
     };
     const result = migrateToCurrent(raw);
-    expect(result.appliedTo).toEqual([16, 17, 18, 19, 20, 21]);
+    expect(result.appliedTo).toEqual([16, 17, 18, 19, 20, 21, 22, 23]);
     const timeline = result.raw.timeline as {
       tracks: { clips: { captionStyle?: Record<string, unknown> }[] }[];
     };
@@ -528,7 +538,7 @@ describe('migrateToCurrent', () => {
       },
     };
     const result = migrateToCurrent(raw);
-    expect(result.appliedTo).toEqual([17, 18, 19, 20, 21]);
+    expect(result.appliedTo).toEqual([17, 18, 19, 20, 21, 22, 23]);
     const timeline = result.raw.timeline as { tracks: Record<string, unknown>[] };
     // Track names are the most tempting possible signal and the most dangerous: a lane called
     // "music" routinely holds a voice-over. Every migrated track stays role-less.
@@ -548,7 +558,7 @@ describe('migrateToCurrent', () => {
       timeline: { tracks: [] },
     };
     const result = migrateToCurrent(raw);
-    expect(result.appliedTo).toEqual([18, 19, 20, 21]);
+    expect(result.appliedTo).toEqual([18, 19, 20, 21, 22, 23]);
     expect(result.raw.angleGroups).toBeUndefined();
   });
 
@@ -567,7 +577,7 @@ describe('migrateToCurrent', () => {
       },
     };
     const result = migrateToCurrent(raw);
-    expect(result.appliedTo).toEqual([19, 20, 21]);
+    expect(result.appliedTo).toEqual([19, 20, 21, 22, 23]);
     expect(result.raw.capabilityPacks).toBeUndefined();
   });
 
@@ -581,7 +591,7 @@ describe('migrateToCurrent', () => {
       timeline: { tracks: [] },
     };
     const result = migrateToCurrent(raw);
-    expect(result.appliedTo).toEqual([21]);
+    expect(result.appliedTo).toEqual([21, 22, 23]);
     // Absent is the truthful reading: the engine probes dimensions when it derives media,
     // and a guessed 1920x1080 would be worse than silence — `list_assets` would then tell
     // the model a portrait photo is landscape and send it to crop the wrong axis.
@@ -606,7 +616,7 @@ describe('migrateToCurrent', () => {
       timeline: { tracks: [] },
     };
     const result = migrateToCurrent(raw);
-    expect(result.appliedTo).toEqual([20, 21]);
+    expect(result.appliedTo).toEqual([20, 21, 22, 23]);
     // Absent is the truthful reading: neither of these came from a provider, and
     // guessing a licence for a file the user dragged in would be worse than silence.
     for (const asset of result.raw.assets as Array<Record<string, unknown>>) {
@@ -637,9 +647,13 @@ describe('migrateToCurrent', () => {
     expect(result.raw).toMatchObject({ schemaVersion: 3, fieldA: true, fieldB: 2 });
   });
 
-  it('throws when the file is newer than the target', () => {
-    expect(() => migrateToCurrent({ schemaVersion: 5 }, { targetVersion: 1 })).toThrow(
-      /newer than/,
+  it('refuses a file saved by a newer FramePilot, never downgrading it', () => {
+    const attempt = (): unknown => migrateToCurrent({ schemaVersion: 5 }, { targetVersion: 1 });
+    expect(attempt).toThrow(NewerSchemaError);
+    expect(attempt).toThrow(RangeError);
+    expect(attempt).toThrow(/^Update FramePilot to open this project\./);
+    expect(() => migrateToCurrent({ schemaVersion: SCHEMA_VERSION + 1 })).toThrow(
+      NEWER_SCHEMA_MESSAGE,
     );
   });
 

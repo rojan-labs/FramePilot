@@ -2,7 +2,7 @@
 import { z } from 'zod/v4';
 import { professionalMaskEffectId, type TrackingCommand } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
-import type { Project } from '@framepilot/timeline-schema';
+import { masksOf, type Project } from '@framepilot/timeline-schema';
 import type { EditorInteractionContext } from '../editor-context/interaction-context.js';
 import { resolveEditorTarget, type TargetEvidence } from '../editor-context/target-resolver.js';
 
@@ -97,7 +97,8 @@ export function resolveTrackingMaskObjective(
     .find((candidate) => candidate.id === clipId);
   if (!clip) return rejected(input.objective, 'target_unresolved', 'Resolved clip is missing.');
   const maskId = professionalMaskEffectId(clipId);
-  const masks = clip.effects.filter((effect) => effect.id === maskId && effect.type === 'mask');
+  // Schema v22: the mask is a layer on the clip's mask stack (ADR 0178).
+  const masks = masksOf(clip).filter((mask) => mask.id === maskId);
   if (masks.length === 0) {
     return rejected(
       input.objective,

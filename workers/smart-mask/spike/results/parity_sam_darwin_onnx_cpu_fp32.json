@@ -1,0 +1,106 @@
+{
+  "recordedAt": "2026-09-17T00:00:53",
+  "host": {
+    "platform": "darwin",
+    "machine": "arm64",
+    "python": "3.12.13",
+    "onnxruntime": "1.30.0",
+    "torch": "2.14.0",
+    "cpu": "Apple M1 Pro"
+  },
+  "model": "sam2.1_hiera_large",
+  "variant": "onnx_cpu_fp32",
+  "gate": {
+    "perFrameIoU": 0.999
+  },
+  "clips": {
+    "sintel_000240": {
+      "frames": 24,
+      "meanSecondsPerFrame": 8.036,
+      "foregroundFraction": 0.0011,
+      "minIoU": 1.0,
+      "meanIoU": 1.0,
+      "framesBelowGate": 0,
+      "perFrameIoU": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "sintel_000705": {
+      "frames": 20,
+      "meanSecondsPerFrame": 7.302,
+      "foregroundFraction": 0.0015,
+      "minIoU": 0.999536,
+      "meanIoU": 0.999957,
+      "framesBelowGate": 0,
+      "perFrameIoU": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.999536,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.999603,
+        1.0,
+        1.0
+      ]
+    }
+  },
+  "mediaLicence": "Sintel (c) Blender Foundation | durian.blender.org, CC-BY 3.0",
+  "activeProviders": {
+    "image_encoder": "CPUExecutionProvider",
+    "decoder_multi_n1": "CPUExecutionProvider",
+    "decoder_single_n2": "CPUExecutionProvider",
+    "memory_attention": "CPUExecutionProvider",
+    "memory_encoder": "CPUExecutionProvider"
+  },
+  "sessionCreateSeconds": {
+    "image_encoder": 1.64,
+    "decoder_multi_n1": 0.06,
+    "decoder_single_n2": 0.06,
+    "memory_attention": 0.06,
+    "memory_encoder": 0.02
+  },
+  "moduleMeanSeconds": {
+    "image_encoder": 5.6682,
+    "decoder_multi_n1": 0.0365,
+    "decoder_single_n2": 0.0366,
+    "memory_attention": 2.3014,
+    "memory_encoder": 0.0551
+  },
+  "pass": true,
+  "peakRssMiB": 6592
+}

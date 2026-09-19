@@ -50,6 +50,7 @@ export type ToolDomain =
   | 'footage'
   | 'sourcing'
   | 'tracking'
+  | 'masking'
   | 'media'
   | 'professional';
 
@@ -75,7 +76,11 @@ export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string
   footage:
     'understand the raw material: scenes, shots, what is visually in it, where each moment lives',
   sourcing: 'find and place stock footage and music from the libraries',
-  tracking: 'track a subject or object over time; masks and rotoscoping',
+  // The mask half moved to `masking` (plan 11): what is left is evidence and the tracker effect.
+  tracking: 'detect who and what is on screen, frame by frame; attach a tracker effect to a clip',
+  // Names the REQUESTS, not the mechanics (plan 11): nobody asks for a "matte".
+  masking:
+    'masks and cut-outs: remove backgrounds, isolate or hide people and objects, blur faces or plates, grade or effect only part of the picture, put text behind a subject, track masks',
   media: 'import media into the project and organise the bin',
   professional: 'resolver-gated professional editing intent (rolls, slips, slides, inserts)',
 };
@@ -212,13 +217,27 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'index_media',
   ],
   sourcing: ['search_stock', 'add_stock', 'search_music', 'add_music'],
-  tracking: [
-    'add_mask',
-    'generate_mask',
-    'track_object',
+  tracking: ['track_object', 'detect_subjects'],
+  masking: [
+    'find_mask_targets',
+    'create_mask',
+    'remove_background',
+    'put_text_behind_subject',
+    'track_mask',
+    'refine_mask',
+    'get_masks',
+    'delete_mask',
+    'follow_subject',
+    // MK8: split, mirror, gradient, shape presets, and track mattes / text as a mask.
+    'create_shape_mask',
+    'mask_with_layer',
+    // MK9.2: the outline, glow and shadow around a cut-out.
+    'style_cutout_edge',
+    // Folded in from `tracking` (AM1.2): both steer a MASK, so they arrive with the tools
+    // that make one. They are the editor-drawn-mask path the Inspector still has — a mask the
+    // editor drew and selected — beside `track_mask`, which takes any mask by id.
     'professional_tracking_mask',
     'track_subject_automatically',
-    'detect_subjects',
   ],
   media: ['add_asset', 'manage_assets'],
   professional: ['professional_edit'],
@@ -310,7 +329,9 @@ const DOMAIN_REQUEST_WORDS: Readonly<Record<Exclude<ToolDomain, 'core'>, RegExp>
   motion: /\b(punch[- ]?ins?|keyframes?|zooms?|speed ramps?|reframe\w*|crops?)\b/gi,
   effects: /\b(transitions?|effects?|titles?|text layers?|graphics?|callouts?)\b/gi,
   footage: /\b(index(?:ed|ing)?|index_media|map_footage|describe_footage|search_visual|detect_scenes|footage map|scene detection|shot list)\b/gi,
-  tracking: /\b(track(?:ing)? (?:the )?subject|masks?|rotoscop\w*)\b/gi,
+  tracking: /\b(who is on screen|detect (?:the )?(?:faces?|people|subjects?)|tracker)\b/gi,
+  masking:
+    /\b(masks?|rotoscop\w*|track(?:ing)? (?:the )?subject|backgrounds?|cut-?outs?|isolate\w*|blur (?:the |their |every(?:one's)? )?(?:faces?|plates?)|behind (?:the |her|him|them)\w*|green ?screen)\b/gi,
   media: /\b(import\w*|media bin|organi[sz]e the bin)\b/gi,
   professional: /\b(roll edits?|slip|slide edits?|insert edits?)\b/gi,
 };
@@ -359,6 +380,28 @@ export function requestedDomainsNeverLoaded(
   return out;
 }
 
-export const DOMAIN_INDEX = LOADABLE_DOMAINS.map(
-  (domain) => `${domain}: ${DOMAIN_SUMMARY[domain]}`,
-).join(' | ');
+/**
+ * What `masking` holds when the AI masking tools are switched off (RD2.1) and only the two
+ * tools folded in from `tracking` remain. The full summary would promise outcomes no tool on
+ * offer can deliver — and the summary is the whole discovery surface.
+ */
+const MASKING_SUMMARY_TRACKING_ONLY = 'make a mask the editor drew follow its subject';
+
+/**
+ * The domain index a run is shown, given the tools this host cannot offer.
+ *
+ * A domain whose every tool is unroutable is left out: naming it would invite a `load_tools`
+ * call that pins nothing. `masking` with its new tools switched off keeps its two older ones,
+ * and is described by what those do. With nothing unroutable this is {@link DOMAIN_INDEX},
+ * byte for byte, so the token goldens do not move.
+ */
+export function domainIndexFor(unroutable: ReadonlySet<string>): string {
+  return LOADABLE_DOMAINS.flatMap((domain) => {
+    const offered = DOMAIN_MEMBERS[domain].filter((name) => !unroutable.has(name));
+    if (offered.length === 0) return [];
+    const reduced = domain === 'masking' && !offered.includes('create_mask');
+    return [`${domain}: ${reduced ? MASKING_SUMMARY_TRACKING_ONLY : DOMAIN_SUMMARY[domain]}`];
+  }).join(' | ');
+}
+
+export const DOMAIN_INDEX = domainIndexFor(new Set());

@@ -53,4 +53,23 @@ export interface ToolContext {
    * — run `4a8e` asked for two and got eight, burying the editor's own footage.
    */
   readonly stockCutawayCap?: number;
+  /**
+   * The numbers the editor's CURRENT request binds to a size or position — a unit (`20%`,
+   * `200px`) or a shape word (`width 0.5`, `20 from the left`) attached to each
+   * (`masking/geometry-provenance.ts#geometryNumbersIn`, AM1.6). Numbers from earlier messages,
+   * or ones that merely appear ("20 seconds"), are not here.
+   *
+   * A mask's geometry may come from numbers the editor typed, and only from those: `create_mask`
+   * refuses a `userShape` whose numbers are not here, which is what stops "the editor gave
+   * numbers" from becoming a side door for coordinates the model made up.
+   */
+  readonly userNumbers?: readonly number[];
+  /**
+   * Candidate ids the editor's own messages contain — how the sidebar picker's choice arrives.
+   *
+   * `find_mask_targets` marks every candidate it could not decide between as pick-required,
+   * and `create_mask` accepts such an id only when it is here. "Resolve the target or ask,
+   * never guess" is thereby a property of the tool rather than of the model's restraint.
+   */
+  readonly userPickedCandidateIds?: readonly string[];
 }

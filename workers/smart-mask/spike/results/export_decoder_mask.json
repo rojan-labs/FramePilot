@@ -1,0 +1,16 @@
+{
+  "recordedAt": "2026-09-17T11:57:22",
+  "host": {
+    "platform": "darwin",
+    "machine": "arm64",
+    "python": "3.12.13",
+    "onnxruntime": "1.30.0",
+    "torch": "2.14.0",
+    "cpu": "Apple M1 Pro"
+  },
+  "part": "decoder_mask",
+  "file": "sam21l_decoder_mask.fp32.onnx",
+  "bytes": 17769499,
+  "sha256": "aa2f74b50555f9109b20b3063c6d7273360ff865e4353474ad250a7735552d8e",
+  "seconds": 2.3
+}

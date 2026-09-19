@@ -20,13 +20,15 @@ from dataclasses import dataclass, field
 import pytest
 
 from framepilot_tracking_lite.backend import (
+    Alignment,
     FlowSample,
     Frame,
     HomographyEstimate,
     MediaUnreadableError,
+    PixelBox,
     RegionUpdate,
 )
-from framepilot_tracking_lite.geometry import Point
+from framepilot_tracking_lite.geometry import Matrix3x3, Point
 from framepilot_tracking_lite.protocol import (
     MediaHandle,
     NormalizedBox,
@@ -125,6 +127,23 @@ class ScriptedBackend:
     features: list[Point] | None = None
     #: Fraction of planar correspondences treated as outliers.
     outlier_frames: dict[int, int] = field(default_factory=dict)
+    #: Per-frame verified agreement / contradiction the registration check reports.
+    agreement: dict[int, float] = field(default_factory=dict)
+    contradiction: dict[int, float] = field(default_factory=dict)
+    #: Frames the registration cannot place at all (the region left the picture).
+    unregistrable_frames: set[int] = field(default_factory=set)
+    #: Every registration asked for, as (reference, current, motion, guesses).
+    alignments: list[tuple[int, int, str, int]] = field(default_factory=list)
+    #: The exclusions every feature detection was given (MK7.7).
+    detect_exclusions: list[tuple[PixelBox, ...]] = field(default_factory=list)
+    #: Per registration: (current frame, exclusions on the reference, exclusions on the current).
+    align_exclusions: list[tuple[int, tuple[PixelBox, ...], tuple[PixelBox, ...]]] = field(
+        default_factory=list
+    )
+    #: Frames on which an exclusion's content cannot be found (it left, or turned away).
+    occluder_unseen_frames: set[int] = field(default_factory=set)
+    #: How an occluder inside an exclusion moves, per frame (MK7.7).
+    occluder_motion: tuple[float, float] = (0.0, 0.0)
     media_unreadable: bool = False
     frame_width: int = WIDTH
     frame_height: int = HEIGHT
@@ -193,8 +212,13 @@ class ScriptedBackend:
         return ScriptedRegionTracker(backend=self, origin=box_pixels, start_frame=int(frame))
 
     def detect_features(
-        self, frame: Frame, box_pixels: tuple[float, float, float, float], max_features: int
+        self,
+        frame: Frame,
+        box_pixels: tuple[float, float, float, float],
+        max_features: int,
+        exclusions: Sequence[PixelBox] = (),
     ) -> Sequence[Point]:
+        self.detect_exclusions.append(tuple(exclusions))
         if self.features is not None:
             return self.features[:max_features]
         left, top, width, height = box_pixels
@@ -225,6 +249,45 @@ class ScriptedBackend:
         )
         matrix = ((1.0, 0.0, median[0]), (0.0, 1.0, median[1]), (0.0, 0.0, 1.0))
         return HomographyEstimate(matrix=matrix, inliers=inliers)
+
+    def align(
+        self,
+        reference: Frame,
+        current: Frame,
+        region: Sequence[Point],
+        guesses: Sequence[Matrix3x3],
+        motion: str,
+        reference_exclusions: Sequence[PixelBox] = (),
+        current_exclusions: Sequence[PixelBox] = (),
+    ) -> Alignment | None:
+        """Registration converges on the subject's TRUE motion, whatever the guesses were.
+
+        That is the property the real backend's ECC + check provides and the policy relies on:
+        a biased flow guess is corrected, and how much of the region verified is scripted.
+        """
+        self.align_exclusions.append(
+            (int(current), tuple(reference_exclusions), tuple(current_exclusions))
+        )
+        self.alignments.append((int(reference), int(current), motion, len(guesses)))
+        if int(current) in self.unregistrable_frames or not guesses:
+            return None
+        dx, dy = self.offset(int(reference), int(current))
+        return Alignment(
+            matrix=((1.0, 0.0, dx), (0.0, 1.0, dy), (0.0, 0.0, 1.0)),
+            agreement=self.agreement.get(int(current), 1.0),
+            contradiction=self.contradiction.get(int(current), 0.0),
+            cells=16,
+        )
+
+    def follow_region(
+        self, reference: Frame, box: PixelBox, current: Frame, predicted: PixelBox
+    ) -> tuple[PixelBox, float] | None:
+        """An occluder that moves by `occluder_motion` per frame, found wherever it went."""
+        if int(current) in self.occluder_unseen_frames:
+            return None
+        steps = int(current) - int(reference)
+        dx, dy = self.occluder_motion
+        return (box[0] + dx * steps, box[1] + dy * steps, box[2], box[3]), 1.0
 
 
 def media_handle(first_frame: int = 0, last_frame_exclusive: int = 30) -> MediaHandle:

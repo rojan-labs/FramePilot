@@ -10,9 +10,12 @@ import {
   loadSkills,
   parseSkillFile,
   skillsByName,
+  skillsOnOffer,
   summarizeSkillsManifest,
   validateSkillTools,
 } from './skills.js';
+import { AI_MASKING_TOOL_NAMES } from './masking/feature-flag.js';
+import { getTool } from './tool-registry.js';
 import { selectTools } from './tool-scope.js';
 import { RAW_SKILLS } from './skills/generated.js';
 
@@ -228,5 +231,64 @@ describe('bundled skill descriptions are the discovery surface (plan/system-miss
       expect(seen.has(key), `${skill.name} duplicates another skill's description`).toBe(false);
       seen.add(key);
     }
+  });
+});
+
+describe('masking-and-compositing (AM4.2)', () => {
+  const skill = BUNDLED_SKILLS.find((candidate) => candidate.name === 'masking-and-compositing');
+
+  it('is bundled, not silently skipped, and every tool it lists is one the model can call', () => {
+    expect(skill).toBeDefined();
+    expect(validateSkillTools(skill!).unknown).toEqual([]);
+    for (const name of skill!.tools) expect(getTool(name)?.available, name).toBe(true);
+  });
+
+  it('lists the masking domain’s working tools, the MK8 ones included now that they render', () => {
+    expect(skill!.tools).toEqual(
+      expect.arrayContaining([
+        'find_mask_targets',
+        'create_mask',
+        'remove_background',
+        'create_shape_mask',
+        'mask_with_layer',
+      ]),
+    );
+    for (const name of ['create_shape_mask', 'mask_with_layer']) {
+      expect(getTool(name)?.available).toBe(true);
+    }
+  });
+
+  it('never recommends an effect intent the builder refuses, nor coordinates', () => {
+    expect(skill!.body).not.toMatch(/grade_match_to/u);
+    // The masked blur renders (clip blur, E2E.4), so the face-blur recipe names it.
+    expect(skill!.body).toContain('effect: "blur_to_hide"');
+    expect(skill!.body).toContain('You never give');
+    expect(skill!.description).toMatch(/never call a mask verified/u);
+  });
+});
+
+describe('skillsOnOffer', () => {
+  it('returns the same array when nothing is unroutable, so prompts do not move', () => {
+    expect(skillsOnOffer(BUNDLED_SKILLS, new Set())).toBe(BUNDLED_SKILLS);
+    expect(skillsOnOffer(BUNDLED_SKILLS, new Set(['render_preview']))).toBe(BUNDLED_SKILLS);
+  });
+
+  it('drops a playbook whose every tool is switched off, and only that one', () => {
+    const offered = skillsOnOffer(BUNDLED_SKILLS, new Set(AI_MASKING_TOOL_NAMES));
+    expect(offered.map((s) => s.name)).not.toContain('masking-and-compositing');
+    expect(offered).toHaveLength(BUNDLED_SKILLS.length - 1);
+  });
+
+  it('keeps a skill with at least one tool on offer, and a skill that lists none', () => {
+    const skills = loadSkills([
+      {
+        file: 'partial.md',
+        raw: '---\nname: partial\ndescription: d\ntools: [get_timeline, create_mask]\n---\nbody',
+      },
+      { file: 'toolless.md', raw: '---\nname: toolless\ndescription: d\n---\nbody' },
+    ]);
+    expect(skills).toHaveLength(2);
+    expect(skillsOnOffer(skills, new Set(['create_mask']))).toBe(skills);
+    expect(skillsOnOffer(skills, new Set(['create_mask', 'get_timeline']))).toEqual([skills[1]]);
   });
 });

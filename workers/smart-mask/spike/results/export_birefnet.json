@@ -1,0 +1,66 @@
+{
+  "recordedAt": "2026-09-16T23:26:34",
+  "host": {
+    "platform": "darwin",
+    "machine": "arm64",
+    "python": "3.12.13",
+    "onnxruntime": "1.30.0",
+    "torch": "2.14.0",
+    "cpu": "Apple M1 Pro"
+  },
+  "exportSeconds": 93.9,
+  "ops": [
+    "Add",
+    "BatchNormalization",
+    "Concat",
+    "Conv",
+    "DeformConv",
+    "Div",
+    "Equal",
+    "Erf",
+    "Expand",
+    "Gather",
+    "GatherND",
+    "LayerNormalization",
+    "MatMul",
+    "Mul",
+    "Not",
+    "Pad",
+    "ReduceMean",
+    "Relu",
+    "Reshape",
+    "Resize",
+    "ScatterND",
+    "Sigmoid",
+    "Slice",
+    "Softmax",
+    "Sub",
+    "Transpose",
+    "Unsqueeze",
+    "Where"
+  ],
+  "fp32Deduped": 37,
+  "fp16Store": {
+    "dedupedInitializers": 0,
+    "converted": 281,
+    "keptSmall": 344,
+    "keptOutOfFp16Range": 0,
+    "worstRoundTripAbsError": 0.0019469261169433594
+  },
+  "files": {
+    "birefnet_hr_matting_2048.fp32.onnx": 890885221,
+    "birefnet_hr_matting_2048.fp16s.onnx": 449580627
+  },
+  "peakRssMiB": 1820,
+  "pins": {
+    "birefnet_hr_matting_repo": {
+      "url": "https://huggingface.co/ZhengPeng7/BiRefNet_HR-matting",
+      "revision": "5d6b6f8adcb5b417c871b1d84ceaae9871355b7f"
+    },
+    "birefnet_hr_matting.safetensors": {
+      "url": "https://huggingface.co/ZhengPeng7/BiRefNet_HR-matting/resolve/5d6b6f8adcb5b417c871b1d84ceaae9871355b7f/model.safetensors",
+      "sha256": "a5a4de698739ea5e0e8bbab28e1b293dde95092b87a442d566cbc585c53cef55",
+      "bytes": 444473596
+    }
+  }
+}

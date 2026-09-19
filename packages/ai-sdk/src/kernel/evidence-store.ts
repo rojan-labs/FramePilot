@@ -100,6 +100,8 @@ const PROJECT_OPERATION_BIN_EFFECT: Record<ProjectOperationType, 'bin' | 'inert'
   add_asset: 'bin',
   remove_asset: 'bin',
   move_asset: 'bin',
+  // Relinking points an asset at another file: the listing reports its path and media facts.
+  relink_asset: 'bin',
   restore_assets: 'bin',
   // `list_assets` reports where each asset is filed, so the folder tree is part of the
   // listing it returns.

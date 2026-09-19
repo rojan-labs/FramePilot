@@ -71,6 +71,7 @@ import type { StockDownloadResult } from '../ipc/contract.js';
 import { StockService } from '../media/stock-service.js';
 import { createStockHost, type StockHostIO } from './stock-host.js';
 import { trackingFailureNoteEntries } from './automatic-tracking-executor.js';
+import { maskingFailureNoteEntries } from './masking-executor.js';
 
 const TOOL_NAMES: readonly string[] = TOOL_REGISTRY.map((tool) => tool.name);
 
@@ -196,6 +197,19 @@ describe('every desktop host override names a next action', () => {
     expect(entries.length).toBeGreaterThanOrEqual(8);
     const dead = new DeadEnds();
     for (const { tool, code, note } of entries) dead.check(`${tool}/${code}`, note);
+    dead.assertNone();
+  });
+
+  it('for every sentence the masking executor can hand back', () => {
+    const entries = maskingFailureNoteEntries();
+    expect(entries.length).toBeGreaterThanOrEqual(8);
+    const dead = new DeadEnds();
+    for (const { tool, code, note } of entries) {
+      dead.check(`${tool}/${code}`, note);
+      // A varying number in a refusal breaks the repeated-failure guard (its text is the key).
+      expect(note, `${tool}/${code}`).not.toMatch(/\d/);
+      expect(TOOL_NAMES, `${tool} is not in the registry`).toContain(tool);
+    }
     dead.assertNone();
   });
 

@@ -34,6 +34,14 @@
       "types": "./dist/transition-catalog.d.ts",
       "default": "./dist/transition-catalog.js"
     },
+    "./keyframe-curves": {
+      "types": "./dist/keyframe-curves.d.ts",
+      "default": "./dist/keyframe-curves.js"
+    },
+    "./speed-curve": {
+      "types": "./dist/speed-curve.d.ts",
+      "default": "./dist/speed-curve.js"
+    },
     "./transition-params": {
       "types": "./dist/transition-params.d.ts",
       "default": "./dist/transition-params.js"

@@ -2,7 +2,7 @@
 import { z } from 'zod/v4';
 import { fromEngine } from './engine-optional.js';
 import type { EditorCommand, EditorCommandFact } from '@framepilot/editor-core';
-import { effectLayersOf } from '@framepilot/timeline-schema';
+import { effectLayersOf, masksOf } from '@framepilot/timeline-schema';
 import type { EditResult } from './assemble.js';
 import {
   AUDIO_PEAK_DBFS,
@@ -832,19 +832,26 @@ export function planTemporalEvidenceForEdit(
         frames.forEach((criticalFrame) => visualFrames.add(criticalFrame));
         if (right) {
           const beforeEffects = new Map((left?.effects ?? []).map((effect) => [effect.id, effect]));
-          for (const effect of right.effects) {
-            const targetKind =
-              effect.type === 'object_track'
-                ? 'tracker'
-                : effect.type === 'mask'
-                  ? 'mask'
-                  : undefined;
-            if (
-              !targetKind ||
-              JSON.stringify(beforeEffects.get(effect.id)) === JSON.stringify(effect)
-            ) {
-              continue;
-            }
+          const beforeMasks = new Map(masksOf(left ?? {}).map((mask) => [mask.id, mask]));
+          // Changed trackers, and (schema v22) changed box masks on the clip's mask stack —
+          // the engine measures a mask's box motion from `Clip.masks`, keyed by mask id.
+          const changedTargets: { readonly id: string; readonly kind: 'tracker' | 'mask' }[] = [
+            ...right.effects
+              .filter(
+                (effect) =>
+                  effect.type === 'object_track' &&
+                  JSON.stringify(beforeEffects.get(effect.id)) !== JSON.stringify(effect),
+              )
+              .map((effect) => ({ id: effect.id, kind: 'tracker' as const })),
+            ...masksOf(right)
+              .filter(
+                (mask) =>
+                  (mask.kind === 'rectangle' || mask.kind === 'ellipse') &&
+                  JSON.stringify(beforeMasks.get(mask.id)) !== JSON.stringify(mask),
+              )
+              .map((mask) => ({ id: mask.id, kind: 'mask' as const })),
+          ];
+          for (const { id: targetId, kind: targetKind } of changedTargets) {
             const clipStart = Math.max(
               0,
               Math.min(input.durationFrames - 1, Math.floor(right.start * input.sequenceFps)),
@@ -856,12 +863,12 @@ export function planTemporalEvidenceForEdit(
             boundedMotionWindows(clipStart, clipEnd).forEach(([startFrame, endFrame], index) => {
               motionRequests.push({
                 schemaVersion: TEMPORAL_EVIDENCE_VERSION,
-                requestId: `edit_${targetKind}_${effect.id}_${index}`,
+                requestId: `edit_${targetKind}_${targetId}_${index}`,
                 projectRevision: input.projectRevision,
                 kind: 'motion',
                 startFrame,
                 endFrame,
-                targetId: effect.id,
+                targetId,
                 targetKind,
                 property: 'x',
                 maxAccelerationPerFrame: 0.08,

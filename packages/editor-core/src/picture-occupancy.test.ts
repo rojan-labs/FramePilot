@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { Asset, Timeline } from '@framepilot/timeline-schema';
+import {
+  MaskLayerSchema,
+  type Asset,
+  type MaskLayer,
+  type Timeline,
+} from '@framepilot/timeline-schema';
 import {
   firstFreePictureStart,
   coverCropFor,
@@ -9,6 +14,9 @@ import {
   pictureOccupancySignature,
   picturePlacementConflict,
 } from './picture-occupancy.js';
+
+const maskLayer = (over: Record<string, unknown> = {}): MaskLayer =>
+  MaskLayerSchema.parse({ kind: 'ellipse', id: 'm', cx: 10, cy: 10, rx: 5, ry: 5, ...over });
 
 const video: Asset = { id: 'a_video', path: 'a.mp4', kind: 'video' };
 const image: Asset = { id: 'a_image', path: 'a.jpg', kind: 'image' };
@@ -215,8 +223,14 @@ describe('isFullFrameOpaque', () => {
     ).toBe(false);
   });
 
-  it('is false for a mask or a transition — both let the frame beneath through', () => {
-    for (const type of ['mask', 'transition', 'transition_out']) {
+  it('is false for an enabled alpha mask or a transition — both let the frame beneath through', () => {
+    expect(isFullFrameOpaque({ masks: [maskLayer()] })).toBe(false);
+    // A disabled mask, or one that only limits an effect, cuts nothing out of the layer.
+    expect(isFullFrameOpaque({ masks: [maskLayer({ enabled: false })] })).toBe(true);
+    expect(
+      isFullFrameOpaque({ masks: [maskLayer({ target: { kind: 'effect', effectId: 'blur' } })] }),
+    ).toBe(true);
+    for (const type of ['transition', 'transition_out']) {
       expect(isFullFrameOpaque({ effects: [{ id: 'e', type, params: {}, keyframes: [] }] })).toBe(
         false,
       );
@@ -315,13 +329,9 @@ describe('hidesWhatIsBehind', () => {
     expect(
       hidesWhatIsBehind(shaped(frame, { blendMode: 'multiply' }), [shaped(frame)], frame),
     ).toBe(false);
-    expect(
-      hidesWhatIsBehind(
-        shaped(frame, { effects: [{ id: 'e', type: 'mask', params: {}, keyframes: [] }] }),
-        [shaped(frame)],
-        frame,
-      ),
-    ).toBe(false);
+    expect(hidesWhatIsBehind(shaped(frame, { masks: [maskLayer()] }), [shaped(frame)], frame)).toBe(
+      false,
+    );
   });
 
   it('covers nothing ⇒ trivially true', () => {
@@ -396,7 +406,7 @@ describe('coverageVerdict — the reason, so a refusal need not re-derive it', (
     expect(
       coverageVerdict(
         {
-          clip: { effects: [{ id: 'e', type: 'mask', params: {}, keyframes: [] }] },
+          clip: { masks: [maskLayer()] },
           source: frame,
         },
         [{ clip: {}, source: frame }],

@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  COCO_CLASS_NAMES,
+  SUBJECT_DETECT_CLASSES_MIN_PACK_VERSION,
+  VISUAL_EMBED_REGION_MIN_PACK_VERSION,
+  negotiatePackRequest,
+  packVersionAtLeast,
+  CAPABILITY_PACK_OUTPUT_HANDLE_CAPABILITIES,
   CapabilityPackWorkerFailureSchema,
+  CapabilityPackWorkerInputSchema,
+  negotiateCapabilityPackCapability,
   CapabilityPackWorkerProgressSchema,
   CapabilityPackWorkerRequestSchema,
   CapabilityPackWorkerResultSchema,
@@ -48,6 +56,48 @@ describe('Capability Pack worker protocol', () => {
     },
   ])('accepts a bounded $capability request', (variant) => {
     expect(CapabilityPackWorkerRequestSchema.parse({ ...base, ...variant })).toMatchObject(variant);
+  });
+
+  it('carries the regions a planar or shape track must ignore, bounded (MK7.7)', () => {
+    const exclusions = [{ x: 0.1, y: 0.2, width: 0.3, height: 0.4 }];
+    const planar = {
+      ...base,
+      capability: 'tracking.planar',
+      parameters: {
+        corners: [
+          { x: 0.1, y: 0.1 },
+          { x: 0.8, y: 0.1 },
+          { x: 0.8, y: 0.8 },
+          { x: 0.1, y: 0.8 },
+        ],
+        exclusions,
+      },
+    };
+    expect(CapabilityPackWorkerRequestSchema.parse(planar)).toMatchObject({
+      parameters: { exclusions },
+    });
+    expect(
+      CapabilityPackWorkerRequestSchema.parse({
+        ...base,
+        capability: 'tracking.point',
+        parameters: { point: { x: 0.5, y: 0.5 }, exclusions },
+      }),
+    ).toMatchObject({ parameters: { exclusions } });
+    expect(() =>
+      CapabilityPackWorkerRequestSchema.parse({
+        ...planar,
+        parameters: { ...planar.parameters, exclusions: Array(17).fill(exclusions[0]) },
+      }),
+    ).toThrow();
+    expect(() =>
+      CapabilityPackWorkerRequestSchema.parse({
+        ...planar,
+        parameters: {
+          ...planar.parameters,
+          exclusions: [{ x: 0.9, y: 0.2, width: 0.3, height: 0.4 }],
+        },
+      }),
+    ).toThrow(/inside the frame/i);
   });
 
   it('rejects escaped geometry, inverted ranges, and ambiguous segmentation prompts', () => {
@@ -133,6 +183,17 @@ describe('Capability Pack worker protocol', () => {
         retryable: false,
       }),
     ).toMatchObject({ code: 'target_lost', retryable: false });
+    // BR7.5: the Smart Mask pack asks for a box rather than guessing a cut-off subject's extent.
+    expect(
+      CapabilityPackWorkerFailureSchema.parse({
+        type: 'failure',
+        protocolVersion: 1,
+        requestId: base.requestId,
+        code: 'needs_box',
+        detail: 'One click cannot tell where this subject ends.',
+        retryable: false,
+      }),
+    ).toMatchObject({ code: 'needs_box' });
     // A deterministic size-bound refusal carries its own stable code so the host can
     // branch on it instead of matching `detail` text.
     expect(
@@ -371,6 +432,424 @@ describe('Capability Pack worker protocol', () => {
           total: 16,
         }).phase,
       ).toBe('describe');
+    });
+  });
+
+  describe('subject.matte and subject.segment_frame', () => {
+    const sha = (c: string) => c.repeat(64);
+    const output = {
+      handleId: 'matte-out:req-1',
+      absolutePath: '/projects/p/.framepilot-derived/mattes/.staging/req-1',
+      allowedFiles: ['matte.mkv', 'foreground.mkv', 'frames.json', 'report.json'],
+      maxBytes: 1_000_000_000,
+    };
+    const matteRequest = (parameters: Record<string, unknown>) => ({
+      ...base,
+      capability: 'subject.matte',
+      parameters: { output, prompts: [{ kind: 'box', pts: 0, box: { x: 0.1, y: 0.1, width: 0.5, height: 0.8 } }], previewHeight: 540, ...parameters },
+    });
+    const matteResult = {
+      type: 'result',
+      protocolVersion: 1,
+      requestId: base.requestId,
+      projectRevision: base.projectRevision,
+      capability: 'subject.matte',
+      backend: 'onnxruntime',
+      modelDigests: { sam: sha('a') },
+      artifact: {
+        files: [
+          { name: 'matte.mkv', bytes: 1024, sha256: sha('b') },
+          { name: 'frames.json', bytes: 64, sha256: sha('c') },
+        ],
+        width: 1920,
+        height: 1080,
+        frameCount: 90,
+        firstPts: 512,
+        lastPts: 46080,
+        timeBase: [1, 15360],
+      },
+      executionProvider: 'cpu',
+      summary: { verifiedFrames: 88, flaggedFrames: 2, lockedFrames: 0, selfCorrectionRounds: 1 },
+      needsReview: [{ startPts: 1024, endPts: 1536, reason: 'occlusion' }],
+    } as const;
+
+    it('accepts points, box, brush and lock prompts with a host output handle', () => {
+      const parsed = CapabilityPackWorkerRequestSchema.parse(
+        matteRequest({
+          inputs: {
+            handleId: 'matte-in:req-1',
+            absolutePath: '/projects/p/.framepilot-derived/mattes/.staging/req-1/inputs',
+            files: ['corrections/1024.png', 'locked/-512.png'],
+          },
+          prompts: [
+            { kind: 'points', pts: 0, points: [{ x: 0.5, y: 0.5, label: 'include' }] },
+            { kind: 'brush', pts: 1024, file: 'corrections/1024.png' },
+            { kind: 'lock', pts: -512, file: 'locked/-512.png' },
+          ],
+          previousArtifact: sha('d'),
+        }),
+      );
+      expect(parsed.capability).toBe('subject.matte');
+    });
+
+    it('refuses traversal, undeclared files, and a relative handle', () => {
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse(
+          matteRequest({ output: { ...output, absolutePath: '/projects/p/../../etc' } }),
+        ),
+      ).toThrow(/traversal/);
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse(
+          matteRequest({ output: { ...output, absolutePath: 'relative/dir' } }),
+        ),
+      ).toThrow(/absolute/);
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse(
+          matteRequest({ output: { ...output, allowedFiles: ['matte.mkv', '../evil.sh'] } }),
+        ),
+      ).toThrow();
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse(
+          matteRequest({
+            inputs: {
+              handleId: 'matte-in:req-1',
+              absolutePath: '/staging/req-1/inputs',
+              files: ['corrections/../../x.png'],
+            },
+            prompts: [{ kind: 'brush', pts: 0, file: 'corrections/../../x.png' }],
+            previousArtifact: sha('d'),
+          }),
+        ),
+      ).toThrow();
+      // A brush that is not in the inputs handle, and a file named for a different pts.
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse(
+          matteRequest({
+            prompts: [{ kind: 'brush', pts: 10, file: 'corrections/10.png' }],
+            previousArtifact: sha('d'),
+          }),
+        ),
+      ).toThrow(/inputs handle/);
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse(
+          matteRequest({
+            inputs: { handleId: 'matte-in:1', absolutePath: '/s/in', files: ['locked/11.png'] },
+            prompts: [{ kind: 'lock', pts: 10, file: 'locked/11.png' }],
+            previousArtifact: sha('d'),
+          }),
+        ),
+      ).toThrow(/its pts/);
+    });
+
+    it('lets a re-run read the cloned previous artifact, and only with previousArtifact', () => {
+      const inputs = {
+        handleId: 'matte-in:1',
+        absolutePath: '/s/in',
+        files: ['previous/matte.mkv', 'previous/frames.json'],
+      };
+      expect(
+        CapabilityPackWorkerRequestSchema.parse(matteRequest({ inputs, previousArtifact: sha('d') })),
+      ).toBeDefined();
+      expect(() => CapabilityPackWorkerRequestSchema.parse(matteRequest({ inputs }))).toThrow(
+        /previousArtifact/,
+      );
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse(
+          matteRequest({ inputs: { ...inputs, files: ['previous/../../x'] }, previousArtifact: sha('d') }),
+        ),
+      ).toThrow();
+    });
+
+    it('carries the host content fingerprint as sha256 hex, optionally (BR4.12 F2)', () => {
+      expect(CapabilityPackWorkerRequestSchema.parse(matteRequest({ contentFingerprint: sha('e') }))).toBeDefined();
+      expect(CapabilityPackWorkerRequestSchema.parse(matteRequest({}))).toBeDefined();
+      expect(() => CapabilityPackWorkerRequestSchema.parse(matteRequest({ contentFingerprint: 'nope' }))).toThrow();
+    });
+
+    it('refuses an empty prompt list and a corrections-only first run', () => {
+      expect(() => CapabilityPackWorkerRequestSchema.parse(matteRequest({ prompts: [] }))).toThrow();
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse(
+          matteRequest({
+            inputs: { handleId: 'matte-in:1', absolutePath: '/s/in', files: ['locked/1.png'] },
+            prompts: [{ kind: 'lock', pts: 1, file: 'locked/1.png' }],
+          }),
+        ),
+      ).toThrow(/previous artifact/);
+    });
+
+    it('accepts a matte result and refuses unsafe or impossible descriptors', () => {
+      expect(CapabilityPackWorkerResultSchema.parse(matteResult)).toMatchObject({
+        executionProvider: 'cpu',
+      });
+      expect(() =>
+        CapabilityPackWorkerResultSchema.parse({
+          ...matteResult,
+          artifact: { ...matteResult.artifact, files: [matteResult.artifact.files[0]] },
+        }),
+      ).toThrow();
+      expect(() =>
+        CapabilityPackWorkerResultSchema.parse({
+          ...matteResult,
+          artifact: {
+            ...matteResult.artifact,
+            files: [...matteResult.artifact.files, { name: 'run.sh', bytes: 1, sha256: sha('e') }],
+          },
+        }),
+      ).toThrow();
+      expect(() =>
+        CapabilityPackWorkerResultSchema.parse({
+          ...matteResult,
+          summary: { ...matteResult.summary, verifiedFrames: 90 },
+        }),
+      ).toThrow(/cannot exceed/);
+      expect(() =>
+        CapabilityPackWorkerResultSchema.parse({
+          ...matteResult,
+          needsReview: [{ startPts: 10, endPts: 5, reason: 'occlusion' }],
+        }),
+      ).toThrow(/end before/);
+    });
+
+    it('adds matte progress phases with a round, and output_unwritable', () => {
+      expect(
+        CapabilityPackWorkerProgressSchema.parse({
+          type: 'progress',
+          protocolVersion: 1,
+          requestId: base.requestId,
+          phase: 'self_correct',
+          completed: 1,
+          total: 3,
+          round: 2,
+        }),
+      ).toMatchObject({ phase: 'self_correct', round: 2 });
+      expect(
+        CapabilityPackWorkerFailureSchema.parse({
+          type: 'failure',
+          protocolVersion: 1,
+          requestId: base.requestId,
+          code: 'output_unwritable',
+          detail: 'No space left on device.',
+          retryable: true,
+        }).code,
+      ).toBe('output_unwritable');
+    });
+
+    it('accepts a segment_frame request and a bounded PNG result', () => {
+      expect(
+        CapabilityPackWorkerRequestSchema.parse({
+          ...base,
+          capability: 'subject.segment_frame',
+          parameters: { pts: 512, hoverPoint: { x: 0.4, y: 0.4 }, previewHeight: 540 },
+        }).capability,
+      ).toBe('subject.segment_frame');
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse({
+          ...base,
+          capability: 'subject.segment_frame',
+          parameters: { pts: 512, previewHeight: 540 },
+        }),
+      ).toThrow(/needs points/);
+      const png = {
+        type: 'result',
+        protocolVersion: 1,
+        requestId: base.requestId,
+        projectRevision: base.projectRevision,
+        capability: 'subject.segment_frame',
+        backend: 'onnxruntime',
+        modelDigests: {},
+        pts: 512,
+        width: 960,
+        height: 540,
+        maskPng: Buffer.from('png-bytes').toString('base64'),
+        score: 0.93,
+      };
+      expect(CapabilityPackWorkerResultSchema.parse(png)).toMatchObject({ score: 0.93 });
+      expect(() =>
+        CapabilityPackWorkerResultSchema.parse({ ...png, maskPng: 'x'.repeat(900_001) }),
+      ).toThrow();
+    });
+
+    it('negotiates additively: v1 stays v1 and an older pack is unsupported, not broken', () => {
+      // Existing v1 messages still parse through the widened input union.
+      expect(
+        CapabilityPackWorkerInputSchema.parse({
+          ...base,
+          capability: 'tracking.point',
+          parameters: { point: { x: 0.4, y: 0.3 } },
+        }),
+      ).toBeDefined();
+      expect(
+        negotiateCapabilityPackCapability(
+          { protocolVersion: 1, capabilities: ['subject.detect', 'subject.segment'] },
+          'subject.matte',
+        ),
+      ).toEqual({ status: 'unsupported', reason: 'capability_absent' });
+      expect(
+        negotiateCapabilityPackCapability(
+          { protocolVersion: 1, capabilities: ['subject.matte', 'subject.segment_frame'] },
+          'subject.matte',
+        ),
+      ).toEqual({ status: 'supported' });
+      expect(
+        negotiateCapabilityPackCapability({ protocolVersion: 2, capabilities: ['subject.matte'] }, 'subject.matte'),
+      ).toEqual({ status: 'unsupported', reason: 'protocol_mismatch' });
+      expect([...CAPABILITY_PACK_OUTPUT_HANDLE_CAPABILITIES]).toEqual(['subject.matte']);
+    });
+  });
+
+  describe('AM2.5: object classes on subject.detect (additive under v1)', () => {
+    const detectResult = (detections: readonly Record<string, unknown>[]) => ({
+      type: 'result',
+      protocolVersion: 1,
+      requestId: base.requestId,
+      projectRevision: base.projectRevision,
+      capability: 'subject.detect',
+      backend: 'opencv',
+      modelDigests: {},
+      detections,
+    });
+    const box = { x: 0.1, y: 0.2, width: 0.3, height: 0.4 };
+
+    it('carries the pinned model\'s 80 COCO names in its output order', () => {
+      expect(COCO_CLASS_NAMES).toHaveLength(80);
+      expect(new Set(COCO_CLASS_NAMES).size).toBe(80);
+      expect([COCO_CLASS_NAMES[0], COCO_CLASS_NAMES[2], COCO_CLASS_NAMES[7], COCO_CLASS_NAMES[79]]).toEqual([
+        'person',
+        'car',
+        'truck',
+        'toothbrush',
+      ]);
+    });
+
+    it('old pack, new host: a detection without a class still parses', () => {
+      expect(
+        CapabilityPackWorkerResultSchema.parse(
+          detectResult([{ frame: 30, label: 'object', box, confidence: 0.9 }]),
+        ),
+      ).toMatchObject({ detections: [{ label: 'object' }] });
+    });
+
+    it('new pack, new host: a classed detection parses with its class and score', () => {
+      const parsed = CapabilityPackWorkerResultSchema.parse(
+        detectResult([
+          { frame: 30, label: 'object', box, confidence: 0.9, class: 'car', classScore: 0.95 },
+          { frame: 30, label: 'person', box, confidence: 0.9, class: 'person', classScore: 0.97 },
+        ]),
+      );
+      expect(parsed).toMatchObject({ detections: [{ class: 'car' }, { class: 'person' }] });
+    });
+
+    it.each([
+      [{ class: 'car' }, /both a name and a score/],
+      [{ classScore: 0.5 }, /both a name and a score/],
+      [{ class: 'sky', classScore: 0.5 }, /class/],
+      [{ class: 'car', classScore: 1.5 }, /classScore|too big|<=/i],
+    ])('refuses a malformed class %j', (extra, message) => {
+      expect(() =>
+        CapabilityPackWorkerResultSchema.parse(
+          detectResult([{ frame: 30, label: 'object', box, confidence: 0.9, ...extra }]),
+        ),
+      ).toThrow(message);
+    });
+
+    it('refuses a class on a face: YuNet has none', () => {
+      expect(() =>
+        CapabilityPackWorkerResultSchema.parse(
+          detectResult([
+            { frame: 30, label: 'face', box, confidence: 0.9, class: 'person', classScore: 0.9 },
+          ]),
+        ),
+      ).toThrow(/face detection cannot carry a class/);
+    });
+
+    it('accepts the classes request flag, and only a boolean', () => {
+      const detect = { ...base, capability: 'subject.detect' };
+      expect(
+        CapabilityPackWorkerRequestSchema.parse({
+          ...detect,
+          parameters: { labels: ['object'], classes: true },
+        }),
+      ).toMatchObject({ parameters: { classes: true } });
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse({
+          ...detect,
+          parameters: { labels: ['object'], classes: 'yes' },
+        }),
+      ).toThrow();
+    });
+
+    it('negotiates the flag away for a pack that predates it, and keeps it for one that does not', () => {
+      const request = CapabilityPackWorkerRequestSchema.parse({
+        ...base,
+        capability: 'subject.detect',
+        parameters: { labels: ['object'], maxDetections: 12, classes: true },
+      });
+      const old = negotiatePackRequest(request, '1.0.0');
+      expect(old.status).toBe('ready');
+      expect(old.status === 'ready' && old.request.parameters).toEqual({
+        labels: ['object'],
+        maxDetections: 12,
+      });
+      const current = negotiatePackRequest(request, SUBJECT_DETECT_CLASSES_MIN_PACK_VERSION);
+      expect(current).toEqual({ status: 'ready', request });
+      // A request that never asked is passed through untouched, whatever the pack.
+      const plain = CapabilityPackWorkerRequestSchema.parse({
+        ...base,
+        capability: 'subject.detect',
+        parameters: { labels: ['face'] },
+      });
+      expect(negotiatePackRequest(plain, '1.0.0')).toEqual({ status: 'ready', request: plain });
+    });
+
+    it('compares pack versions by their numeric core', () => {
+      expect(packVersionAtLeast('1.1.0', '1.1.0')).toBe(true);
+      expect(packVersionAtLeast('1.10.0', '1.9.0')).toBe(true);
+      expect(packVersionAtLeast('2.0.0', '1.1.0')).toBe(true);
+      expect(packVersionAtLeast('1.0.9', '1.1.0')).toBe(false);
+      expect(packVersionAtLeast('1.1.0-rc.1', '1.1.0')).toBe(true);
+    });
+  });
+
+  describe('AM2.5: a visual.embed shot may name a crop region', () => {
+    const embed = (shots: readonly Record<string, unknown>[]) => ({
+      ...base,
+      capability: 'visual.embed',
+      parameters: { promptBankVersion: 1, shots },
+    });
+    const region = { x: 0.05, y: 0.4, width: 0.4, height: 0.35 };
+
+    it('accepts a shot with and without a region', () => {
+      expect(
+        CapabilityPackWorkerRequestSchema.parse(
+          embed([
+            { shotIndex: 0, keyframeT: 1.5, region },
+            { shotIndex: 1, keyframeT: 1.5 },
+          ]),
+        ),
+      ).toMatchObject({ parameters: { shots: [{ region }, { shotIndex: 1 }] } });
+    });
+
+    it('refuses a region outside the frame', () => {
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse(
+          embed([{ shotIndex: 0, keyframeT: 1.5, region: { ...region, x: 0.8 } }]),
+        ),
+      ).toThrow(/inside the frame/);
+    });
+
+    it('refuses to send a crop to a pack that would embed the whole frame instead', () => {
+      const request = CapabilityPackWorkerRequestSchema.parse(
+        embed([{ shotIndex: 0, keyframeT: 1.5, region }]),
+      );
+      expect(negotiatePackRequest(request, '1.0.0')).toMatchObject({
+        status: 'pack_outdated',
+        detail: expect.stringContaining(VISUAL_EMBED_REGION_MIN_PACK_VERSION),
+      });
+      expect(negotiatePackRequest(request, '1.1.0')).toEqual({ status: 'ready', request });
+      // A whole-frame request (the ledger's) is untouched on any release.
+      const whole = CapabilityPackWorkerRequestSchema.parse(embed([{ shotIndex: 0, keyframeT: 1.5 }]));
+      expect(negotiatePackRequest(whole, '1.0.0')).toEqual({ status: 'ready', request: whole });
     });
   });
 });

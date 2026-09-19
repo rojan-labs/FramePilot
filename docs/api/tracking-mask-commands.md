@@ -14,10 +14,12 @@ live clip selection
 ## Manual existing-mask tracking
 
 `professional_tracking_mask` resolves `this` or the playhead through the revision-bound
-`EditorInteractionContext`. The selected clip must already contain its canonical
-`<clip-id>__mask` rectangle or ellipse with valid normalized bounds. Those bounds—not coordinates
-invented by the model—become the track's initial region. Existing mask `x`, `y`, `width`, and
-`height` keyframes are treated as editor corrections; missing axes hold their initial bounds.
+`EditorInteractionContext`. The selected clip must already carry its canonical `<clip-id>__mask`
+rectangle or ellipse on its mask stack (`Clip.masks`, schema v22), on media whose size was
+measured. That mask's box — converted from source pixels to frame fractions, not coordinates
+invented by the model — becomes the track's initial region. Its source-time `cx`/`cy`/size
+keyframes are treated as editor corrections. A measured track is written back to the mask as
+source-time keyframes by restating it (`remove_mask` + `add_mask` at the same index).
 
 The compiler rejects stale revisions, missing/duplicated masks, locked or non-visual tracks,
 polygon masks, out-of-clip keyframes, and any interpolated box that leaves the normalized frame.
@@ -28,7 +30,7 @@ that behavior.
 
 ## Verification
 
-The unified temporal planner detects changed `mask` and `object_track` effects in the validated
+The unified temporal planner detects changed box masks (`Clip.masks`) and `object_track` effects in the validated
 before/after diff. It requests normalized bounds and motion samples with inside-frame,
 acceleration, and jitter checks. A long clip is reviewed through bounded beginning/middle/end
 windows instead of an unbounded all-frame analysis.

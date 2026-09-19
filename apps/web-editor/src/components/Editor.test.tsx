@@ -7,6 +7,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { projectForAi } from '../editor/project-for-ai.js';
 import { Editor } from './Editor.js';
+
+// RD2.1: the compositor flag is a build-time default; tests pick the path explicitly.
+const compositorFlag = vi.hoisted(() => ({ layers: true }));
+vi.mock('../preview/compositor-flag.js', () => ({
+  layerCompositorEnabled: () => compositorFlag.layers,
+  previewCompositor: () => (compositorFlag.layers ? 'layers' : 'legacy'),
+}));
 import { demoProject } from '../editor/demo.js';
 import { createEditorState } from '../editor/store.js';
 
@@ -425,8 +432,20 @@ describe('Editor workspace', () => {
   });
 
   describe('source-vs-program monitor split (H1.7, J3)', () => {
-    it('defaults to Program and streams demo media that has no bounded proxy', () => {
+    it('programs every timeline through the layer compositor, proxied or not (RD2.1)', () => {
       renderEditor();
+      expect(screen.getByRole('region', { name: 'preview' }).dataset.previewEngine).toBe(
+        'webcodecs',
+      );
+    });
+
+    it('defaults to Program and, on the legacy engine, streams demo media that has no bounded proxy', () => {
+      compositorFlag.layers = false;
+      try {
+        renderEditor();
+      } finally {
+        compositorFlag.layers = true;
+      }
       expect(screen.getByRole('tab', { name: 'Program' }).getAttribute('aria-selected')).toBe(
         'true',
       );

@@ -1,0 +1,1475 @@
+"""Write the preview mask stack's exact vectors (MK3.2) into ``tests/fixtures/mask-raster``.
+
+The TypeScript preview (``apps/web-editor/src/preview/masks``) draws a clip's v22 mask stack
+itself, so the parts of the export it mirrors beyond the shape rasteriser need their own
+byte-exact vectors:
+
+* ``legacy.json``: the ``gaussian-legacy`` path, :func:`render.masks.rasterize_mask` (Pillow
+  ``ImageDraw`` rectangle/ellipse/polygon + ``GaussianBlur``) for frame-fraction specs at four
+  resolutions. ``expected[].pixels`` is base64 of the Pillow ``L`` bytes (invert off, opacity 1).
+* ``stack-clips.json``: whole clips through :func:`render.mask_stack.clip_mask_stacks` at
+  clip-relative times and frame sizes: source clock, keyframes, crop, pixel/normalized units,
+  the legacy spec recovery, multi-mask stacks, effect targets. ``expected[].sha256`` is the
+  SHA-256 of the float64 little-endian alpha the export attaches (rows top to bottom); the
+  TypeScript twin must produce the identical 8 bytes per pixel.
+
+Run after a deliberate change::
+
+    pnpm mask-raster:vectors
+
+``test_mask_stack_vectors.py`` fails when the stored vectors no longer match the engine.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+import logging
+import math
+import sys
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from framepilot_engine.render.frame_masks import layer_mask_stack
+from framepilot_engine.render.mask_stack import clip_mask_stacks
+from framepilot_engine.render.masks import MaskSpec, rasterize_mask
+from framepilot_engine.render.matte_edges import apply_finesse, finesse_is_identity
+from framepilot_engine.timeline.models import Clip, EffectLayer, MaskFinesse
+
+_log = logging.getLogger(__name__)
+
+REPO = Path(__file__).resolve().parents[3]
+FIXTURE_DIR = REPO / "tests" / "fixtures" / "mask-raster"
+LEGACY_RESOLUTIONS = ((64, 48), (40, 30), (23, 17), (96, 54))
+
+_STAR = (
+    (0.5, 0.05),
+    (0.61, 0.38),
+    (0.95, 0.4),
+    (0.66, 0.6),
+    (0.77, 0.95),
+    (0.5, 0.74),
+    (0.23, 0.95),
+    (0.34, 0.6),
+    (0.05, 0.4),
+    (0.39, 0.38),
+)
+
+LEGACY_CASES: list[dict[str, Any]] = [
+    {"id": "rect-fractional", "spec": {"x": 0.2, "y": 0.3, "width": 0.45, "height": 0.37}},
+    {"id": "rect-full", "spec": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}},
+    {"id": "rect-off-frame", "spec": {"x": -0.1, "y": 0.8, "width": 0.5, "height": 0.5}},
+    {"id": "rect-tiny", "spec": {"x": 0.5, "y": 0.5, "width": 0.001, "height": 0.001}},
+    {
+        "id": "rect-feathered",
+        "spec": {"x": 0.25, "y": 0.2, "width": 0.5, "height": 0.6, "feather": 0.05},
+    },
+    {
+        "id": "ellipse",
+        "spec": {"shape": "ellipse", "x": 0.13, "y": 0.21, "width": 0.61, "height": 0.52},
+    },
+    {
+        "id": "ellipse-wide",
+        "spec": {"shape": "ellipse", "x": 0.02, "y": 0.4, "width": 0.97, "height": 0.21},
+    },
+    {
+        "id": "ellipse-off-frame",
+        "spec": {"shape": "ellipse", "x": 0.6, "y": -0.2, "width": 0.7, "height": 0.6},
+    },
+    {
+        "id": "ellipse-tiny",
+        "spec": {"shape": "ellipse", "x": 0.4, "y": 0.4, "width": 0.02, "height": 0.03},
+    },
+    {
+        "id": "ellipse-feathered",
+        "spec": {
+            "shape": "ellipse",
+            "x": 0.1,
+            "y": 0.1,
+            "width": 0.8,
+            "height": 0.8,
+            "feather": 0.02,
+        },
+    },
+    {
+        "id": "polygon-triangle",
+        "spec": {"shape": "polygon", "points": [(0.1, 0.9), (0.5, 0.07), (0.93, 0.8)]},
+    },
+    {"id": "polygon-star", "spec": {"shape": "polygon", "points": list(_STAR)}},
+    {
+        "id": "polygon-axis-aligned",
+        "spec": {
+            "shape": "polygon",
+            "points": [(0.1, 0.1), (0.5, 0.1), (0.9, 0.1), (0.9, 0.9), (0.1, 0.9)],
+        },
+    },
+    {
+        "id": "polygon-bowtie",
+        "spec": {"shape": "polygon", "points": [(0.1, 0.1), (0.9, 0.9), (0.9, 0.1), (0.1, 0.9)]},
+    },
+    {
+        "id": "polygon-off-frame",
+        "spec": {"shape": "polygon", "points": [(-0.2, 0.21), (1.2, 0.35), (0.6, 1.4)]},
+    },
+    {
+        "id": "polygon-wide-feather",
+        "spec": {
+            "shape": "polygon",
+            "points": [(0.2, 0.2), (0.8, 0.25), (0.5, 0.85)],
+            "feather": 0.3,
+        },
+    },
+    {
+        "id": "rect-hairline-feather",
+        "spec": {"x": 0.3, "y": 0.3, "width": 0.4, "height": 0.4, "feather": 0.001},
+    },
+    {
+        "id": "polygon-two-points-is-bounds",
+        "spec": {
+            "shape": "polygon",
+            "x": 0.3,
+            "y": 0.2,
+            "width": 0.3,
+            "height": 0.4,
+            "points": [(0.1, 0.1), (0.9, 0.9)],
+        },
+    },
+]
+
+
+def _spec(raw: dict[str, Any]) -> MaskSpec:
+    fields = {**raw}
+    if "points" in fields:
+        fields["points"] = tuple(tuple(point) for point in fields["points"])
+    return MaskSpec(**fields)
+
+
+def _legacy_document() -> dict[str, Any]:
+    cases = []
+    for case in LEGACY_CASES:
+        spec = _spec(case["spec"])
+        expected = []
+        for width, height in LEGACY_RESOLUTIONS:
+            alpha = rasterize_mask(spec, width, height)
+            pixels = np.rint(alpha * 255.0).astype(np.uint8)
+            expected.append(
+                {
+                    "width": width,
+                    "height": height,
+                    "pixels": base64.b64encode(pixels.tobytes()).decode("ascii"),
+                }
+            )
+        raw = {**case["spec"]}
+        if "points" in raw:
+            raw["points"] = [list(point) for point in raw["points"]]
+        cases.append({"id": case["id"], "spec": raw, "expected": expected})
+    return {
+        "area": "legacy",
+        "spec": "engine/python/tests/mask_stack_vectors.py; render/masks.py rasterize_mask",
+        "cases": cases,
+    }
+
+
+# --- Whole clips ------------------------------------------------------------------------
+
+
+def _frame_times(clip: dict[str, Any], fps: float) -> list[float]:
+    """Up to four clip-local frame times the export renders: first, two interior, last.
+
+    MoviePy's own arithmetic (``n / fps - start`` for the global frames in [start, end)), so a
+    clip that starts mid-timeline is sampled at its real, non-round instants (MK2.5); for a clip
+    at 0 s this is ``index / fps``, as before.
+    """
+    start, end = float(clip["start"]), float(clip["end"])
+    frames: list[int] = []
+    frame = max(0, math.floor(start * fps) - 1)
+    while frame / fps < end:
+        if frame / fps >= start:
+            frames.append(frame)
+        frame += 1
+    if not frames:
+        return [0.0]
+    count = len(frames)
+    picks = sorted({0, count // 3, (2 * count) // 3, count - 1})
+    return [frames[index] / fps - start for index in picks]
+
+
+def _migrated_clip_cases() -> list[dict[str, Any]]:
+    source = json.loads(
+        (REPO / "tests" / "fixtures" / "mask-render" / "legacy-v21.json").read_text("utf-8")
+    )
+    migrated = json.loads(
+        (REPO / "tests" / "fixtures" / "mask-render" / "legacy-v21.migrated.json").read_text(
+            "utf-8"
+        )
+    )
+    by_id = {case["id"]: case for case in source["cases"]}
+    cases = []
+    for case in migrated["cases"]:
+        clip = case["clip"]
+        media = by_id[case["id"]].get("media", source["media"])
+        crop = clip.get("crop") or {"width": 1.0, "height": 1.0}
+        full = (
+            round(crop["width"] * source["media"]["width"]),
+            round(crop["height"] * source["media"]["height"]),
+        )
+        cases.append(
+            {
+                "id": f"migrated/{case['id']}",
+                "clip": clip,
+                "media": media,
+                "sizes": [list(full), [full[0] // 2, full[1] // 2]],
+                "times": _frame_times(clip, float(source["fps"])),
+            }
+        )
+    return cases
+
+
+def _mask(**fields: Any) -> dict[str, Any]:
+    return {"id": fields.pop("id"), **fields}
+
+
+def _clip(clip_id: str, masks: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
+    return {
+        "id": clip_id,
+        "assetId": "port",
+        "trackId": "v1",
+        "start": 0.0,
+        "end": 2.0,
+        "sourceStart": 2.0,
+        "sourceEnd": 4.0,
+        "effects": [],
+        "keyframes": [],
+        "masks": masks,
+        **extra,
+    }
+
+
+_HOLE_PATH = [400, 800, 0, 0, 0, 0, 700, 800, 0, 0, 0, 0, 550, 1100, 0, 0, 0, 0]
+_CURVED_PATH = [
+    300, 500, 0, -120, 0, 120,
+    760, 620, 60, -90, -60, 90,
+    820, 1400, 120, 0, -120, 0,
+    240, 1300, 0, 150, 0, -150,
+]  # fmt: skip
+_PORT = {"width": 1080, "height": 1920}
+
+#: Stacks the oracle's `alpha/*` mask rows draw, rasterised at the decode sizes they land at.
+STACK_CASES: list[dict[str, Any]] = [
+    {
+        "id": "stack/legacy-ellipse-over-subtracted-path",
+        "clip": _clip(
+            "m2",
+            [
+                _mask(
+                    id="m2__mask",
+                    kind="ellipse",
+                    featherModel="gaussian-legacy",
+                    cx=270,
+                    cy=960,
+                    rx=270,
+                    ry=480,
+                    keyframes=[
+                        {
+                            "id": "k0",
+                            "sourceTime": 2.0,
+                            "property": "cx",
+                            "value": 270,
+                            "easing": "linear",
+                        },
+                        {
+                            "id": "k1",
+                            "sourceTime": 4.0,
+                            "property": "cx",
+                            "value": 810,
+                            "easing": "linear",
+                        },
+                    ],
+                ),
+                _mask(
+                    id="m2__hole",
+                    kind="path",
+                    mode="subtract",
+                    invert=True,
+                    featherOuterPx=12,
+                    pathKeyframes=[
+                        {
+                            "id": "p0",
+                            "sourceTime": 2.0,
+                            "points": _HOLE_PATH,
+                            "vertexTypes": [0, 0, 0],
+                        }
+                    ],
+                ),
+                _mask(
+                    id="m2__off", kind="rectangle", enabled=False, cx=10, cy=10, width=5, height=5
+                ),
+            ],
+        ),
+        "media": _PORT,
+        "sizes": [[406, 720], [203, 360]],
+        "times": [0.0, 0.5, 1.0],
+    },
+    *[
+        {
+            "id": f"stack/mode-{mode}",
+            "clip": _clip(
+                f"mode-{mode}",
+                [
+                    _mask(
+                        id="a",
+                        kind="rectangle",
+                        cx=460,
+                        cy=900,
+                        width=620,
+                        height=1100,
+                        rotation=12,
+                        roundness=0.25,
+                        featherOuterPx=30,
+                        opacity=0.9,
+                    ),
+                    _mask(
+                        id="b",
+                        kind="ellipse",
+                        mode=mode,
+                        cx=640,
+                        cy=1000,
+                        rx=300,
+                        ry=420,
+                        featherInnerPx=20,
+                        featherOuterPx=10,
+                        falloff="linear",
+                        opacity=0.7,
+                    ),
+                ],
+            ),
+            "media": _PORT,
+            "sizes": [[406, 720]],
+            "times": [0.0],
+        }
+        for mode in ("add", "subtract", "intersect", "difference", "lighten", "darken")
+    ],
+    {
+        "id": "stack/path-per-vertex-expanded-keyframed",
+        "clip": _clip(
+            "pv",
+            [
+                _mask(
+                    id="pv",
+                    kind="path",
+                    expansionPx=-18,
+                    featherInnerPx=6,
+                    falloff="gaussian",
+                    firstVertex=1,
+                    pathKeyframes=[
+                        {
+                            "id": "p0",
+                            "sourceTime": 2.0,
+                            "points": _CURVED_PATH,
+                            "vertexTypes": [1, 1, 1, 1],
+                            "featherPx": [0, 40, 10, 25],
+                            "easing": "ease-in-out",
+                        },
+                        {
+                            "id": "p1",
+                            "sourceTime": 4.0,
+                            "points": [
+                                v + (30 if i % 6 == 0 else 0) for i, v in enumerate(_CURVED_PATH)
+                            ],
+                            "vertexTypes": [1, 1, 1, 1],
+                            "featherPx": [10, 20, 30, 5],
+                        },
+                    ],
+                )
+            ],
+        ),
+        "media": _PORT,
+        "sizes": [[406, 720], [135, 240]],
+        "times": [0.0, 0.7, 1.9],
+    },
+    {
+        "id": "stack/invert-cropped-scalar-keyframes",
+        "clip": _clip(
+            "ck",
+            [
+                _mask(
+                    id="ck",
+                    kind="rectangle",
+                    invert=True,
+                    cx=540,
+                    cy=960,
+                    width=500,
+                    height=700,
+                    expansionPx=15,
+                    keyframes=[
+                        {
+                            "id": "o0",
+                            "sourceTime": 2.0,
+                            "property": "opacity",
+                            "value": 0.2,
+                            "easing": "ease-out",
+                        },
+                        {
+                            "id": "o1",
+                            "sourceTime": 3.5,
+                            "property": "opacity",
+                            "value": 1.0,
+                            "easing": "linear",
+                        },
+                        {
+                            "id": "r0",
+                            "sourceTime": 2.5,
+                            "property": "rotation",
+                            "value": -20,
+                            "easing": "linear",
+                        },
+                        {
+                            "id": "r1",
+                            "sourceTime": 3.0,
+                            "property": "rotation",
+                            "value": 25,
+                            "easing": "hold",
+                        },
+                    ],
+                )
+            ],
+            crop={"x": 0.1, "y": 0.05, "width": 0.8, "height": 0.7},
+            speed=0.75,
+        ),
+        "media": _PORT,
+        "sizes": [[324, 538]],
+        "times": [0.0, 0.6, 1.2, 1.9],
+    },
+    {
+        "id": "stack/effect-target-and-alpha",
+        "clip": _clip(
+            "fx",
+            [
+                _mask(id="cut", kind="ellipse", cx=540, cy=960, rx=500, ry=900),
+                _mask(
+                    id="face",
+                    kind="ellipse",
+                    target={"kind": "effect", "effectId": "grade1"},
+                    cx=540,
+                    cy=700,
+                    rx=200,
+                    ry=260,
+                    featherOuterPx=24,
+                ),
+                _mask(
+                    id="face-hole",
+                    kind="rectangle",
+                    mode="subtract",
+                    target={"kind": "effect", "effectId": "grade1"},
+                    cx=540,
+                    cy=800,
+                    width=120,
+                    height=60,
+                ),
+            ],
+            effects=[
+                {
+                    "id": "grade1",
+                    "type": "color_grade",
+                    "params": {"saturation": -1, "exposure": 0.4},
+                }
+            ],
+        ),
+        "media": _PORT,
+        "sizes": [[406, 720]],
+        "times": [0.0],
+        "effects": ["grade1"],
+    },
+    {
+        # MK8.1: a keyframed split and a subtracted band through the crop, speed and source
+        # clock, the analytic kinds' mapping onto a cropped decode.
+        "id": "stack/analytic-split-band-cropped",
+        "clip": _clip(
+            "an",
+            [
+                _mask(
+                    id="split",
+                    kind="linear",
+                    originX=540,
+                    originY=960,
+                    angle=20,
+                    softnessPx=30,
+                    keyframes=[
+                        {
+                            "id": "a0",
+                            "sourceTime": 2.0,
+                            "property": "angle",
+                            "value": 20,
+                            "easing": "ease-in-out",
+                        },
+                        {
+                            "id": "a1",
+                            "sourceTime": 3.5,
+                            "property": "angle",
+                            "value": 160,
+                            "easing": "linear",
+                        },
+                    ],
+                ),
+                _mask(
+                    id="strip",
+                    kind="band",
+                    mode="subtract",
+                    originX=540,
+                    originY=1100,
+                    angle=-8,
+                    widthPx=180,
+                    opacity=0.8,
+                ),
+            ],
+            crop={"x": 0.1, "y": 0.05, "width": 0.8, "height": 0.7},
+            speed=1.5,
+        ),
+        "media": _PORT,
+        "sizes": [[324, 538], [81, 134]],
+        "times": [0.0, 0.5, 1.0],
+    },
+    {
+        "id": "stack/analytic-gradient-effect-target",
+        "clip": _clip(
+            "gr",
+            [
+                _mask(
+                    id="sky",
+                    kind="gradient",
+                    shape="linear",
+                    target={"kind": "effect", "effectId": "grade1"},
+                    startX=540,
+                    startY=0,
+                    endX=540,
+                    endY=900,
+                    curve="smooth",
+                ),
+                _mask(
+                    id="spot",
+                    kind="gradient",
+                    shape="radial",
+                    mode="lighten",
+                    target={"kind": "effect", "effectId": "grade1"},
+                    startX=300,
+                    startY=1400,
+                    endX=520,
+                    endY=1400,
+                    curve="gaussian",
+                    invert=True,
+                    opacity=0.5,
+                ),
+                _mask(id="half", kind="linear", originX=0, originY=960, angle=90, expansionPx=-40),
+            ],
+            effects=[{"id": "grade1", "type": "color_grade", "params": {"exposure": -0.6}}],
+        ),
+        "media": _PORT,
+        "sizes": [[406, 720]],
+        "times": [0.0],
+        "effects": ["grade1"],
+    },
+]
+
+
+def _digest(alpha: np.ndarray | None) -> str | None:
+    if alpha is None:
+        return None
+    return hashlib.sha256(np.ascontiguousarray(alpha, dtype="<f8").tobytes()).hexdigest()
+
+
+def _clip_document() -> dict[str, Any]:
+    cases = []
+    for case in [*_migrated_clip_cases(), *STACK_CASES]:
+        clip = Clip.model_validate(case["clip"])
+        media = case["media"]
+        size = None if media is None else (float(media["width"]), float(media["height"]))
+        stacks = clip_mask_stacks(clip, size)
+        assert stacks is not None, case["id"]
+        expected = []
+        for width, height in case["sizes"]:
+            for t in case["times"]:
+                entry: dict[str, Any] = {
+                    "width": width,
+                    "height": height,
+                    "time": t,
+                    "alpha": _digest(stacks.alpha_at(t, width, height)),
+                }
+                for effect_id in case.get("effects", []):
+                    entry[f"effect:{effect_id}"] = _digest(
+                        stacks.effect_alpha_at(effect_id, t, width, height)
+                    )
+                expected.append(entry)
+        cases.append({**case, "expected": expected})
+    return {
+        "area": "stack-clips",
+        "spec": "engine/python/tests/mask_stack_vectors.py; render/mask_stack.py ClipMaskStacks",
+        "cases": cases,
+    }
+
+
+# --- Matte layers (BR5.1) ------------------------------------------------------------------
+
+#: The synthetic matte artifact every matte vector reads: DISPLAY pixels, like a real artifact.
+MATTE_SIZE = (48, 27)
+_MATTE_ARTIFACT = {
+    "key": "d" * 64,
+    "files": [
+        {"name": "matte.mkv", "sha256": "e" * 64},
+        {"name": "foreground.mkv", "sha256": "f" * 64},
+        {"name": "frames.json", "sha256": "0" * 64},
+    ],
+    "width": MATTE_SIZE[0],
+    "height": MATTE_SIZE[1],
+    "coverage": {"sourceStart": 0.0, "sourceEnd": 10.0},
+    "packId": "framepilot.smart-mask",
+    "packVersion": "1.0.0",
+    "modelDigests": [],
+}
+
+
+def matte_frame_values(maximum: int) -> np.ndarray:
+    """A soft disc, a hard one-pixel line and a ramp, stored at ``maximum`` (255 or 65535)."""
+    width, height = MATTE_SIZE
+    y, x = np.mgrid[0:height, 0:width].astype(np.float64)
+    disc = np.clip(9.5 - np.hypot(x - 17.0, y - 13.0), 0.0, 1.0)
+    ramp = np.clip((x - 30.0) / 12.0, 0.0, 1.0) * (y > 6)
+    alpha = np.maximum(disc, ramp)
+    alpha[:, 44] = 1.0
+    alpha[3, :] = 0.5
+    dtype = np.uint16 if maximum > 255 else np.uint8
+    values: np.ndarray = np.rint(alpha * maximum).astype(dtype)
+    return values
+
+
+def matte_foreground() -> np.ndarray:
+    width, height = MATTE_SIZE
+    y, x = np.mgrid[0:height, 0:width].astype(np.int64)
+    return np.stack([(x * 11 + 40) & 255, (y * 9 + 7) & 255, (x * y) & 255], axis=-1).astype(
+        np.uint8
+    )
+
+
+def matte_picture(width: int, height: int) -> np.ndarray:
+    """The decoded, cropped picture a decontamination vector cleans (both sides make it)."""
+    y, x = np.mgrid[0:height, 0:width].astype(np.int64)
+    return np.stack(
+        [(x * 13 + y * 7) & 255, (x * 5 + y * 3 + 40) & 255, (x ^ y) & 255], axis=-1
+    ).astype(np.uint8)
+
+
+def _matte(**fields: Any) -> dict[str, Any]:
+    return _mask(kind="matte", artifact=_MATTE_ARTIFACT, **fields)
+
+
+def _matte_clip(clip_id: str, masks: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
+    return {**_clip(clip_id, masks, **extra), "assetId": "land"}
+
+
+_MATTE_MEDIA = {"width": MATTE_SIZE[0], "height": MATTE_SIZE[1]}
+_MATTE_SIZES = [[48, 27], [32, 18], [96, 54], [40, 30]]
+
+MATTE_CASES: list[dict[str, Any]] = [
+    {
+        "id": "matte/sharp-decontaminate",
+        "clip": _matte_clip("ms", [_matte(id="m", edgeMode="sharp")]),
+    },
+    {
+        "id": "matte/smooth-grow-fraction",
+        "clip": _matte_clip("mg", [_matte(id="m", edgeShiftPx=1.5, decontaminate=False)]),
+    },
+    {
+        "id": "matte/shrink-invert-opacity",
+        "clip": _matte_clip(
+            "mi", [_matte(id="m", edgeShiftPx=-2, invert=True, opacity=0.6, decontaminate=False)]
+        ),
+    },
+    {
+        "id": "matte/feather-expansion-gaussian",
+        "clip": _matte_clip(
+            "mf",
+            [
+                _matte(
+                    id="m",
+                    expansionPx=2,
+                    featherOuterPx=3,
+                    featherInnerPx=1.5,
+                    falloff="gaussian",
+                )
+            ],
+        ),
+    },
+    {
+        "id": "matte/feather-smooth-contract",
+        "clip": _matte_clip(
+            "mc", [_matte(id="m", expansionPx=-1.25, featherOuterPx=2, falloff="smooth")]
+        ),
+    },
+    {
+        "id": "matte/finesse-clean-levels",
+        "clip": _matte_clip(
+            "ml",
+            [_matte(id="m", edgeMode="sharp", finesse={"cleanBlack": 0.2, "cleanWhite": 0.7})],
+        ),
+    },
+    {
+        "id": "matte/finesse-threshold",
+        "clip": _matte_clip("mt", [_matte(id="m", finesse={"cleanBlack": 0.5, "cleanWhite": 0.5})]),
+    },
+    {
+        "id": "matte/cropped-minus-rectangle",
+        "clip": _matte_clip(
+            "mr",
+            [
+                _matte(id="m", edgeShiftPx=0.5),
+                _mask(
+                    id="stand", kind="rectangle", mode="subtract", cx=30, cy=20, width=8, height=12
+                ),
+            ],
+            crop={"x": 0.1, "y": 0.2, "width": 0.7, "height": 0.75},
+        ),
+    },
+    {
+        "id": "matte/effect-target-and-alpha",
+        "clip": _matte_clip(
+            "me",
+            [
+                _matte(id="cut", decontaminate=False),
+                _matte(
+                    id="bg",
+                    invert=True,
+                    target={"kind": "effect", "effectId": "grade1"},
+                ),
+            ],
+            effects=[{"id": "grade1", "type": "color_grade", "params": {"exposure": -1}}],
+        ),
+        "effects": ["grade1"],
+    },
+    {
+        "id": "matte/gray16",
+        "clip": _matte_clip("m16", [_matte(id="m", edgeShiftPx=-0.75, featherOuterPx=1)]),
+        "maximum": 65535,
+    },
+    {
+        "id": "matte/keyframed-shift-ramped",
+        "clip": _matte_clip(
+            "mk",
+            [
+                _matte(
+                    id="m",
+                    keyframes=[
+                        {
+                            "id": "s0",
+                            "sourceTime": 2.0,
+                            "property": "edgeShiftPx",
+                            "value": -1,
+                            "easing": "linear",
+                        },
+                        {
+                            "id": "s1",
+                            "sourceTime": 4.0,
+                            "property": "edgeShiftPx",
+                            "value": 2.5,
+                            "easing": "linear",
+                        },
+                    ],
+                )
+            ],
+            speedRamp=[
+                {"id": "r0", "sourceTime": 0.0, "rate": 1.0, "easing": "ease-in-out"},
+                {"id": "r1", "sourceTime": 2.0, "rate": 2.0},
+            ],
+        ),
+        "times": [0.0, 0.45, 1.1],
+    },
+]
+
+
+def _float_digest(values: np.ndarray) -> str:
+    return hashlib.sha256(np.ascontiguousarray(values, dtype="<f8").tobytes()).hexdigest()
+
+
+def _matte_document() -> dict[str, Any]:
+    from framepilot_engine.render.matte_edges import _crop_slices, decontaminate
+    from framepilot_engine.render.mattes import MatteFrame
+
+    cases = []
+    for case in MATTE_CASES:
+        maximum = int(case.get("maximum", 255))
+        values = matte_frame_values(maximum)
+        foreground = matte_foreground()
+        frame = MatteFrame(index=0, alpha=values, maximum=maximum, foreground=foreground)
+        clip = Clip.model_validate(case["clip"])
+        media = (float(_MATTE_MEDIA["width"]), float(_MATTE_MEDIA["height"]))
+        expected = []
+        for decoded_w, decoded_h in _MATTE_SIZES:
+            rows, cols = _crop_slices(clip, decoded_w, decoded_h)
+            width = len(range(*cols.indices(decoded_w)))
+            height = len(range(*rows.indices(decoded_h)))
+
+            def same_frame(_t: float, frame: MatteFrame = frame) -> MatteFrame:
+                return frame
+
+            mattes: dict[str, Callable[[float], MatteFrame]] = {
+                str(mask.id): same_frame for mask in clip.masks or [] if mask.kind == "matte"
+            }
+            stacks = clip_mask_stacks(clip, media, mattes, (decoded_w, decoded_h))
+            assert stacks is not None, case["id"]
+            for t in case.get("times", [0.0]):
+                picture = matte_picture(width, height)
+                for _mask in reversed([m for m in stacks.matte_masks() if m.decontaminate]):
+                    picture = decontaminate(
+                        picture, values, maximum, foreground, clip, (decoded_w, decoded_h)
+                    )
+                entry: dict[str, Any] = {
+                    "decoded": [decoded_w, decoded_h],
+                    "width": width,
+                    "height": height,
+                    "time": t,
+                    "alpha": _digest(stacks.alpha_at(t, width, height)),
+                    "decontaminated": hashlib.sha256(picture.tobytes()).hexdigest(),
+                }
+                for effect_id in case.get("effects", []):
+                    entry[f"effect:{effect_id}"] = _digest(
+                        stacks.effect_alpha_at(effect_id, t, width, height)
+                    )
+                expected.append(entry)
+        cases.append(
+            {
+                **case,
+                "maximum": maximum,
+                "media": _MATTE_MEDIA,
+                "matte": base64.b64encode(
+                    values.astype(values.dtype.newbyteorder("<")).tobytes()
+                ).decode("ascii"),
+                "foreground": base64.b64encode(foreground.tobytes()).decode("ascii"),
+                "expected": expected,
+            }
+        )
+    return {
+        "area": "matte-clips",
+        "spec": (
+            "engine/python/tests/mask_stack_vectors.py; render/mask_stack.py matte layers, "
+            "render/matte_edges.py decontaminate. Pictures: matte_picture(width, height)."
+        ),
+        "cases": cases,
+    }
+
+
+# --- Frame-space stacks on an adjustment lane (MK5.2) --------------------------------------
+
+#: An effect layer's mask stack is in OUTPUT-FRAME pixels on a layer-local clock. These cover a
+#: static shape, a two-mask combine, a keyframed rectangle and an animated path, so the TS twin
+#: (`preview/masks/frame-masks.ts`) is pinned on the mapping AND the clock.
+_FRAME_LAYER_CASES: list[dict[str, Any]] = [
+    {
+        "id": "frame-rectangle",
+        "layer": {
+            "id": "fx-rect",
+            "effectId": "soft-veil",
+            "kind": "blur-gaussian",
+            "start": 1.5,
+            "end": 3.5,
+            "params": {},
+            "keyframes": [],
+            "masks": [
+                _mask(
+                    id="m1",
+                    kind="rectangle",
+                    space="frame",
+                    cx=140.0,
+                    cy=70.0,
+                    width=120.5,
+                    height=60.25,
+                    rotation=12.0,
+                    roundness=0.3,
+                    featherOuterPx=6.0,
+                    falloff="smooth",
+                )
+            ],
+        },
+        "sizes": [[256, 144], [128, 72]],
+        "times": [0.0, 1.0],
+    },
+    {
+        "id": "frame-combine",
+        "layer": {
+            "id": "fx-combine",
+            "effectId": "halo-bloom",
+            "kind": "bloom",
+            "start": 0.0,
+            "end": 2.0,
+            "params": {},
+            "keyframes": [],
+            "masks": [
+                _mask(
+                    id="m1",
+                    kind="ellipse",
+                    space="frame",
+                    cx=128.0,
+                    cy=72.0,
+                    rx=70.0,
+                    ry=40.0,
+                    featherOuterPx=4.0,
+                    featherInnerPx=2.0,
+                ),
+                _mask(
+                    id="m2",
+                    kind="rectangle",
+                    space="frame",
+                    mode="subtract",
+                    cx=128.0,
+                    cy=100.0,
+                    width=90.0,
+                    height=40.0,
+                    expansionPx=3.0,
+                ),
+            ],
+        },
+        "sizes": [[256, 144]],
+        "times": [0.0, 0.75],
+    },
+    {
+        "id": "frame-keyframed",
+        "layer": {
+            "id": "fx-keyed",
+            "effectId": "mosaic-blocks",
+            "kind": "mosaic",
+            "start": 4.0,
+            "end": 6.0,
+            "params": {},
+            "keyframes": [],
+            "masks": [
+                _mask(
+                    id="m1",
+                    kind="rectangle",
+                    space="frame",
+                    cx=60.0,
+                    cy=72.0,
+                    width=80.0,
+                    height=80.0,
+                    keyframes=[
+                        {"id": "k0", "property": "cx", "sourceTime": 0.0, "value": 60.0},
+                        {
+                            "id": "k1",
+                            "property": "cx",
+                            "sourceTime": 2.0,
+                            "value": 196.0,
+                            "easing": "ease-in-out",
+                        },
+                    ],
+                )
+            ],
+        },
+        "sizes": [[256, 144]],
+        "times": [0.0, 0.5, 1.0, 2.0],
+    },
+    {
+        # MK8.1: a vignette-style radial gradient intersected with a split, on the frame.
+        "id": "frame-analytic",
+        "layer": {
+            "id": "fx-analytic",
+            "effectId": "soft-veil",
+            "kind": "blur-gaussian",
+            "start": 0.0,
+            "end": 2.0,
+            "params": {},
+            "keyframes": [],
+            "masks": [
+                _mask(
+                    id="m1",
+                    kind="gradient",
+                    space="frame",
+                    shape="radial",
+                    startX=128.0,
+                    startY=72.0,
+                    endX=250.0,
+                    endY=72.0,
+                    curve="smooth",
+                    invert=True,
+                ),
+                _mask(
+                    id="m2",
+                    kind="linear",
+                    space="frame",
+                    mode="intersect",
+                    originX=0.0,
+                    originY=40.0,
+                    angle=0.0,
+                    softnessPx=24.0,
+                    invert=True,
+                ),
+            ],
+        },
+        "sizes": [[256, 144], [128, 72]],
+        "times": [0.0],
+    },
+]
+
+
+# --- The matte finesse group (MK6.2) -------------------------------------------------------
+
+#: Finesse settings covering every control, alone and in combination, including fractional radii
+#: (which mix two integer discs) and the clean levels an ``edgeMode`` supplies.
+_FINESSE_CASES: list[dict[str, Any]] = [
+    {"id": "identity", "finesse": {}, "levels": [0.0, 1.0]},
+    {"id": "denoise", "finesse": {"denoise": 0.65}, "levels": [0.0, 1.0]},
+    {"id": "clean-levels", "finesse": {}, "levels": [0.25, 0.75]},
+    {"id": "open", "finesse": {"morphOpenPx": 2.0}, "levels": [0.0, 1.0]},
+    {"id": "close", "finesse": {"morphClosePx": 2.0}, "levels": [0.0, 1.0]},
+    {"id": "open-fractional", "finesse": {"morphOpenPx": 1.4}, "levels": [0.0, 1.0]},
+    {"id": "grow", "finesse": {"shrinkGrowPx": 2.5}, "levels": [0.0, 1.0]},
+    {"id": "shrink", "finesse": {"shrinkGrowPx": -1.5}, "levels": [0.0, 1.0]},
+    {"id": "blur", "finesse": {"blurPx": 5.0}, "levels": [0.0, 1.0]},
+    {"id": "ratio-out", "finesse": {"blurPx": 4.0, "inOutRatio": 0.55}, "levels": [0.0, 1.0]},
+    {"id": "ratio-in", "finesse": {"blurPx": 4.0, "inOutRatio": -0.7}, "levels": [0.0, 1.0]},
+    {
+        "id": "everything",
+        "finesse": {
+            "denoise": 0.4,
+            "morphOpenPx": 1.0,
+            "morphClosePx": 2.0,
+            "shrinkGrowPx": -1.25,
+            "blurPx": 3.0,
+            "inOutRatio": 0.3,
+        },
+        "levels": [0.15, 0.85],
+    },
+]
+
+FINESSE_SIZE = (40, 28)
+
+
+def finesse_alpha() -> np.ndarray:
+    """A matte-shaped alpha: a soft disc, a pinhole inside it, a speck outside, and a ramp."""
+    width, height = FINESSE_SIZE
+    y, x = np.mgrid[0:height, 0:width].astype(np.float64)
+    disc = np.clip(9.0 - np.hypot(x - 14.0, y - 14.0), 0.0, 1.0)
+    ramp = np.clip((x - 28.0) / 10.0, 0.0, 1.0) * np.clip((y - 4.0) / 8.0, 0.0, 1.0)
+    alpha: np.ndarray = np.maximum(disc, ramp)
+    alpha[14, 14] = 0.0
+    alpha[2, 3] = 1.0
+    alpha[3, 2] = 0.6
+    return alpha
+
+
+def _finesse_document() -> dict[str, Any]:
+    alpha = finesse_alpha()
+    width, height = FINESSE_SIZE
+    cases = []
+    for case in _FINESSE_CASES:
+        finesse = MaskFinesse.model_validate(case["finesse"])
+        levels = (float(case["levels"][0]), float(case["levels"][1]))
+        result = apply_finesse(alpha, finesse, levels)
+        cases.append(
+            {
+                **case,
+                "identity": finesse_is_identity(finesse, levels),
+                "digest": _digest(result),
+            }
+        )
+    return {
+        "area": "finesse",
+        "spec": "engine/python/tests/mask_stack_vectors.py; render/matte_edges.py apply_finesse",
+        "width": width,
+        "height": height,
+        "alpha": [float(value) for value in alpha.reshape(-1)],
+        "cases": cases,
+    }
+
+
+def _frame_layer_document() -> dict[str, Any]:
+    cases = []
+    for case in _FRAME_LAYER_CASES:
+        layer = EffectLayer.model_validate(case["layer"])
+        stack = layer_mask_stack(layer)
+        assert stack is not None, case["id"]
+        expected = [
+            {
+                "width": width,
+                "height": height,
+                "localTime": t,
+                "alpha": _digest(stack.alpha_at(t, width, height)),
+            }
+            for width, height in case["sizes"]
+            for t in case["times"]
+        ]
+        cases.append({**case, "expected": expected})
+    return {
+        "area": "frame-layers",
+        "spec": "engine/python/tests/mask_stack_vectors.py; render/frame_masks.py FrameMaskStack",
+        "cases": cases,
+    }
+
+
+# --- Frame-space clip masks (MK9.1) -------------------------------------------------------
+
+#: A frame-space clip mask is drawn on the output frame and read back through where the clip's
+#: raster lands (``render/mask_stack.py`` ``frame_space_alpha``). ``placement`` is
+#: ``[width, height, rotation, x, y]`` of the resized picture on the frame; the local raster is
+#: each case size.
+FRAME_CLIP_CASES: list[dict[str, Any]] = [
+    {
+        "id": "frame-clip/rect-fills-frame",
+        "frame": [64, 36],
+        "placement": [64, 36, 0.0, 0, 0],
+        "media": None,
+        "clip": _clip(
+            "fc1",
+            [
+                _mask(
+                    id="r",
+                    kind="rectangle",
+                    space="frame",
+                    cx=30.25,
+                    cy=17.5,
+                    width=31.0,
+                    height=17.25,
+                    rotation=12.0,
+                    featherOuterPx=3.0,
+                )
+            ],
+        ),
+        "sizes": [[64, 36], [32, 18]],
+        "times": [0.0, 1.0],
+    },
+    {
+        "id": "frame-clip/scaled-offset-subtract",
+        "frame": [64, 36],
+        "placement": [32, 18, 0.0, 20, 9],
+        "media": None,
+        "clip": _clip(
+            "fc2",
+            [
+                _mask(
+                    id="e",
+                    kind="ellipse",
+                    space="frame",
+                    cx=36.0,
+                    cy=18.0,
+                    rx=14.0,
+                    ry=9.5,
+                    featherInnerPx=1.5,
+                    featherOuterPx=2.0,
+                ),
+                _mask(
+                    id="hole",
+                    kind="rectangle",
+                    space="frame",
+                    mode="subtract",
+                    cx=36.0,
+                    cy=18.0,
+                    width=6.0,
+                    height=4.0,
+                ),
+            ],
+        ),
+        "sizes": [[48, 27], [32, 18]],
+        "times": [0.0],
+    },
+    {
+        "id": "frame-clip/rotated-band-keyed",
+        "frame": [64, 36],
+        "placement": [40, 24, 30.0, 12, 6],
+        "media": None,
+        "clip": _clip(
+            "fc3",
+            [
+                _mask(
+                    id="b",
+                    kind="band",
+                    space="frame",
+                    originX=32.0,
+                    originY=18.0,
+                    angle=20.0,
+                    widthPx=10.0,
+                    softnessPx=2.0,
+                    invert=True,
+                    keyframes=[
+                        {"id": "o0", "sourceTime": 2.0, "property": "opacity", "value": 1.0},
+                        {"id": "o1", "sourceTime": 4.0, "property": "opacity", "value": 0.25},
+                    ],
+                )
+            ],
+        ),
+        "sizes": [[40, 24]],
+        "times": [0.0, 0.5, 1.5],
+    },
+    {
+        "id": "frame-clip/mixed-with-source-mask",
+        "frame": [64, 36],
+        "placement": [36, 64, 0.0, 14, -14],
+        "media": _PORT,
+        "clip": _clip(
+            "fc4",
+            [
+                _mask(
+                    id="src",
+                    kind="ellipse",
+                    cx=540.0,
+                    cy=960.0,
+                    rx=420.0,
+                    ry=700.0,
+                    featherOuterPx=40.0,
+                ),
+                _mask(
+                    id="split",
+                    kind="linear",
+                    space="frame",
+                    mode="intersect",
+                    originX=32.0,
+                    originY=20.0,
+                    angle=0.0,
+                    softnessPx=3.0,
+                ),
+            ],
+        ),
+        "sizes": [[36, 64], [27, 48]],
+        "times": [0.0],
+    },
+]
+
+
+def _frame_clip_document() -> dict[str, Any]:
+    from framepilot_engine.render.layer_mattes import PicturePlacement
+
+    cases = []
+    for case in FRAME_CLIP_CASES:
+        clip = Clip.model_validate(case["clip"])
+        media = case["media"]
+        size = None if media is None else (float(media["width"]), float(media["height"]))
+        frame_w, frame_h = case["frame"]
+        resized_w, resized_h, rotation, x, y = case["placement"]
+
+        def placements(
+            _t: float,
+            width: int,
+            height: int,
+            *,
+            rw: int = resized_w,
+            rh: int = resized_h,
+            rot: float = rotation,
+            px: int = x,
+            py: int = y,
+            fw: int = frame_w,
+            fh: int = frame_h,
+        ) -> tuple[PicturePlacement, tuple[int, int]]:
+            return PicturePlacement(width, height, rw, rh, rot, px, py), (fw, fh)
+
+        stacks = clip_mask_stacks(clip, size, placements=placements)
+        assert stacks is not None, case["id"]
+        expected = [
+            {
+                "width": width,
+                "height": height,
+                "time": t,
+                "alpha": _digest(stacks.alpha_at(t, width, height)),
+            }
+            for width, height in case["sizes"]
+            for t in case["times"]
+        ]
+        cases.append({**case, "expected": expected})
+    return {
+        "area": "frame-clips",
+        "spec": (
+            "engine/python/tests/mask_stack_vectors.py; render/mask_stack.py frame_space_alpha. "
+            "placement = [width, height, rotation, x, y] of the resized picture on the frame"
+        ),
+        "cases": cases,
+    }
+
+
+# --- Cut-out edge styles (MK9.2) --------------------------------------------------------
+
+#: The raster every edge style vector draws on: a soft blob (a matte-like raster alpha) and a
+#: hard square, so the cut-out has curved, straight and near-threshold edges.
+EDGE_SIZE = (40, 30)
+
+EDGE_CASES: list[dict[str, Any]] = [
+    {"id": "stroke", "scale": 1.0, "opacity": 1.0, "styles": [("stroke", {"widthPx": 3})]},
+    {
+        "id": "stroke-scaled-coloured",
+        "scale": 0.75,
+        "opacity": 0.8,
+        "styles": [("stroke", {"widthPx": 5, "red": 12, "green": 200, "blue": 90, "opacity": 0.7})],
+    },
+    {"id": "glow", "scale": 1.0, "opacity": 1.0, "styles": [("glow", {"radiusPx": 7})]},
+    {
+        "id": "shadow-offset-rounds-half-even",
+        "scale": 0.5,
+        "opacity": 1.0,
+        "styles": [("shadow", {"offsetXPx": 5, "offsetYPx": -3, "softnessPx": 3})],
+    },
+    {
+        "id": "all-three-faded",
+        "scale": 1.0,
+        "opacity": 0.6,
+        "styles": [
+            ("shadow", {"offsetXPx": 3, "offsetYPx": 4, "softnessPx": 0}),
+            ("glow", {"radiusPx": 4, "red": 255, "green": 0, "blue": 128}),
+            ("stroke", {"widthPx": 1.5}),
+        ],
+    },
+]
+
+
+def edge_inputs() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The picture (RGB), its attached alpha and the stack alpha every edge vector reads."""
+    width, height = EDGE_SIZE
+    ys, xs = np.mgrid[0:height, 0:width].astype(np.float64)
+    blob = np.clip((1.3 - np.hypot((xs - 13.2) / 8.0, (ys - 14.6) / 6.5)) * 2.0, 0.0, 1.0)
+    square = ((xs >= 26) & (xs < 33) & (ys >= 9) & (ys < 20)).astype(np.float64)
+    stack = np.rint(np.maximum(blob, square) * 255.0) / 255.0
+    rgb = np.stack([60 + xs * 4, 220 - ys * 5, 90 + xs + ys], axis=-1)
+    picture = np.clip(np.rint(rgb), 0, 255).astype(np.uint8)
+    return picture, stack * 0.9, stack
+
+
+def _edge_document() -> dict[str, Any]:
+    from framepilot_engine.render.edge_styles import EdgeStyle, apply_edge_styles
+    from framepilot_engine.render.effect_catalog import clamp_edge_style_params
+
+    picture, alpha, stack = edge_inputs()
+    cases = []
+    for case in EDGE_CASES:
+        styles = tuple(
+            EdgeStyle(kind, clamp_edge_style_params(kind, params))
+            for kind, params in case["styles"]
+        )
+        rgb, out_alpha = apply_edge_styles(
+            picture, alpha, stack, styles, case["scale"], case["opacity"]
+        )
+        cases.append(
+            {
+                "id": case["id"],
+                "scale": case["scale"],
+                "opacity": case["opacity"],
+                "styles": [{"kind": style.kind, "params": style.params} for style in styles],
+                "expected": {
+                    "rgb": hashlib.sha256(np.ascontiguousarray(rgb).tobytes()).hexdigest(),
+                    "alpha": _float_digest(out_alpha),
+                },
+            }
+        )
+    width, height = EDGE_SIZE
+    return {
+        "area": "edge-styles",
+        "spec": (
+            "engine/python/tests/mask_stack_vectors.py; render/edge_styles.py apply_edge_styles. "
+            "picture = RGB bytes, alpha = stack x 0.9, stack = 8-bit levels / 255; expected = "
+            "SHA-256 of the RGB bytes and of the float64 LE alpha"
+        ),
+        "size": {"width": width, "height": height},
+        "picture": base64.b64encode(picture.tobytes()).decode("ascii"),
+        "stack": base64.b64encode(np.rint(stack * 255.0).astype(np.uint8).tobytes()).decode(
+            "ascii"
+        ),
+        "cases": cases,
+    }
+
+
+def serialize(doc: dict[str, Any]) -> str:
+    return json.dumps(doc, indent=1, ensure_ascii=False) + "\n"
+
+
+# --- Track mattes (MK8.2) ---------------------------------------------------------------
+
+#: The source frame every layer vector reads: RGBA, straight alpha, a soft disc of varying colour
+#: over a transparent frame with a hard-edged opaque block, so alpha and luma both vary.
+LAYER_FRAME_SIZE = (40, 30)
+
+#: Placements covering identity, an offset partly off the frame, up- and down-scaling, and two
+#: rotations (PIL's counter-clockwise angle about the resized centre).
+_LAYER_PLACEMENTS: list[dict[str, Any]] = [
+    {"id": "identity", "placement": [40, 30, 40, 30, 0.0, 0, 0]},
+    {"id": "offset-off-frame", "placement": [20, 16, 20, 16, 0.0, 27, -5]},
+    {"id": "upscaled", "placement": [10, 8, 40, 30, 0.0, 0, 0]},
+    {"id": "downscaled", "placement": [64, 48, 20, 15, 0.0, 10, 5]},
+    {"id": "rotated-30", "placement": [24, 18, 30, 22, 30.0, 4, 3]},
+    {"id": "rotated-90", "placement": [20, 20, 20, 20, 90.0, 10, 5]},
+]
+
+
+def layer_frame_rgba() -> np.ndarray:
+    """:data:`LAYER_FRAME_SIZE` RGBA uint8 (rows top to bottom)."""
+    width, height = LAYER_FRAME_SIZE
+    ys, xs = np.mgrid[0:height, 0:width].astype(np.float64)
+    radius = np.hypot((xs - 14.3) / 11.0, (ys - 13.7) / 9.0)
+    alpha = np.clip((1.2 - radius) * 255.0, 0.0, 255.0)
+    alpha = np.where((xs >= 28) & (xs < 36) & (ys >= 4) & (ys < 26), 255.0, alpha)
+    red = 40 + xs * 5
+    green = 250 - ys * 7
+    blue = 30 + (xs + ys) * 3
+    rgba = np.stack([red, green, blue, alpha], axis=-1)
+    quantised: np.ndarray = np.clip(np.rint(rgba), 0, 255).astype(np.uint8)
+    return quantised
+
+
+def _layer_document() -> dict[str, Any]:
+    from framepilot_engine.render.layer_mattes import (
+        LAYER_CHANNELS,
+        LayerMatteFrame,
+        PicturePlacement,
+        sampled_channel,
+    )
+
+    rgba = layer_frame_rgba()
+    frame = LayerMatteFrame(
+        rgb=rgba[:, :, :3].copy(), alpha=rgba[:, :, 3].astype(np.float64) / 255.0
+    )
+    cases = []
+    for entry in _LAYER_PLACEMENTS:
+        placement = PicturePlacement(*entry["placement"])
+        cases.append(
+            {
+                **entry,
+                "expected": {
+                    channel: _float_digest(sampled_channel(frame, channel, placement))
+                    for channel in LAYER_CHANNELS
+                },
+            }
+        )
+    return {
+        "area": "layer",
+        "spec": (
+            "engine/python/tests/mask_stack_vectors.py; render/layer_mattes.py sampled_channel. "
+            "placement = [localWidth, localHeight, width, height, rotation, x, y]; expected = "
+            "SHA-256 of the float64 LE channel on the local raster (before finesse)"
+        ),
+        "frame": {
+            "width": LAYER_FRAME_SIZE[0],
+            "height": LAYER_FRAME_SIZE[1],
+            "rgba": base64.b64encode(rgba.tobytes()).decode("ascii"),
+        },
+        "cases": cases,
+    }
+
+
+DOCUMENTS = {
+    "legacy": _legacy_document,
+    "layer": _layer_document,
+    "stack-clips": _clip_document,
+    "matte-clips": _matte_document,
+    "frame-layers": _frame_layer_document,
+    "frame-clips": _frame_clip_document,
+    "edge-styles": _edge_document,
+    "finesse": _finesse_document,
+}
+
+
+def main() -> int:
+    logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
+    FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
+    for name, build in DOCUMENTS.items():
+        path = FIXTURE_DIR / f"{name}.json"
+        document = build()
+        path.write_text(serialize(document), encoding="utf-8")
+        _log.info("wrote %s (%d cases)", path.name, len(document["cases"]))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

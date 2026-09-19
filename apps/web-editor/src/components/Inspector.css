@@ -30,7 +30,15 @@
   min-width: 0;
   padding: 0;
   overflow-x: hidden;
-  overflow-y: auto;
+  /*
+   * The PANEL does not scroll; its tab page does (below), and the status bar is a sibling under
+   * that scroll region rather than a sticky child of it — the same split the export dialog uses,
+   * for the same reason. As a sticky child it covered the last band of the scroll port, so a
+   * control scrolled flush to the bottom edge could not be clicked at all, by a person or by a
+   * test. Found once the Mask tab grew a background-removal row (BR6.8), but it was never
+   * specific to that row: any panel taller than the rail had it.
+   */
+  overflow-y: hidden;
   background: var(--bg-panel);
 }
 
@@ -226,6 +234,9 @@
 .inspector-pro .inspector-tab-page {
   flex: 1;
   min-height: 0;
+  /* The one scrolling region of the inspector. */
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 0 var(--inspector-inline) 28px;
 }
 
@@ -731,11 +742,44 @@
 }
 
 .inspector-pro .inspector-effect-list code {
+  /* Takes the slack, so the mask count and the "Add mask" button keep their own width. */
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--text-tertiary);
   font-size: var(--font-size-xs);
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* MK6.1: a key mask's qualifier rows and its eyedropper. */
+.inspector-pro .mask-key-range {
+  display: contents;
+}
+
+.inspector-pro .mask-eyedropper {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.inspector-pro .mask-eyedropper[aria-pressed='true'] {
+  color: var(--accent);
+}
+
+/* MK5.1: the effect row's mask affordance and the count of masks already limiting it. */
+.inspector-pro .inspector-effect-masked {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.inspector-pro .inspector-effect-list .inspector-text-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  align-items: center;
   white-space: nowrap;
 }
 
@@ -881,4 +925,332 @@
     animation: none;
     transition: none;
   }
+}
+
+/* ---- Background removal row (BR6.1) ------------------------------------- */
+.inspector-pro .background-removal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.inspector-pro .background-removal-warning {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm);
+  background: var(--warning-subtle);
+}
+.inspector-pro .background-removal-warning-headline {
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.inspector-pro .background-removal-warning p {
+  margin: 0;
+}
+.inspector-pro .background-removal-actions {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+.inspector-pro .background-removal-subject {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.inspector-pro .background-removal-subject legend {
+  padding: 0;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+}
+.inspector-pro .background-removal-subject label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-secondary);
+}
+
+.inspector-pro .background-removal-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+}
+.inspector-pro .background-removal-text input {
+  padding: var(--space-1);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
+.inspector-pro .background-removal-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.inspector-pro .background-removal-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-subtle, var(--bg-surface));
+  overflow: hidden;
+}
+.inspector-pro .background-removal-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+/* ---- Review list, shared by mattes and tracks (BR6.5) ------------------- */
+.inspector-pro .mask-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.inspector-pro .mask-review-verified {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  color: var(--text-secondary);
+}
+.inspector-pro .mask-review-badge {
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-xs);
+  background: var(--success-subtle, var(--bg-active));
+  color: var(--success, var(--text-primary));
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.inspector-pro .mask-review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.inspector-pro .mask-review-list:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.inspector-pro .mask-review-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.inspector-pro .mask-review-range {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+.inspector-pro .mask-review-range:hover {
+  background: var(--bg-hover);
+}
+.inspector-pro .mask-review-range[aria-current='true'] {
+  background: var(--bg-selected);
+}
+.inspector-pro .mask-review-reason {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+}
+.inspector-pro .mask-review-brushes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+.inspector-pro .mask-review-size {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+/* ---- Mask tab (MK4.2) --------------------------------------------------- */
+.inspector-pro .mask-panel-tools {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+.inspector-pro .mask-panel-tool {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: var(--space-1) 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+.inspector-pro .mask-panel-tool:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.inspector-pro .mask-panel-tool[aria-pressed='true'] {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+  background: var(--bg-active);
+}
+.inspector-pro .mask-panel-tool:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+.inspector-pro .mask-panel-tool:focus-visible,
+.inspector-pro .mask-list-row:focus-visible,
+.inspector-pro .mask-list-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.inspector-pro .mask-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.inspector-pro .mask-list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 28px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-xs);
+  cursor: default;
+}
+.inspector-pro .mask-list-row:hover {
+  background: var(--bg-hover);
+}
+.inspector-pro .mask-list-row[data-selected] {
+  background: var(--bg-selected);
+}
+.inspector-pro .mask-list-row[data-disabled] .mask-list-name {
+  color: var(--text-tertiary);
+}
+.inspector-pro .mask-list-row[data-drop] {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.inspector-pro .mask-list-grip {
+  display: grid;
+  color: var(--text-tertiary);
+  cursor: grab;
+}
+.inspector-pro .mask-list-color {
+  position: relative;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+.inspector-pro .mask-list-color input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.inspector-pro .mask-list-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inspector-pro .mask-list-mode {
+  max-width: 76px;
+  height: 22px;
+  padding: 0 2px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+.inspector-pro .mask-list-toggle {
+  display: grid;
+  place-items: center;
+  flex: none;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 2px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+.inspector-pro .mask-list-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.inspector-pro .mask-list-invert[aria-pressed='true'] {
+  color: var(--text-primary);
+  background: var(--bg-active);
+}
+.inspector-pro .mask-number {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.inspector-pro .mask-number-scrub {
+  color: var(--text-tertiary);
+  cursor: ew-resize;
+  user-select: none;
+  touch-action: none;
+}
+.inspector-pro .mask-number[data-disabled] .mask-number-scrub {
+  cursor: not-allowed;
+}
+.inspector-pro .mask-number-input {
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  padding: 0 var(--space-1);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+}
+.inspector-pro .mask-number-input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+.inspector-pro .mask-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.inspector-pro .mask-presets-save {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
 }

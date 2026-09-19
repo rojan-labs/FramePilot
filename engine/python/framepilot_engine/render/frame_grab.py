@@ -19,6 +19,12 @@ WHY it is downscaled and JPEG by default: the frame is sent to a model as base64
 inside a prompt. A 1080x1920 PNG is megabytes of context for a question a
 512-pixel-wide JPEG answers just as well, and the token cost of an image scales
 with its pixels. The caller may ask for more when it genuinely needs detail.
+
+WHY there is a ``lossless`` mode: the preview/export parity oracle (PX4 in
+``plan/background-removal-ai/09-PREVIEW-EXPORT-PARITY.md``) compares the preview's canvas
+with the export's frame pixel by pixel, at the project's own resolution. A downscaled or
+JPEG frame would hide exactly the half-pixel, colour and edge differences it exists to find.
+It is an explicit opt-in so the model-facing defaults and ceiling above stay as they are.
 """
 
 from __future__ import annotations
@@ -115,6 +121,8 @@ def grab_frame(
     max_dimension: int = DEFAULT_MAX_DIMENSION,
     image_format: str = "jpeg",
     burn_captions: bool = True,
+    lossless: bool = False,
+    lossless_size: tuple[int, int] | None = None,
 ) -> GrabbedFrame:
     """Composite the timeline at ``time_seconds`` and return it as image bytes.
 
@@ -131,6 +139,16 @@ def grab_frame(
     :param burn_captions: Draw caption-track text into the frame. Default
         ``True``: soft captions are invisible in a still, and a picture that
         omits them cannot answer "do the captions look right?".
+    :param lossless: Test-only full-fidelity mode for the parity oracle: composite at the
+        project's full resolution exactly as the export does (no decode budget, no
+        :data:`MAX_ALLOWED_DIMENSION` ceiling, no resize) and encode a PNG. ``max_dimension``
+        does not apply. Requires ``image_format="png"``; asking for a lossy format with it
+        is refused rather than silently overridden.
+    :param lossless_size: With ``lossless``, composite at this ``(width, height)`` instead of the
+        project's resolution — the export's compositor run at another output size, not a resize of
+        the full frame. The parity oracle uses it to compare at the preview canvas's size (the
+        preview may be lower resolution; the comparison never rescales either image). Even
+        rounding applies. Refused without ``lossless``.
     :returns: The encoded frame and the time it was actually taken at.
     :raises FrameGrabError: On an unknown preset/format, an empty timeline, or a
         compile/encode failure.
@@ -145,6 +163,11 @@ def grab_frame(
     fmt = image_format.lower()
     if fmt not in {"jpeg", "png"}:
         raise FrameGrabError(f"Unsupported image format {image_format!r}; use 'jpeg' or 'png'.")
+    if lossless and fmt != "png":
+        raise FrameGrabError(
+            f"A lossless frame must be encoded as png, not {image_format!r}: "
+            "a lossy encode would defeat the pixel comparison it exists for."
+        )
 
     duration = timeline_duration(project.timeline)
     if duration <= 0:
@@ -155,14 +178,34 @@ def grab_frame(
     last_frame_time = max(0.0, duration - (1.0 / fps))
     at = min(max(0.0, float(time_seconds)), last_frame_time)
 
-    requested_dimension = min(max(1, int(max_dimension)), MAX_ALLOWED_DIMENSION)
-    preset = _resolve_preset(project, requested_dimension)
+    if lossless_size is not None and not lossless:
+        raise FrameGrabError("lossless_size only applies to a lossless frame.")
+    if lossless and lossless_size is not None:
+        size_w, size_h = (int(v) for v in lossless_size)
+        if size_w < 2 or size_h < 2:
+            raise FrameGrabError(f"lossless_size must be at least 2x2, got {size_w}x{size_h}.")
+        requested_dimension = max(size_w, size_h)
+        preset = ExportPreset(
+            id="project",
+            label="Project resolution",
+            width=size_w - size_w % 2,
+            height=size_h - size_h % 2,
+            fps=project.fps or 30,
+        )
+    else:
+        if lossless:
+            # The export's own frame size. Even rounding still applies: the sources are yuv420p.
+            requested_dimension = max(project.resolution.width, project.resolution.height)
+        else:
+            requested_dimension = min(max(1, int(max_dimension)), MAX_ALLOWED_DIMENSION)
+        preset = _resolve_preset(project, requested_dimension)
     asset_index = index_assets([asset.model_dump() for asset in project.assets], base_dir=base_dir)
     # No source is decoded larger than the frame it is being composited into. The
     # export path deliberately reads camera masters; a picture for a model to look
     # at has no such requirement, and decoding UHD for a 512px JPEG is the single
     # most expensive thing this module used to do.
-    decode_budget = max(preset.width, preset.height)
+    # A lossless frame is the export's, so it reads sources the way the export does: unbudgeted.
+    decode_budget: int | None = None if lossless else max(preset.width, preset.height)
 
     def build() -> Any:
         try:
@@ -219,7 +262,9 @@ def grab_frame(
             image.save(buffer, format="JPEG", quality=_JPEG_QUALITY, optimize=True)
             media_type = "image/jpeg"
         else:
-            image.save(buffer, format="PNG", optimize=True)
+            # `optimize` only shrinks the file; a lossless test frame is written once and read
+            # once, so the extra zlib passes buy nothing.
+            image.save(buffer, format="PNG", optimize=not lossless)
             media_type = "image/png"
     except Exception as exc:
         raise FrameGrabError(
@@ -228,11 +273,12 @@ def grab_frame(
 
     data = buffer.getvalue()
     _log.info(
-        "ACT frame grab: t=%.3fs size=%dx%d format=%s bytes=%d",
+        "ACT frame grab: t=%.3fs size=%dx%d format=%s lossless=%s bytes=%d",
         at,
         image.width,
         image.height,
         fmt,
+        lossless,
         len(data),
     )
     return GrabbedFrame(

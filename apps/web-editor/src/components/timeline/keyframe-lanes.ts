@@ -80,14 +80,81 @@ export function trackKeyframeLanesHeight(track: Track, expanded: ReadonlySet<str
   let deepest = 0;
   for (const clip of track.clips) {
     if (!expanded.has(clip.id)) continue;
-    deepest = Math.max(deepest, clipKeyframeLanes(clip).length);
+    deepest = Math.max(deepest, clipKeyframeLanes(clip).length + clipMaskLanes(clip).length);
   }
   return deepest * KEYFRAME_LANE_HEIGHT;
 }
 
-/** Whether a clip has anything to expand. */
+/** Whether a clip has anything to expand: clip keyframes or animated masks. */
 export function isAnimated(clip: Clip): boolean {
-  return clip.keyframes.length > 0;
+  return clip.keyframes.length > 0 || clipMaskLanes(clip).length > 0;
+}
+
+// --- Mask lanes (MK4.3) ----------------------------------------------------------
+
+/** Every keyframe of one mask at one source instant, moved together. */
+export interface MaskLaneInstant {
+  /** ASSET source seconds (the mask keyframe clock, ADR 0178). */
+  readonly sourceTime: number;
+  readonly keyframeIds: readonly string[];
+  /** What is keyed there, for the readout. */
+  readonly properties: readonly string[];
+}
+
+/** One mask's lane: its keyframes grouped by instant. */
+export interface MaskLane {
+  readonly maskId: string;
+  readonly name: string;
+  readonly color: string;
+  readonly instants: readonly MaskLaneInstant[];
+}
+
+/** Keyframes closer than this share one marker (the editor-core same-instant rule). */
+const MASK_INSTANT_EPSILON = 1e-6;
+
+/**
+ * A clip's mask lanes, one per animated mask, in stack order. A path with a single shape is not
+ * animated and gets no lane.
+ */
+export function clipMaskLanes(clip: Clip): readonly MaskLane[] {
+  const lanes: MaskLane[] = [];
+  (clip.masks ?? []).forEach((mask, index) => {
+    const entries: { sourceTime: number; id: string; property: string }[] = mask.keyframes.map(
+      (keyframe) => ({
+        sourceTime: keyframe.sourceTime,
+        id: keyframe.id,
+        property: keyframe.property,
+      }),
+    );
+    if (mask.kind === 'path' && mask.pathKeyframes.length > 1) {
+      for (const keyframe of mask.pathKeyframes) {
+        entries.push({ sourceTime: keyframe.sourceTime, id: keyframe.id, property: 'path' });
+      }
+    }
+    if (entries.length === 0) return;
+    entries.sort((a, b) => a.sourceTime - b.sourceTime);
+    const instants: { sourceTime: number; keyframeIds: string[]; properties: string[] }[] = [];
+    for (const entry of entries) {
+      const last = instants[instants.length - 1];
+      if (last !== undefined && entry.sourceTime - last.sourceTime <= MASK_INSTANT_EPSILON) {
+        last.keyframeIds.push(entry.id);
+        if (!last.properties.includes(entry.property)) last.properties.push(entry.property);
+      } else {
+        instants.push({
+          sourceTime: entry.sourceTime,
+          keyframeIds: [entry.id],
+          properties: [entry.property],
+        });
+      }
+    }
+    lanes.push({
+      maskId: mask.id,
+      name: mask.name.trim() !== '' ? mask.name : `Mask ${String(index + 1)}`,
+      color: mask.color,
+      instants,
+    });
+  });
+  return lanes;
 }
 
 // --- Selection identity ------------------------------------------------------

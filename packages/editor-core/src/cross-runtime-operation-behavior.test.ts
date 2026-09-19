@@ -83,6 +83,16 @@ describe('cross-runtime operation behavior fixture', () => {
         if (typeof expected.blendMode === 'string')
           expect(located.clip.blendMode).toBe(expected.blendMode);
 
+        // The v22 mask stack: each listed field of each mask, in stack order.
+        if (Array.isArray(expected.masks)) {
+          const wanted = expected.masks as Record<string, unknown>[];
+          const masks = (located.clip.masks ?? []) as unknown as Record<string, unknown>[];
+          expect(masks).toHaveLength(wanted.length);
+          wanted.forEach((want, index) => {
+            expect(masks[index]).toMatchObject(want);
+          });
+        }
+
         if (typeof expected.effectType === 'string') {
           const effect = located.clip.effects.find(
             (candidate) => candidate.type === expected.effectType,

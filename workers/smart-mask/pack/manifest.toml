@@ -1,0 +1,66 @@
+# Smart Mask pack build manifest.
+#
+# The signed catalog record is generated FROM this manifest plus the artifact hash produced
+# by the build job. Nothing here may drift from `src/framepilot_smart_mask/__init__.py`
+# (the identity the worker enforces during the health handshake) or from
+# `pack/models.lock.toml` (the weights), and a unit test holds all three together.
+
+[pack]
+id = "framepilot.smart-mask"
+version = "1.0.0"
+display_name = "Smart Mask"
+description = "Background removal, AI Object and AI Brush: subject mattes that follow a subject through a clip."
+channel = "stable"
+# The roster the worker enforces. Health check refuses any other set.
+capabilities = ["subject.matte", "subject.segment_frame"]
+worker_protocol_version = 1
+models_lock = "pack/models.lock.toml"
+
+[runtime]
+python_version = "3.13"
+python_requires = ">=3.12"
+entrypoint_module = "framepilot_smart_mask"
+health_check_argument = "--framepilot-health-check"
+runtime_argument = "--framepilot-worker-runtime"
+# Interactive `subject.segment_frame` against a warm process (BR3.13): serves one request
+# line after another on stdin until EOF, keeping the image encoder and its embedding LRU.
+warm_runtime_argument = "--framepilot-worker-warm"
+network = "disabled"
+
+[[platforms]]
+os = "darwin"
+arch = "arm64"
+entrypoint = "framepilot-smart-mask"
+signing = "apple-developer-id + notarization"
+
+[[platforms]]
+os = "win32"
+arch = "x64"
+entrypoint = "framepilot-smart-mask.exe"
+signing = "authenticode"
+
+[dependencies]
+# Exact versions come from uv.lock, which is the authority. These names document WHY each
+# dependency is present.
+lock = "uv.lock"
+onnxruntime = "onnxruntime"        # both models (SAM 2.1 Hiera-L, BiRefNet_HR-matting)
+opencv = "opencv-contrib-python-headless"  # DIS flow, morphology, PNG codec
+numpy = "numpy"
+pillow = "pillow"                  # SAM reference preprocessing (bicubic resize)
+# Decode/encode: an LGPL-only ffmpeg + ffprobe build placed in `bin/` by the pack build.
+# `tools/generate_sbom.py --check` refuses a GPL or nonfree build (plan 02).
+ffmpeg = "bin/ffmpeg (LGPL-only build)"
+
+[artifact]
+# BR0.6: SAM fp32 ONNX 921.5 MB + BiRefNet fp16-stored (one tile size) 449.6 MB + runtime
+# ~101 MB compressed; unpacked onnxruntime 76 MiB, cv2 139 MiB, numpy 24 MiB, ffmpeg ~60 MiB.
+max_unpacked_mib = 2048
+license_notice = "LICENSES.md"
+sbom = "pack/sbom"
+download_discloses = ["size", "licenses", "model provenance", "local-only execution", "minimum hardware"]
+
+[verification]
+models = "python tools/fetch_models.py --check"
+unit_suite = "pytest"
+decoded_media_suite = "python spike/watchdog.py --log decoded_media.log -- '<pytest -m decoded_media>'"
+license_drift = "python tools/generate_sbom.py --check"

@@ -257,7 +257,196 @@ Easing types (PRD §6.3): `linear`, `ease-in`, `ease-out`, `ease-in-out`, `hold`
 
 ---
 
+## Mask stack (schema v22, ADR 0178)
+
+`Clip.masks` and `EffectLayer.masks` are ordered stacks (top first) of `MaskLayer`, replacing the
+v21 `mask` effect type. Read them through `masksOf(owner)`; the field is optional and absent means
+no masks.
+
+| Field                                                        | Meaning                                                                                       |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `id`, `name`, `color`, `enabled`, `locked`                   | Identity, overlay colour (never rendered), bypass, edit lock                                  |
+| `target`                                                     | `{ kind: 'alpha' }` or `{ kind: 'effect', effectId }` (an effect on the same clip)            |
+| `mode`, `opacity`, `invert`                                  | `add`/`subtract`/`intersect`/`difference`/`lighten`/`darken`                                  |
+| `expansionPx`, `featherInnerPx`, `featherOuterPx`, `falloff` | Edge controls, pixels                                                                         |
+| `featherModel`                                               | `distance`, or `gaussian-legacy` for masks migrated from v21                                  |
+| `space`                                                      | `source` (display-corrected source pixels, before crop) or `frame` (output pixels)            |
+| `units`                                                      | Only `'normalized'`, on v21 masks whose media was never measured                              |
+| `keyframes`                                                  | `{ id, sourceTime, property, value, easing, handles? }`; `sourceTime` is ASSET source seconds |
+| `tracking`                                                   | `{ artifact: { key, sha256 }, method, referenceSourceTime, constraints, review }`             |
+| `legacySpec`                                                 | Only on masks migrated from v21: the v21 spec verbatim (MK2.5), see below                     |
+
+Kinds: `rectangle` (`cx, cy, width, height, rotation, roundness`), `ellipse` (`cx, cy, rx, ry,
+rotation`), `path` (`firstVertex`, `pathKeyframes[]` of `{ id, sourceTime, easing, points,
+vertexTypes, featherPx? }` — six numbers per vertex, tangents as offsets, types 0 corner / 1
+smooth / 2 broken), `matte` (`artifact, prompts, review, edgeShiftPx, decontaminate, edgeMode,
+finesse`), `key` (`model, ranges, samples3d, softness, despill, shadowRetention, finesse`),
+`linear`, `band`, `gradient`, and `layer` (`source: { kind: 'clip' | 'track' }, channel, finesse`).
+`editor-core` `encodeMaskPath`/`decodeMaskPath` convert paths; `maskLayerFromFrameShape` builds a
+mask from frame fractions. Operations are listed in `patch-format.md`.
+
+`legacySpec` is `{ x, y, width, height, feather, points?, keyframes: { sourceTime, property, value }[] }`
+in v21 terms (fractions of the cropped frame; `property` is `x`/`y`/`width`/`height`/`feather`).
+The v22 centre and size are not one-to-one with those fractions, so the export and the monitor draw
+a `gaussian-legacy` mask from `legacySpec` while it still maps onto the stored geometry, and
+recover fractions from the geometry once the mask has been edited. Only the v21 → v22 migration
+writes it.
+
+### Mask presets and binary path arrays (schema v23, MK4)
+
+`Timeline.maskPresets?: MaskPreset[]` holds masks saved for reuse: `{ id, name, width, height,
+sourceStart, masks }`, where `width`/`height` are the display-corrected size the masks were drawn
+on, so applying a preset rescales like `paste_masks`. Change it only through `save_mask_preset` /
+`remove_mask_preset` ([mask commands](./mask-commands.md)).
+
+In `project.fp.json`, a path keyframe's `points` or `featherPx` with 384 or more numbers is written
+as `"f64le:<base64>"`: the little-endian IEEE-754 bytes, exact to the bit. Both schemas accept
+either form and decode to a number array on parse (`decodeFloat64Array` in TS,
+`decode_float64_array` in Python). Readers of a parsed project never see the string.
+
+### Display-corrected source pixels (`Asset.media`, schema v22)
+
+Source-space mask pixels are measured against the picture as players show it. `Asset.media`
+records the probe's **coded** `width`/`height` (v21) and, since v22, two optional fields:
+
+| Field              | Type                     | Notes                                                                                                                                                                                              |
+| ------------------ | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pixelAspectRatio` | number > 0?              | ffprobe `sample_aspect_ratio` as a float (like `fps`). Absent or `null` ≡ square. Only non-square ratios are recorded.                                                                             |
+| `rotation`         | `0 \| 90 \| 180 \| 270`? | Clockwise display rotation: the negated display-matrix `rotation`, else the legacy `rotate` tag. Absent or `null` ≡ 0. A non-quarter-turn matrix is ignored (logged), as ffmpeg's autorotate does. |
+
+Display size = coded width × PAR, then width and height swap for 90/270. An anamorphic HDV clip
+(1440×1080, SAR 4:3) measures 1920×1080; a portrait phone clip coded 1920×1080 with a −90°
+display matrix measures 1080×1920. `editor-core` `assetDisplaySize` / `assetPictureGeometry`
+(with `codedToDisplay` / `displayToCoded`) and the engine's `AssetMedia.display_size()` are the
+only readers; every mask caller (preview, Inspector, patch builders, AI tools, tracking, export,
+motion evidence) goes through them. The export turns mask pixels into fractions of this size and
+draws them over the decoded frame, which is correct because MoviePy decodes a rotated stream
+already turned and a horizontal PAR stretch keeps width fractions unchanged.
+
+Validation: the schema rejects any other rotation and a non-positive or infinite PAR, and the
+desktop import drops such values from the sidecar at the process boundary. Media probed before v22
+has neither field and reads as square and unrotated; re-import it to measure anamorphic or rotated
+footage. No version bump: v22 was unreleased when the fields were added.
+
+### How the export draws a stack (MK2)
+
+`render/mask_stack.py` evaluates the enabled masks at the asset source second the clip is playing
+(the speed stage's clock: speed, reverse, freeze and ramps) and draws each on the exact
+rasteriser `render/mask_raster.py`. The TypeScript preview rasteriser (MK3) must match it byte for
+byte against `tests/fixtures/mask-raster`.
+
+| Rule              | Behaviour                                                                                                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Geometry          | Source pixels mapped through the clip's crop onto the decoded frame; expansion and feathers scale by the smaller axis scale                                                    |
+| `rotation`        | Degrees, clockwise on screen, about the centre; quarter turns are exact                                                                                                        |
+| `roundness`       | Corner radius `roundness × min(width, height) / 2`                                                                                                                             |
+| Path keyframes    | Every number `a + (b − a) × p`, `p` the earlier keyframe's eased progress (ADR 0089, incl. two-sided bezier handles); vertex `i` pairs with vertex `i`                         |
+| Hard edge         | Zero expansion and feathers: exact area coverage                                                                                                                               |
+| Feather           | `s` = signed distance to the edge (outside positive) − expansion; alpha `falloff((outer − s) / (inner + outer))`; with no feather but an expansion, a one-pixel linear edge    |
+| `featherPx`       | When present, the per-vertex OUTER feather, interpolated along each segment (replaces `featherOuterPx`)                                                                        |
+| `falloff`         | `linear` x · `smooth` 3x² − 2x³ · `gaussian` from the shipped 4096-entry table                                                                                                 |
+| Layer             | invert (`1 − a`), then × opacity                                                                                                                                               |
+| `mode`            | The stack starts at zero: `add` min(1, a + m) · `subtract` max(0, a − m) · `intersect` a × m · `difference` \|a − m\| · `lighten` max · `darken` min                           |
+| Quantisation      | Once, after the stack: `round(a × 255)`, ties to even                                                                                                                          |
+| `target: effect`  | That effect (today `color_grade`, `lut`) runs on the whole frame and is mixed with the input by the stack's alpha                                                              |
+| `gaussian-legacy` | The v21 blur, byte-identical for migrated masks; rotation, roundness, curves, expansion, inner or per-vertex feather refuse with "Switch the mask's feather model to Distance" |
+
+Refused before rendering, with "Disable the mask to export now": `key`, `linear`, `band`,
+`gradient` and `layer` masks, tracked masks, `space: 'frame'` masks and masks on effect layers.
+Hard edges follow the nonzero winding rule exactly, including self-crossing and self-overlapping
+paths (those pixels use an exact per-cell slab sweep).
+Migrated animated masks carry a keyframe per exported frame, so they export bit-identically to v21
+(ADR 0178 amendment).
+
+### Matte masks in the export (BR2)
+
+A `matte` layer is a raster from the Smart Mask pack, stored in the project at
+`.framepilot-derived/mattes/<artifact.key>/` (`render/mattes.py` reads it, `render/matte_edges.py`
+draws it). **Why each rule:** a matte one frame off its picture is a halo on every moving edge,
+and a matte drawn from a changed file silently differs from what the editor reviewed.
+
+**Artifact files.** `matte.mkv` (FFV1, `gray` or `gray16le`), `foreground.mkv` (FFV1 lossless
+RGB: `gbrp`, `bgr0`, `rgb24`, `bgra`, `rgba`, `0rgb`; colour only inside the soft band),
+`frames.json`:
+
+```json
+{ "version": 1, "timeBase": [1, 15360], "originPts": 0, "firstFrame": 12, "pts": [6144, 6656] }
+```
+
+`timeBase` is the source stream's; `originPts` is the pts of the source's first decoded frame
+(edit lists honoured, so asset second 0); `firstFrame` is the decode-order source frame number of
+matte frame 0; `pts[i]` is the source pts of matte frame `i`, strictly increasing. Matte frame
+`i` is the `i`-th decoded frame of each `.mkv`.
+
+**Display space (BR2.6).** Mattes and foregrounds are written in the picture's DISPLAY space, the
+space mask pixels use (MK1.9): pixel aspect ratio applied and a quarter-turn rotation turned, so
+the matte is upright and square-pixelled like the picture the export decodes. `artifact.width` /
+`height` are the display size with each side rounded to the nearest integer, halves up
+(`floor(x + 0.5)`): 1440×1080 at PAR 4:3 is 1920×1080, and a 1920×1080 clip rotated 90° is
+1080×1920. The engine (`matte_display_size`) and `editor-core`'s validator use the same rule.
+
+**Frame identity.** The export reads the matte frame for the SOURCE FRAME NUMBER its picture
+decodes (the frame plan's `source.frame`, also on the plan's matte layer as `matte.sourceFrame`),
+through speed, reverse, freeze and ramps. A caller with a real pts looks up by pts exactly. A frame
+the artifact does not hold is an error, never the nearest frame. Before rendering, every source
+frame the clip will read must be in the artifact, and every matte frame's pts must equal the pts
+of the source frame it names (each measured from its own clock zero, within half the coarser
+tick).
+
+**Variable-frame-rate sources (BR2.5, `render/pts_reader.py`).** The export lists each video
+source's packet timestamps once (demux only, cached; about 0.1 s for a two-minute 1080p file).
+When every frame step is within one tick of the others the source keeps MoviePy's reader, so
+constant-rate exports are unchanged. Otherwise frames are decoded once each (`-fps_mode
+passthrough`) and the frame shown at source second `t` is the last one whose pts (from the first
+frame) is at or before `t`; picture and matte use this same rule. The frame plan's
+`source.frame` still assumes a constant rate for such sources (it has no timestamps).
+
+**Per layer, in order** (source pixels of the artifact, then the clip's frame):
+
+| Step                    | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Decontaminate           | When `decontaminate`, before any effect or alpha: inside the band (`0 < alpha < max`) the picture's colour becomes `foreground.mkv`'s. Band weight and band-premultiplied colour are resampled and cropped separately: `out = picture + (colour − picture × weight)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Alpha                   | stored value / format maximum (255 or 65535)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `edgeShiftPx`           | Positive grows, negative shrinks: grey dilation/erosion of the stored integers by the disc `dx² + dy² ≤ r²` (edge pixels replicate) for `floor(                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | r   | )`and`ceil( | r   | )`, mixed `a + (b − a) × frac` |
+| `edgeMode` → finesse    | `smooth` (default) changes nothing. `sharp` sets clean black 0.25 and clean white 0.75 when `finesse.cleanBlack`/`cleanWhite` are at their defaults (0/1); explicit finesse values win. Those two levels then enter the finesse chain below at their step, so `edgeMode` is a preset over the group rather than a second mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Finesse group (MK6.2)   | In order: **denoise** (blend toward the 3×3 box mean by the amount, edges replicating) → **clean black/white** (`(a − black) / (white − black)` clamped; a threshold at `black` when `white ≤ black`) → **morph open** (erode then dilate by the disc, deleting specks outside the subject) → **morph close** (dilate then erode, filling pinholes inside it) → **shrink/grow** (the whole edge out (+) or in (−) by the disc) → **blur** (three box passes of `round(radius / 3)`, each separable, summed centre-outward) → **in/out ratio** (two straight segments through a midpoint at `0.5 − ratio/2`, so 0 and 1 stay put and the 50 % crossing moves). Every radius takes a disc of `floor` and `ceil` mixed by the fraction, as `edgeShiftPx` does. Denoising after the levels would put back the haze they removed, and blurring before the morphology would smear the specks it deletes — the order is what makes each control do what its name says |
+| `expansionPx`, feathers | All zero: the matte's own soft alpha. Otherwise the 50 % contour (`a ≥ 0.5`) is redrawn with the shape feather formula, `s` = (distance to the nearest pixel centre on the other side − ½, negative inside) − expansion                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| To the frame            | The picture's own path (BR2.7): resample to the size the source was decoded at (fit, decode cap or anamorphic stretch) with swscale's bicubic geometry (B = 0, C = 0.6; centre `(i + ½)·s − ½`, kernel stretched by `s` when shrinking, edges clamped, weights normalised tap by tap, horizontal then vertical, clamped to range), then MoviePy's integer crop of the clip's `crop` fractions. Same size: untouched. Deterministic and reproducible from this rule; not bit-identical to swscale's fixed-point filter                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Layer, mode             | invert, opacity, combine mode and the stack's single quantisation, as for every kind                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+
+The same finesse group runs on a `key` mask's alpha, between its qualifier and the layer's
+invert/opacity. `gaussian-legacy` on a matte or a key refuses.
+
+On a matte both implementations run the group on the CPU and are float64-byte-exact
+(`tests/fixtures/mask-raster/finesse.json`). On a key the preview runs it as shader passes,
+because the key's alpha only exists on the GPU; the morphology pass is bounded at a 16 px
+radius, so the monitor refuses more than that with a remedy while the export renders any radius.
+
+**Refusals** (before rendering; the export error shows the remedy exactly; codes are stable):
+
+| Code                             | Clip state | Shown                                                                                                              |
+| -------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| `matte_missing`                  | BROKEN     | Background removal data is missing — run Remove background again.                                                  |
+| `matte_digest_mismatch`          | BROKEN     | Background removal data was changed outside FramePilot — run Remove background again.                              |
+| `matte_unreadable`               | BROKEN     | Background removal data is damaged — run Remove background again.                                                  |
+| `matte_unsupported_pixel_format` | BROKEN     | Background removal data uses a format this version cannot read — update FramePilot or run Remove background again. |
+| `matte_size_mismatch`            | STALE      | Media changed since background removal ran — run Remove background again.                                          |
+| `matte_out_of_coverage`          | STALE      | Background removal does not cover the clip's whole range — update the background removal for the new range.        |
+| `matte_frame_misaligned`         | STALE      | Background removal frames do not line up with the media — run Remove background again.                             |
+
+Digests of `matte.mkv`, `frames.json` and (when decontaminating) `foreground.mkv` must equal the
+mask's `artifact.files[].sha256`. Coverage uses the validator's ±½ project frame.
+
 ## Schema versioning & migration
+
+**v21 → v22** converts `mask` effects into `Clip.masks` (see ADR 0178). The desktop app writes
+`<project>.v21.backup.fp.json` beside the project before the first migration and never overwrites
+it. A project from a newer FramePilot is refused with "Update FramePilot to open this project."
+
+**v22 → v23** (MK4.3) adds optional `Timeline.maskPresets`. The step itself is additive and has
+nothing to backfill — no v22 project ever saved a preset — but it still bumps the envelope, so a
+FramePilot that predates presets refuses a file whose presets it would otherwise silently drop on
+the next save. See [Mask presets and binary path arrays](#mask-presets-and-binary-path-arrays-schema-v23-mk4).
 
 - `Project.version` is the schema version. It is **bumped only with a migration**.
 - **No breaking schema change without a migration** (CI/agent rule; see

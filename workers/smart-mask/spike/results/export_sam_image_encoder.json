@@ -1,0 +1,73 @@
+{
+  "recordedAt": "2026-09-16T23:23:55",
+  "host": {
+    "platform": "darwin",
+    "machine": "arm64",
+    "python": "3.12.13",
+    "onnxruntime": "1.30.0",
+    "torch": "2.14.0",
+    "cpu": "Apple M1 Pro"
+  },
+  "module": "image_encoder",
+  "exportSeconds": 20.4,
+  "ops": [
+    "Add",
+    "Cast",
+    "Concat",
+    "Constant",
+    "ConstantOfShape",
+    "Conv",
+    "Cos",
+    "Div",
+    "Erf",
+    "Expand",
+    "Gather",
+    "Greater",
+    "If",
+    "LayerNormalization",
+    "Less",
+    "MatMul",
+    "MaxPool",
+    "Mod",
+    "Mul",
+    "Range",
+    "Reshape",
+    "Resize",
+    "Shape",
+    "Sin",
+    "Size",
+    "Slice",
+    "Softmax",
+    "Split",
+    "Sqrt",
+    "Squeeze",
+    "Sub",
+    "Tile",
+    "Transpose",
+    "Unsqueeze"
+  ],
+  "fp32Deduped": 0,
+  "fp16Store": {
+    "dedupedInitializers": 0,
+    "converted": 313,
+    "keptSmall": 285,
+    "keptOutOfFp16Range": 0,
+    "worstRoundTripAbsError": 0.0018186569213867188
+  },
+  "files": {
+    "sam21l_image_encoder.fp32.onnx": 852442220,
+    "sam21l_image_encoder.fp16s.onnx": 427319839
+  },
+  "peakRssMiB": 3202,
+  "pins": {
+    "sam2_repo": {
+      "url": "https://github.com/facebookresearch/sam2",
+      "commit": "2b90b9f5ceec907a1c18123530e92e794ad901a4"
+    },
+    "sam2.1_hiera_large.pt": {
+      "url": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt",
+      "sha256": "2647878d5dfa5098f2f8649825738a9345572bae2d4350a2468587ece47dd318",
+      "bytes": 898083611
+    }
+  }
+}

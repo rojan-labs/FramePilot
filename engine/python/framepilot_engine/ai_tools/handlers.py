@@ -28,7 +28,6 @@ from framepilot_engine.ai_tools.registry import (
     AddClipsArgs,
     AddKeyframesArgs,
     AddMarkerArgs,
-    AddMaskArgs,
     AddTextLayerArgs,
     AddTrackArgs,
     AddTransitionArgs,
@@ -670,10 +669,6 @@ def add_transition(args: AddTransitionArgs, ctx: ToolContext) -> Operations:
             "durationSeconds": args.duration_seconds,
         }
     ]
-
-
-def add_mask(args: AddMaskArgs, ctx: ToolContext) -> Operations:
-    return [{"type": "add_mask", "clipId": args.clip_id, "shape": args.shape}]
 
 
 def track_object(args: TrackObjectArgs, ctx: ToolContext) -> Operations:

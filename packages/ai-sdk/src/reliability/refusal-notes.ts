@@ -119,6 +119,30 @@ const UNUSABLE_HOST_PAYLOAD: Readonly<Record<string, UnusablePayloadCopy>> = {
       'the same way. Pick a different result from search_stock and add that one; if a ' +
       'second one fails like this, tell the editor the stock download failed and move on.',
   },
+  create_mask: {
+    what: 'the masking host returned a measurement FramePilot could not read, so no mask was added',
+    instead:
+      // Names no substitute, for `track_subject_automatically`'s reason: the only other way
+      // to a mask is coordinates, and the model is the one party that must never author them.
+      'Do not call it again for this clip — repeating it measures the same shot the same ' +
+      'way. Tell the editor the mask could not be made and that the clip is unchanged.',
+  },
+  remove_background: {
+    what: 'the masking host returned a measurement FramePilot could not read, so the background was not removed',
+    instead:
+      // Names no substitute, for `track_subject_automatically`'s reason: the only other way
+      // to a mask is coordinates, and the model is the one party that must never author them.
+      'Do not call it again for this clip — repeating it measures the same shot the same ' +
+      'way. Tell the editor the mask could not be made and that the clip is unchanged.',
+  },
+  track_mask: {
+    what: 'the tracking host returned a measurement FramePilot could not read, so the mask was not moved',
+    instead:
+      // Names no substitute, for `track_subject_automatically`'s reason: the only other way
+      // to a mask is coordinates, and the model is the one party that must never author them.
+      'Do not call it again for this clip — repeating it measures the same shot the same ' +
+      'way. Tell the editor the mask could not be made and that the clip is unchanged.',
+  },
   track_subject_automatically: {
     what:
       'the tracking host returned a measurement FramePilot could not read, so the mask was ' +
@@ -225,7 +249,7 @@ export function hostedTranscriptionUnavailable(reason: string): string {
 /**
  * The refusal for a tool that is registered but whose engine is not wired up.
  *
- * `Skipped "generate_mask" — not available yet` said the fact and stopped. "Yet" reads as
+ * `Skipped "<tool>" — not available yet` said the fact and stopped. "Yet" reads as
  * "wait and try later", which is the one thing that cannot work: `ToolSpec.available` is a
  * build-time constant, so the answer is identical on every turn of every run. Naming that
  * is what turns the second call into the last one.

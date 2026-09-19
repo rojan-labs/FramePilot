@@ -43,6 +43,10 @@ class RawDetection:
     label: DetectionLabel
     box: PixelBox
     confidence: float
+    #: The COCO class the object detector scored highest (``coco_classes``), and its
+    #: conditional class probability. ``None`` for a detector without classes (faces).
+    object_class: str | None = None
+    class_score: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,7 +101,7 @@ class SubjectBackend(Protocol):
     def detect_faces(self, frame: Frame) -> Sequence[RawDetection]: ...
 
     def detect_objects(self, frame: Frame) -> Sequence[RawDetection]:
-        """People and things. Labels are already `person` or `object`."""
+        """People and things. Labels are already `person` or `object`; each names its COCO class."""
 
     def segment_subject(self, frame: Frame, region: PixelBox) -> RawMask:
         """Segment the subject inside ``region``, returned as a full-frame mask."""

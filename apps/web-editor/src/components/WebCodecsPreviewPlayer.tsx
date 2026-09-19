@@ -10,10 +10,10 @@
  * project's own timeline time — no per-clip source-time translation needed
  * (P1's single-clip version had to translate; P2's multi-clip EDL doesn't).
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Asset, CaptionStyle, TranscriptWord } from '@framepilot/timeline-schema';
 import { createLogger } from '@framepilot/shared-types';
-import { resolveCaptionCue } from '@framepilot/editor-core';
+import { effectLayerMaskOwner, framePlanAt, resolveCaptionCue } from '@framepilot/editor-core';
 import { useFramePlayhead, type UseEditor } from '../editor/useEditor.js';
 import { previewMediaSrc } from '../editor/media.js';
 import {
@@ -41,7 +41,21 @@ import { textOverlayStyle } from '../editor/textOverlay.js';
 import {
   WebCodecsPreviewEngine,
   type EngineSegment,
+  type PreviewEngineCallbacks,
 } from '../preview/engine/webcodecs-preview-engine.js';
+import type { MaskPreviewRefusal } from '../preview/masks/mask-stack.js';
+import { isMaskDebugView, type MaskDebugView } from '../preview/masks/mask-view.js';
+import { MaskViewToggle } from './MaskViewToggle.js';
+import { LayerPreviewEngine } from '../preview/engine/layer-preview-engine.js';
+import { layerCompositorEnabled } from '../preview/compositor-flag.js';
+import { maskToolsEnabled } from '../preview/mask-tools-flag.js';
+import { timelineWithLiveMask, type LiveMaskPreview } from '../editor/mask-editing.js';
+import { useMaskTools } from './inspector/masks/useMaskTools.js';
+import { MaskCanvasTools } from './preview/MaskCanvasTools.js';
+import { drawnPictureClips, selectedDrawnPicture } from '../preview/monitor-pictures.js';
+import { maskToolTelemetry } from './preview/mask-tool-telemetry.js';
+import { previewFailureMessage } from '../preview/preview-availability.js';
+import { isDesktop } from '../editor/bridge-base.js';
 import { CaptionOverlay } from './CaptionOverlay.js';
 import { MonitorHeaderPortal } from './MonitorHeaderPortal.js';
 import { PreviewAudioMixer } from './PreviewAudioMixer.js';
@@ -115,7 +129,9 @@ export function WebCodecsPreviewPlayer({
 }: WebCodecsPreviewPlayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewRef = useRef<HTMLElement>(null);
-  const engineRef = useRef<WebCodecsPreviewEngine | null>(null);
+  // RD2.1: the frame-plan layer compositor, or the legacy flat-EDL engine (kill switch).
+  const [layered] = useState(layerCompositorEnabled);
+  const engineRef = useRef<WebCodecsPreviewEngine | LayerPreviewEngine | null>(null);
   const editorRef = useRef(editor);
   editorRef.current = editor;
   const lastReportedTimeRef = useRef(0);
@@ -146,10 +162,11 @@ export function WebCodecsPreviewPlayer({
   const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
   // `resolution` is the project frame the canvas composites into, and coverage is a relation
   // between the stacked clips and that frame (ADR 0170).
-  const eligible = canvasPreviewEligible(editor.state.timeline, assetById, resolution);
+  // The layer compositor draws every timeline; only the legacy engine needs the gate.
+  const eligible = layered || canvasPreviewEligible(editor.state.timeline, assetById, resolution);
   const segments = useMemo(
-    () => (eligible ? pictureSegments(editor.state.timeline, assetById) : []),
-    [eligible, editor.state.timeline, assetById],
+    () => (eligible && !layered ? pictureSegments(editor.state.timeline, assetById) : []),
+    [eligible, layered, editor.state.timeline, assetById],
   );
 
   // --- On-canvas transform (revamp Phase 3) ---------------------------------
@@ -163,15 +180,87 @@ export function WebCodecsPreviewPlayer({
   // committed playhead is stale only DURING playback, which is exactly when nobody
   // is dragging handles; any discrete seek updates it.
   const [transformOverride, setTransformOverride] = useState<TransformOverride>(null);
+  // Every picture clip the frame plan draws now, back to front (not under-layers).
+  const drawnPictures = useMemo(
+    () =>
+      layered
+        ? drawnPictureClips(
+            framePlanAt(editor.state.timeline, assets, editor.state.playhead, resolution),
+            editor.state.timeline,
+          )
+        : null,
+    [layered, editor.state.timeline, assets, resolution, editor.state.playhead],
+  );
   const shownPicture = useMemo(() => {
+    // The front-most picture: what a click on the monitor selects.
+    if (drawnPictures !== null) return drawnPictures[drawnPictures.length - 1] ?? null;
     const at = editor.state.playhead;
     return (
       segments.find((seg) => seg.clip !== null && seg.start <= at && at < seg.end)?.clip ?? null
     );
-  }, [segments, editor.state.playhead]);
+  }, [drawnPictures, segments, editor.state.playhead]);
+  // The clip the handles and mask tools act on: the selected one among the drawn pictures, even
+  // when another picture covers it (a clip under a cut-out or a track matte source still needs
+  // its masks drawn).
   const selectedPicture =
-    shownPicture && editor.state.selectedIds.includes(shownPicture.id) ? shownPicture : null;
+    drawnPictures !== null
+      ? selectedDrawnPicture(drawnPictures, editor.state.selectedIds)
+      : shownPicture && editor.state.selectedIds.includes(shownPicture.id)
+        ? shownPicture
+        : null;
   const transformSelected = selectedPicture !== null;
+  // MK4.1 (RD2.1 flag): with the Inspector's mask panel open for the selected picture, the
+  // monitor edits its masks instead of its transform.
+  const [maskToolsOn] = useState(maskToolsEnabled);
+  const maskTools = useMaskTools();
+  const clipMaskEditing =
+    maskToolsOn && selectedPicture !== null && maskTools.panelClipId === selectedPicture.id;
+  // MK9.1: an adjustment lane's Mask tab puts the monitor tools in FRAME space for the lane. The
+  // lane is handed over as its clip-shaped stand-in, so the same tools draw it.
+  const laneOwner = useMemo(() => {
+    const laneId = maskTools.panelClipId;
+    if (!maskToolsOn || clipMaskEditing || laneId === null) return null;
+    for (const track of editor.state.timeline.tracks) {
+      const layer = track.effectLayers?.find((candidate) => candidate.id === laneId);
+      if (layer !== undefined) return effectLayerMaskOwner(layer);
+    }
+    return null;
+  }, [maskToolsOn, clipMaskEditing, maskTools.panelClipId, editor.state.timeline]);
+  const maskEditing = clipMaskEditing || laneOwner !== null;
+  const [stageHost, setStageHost] = useState<HTMLDivElement | null>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  // The frame's layout width, for the mask tools' zoom. Measured when mask editing starts and on
+  // resize, never while rendering: this component re-renders on every pointer move of a mask
+  // drag (it follows the live geometry), and reading `offsetWidth` in render forced a style and
+  // layout of the whole editor inside each move - the pattern MK4.6 took out of MaskCanvasTools.
+  const [frameWidth, setFrameWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    if (!maskEditing || frame === null) return undefined;
+    const measure = (): void => setFrameWidth(frame.offsetWidth);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, [maskEditing]);
+  const liveMask = useMemo((): LiveMaskPreview | null => {
+    if (!maskEditing) return null;
+    if (maskTools.live !== null) return maskTools.live;
+    return maskTools.liveScalars;
+  }, [maskEditing, maskTools.live, maskTools.liveScalars]);
+  const previewTimeline = useMemo(
+    () =>
+      liveMask === null
+        ? editor.state.timeline
+        : timelineWithLiveMask(editor.state.timeline, liveMask),
+    [editor.state.timeline, liveMask],
+  );
+  // MK3.3: the mask view switch appears only while the selected picture carries an enabled mask.
+  const maskViewClipId =
+    selectedPicture !== null && (selectedPicture.masks ?? []).some((mask) => mask.enabled)
+      ? selectedPicture.id
+      : null;
   const baseTransform = useMemo(
     () => baseTransformOf(selectedPicture?.keyframes ?? []),
     [selectedPicture],
@@ -198,7 +287,7 @@ export function WebCodecsPreviewPlayer({
           return { projectStart: seg.start, projectEnd: seg.end, sourceStart: 0, sourceEnd: 0 };
         }
         const kind = assetKind(asset) === 'image' ? ('image' as const) : ('video' as const);
-        const base = clipCompositing(seg.clip);
+        const base = clipCompositing(seg.clip, asset.media);
         // A live canvas drag previews by overriding this clip's BASE keyframes —
         // the compositor draws from keyframes, not from a CSS transform the way the
         // retired DOM player did. Expressed exactly as `setClipTransformPatch` will
@@ -333,10 +422,15 @@ export function WebCodecsPreviewPlayer({
       lines: readonly (readonly TranscriptWord[])[];
       text: string;
     }[] = [];
+    // Layer compositor: captions burn into the frame when the monitor shows them; this DOM layer
+    // only keeps the styled (template) captions the compositor does not rasterise yet.
+    if (layered && !settings.previewBurnCaptions) return [];
     for (const track of editor.state.timeline.tracks) {
       if (track.hidden) continue;
       for (const clip of track.clips) {
         if (clipKind(clip, assetById) !== 'caption') continue;
+        if (layered && clip.captionStyle === undefined && track.captionStyle === undefined)
+          continue;
         const cue = resolveCaptionCue(clip, words);
         if (cue.lines.every((line) => line.length === 0)) continue;
         clips.push({
@@ -351,7 +445,14 @@ export function WebCodecsPreviewPlayer({
       }
     }
     return clips;
-  }, [eligible, editor.state.timeline, assetById, transcript]);
+  }, [
+    eligible,
+    layered,
+    settings.previewBurnCaptions,
+    editor.state.timeline,
+    assetById,
+    transcript,
+  ]);
 
   // Canvas buffer dimensions: the project aspect (so non-16:9 projects aren't
   // distorted and letterboxing matches export), scaled so the long edge is at
@@ -367,12 +468,32 @@ export function WebCodecsPreviewPlayer({
   // Project time is authoritative even while media is still loading or when a
   // source fails and is represented as a gap. Basing transport duration on the
   // decoder made an unavailable source collapse every seek back to zero.
+  // The layer compositor builds no EDL, so its transport length is the timeline's own end (the
+  // engine's `durationSeconds`): an EDL-derived 0 clamped every transport step to the start.
   const durationSec = useMemo(
-    () => edl.reduce((duration, segment) => Math.max(duration, segment.projectEnd), 0),
-    [edl],
+    () =>
+      layered
+        ? editor.state.timeline.tracks.reduce(
+            (end, track) => track.clips.reduce((clipEnd, clip) => Math.max(clipEnd, clip.end), end),
+            0,
+          )
+        : edl.reduce((duration, segment) => Math.max(duration, segment.projectEnd), 0),
+    [layered, edl, editor.state.timeline],
   );
   durationRef.current = durationSec;
   const [error, setError] = useState<string | null>(null);
+  const [previewReduced, setPreviewReduced] = useState(false);
+  const [textApproximate, setTextApproximate] = useState(false);
+  const [maskRefusal, setMaskRefusal] = useState<MaskPreviewRefusal | null>(null);
+  /** BR5.1: a presented clip's background removal is still processing at this frame. */
+  const [matteProcessing, setMatteProcessing] = useState(false);
+  const [maskView, setMaskView] = useState<MaskDebugView>('off');
+  // The review list switches the monitor to Overlay when the editor opens a flagged moment
+  // (BR6.5): a flagged moment is about WHAT was removed, which only Overlay shows.
+  useEffect(() => {
+    const requested = maskTools.requestedMaskView;
+    if (requested !== null && isMaskDebugView(requested)) setMaskView(requested);
+  }, [maskTools.requestedMaskView]);
 
   // ONE persistent engine per mounted canvas. An EDL change streams through
   // engine.loadSegments below, which is INCREMENTAL (already-loaded sources,
@@ -380,64 +501,71 @@ export function WebCodecsPreviewPlayer({
   // disposing/recreating the engine per edit used to re-fetch, re-demux, and
   // re-decode the audio of EVERY source on real desktop-sized projects, a
   // multi-second freeze after every cut/trim.
-  const hasSegments = edl.length > 0;
+  const hasSegments = layered
+    ? editor.state.timeline.tracks.some((track) => track.clips.length > 0)
+    : edl.length > 0;
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !hasSegments) return;
     if (!webCodecsRuntimeAvailable()) {
-      setError('WebCodecs preview is unavailable in this browser.');
+      setError(
+        previewFailureMessage('WebCodecs preview is unavailable in this browser.', isDesktop()),
+      );
       editorRef.current.setPlaying(false);
       return;
     }
 
-    let engine: WebCodecsPreviewEngine;
+    let engine: WebCodecsPreviewEngine | LayerPreviewEngine;
     try {
-      engine = new WebCodecsPreviewEngine(
-        canvas,
-        {
-          onDurationChange: (duration) => {
-            durationRef.current = duration;
-          },
-          onTimeUpdate: (timeSec) => {
-            lastReportedTimeRef.current = timeSec;
-            // The external playhead clock updates only its tiny subscribers. Do
-            // not put live time in this component's React state: re-rendering the
-            // canvas owner every display frame caused avoidable commit/paint work
-            // around the imperative compositor.
-            editorRef.current.seekTransient(timeSec);
-          },
-          onPlayingChange: (isPlaying) => {
-            // Playback stopping (end of timeline, pause, tab-hidden) ends the
-            // shared transport intent so every transport surface and the audio
-            // mixer stop together. Engine playback is never a second authority.
-            if (!isPlaying) {
-              const currentEngine = engineRef.current;
-              const ended =
-                durationRef.current > 0 &&
-                (currentEngine?.currentTimeSec ?? 0) >= durationRef.current - 1 / Math.max(1, fps);
-              if (loopRef.current && ended && editorRef.current.state.playing && currentEngine) {
-                void currentEngine.seek(0).then(() => currentEngine.play());
-                return;
-              }
-              playIntentRef.current = false;
-              const latestEditor = editorRef.current;
-              if (latestEditor.state.playing) latestEditor.setPlaying(false);
-            }
-          },
-          onError: (message) => {
-            log.error('webcodecs preview engine error', { message });
-            setError(message);
-            // A fatal decoder error is shown in place. Switching to a renderer
-            // with different effects semantics would make the monitor misleading.
-            editorRef.current.setPlaying(false);
-          },
+      const callbacks: PreviewEngineCallbacks = {
+        onDurationChange: (duration) => {
+          durationRef.current = duration;
         },
-        resolution,
-      );
+        onTimeUpdate: (timeSec) => {
+          lastReportedTimeRef.current = timeSec;
+          // The external playhead clock updates only its tiny subscribers. Do
+          // not put live time in this component's React state: re-rendering the
+          // canvas owner every display frame caused avoidable commit/paint work
+          // around the imperative compositor.
+          editorRef.current.seekTransient(timeSec);
+        },
+        onPlayingChange: (isPlaying) => {
+          // Playback stopping (end of timeline, pause, tab-hidden) ends the
+          // shared transport intent so every transport surface and the audio
+          // mixer stop together. Engine playback is never a second authority.
+          if (!isPlaying) {
+            const currentEngine = engineRef.current;
+            const ended =
+              durationRef.current > 0 &&
+              (currentEngine?.currentTimeSec ?? 0) >= durationRef.current - 1 / Math.max(1, fps);
+            if (loopRef.current && ended && editorRef.current.state.playing && currentEngine) {
+              void currentEngine.seek(0).then(() => currentEngine.play());
+              return;
+            }
+            playIntentRef.current = false;
+            const latestEditor = editorRef.current;
+            if (latestEditor.state.playing) latestEditor.setPlaying(false);
+          }
+        },
+        onRenderScaleChange: (scale) => setPreviewReduced(scale < 1),
+        onTextApproximateChange: setTextApproximate,
+        onMaskRefusalChange: setMaskRefusal,
+        onMatteProcessingChange: setMatteProcessing,
+        onError: (message) => {
+          log.error('webcodecs preview engine error', { message });
+          setError(previewFailureMessage(message, isDesktop()));
+          // A fatal decoder error is shown in place. Switching to a renderer
+          // with different effects semantics would make the monitor misleading.
+          editorRef.current.setPlaying(false);
+        },
+      };
+      engine = layered
+        ? new LayerPreviewEngine(canvas, callbacks)
+        : new WebCodecsPreviewEngine(canvas, callbacks, resolution);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'WebCodecs preview failed to start.';
       log.error('webcodecs preview failed to start', { message });
-      setError(message);
+      setError(previewFailureMessage(message, isDesktop()));
       editorRef.current.setPlaying(false);
       return;
     }
@@ -445,8 +573,7 @@ export function WebCodecsPreviewPlayer({
     // Debug/e2e hook: exposes the live engine so the jitter/perf spec can read
     // debugStats(). Harmless in production (just a reference); mirrors the
     // spike harness's window hook.
-    (window as unknown as { __fpPreviewEngine?: WebCodecsPreviewEngine }).__fpPreviewEngine =
-      engine;
+    (window as unknown as { __fpPreviewEngine?: typeof engine }).__fpPreviewEngine = engine;
 
     return () => {
       engine.dispose();
@@ -454,7 +581,7 @@ export function WebCodecsPreviewPlayer({
       // Release the debug hook too: it is a GC root, so leaving it set keeps the
       // disposed engine — and every decoded AudioBuffer still referenced by it —
       // alive until some later engine happens to overwrite the slot.
-      const debugHost = window as unknown as { __fpPreviewEngine?: WebCodecsPreviewEngine };
+      const debugHost = window as unknown as { __fpPreviewEngine?: typeof engine };
       if (debugHost.__fpPreviewEngine === engine) delete debugHost.__fpPreviewEngine;
     };
     // Keyed on hasSegments only: the engine outlives every EDL/patch change
@@ -466,7 +593,7 @@ export function WebCodecsPreviewPlayer({
 
   useEffect(() => {
     const engine = engineRef.current;
-    if (!engine || edl.length === 0) return;
+    if (!engine || edl.length === 0 || !(engine instanceof WebCodecsPreviewEngine)) return;
     // Overlays are drawn on top of whatever the load's seek presents, so set
     // them BEFORE loadSegments' seek fires. Effects post-process that same
     // composite, so they go in at the same point for the same reason.
@@ -516,7 +643,8 @@ export function WebCodecsPreviewPlayer({
   }, [edlSignature]);
   useEffect(() => {
     if (appliedSignatureRef.current === compositingSignature) return;
-    engineRef.current?.applyCompositing(edl);
+    const engine = engineRef.current;
+    if (engine instanceof WebCodecsPreviewEngine) engine.applyCompositing(edl);
     appliedSignatureRef.current = compositingSignature;
   }, [compositingSignature, edl]);
 
@@ -530,7 +658,8 @@ export function WebCodecsPreviewPlayer({
   }, [edlSignature]);
   useEffect(() => {
     if (appliedOverlaySignatureRef.current === overlaySignature) return;
-    engineRef.current?.setOverlays(canvasOverlays);
+    const engine = engineRef.current;
+    if (engine instanceof WebCodecsPreviewEngine) engine.setOverlays(canvasOverlays);
     appliedOverlaySignatureRef.current = overlaySignature;
   }, [overlaySignature, canvasOverlays]);
 
@@ -544,7 +673,8 @@ export function WebCodecsPreviewPlayer({
   }, [edlSignature]);
   useEffect(() => {
     if (appliedEffectSignatureRef.current === effectSignature) return;
-    engineRef.current?.setEffectLayers(effectLayers);
+    const engine = engineRef.current;
+    if (engine instanceof WebCodecsPreviewEngine) engine.setEffectLayers(effectLayers);
     appliedEffectSignatureRef.current = effectSignature;
   }, [effectSignature, effectLayers]);
 
@@ -558,14 +688,130 @@ export function WebCodecsPreviewPlayer({
       seededResolutionRef.current = true;
       return;
     }
-    engineRef.current?.setResolution(resolution);
+    const engine = engineRef.current;
+    if (engine instanceof WebCodecsPreviewEngine) engine.setResolution(resolution);
   }, [resolution.width, resolution.height]);
+
+  // Layer compositor: the whole timeline goes to the engine, which re-plans every frame. Loading
+  // is incremental (sources persist across edits), so an edit only re-presents.
+  const mediaUrls = useMemo(() => {
+    const urls = new Map<string, string>();
+    for (const asset of assets) urls.set(asset.id, previewMediaSrc(asset));
+    return urls;
+  }, [assets]);
+  const hiddenOverlayIds = useMemo(
+    () => new Set(selectedOverlay ? [selectedOverlay.id] : []),
+    [selectedOverlay?.id],
+  );
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!layered || !(engine instanceof LayerPreviewEngine)) return;
+    engine.setMaskView(maskView, maskViewClipId);
+  }, [layered, maskView, maskViewClipId]);
+  // A mask drag re-composites at pointer rate, but each present decodes and rasterises: only the
+  // newest live geometry is sent, once the one in flight has been presented (latest wins), so a
+  // slow raster never queues a backlog behind the hand.
+  //
+  // MK4.6: the raster is also deferred to the next animation frame rather than started inside the
+  // effect that the pointer move just ran. Both run on the main thread, so starting a ~19 ms
+  // raster synchronously with the move delays the *next* pointer event by that whole raster — the
+  // first Chrome measurement showed the pointer-to-commit p95 tracking the raster p95 almost
+  // exactly. Handing the frame back first lets the browser deliver queued input, and at most one
+  // raster is outstanding per frame either way.
+  const livePresent = useRef<{
+    inFlight: boolean;
+    pending: (() => Promise<void>) | null;
+    frame: number | null;
+  }>({
+    inFlight: false,
+    pending: null,
+    frame: null,
+  });
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!layered || !(engine instanceof LayerPreviewEngine) || liveMask === null) return;
+    const requested = performance.now();
+    const present = (): Promise<void> =>
+      engine
+        .setProject({
+          timeline: previewTimeline,
+          assets,
+          mediaUrls,
+          projectResolution: resolution,
+          canvasSize: { width: canvasWidth, height: canvasHeight },
+          projectFps: fps,
+          ...(transcript ? { transcript } : {}),
+          hiddenOverlayIds,
+          burnCaptions: settings.previewBurnCaptions,
+        })
+        .then(() => maskToolTelemetry.record('composite', performance.now() - requested));
+    const slot = livePresent.current;
+    const drain = (): void => {
+      const next = slot.pending;
+      slot.pending = null;
+      if (next === null) {
+        slot.inFlight = false;
+        return;
+      }
+      void next().finally(drain);
+    };
+    if (slot.inFlight) {
+      slot.pending = present;
+      return;
+    }
+    slot.inFlight = true;
+    if (slot.frame !== null) cancelAnimationFrame(slot.frame);
+    slot.frame = requestAnimationFrame(() => {
+      slot.frame = null;
+      void present().finally(drain);
+    });
+    // Keyed on the live preview only: committed timelines go through the effect below.
+  }, [previewTimeline]);
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!layered || !(engine instanceof LayerPreviewEngine)) return;
+    if (liveMask !== null) return;
+    void engine
+      .setProject({
+        timeline: editor.state.timeline,
+        assets,
+        mediaUrls,
+        projectResolution: resolution,
+        canvasSize: { width: canvasWidth, height: canvasHeight },
+        projectFps: fps,
+        ...(transcript ? { transcript } : {}),
+        hiddenOverlayIds,
+        burnCaptions: settings.previewBurnCaptions,
+      })
+      .then(() => {
+        if (engine.isPlaying || engine.isStarting) return;
+        if (playIntentRef.current) void engine.play();
+      });
+  }, [
+    layered,
+    hasSegments,
+    editor.state.timeline,
+    liveMask === null,
+    assets,
+    mediaUrls,
+    resolution.width,
+    resolution.height,
+    canvasWidth,
+    canvasHeight,
+    fps,
+    transcript,
+    hiddenOverlayIds,
+    settings.previewBurnCaptions,
+  ]);
 
   // External seeks (timeline ruler, "at playhead" actions) while paused: move
   // the canvas to match. Guarded against our own onTimeUpdate echo by
   // comparing against the last value THIS component reported.
+  // Keyed on `hasSegments`, not the EDL: the layer compositor builds no EDL, and gating on it
+  // left paused ruler/transcript seeks unseen by that engine, whose next project reload then
+  // re-presented its stale time and dragged the editor playhead back to it.
   useEffect(() => {
-    if (edl.length === 0) return undefined;
+    if (!hasSegments) return undefined;
     return editor.subscribePlayhead(() => {
       const engine = engineRef.current;
       // isStarting: play() is mid-startup (audio clock resuming) — isPlaying is
@@ -575,7 +821,7 @@ export function WebCodecsPreviewPlayer({
       if (Math.abs(projectTime - lastReportedTimeRef.current) < 1 / Math.max(1, fps)) return;
       void engine.seek(projectTime);
     });
-  }, [edl.length, editor, fps]);
+  }, [hasSegments, editor, fps]);
 
   // Monitor volume/mute (revamp Phase 2). Pushed to the engine's master gain bus,
   // which applies to sources ALREADY playing — so the control works mid-playback
@@ -621,19 +867,27 @@ export function WebCodecsPreviewPlayer({
         soloedTrackIds={soloedTrackIds}
         monitorVolume={monitorGain}
       />
-      <div className="preview-stage">
+      <div className="preview-stage" ref={setStageHost}>
         <div
           className="preview-frame"
+          ref={frameRef}
           style={{
             ['--aspect' as string]: String(aspect),
-            transform: previewZoom === 'fit' ? undefined : `scale(${Number(previewZoom) / 100})`,
+            transform:
+              maskEditing && maskTools.zoom !== 'fit'
+                ? `translate(${maskTools.pan.x}px, ${maskTools.pan.y}px) scale(${maskTools.frameScale})`
+                : previewZoom === 'fit'
+                  ? undefined
+                  : `scale(${Number(previewZoom) / 100})`,
           }}
         >
           <div className="webcodecs-preview">
             <canvas
               ref={canvasRef}
-              width={canvasWidth}
-              height={canvasHeight}
+              // The layer compositor sizes its canvas when it presents. Assigning `width` or
+              // `height` clears a canvas even to the same value, and a React commit landing
+              // after a presented frame blanked it (CI oracle: first read of a case).
+              {...(layered ? {} : { width: canvasWidth, height: canvasHeight })}
               className="webcodecs-preview-canvas"
               aria-label="preview"
               role="img"
@@ -644,6 +898,27 @@ export function WebCodecsPreviewPlayer({
               captionClips={captionClips}
               transcript={transcript ?? []}
             />
+            {(previewReduced || textApproximate || maskRefusal !== null || matteProcessing) &&
+              !error && (
+                <div
+                  className="webcodecs-preview-reduced"
+                  role="status"
+                  title={maskRefusal?.message}
+                >
+                  {[
+                    previewReduced ? 'Preview reduced' : null,
+                    textApproximate ? 'Preview text approximate' : null,
+                    matteProcessing ? 'Processing background removal' : null,
+                    maskRefusal === null
+                      ? null
+                      : maskRefusal.task !== null
+                        ? 'Mask not previewed yet'
+                        : 'Mask not drawn: fix the mask to preview or export it',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </div>
+              )}
             {error && (
               <div className="webcodecs-preview-error" role="alert">
                 {error}
@@ -669,7 +944,30 @@ export function WebCodecsPreviewPlayer({
               onClick={() => editor.select(shownPicture.id)}
             />
           )}
-          {transformSelected && selectedPicture && (
+          {laneOwner !== null && (
+            <MaskCanvasTools
+              key={`mask-tools-lane-${laneOwner.id}`}
+              editor={editor}
+              clip={laneOwner}
+              assets={assets}
+              resolution={resolution}
+              chromeHost={stageHost}
+              owner="effect_layer"
+              {...(frameWidth !== null ? { frameWidth } : {})}
+            />
+          )}
+          {clipMaskEditing && selectedPicture && (
+            <MaskCanvasTools
+              key={`mask-tools-${selectedPicture.id}`}
+              editor={editor}
+              clip={selectedPicture}
+              assets={assets}
+              resolution={resolution}
+              chromeHost={stageHost}
+              {...(frameWidth !== null ? { frameWidth } : {})}
+            />
+          )}
+          {transformSelected && selectedPicture && !maskEditing && (
             <PreviewTransform
               // Keyed by clip: switching selection starts a fresh gesture state
               // rather than carrying the previous clip's live override across.
@@ -743,6 +1041,9 @@ export function WebCodecsPreviewPlayer({
       </div>
       <PreviewTransport editor={editor} durationSec={durationSec} fps={fps} />
       <MonitorHeaderPortal host={headerControlsHost}>
+        {layered && maskViewClipId !== null && (
+          <MaskViewToggle value={maskView} onChange={setMaskView} />
+        )}
         <PreviewViewControls
           resolution={resolution}
           {...(onChangeOrientation ? { onChangeOrientation } : {})}

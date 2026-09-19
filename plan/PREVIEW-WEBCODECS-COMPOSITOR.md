@@ -21,11 +21,13 @@ Chrome, not just typechecked**, on `feat/preview-proxy-encode-p1`. **P3a
 (transform/crop/grade/blend) + P3b (text/caption overlays) + P3c (srgb canvas,
 letterbox/contain-fit, orientation refresh) done — all verified against real
 Chrome** (`preview-webcodecs-p3.spec.ts`, pixel-level). One P3 item remains:
-the automated three-way visual-diff harness (DOM vs canvas vs export). **P4
+the automated three-way visual-diff harness (DOM vs canvas vs export), now
+**superseded → PX4** ([`background-removal-ai/09-PREVIEW-EXPORT-PARITY.md`](./background-removal-ai/09-PREVIEW-EXPORT-PARITY.md)). **P4
 started: graceful fallback to the `<video>` pool + tab-hidden pause + rapid-cut
 (<40 ms) zero-jitter + multi-source short-clip/scrub lag done, real-Chrome
-verified** (`preview-webcodecs-p4/p5/p6`); decoder-pool LRU, speed ramps, and
-the perf regression guard remain (the dedicated scrub path is deferred — P6
+verified** (`preview-webcodecs-p4/p5/p6`); decoder-pool LRU and speed ramps are
+**superseded → PX2.4/PX2.5** ([`background-removal-ai/09-PREVIEW-EXPORT-PARITY.md`](./background-removal-ai/09-PREVIEW-EXPORT-PARITY.md)), and
+the perf regression guard remains (the dedicated scrub path is deferred — P6
 measured seek→present at ~3–5 ms, far under the 100 ms budget).
 
 ---
@@ -341,7 +343,10 @@ targets the flag covers in P1.)*
               updates the transform px→frame math + letterbox aspect in place on
               a resolution change (no decoder reload); the component drives it +
               resizes the canvas buffer. Closes P3a's captured-at-mount gap.
-        - [ ] **Automated visual-diff harness** vs the DOM preview AND the
+        - [ ] **Superseded → PX4 (2026-09-16).** The pixel oracle in [`background-removal-ai/09-PREVIEW-EXPORT-PARITY.md`](./background-removal-ai/09-PREVIEW-EXPORT-PARITY.md)
+              replaces this item: it compares the WebCodecs preview against
+              `frame_grab` per feature-matrix row, not against the DOM player,
+              which PX3 deletes. Original item: **Automated visual-diff harness** vs the DOM preview AND the
               export path. Deferred — needs the Python export wired into an e2e
               pixel comparison (a substantial separate harness). Parity is so far
               evidenced by the targeted per-feature pixel assertions above, not a
@@ -477,7 +482,9 @@ targets the flag covers in P1.)*
           Verified: P7 gained an edit phase — delete a clip mid-session,
           assert ZERO additional media fetches, no fallback, live preview
           after the edit. p1–p7 green.
-    - [ ] **Decoder-pool LRU + reconfigure** (bounded concurrent decoders —
+    - [ ] **Superseded → PX2.4 (2026-09-16)**, [`background-removal-ai/09-PREVIEW-EXPORT-PARITY.md`](./background-removal-ai/09-PREVIEW-EXPORT-PARITY.md): shared `VideoFrame` for
+          same asset + pts, then a bounded decoder pool with LRU + reconfigure
+          sized by measurement. Original item: **Decoder-pool LRU + reconfigure** (bounded concurrent decoders —
           matters for many-source EDLs vs Chromium's HW-decoder limit;
           partially advanced by the P7 `unload` pruning above).
     - [ ] **Dedicated scrub path** (decode nearest-keyframe-only during drag,
@@ -492,7 +499,11 @@ targets the flag covers in P1.)*
           tolerable (p7 evidence), but CapCut-parity "always light media"
           needs an in-browser proxy encode (WebCodecs `VideoEncoder`) or a
           documented desktop-only stance.
-    - [ ] **Speed-ramp (H1.2j) handling** — currently `canvasPreviewEligible`
+    - [ ] **Superseded → PX1/PX2.5 (2026-09-16)**, [`background-removal-ai/09-PREVIEW-EXPORT-PARITY.md`](./background-removal-ai/09-PREVIEW-EXPORT-PARITY.md): source pts come from
+          the frame plan (`framePlanAt`, speed + ramp integration) and the frame
+          ring is indexed by source pts. PX0 found the gate checks only constant
+          `speed`, so a ramped clip is admitted and played at 1×.
+          Original item: **Speed-ramp (H1.2j) handling** — currently `canvasPreviewEligible`
           excludes non-1× speed; needs frame-selection + audio `playbackRate`.
     - [ ] **Perf budget + non-flaky regression guard** (`performance-monitor`).
 - [x] **P5 — Default WebCodecs preview + complete monitor parity (2026-07-30).**

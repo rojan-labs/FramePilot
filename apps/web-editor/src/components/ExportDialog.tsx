@@ -28,7 +28,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useModalFocusTrap } from './ai/useModalFocusTrap.js';
 import { useViewPreference } from '../editor/useViewPreference.js';
-import type { Asset } from '@framepilot/timeline-schema';
+import type { Asset, Timeline } from '@framepilot/timeline-schema';
+import { createLogger, type MatteValidationIssueWire } from '@framepilot/shared-types';
 import { Button } from '@framepilot/ui';
 import {
   type ExportProgressMessage,
@@ -44,6 +45,11 @@ import { CreditsSection } from './CreditsSection.js';
 import { Select } from './Select.js';
 import { Tooltip } from './Tooltip.js';
 import { Download, ICON_SIZE, X } from './icons.js';
+import { currentMatteIssues, matteAssetIds, uncheckedMattes } from '../editor/matteReview.js';
+import { useOpenedMatteIssues } from '../editor/openedMattes.js';
+import { maskToolStore } from './inspector/masks/useMaskTools.js';
+import { getBridge } from '../editor/bridge.js';
+import { exportJobEndPayload } from '../editor/export-telemetry.js';
 
 /** Loudness normalization targets (mirrors the engine's audio presets). */
 const LOUDNESS_OPTIONS = [
@@ -227,6 +233,14 @@ export interface ExportDialogProps {
   readonly durationSeconds: number;
   /** Persists the last-used settings per project. */
   readonly projectId?: string;
+  /**
+   * The timeline, for the background-removal notice (BR6.6).
+   *
+   * Export is the last moment an unchecked moment or a stale matte can still be fixed cheaply, so
+   * the dialog counts them from the project and asks main to re-check the media. It never blocks:
+   * the editor is told what is unchecked and exports anyway if they choose.
+   */
+  readonly timeline?: Timeline;
 }
 
 type Phase =
@@ -272,6 +286,8 @@ export interface ExportHistoryEntry {
   readonly label: string;
 }
 const EXPORT_HISTORY_LIMIT = 10;
+
+const log = createLogger('web-editor:export');
 
 export function coerceExportHistory(raw: unknown): ExportHistoryEntry[] | undefined {
   if (!Array.isArray(raw)) return undefined;
@@ -319,6 +335,7 @@ export function ExportDialog({
   frame,
   durationSeconds,
   projectId,
+  timeline,
 }: ExportDialogProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -328,6 +345,41 @@ export function ExportDialog({
   // this always-mounted component rather than through a gate + content pair.
   const popoverRef = useModalFocusTrap<HTMLDivElement>(open);
   const onClose = useCallback(() => setOpen(false), []);
+
+  // Background removal before the render (BR6.6). The count comes from the project, so it is
+  // exact and free; STALE and BROKEN come from main, which is the only side that can hash media.
+  const unchecked = timeline === undefined ? [] : uncheckedMattes(timeline);
+  const uncheckedMoments = unchecked.reduce((sum, entry) => sum + entry.moments, 0);
+  // `null` until main's re-check answers; until then (and if it cannot answer) the dialog shows
+  // what main found when the project opened (BR4.15), so a BROKEN matte is never absent here.
+  const [checkedIssues, setCheckedIssues] = useState<readonly MatteValidationIssueWire[] | null>(
+    null,
+  );
+  const openedIssues = useOpenedMatteIssues();
+  const matteIssues =
+    checkedIssues ?? (timeline === undefined ? [] : currentMatteIssues(timeline, openedIssues));
+  useEffect(() => {
+    if (!open || timeline === undefined) return;
+    setCheckedIssues(null);
+    const assetIds = matteAssetIds(timeline);
+    const recheck = getBridge()?.matteRecheckMedia;
+    if (assetIds.length === 0) {
+      setCheckedIssues([]);
+      return;
+    }
+    if (recheck === undefined) return;
+    let live = true;
+    void recheck({ assetIds })
+      .then((result) => {
+        if (live) setCheckedIssues(result.ok ? result.issues : null);
+      })
+      .catch(() => {
+        if (live) setCheckedIssues(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [open, timeline]);
 
   // Dismiss on an outside press or Escape while open (mirrors Menu.tsx).
   useEffect(() => {
@@ -392,6 +444,9 @@ export function ExportDialog({
   // stream's subscribe-before-start pattern (editor/ai.ts's DesktopAiSession) so a
   // push that races ahead of `exportVideoStart`'s resolution is never dropped.
   const activeRequestId = useRef<string | null>(null);
+  /** When the render was requested, for `exportJobEnd`'s wall time (RD2.2). */
+  const exportStartedAt = useRef<number | null>(null);
+  const exportCancelled = useRef(false);
   const inbox = useRef<ExportProgressMessage[]>([]);
 
   // Ask where to save the finished render; `null` means the user dismissed the
@@ -407,6 +462,20 @@ export function ExportDialog({
   const finish = useCallback(
     (result: ExportResult) => {
       activeRequestId.current = null;
+      if (exportStartedAt.current !== null) {
+        const fps = exportFrameFor(settings, frame, null).fps;
+        log.action(
+          'exportJobEnd',
+          exportJobEndPayload(
+            result.ok ? 'completed' : exportCancelled.current ? 'cancelled' : 'failed',
+            performance.now() - exportStartedAt.current,
+            durationSeconds * fps,
+            settings.resolution,
+            timeline,
+          ),
+        );
+        exportStartedAt.current = null;
+      }
       if (!result.ok) {
         setPhase({
           kind: 'error',
@@ -431,7 +500,7 @@ export function ExportDialog({
         );
       })();
     },
-    [promptSaveAs, setHistory, settings.container, settings.resolution],
+    [promptSaveAs, setHistory, settings, frame, durationSeconds, timeline],
   );
 
   const handleMessage = useCallback(
@@ -477,6 +546,8 @@ export function ExportDialog({
       setPhase({ kind: 'error', message: 'Could not save the project before exporting.' });
       return;
     }
+    exportStartedAt.current = performance.now();
+    exportCancelled.current = false;
     const requestId = await exportVideoStart({
       projectPath,
       settings: {
@@ -495,6 +566,7 @@ export function ExportDialog({
       ...(compression ? { compression: 'voice' } : {}),
     });
     if (!requestId) {
+      exportStartedAt.current = null;
       setPhase({
         kind: 'error',
         message: 'Export requires the FramePilot desktop app (the render engine runs there).',
@@ -521,6 +593,7 @@ export function ExportDialog({
   const cancelExport = useCallback(() => {
     if (!activeRequestId.current) return;
     setPhase({ kind: 'cancelling' });
+    exportCancelled.current = true;
     exportVideoCancel(activeRequestId.current);
   }, []);
 
@@ -641,6 +714,37 @@ export function ExportDialog({
                 Export renders through the FramePilot engine, which is only available in the desktop
                 app. Open this project in FramePilot desktop to export a video.
               </p>
+            )}
+
+            {unchecked.length > 0 && (
+              <div className="export-note" role="note">
+                <p>
+                  {String(uncheckedMoments)} background removal moment
+                  {uncheckedMoments === 1 ? " hasn't" : "s haven't"} been checked. They will export
+                  as they are.
+                </p>
+                <Button
+                  variant="ghost"
+                  type="button"
+                  onClick={() => {
+                    // The shared mask tool store carries the request, so the export dialog does
+                    // not need a path through the topbar to reach the Inspector.
+                    maskToolStore.requestReview(unchecked[0]!.clipId);
+                    onClose();
+                  }}
+                >
+                  Review
+                </Button>
+              </div>
+            )}
+            {matteIssues.length > 0 && (
+              <div className="export-note" role="alert">
+                {/* The engine's own remedy sentence, carried over the wire, so the Inspector,
+                    this dialog and the render refusal all say the same thing. */}
+                {matteIssues.map((issue) => (
+                  <p key={`${issue.clipId}-${issue.maskId}`}>{issue.remedy}</p>
+                ))}
+              </div>
             )}
 
             <section className="export-section">

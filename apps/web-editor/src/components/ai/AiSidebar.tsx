@@ -850,13 +850,17 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     // Desktop auto-commit is an explicit durable run policy executed in Electron.
     if (getBridge()?.commitProjectPatch) return;
     if (!diffEnabled || uncommittedDiffs.length === 0) return;
-    for (const node of uncommittedDiffs) {
-      if (applyingRef.current.has(node.id)) continue;
-      applyingRef.current.add(node.id);
-      void applyPatch(node.edit.patch).then((applied) => {
-        setAppliedNodes((current) => ({ ...current, [node.id]: applied ? 'applied' : 'failed' }));
-      });
-    }
+    // One at a time, in order. A run's later edit is worked out against the timeline its
+    // earlier edits produced (a title behind the subject needs the cut-out the step before
+    // added), and the store validates against the timeline as last RENDERED: applying two in
+    // one pass refused the second as stale (found in E2E.4). The next one starts when this
+    // one is marked, which is after the store re-rendered with it.
+    const [node] = uncommittedDiffs;
+    if (node === undefined || applyingRef.current.has(node.id)) return;
+    applyingRef.current.add(node.id);
+    void applyPatch(node.edit.patch).then((applied) => {
+      setAppliedNodes((current) => ({ ...current, [node.id]: applied ? 'applied' : 'failed' }));
+    });
   }, [diffEnabled, uncommittedDiffs, applyPatch]);
 
   // Remember the last turn so a failed/cancelled run can be retried.
@@ -2050,6 +2054,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         // through the SAME `retry` callback the action bar uses below — never a
         // second retry implementation.
         {...(node.kind === 'notice' ? { onRetryNotice: retry, retryDisabled: running } : {})}
+        // A mask target pick is an ordinary message through the SAME `runTurn` the composer
+        // uses, so the conversation records the choice in words the next turn can read.
+        {...(node.kind === 'tool' ? { onSendMessage: (text: string) => void runTurn(text) } : {})}
         {...(node.kind === 'user'
           ? { dismissedReferenceIds, onDismissReference: dismissReference }
           : {})}

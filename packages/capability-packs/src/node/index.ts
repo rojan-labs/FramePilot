@@ -8,4 +8,6 @@ export * from './relocator.js';
 export * from './release-tooling.js';
 export * from './storage.js';
 export * from './worker-health.js';
+export * from './process-group.js';
 export * from './worker-client.js';
+export * from './warm-worker.js';

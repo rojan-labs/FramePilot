@@ -1,0 +1,6 @@
+# Model weights (ONNX exports, ~1.4 GB) are NEVER committed. They are produced by
+# tools/export_onnx.py at pack build time, or fetched and verified against the sha256
+# digests in pack/models.lock.toml. Committing them would put gigabytes of binaries with
+# their own licences into every clone (memory: the 3.8 GB push incident).
+*
+!.gitignore

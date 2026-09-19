@@ -251,6 +251,7 @@ export function applyUserPatch(
   const patch = quantizePatch(rawPatch, EDITOR_FPS);
   const result = validatePatch(state.timeline, patch, {
     assetIds: state.assetIds,
+    assets: state.assets,
     folders: state.folders,
     markers: state.markers,
     fps: EDITOR_FPS,

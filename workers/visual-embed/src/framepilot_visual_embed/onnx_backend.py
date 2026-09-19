@@ -24,9 +24,16 @@ to prove is this module.
 
 Runtime notes:
 
-- **onnxruntime CPU by default, CoreML where it exists.** The CoreML EP is requested first
-  and onnxruntime silently falls back to CPU when it is not built in, which is the correct
-  behaviour: a pack that refused to run on an Intel Mac would be worse than a slow one.
+- **onnxruntime's CPU provider, for both towers (AM2.6).** CoreML was requested first until it
+  was measured on the M1 Pro: the text tower took 13.2 s to load on CoreML at a 6.95 GiB
+  footprint (0.55 s and 1.24 GiB on CPU) and ran 12 prompts in 0.65 s (0.34 s on CPU); the
+  vision tower took 3.5 s to load (0.29 s) and 180 ms per image (95 ms). Loading both on
+  CoreML reached 7.4 GiB and grew swap past the local watchdog's limit, twice. CPU vectors
+  match CoreML's to a cosine of 0.99992 or better on 144 real crops (vision); the CoreML text
+  load could not be run to completion under that watchdog.
+- **Each tower loads when first used.** Every pinned file is still hashed before anything
+  loads; a crop request whose prompt-bank vectors are cached never loads the text tower, and a
+  ``visual.text`` request never loads the vision tower.
 - **OpenCV is already a licence-audited dependency of the pack family** (Subject
   Intelligence's ``cv`` extra), and it runs YuNet and SFace on its own ``dnn`` module, so
   face detection and identity add no third runtime.
@@ -45,6 +52,7 @@ from .backend import (
     Vector,
 )
 from .models import models_directory, resolve_model, verify_all
+from .protocol import NormalizedBox
 
 #: SigLIP 2 base patch16-224 preprocessing. Transcribed from the model card: square
 #: resize to 224, [0, 1] rescale, then mean/std 0.5 — NOT the ImageNet statistics CLIP
@@ -66,8 +74,8 @@ EMBEDDING_OUTPUT: Final = "pooler_output"
 #: phantom person in the ledger.
 FACE_SCORE_THRESHOLD: Final = 0.9
 FACE_NMS_THRESHOLD: Final = 0.3
-#: Execution providers in preference order; missing ones are dropped by onnxruntime.
-EXECUTION_PROVIDERS: Final = ("CoreMLExecutionProvider", "CPUExecutionProvider")
+#: Execution providers in preference order. CPU only: see the module notes (AM2.6).
+EXECUTION_PROVIDERS: Final = ("CPUExecutionProvider",)
 
 
 def _embedding_output(session: Any, tower: str) -> str:
@@ -111,20 +119,17 @@ class OnnxVisualEmbedBackend:
             ) from error
         self._cv2 = cv2
         self._numpy = numpy
+        self._onnxruntime = onnxruntime
+        self._tokenizer_type = Tokenizer
         models = directory if directory is not None else models_directory()
+        self._models = models
         # Verify EVERY pinned file before loading ANY of them: a pack with one swapped
         # weight must not get as far as producing a vector with the four that matched.
         self._digests = verify_all(models)
-        providers = list(EXECUTION_PROVIDERS)
-        self._vision = onnxruntime.InferenceSession(
-            str(resolve_model("image", models)), providers=providers
-        )
-        self._text = onnxruntime.InferenceSession(
-            str(resolve_model("text", models)), providers=providers
-        )
-        self._tokenizer = Tokenizer.from_file(str(resolve_model("tokenizer", models)))
-        self._tokenizer.enable_truncation(max_length=TEXT_CONTEXT_LENGTH)
-        self._tokenizer.enable_padding(length=TEXT_CONTEXT_LENGTH)
+        self._vision_session: Any = None
+        self._text_session: Any = None
+        self._tokenizer: Any = None
+        self._image_dim: int | None = None
         self._faces = cv2.FaceDetectorYN.create(
             str(resolve_model("face", models)),
             "",
@@ -133,20 +138,41 @@ class OnnxVisualEmbedBackend:
             FACE_NMS_THRESHOLD,
         )
         self._identity = cv2.FaceRecognizerSF.create(str(resolve_model("identity", models)), "")
-        self._vision_output = _embedding_output(self._vision, "vision")
-        self._text_output = _embedding_output(self._text, "text")
-        self._image_dim = int(
-            next(
-                output
-                for output in self._vision.get_outputs()
-                if output.name == self._vision_output
-            ).shape[-1]
-        )
         self._face_dim = 128
+
+    def _session(self, model_id: str) -> Any:
+        session = self._onnxruntime.InferenceSession(
+            str(resolve_model(model_id, self._models)), providers=list(EXECUTION_PROVIDERS)
+        )
+        _embedding_output(session, "vision" if model_id == "image" else "text")
+        return session
+
+    @property
+    def _vision(self) -> Any:
+        if self._vision_session is None:
+            self._vision_session = self._session("image")
+        return self._vision_session
+
+    @property
+    def _text(self) -> Any:
+        if self._text_session is None:
+            self._text_session = self._session("text")
+            tokenizer = self._tokenizer_type.from_file(
+                str(resolve_model("tokenizer", self._models))
+            )
+            tokenizer.enable_truncation(max_length=TEXT_CONTEXT_LENGTH)
+            tokenizer.enable_padding(length=TEXT_CONTEXT_LENGTH)
+            self._tokenizer = tokenizer
+        return self._text_session
+
+    def load_towers(self) -> None:
+        """Load both towers now. The health check calls this, so an installed pack has proved
+        that each tower loads and publishes its embedding, even though requests load lazily."""
+        _ = (self._vision, self._text)
 
     @property
     def name(self) -> str:
-        return f"onnxruntime-{self._vision.get_providers()[0]}"
+        return f"onnxruntime-{EXECUTION_PROVIDERS[0]}"
 
     @property
     def model_digests(self) -> dict[str, str]:
@@ -154,6 +180,12 @@ class OnnxVisualEmbedBackend:
 
     @property
     def image_dim(self) -> int:
+        """The embedding width, read from whichever tower is loaded (both share one space)."""
+        if self._image_dim is None:
+            session = self._vision_session or self._text_session or self._vision
+            self._image_dim = int(
+                next(o for o in session.get_outputs() if o.name == EMBEDDING_OUTPUT).shape[-1]
+            )
         return self._image_dim
 
     @property
@@ -180,6 +212,19 @@ class OnnxVisualEmbedBackend:
             return frames
         finally:
             capture.release()
+
+    def crop(self, frame: Frame, region: NormalizedBox) -> Frame:
+        """Slice the region out of the decoded BGR frame, at the frame's own resolution.
+
+        SigLIP's own preprocessing then squares it to 224, exactly as it does a whole frame. A
+        contiguous copy, because OpenCV's face detector is handed the same pixels.
+        """
+        height, width = frame.shape[:2]
+        left = min(max(int(region.x * width), 0), width - 1)
+        top = min(max(int(region.y * height), 0), height - 1)
+        right = min(max(round((region.x + region.width) * width), left + 1), width)
+        bottom = min(max(round((region.y + region.height) * height), top + 1), height)
+        return self._numpy.ascontiguousarray(frame[top:bottom, left:right])
 
     def _preprocess(self, frame: Frame) -> Any:
         numpy = self._numpy
@@ -212,7 +257,7 @@ class OnnxVisualEmbedBackend:
         name = self._vision.get_inputs()[0].name
         pooled = [
             self._vision.run(
-                [self._vision_output], {name: numpy.expand_dims(self._preprocess(frame), 0)}
+                [EMBEDDING_OUTPUT], {name: numpy.expand_dims(self._preprocess(frame), 0)}
             )[0]
             for frame in frames
         ]
@@ -222,10 +267,11 @@ class OnnxVisualEmbedBackend:
         if not texts:
             return []
         numpy = self._numpy
+        text = self._text  # loads the tower and its tokenizer on first use
         encodings = self._tokenizer.encode_batch(list(texts))
         ids = numpy.array([encoding.ids for encoding in encodings], dtype=numpy.int64)
-        name = self._text.get_inputs()[0].name
-        output = self._text.run([self._text_output], {name: ids})[0]
+        name = text.get_inputs()[0].name
+        output = text.run([EMBEDDING_OUTPUT], {name: ids})[0]
         return self._normalize(output)
 
     def _normalize(self, matrix: Any) -> list[list[float]]:

@@ -57,6 +57,8 @@ import {
   useMediaBinView,
 } from '../editor/useMediaBinView.js';
 import { useViewPreference } from '../editor/useViewPreference.js';
+import { getBridge } from '../editor/bridge.js';
+import { relinkAsset, relinkStatusMessage } from '../editor/relinkAsset.js';
 
 /** Stable empty default, so an un-collapsed bin never mints a new array per render. */
 const EMPTY_IDS: readonly string[] = [];
@@ -78,6 +80,7 @@ import {
   FolderPlus,
   ICON_SIZE,
   Image,
+  Link2,
   type LucideIcon,
   Pencil,
   Play,
@@ -327,6 +330,8 @@ interface AssetCardActions {
   readonly onAdd: (asset: Asset) => void;
   /** Remove from the project — Delete/Backspace, or the hover control. */
   readonly onRemove: (asset: Asset) => void;
+  /** Relink to another file (desktop only; absent in the browser build). */
+  readonly onRelink?: (asset: Asset) => void;
   /** Move the grid's single tab stop by a signed number of cards. */
   readonly onMove: (fromId: string, delta: number) => void;
   /** Jump the tab stop to the first or last card. */
@@ -492,6 +497,21 @@ const AssetCard = memo(function AssetCard({
           >
             <Plus size={ICON_SIZE.sm} aria-hidden="true" />
           </button>
+          {actions.onRelink !== undefined && (
+            <button
+              type="button"
+              className="bin-card-icon-btn bin-relink"
+              tabIndex={-1}
+              aria-label={`relink ${asset.id}`}
+              title="Relink media…"
+              onClick={(event) => {
+                event.stopPropagation();
+                actions.onRelink?.(asset);
+              }}
+            >
+              <Link2 size={ICON_SIZE.sm} aria-hidden="true" />
+            </button>
+          )}
           <button
             type="button"
             className="bin-card-icon-btn bin-remove"
@@ -1019,6 +1039,17 @@ export function MediaBin({
     [editor, editMode],
   );
 
+  const relinkFromBin = useCallback(
+    async (asset: Asset) => {
+      const bridge = getBridge();
+      if (bridge === null) return;
+      const outcome = await relinkAsset(asset.id, { bridge, applyPatch: editor.applyPatch });
+      const message = relinkStatusMessage(outcome);
+      if (message !== undefined) setStatus(message);
+    },
+    [editor],
+  );
+
   const removeFromBin = useCallback(
     (asset: Asset) => {
       // Drop the asset's timeline clips, then the bin entry, in one undoable patch
@@ -1091,6 +1122,7 @@ export function MediaBin({
       onOpen: (asset) => onOpenInSource?.(asset),
       onAdd: (asset) => addToTimeline(asset),
       onRemove: (asset) => removeFromBin(asset),
+      ...(getBridge()?.projectChooseRelinkFile === undefined ? {} : { onRelink: (asset: Asset) => void relinkFromBin(asset) }),
       onMove: (fromId, delta) => {
         const ids = orderedIdsRef.current;
         const from = ids.indexOf(fromId);
@@ -1110,7 +1142,7 @@ export function MediaBin({
         // `seq`, or the programmatic-focus effect would fire in a loop.
         setFocus((current) => (current?.id === id ? current : { id, seq: current?.seq ?? 0 })),
     }),
-    [addToTimeline, focusCard, onOpenInSource, removeFromBin],
+    [addToTimeline, focusCard, onOpenInSource, relinkFromBin, removeFromBin],
   );
 
   /** Begin creating a folder under `parentId`, auto-expanding that parent. */

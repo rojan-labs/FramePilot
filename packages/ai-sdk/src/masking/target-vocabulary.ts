@@ -1,0 +1,577 @@
+/**
+ * The words a mask request uses, and what the detector can and cannot name (AM2.1).
+ *
+ * MD-6 decided there is no text-grounding model in v1: candidates come from Subject
+ * Intelligence (faces, people, and objects) and anything else is `needs_click`. This table is
+ * that decision written down. The OUT_OF_VOCABULARY list exists so "the sky" is recognised as
+ * something the editor has to click, rather than falling through to "no such object" — and so
+ * the `needs_click` rate the eval reports separately (plan 06) is a designed outcome, not a miss.
+ */
+import { COCO_CLASS_NAMES, type CocoClassName } from '@framepilot/capability-packs';
+
+/** A face: YuNet boxes. */
+export const FACE_WORDS: ReadonlySet<string> = new Set(['face', 'faces', 'head', 'heads']);
+
+/** A person: the detector's `person` label. Pronouns included — "put the title behind her". */
+export const PERSON_WORDS: ReadonlySet<string> = new Set([
+  'person',
+  'people',
+  'persons',
+  'man',
+  'men',
+  'woman',
+  'women',
+  'guy',
+  'guys',
+  'girl',
+  'girls',
+  'boy',
+  'boys',
+  'kid',
+  'kids',
+  'child',
+  'children',
+  'baby',
+  'subject',
+  'subjects',
+  'someone',
+  'everyone',
+  'everybody',
+  'anyone',
+  'her',
+  'him',
+  'them',
+  'she',
+  'he',
+  'they',
+  'crowd',
+  'audience',
+  'passerby',
+  'passersby',
+  'bystander',
+  'bystanders',
+  'player',
+  'players',
+  // People named by what they are doing or where they are — still the detector's `person`.
+  'pedestrian',
+  'pedestrians',
+  'walker',
+  'walkers',
+  'cyclist',
+  'cyclists',
+  'rider',
+  'riders',
+  'runner',
+  'runners',
+  'dancer',
+  'dancers',
+  'skater',
+  'skaters',
+  'surfer',
+  'surfers',
+  'athlete',
+  'athletes',
+  'worker',
+  'workers',
+  'customer',
+  'customers',
+  'shopper',
+  'shoppers',
+  'tourist',
+  'tourists',
+  'spectator',
+  'spectators',
+  'student',
+  'students',
+  'owner',
+  'owners',
+  'singer',
+  'singers',
+  'musician',
+  'musicians',
+  'actor',
+  'actors',
+  'actress',
+  'lady',
+  'ladies',
+  'gentleman',
+  'teenager',
+  'teenagers',
+  'toddler',
+  'adult',
+  'adults',
+]);
+
+/** Roles: a person, but WHICH one is a question of identity, not of detection. */
+export const ROLE_WORDS: ReadonlySet<string> = new Set([
+  'host',
+  'hosts',
+  'presenter',
+  'presenters',
+  'speaker',
+  'speakers',
+  'interviewer',
+  'interviewee',
+  'guest',
+  'guests',
+  'narrator',
+  'anchor',
+  'reporter',
+  'teacher',
+  'instructor',
+]);
+
+const CAR_LIKE: readonly CocoClassName[] = ['car', 'truck', 'bus'];
+const VEHICLES: readonly CocoClassName[] = [
+  'car',
+  'truck',
+  'bus',
+  'motorcycle',
+  'bicycle',
+  'train',
+  'boat',
+  'airplane',
+];
+const ANIMALS: readonly CocoClassName[] = [
+  'bird',
+  'cat',
+  'dog',
+  'horse',
+  'sheep',
+  'cow',
+  'elephant',
+  'bear',
+  'zebra',
+  'giraffe',
+];
+/** What an editor calls "the product" in a product shot: things held up, worn or shown. */
+const PRODUCTS: readonly CocoClassName[] = [
+  'bottle',
+  'wine glass',
+  'cup',
+  'bowl',
+  'cell phone',
+  'laptop',
+  'tv',
+  'keyboard',
+  'mouse',
+  'remote',
+  'book',
+  'clock',
+  'vase',
+  'handbag',
+  'backpack',
+  'suitcase',
+  'umbrella',
+  'tie',
+  'teddy bear',
+  'scissors',
+  'toothbrush',
+  'hair drier',
+  'sports ball',
+];
+const FOOD: readonly CocoClassName[] = [
+  'banana',
+  'apple',
+  'sandwich',
+  'orange',
+  'broccoli',
+  'carrot',
+  'hot dog',
+  'pizza',
+  'donut',
+  'cake',
+];
+
+/**
+ * An editor's noun → the detector's COCO classes it can mean (AM2.5).
+ *
+ * Used ONLY as a candidate filter: a detection whose class is not listed for the noun is not a
+ * candidate for it. The mapping is deliberately wide where COCO's own boundaries are soft — the
+ * detector calls many SUVs and pickups `truck`, so "the car" also admits trucks and buses — because
+ * a wider filter can only produce more asks, never a wrong pick. A noun that is not here and not
+ * a person/face word is outside the vocabulary: the editor clicks it (`needs_click`).
+ *
+ * Plurals are derived (`objectClassesFor`), so only singular forms are listed.
+ */
+export const OBJECT_CLASS_SYNONYMS: Readonly<Record<string, readonly CocoClassName[]>> = {
+  // Vehicles.
+  car: CAR_LIKE,
+  sedan: CAR_LIKE,
+  hatchback: CAR_LIKE,
+  suv: CAR_LIKE,
+  jeep: CAR_LIKE,
+  taxi: CAR_LIKE,
+  cab: CAR_LIKE,
+  vehicle: VEHICLES,
+  truck: ['truck'],
+  lorry: ['truck'],
+  pickup: ['truck', 'car'],
+  van: ['car', 'truck'],
+  minivan: ['car', 'truck'],
+  bus: ['bus'],
+  motorcycle: ['motorcycle'],
+  motorbike: ['motorcycle'],
+  scooter: ['motorcycle'],
+  moped: ['motorcycle'],
+  bicycle: ['bicycle'],
+  bike: ['bicycle', 'motorcycle'],
+  train: ['train'],
+  tram: ['train'],
+  boat: ['boat'],
+  ship: ['boat'],
+  yacht: ['boat'],
+  ferry: ['boat'],
+  canoe: ['boat'],
+  kayak: ['boat'],
+  airplane: ['airplane'],
+  aeroplane: ['airplane'],
+  plane: ['airplane'],
+  aircraft: ['airplane'],
+  jet: ['airplane'],
+  // Animals.
+  animal: ANIMALS,
+  pet: ['dog', 'cat', 'bird'],
+  dog: ['dog'],
+  puppy: ['dog'],
+  pup: ['dog'],
+  cat: ['cat'],
+  kitten: ['cat'],
+  kitty: ['cat'],
+  bird: ['bird'],
+  horse: ['horse'],
+  pony: ['horse'],
+  sheep: ['sheep'],
+  lamb: ['sheep'],
+  cow: ['cow'],
+  cattle: ['cow'],
+  calf: ['cow'],
+  elephant: ['elephant'],
+  bear: ['bear'],
+  zebra: ['zebra'],
+  giraffe: ['giraffe'],
+  // Products and things held up.
+  product: PRODUCTS,
+  bottle: ['bottle'],
+  cup: ['cup'],
+  mug: ['cup'],
+  glass: ['wine glass', 'cup'],
+  wineglass: ['wine glass'],
+  bowl: ['bowl'],
+  phone: ['cell phone'],
+  cellphone: ['cell phone'],
+  smartphone: ['cell phone'],
+  iphone: ['cell phone'],
+  mobile: ['cell phone'],
+  laptop: ['laptop'],
+  computer: ['laptop', 'tv'],
+  tv: ['tv'],
+  television: ['tv'],
+  monitor: ['tv'],
+  screen: ['tv', 'laptop'],
+  keyboard: ['keyboard'],
+  mouse: ['mouse'],
+  remote: ['remote'],
+  book: ['book'],
+  clock: ['clock'],
+  vase: ['vase'],
+  bag: ['handbag', 'backpack', 'suitcase'],
+  handbag: ['handbag'],
+  purse: ['handbag'],
+  backpack: ['backpack'],
+  rucksack: ['backpack'],
+  suitcase: ['suitcase'],
+  luggage: ['suitcase'],
+  umbrella: ['umbrella'],
+  tie: ['tie'],
+  teddy: ['teddy bear'],
+  scissors: ['scissors'],
+  toothbrush: ['toothbrush'],
+  hairdryer: ['hair drier'],
+  // Sport.
+  ball: ['sports ball'],
+  football: ['sports ball'],
+  basketball: ['sports ball'],
+  frisbee: ['frisbee'],
+  kite: ['kite'],
+  skateboard: ['skateboard'],
+  surfboard: ['surfboard'],
+  snowboard: ['snowboard'],
+  ski: ['skis'],
+  skis: ['skis'],
+  racket: ['tennis racket'],
+  racquet: ['tennis racket'],
+  // Furniture and the kitchen.
+  chair: ['chair'],
+  couch: ['couch'],
+  sofa: ['couch'],
+  bed: ['bed'],
+  table: ['dining table'],
+  desk: ['dining table'],
+  bench: ['bench'],
+  toilet: ['toilet'],
+  sink: ['sink'],
+  refrigerator: ['refrigerator'],
+  fridge: ['refrigerator'],
+  oven: ['oven'],
+  microwave: ['microwave'],
+  toaster: ['toaster'],
+  plant: ['potted plant'],
+  houseplant: ['potted plant'],
+  fork: ['fork'],
+  knife: ['knife'],
+  spoon: ['spoon'],
+  hydrant: ['fire hydrant'],
+  // Food.
+  food: FOOD,
+  banana: ['banana'],
+  apple: ['apple'],
+  orange: ['orange'],
+  sandwich: ['sandwich'],
+  pizza: ['pizza'],
+  cake: ['cake'],
+  donut: ['donut'],
+  doughnut: ['donut'],
+  carrot: ['carrot'],
+  broccoli: ['broccoli'],
+  hotdog: ['hot dog'],
+};
+
+/** Object words that name no class: any detected object may be meant ("the thing"). */
+export const GENERIC_OBJECT_WORDS: ReadonlySet<string> = new Set([
+  'object',
+  'objects',
+  'thing',
+  'things',
+  'item',
+  'items',
+]);
+
+/**
+ * The COCO classes an object word can mean, or `undefined` when it is not an object word.
+ * Generic words return every class but `person`; plurals resolve through their singular.
+ */
+export function objectClassesFor(word: string): readonly CocoClassName[] | undefined {
+  if (OUT_OF_VOCABULARY_WORDS.has(word)) return undefined;
+  if (GENERIC_OBJECT_WORDS.has(word)) return ANY_OBJECT_CLASS;
+  const singular = singularObjectWord(word);
+  return singular === undefined ? undefined : OBJECT_CLASS_SYNONYMS[singular];
+}
+
+/** The listed singular an object word is written from ("buses" → "bus"), if any. */
+export function singularObjectWord(word: string): string | undefined {
+  if (Object.hasOwn(OBJECT_CLASS_SYNONYMS, word)) return word;
+  for (const suffix of ['es', 's']) {
+    if (!word.endsWith(suffix)) continue;
+    const stem = word.slice(0, -suffix.length);
+    if (Object.hasOwn(OBJECT_CLASS_SYNONYMS, stem)) return stem;
+  }
+  return undefined;
+}
+
+const ANY_OBJECT_CLASS: readonly CocoClassName[] = COCO_CLASS_NAMES.filter(
+  (name) => name !== 'person',
+);
+
+/**
+ * Colour words the SigLIP re-ranker can score (AM2.5): each crop is classified against the same
+ * noun in every one of these colours, and only the named colour's share counts. A colour word
+ * before a noun is an adjective ("the orange car"), never the fruit.
+ */
+export const COLOUR_WORDS: readonly string[] = [
+  'red',
+  'orange',
+  'yellow',
+  'green',
+  'blue',
+  'purple',
+  'pink',
+  'brown',
+  'black',
+  'white',
+  'grey',
+  'silver',
+];
+/** Spellings that mean one of {@link COLOUR_WORDS}. */
+export const COLOUR_ALIASES: Readonly<Record<string, string>> = { gray: 'grey' };
+
+/** Named, and not something the detector boxes: the editor clicks it once (`needs_click`). */
+export const OUT_OF_VOCABULARY_WORDS: ReadonlySet<string> = new Set([
+  'sky',
+  'skies',
+  'cloud',
+  'clouds',
+  'sun',
+  'moon',
+  'sea',
+  'ocean',
+  'water',
+  'river',
+  'lake',
+  'grass',
+  'ground',
+  'floor',
+  'road',
+  'street',
+  'pavement',
+  'wall',
+  'walls',
+  'ceiling',
+  'window',
+  'windows',
+  'door',
+  'building',
+  'buildings',
+  'tree',
+  'trees',
+  'mountain',
+  'mountains',
+  'sign',
+  'signs',
+  'signage',
+  'billboard',
+  'poster',
+  'logo',
+  'logos',
+  'brand',
+  'watermark',
+  'plate',
+  'plates',
+  'licence',
+  'license',
+  'numberplate',
+  'text',
+  'writing',
+  'label',
+  'labels',
+  'tattoo',
+  'tattoos',
+  'hair',
+  'hand',
+  'hands',
+  'eyes',
+  'glasses',
+  'sunglasses',
+  'shirt',
+  'jacket',
+  'dress',
+  'hat',
+  'reflection',
+  'shadow',
+  'light',
+  'lamp',
+  'fire',
+  'smoke',
+  'whiteboard',
+  'painting',
+]);
+
+/** Words that ask for every match rather than one. */
+export const ALL_WORDS: ReadonlySet<string> = new Set([
+  'all',
+  'every',
+  'each',
+  'everyone',
+  'everybody',
+  'both',
+  'any',
+  'anyone',
+]);
+
+/** Words that exclude someone — which only identity can answer. */
+export const EXCEPTION_PHRASES: readonly RegExp[] = [
+  /\bexcept\b/u,
+  /\bother than\b/u,
+  /\bbut not\b/u,
+  /\bapart from\b/u,
+  /\bnot the\b/u,
+  /\bexcluding\b/u,
+];
+
+/** Positional and size selectors the geometry itself can answer. */
+export const SELECTOR_WORDS: Readonly<
+  Record<string, 'left' | 'right' | 'center' | 'largest' | 'smallest' | 'top' | 'bottom'>
+> = {
+  left: 'left',
+  leftmost: 'left',
+  right: 'right',
+  rightmost: 'right',
+  center: 'center',
+  centre: 'center',
+  middle: 'center',
+  central: 'center',
+  biggest: 'largest',
+  largest: 'largest',
+  closest: 'largest',
+  nearest: 'largest',
+  main: 'largest',
+  foreground: 'largest',
+  smallest: 'smallest',
+  furthest: 'smallest',
+  farthest: 'smallest',
+  top: 'top',
+  upper: 'top',
+  bottom: 'bottom',
+  lower: 'bottom',
+};
+
+/** Words that carry no information about which thing is meant. */
+export const STOP_WORDS: ReadonlySet<string> = new Set([
+  'the',
+  'a',
+  'an',
+  'of',
+  'on',
+  'in',
+  'at',
+  'to',
+  'and',
+  'or',
+  'with',
+  'from',
+  'side',
+  'one',
+  'this',
+  'that',
+  'those',
+  'these',
+  'is',
+  'are',
+  'who',
+  'which',
+  'whos',
+  'its',
+  'their',
+  'his',
+  'hers',
+  'my',
+  'our',
+  'your',
+  's',
+  'please',
+  'just',
+  'only',
+  'mask',
+  'blur',
+  'hide',
+  'track',
+  'isolate',
+  'cut',
+  'out',
+  'remove',
+  'grade',
+  'behind',
+  'front',
+  'frame',
+  'shot',
+  'clip',
+  'picture',
+  'image',
+  'video',
+  'there',
+  'here',
+  'up',
+  'down',
+  'most',
+  'part',
+]);

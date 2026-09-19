@@ -22,6 +22,12 @@ MAX_FPS: Final = 240.0
 MAX_MEDIA_PATH_LENGTH: Final = 4096
 
 TRACKING_CAPABILITIES: Final = ("tracking.planar", "tracking.point", "tracking.region")
+#: Most extra points one ``tracking.point`` request may follow. Matches the mask vertex budget
+#: the host enforces (``TRACK_MAX_POINTS``), and bounds the per-frame flow cost.
+MAX_EXTRA_POINTS: Final = 512
+#: Most exclusion regions one request may carry (MK7.7). An editor draws one per occluder; the
+#: bound keeps the per-frame masking cost trivially small.
+MAX_EXCLUSIONS: Final = 16
 
 REQUEST_ID_PATTERN: Final = re.compile(r"^[A-Za-z0-9._:-]{1,256}$")
 IDENTIFIER_PATTERN: Final = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
@@ -65,6 +71,9 @@ class NormalizedPoint:
     x: float
     y: float
 
+    def as_json(self) -> dict[str, float]:
+        return {"x": self.x, "y": self.y}
+
 
 @dataclass(frozen=True, slots=True)
 class NormalizedBox:
@@ -104,6 +113,17 @@ class TrackingRequest:
     point: NormalizedPoint | None = None
     region: NormalizedBox | None = None
     corners: tuple[NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint] | None = None
+    #: Extra points a ``tracking.point`` request follows in the SAME flow pass as ``point``
+    #: (MK7.2 shape tracking): one decode, one correspondence per path vertex.
+    points: tuple[NormalizedPoint, ...] = ()
+    #: Decode the approved range from its END towards its start. A backward track has to see
+    #: the frames in that order — the features it follows are detected on the frame the mask
+    #: was drawn on, which is the range's LAST frame (MK7.2 "Directions").
+    reverse: bool = False
+    #: Regions of the frame the tracker must ignore (MK7.7), normalized to the coded frame: what
+    #: the editor marked as passing in front of the tracked surface. Registration, its check and
+    #: the features it follows leave these pixels out, in the reference frame and every other.
+    exclusions: tuple[NormalizedBox, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +137,12 @@ class TrackingSample:
     box: NormalizedBox
     confidence: float
     occluded: bool
+    #: Row-major 3x3 mapping NORMALIZED reference-frame coordinates to this frame, when the
+    #: tracker measured a plane. Protocol v1 additive (plan 03): an older pack omits it and the
+    #: host falls back to the box.
+    transform: tuple[float, ...] | None = None
+    #: The tracked positions of ``TrackingRequest.points``, in request order.
+    points: tuple[NormalizedPoint, ...] | None = None
 
 
 # --- primitive validators -------------------------------------------------
@@ -252,24 +278,64 @@ def _media(value: Any) -> MediaHandle:
 
 def _parameters(capability: str, value: Any) -> dict[str, Any]:
     if capability == "tracking.point":
-        raw = _object(value, {"point"}, "parameters")
+        raw = _object(value, {"point", "points", "reverse", "exclusions"}, "parameters")
         if "point" not in raw:
             raise _invalid("tracking.point requires parameters.point.")
-        return {"point": _point(raw["point"], "parameters.point")}
+        return {
+            "point": _point(raw["point"], "parameters.point"),
+            "points": _extra_points(raw.get("points")),
+            "reverse": _reverse(raw.get("reverse")),
+            "exclusions": _exclusions(raw.get("exclusions")),
+        }
     if capability == "tracking.region":
-        raw = _object(value, {"region"}, "parameters")
+        raw = _object(value, {"region", "reverse"}, "parameters")
         if "region" not in raw:
             raise _invalid("tracking.region requires parameters.region.")
-        return {"region": _box(raw["region"], "parameters.region")}
-    raw = _object(value, {"corners"}, "parameters")
+        return {
+            "region": _box(raw["region"], "parameters.region"),
+            "reverse": _reverse(raw.get("reverse")),
+        }
+    raw = _object(value, {"corners", "reverse", "exclusions"}, "parameters")
     corners = raw.get("corners")
     if not isinstance(corners, list) or len(corners) != 4:
         raise _invalid("tracking.planar requires exactly four corners.")
     return {
         "corners": tuple(
             _point(corner, f"parameters.corners[{index}]") for index, corner in enumerate(corners)
-        )
+        ),
+        "reverse": _reverse(raw.get("reverse")),
+        "exclusions": _exclusions(raw.get("exclusions")),
     }
+
+
+def _reverse(value: Any) -> bool:
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        raise _invalid("parameters.reverse must be true or false.")
+    return value
+
+
+def _exclusions(value: Any) -> tuple[NormalizedBox, ...]:
+    """Validate ``parameters.exclusions``: the regions the tracker must ignore (MK7.7)."""
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise _invalid("parameters.exclusions must be a list of boxes.")
+    if len(value) > MAX_EXCLUSIONS:
+        raise _invalid(f"parameters.exclusions exceeds the {MAX_EXCLUSIONS} region bound.")
+    return tuple(_box(box, f"parameters.exclusions[{index}]") for index, box in enumerate(value))
+
+
+def _extra_points(value: Any) -> tuple[NormalizedPoint, ...]:
+    """Validate ``parameters.points``: the path vertices a shape track follows."""
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise _invalid("parameters.points must be a list of points.")
+    if len(value) > MAX_EXTRA_POINTS:
+        raise _invalid(f"parameters.points exceeds the {MAX_EXTRA_POINTS} point bound.")
+    return tuple(_point(point, f"parameters.points[{index}]") for index, point in enumerate(value))
 
 
 def parse_input_line(line: str) -> TrackingRequest | CancelMessage:
@@ -319,7 +385,25 @@ def parse_input_line(line: str) -> TrackingRequest | CancelMessage:
         point=parameters.get("point"),
         region=parameters.get("region"),
         corners=parameters.get("corners"),
+        points=parameters.get("points", ()),
+        reverse=bool(parameters.get("reverse", False)),
+        exclusions=parameters.get("exclusions", ()),
     )
+
+
+def _sample_json(sample: TrackingSample) -> dict[str, Any]:
+    """One sample on the wire. The v1-additive fields are omitted when unmeasured."""
+    encoded: dict[str, Any] = {
+        "frame": sample.frame,
+        "box": sample.box.as_json(),
+        "confidence": sample.confidence,
+        "occluded": sample.occluded,
+    }
+    if sample.transform is not None:
+        encoded["transform"] = list(sample.transform)
+    if sample.points is not None:
+        encoded["points"] = [point.as_json() for point in sample.points]
+    return encoded
 
 
 def _require_protocol_version(value: Any) -> None:
@@ -393,13 +477,7 @@ def result_message(
         "modelDigests": {},
         # Stable ordering: samples are always emitted in ascending frame order.
         "samples": [
-            {
-                "frame": sample.frame,
-                "box": sample.box.as_json(),
-                "confidence": sample.confidence,
-                "occluded": sample.occluded,
-            }
-            for sample in sorted(samples, key=lambda sample: sample.frame)
+            _sample_json(sample) for sample in sorted(samples, key=lambda sample: sample.frame)
         ],
     }
 

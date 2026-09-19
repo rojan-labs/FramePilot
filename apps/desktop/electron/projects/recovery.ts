@@ -25,7 +25,7 @@
  * All IO is injected ({@link RecoveryIO}) so the snapshot/clear/restore logic is
  * unit-testable without `electron`/`fs`.
  */
-import { parseProject, type Project } from '@framepilot/timeline-schema';
+import { parseProject, serializeProject, type Project } from '@framepilot/timeline-schema';
 
 /** A validated project snapshot kept for crash recovery. */
 export interface RecoverySnapshot {
@@ -77,7 +77,12 @@ export class RecoveryStore {
 
   /** Persist `snapshot` as the recoverable last-valid state. */
   async snapshot(snapshot: RecoverySnapshot): Promise<void> {
-    await this.io.write(JSON.stringify(snapshot));
+    // The project text comes from `serializeProject`, which the save that precedes every
+    // snapshot has just produced for the same object (it keeps the last one), so a snapshot
+    // costs a write rather than a second whole-document stringify (MK4.6 save budget).
+    await this.io.write(
+      `{"path":${JSON.stringify(snapshot.path)},"savedAt":${JSON.stringify(snapshot.savedAt)},"project":${serializeProject(snapshot.project)}}`,
+    );
   }
 
   /**

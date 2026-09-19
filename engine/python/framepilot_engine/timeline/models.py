@@ -12,14 +12,17 @@ Schema versioning: ``Project.version`` is bumped only alongside a migration
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import os
+import struct
 import tempfile
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # Mirrors the TS ``SCHEMA_VERSION`` (packages/timeline-schema). It is the
 # *envelope* version written at the top of ``project.fp.json`` as
@@ -45,9 +48,12 @@ from pydantic import BaseModel, Field
 # release pins for on-demand runtimes/models; v20 added optional ``Asset.source``
 # (provider provenance: licence, credit line, creator) — the engine never *uses*
 # it, because provenance cannot affect a render, but it must round-trip it rather
-# than silently strip the one record of a crediting obligation (ADR 0138); the
+# than silently strip the one record of a crediting obligation (ADR 0138); v21 added
+# optional probed ``AssetMedia`` width/height; v22 replaced the ``mask`` effect type
+# with the ``Clip.masks`` / ``EffectLayer.masks`` mask stack (ADR 0178); v23 added
+# optional ``Timeline.maskPresets`` (saved masks, MK4.3), round-tripped only; the
 # engine rejects any file whose envelope version exceeds this.
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 23
 
 
 class ProjectFileError(Exception):
@@ -213,6 +219,558 @@ class Effect(BaseModel):
     keyframes: list[Keyframe] = Field(default_factory=list)
 
 
+# --- Mask stack (schema v22, ADR 0178) -----------------------------------------------
+#
+# Mirrors the TS ``MaskLayerSchema`` family in ``packages/timeline-schema``. The v22 mask
+# stack REPLACES the v21 ``mask`` effect type: one alpha model, not two. Geometry is in
+# display-corrected source pixels (``space == "source"``) or output-frame pixels
+# (``space == "frame"``); keyframe ``sourceTime`` is ASSET source seconds, so trims,
+# splits and speed changes never have to rewrite a mask. See
+# ``docs/adr/0178-mask-stack-replaces-mask-effects.md``.
+
+
+class MaskMode(StrEnum):
+    """How a mask combines with the result of the masks above it."""
+
+    ADD = "add"
+    SUBTRACT = "subtract"
+    INTERSECT = "intersect"
+    DIFFERENCE = "difference"
+    LIGHTEN = "lighten"
+    DARKEN = "darken"
+
+
+class MaskFalloff(StrEnum):
+    """Feather curve across the feather band."""
+
+    LINEAR = "linear"
+    SMOOTH = "smooth"
+    GAUSSIAN = "gaussian"
+
+
+class MaskFeatherModel(StrEnum):
+    """Feather algorithm. ``gaussian-legacy`` exists only for masks migrated from v21."""
+
+    DISTANCE = "distance"
+    GAUSSIAN_LEGACY = "gaussian-legacy"
+
+
+class MaskSpace(StrEnum):
+    """``source`` geometry moves with the picture; ``frame`` is fixed to the output frame."""
+
+    SOURCE = "source"
+    FRAME = "frame"
+
+
+class MaskScalarProperty(StrEnum):
+    """Every scalar a mask keyframe can animate (per-kind validity is a validator rule)."""
+
+    OPACITY = "opacity"
+    EXPANSION_PX = "expansionPx"
+    FEATHER_INNER_PX = "featherInnerPx"
+    FEATHER_OUTER_PX = "featherOuterPx"
+    CX = "cx"
+    CY = "cy"
+    WIDTH = "width"
+    HEIGHT = "height"
+    ROTATION = "rotation"
+    ROUNDNESS = "roundness"
+    RX = "rx"
+    RY = "ry"
+    ORIGIN_X = "originX"
+    ORIGIN_Y = "originY"
+    ANGLE = "angle"
+    SOFTNESS_PX = "softnessPx"
+    WIDTH_PX = "widthPx"
+    START_X = "startX"
+    START_Y = "startY"
+    END_X = "endX"
+    END_Y = "endY"
+    EDGE_SHIFT_PX = "edgeShiftPx"
+
+
+class MaskTrackingMethod(StrEnum):
+    """How a transform track was measured."""
+
+    POSITION = "position"
+    POSITION_SCALE_ROTATION = "position-scale-rotation"
+    PERSPECTIVE = "perspective"
+    POINT_CLOUD = "point-cloud"
+
+
+class AlphaMaskTarget(BaseModel):
+    """The mask cuts the clip's alpha."""
+
+    kind: Literal["alpha"] = "alpha"
+
+
+class EffectMaskTarget(BaseModel):
+    """The mask limits one effect instance on the same clip."""
+
+    kind: Literal["effect"] = "effect"
+    effect_id: str = Field(alias="effectId")
+
+    model_config = {"populate_by_name": True}
+
+
+MaskTarget = Annotated[AlphaMaskTarget | EffectMaskTarget, Field(discriminator="kind")]
+
+
+class MaskKeyframe(BaseModel):
+    """One scalar mask keyframe. ``source_time`` is ASSET source seconds."""
+
+    id: str
+    source_time: float = Field(alias="sourceTime")
+    property: MaskScalarProperty
+    value: float
+    easing: str = "linear"
+    handles: BezierHandles | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class SourceTimeRange(BaseModel):
+    """A source-time range, seconds (asset clock)."""
+
+    start: float
+    end: float
+
+
+class MaskReview(BaseModel):
+    """Flagged, approved and locked source instants shared by mattes and tracks."""
+
+    flagged: list[SourceTimeRange] = Field(default_factory=list)
+    approved: list[SourceTimeRange] = Field(default_factory=list)
+    locked: list[float] = Field(default_factory=list)
+
+
+class MaskArtifactRef(BaseModel):
+    """A digest-pinned, project-owned derived artifact."""
+
+    key: str
+    sha256: str
+
+
+class MaskTrackingConstraint(BaseModel):
+    """A source instant the editor fixed; the track re-runs from it."""
+
+    source_time: float = Field(alias="sourceTime")
+
+    model_config = {"populate_by_name": True}
+
+
+class MaskTracking(BaseModel):
+    """A transform track applied on top of the mask's own animation."""
+
+    artifact: MaskArtifactRef
+    method: MaskTrackingMethod
+    reference_source_time: float = Field(alias="referenceSourceTime")
+    constraints: list[MaskTrackingConstraint] = Field(default_factory=list)
+    review: MaskReview = Field(default_factory=MaskReview)
+
+    model_config = {"populate_by_name": True}
+
+
+class MaskFinesse(BaseModel):
+    """Matte/key/layer edge clean-up. Every default is "no change"."""
+
+    denoise: float = 0.0
+    morph_open_px: float = Field(default=0.0, alias="morphOpenPx")
+    morph_close_px: float = Field(default=0.0, alias="morphClosePx")
+    shrink_grow_px: float = Field(default=0.0, alias="shrinkGrowPx")
+    blur_px: float = Field(default=0.0, alias="blurPx")
+    in_out_ratio: float = Field(default=0.0, alias="inOutRatio")
+    clean_black: float = Field(default=0.0, alias="cleanBlack")
+    clean_white: float = Field(default=1.0, alias="cleanWhite")
+
+    model_config = {"populate_by_name": True}
+
+
+class MaskLegacyProperty(StrEnum):
+    """The v21 ``mask`` spec values a :class:`MaskLegacyKeyframe` can carry."""
+
+    X = "x"
+    Y = "y"
+    WIDTH = "width"
+    HEIGHT = "height"
+    FEATHER = "feather"
+
+
+class MaskLegacyKeyframe(BaseModel):
+    """One v21 spec value at a source instant (the instants of the mask's own keyframes)."""
+
+    source_time: float = Field(alias="sourceTime")
+    property: MaskLegacyProperty
+    value: float
+
+    model_config = {"populate_by_name": True}
+
+
+class MaskLegacySpec(BaseModel):
+    """The v21 ``mask`` spec a ``gaussian-legacy`` mask was migrated from, verbatim (MK2.5).
+
+    The v22 centre-and-size geometry is not one-to-one with v21's fractions (two fractions an
+    ulp apart store the same centre, and v21 drew ``x * width``), so the migration keeps the
+    fractions v21 drew with. Mirrors the TS ``MaskLegacySpecSchema``.
+    """
+
+    x: float
+    y: float
+    width: float
+    height: float
+    feather: float
+    points: list[tuple[float, float]] | None = None
+    keyframes: list[MaskLegacyKeyframe] = Field(default_factory=list)
+
+
+class MaskLayerBase(BaseModel):
+    """Fields every mask kind carries (mirrors the TS ``maskLayerBaseShape``)."""
+
+    id: str
+    name: str = ""
+    color: str = "#3b82f6"
+    enabled: bool = True
+    locked: bool = False
+    target: MaskTarget = Field(default_factory=AlphaMaskTarget)
+    mode: MaskMode = MaskMode.ADD
+    opacity: float = 1.0
+    invert: bool = False
+    expansion_px: float = Field(default=0.0, alias="expansionPx")
+    feather_inner_px: float = Field(default=0.0, alias="featherInnerPx")
+    feather_outer_px: float = Field(default=0.0, alias="featherOuterPx")
+    falloff: MaskFalloff = MaskFalloff.SMOOTH
+    feather_model: MaskFeatherModel = Field(default=MaskFeatherModel.DISTANCE, alias="featherModel")
+    space: MaskSpace = MaskSpace.SOURCE
+    units: Literal["normalized"] | None = Field(
+        default=None,
+        description=(
+            "Present only on a v21-migrated mask whose media had no probed size: geometry "
+            "is then fractions of the uncropped source frame, and the validator asks for "
+            "the media to be measured. Absent means pixels."
+        ),
+    )
+    keyframes: list[MaskKeyframe] = Field(default_factory=list)
+    tracking: MaskTracking | None = None
+    migration_note: str | None = Field(default=None, alias="migrationNote")
+    legacy_spec: MaskLegacySpec | None = Field(default=None, alias="legacySpec")
+
+    model_config = {"populate_by_name": True}
+
+
+class RectangleMask(MaskLayerBase):
+    """Centre, size, rotation (degrees), corner roundness."""
+
+    kind: Literal["rectangle"] = "rectangle"
+    cx: float
+    cy: float
+    width: float
+    height: float
+    rotation: float = 0.0
+    roundness: float = 0.0
+
+
+class EllipseMask(MaskLayerBase):
+    """Centre, radii, rotation (degrees)."""
+
+    kind: Literal["ellipse"] = "ellipse"
+    cx: float
+    cy: float
+    rx: float
+    ry: float
+    rotation: float = 0.0
+
+
+#: Prefix of a number array stored as base64 little-endian float64 bytes
+#: (TS ``FLOAT64_ARRAY_PREFIX``).
+FLOAT64_ARRAY_PREFIX = "f64le:"
+
+
+def decode_float64_array(text: str) -> list[float]:
+    """Decode ``f64le:<base64>`` into floats, bit for bit.
+
+    Raises:
+        ValueError: When the text is not the encoded form (a pydantic validation error follows).
+    """
+    if not text.startswith(FLOAT64_ARRAY_PREFIX):
+        raise ValueError("An encoded number array must start with 'f64le:'.")
+    try:
+        raw = base64.b64decode(text[len(FLOAT64_ARRAY_PREFIX) :], validate=True)
+    except binascii.Error as error:
+        raise ValueError("An encoded number array must be valid base64.") from error
+    if len(raw) % 8 != 0:
+        raise ValueError("An encoded number array must hold whole float64 values.")
+    return list(struct.unpack(f"<{len(raw) // 8}d", raw))
+
+
+class MaskPathKeyframe(BaseModel):
+    """A whole-path snapshot: flat ``[x, y, inX, inY, outX, outY, ...]`` + parallel types."""
+
+    id: str
+    source_time: float = Field(alias="sourceTime")
+    easing: str = "linear"
+    handles: BezierHandles | None = None
+    points: list[float]
+    vertex_types: list[int] = Field(alias="vertexTypes")
+    feather_px: list[float] | None = Field(default=None, alias="featherPx")
+
+    model_config = {"populate_by_name": True}
+
+    @field_validator("points", "feather_px", mode="before")
+    @classmethod
+    def _decode_binary_arrays(cls, value: object) -> object:
+        """Decode the exact ``f64le:`` file form of a long array (MK4.6, TS codec)."""
+        if isinstance(value, str):
+            return decode_float64_array(value)
+        return value
+
+
+class PathMask(MaskLayerBase):
+    """A closed cubic Bezier path animated by whole-path keyframes."""
+
+    kind: Literal["path"] = "path"
+    first_vertex: int = Field(default=0, alias="firstVertex")
+    path_keyframes: list[MaskPathKeyframe] = Field(alias="pathKeyframes")
+
+
+class MatteFile(BaseModel):
+    """One file of a matte artifact."""
+
+    name: Literal[
+        "matte.mkv",
+        "foreground.mkv",
+        "preview.webm",
+        "foreground.preview.webm",
+        "frames.json",
+        "report.json",
+    ]
+    sha256: str
+
+
+class MatteCoverage(BaseModel):
+    """Source range a matte artifact covers, seconds."""
+
+    source_start: float = Field(alias="sourceStart")
+    source_end: float = Field(alias="sourceEnd")
+
+    model_config = {"populate_by_name": True}
+
+
+class MatteArtifact(BaseModel):
+    """The digest-pinned output of a ``subject.matte`` pack job."""
+
+    key: str
+    files: list[MatteFile]
+    width: int
+    height: int
+    coverage: MatteCoverage
+    pack_id: str = Field(alias="packId")
+    pack_version: str = Field(alias="packVersion")
+    model_digests: list[str] = Field(alias="modelDigests")
+
+    model_config = {"populate_by_name": True}
+
+
+class MattePromptPoint(BaseModel):
+    """One include/exclude click, normalised frame coordinates."""
+
+    x: float
+    y: float
+    label: Literal["include", "exclude"]
+
+
+class MattePromptBox(BaseModel):
+    """A normalised box."""
+
+    x: float
+    y: float
+    width: float
+    height: float
+
+
+class MattePromptPoints(BaseModel):
+    kind: Literal["points"] = "points"
+    source_time: float = Field(alias="sourceTime")
+    points: list[MattePromptPoint]
+
+    model_config = {"populate_by_name": True}
+
+
+class MattePromptBoxRef(BaseModel):
+    kind: Literal["box"] = "box"
+    source_time: float = Field(alias="sourceTime")
+    box: MattePromptBox
+
+    model_config = {"populate_by_name": True}
+
+
+class MattePromptBrush(BaseModel):
+    kind: Literal["brush"] = "brush"
+    source_time: float = Field(alias="sourceTime")
+    sha256: str
+
+    model_config = {"populate_by_name": True}
+
+
+class MattePromptLock(BaseModel):
+    kind: Literal["lock"] = "lock"
+    source_time: float = Field(alias="sourceTime")
+    sha256: str
+
+    model_config = {"populate_by_name": True}
+
+
+class MattePromptCandidate(BaseModel):
+    kind: Literal["candidate"] = "candidate"
+    candidate_id: str = Field(alias="candidateId")
+
+    model_config = {"populate_by_name": True}
+
+
+MattePromptRef = Annotated[
+    MattePromptPoints
+    | MattePromptBoxRef
+    | MattePromptBrush
+    | MattePromptLock
+    | MattePromptCandidate,
+    Field(discriminator="kind"),
+]
+
+
+class MatteMask(MaskLayerBase):
+    """A raster AI matte from the subject pack."""
+
+    kind: Literal["matte"] = "matte"
+    artifact: MatteArtifact
+    prompts: list[MattePromptRef] = Field(default_factory=list)
+    review: MaskReview = Field(default_factory=MaskReview)
+    edge_shift_px: float = Field(default=0.0, alias="edgeShiftPx")
+    decontaminate: bool = True
+    edge_mode: Literal["sharp", "smooth"] = Field(default="smooth", alias="edgeMode")
+    finesse: MaskFinesse = Field(default_factory=MaskFinesse)
+
+
+class MaskKeyRange(BaseModel):
+    """One qualifier range of a ``key`` mask."""
+
+    channel: Literal["hue", "saturation", "luma", "red", "green", "blue"]
+    low: float
+    high: float
+    softness: float = 0.0
+
+
+class KeyMask(MaskLayerBase):
+    """A deterministic colour/luma qualifier."""
+
+    kind: Literal["key"] = "key"
+    model: Literal["hsl", "rgb", "luma", "3d"]
+    ranges: list[MaskKeyRange] = Field(default_factory=list)
+    samples3d: list[tuple[float, float, float]] = Field(default_factory=list)
+    softness: float = 0.0
+    despill: Literal["none", "green", "blue"] = "none"
+    shadow_retention: float = Field(default=0.0, alias="shadowRetention")
+    finesse: MaskFinesse = Field(default_factory=MaskFinesse)
+
+
+class LinearMask(MaskLayerBase):
+    """Half-plane split."""
+
+    kind: Literal["linear"] = "linear"
+    origin_x: float = Field(alias="originX")
+    origin_y: float = Field(alias="originY")
+    angle: float = 0.0
+    softness_px: float = Field(default=0.0, alias="softnessPx")
+
+
+class BandMask(MaskLayerBase):
+    """Band between two parallel lines."""
+
+    kind: Literal["band"] = "band"
+    origin_x: float = Field(alias="originX")
+    origin_y: float = Field(alias="originY")
+    angle: float = 0.0
+    width_px: float = Field(alias="widthPx")
+    softness_px: float = Field(default=0.0, alias="softnessPx")
+
+
+class GradientMask(MaskLayerBase):
+    """Graduated falloff from start to end."""
+
+    kind: Literal["gradient"] = "gradient"
+    shape: Literal["linear", "radial"]
+    start_x: float = Field(alias="startX")
+    start_y: float = Field(alias="startY")
+    end_x: float = Field(alias="endX")
+    end_y: float = Field(alias="endY")
+    curve: MaskFalloff = MaskFalloff.LINEAR
+
+
+class LayerMaskClipSource(BaseModel):
+    kind: Literal["clip"] = "clip"
+    clip_id: str = Field(alias="clipId")
+
+    model_config = {"populate_by_name": True}
+
+
+class LayerMaskTrackSource(BaseModel):
+    kind: Literal["track"] = "track"
+    track_id: str = Field(alias="trackId")
+
+    model_config = {"populate_by_name": True}
+
+
+class LayerMask(MaskLayerBase):
+    """Track matte: another clip's or track's alpha or luma at the same instant."""
+
+    kind: Literal["layer"] = "layer"
+    source: Annotated[LayerMaskClipSource | LayerMaskTrackSource, Field(discriminator="kind")]
+    channel: Literal["alpha", "luma", "inverted-alpha", "inverted-luma"] = "alpha"
+    finesse: MaskFinesse = Field(default_factory=MaskFinesse)
+
+
+MaskLayer = Annotated[
+    RectangleMask
+    | EllipseMask
+    | PathMask
+    | MatteMask
+    | KeyMask
+    | LinearMask
+    | BandMask
+    | GradientMask
+    | LayerMask,
+    Field(discriminator="kind"),
+]
+
+#: Every concrete mask model, in the TS declaration order.
+MASK_LAYER_MODELS: tuple[type[MaskLayerBase], ...] = (
+    RectangleMask,
+    EllipseMask,
+    PathMask,
+    MatteMask,
+    KeyMask,
+    LinearMask,
+    BandMask,
+    GradientMask,
+    LayerMask,
+)
+
+
+class MaskPreset(BaseModel):
+    """A saved mask look (schema v23, MK4.3); mirrors the TS ``MaskPresetSchema``.
+
+    The engine never renders presets; the mirror exists so a project the engine reads and
+    writes back keeps them.
+    """
+
+    id: str
+    name: str
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    source_start: float = Field(default=0.0, ge=0, alias="sourceStart")
+    masks: list[MaskLayer] = Field(min_length=1)
+
+    model_config = {"populate_by_name": True}
+
+
 class EffectLayer(BaseModel):
     """One time-ranged effect instance on an ``effect`` track (schema v13, ADR 0088).
 
@@ -254,6 +812,13 @@ class EffectLayer(BaseModel):
         description="Bypassed: kept in the file but skipped by preview and render alike.",
     )
     keyframes: list[Keyframe] = Field(default_factory=list)
+    masks: list[MaskLayer] | None = Field(
+        default=None,
+        description=(
+            "Masks limiting where this adjustment applies (schema v22). Always frame "
+            "space; keyframe sourceTime is seconds from the layer's start."
+        ),
+    )
 
     model_config = {"populate_by_name": True}
 
@@ -606,6 +1171,13 @@ class Clip(BaseModel):
             "`docs/adr/0048-clip-blend-mode-schema-v8.md`)."
         ),
     )
+    masks: list[MaskLayer] | None = Field(
+        default=None,
+        description=(
+            "The clip's mask stack, top first (schema v22, ADR 0178). Replaces the v21 "
+            "``mask`` effect type. Absent means no masks."
+        ),
+    )
 
     model_config = {"populate_by_name": True}
 
@@ -689,6 +1261,13 @@ class Timeline(BaseModel):
             "only: styling or muting does not bump it. Absent means 0."
         ),
     )
+    mask_presets: list[MaskPreset] | None = Field(
+        default=None,
+        alias="maskPresets",
+        description="Mask presets saved in the project (schema v23, MK4.3). Absent means none.",
+    )
+
+    model_config = {"populate_by_name": True}
 
     def active_effect_layers_at(self, time: float) -> list[tuple[Track, EffectLayer]]:
         """Every live effect layer at ``time``, in the exact order to apply them.
@@ -734,12 +1313,38 @@ class AssetMedia(BaseModel):
     #: needed one. Absent means "not probed", never "square".
     width: int | None = Field(default=None)
     height: int | None = Field(default=None)
+    #: Pixel aspect ratio of the coded picture (ffprobe ``sample_aspect_ratio``) as a float,
+    #: like ``Project.fps``. Absent means square pixels. Schema v22.
+    #:
+    #: WHY: ``width``/``height`` are the CODED size, but mask geometry is stored in
+    #: display-corrected source pixels (ADR 0178). An anamorphic 1440x1080 SAR 4:3 clip
+    #: displays 1920 wide, and without this its masks were measured against 1440.
+    pixel_aspect_ratio: float | None = Field(default=None, alias="pixelAspectRatio", gt=0)
+    #: Clockwise display rotation (display matrix / ``rotate`` tag). Absent means 0. v22.
+    #:
+    #: WHY: a portrait phone clip is coded 1920x1080 with a -90 degree display matrix and
+    #: shown 1080x1920; mask pixels are display-corrected, so a quarter turn swaps the axes.
+    rotation: Literal[0, 90, 180, 270] | None = Field(default=None)
     proxy_path: str | None = Field(default=None, alias="proxyPath")
     peaks: list[float] | None = Field(default=None)
     peaks_per_second: float | None = Field(default=None, alias="peaksPerSecond")
     thumbnail_paths: list[str] | None = Field(default=None, alias="thumbnailPaths")
 
     model_config = {"populate_by_name": True}
+
+    def display_size(self) -> tuple[float, float] | None:
+        """The display-corrected source size masks are measured in, or ``None`` unprobed.
+
+        Mirrors ``editor-core`` ``assetDisplaySize``: coded width stretched by the pixel
+        aspect ratio, then width and height swapped for a quarter turn.
+        """
+        if not self.width or not self.height:
+            return None
+        width = float(self.width) * (self.pixel_aspect_ratio or 1.0)
+        height = float(self.height)
+        if self.rotation in (90, 270):
+            return (height, width)
+        return (width, height)
 
 
 class AssetSource(BaseModel):

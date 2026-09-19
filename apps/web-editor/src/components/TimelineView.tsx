@@ -77,6 +77,7 @@ import {
 } from '../editor/selectors.js';
 import { ClipWaveform } from './ClipWaveform.js';
 import { ClipFilmstrip, filmstripSlots } from './ClipFilmstrip.js';
+import { ClipProcessingBand } from './ClipProcessingBand.js';
 import { TimelineMinimap } from './TimelineMinimap.js';
 import { laneNames } from './timeline/lane-names.js';
 import { useSettings } from '../editor/useSettings.js';
@@ -1013,8 +1014,7 @@ const TimelineClip = memo(function TimelineClip({
 
   /** Which of the clip's own controls are actually on screen for this clip. */
   const hasFadeHandles = kind === 'audio' && clipWidthPx >= FADE_HANDLE_MIN_CLIP_PX;
-  const hasLanesToggle =
-    onToggleLanes !== undefined && clip.keyframes.length > 0 && density.showHeader;
+  const hasLanesToggle = onToggleLanes !== undefined && isAnimated(clip) && density.showHeader;
   // Advertised only where the key does something. A clip that promises D and has
   // no lanes to open teaches the user the shortcut does not work.
   const keyShortcuts = [
@@ -1110,6 +1110,10 @@ const TimelineClip = memo(function TimelineClip({
           transition={{ duration: 1.2, ease: 'easeOut' }}
         />
       )}
+      {/* BR6.8: the part of this clip whose background removal has not been processed yet.
+          Finished windows already show matted in the monitor, so without this band a
+          partly processed clip is indistinguishable from a finished one. */}
+      <ClipProcessingBand clipId={clip.id} />
       {/* The filmstrip has no sliver cutoff: when thumbnails are on, even a very
           narrow clip shows at least one frame (filmstripSlots bottoms out at 1). */}
       {showThumbnails && (kind === 'video' || kind === 'image') && clipWidthPx > 0 && (
@@ -1256,7 +1260,7 @@ const TimelineClip = memo(function TimelineClip({
         wide enough to have shown its header, since below that there is no room for a
         control the user could hit.
       */}
-      {onToggleLanes !== undefined && clip.keyframes.length > 0 && density.showHeader && (
+      {onToggleLanes !== undefined && isAnimated(clip) && density.showHeader && (
         <button
           type="button"
           className="clip-lanes-toggle"

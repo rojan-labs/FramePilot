@@ -27,5 +27,8 @@ export async function handleProjectSnapshot(projectId: unknown): Promise<Project
       throw new Error('Project snapshot IPC is read-only.');
     },
   });
-  return readProjectSnapshot(projectId, store, readProjectFile);
+  // Back up an older-format file before it is migrated, as every desktop read does (ADR 0178).
+  return readProjectSnapshot(projectId, store, (path) =>
+    readProjectFile(path, { backupBeforeMigration: true }),
+  );
 }

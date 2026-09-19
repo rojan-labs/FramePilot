@@ -4,7 +4,7 @@
  */
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { EditResult, ToolNode } from '@framepilot/ai-sdk';
+import type { EditResult, ToolNode, ToolResultEvent } from '@framepilot/ai-sdk';
 import type { Project, Timeline } from '@framepilot/timeline-schema';
 import { EventNode } from './EventNode.js';
 
@@ -695,6 +695,104 @@ describe('EventNode', () => {
     expect(onReveal).toHaveBeenCalledWith(expect.objectContaining({ kind: 'clip', id: 'clip_a' }));
   });
 
+  const toolResult = (result: unknown): ToolResultEvent => ({
+    id: 'r',
+    conversationId: 'c',
+    ts: 0,
+    turnId: 't',
+    type: 'tool_result',
+    toolCallId: 'x',
+    result,
+  });
+
+  // AM1.5: a masking tool that failed for want of a pack shows the signed install offer, for
+  // each of the three packs the domain uses. The model cannot install anything.
+  it.each([
+    ['remove_background', 'Smart Mask'],
+    ['track_mask', 'Tracking Lite'],
+    ['find_mask_targets', 'Subject Intelligence'],
+  ])('offers the missing pack when %s fails with pack_missing', (toolName, displayName) => {
+    const proposal = {
+      proposalId: 'a'.repeat(64),
+      displayName,
+      downloadBytes: 42_000_000,
+      licenses: [{ spdx: 'Apache-2.0' }],
+      privacy: { mediaLeavesDevice: false },
+    };
+    render(
+      <EventNode
+        node={{
+          kind: 'tool',
+          id: `pack-${toolName}`,
+          ts: 0,
+          turnId: 't',
+          toolName,
+          status: 'failed',
+          result: toolResult({ code: 'pack_missing', proposal: { ok: true, proposal } }),
+        }}
+      />,
+    );
+    const card = screen.getByRole('dialog', { name: 'capability pack install' });
+    expect(card.textContent).toContain(displayName);
+    expect(card.textContent).toContain('Media never leaves this machine.');
+  });
+
+  it('shows the target picker on an ambiguous find_mask_targets, and sends the pick once the run ends', () => {
+    const onSendMessage = vi.fn();
+    const candidate = (candidateId: string, x: number) => ({
+      candidateId,
+      label: 'face',
+      box: { x, y: 0.4, width: 0.1, height: 0.2 },
+      sourceTime: 1,
+    });
+    const node: ToolNode = {
+      kind: 'tool',
+      id: 'targets',
+      ts: 0,
+      turnId: 't',
+      toolName: 'find_mask_targets',
+      status: 'warning',
+      result: toolResult({
+        kind: 'mask_targets',
+        clipId: 'shot',
+        description: 'the face',
+        status: 'ambiguous_target',
+        candidates: [candidate('pick.f1_aaaaaaaa', 0.1), candidate('pick.f1_bbbbbbbb', 0.8)],
+      }),
+    };
+    const { rerender } = render(<EventNode node={node} onSendMessage={onSendMessage} />);
+    const option = (): HTMLButtonElement =>
+      screen.getByRole('button', { name: 'Pick the face at the left' }) as HTMLButtonElement;
+    // Still running: the pick is its own message, so it waits.
+    expect(option().disabled).toBe(true);
+    rerender(<EventNode node={node} onSendMessage={onSendMessage} runEnded />);
+    fireEvent.click(option());
+    expect(onSendMessage).toHaveBeenCalledWith(expect.stringContaining('pick.f1_aaaaaaaa'));
+  });
+
+  it('offers a long cut-out to the editor instead of showing it as a dead failure', () => {
+    render(
+      <EventNode
+        node={{
+          kind: 'tool',
+          id: 'matte-start',
+          ts: 0,
+          turnId: 't',
+          toolName: 'remove_background',
+          status: 'failed',
+          result: toolResult({
+            code: 'needs_editor_start',
+            job: { assetId: 'asset', clipId: 'shot', sourceStart: 0, sourceEnd: 6, prompts: [] },
+            estimateSeconds: 3120,
+          }),
+        }}
+      />,
+    );
+    expect(screen.getByRole('dialog', { name: 'start background removal' }).textContent).toContain(
+      'about 52 minutes',
+    );
+  });
+
   it('renders an unavailable tool as visibly gated (Coming soon)', () => {
     render(
       <EventNode
@@ -703,12 +801,14 @@ describe('EventNode', () => {
           id: 'g',
           ts: 0,
           turnId: 't',
-          toolName: 'generate_mask',
+          // An autonomous capability whose contract is not `ready`. The registry itself has
+          // no unavailable tool since `create_mask` replaced `generate_mask` (plan 11).
+          toolName: 'probe_media',
           status: 'running',
         }}
       />,
     );
-    expect(screen.getByText('Generate mask')).toBeTruthy();
+    expect(screen.getByText('Probe media')).toBeTruthy();
     // Gated tools read "Coming soon" via the status-icon tooltip label, not a badge.
     expect(screen.getByLabelText('Coming soon')).toBeTruthy();
   });

@@ -1,0 +1,92 @@
+# Smart Mask Capability Pack worker (background removal, AI Object, AI Brush).
+#
+# A SEPARATE artifact project, on the same terms as workers/subject-intelligence and
+# workers/visual-embed: not a member of the root uv workspace, not a dependency of the base
+# Python render engine or the Electron app. Model weights (~1.4 GB) and onnxruntime ship as a
+# signed, on-demand Capability Pack (ADR 0114, ADR 0179), never inside the base installer.
+# Nothing here may be imported by `framepilot_engine`.
+#
+# The `spike/` directory beside this file is the BR0 verification spike. It keeps its own
+# isolated environment (PyTorch lives there only for export and parity) and is not part of
+# this project.
+[project]
+name = "framepilot-smart-mask"
+version = "1.0.0"
+description = "FramePilot Smart Mask Capability Pack worker (video subject mattes, interactive segmentation)"
+readme = "README.md"
+license = { text = "Proprietary" }
+authors = [{ name = "Rojan Acharya and FramePilot contributors" }]
+requires-python = ">=3.12"
+# The protocol/sandbox/runtime layer has NO third-party dependency, so the base repository
+# can test the worker's contract without installing numpy, OpenCV or onnxruntime.
+dependencies = []
+
+[project.optional-dependencies]
+# Real pipeline. Installed only by the pack build/CI job and by local real-weight runs.
+#
+# - onnxruntime runs both models (the runtime visual-embed already ships; no second ML runtime).
+# - OpenCV supplies DIS optical flow, morphology, PNG codec and resizing. Its bundled FFmpeg
+#   is never used for decoding: cv2.VideoCapture has no pts or edit-list semantics.
+# - Pillow reproduces the SAM 2.1 reference preprocessing (PIL bicubic resize) exactly.
+# - Decode and encode go through an LGPL-only ffmpeg/ffprobe BINARY, not PyAV: every PyAV
+#   wheel checked (12.3 – 18.1) bundles libx264/libx265 (GPL), see LICENSES.md.
+cv = [
+  "numpy>=2.1",
+  "onnxruntime>=1.20,<2",
+  "opencv-contrib-python-headless>=5.0,<6",
+  "pillow>=11",
+]
+dev = [
+  "pytest>=8.3",
+  "ruff>=0.6",
+  "mypy>=1.11",
+]
+
+[project.scripts]
+framepilot-smart-mask = "framepilot_smart_mask.__main__:main"
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/framepilot_smart_mask"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+# The default suite runs with no downloaded weights. Tests that need numpy/OpenCV skip
+# themselves when the `cv` extra is absent. Real-weight proof is opt-in (`decoded_media`)
+# and must run under spike/watchdog.py on a developer machine (16 GB incidents, BR0).
+addopts = "-ra --strict-markers -m 'not decoded_media'"
+markers = [
+  "decoded_media: requires onnxruntime, pinned model weights, ffmpeg and real media (opt-in, under the watchdog)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src"]
+extend-exclude = ["spike"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "PTH", "RUF"]
+allowed-confusables = ["–", "×", "α", "²", "∩", "∪"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test tables and fixture command lines read better unwrapped.
+"tests/*" = ["E501"]
+# Build-time scripts: long command lines and tables read better unwrapped.
+"tools/*" = ["E501"]
+"eval/*" = ["E501"]
+# One-off parity debugging scripts kept for the next parity investigation.
+"tools/debug_*.py" = ["E402", "E701", "E702"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/framepilot_smart_mask"]
+
+[[tool.mypy.overrides]]
+module = ["cv2.*", "numpy.*", "onnxruntime.*", "PIL.*"]
+ignore_missing_imports = true

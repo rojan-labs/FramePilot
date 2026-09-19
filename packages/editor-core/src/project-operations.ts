@@ -29,6 +29,21 @@ export interface MoveAssetOp {
   readonly folderId: string | null;
 }
 
+/**
+ * Point an asset at a different file: relinking missing media or replacing a clip's file
+ * (BR4.14). Everything that references the asset by id (clips, masks, transcripts) follows.
+ *
+ * WHY the path is all it changes: derived media (probe facts, proxy, thumbnails) describes
+ * the pictures, and a relink to the same footage keeps it valid. Whether the pictures really
+ * are the same is not decided here: the desktop re-checks every matte on the asset by decoded
+ * frame hashes and marks changed ones STALE, and the export refuses them.
+ */
+export interface RelinkAssetOp {
+  readonly type: 'relink_asset';
+  readonly assetId: string;
+  readonly path: string;
+}
+
 export interface CreateFolderOp {
   readonly type: 'create_folder';
   readonly folderId: string;
@@ -117,6 +132,7 @@ export type ProjectOperation =
   | AddAssetOp
   | RemoveAssetOp
   | MoveAssetOp
+  | RelinkAssetOp
   | CreateFolderOp
   | RenameFolderOp
   | MoveFolderOp
@@ -134,6 +150,7 @@ const PROJECT_OPERATION_TYPES: ReadonlySet<string> = new Set<ProjectOperationTyp
   'add_asset',
   'remove_asset',
   'move_asset',
+  'relink_asset',
   'create_folder',
   'rename_folder',
   'move_folder',
@@ -161,7 +178,8 @@ export class ProjectOperationError extends Error {
       | 'missing_marker'
       | 'duplicate_marker'
       | 'invalid_marker_time'
-      | 'invalid_transcript',
+      | 'invalid_transcript'
+      | 'invalid_asset_path',
     message: string,
   ) {
     super(message);
@@ -174,6 +192,20 @@ export class ProjectOperationError extends Error {
 // ---------------------------------------------------------------------------
 
 const clone = <T>(value: T): T => structuredClone(value);
+
+/**
+ * A relink target: an ABSOLUTE path (POSIX `/...` or Windows `C:\...`), with no `..` segment,
+ * no NUL byte and no surrounding whitespace (BR4.12 L5). A relink comes from a native file
+ * dialog, which always yields an absolute path; anything else is not a file the editor chose.
+ */
+export const isValidAssetPath = (path: string): boolean =>
+  typeof path === 'string' &&
+  path.length > 0 &&
+  path.length <= 4096 &&
+  path.trim() === path &&
+  !path.includes('\0') &&
+  (path.startsWith('/') || /^[A-Za-z]:[\\/]/u.test(path)) &&
+  !path.split(/[\\/]/u).includes('..');
 
 const findAsset = (project: Project, assetId: string): Asset => {
   const asset = project.assets.find((a) => a.id === assetId);
@@ -308,6 +340,16 @@ export function applyProjectOperation(project: Project, op: ProjectOperation): P
         project.assets.map((a) => (a.id === op.assetId ? assetWithFolder(a, op.folderId) : a)),
       );
     }
+    case 'relink_asset': {
+      findAsset(project, op.assetId);
+      if (!isValidAssetPath(op.path)) {
+        throw new ProjectOperationError('invalid_asset_path', 'relink_asset needs an absolute file path.');
+      }
+      return withAssets(
+        project,
+        project.assets.map((a) => (a.id === op.assetId ? { ...a, path: op.path } : a)),
+      );
+    }
     case 'create_folder': {
       if (project.folders.some((f) => f.id === op.folderId)) {
         throw new ProjectOperationError(
@@ -405,6 +447,10 @@ export function invertProjectOperation(
     case 'move_asset': {
       const asset = findAsset(projectBefore, op.assetId);
       return [{ type: 'move_asset', assetId: op.assetId, folderId: asset.folderId ?? null }];
+    }
+    case 'relink_asset': {
+      const asset = findAsset(projectBefore, op.assetId);
+      return [{ type: 'relink_asset', assetId: op.assetId, path: asset.path }];
     }
     case 'rename_folder': {
       const folder = findFolder(projectBefore, op.folderId);

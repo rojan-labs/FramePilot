@@ -22,7 +22,12 @@ from conftest import (
 )
 
 from framepilot_tracking_lite.policy import run_tracker
-from framepilot_tracking_lite.protocol import TrackingRequest, TrackingSample
+from framepilot_tracking_lite.protocol import (
+    NormalizedBox,
+    NormalizedPoint,
+    TrackingRequest,
+    TrackingSample,
+)
 from framepilot_tracking_lite.runtime import build_tracker
 from framepilot_tracking_lite.trackers.point import MAX_ROUND_TRIP_PIXELS
 
@@ -138,18 +143,48 @@ def test_planar_track_projects_the_requested_quad_through_the_homography() -> No
     assert samples[-1].confidence > 0.9
 
 
-def test_planar_confidence_falls_with_the_inlier_ratio() -> None:
-    # Four of nine correspondences drift onto something else at frame 2.
-    backend = ScriptedBackend(outlier_frames={2: 4})
+def test_planar_confidence_is_linear_in_the_verified_agreement() -> None:
+    # 95 % of the quad's cells confirm the plane at frame 2: (0.95 - 0.8) / 0.2 = 0.75; 90 % is
+    # exactly the host's floor, and 80 % is nothing.
+    backend = ScriptedBackend(agreement={2: 0.95, 3: 0.9, 4: 0.8})
     samples = track(backend, planar_request(media=media_handle(0, 5)))
-    assert samples[2].confidence == pytest.approx(5 / 9, abs=0.01)
+    assert samples[2].confidence == pytest.approx(0.75, abs=1e-9)
+    assert samples[3].confidence == pytest.approx(0.5, abs=1e-9)
+    assert samples[4].confidence == pytest.approx(0.0, abs=1e-9)
+    assert samples[1].confidence == pytest.approx(1.0, abs=1e-9)
 
 
-def test_planar_refuses_to_report_a_plane_below_the_inlier_floor() -> None:
-    backend = ScriptedBackend(outlier_frames={2: 6})
+def test_contradicting_cells_pull_planar_confidence_under_the_host_floor() -> None:
+    # 95 % agree, but 10 % clearly sit somewhere else: evidence the plane is wrong.
+    backend = ScriptedBackend(agreement={2: 0.95}, contradiction={2: 0.1})
+    samples = track(backend, planar_request(media=media_handle(0, 5)))
+    assert samples[2].confidence == pytest.approx(0.75 * 0.5, abs=1e-9)
+    assert samples[2].confidence < 0.5
+
+
+def test_planar_refuses_to_report_a_plane_the_check_cannot_confirm() -> None:
+    backend = ScriptedBackend(agreement={2: 0.1})
     samples = track(backend, planar_request(media=media_handle(0, 5)))
     assert samples[2].confidence == 0.0
     assert samples[2].occluded is True
+
+
+def test_a_flow_outlier_majority_does_not_decide_the_plane() -> None:
+    # Six of nine correspondences scatter at frame 2. The flow fit alone would refuse; the
+    # registration against the reference still places the plane where the subject is.
+    backend = ScriptedBackend(outlier_frames={2: 6}, trajectory=linear_trajectory(4.0, 2.0))
+    samples = track(backend, planar_request(media=media_handle(0, 5)))
+    expected = (centre(samples[0])[0] + 8.0, centre(samples[0])[1] + 4.0)
+    assert centre(samples[2]) == pytest.approx(expected, abs=1e-6)
+    assert samples[2].confidence == pytest.approx(1.0, abs=1e-9)
+
+
+def test_planar_registers_against_the_reference_frame_every_frame() -> None:
+    backend = ScriptedBackend()
+    track(backend, planar_request(media=media_handle(0, 5)))
+    assert [(ref, cur, motion) for ref, cur, motion, _ in backend.alignments] == [
+        (0, frame, "homography") for frame in range(1, 5)
+    ]
 
 
 def test_planar_requires_four_correspondences_to_initialize() -> None:
@@ -170,3 +205,76 @@ def test_planar_feature_order_is_stable_regardless_of_detection_order() -> None:
         planar_request(media=media_handle(0, 5)),
     )
     assert [sample.box for sample in first] == [sample.box for sample in second]
+
+
+# --- exclusions (MK7.7) --------------------------------------------------------------------
+
+
+OCCLUDER = NormalizedBox(x=0.2, y=0.25, width=0.15, height=0.3)
+
+
+def occluder_pixels() -> tuple[float, float, float, float]:
+    return (
+        OCCLUDER.x * WIDTH,
+        OCCLUDER.y * HEIGHT,
+        OCCLUDER.width * WIDTH,
+        OCCLUDER.height * HEIGHT,
+    )
+
+
+def test_planar_exclusion_follows_the_occluder_it_was_drawn_around() -> None:
+    """The box stays where the editor drew it on the reference and moves with its content after."""
+    backend = ScriptedBackend(trajectory=linear_trajectory(2.0, 0.0), occluder_motion=(5.0, 1.0))
+    samples = track(backend, planar_request(media=media_handle(0, 5), exclusions=(OCCLUDER,)))
+    assert len(samples) == 5
+    drawn = occluder_pixels()
+    assert backend.detect_exclusions == [(drawn,)]
+    for current, on_reference, on_current in backend.align_exclusions:
+        assert on_reference == (drawn,)
+        (box,) = on_current
+        assert box[0] == pytest.approx(drawn[0] + 5.0 * current)
+        assert box[1] == pytest.approx(drawn[1] + 1.0 * current)
+        assert box[2:] == pytest.approx(drawn[2:])
+
+
+def test_an_exclusion_whose_content_is_lost_keeps_its_motion() -> None:
+    """An occluder does not stop because it became hard to see: it keeps its last velocity."""
+    backend = ScriptedBackend(occluder_motion=(4.0, 0.0), occluder_unseen_frames={3, 4})
+    track(backend, planar_request(media=media_handle(0, 5), exclusions=(OCCLUDER,)))
+    drawn = occluder_pixels()
+    by_frame = {current: on_current[0] for current, _, on_current in backend.align_exclusions}
+    assert by_frame[2][0] == pytest.approx(drawn[0] + 8.0)
+    assert by_frame[3][0] == pytest.approx(drawn[0] + 12.0)
+    assert by_frame[4][0] == pytest.approx(drawn[0] + 16.0)
+
+
+def test_a_track_without_exclusions_registers_exactly_as_before() -> None:
+    backend = ScriptedBackend()
+    track(backend, planar_request(media=media_handle(0, 4)))
+    assert all(
+        on_reference == () and on_current == ()
+        for _, on_reference, on_current in backend.align_exclusions
+    )
+
+
+def test_a_shape_keeps_measuring_when_the_occluder_sweeps_its_centre() -> None:
+    """With an exclusion the vertices are the measurement: a lost centre point drops nothing."""
+    vertices = (
+        NormalizedPoint(x=0.4, y=0.4),
+        NormalizedPoint(x=0.6, y=0.4),
+        NormalizedPoint(x=0.6, y=0.6),
+        NormalizedPoint(x=0.4, y=0.6),
+    )
+    lost_centre = {2: MAX_ROUND_TRIP_PIXELS + 5.0}
+    plain = track(
+        ScriptedBackend(round_trip_errors=lost_centre),
+        point_request(media=media_handle(0, 5), points=vertices),
+    )
+    assert plain[2].occluded is True
+    marked = track(
+        ScriptedBackend(round_trip_errors=lost_centre),
+        point_request(media=media_handle(0, 5), points=vertices, exclusions=(OCCLUDER,)),
+    )
+    assert marked[2].occluded is False
+    assert marked[2].points is not None
+    assert marked[2].confidence > 0.5

@@ -24,6 +24,7 @@ import json
 import logging
 import sqlite3
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -73,6 +74,7 @@ __all__ = [
     "BrainError",
     "BrainSchemaError",
     "BrainStore",
+    "IdentityDeletion",
     "brain_dir_for",
     "brain_status",
     "open_brain",
@@ -93,6 +95,22 @@ _TIER_COLUMNS: dict[str, tuple[str, str]] = {
     "labelled": ("labelled", "tier1_version"),
     "described": ("described", "tier2_version"),
 }
+
+#: Where the per-project face-recognition opt-in lives in the ``fields`` table: one row,
+#: about the project itself, which only a human write can set (see ``write_field``).
+_CONSENT_ENTITY = "project"
+_CONSENT_FIELD = "face_recognition_consent"
+_PERSON_KIND = "person"
+
+
+@dataclass(frozen=True)
+class IdentityDeletion:
+    """What one ``delete_identity_data`` call removed, for the receipt the editor sees."""
+
+    people: int
+    shots: int
+    digests: int
+
 
 # Returns the current UTC time; injected in tests for deterministic timestamps.
 Clock = Callable[[], datetime]
@@ -1405,6 +1423,81 @@ class BrainStore:
                 (label, self._now(), entity_id),
             ).rowcount
         return bool(changed)
+
+    # -- face recognition: consent and deletion (plan/background-removal-ai/12 P15, MD-7) --
+
+    def face_recognition_consent(self) -> bool:
+        """Whether this project's editor has opted in to local face recognition.
+
+        Absent is ``False``: recognising who someone is across shots is biometric
+        processing, so it is never on until a person turns it on, per project.
+        """
+        row = self.get_field(_CONSENT_ENTITY, _CONSENT_ENTITY, _CONSENT_FIELD)
+        return row is not None and row.value is True
+
+    def set_face_recognition_consent(self, consent: bool, *, actor: str) -> None:
+        """Record the editor's choice. Always a human write: no model can grant this."""
+        self.write_field(
+            _CONSENT_ENTITY,
+            _CONSENT_ENTITY,
+            _CONSENT_FIELD,
+            bool(consent),
+            source=Provenance.HUMAN,
+            actor=actor,
+        )
+
+    def delete_identity_data(self, *, actor: str) -> IdentityDeletion:
+        """Delete every stored identity in ONE action, and withdraw consent with it.
+
+        Three places hold identity: the ``entities`` rows (one centroid per person — the
+        only face-derived vectors the brain keeps), the ``person`` refs on each shot's
+        labelled facts, and the ``people`` list of each asset digest. All three go in one
+        transaction, so a crash cannot leave a name pointing at a deleted centroid. Face
+        COUNTS stay: "two faces in this shot" says nothing about who they are.
+
+        Consent is withdrawn in the same call, because "delete what you know about the
+        people in my project" and "keep recognising them" cannot both be what was meant.
+        """
+        with self._conn:
+            people = self._conn.execute(
+                "DELETE FROM entities WHERE kind = ?", (_PERSON_KIND,)
+            ).rowcount
+            shots = 0
+            for row in self._conn.execute(
+                "SELECT asset_id, content_hash, shot_index, labelled FROM shots"
+                " WHERE labelled IS NOT NULL"
+            ).fetchall():
+                facts = json.loads(row["labelled"])
+                kept = [
+                    ref for ref in facts.get("entities") or [] if ref.get("kind") != _PERSON_KIND
+                ]
+                if len(kept) == len(facts.get("entities") or []):
+                    continue
+                facts["entities"] = kept
+                self._conn.execute(
+                    "UPDATE shots SET labelled = ?"
+                    " WHERE asset_id = ? AND content_hash = ? AND shot_index = ?",
+                    (
+                        _canonical_json(facts),
+                        row["asset_id"],
+                        row["content_hash"],
+                        row["shot_index"],
+                    ),
+                )
+                shots += 1
+            digests = 0
+            for row in self._conn.execute("SELECT asset_id, digest FROM asset_digest").fetchall():
+                digest = json.loads(row["digest"])
+                if not digest.get("people"):
+                    continue
+                digest["people"] = []
+                self._conn.execute(
+                    "UPDATE asset_digest SET digest = ? WHERE asset_id = ?",
+                    (_canonical_json(digest), row["asset_id"]),
+                )
+                digests += 1
+        self.set_face_recognition_consent(False, actor=actor)
+        return IdentityDeletion(people=int(people), shots=shots, digests=digests)
 
     def upsert_asset_digest(self, digest: AssetDigest) -> None:
         """Store the pre-aggregated per-asset summary (one row per asset).

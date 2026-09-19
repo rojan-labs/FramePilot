@@ -38,6 +38,7 @@ import {
 import { CAPTION_FONT_CATALOG, DEFAULT_CAPTION_FONT_FAMILY } from '../dist/caption-fonts.js';
 import { EFFECT_CATALOG, EFFECT_CATEGORIES } from '../dist/effect-catalog.js';
 import { EFFECT_PARAMS } from '../dist/effect-params.js';
+import { EDGE_STYLE_CATALOG, EDGE_STYLE_KINDS, EDGE_STYLE_PARAMS } from '../dist/edge-styles.js';
 import { TRANSITION_CATALOG, TRANSITION_CATEGORIES } from '../dist/transition-catalog.js';
 import {
   TRANSITION_APPLY_PATH,
@@ -145,10 +146,13 @@ process.stdout.write(`Wrote ${fontCssPath}\n`);
 //    the numpy render passes clamp against the SAME ranges the Inspector and
 //    the AI tool layer publish. Drift is guarded by `effect-catalog.test.ts`
 //    (TS side) and `test_effect_catalog.py` (engine side).
+//    `edgeStyles` (MK9.2) are the cut-out edge styles: clip effects that read the clip's
+//    alpha mask stack, with their own param vocabulary and entries.
 const effects = {
   categories: EFFECT_CATEGORIES,
   params: EFFECT_PARAMS,
   effects: EFFECT_CATALOG,
+  edgeStyles: { kinds: EDGE_STYLE_KINDS, params: EDGE_STYLE_PARAMS, styles: EDGE_STYLE_CATALOG },
 };
 const effectPaths = [
   path.join(here, '..', 'schema', 'effect-catalog.json'),

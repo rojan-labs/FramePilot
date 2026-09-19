@@ -31,6 +31,7 @@ from framepilot_engine.media.assets import index_assets
 from framepilot_engine.render.compiler import compile_timeline, expected_render, timeline_duration
 from framepilot_engine.render.encoders import choose_encoder
 from framepilot_engine.render.export_settings import ExportSettings, SourceFacts
+from framepilot_engine.render.mattes import MatteRefusal
 from framepilot_engine.render.presets import ExportPreset, target_from_settings
 from framepilot_engine.render.resources import close_clip_tree
 from framepilot_engine.safety import resolve_within
@@ -329,6 +330,11 @@ def plain_render_error(exc: BaseException) -> str:
     """
     if isinstance(exc, RenderError):
         return str(exc)
+    # A matte refusal's remedy IS the line to show (BR2.3); it must not be truncated or
+    # rewritten by the keyword rules below.
+    refusal = exc if isinstance(exc, MatteRefusal) else exc.__cause__
+    if isinstance(refusal, MatteRefusal):
+        return refusal.remedy
     text = str(exc)
     lowered = text.lower()
     if isinstance(exc, MemoryError):

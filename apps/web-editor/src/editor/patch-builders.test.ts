@@ -21,7 +21,6 @@ import {
   setTextParamsPatch,
   textEffectOf,
   setClipTransformPatch,
-  addMaskPatch,
   addTransitionPatch,
   removeTransitionPatch,
   applyTransitionToClipsPatch,
@@ -525,28 +524,6 @@ describe('setClipBlendModePatch (H1.2h)', () => {
 
   it('returns null for a missing clip', () => {
     expect(setClipBlendModePatch(tl, 'nope', 'multiply')).toBeNull();
-  });
-});
-
-describe('addMaskPatch', () => {
-  it('adds a centered mask with geometry the engine can rasterize', () => {
-    const patch = addMaskPatch(tl, 'clip_intro', 'ellipse', 0.1, 0.8);
-    expect(patch?.operations[0]).toMatchObject({
-      type: 'add_mask',
-      clipId: 'clip_intro',
-      shape: 'ellipse',
-      bounds: { x: 0.2, y: 0.2, width: 0.6, height: 0.6 },
-      feather: 0.1,
-      opacity: 0.8,
-    });
-  });
-
-  it('returns null for a missing clip and applies cleanly through the store', () => {
-    expect(addMaskPatch(tl, 'nope', 'rectangle')).toBeNull();
-    const patch = addMaskPatch(tl, 'clip_intro', 'rectangle')!;
-    const next = applyUserPatch(createEditorState(tl, { assetIds: demoAssetIds }), patch);
-    expect(next.issues).toEqual([]);
-    expect(next.timeline.tracks[0]!.clips[0]!.effects.some((e) => e.type === 'mask')).toBe(true);
   });
 });
 

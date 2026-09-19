@@ -34,6 +34,8 @@ import type {
   TranscriptionResult,
   RevealResult,
   CapabilityPackProjectResolutionWire,
+  MatteValidationIssueWire,
+  ProjectOpenResult,
   MusicSearchResult,
   MusicPreviewResult,
   MusicDownloadRequest,
@@ -112,8 +114,29 @@ export type OpenProjectResult =
       project: Project;
       revision: number;
       capabilityPacks?: CapabilityPackProjectResolutionWire;
+      /** Main's quick matte file check at open: BROKEN/STALE per matte with the engine's remedy. */
+      mattes?: readonly MatteValidationIssueWire[];
     }
   | { ok: false; error: string };
+
+/** Validate main's open result; a schema failure is never coerced (AGENTS.md invariant 3). */
+function toOpenProjectResult(result: ProjectOpenResult): OpenProjectResult {
+  if (!result.ok) {
+    return { ok: false, error: result.error };
+  }
+  const parsed = safeParseProject(result.project);
+  if (!parsed.success) {
+    return { ok: false, error: `Project failed validation: ${parsed.error.message}` };
+  }
+  return {
+    ok: true,
+    path: result.path,
+    project: parsed.data,
+    revision: result.revision ?? 0,
+    ...(result.capabilityPacks === undefined ? {} : { capabilityPacks: result.capabilityPacks }),
+    ...(result.mattes === undefined ? {} : { mattes: result.mattes }),
+  };
+}
 
 /**
  * Open and validate a project through the desktop bridge.
@@ -132,21 +155,7 @@ export async function openProject(
   if (!bridge) {
     return { ok: false, error: 'Desktop bridge unavailable (running outside Electron).' };
   }
-  const result = await bridge.openProject(path);
-  if (!result.ok) {
-    return { ok: false, error: result.error };
-  }
-  const parsed = safeParseProject(result.project);
-  if (!parsed.success) {
-    return { ok: false, error: `Project failed validation: ${parsed.error.message}` };
-  }
-  return {
-    ok: true,
-    path: result.path,
-    project: parsed.data,
-    revision: result.revision ?? 0,
-    ...(result.capabilityPacks === undefined ? {} : { capabilityPacks: result.capabilityPacks }),
-  };
+  return toOpenProjectResult(await bridge.openProject(path));
 }
 
 /**
@@ -159,21 +168,7 @@ export async function openProjectDialog(
   if (!bridge) {
     return { ok: false, error: 'Desktop bridge unavailable (running outside Electron).' };
   }
-  const result = await bridge.openProjectDialog();
-  if (!result.ok) {
-    return { ok: false, error: result.error };
-  }
-  const parsed = safeParseProject(result.project);
-  if (!parsed.success) {
-    return { ok: false, error: `Project failed validation: ${parsed.error.message}` };
-  }
-  return {
-    ok: true,
-    path: result.path,
-    project: parsed.data,
-    revision: result.revision ?? 0,
-    ...(result.capabilityPacks === undefined ? {} : { capabilityPacks: result.capabilityPacks }),
-  };
+  return toOpenProjectResult(await bridge.openProjectDialog());
 }
 
 /**

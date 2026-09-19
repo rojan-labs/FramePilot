@@ -7,6 +7,7 @@
  * Full snapshots remain the path for first save, explicit Save/export checkpoints,
  * browser persistence, recovery and non-patch metadata changes.
  */
+import { setActiveProjectPath } from './preview/masks/matte-location.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   commitProjectPatch,
@@ -15,7 +16,11 @@ import {
   type HistoryEntry,
   type Patch,
 } from '@framepilot/editor-core';
-import { createLogger, type CapabilityPackProjectResolutionWire } from '@framepilot/shared-types';
+import {
+  createLogger,
+  type CapabilityPackProjectResolutionWire,
+  type MatteValidationIssueWire,
+} from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import { clearProjectSessionCaches } from './editor/sessionCaches.js';
 import { ensureBaseTracks, newProject, uniqueProjectId } from './editor/project.js';
@@ -41,6 +46,7 @@ import {
   writeBrowserProjectMeta,
 } from './editor/persistence.js';
 import { SettingsProvider } from './editor/useSettings.js';
+import { OpenedMatteIssuesProvider } from './editor/openedMattes.js';
 import { AiConfigProvider } from './editor/useAiConfig.js';
 import { Editor } from './components/Editor.js';
 import { HomeScreen } from './components/HomeScreen.js';
@@ -58,6 +64,8 @@ export function App(): JSX.Element {
   const [boot] = useState(loadAppBootState);
   const [project, setProject] = useState<Project | null>(boot.project);
   const [path, setPath] = useState<string>(boot.path);
+  // The monitor reads background-removal artifacts from the open project's folder (BR5.1).
+  setActiveProjectPath(isFilePath(path) ? path : '');
   const [projectRevision, setProjectRevision] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>('saved');
   /**
@@ -85,6 +93,8 @@ export function App(): JSX.Element {
   const [projectSyncNonce, setProjectSyncNonce] = useState(0);
   const [capabilityPacks, setCapabilityPacks] =
     useState<CapabilityPackProjectResolutionWire | null>(null);
+  /** Main's matte file check at open (BR4.15); shown by the Inspector and export dialog at once. */
+  const [openedMattes, setOpenedMattes] = useState<readonly MatteValidationIssueWire[]>([]);
   const [capabilityGateDismissed, setCapabilityGateDismissed] = useState(false);
   /**
    * The Topbar's centre box, handed to the Editor so the monitor's Source/Program
@@ -437,6 +447,7 @@ export function App(): JSX.Element {
       projectRevisionRef.current = 0;
       setProjectRevision(0);
       setCapabilityPacks(null);
+      setOpenedMattes([]);
       setCapabilityGateDismissed(false);
       log.action('project created', { name, projectId: created.id });
       void persistCreated(created);
@@ -495,6 +506,7 @@ export function App(): JSX.Element {
       projectRevisionRef.current = result.revision;
       setProjectRevision(result.revision);
       setCapabilityPacks(result.capabilityPacks ?? null);
+      setOpenedMattes(result.mattes ?? []);
       setCapabilityGateDismissed(false);
       log.action('project opened', { path: result.path });
     } else if (result.error !== 'cancelled') {
@@ -518,6 +530,7 @@ export function App(): JSX.Element {
         projectRevisionRef.current = 0;
         setProjectRevision(0);
         setCapabilityPacks(null);
+        setOpenedMattes([]);
         setCapabilityGateDismissed(false);
         writeBrowserProjectMeta(id, loaded.name);
         log.action('project opened', { path: recentPath });
@@ -535,6 +548,7 @@ export function App(): JSX.Element {
       projectRevisionRef.current = result.revision;
       setProjectRevision(result.revision);
       setCapabilityPacks(result.capabilityPacks ?? null);
+      setOpenedMattes(result.mattes ?? []);
       setCapabilityGateDismissed(false);
       log.action('project opened', { path: result.path });
     } else {
@@ -579,6 +593,7 @@ export function App(): JSX.Element {
     projectRevisionRef.current = 0;
     setProjectRevision(0);
     setCapabilityPacks(null);
+    setOpenedMattes([]);
     setCapabilityGateDismissed(false);
   }, [project, saveState, persist]);
 
@@ -595,7 +610,7 @@ export function App(): JSX.Element {
               onDismissOpenError={() => setOpenError(null)}
             />
           ) : (
-            <>
+            <OpenedMatteIssuesProvider issues={openedMattes}>
               <Topbar
                 projectName={project.name}
                 path={path}
@@ -611,6 +626,7 @@ export function App(): JSX.Element {
                 ensureSavedForExport={ensureSavedForExport}
                 onRevealExport={revealPath}
                 assets={project.assets}
+                exportTimeline={project.timeline}
                 exportFrame={{
                   width: project.resolution.width,
                   height: project.resolution.height,
@@ -664,7 +680,7 @@ export function App(): JSX.Element {
                   setSettingsOpen(true);
                 }}
               />
-            </>
+            </OpenedMatteIssuesProvider>
           )}
 
           <NewProjectDialog
@@ -677,7 +693,9 @@ export function App(): JSX.Element {
             open={settingsOpen}
             initialSection={settingsSection}
             onClose={() => setSettingsOpen(false)}
-            {...(project ? { projectId: project.id, project, onApplyPatch: applySettingsPatch } : {})}
+            {...(project
+              ? { projectId: project.id, project, onApplyPatch: applySettingsPatch }
+              : {})}
           />
           {project !== null && !capabilityGateDismissed ? (
             <CapabilityPackDependencyDialog

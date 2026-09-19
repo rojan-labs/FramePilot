@@ -10010,6 +10010,45 @@ model calls 91% of turn wall time; a call's latency is its thinking tokens at ~8
 - [x] SD4 — plan-step labels are plain text (`plainPlanLabel`, ai-sdk) at parse time and in the view
   reducer (covers saved conversations); a bold step is no longer taken for a `*` bullet.
 
+## Phase BR — Masking, background removal, AI masking, preview/export parity — `[ ]` proposed (2026-09-16, scope widened by the maintainer the same day)
+
+Sub-plan: [`plan/background-removal-ai/README.md`](./background-removal-ai/README.md) (thirteen files).
+**Maintainer scope (recorded per CLAUDE.md §5):** background removal worker + Inspector with
+missing-pack warning; preview fixed at the core to render like the export; professional-editor
+masking; AI masking; everything production-grade. **Parity and production audit (`12`):** compared with Premiere Pro / Resolve / CapCut; added split, mirror, gradient, shape-preset, track-matte (text as mask) kinds, RGB/3D keyer, matte finesse, adjustment-lane masks, edge styles, track reuse, hover highlight, progressive results, jobs panel with resume. Found 25 production gaps, including the **blocker that no build can install packs** (`service.ts:547` `catalog_unconfigured`). MD-1–MD-7 approved by the maintainer 2026-09-16. **Models decided the same day:** SAM 2.1 Hiera-L tracker + BiRefNet_HR-matting (fp32, Apache-2.0/MIT) in Smart Mask; one pack ≈ 1.05 GB (fp16-stored, fp32-computed weights); no text-grounding model in v1 (SAM 3.1 deferred); onnxruntime with CoreML EP / Windows ML → DirectML → CPU and a per-(model, EP) parity gate. MatAnyone 2, RMBG and RVM rejected on licence. **Delivered as ONE PR to main** (maintainer, 2026-09-16). **Five tracks:**
+- **PX (preview parity):** shared frame plan (`framePlanAt` ↔ `frame_plan_at`), a pixel oracle against
+  `frame_grab.py` built first, then an N-layer WebGL compositor. After that, delete
+  `canvasPreviewEligible`/`webCodecsPreviewEligible` and the DOM monitor (MD-5).
+- **MK (professional masking):** schema v22 `Clip.masks` stack replacing `mask` effects (MD-1).
+  Kinds: rectangle, ellipse, Bezier path, key and matte. Modes, inner/outer/per-vertex feather,
+  expansion, source-time path keyframes, alpha or effect targets. Rasteriser byte-identical in engine
+  and preview. Pro canvas tools and mask panel. Tracking Lite position/similarity/perspective/shape
+  tracking with review.
+- **BR (background removal):** the Smart Mask pack. Bidirectional SAM 2.1 Hiera-L, BiRefNet_HR-matting,
+  consensus, self-correction, full-res matting, decontamination, verification ≥ 99.5% error recall.
+  Review, brush and lock lead to Verified.
+- **AM (AI masking):** a `masking` tool domain. Target resolution by detection +
+  SigLIP re-ranking (click for out-of-vocabulary targets) + identity. Ask on ambiguity, never invent geometry, same ops and review list.
+  Gates: ≥ 99% target accuracy, ≥ 97% asks on ambiguous requests.
+
+- [~] PX0–PX5 — inventory, frame plan, pixel oracle, N-layer compositor, delete gates, perf budgets (PX0–PX4 done: 59/59 oracle rows pass, baseline empty; PX5 perf pending)
+- [x] MK1 — schema v22 mask stack + migration (byte-identical legacy export) + operations + split-keyframe fix
+- [x] MK2 — exact rasteriser + engine mask stack + goldens
+- [x] MK3 — preview mask pass, byte-equal vectors, oracle rows
+- [x] MK4 — canvas tools (rect/ellipse/pen/freehand, tangents, feather handles, zoom) + mask panel + keyframe lane
+- [x] MK5 — effect-target masks (face blur, secondary grade)
+- [x] MK6 — key mask (colour/luma qualifier, despill)
+- [~] MK7 — mask tracking (all gates pass; MK7.6 blocked on MO-14) with review and constraint frames
+- [~] BR0 — verification build (findings committed: SAM fp32 CPU passes, CoreML disabled, pack ≈ 1.47 GB, recall not yet demonstrated, licence MO-11, hardware MO-12/13): ONNX exports + per-EP parity, verify-stage recall, throughput, pack sizes (models already decided)
+- [~] BR2–BR7 — (BR2, BR3 bar accuracy, BR4, BR5, BR6 done) matte engine, Smart Mask pack, protocol + host, preview matte, UI + review, matte gates
+- [~] AM1–AM5 — (AM1, AM3, AM4, AM5 done — all five AI masking gates pass; AM2.4 text half + AM2.6 real-weights colour open) masking tools, target resolution, verification, surfaces/skill, eval gates
+- [x] MK8–MK9 — split/mirror/gradient/track matte/presets; adjustment-lane masks; edge styles
+- [x] RD0 — re-verify competitor parity table (2026-09-16, `12` §E: no new blocker; three small additions folded into MK1/MK4/BR6)
+- [ ] RD1 — release infrastructure: signing identities, catalog keys, CDN, CI pack builds, staged rollout (start now)
+- [ ] RD2 — feature flags, telemetry, consent legal review, closed beta
+- [~] E2E.1–E2E.8 + DOC.1 (all eight E2E flows and DOC.1 done — 16/16 masking e2e locally; E2E.7 cross-OS reopen green in CI run 35437415890) — desktop end-to-end flows incl. resume, relink and cross-platform archives; docs
+- [ ] RD3 — release gate on the release build (the only definition of production ready for this phase)
+
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
 - [ ] Keep `CHANGELOG.md` current (Keep a Changelog format)

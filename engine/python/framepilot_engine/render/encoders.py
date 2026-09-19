@@ -16,7 +16,7 @@ import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
-from framepilot_engine.media.ffmpeg import FFmpegError, run
+from framepilot_engine.media.ffmpeg import FFmpegError, find_export_ffmpeg, run
 
 #: Hardware encoders in preference order, per codec.
 HARDWARE_ENCODERS: dict[str, tuple[str, ...]] = {
@@ -56,9 +56,7 @@ def _moviepy_ffmpeg_binary() -> str:
     MoviePy actually invokes does not, failing every hardware-selected export with
     ``Unknown encoder``.
     """
-    import imageio_ffmpeg
-
-    return str(imageio_ffmpeg.get_ffmpeg_exe())
+    return find_export_ffmpeg()
 
 
 def available_encoders(runner: Callable[[Sequence[str]], str] | None = None) -> set[str]:

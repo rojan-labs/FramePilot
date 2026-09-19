@@ -7,6 +7,7 @@ import json
 import pytest
 
 from framepilot_tracking_lite.protocol import (
+    MAX_EXCLUSIONS,
     MAX_SAMPLES,
     PROTOCOL_VERSION,
     CancelMessage,
@@ -79,6 +80,41 @@ def test_parses_planar_corners_and_point() -> None:
     )
     assert isinstance(point, TrackingRequest)
     assert point.point is not None
+
+
+CORNERS = [{"x": 0.1, "y": 0.1}, {"x": 0.4, "y": 0.1}, {"x": 0.4, "y": 0.5}, {"x": 0.1, "y": 0.5}]
+BOX = {"x": 0.2, "y": 0.2, "width": 0.1, "height": 0.3}
+
+
+def test_parses_the_regions_a_planar_or_shape_track_must_ignore() -> None:
+    planar = parse(
+        request_payload(
+            capability="tracking.planar", parameters={"corners": CORNERS, "exclusions": [BOX]}
+        )
+    )
+    assert isinstance(planar, TrackingRequest)
+    assert planar.exclusions == (NormalizedBox(x=0.2, y=0.2, width=0.1, height=0.3),)
+    point = parse(
+        request_payload(
+            capability="tracking.point",
+            parameters={"point": {"x": 0.5, "y": 0.5}, "exclusions": [BOX]},
+        )
+    )
+    assert isinstance(point, TrackingRequest) and len(point.exclusions) == 1
+    without = parse(request_payload(capability="tracking.planar", parameters={"corners": CORNERS}))
+    assert isinstance(without, TrackingRequest) and without.exclusions == ()
+
+
+def test_rejects_unbounded_escaped_or_misplaced_exclusions() -> None:
+    too_many = {"corners": CORNERS, "exclusions": [BOX] * (MAX_EXCLUSIONS + 1)}
+    with pytest.raises(ProtocolError, match="exclusions exceeds"):
+        parse(request_payload(capability="tracking.planar", parameters=too_many))
+    escaped = {"corners": CORNERS, "exclusions": [{**BOX, "x": 0.95}]}
+    with pytest.raises(ProtocolError, match="inside the frame"):
+        parse(request_payload(capability="tracking.planar", parameters=escaped))
+    # A region track follows one box; it has no plane to keep an occluder out of.
+    with pytest.raises(ProtocolError, match="unexpected keys"):
+        parse(request_payload(parameters={"region": BOX, "exclusions": [BOX]}))
 
 
 def test_parses_a_cancel_message() -> None:

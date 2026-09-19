@@ -31,6 +31,7 @@ export * from './edit-boundaries.js';
 export * from './professional-commands.js';
 export * from './motion-commands.js';
 export * from './color-commands.js';
+export * from './clip-blur.js';
 export * from './track-follow.js';
 export * from './track-reframe.js';
 export * from './picture-occupancy.js';
@@ -40,6 +41,22 @@ export * from './lane-placement.js';
 export * from './stock-placement.js';
 // The audio twin: shared by the Sounds panel and the agent's `add_music`.
 export * from './music-placement.js';
+// The v22 mask stack's display-corrected source space and compact path storage (ADR 0178).
+export * from './mask-geometry.js';
+// Mask stack operations and the frame-fraction ↔ source-pixel builders tools share (ADR 0178).
+export * from './mask-operations.js';
+export * from './mask-builders.js';
+// Hand-editing geometry, freehand fitting and the mask commands the UI and the agent share (MK4).
+export * from './mask-path-editing.js';
+export * from './mask-curve-fit.js';
+export * from './mask-commands.js';
+export * from './mask-shape-presets.js';
+// The transform-track artifact a tracked mask points at, and the host policy that builds one
+// out of tracker measurements (MK7).
+export * from './mask-track.js';
+export * from './mask-track-solve.js';
+export * from './mask-track-review.js';
+export * from './mask-track-correction.js';
 export * from './track-samples.js';
 export * from './tracking-commands.js';
 export * from './audio-commands.js';
@@ -47,6 +64,9 @@ export * from './audio-commands.js';
 // sits relative to the cut (plan/ADVANCED-TRANSITION-SYSTEM.md).
 export * from './transitions.js';
 export * from './frame-grid.js';
+// What one exported frame is made of, back to front — the TS twin of the engine's
+// `render/frame_plan.py`, pinned by `tests/fixtures/frame-plan` (PX1).
+export * from './frame-plan.js';
 // The model states why a transition belongs at a cut; this decides which one and
 // how long, from the cut's measured deltas (plan/visual-understanding §VU4.1).
 export * from './transition-policy.js';

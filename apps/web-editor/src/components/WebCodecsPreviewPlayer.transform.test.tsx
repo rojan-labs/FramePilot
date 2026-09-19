@@ -88,6 +88,7 @@ function Host({
         {JSON.stringify(editor.state.timeline.tracks[0]!.clips[0]!.keyframes)}
       </span>
       <span data-testid="selection">{editor.state.selection ?? 'none'}</span>
+      <span data-testid="playhead">{editor.getPlayhead()}</span>
       <WebCodecsPreviewPlayer editor={editor} assets={assets} fps={30} resolution={RESOLUTION} />
     </SettingsProvider>
   );
@@ -119,6 +120,22 @@ describe('program monitor — on-canvas transform', () => {
     expect(box()).toBeNull();
     // Move the playhead onto c2 and the same selection now has handles.
     fireEvent.click(screen.getByRole('button', { name: 'seek 5' }));
+    expect(box()).not.toBeNull();
+  });
+
+  it('gives a covered clip its handles when it is selected: it is drawn, just behind', () => {
+    // E2E.8: a clip under another picture (a cut-out, a title, a track matte source) must still
+    // be editable on the monitor, or its Mask tab's Draw buttons do nothing.
+    const stacked: Timeline = {
+      tracks: [
+        { id: 'top', type: 'video', clips: [{ ...clip('c_top', 0, 4), trackId: 'top' }] },
+        ...timeline.tracks,
+      ],
+    };
+    render(<Host editorTimeline={stacked} />);
+    // A click on the monitor still selects the picture in front.
+    expect(screen.getByLabelText('select clip c_top in preview')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'select c1' }));
     expect(box()).not.toBeNull();
   });
 
@@ -257,5 +274,72 @@ describe('program monitor — on-canvas transform', () => {
     expect(keyframes.find((k) => k.property === 'scale')?.value).toBe(1);
     expect(keyframes.find((k) => k.property === 'x')?.value).toBe(0);
     expect(keyframes.find((k) => k.property === 'rotation')?.value).toBe(0);
+  });
+});
+
+describe('program monitor — mask view switch (MK3.3)', () => {
+  const masked: Timeline = {
+    tracks: [
+      {
+        id: 'v',
+        type: 'video',
+        clips: [
+          {
+            ...clip('c1', 0, 4),
+            masks: [
+              {
+                id: 'm',
+                name: '',
+                color: '#3b82f6',
+                enabled: true,
+                locked: false,
+                target: { kind: 'alpha' },
+                mode: 'add',
+                opacity: 1,
+                invert: false,
+                expansionPx: 0,
+                featherInnerPx: 0,
+                featherOuterPx: 0,
+                falloff: 'smooth',
+                featherModel: 'distance',
+                space: 'source',
+                keyframes: [],
+                kind: 'ellipse',
+                cx: 100,
+                cy: 100,
+                rx: 50,
+                ry: 50,
+                rotation: 0,
+              },
+            ],
+          },
+          clip('c2', 4, 8),
+        ],
+      },
+    ],
+  };
+  const toggle = () => screen.queryByRole('group', { name: 'Mask view' });
+
+  it('appears only while the selected, shown clip has an enabled mask', () => {
+    render(<Host editorTimeline={masked} />);
+    expect(toggle()).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'select c1' }));
+    expect(toggle()).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Mask only' }));
+    expect(screen.getByRole('button', { name: 'Mask only' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'deselect' }));
+    expect(toggle()).toBeNull();
+  });
+});
+
+describe('program monitor — transport on the layer compositor', () => {
+  it('steps a frame forward from the start (the transport length is the timeline end)', () => {
+    render(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: 'step forward one frame' }));
+    // Re-render the host so its playhead readout reflects the committed seek.
+    fireEvent.click(screen.getByRole('button', { name: 'select c1' }));
+    expect(Number(screen.getByTestId('playhead').textContent)).toBeCloseTo(1 / 30, 6);
   });
 });

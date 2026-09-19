@@ -335,8 +335,10 @@ describe('every model-facing failure names a next action', () => {
     expect(entries.length).toBeGreaterThan(0);
     const dead = new DeadEnds();
     for (const { tool, note } of entries) dead.check(`unusable payload ${tool}`, note);
-    // `generate_mask` is the registry's own `available: false` entry — walked from the
-    // registry, so a second unavailable tool is covered without touching this test.
+    // Walked from the registry, so an unavailable tool is covered the day one is added —
+    // plus the test-only one, because the registry has had none since `create_mask`
+    // replaced `generate_mask` and the sentence still has to pass the gate.
+    dead.check('unavailable unbuilt_tool', unavailableToolNote('unbuilt_tool'));
     for (const tool of TOOL_REGISTRY.filter((candidate) => !candidate.available)) {
       dead.check(`unavailable ${tool.name}`, unavailableToolNote(tool.name));
     }

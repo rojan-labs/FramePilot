@@ -6,7 +6,482 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **Background removal asks for a box instead of guessing, and a fix changes only what it
+  fixes.** When you pick the subject with one click and that subject runs off the edge of the
+  picture (a head and shoulders cut by the bottom of the frame), one click cannot say where it
+  ends, so the Smart Mask pack now stops before the long part of the job and asks you to drag a
+  box around the subject with AI Object; drag on the monitor to draw it. On the test clips this
+  took the talking-head and portrait subjects from 86% and 96% overlap with the true subject to
+  99.7%. Applying a brush fix and re-running now changes the pixels you painted and the frames
+  the fix really reaches; every other frame keeps its previous matte exactly, where before a fix
+  could shift edges on frames a second away. Edge shimmer smoothing now uses only neighbouring
+  frames whose motion it can trust, so it no longer makes rigid subjects' edges crawl (BR7.5,
+  BR3.17).
+- **A clip blur a mask can limit — a face blur that stays on the face.** Inspector → **Effects** →
+  **Add blur** puts a Gaussian blur on the clip (strength is a share of the picture, so it looks
+  the same at every resolution); **Add mask** on its row, or a mask's **Limits** set to the blur,
+  confines it to the mask, and a tracked mask keeps it on the subject. The assistant's
+  `blur_to_hide` ("blur the faces except the host") now uses it instead of refusing. The monitor
+  and the export apply it the same way (engine `render/clip_blur.py`, `editor-core/clip-blur.ts`;
+  a frame-plan parity case) (E2E.3, E2E.4).
+- **Masking end-to-end coverage E2E.3, E2E.4, E2E.6 and E2E.7** (`tests/e2e/specs/masking-e2e-*`):
+  pen path → animate → perspective track → constrain → masked blur → preview == export; the
+  sidebar's face picker, face-recognition consent and ambiguity questions; a crash mid-job that
+  resumes from the worker's finished windows with byte-identical output, and relink → STALE →
+  recompute; a project folder with mattes and tracks moved between folders, and (new CI jobs)
+  between macOS and Windows. Each spec header names what it simulates.
+- **`docs/guides/masking.md`:** one page for masking — tools, tracking, review and fixing,
+  limitations, keyboard, troubleshooting, what a computer needs (minimum still to be decided,
+  MO-12), privacy and face-recognition consent.
+
+### Fixed
+
+- **A tracked mask can be fixed through something passing in front of it.** On a frame the
+  track got wrong, drag the mask onto the picture — its handles now sit where the tracked mask
+  is drawn, and the edit is kept relative to the track instead of moving the mask on every
+  frame — box whatever is in front of it with **Exclude region**, and **Re-track from
+  constraints**. The tracker follows the boxed object from that frame, ignores it, and continues
+  the track from your correction; the rest of the track is kept exactly. On the real-texture set
+  this recovers every long partial occlusion (4 of 4; 0 of 5 before). Re-tracking from
+  constraints now also really continues the pinned track (it used to re-measure from the
+  playhead), and a corrected mask draws the same in the monitor and the export (MK7.7).
+- **Mask tracking on dim, heavily compressed footage** no longer carries the noise of the frame
+  the mask was drawn on into every other frame: the reference is averaged with the first frames
+  that verify cleanly (night plate at proxy quality 0.522 → 0.46 px median, under the 0.5 px
+  gate), and a shadow sweeping across a tracked plane no longer bends it (MK7.7).
+- **Mask tracking holds on real footage, and says when it is not sure.** Measured on real camera
+  texture moved by a known camera (MK7.5): a tracked plane used to slide by up to 10 px on
+  low-light footage and a shape's vertices by up to 57 px, all reported as confident, and a
+  partial occluder produced frames up to 40 px wrong that the review list never showed. Every
+  plane and every shape vertex is now registered against the frame the mask was drawn on, so
+  nothing accumulates (worst frame 0.1-0.5 px at camera quality), and confidence is an
+  independent check of where the plane actually sits, so all 92 measured-and-wrong frames in
+  the set reach the review list. Re-tracking from a constraint now stops where confidence comes
+  back instead of re-measuring good frames to the clip edge, and a one-frame flagged range is
+  re-measured so its constraint frame is exact. Numbers and the two rows still open:
+  `plan/background-removal-ai/MK7-TRACKING-GATES.md`.
+- **Tracked masks now show on the program monitor.** The monitor never loaded track artifacts, so
+  every tracked mask read "Mask not previewed yet" — and an effect it limited (a face blur) covered
+  the whole frame in the preview while the export limited it. The monitor loads each track (with
+  the export's refusal order) before presenting a seek.
+- **Background removal, mask tracking and hover highlight read imported media.** The desktop
+  stores imported media relative to the project file; the pack jobs refused any relative path
+  ("The media file could not be located"), so every imported clip was refused. They now resolve it
+  against the project folder, as the export does.
+- **A background removal that stopped with the app resumes.** The resumed run hit the folder the
+  stopped one left and failed as "already staged"; it now adopts that folder, keeping the worker's
+  finished windows.
+- **The worker is no longer killed for its own working space.** The watchdog held the whole job
+  folder (decoded frames, finished windows) to the size budget meant for the finished cut-out, so
+  short clips were stopped mid-job; the cut-out keeps that budget and the folder is held to free
+  disk space minus 1 GB.
+- **Running Remove background again replaces a stale or broken one**, instead of stacking a new
+  matte on the old one that kept refusing the export.
+- **STALE shows in the Inspector right after a relink**, not only in the media bin, and a stale
+  finding about a matte that has since been replaced no longer lingers.
+- **Re-track from constraints keeps the constraints**, so the next re-track can use them.
+- **A run's edits apply in order.** When an assistant run produced two edits back to back (a
+  cut-out, then a title behind it), the second was refused as stale; they now apply one at a time.
+- **"Animate path" on the only keyframe** now says to move the playhead and press Animate there;
+  it used to say to reshape the path, which edits the one shape.
+
+- **"The white car", "the silver car" and "the black ball" now resolve.** When you ask the
+  assistant to mask an object by a white, grey, silver or black colour and several of that object
+  are on screen, it used to ask you to pick most of the time, because the image model behind the
+  colour check cannot tell those colours apart well. FramePilot now also measures each candidate's
+  colour from the picture itself — decoded exactly as the export decodes it, reading the middle of
+  the object rather than the background — and picks only when the measurement and the model agree;
+  otherwise it still asks. On the colour test set that was held out while this was tuned it picked
+  every one of 144 named colours (52 of them white, grey, silver or black) and never picked an
+  object that was not the colour named; before, it picked 109. If the engine cannot measure, the
+  assistant behaves as before (AM2.7).
+- **Fix a clip's mask to the frame from the Mask tab.** A shape, split, band or gradient on a
+  clip now has a **Fixed to** control: **Frame** holds it still on the output frame while the
+  picture moves, scales or rotates under it; **Picture** makes it move with the shot again. While a
+  frame-fixed mask is selected, the monitor draws and edits it in frame pixels, and the clip's
+  other masks stay visible as dashed outlines. The assistant can do the same ("keep that window
+  still while the shot pans"). A background removal, key, track matte or tracked mask follows the
+  picture and cannot be fixed to the frame; the control says so by not offering it, and the
+  assistant is told why. The mask keeps its numbers when it changes space, so on a moved or scaled
+  clip it lands in a different place; drag it back on the monitor.
+- **Outlines, glows and shadows for cut-outs.** Once a clip is cut out (background removal, a
+  drawn shape or a key), the Mask tab's new **Edge style** section adds a CapCut-style outline, an
+  outer glow or a drop shadow around the subject: pick a preset (White Outline, Sticker, Neon Glow,
+  Drop Shadow…) or set the width, colour, offset and softness yourself, or ask the assistant for
+  "a sticker outline around me". The export draws exactly what the monitor shows, and each change
+  is one undo step.
+- **Masks on adjustment layers, and masks fixed to the frame.** Select an adjustment layer and
+  open its new **Mask** tab to draw a rectangle, ellipse, pen or freehand path, split, mirror band
+  or gradient on the monitor: the effect then applies only inside it (blur a face, grade the sky),
+  with the same feathers, modes, keyframes and undo as a clip's masks. The mask stays put on the
+  frame. A clip's shape masks can be fixed to the frame too, so a moving or zooming shot slides
+  under a window that does not move; the export draws both exactly as the monitor shows them.
+- **The assistant can make split screens, gradients, shape masks and track mattes.** Ask for "a
+  split screen", "darken the top of the frame", "a heart around her face" or "put this video inside
+  the title" and it uses the same Split, Mirror, Gradient, Shapes and Track matte tools as the Mask
+  tab — placed on a subject it found, on the frame, or where you said in numbers, never at a
+  position it made up.
+- **Track mattes and text as a mask.** In the Mask tab, **Track matte** uses another clip or a
+  whole track as this clip's mask: put a title above a clip, pick it, and the clip shows only
+  through the letters ("video inside text"). Alpha uses the source's shape, Luma its brightness
+  (white shows, black hides), and either can be inverted. The source stops being drawn on its own
+  — it is the matte now — and the edge can be grown, softened and cleaned. It works with animated
+  and moving titles, scaled or rotated clips, other masks in the same stack, and effects limited to
+  it; a matte that would read itself is refused with a plain explanation. The monitor reads the
+  matte with the export's own placement rules, and on desktop a title matte is drawn by the same
+  engine the export uses.
+- **Shape masks: heart, star, polygon, speech bubble, arrow and rounded frame.** The new
+  **Shapes** tool (H) on the monitor's mask toolbar draws any of them into the box you drag —
+  pick the number of points for a star or sides for a polygon beside the toolbar. What you get is
+  an ordinary path mask: move its points, bend its curves, feather, keyframe or track it like
+  anything you drew by hand. The rounded frame is two masks, the outer shape and a subtracted
+  inner one, so its border can be feathered without a seam.
+- **Split, mirror and gradient masks.** Three new tools on the monitor's mask toolbar: **Split**
+  (S) cuts the picture along a line you drag — the classic split screen; **Mirror** (M) keeps a
+  band between two parallel lines, for filmstrip and mirror looks; **Gradient** (G) fades the
+  clip (or an effect limited to it) from where you press to where you let go, and Alt-drag makes
+  it radial for a vignette or a spotlight grade. Each has its own handles — move the line, turn
+  it (Shift in 15° steps), widen the band, soften the edge — typed fields in the Mask tab, and
+  keyframes like every other mask. They combine with shapes in the same stack (add, subtract,
+  intersect…), limit effects, work on adjustment lanes, and the monitor draws exactly the pixels
+  the export writes: every byte of 21 new test cases at three sizes matches between the two.
+
+- **The assistant can find "the car", "the dog" or "the red car".** Ask it to mask an object and
+  it now knows what the object is: the Subject Intelligence pack names each detected object's
+  kind (car, truck, dog, bottle, laptop and the other everyday things it recognises), so "the
+  dog" in a shot with a person and a dog picks the dog, and "the truck" never picks the car.
+  When two things could both be meant ("the pet" with a cat and a dog, "the car" with two cars)
+  it still shows you the choices and waits. With the Visual Embed pack installed, a colour can
+  settle it: "the red car" next to a grey one picks the red car, and when neither car is red it
+  asks instead of picking the closer colour. Something it has no name for ("the wheelbarrow",
+  "the sky") still asks you to click it once. This needs the next signed releases of both packs
+  (Subject Intelligence 1.1.0 and Visual Embed 1.1.0); until you update them, object requests
+  ask you to pick exactly as before.
+- **Ask the assistant for a mask.** In the AI sidebar you can now say "remove the background",
+  "hide her face", "darken everything but the presenter" or "put the title behind him", and the
+  assistant uses the same masks, the same packs and the same review list as the Mask tab. It
+  never draws a shape by guessing: a mask comes from something FramePilot detected or measured,
+  or from numbers you typed yourself as a size or position in that same message ("a box 20%
+  from the left, 50% wide") — a "20" that is a duration, a count, or something you wrote
+  several messages earlier is not taken as a coordinate. "Blur all the faces" now masks every
+  face in a crowd rather than stopping at twelve, "her hair" asks you to click the hair rather
+  than masking all of her, and a choice the assistant asked you to make can no longer be made
+  by the assistant. It tells you how many moments need a look and never calls a
+  mask verified — only your review does that. A long background removal is not started behind
+  your back: the sidebar shows roughly how long it will take and a **Start** button, and it then
+  runs like any other background removal while you keep editing. If a pack is missing, the
+  sidebar shows the exact install offer. When it cannot tell which person or object you mean, it
+  shows you the choices as thumbnails and waits — it never picks for you. Remembering who is who
+  across a project is off until you turn it on for that project, runs on your computer only, and
+  **Delete identity data** removes everything it stored in one step. After a mask lands, the
+  sidebar says how many moments need a look and opens the Inspector's review list. A blur limited
+  to a mask, split-screen and shape masks, and a title that follows a tracked subject are not
+  available yet, and the assistant says so rather than approximating one. A grade the assistant
+  limits to a mask is the clip's ordinary grade, so the Inspector's sliders change it. It can
+  also see which clips already have masks and what they do, so it does not mask a clip twice.
+  Desktop app only. Support can switch the whole feature off with `FRAMEPILOT_AI_MASKING=off` (desktop,
+  read at runtime) or `VITE_FRAMEPILOT_AI_MASKING=off` (browser build); it is on in development
+  and off in packaged releases for now. Off, the assistant is not offered the masking tools in
+  any mode, including Cmd+K and suggestions, and masks already in a project are untouched.
+
+- **Remove the background from a shot.** Inspector → Mask → **Remove background** cuts the subject
+  out so something else can sit behind it. It runs entirely on your computer, through the Smart
+  Mask pack, and nothing downloads until you approve the exact offer on screen — its size and its
+  licences included. Before you start, the row tells you roughly how long it will take on *this*
+  computer and how much disk it needs; a long job asks you to confirm. While it runs it says which
+  stage it is in, how far through it is and how long is left, and you can keep editing: selecting
+  another clip does not lose the job, and the result still lands on the right clip. Finished parts
+  show cut out in the monitor as they arrive, and the timeline draws a striped band over the part
+  still being processed, so a half-finished clip never looks finished. When it is done, the
+  moments it was not sure about are listed with a reason in plain words; **Looks right** clears
+  one, `J` and `K` step between them, and Keep and Remove brushes fix a moment and re-run only
+  that part. **VERIFIED** appears only when every frame has been checked — never just because a
+  job finished. **Put text behind subject** builds the shot in one undoable step, and the
+  Inspector warns you when there is nothing behind the clip, because the removed area would
+  export as black. Export counts anything you have not checked and says so, and never blocks.
+  Without the pack, every AI masking tool stays visible and disabled with the reason attached, so
+  you can see the capability exists and what would enable it.
+
+- **Track a mask.** A mask can now follow what it covers. Pick how it should move — position;
+  position, scale and rotation; perspective, for a sign or a screen on a wall; or shape, which
+  follows a path's own points for something that bends — and which way to go: forward to the clip
+  edge, backward to its start, both ways, or a single frame. The measurement is stored beside the
+  project rather than as thousands of keyframes, so a long track costs a small file and the mask
+  keeps its own animation on top of the motion.
+- **Tracking review, and frames you can promise.** Every tracked frame carries a measured
+  confidence, and the ranges that fall short land on the same review list as background removal.
+  Fix the mask on a bad frame and lock it: that frame becomes exact, and re-tracking measures
+  outwards from it in both directions instead of starting the clip over.
+- **Tell the tracker what to watch, and what to ignore.** Two new monitor tools place a point on
+  texture the tracker should follow (T) and drag out a region it must ignore (X) — a hand passing
+  in front, a reflection — before the track runs.
+
+- **Clean up a matte's edge.** Mattes and colour keys share one clean-up group: denoise the
+  speckle, crush the near-transparent haze and lift the near-opaque, delete specks outside the
+  subject and fill pinholes inside it, move the whole edge in or out, soften it, then slide the
+  softened edge back where you want it. "Sharp" edge mode is now a preset over the same group
+  rather than a separate switch, so the two never disagree.
+
+- **Key out a colour.** A new mask kind qualifies the picture itself: pull a green or blue
+  screen, or isolate a hue for a secondary grade, with hue/saturation/luma, RGB, luma or sampled
+  colours. Click the eyedropper and pick the backing off the monitor (Shift adds a second colour
+  for a hot spot or a shadow); set each range's softness, keep the shadows an actor casts, and
+  switch on despill to take the spill off the skin and hair. It shows on the monitor exactly as
+  it exports, and to cut a subject OUT of the backing you invert the mask, like any other.
+
+- **Mask an adjustment layer.** A mask drawn on an effect layer now limits that adjustment on
+  both the monitor and the export, for every effect in the catalog — so a blur, a glitch or a
+  grade on an adjustment lane can cover a region instead of the whole frame. The mask stays where
+  you put it on the frame, and animates on the layer's own clock, so moving the layer never moves
+  the mask.
+
+- **Limit an effect to part of the picture.** Every effect on a clip now has an "Add mask"
+  button in the Inspector's Effects tab. Click it and draw: the shape you draw limits that
+  effect instead of cutting the clip out, so a blur can sit on a face and a grade on the sky
+  while the rest of the frame stays untouched. The mask list's Target menu moves a mask between
+  the clip's cut-out and any effect on it at any time, and it is one undo either way.
+
+- **Draw and animate masks by hand.** Open a clip's Mask tab and draw rectangles, ellipses, pen
+  paths (Shift for 45° lines) and freehand shapes right on the monitor. Move, reshape, rotate,
+  add and delete points, bend tangents, set feather and expansion with on-canvas handles, zoom in
+  to 800% with a pixel grid, snap to edges and other masks, or do all of it from the keyboard. The
+  Inspector lists every mask (reorder, hide, lock, colour, blend mode, invert) with exact pixel
+  values and keyframes, including an "Apply to all keyframes" mode. Mask keyframes show on the
+  timeline and can be dragged. Copy masks between clips and save them as presets in the project.
+  Every edit is one undo.
+
+- **See what a click will pick.** With AI Object on the desktop app, the object under the pointer
+  is tinted before you click, so you know what the click will select. Hovering changes nothing in
+  your project; it pauses while a background removal or export is running.
+
+- **The Edge brush works.** When reviewing a background removal, paint over hair or a blurred edge
+  with the **Edge brush** and press **Apply fix**: that band is matted again, so the edge comes back
+  soft instead of chewed. It never paints the cut-out itself — only Keep and Remove do that.
+
+- **A Jobs tab for long-running work.** On desktop, the right rail's new **Jobs** tab lists every
+  background removal and mask track in the project — running, waiting, paused or finished — with
+  its clip, progress and time left, and Pause, Resume, Cancel and Show clip. Show clip takes you
+  straight to the clip in the Inspector.
+
+- **Background removal shows on the preview exactly as it exports.** A clip with a removed
+  background now previews cut out, with the same edge, edge shift, feather and clean-edge colour
+  the export uses, including sped-up, reversed, rotated and variable-frame-rate clips. While
+  removal is still running, unfinished moments show the original picture and the monitor says
+  "Processing background removal". A new Flagged mask view highlights the frames background
+  removal marked for review.
+
+- **Masks on the preview now match the export exactly.** The program monitor draws a clip's whole
+  mask stack (any number of rectangle, ellipse and path masks, every combine mode, invert,
+  expansion, inner, outer and per-vertex feather, and masks that limit a colour grade or LUT) with
+  the same algorithm the export uses, down to the last pixel value. Select a masked clip to switch
+  the monitor between Overlay, Mask only and Checkerboard views of the mask. Mask kinds the export
+  cannot render yet show "Mask not previewed yet" instead of a wrong picture.
+
+- **The background removal engine, ready for testing.** The Smart Mask pack that follows a subject
+  through a clip is built: it cuts the subject out with two AI models, checks its own work frame by
+  frame and lists the moments it is unsure about for you to review, keeps frames you locked exactly
+  as you approved them, redoes only the part of a clip your fix affects, and carries on from where
+  it stopped if the app quits mid-job. It is not downloadable yet: a licence question about one
+  model and the minimum hardware are still being decided.
+
+### Performance
+
+- **Playback in the monitor shows the frames the export renders, and draws each one once.** The
+  monitor now draws each frame of the project at the same instant the export does. A 60 fps clip
+  in a 30 fps project used to show frames in between that the exported video never contains; it
+  now shows exactly the exported frames. On a 60 Hz display each project frame used to be drawn
+  twice; it is now drawn once. On a 4K test timeline with an animated mask that is a third less
+  drawing work per second, and the display keeps its full 60 Hz where it used to slow to about
+  48 Hz. Scrubbing and paused frames are unchanged.
+- **Exports with a background-removal matte are about a third faster.** Cleaning the colour fringe
+  around a cut-out subject used to do arithmetic on every pixel of every frame to change only the
+  thin edge; it now works on the edge alone, copying the cleaned edge pixels instead of blending
+  the whole frame, and the rest of the matte's per-frame work no longer builds several full-size
+  scratch copies of the frame. On a 4K test timeline the export went from 1.98× the time of the
+  same timeline without a matte to 1.32–1.45× on a Linux build machine (the target is 1.5×). The
+  exported pixels are identical, byte for byte.
+- **The preview now measures itself.** The program monitor records its own frame times, dropped
+  frames, seek-to-picture time and memory, so performance claims come from the app rather than
+  from a stopwatch. On a 3-minute 4K timeline with four layers and a title, playback on an M1 Pro
+  drops fewer than 1 frame in 500 and a seek shows its picture in about 35 ms.
+- **A clip with a 4K background-removal matte now plays in the monitor.** It used to show one frame
+  in twenty seconds and take over half a second to show a seek: the cut-out's edge work ran on the
+  main thread and its matte files decoded one frame at a time next to the video decoding. The
+  cut-out is now drawn on the GPU, matte files decode on their own background threads (several
+  frames at once, the ones about to be shown first), and the monitor reads a small copy of the
+  edge-colour data made at its own size instead of the full-resolution one. On a 3-minute 4K
+  timeline with four layers, a title and a 4K matte, an M1 Pro now drops 1 frame in 600 and shows
+  a seek in about 50 ms. The picture is the same: it still matches the export within the same
+  checks as before. The desktop app makes that small copy in the background after background
+  removal finishes (a few minutes for a long 4K clip); until it is ready the matte plays from the
+  full-resolution files, noticeably better than before but with some dropped frames, and seeks
+  are fast either way.
+- **A background removal with its default soft edge costs the monitor less.** Its small copy now
+  also holds the cut-out's outline at the monitor's size, so the monitor no longer decodes the
+  full-resolution outline every frame (about 16 ms of background work per frame on a 4K clip).
+  Cut-outs with a sharp edge or any edge adjustment still use the full-resolution outline, because
+  those adjustments change the edge before it is scaled. The picture is the same as before.
+
+### Fixed
+
+- **"The white car" no longer picks a silver one.** Measured on the real model, the colour check
+  behind requests like "mask the red car" was reliable for colours such as red, blue or green, but
+  now and then took a silver car or ball when asked for a white or grey one. It now asks you to
+  pick whenever white, grey, silver or black are too close to call, and it picks a car that is
+  plainly the colour you named even when the background tints its crop. After the first such
+  request it answers in about 2 seconds instead of loading the model twice, and it no longer
+  risks running a 16 GB Mac out of memory (AM2.6).
+
+- **A background removal whose files are gone shows it as soon as the project opens.** When a
+  project opens, FramePilot already checks that every background removal's files are there and
+  readable. The Inspector and the export dialog now show that result straight away, with the same
+  "run Remove background again" sentence the export uses, instead of only after their own slower
+  re-check answers (BR4.15).
+
+- **The export reads background-removal mattes as untrusted files.** The files a background
+  removal leaves in the project are written by a Capability Pack, so the export now opens them the
+  way it already opened them for frame checks and the monitor's copy: local files only, Matroska
+  only, a bounded picture size and two decoder threads. A file named `matte.mkv` that is really a
+  list of other files (a concat or playlist file) is refused instead of decoding whatever it names;
+  a real matte exports exactly as before (BR4.16).
+
+- **Variable-frame-rate clips export in the same colours as every other clip.** The export
+  decoded phone and screen-recording (variable-frame-rate) clips with whatever ffmpeg was
+  installed on the machine, and every other clip with the ffmpeg bundled with the render engine.
+  The two convert colour slightly differently, so on a Mac with Homebrew's ffmpeg those clips came
+  out a few levels off the monitor. Every decode the export does (including background-removal
+  mattes) now uses the bundled one (BR2.8).
+
+- **On Apple Silicon Macs the monitor shows the colours the export writes.** The export's decoder
+  on those Macs turns video into RGB slightly differently from the one the monitor copied (up to 3
+  levels per channel), so every clip was a shade off in the monitor, and a colour key could cut a
+  visibly different edge (up to 82/255 at the edge of a keyed gradient). The monitor now uses the
+  same conversion as the export on the machine it runs on; on an M1 Pro the keyed frames match
+  the export exactly. Other machines are unchanged.
+- **The preview/export parity check runs green on a Mac.** Its list of known failures is now kept
+  per graphics renderer, so a difference measured only on the CI machine's software renderer no
+  longer fails a run on a Mac's GPU, where it does not occur.
+- **Masks from older projects export exactly as before on clips that start later in the
+  timeline.** An animated mask from a project made before the mask stack could draw one edge a
+  pixel off on some frames when its clip did not start at 0 s. The upgrade now keeps the numbers
+  the old version drew with, so every frame is identical again. A project upgraded before this
+  fix picks it up when its `.v21.backup` copy is opened again.
+- **Dragging a mask on the monitor is responsive again.** Every pointer move re-rendered the whole
+  editor (a review shortcut subscribed it to all mask-tool state), roughly doubling the monitor's
+  work per move; only the parts that follow the drag re-render now.
+- **A colour-key mask draws correctly in the monitor.** A key limiting a clip's picture (not one
+  limiting an effect) was drawn with the wrong GPU program, so the monitor could show the clip
+  wrongly cut or not cut at all. The export was never affected. Three preview/export parity
+  checks with a colour key (alone, combined with shapes, and with every edge-refinement control)
+  now run on every change, so this cannot come back unseen.
+- **Preview performance runs no longer hang now and then.** About one measurement run in ten
+  stopped until it timed out. The cause was the development server reloading the editor when a
+  file changed during the run; measurement runs now use a server that does not reload, fail
+  immediately if the editor is replaced anyway, and name the step they were waiting on if one
+  ever hangs.
+- **A mask's expansion now exports.** Growing or shrinking a mask by a fixed amount showed in the
+  editor but was ignored when exporting (only animated expansion worked); the same applied to a
+  cut-out's fixed edge shift.
+
 ### Changed
+
+- **Masking diagnostics carry no identifying details.** The events that report background
+  removal, tracking, AI Object hover, pack health and export time now pass through one allow-list
+  of counts, codes and durations: the pack worker no longer logs its request id and a committed
+  track no longer logs the clip and mask it belongs to. Exports now log how long they took and how
+  many masks and mattes they carried (never which ones), so export time with mattes can be watched
+  in the beta. The events, and the dashboards a maintainer can build from them, are listed in
+  `docs/runbooks/masking-observability.md`.
+- **Relink media, and background removal knows when footage changed.** On desktop, the media bin
+  can point a clip's media at another file (undoable). FramePilot then compares the frames of the new
+  file with the ones a background removal was made from; if they differ, the removal is marked out
+  of date with "Media changed since background removal ran — run Remove background again", and an
+  export refuses it with the same sentence instead of drawing a wrong cut-out. Locked frames and
+  relinked media are now checked by the FramePilot engine, so these checks also work in the
+  installed app.
+- **Background jobs queue instead of competing.** Background removal jobs run one at a time, a
+  quick request goes ahead of a long job at its next step, jobs pause while an export runs, and
+  unfinished jobs pick up again after you restart. Quitting while one runs asks first. A jobs list
+  (pause, resume, cancel, show clip) is ready for the editor, and a diagnostic file with job
+  outcomes and timings (no file names, media or project details) can be exported when you need help.
+
+- **The desktop app can now run background removal jobs behind the scenes (no button yet).**
+  When the Smart Mask pack is installed, the app runs a job on your computer, checks every file
+  the pack writes (only the expected files, their fingerprints, and that each matte frame lines
+  up with the exact frame of your footage) and only then saves it inside the project, under
+  `.framepilot-derived/mattes`. A job can be cancelled, a changed project throws the result
+  away, and running the same request again returns the saved result at once. Fixes you paint
+  and frames you lock are saved with the project, and a locked frame is proven unchanged on
+  every re-run. Before starting, the app checks there is enough free disk space and says how
+  much is needed. When a project opens, missing or changed background removal data gets the
+  same message the export shows. Media that changed after a relink can be re-checked by
+  comparing decoded frames. Pack status now also says when a build can't download packs, and
+  names the hardware a pack needs before you download it. "Clean unused mattes" removes only
+  results nothing in the project still uses.
+
+- **Exports draw background-removal mattes (engine; the Remove background button is not
+  released yet).** A clip's AI matte now exports with its soft edges, edge shift, Sharp or Smooth
+  edge mode, clean edge colour (the old background's colour is replaced inside hair and motion
+  blur), invert, opacity and any combination with shape masks, including a matte limiting a
+  colour grade. Every matte frame is matched to the exact source frame the export draws, through
+  trims, speed changes, reverse and speed ramps. Before rendering starts the export checks the
+  matte's files against the fingerprints saved in the project, and stops with one clear
+  instruction instead of drawing a wrong cut-out: "Background removal data is missing — run
+  Remove background again", a changed or damaged file, a clip trimmed beyond the removed range
+  ("update the background removal for the new range"), or media that changed size. Rotated
+  phone clips and anamorphic footage are supported: the matte lies on the picture as you see it.
+
+- **Variable-frame-rate footage exports the right frames.** Phone and screen recordings with a
+  variable frame rate used to export a neighbouring frame now and then, because the decoder
+  resampled them to a constant rate. The export now picks each frame by its own timestamp, so
+  cuts, speed changes and mattes land on exactly the frame you saw. Constant-frame-rate
+  footage exports exactly as before.
+
+- **The program monitor composites every layer the export does (development builds).** A new
+  WebGL2 compositor draws the frame from the same frame plan the export uses: every picture layer
+  back to front, stacked and picture-in-picture clips, hidden tracks, gaps and speed changes, with
+  no timeline sent to the one-clip fallback player. Pixels go through the export's own YUV-to-RGB
+  conversion and resampling arithmetic, so colours no longer drift a few levels from the export
+  (BT.709 proxies were up to 9/255 off). Release builds keep the previous monitor until the
+  parity work is complete; `VITE_FRAMEPILOT_PREVIEW_COMPOSITOR=legacy` switches it off.
+
+- **Exports draw every shape mask exactly.** Rectangles (now with rotation and rounded corners),
+  ellipses and curved paths render in any number and any mode (add, subtract, intersect,
+  difference, lighten, darken), with invert, opacity, expansion, inner and outer feather,
+  per-vertex feather on paths, animated paths, and masks that limit a colour grade or LUT to part
+  of the picture. Edges use exact pixel coverage and a true distance feather, computed the same
+  way on every platform, so the preview can match the export byte for byte. Masks upgraded from
+  older projects still export exactly as before. Mask kinds that are not ready yet (AI mattes,
+  colour keys, split and gradient masks, track mattes, tracked or frame-fixed masks, masks on
+  adjustment layers) stop the export with "Disable the mask to export now" instead of rendering
+  something different from what you drew.
+
+- **Masks are now a stack on each clip (project format 22).** A clip can hold any number of masks —
+  rectangles, ellipses, paths, and (coming) mattes, keys and track mattes — each with a mode,
+  feathers and keyframes that stay glued to the footage through trims, splits and speed changes.
+  Opening an older project upgrades its masks automatically and renders them as before; the desktop
+  app first saves a copy of the original as `<project>.v21.backup.fp.json`. A project saved by a
+  newer FramePilot now says "Update FramePilot to open this project." Splitting or head-trimming a
+  clip also no longer slides its effect animations along the footage.
+
+- **Masks on anamorphic and rotated phone footage draw undistorted.** Importing media now records
+  its pixel aspect ratio and display rotation (`Asset.media.pixelAspectRatio` and `rotation`,
+  project format 22), and masks are measured on the picture as you see it: a 1440×1080 HDV clip is
+  1920 wide, a portrait phone clip is 1080×1920. Media imported earlier reads as square and
+  unrotated until it is imported again.
+
+- **One description of an exported frame, shared by the export and (next) the preview.** The render
+  engine's per-frame decisions (which layers, in what order, which source frame, where, how
+  opaque, which transition) now live in `render/frame_plan.py`, and the export compiler uses them
+  instead of its own copy; renders are unchanged. `framePlanAt` in `@framepilot/editor-core` is
+  its TypeScript twin, held to the engine's answers by parity vectors in
+  `tests/fixtures/frame-plan` (regenerate with `pnpm frame-plan:vectors`). An inventory of what
+  today's program monitor draws for each case (`plan/background-removal-ai/PX0-INVENTORY.md`)
+  found that any text overlay sends the desktop monitor to the one-clip fallback player, and that
+  speed-ramped clips are admitted to the canvas without following the ramp. Internal groundwork
+  for preview/export parity (PX0/PX1); no user-visible change yet.
 
 - **The assistant's self-check no longer fills the sidebar.** After an edit, the check's verdict
   and every note it raised used to stack up as separate cards under the reply. They now sit in one
@@ -74,6 +549,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The desktop monitor shows titles and captions exactly as they export.** With the layer
+  compositor, text is drawn by the render engine itself, so letter shapes and edges match the
+  export. When the engine is not running the monitor still shows text and says "Preview text
+  approximate". In the browser build, a timeline the browser cannot play now says "Preview
+  unavailable for this timeline in the browser" instead of showing a technical error.
+- **Rotated anamorphic footage exports with the right shape.** A phone or camera clip that is
+  both turned (portrait metadata) and anamorphic was stretched along the wrong edge, so it came
+  out squashed. The monitor's layer compositor now also sizes it the same way.
+- **Variable-frame-rate clips show the same frame in the monitor as in the export.** The
+  monitor's layer compositor picks each frame by its timestamp, as the export does, instead of
+  assuming a constant rate.
 - **Splitting or cutting a range out of a speed-ramped clip keeps its timing exact.** The
   pieces could come out a frame or two long or short, and the edit was refused.
 - **Masks and trackers stay where you put them.** Updating a mask or a tracked region moved

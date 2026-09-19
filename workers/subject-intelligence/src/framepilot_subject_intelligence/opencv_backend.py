@@ -26,6 +26,7 @@ from .backend import (
     RawDetection,
     RawMask,
 )
+from .coco_classes import COCO_PERSON_CLASS, coco_class_name
 from .geometry import PixelBox, clamp
 from .models import models_directory, resolve_model, verify_all
 from .sandbox import DETERMINISTIC_SEED
@@ -43,10 +44,6 @@ YOLOX_STRIDES: Final = (8, 16, 32)
 YOLOX_SCORE_THRESHOLD: Final = 0.5
 YOLOX_NMS_THRESHOLD: Final = 0.5
 YOLOX_PAD_VALUE: Final = 114.0
-#: COCO class 0. Every other class is reported as a generic `object`, because
-#: this protocol has three labels and inventing an 80-way taxonomy on the wire
-#: would be a schema change, not an implementation detail.
-COCO_PERSON_CLASS: Final = 0
 
 SEGMENT_INPUT: Final = 192
 SEGMENT_MEAN: Final = 0.5
@@ -382,7 +379,11 @@ class OpenCvBackend:
         corners = np.stack(
             [centres[:, 0] - sizes[:, 0] / 2.0, centres[:, 1] - sizes[:, 1] / 2.0], axis=1
         )
-        scores = raw[:, 4:5] * raw[:, 5:]
+        # YOLOX's score is objectness x the class's conditional probability; the
+        # latter alone is what `classScore` reports — how sure the model is of the
+        # CLASS, given there is a thing — while `confidence` stays the joint score.
+        class_probabilities = raw[:, 5:]
+        scores = raw[:, 4:5] * class_probabilities
         best = np.amax(scores, axis=1)
         classes = np.argmax(scores, axis=1)
 
@@ -401,11 +402,16 @@ class OpenCvBackend:
         for index in np.array(keep).flatten().tolist():
             index = int(index)
             x, y, box_width, box_height = (value / ratio for value in candidates[index])
+            class_index = int(classes[index])
             detections.append(
                 RawDetection(
-                    label="person" if int(classes[index]) == COCO_PERSON_CLASS else "object",
+                    # The label stays the three-way protocol label; the class is the
+                    # model's own name for the box (AM2.5), sent only when asked for.
+                    label="person" if class_index == COCO_PERSON_CLASS else "object",
                     box=(x, y, box_width, box_height),
                     confidence=float(best[index]),
+                    object_class=coco_class_name(class_index),
+                    class_score=float(class_probabilities[index, class_index]),
                 )
             )
         return tuple(detections)

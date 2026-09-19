@@ -5,20 +5,21 @@
  * builders. This shell follows the interaction model used by modern desktop editors:
  * a compact selection header, contextual category tabs, and a focused property page.
  */
-import { useMemo, useState } from 'react';
-import { Button } from '@framepilot/ui';
+import { useEffect, useMemo, useState } from 'react';
+import { MEASURE_MEDIA_FIRST, assetDisplaySize } from '@framepilot/editor-core';
 import type { UseEditor } from '../editor/useEditor.js';
 import {
-  MASK_SHAPES,
-  type MaskShapeName,
-  addMaskPatch,
   removeEffectLayerPatch,
+  setClipBlurPatch,
   setEffectLayerEnabledPatch,
   setEffectLayerParamsPatch,
 } from '../editor/patch-builders.js';
 import { EffectInspector } from './EffectInspector.js';
-import { MaskPackActions } from './inspector/MaskPackActions.js';
-import { ScrubNumber } from './ScrubNumber.js';
+import { EffectLayerMaskPanel } from './inspector/masks/EffectLayerMaskPanel.js';
+import { MaskPanel } from './inspector/masks/MaskPanel.js';
+import { maskToolStore, useMaskToolValue } from './inspector/masks/useMaskTools.js';
+import { MaskTracking } from './inspector/masks/MaskTracking.js';
+import { maskToolsEnabled } from '../preview/mask-tools-flag.js';
 import {
   ArrowLeftRight,
   AudioLines,
@@ -38,7 +39,6 @@ import {
 import { Tooltip } from './Tooltip.js';
 import { InspectorRow } from './inspector/InspectorRow.js';
 import { InspectorSection } from './inspector/InspectorSection.js';
-import { LabeledSelect } from './inspector/LabeledSelect.js';
 import { visibleSections, type InspectorSectionDef } from './inspector/registry.js';
 import { resolveInspectorSelection } from './inspector/selection.js';
 import { useSectionState } from './inspector/useSectionState.js';
@@ -57,6 +57,7 @@ import { BlendModePanel } from './inspector/sections/BlendSection.js';
 import { TransitionPanel } from './inspector/sections/TransitionSection.js';
 import { TextOverlayInspector } from './inspector/sections/TextSection.js';
 import { TransformPanel } from './inspector/sections/TransformSection.js';
+import { ClipEffectList } from './inspector/sections/ClipEffectList.js';
 import { oneOf, useViewPreference } from '../editor/useViewPreference.js';
 import './Inspector.css';
 
@@ -175,7 +176,12 @@ export function Inspector({
     () => resolveInspectorSelection(timeline, selectionId, selectedIds, selectedEffectLayerIds),
     [timeline, selectionId, selectedIds, selectedEffectLayerIds],
   );
-  const sections = useMemo(() => visibleSections(selection), [selection]);
+  // RD2.1: with the mask stack UI turned off the Mask tab is hidden; saved masks still render.
+  const [maskToolsOn] = useState(maskToolsEnabled);
+  const sections = useMemo(
+    () => visibleSections(selection).filter((section) => maskToolsOn || section.id !== 'mask'),
+    [selection, maskToolsOn],
+  );
   const tabs = useMemo(
     () =>
       INSPECTOR_TABS.filter((tab) =>
@@ -185,15 +191,22 @@ export function Inspector({
   );
   const sectionState = useSectionState();
 
+  // "Review" in the export dialog asked for this clip's background removal (BR6.6).
+  // One field, not the whole store: the store changes on every move of a mask drag.
+  const reviewRequest = useMaskToolValue((state) => state.reviewRequest);
   const [preferredTab, setPreferredTab] = useViewPreference<InspectorTabId>(
     'inspectorTab',
     'basic',
     coerceInspectorTab,
   );
   const [copied, setCopied] = useState<ClipProperties | null>(null);
-  const [maskShape, setMaskShape] = useState<MaskShapeName>('ellipse');
-  const [maskFeather, setMaskFeather] = useState(0);
-  const [maskOpacity, setMaskOpacity] = useState(1);
+  // MK9.1: an adjustment lane's Effect / Mask tabs (the mask limits where the adjustment lands).
+  const [laneTab, setLaneTab] = useState<'effect' | 'mask'>('effect');
+
+  // Hooks run before any early return: the Mask tab opens for the clip the export dialog named.
+  useEffect(() => {
+    if (reviewRequest !== null) setPreferredTab('mask');
+  }, [reviewRequest, setPreferredTab]);
 
   if (selection.kind === 'effect-layer' && selection.effectLayer !== null) {
     const { layer } = selection.effectLayer;
@@ -208,14 +221,32 @@ export function Inspector({
             <span title={layer.id}>{layer.id}</span>
           </div>
         </header>
-        <nav className="inspector-tabs" aria-label="effect inspector categories">
-          <span className="inspector-tab is-active">Effect</span>
+        <nav className="inspector-tabs" role="tablist" aria-label="effect inspector categories">
+          {(['effect', 'mask'] as const)
+            .filter((tab) => maskToolsOn || tab === 'effect')
+            .map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                className={`inspector-tab${laneTab === tab ? ' is-active' : ''}`}
+                aria-selected={laneTab === tab}
+                onClick={() => setLaneTab(tab)}
+              >
+                {tab === 'effect' ? 'Effect' : 'Mask'}
+              </button>
+            ))}
         </nav>
         {selection.effectLayerIds.length > 1 && (
           <p className="inspector-multi">
             {selection.effectLayerIds.length} effects selected. Editing the first.
           </p>
         )}
+        {maskToolsOn && laneTab === 'mask' ? (
+          <div className="inspector-tab-page" role="tabpanel" aria-label="Mask controls">
+            <EffectLayerMaskPanel key={`${layer.id}-masks`} editor={editor} layer={layer} />
+          </div>
+        ) : (
         <div className="inspector-tab-page inspector-effect-page">
           <EffectInspector
             layer={layer}
@@ -237,6 +268,7 @@ export function Inspector({
             }}
           />
         </div>
+        )}
       </section>
     );
   }
@@ -261,6 +293,10 @@ export function Inspector({
   }
 
   const { clip, track } = selection.primary;
+  const clipAsset = editor.state.assets.find((asset) => asset.id === clip.assetId);
+  const clipMedia = clipAsset?.media;
+  // The export applies clip picture effects to footage and stills only (`_apply_color_grade`).
+  const takesPictureEffects = clipAsset?.kind === 'video' || clipAsset?.kind === 'image';
   const clipRelative = Math.max(0, Math.min(clip.end - clip.start, playhead - clip.start));
   const targetIds = selection.clips.map((location) => location.clip.id);
   const multi = selection.kind === 'multi-clip';
@@ -271,11 +307,6 @@ export function Inspector({
 
   const applyProperties = (properties: ClipProperties, reason: string): void => {
     const patch = applyClipPropertiesPatch(timeline, targetIds, properties, reason);
-    if (patch) editor.applyPatch(patch);
-  };
-
-  const applyMask = (): void => {
-    const patch = addMaskPatch(timeline, clip.id, maskShape, maskFeather, maskOpacity);
     if (patch) editor.applyPatch(patch);
   };
 
@@ -306,52 +337,32 @@ export function Inspector({
         return <TransitionPanel key={`${clip.id}-transition`} editor={editor} clip={clip} />;
       case 'mask':
         return (
-          <div className="inspector-subpanel" aria-label="add-mask">
-            <LabeledSelect
-              caption="Shape"
-              label="mask shape"
-              value={maskShape}
-              options={MASK_SHAPES}
-              onChange={(value) => setMaskShape(value as MaskShapeName)}
-            />
-            <ScrubNumber
-              label="Feather"
-              ariaLabel="mask feather"
-              value={maskFeather}
-              min={0}
-              max={0.5}
-              step={0.01}
-              defaultValue={0}
-              onChange={setMaskFeather}
-            />
-            <ScrubNumber
-              label="Opacity"
-              ariaLabel="mask opacity"
-              value={maskOpacity}
-              min={0}
-              max={1}
-              step={0.05}
-              defaultValue={1}
-              onChange={setMaskOpacity}
-            />
-            <Button variant="secondary" type="button" onClick={applyMask}>
-              Add mask
-            </Button>
-            <MaskPackActions editor={editor} clip={clip} fps={fps} />
-          </div>
+          <>
+            <MaskPanel key={`${clip.id}-masks`} editor={editor} clip={clip} />
+            <MaskTracking editor={editor} clip={clip} fps={fps} />
+          </>
         );
       case 'effects':
-        return clip.effects.length === 0 ? (
-          <p className="inspector-empty inspector-empty-inline">No clip effects applied.</p>
-        ) : (
-          <ul className="inspector-effect-list">
-            {clip.effects.map((effect) => (
-              <li key={effect.id}>
-                <span>{effect.type}</span>
-                <code title={effect.id}>{effect.id}</code>
-              </li>
-            ))}
-          </ul>
+        return (
+          <ClipEffectList
+            clip={clip}
+            canAddMask={assetDisplaySize(clipMedia) !== null}
+            cannotAddReason={MEASURE_MEDIA_FIRST}
+            onAddMask={(effectId) => {
+              // Arm the next drawn shape for this effect, then send the editor to the Mask
+              // tab, where the panel publishes the clip and the monitor shows the tools.
+              maskToolStore.startMaskFor({ kind: 'effect', effectId });
+              setPreferredTab('mask');
+            }}
+            {...(takesPictureEffects && !multi
+              ? {
+                  onSetBlur: (amount: number) => {
+                    const patch = setClipBlurPatch(editor.state.timeline, clip.id, amount);
+                    if (patch) editor.applyPatch(patch);
+                  },
+                }
+              : {})}
+          />
         );
       default:
         return null;

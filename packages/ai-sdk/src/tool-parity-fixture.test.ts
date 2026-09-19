@@ -72,6 +72,21 @@ describe('tool-parity fixture', () => {
         // which the standalone MCP server also has no route to (ADR 0114).
         'detect_subjects',
         'track_subject_automatically',
+        // The masking domain (plan 11): the four measured tools run in pack workers, and the
+        // four in-process ones compile through editor-core's TS-only mask commands, so the
+        // Python sidecar has nothing to mirror them with.
+        'find_mask_targets',
+        'create_mask',
+        'remove_background',
+        'track_mask',
+        'refine_mask',
+        'put_text_behind_subject',
+        'get_masks',
+        'delete_mask',
+        'follow_subject',
+        'create_shape_mask',
+        'mask_with_layer',
+        'style_cutout_edge',
         // Not UI-dependent — flagged so the Python sidecar does not mirror it.
         // Where a caption cue breaks must have exactly one authority
         // (`segmentCaptions`, ADR 0071), and a second segmenter in Python would

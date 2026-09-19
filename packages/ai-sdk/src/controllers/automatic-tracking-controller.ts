@@ -13,9 +13,14 @@
  * actually drew, so a hallucinated box can never become a track.
  */
 import { z } from 'zod/v4';
-import { professionalMaskEffectId } from '@framepilot/editor-core';
+import {
+  MEASURE_MEDIA_FIRST,
+  assetDisplaySize,
+  maskFrameBox,
+  professionalMaskEffectId,
+} from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
-import type { Project } from '@framepilot/timeline-schema';
+import { masksOf, type Asset, type Project } from '@framepilot/timeline-schema';
 import type { EditorInteractionContext } from '../editor-context/interaction-context.js';
 import { resolveEditorTarget, type TargetEvidence } from '../editor-context/target-resolver.js';
 
@@ -126,20 +131,11 @@ function rejected(
   return { status: 'rejected', objective, code, detail, facts: [] };
 }
 
-function maskBounds(params: Record<string, unknown>): Bounds | undefined {
-  const raw = params.bounds;
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
-  const record = raw as Record<string, unknown>;
-  const values = ['x', 'y', 'width', 'height'].map((key) => record[key]);
-  if (!values.every((value) => typeof value === 'number' && Number.isFinite(value))) {
-    return undefined;
-  }
-  const bounds = {
-    x: record.x as number,
-    y: record.y as number,
-    width: record.width as number,
-    height: record.height as number,
-  };
+/** A box strictly inside the normalized frame, or `undefined`. */
+function insideFrame(bounds: Bounds | null): Bounds | undefined {
+  if (bounds === null) return undefined;
+  const values = [bounds.x, bounds.y, bounds.width, bounds.height];
+  if (!values.every((value) => Number.isFinite(value))) return undefined;
   const inside =
     bounds.width > 0 &&
     bounds.height > 0 &&
@@ -202,7 +198,7 @@ function resolveClipForMediaJob(
   status: 'resolved';
   clipId: string;
   evidence: TargetEvidence;
-  asset: { readonly id: string };
+  asset: { readonly id: string; readonly media?: Asset['media'] };
   fps: number;
   firstFrame: number;
   lastFrameExclusive: number;
@@ -336,9 +332,8 @@ export function resolveAutomaticTrackingObjective(
     .find((candidate) => candidate.id === clipId)!;
 
   const maskEffectId = professionalMaskEffectId(clipId);
-  const masks = clip.effects.filter(
-    (effect) => effect.id === maskEffectId && effect.type === 'mask',
-  );
+  // Schema v22: the drawn mask is a layer on the clip's mask stack (ADR 0178).
+  const masks = masksOf(clip).filter((candidate) => candidate.id === maskEffectId);
   if (masks.length === 0) {
     return rejected(
       objective,
@@ -350,19 +345,22 @@ export function resolveAutomaticTrackingObjective(
     return rejected(objective, 'mask_ambiguous', `Mask "${maskEffectId}" is duplicated.`);
   }
   const mask = masks[0]!;
-  if (mask.params.shape !== 'rectangle' && mask.params.shape !== 'ellipse') {
+  if (mask.kind !== 'rectangle' && mask.kind !== 'ellipse') {
     return rejected(
       objective,
       'unsupported_mask_shape',
       'Automatic tracking starts from a rectangle or ellipse mask.',
     );
   }
-  const bounds = maskBounds(mask.params as Record<string, unknown>);
+  const size = assetDisplaySize(asset.media);
+  const box = maskFrameBox(mask, size, clip.sourceStart);
+  if (box === null) return rejected(objective, 'missing_region', MEASURE_MEDIA_FIRST);
+  const bounds = insideFrame(box);
   if (bounds === undefined) {
     return rejected(
       objective,
       'missing_region',
-      'The mask needs valid normalized bounds inside the frame.',
+      'The mask needs a box inside the frame to start tracking from.',
     );
   }
 

@@ -16,9 +16,8 @@ see the [MCP server guide](../guides/mcp-server.md); for the rationale see
    (`@framepilot/ai-sdk`), mapped 1:1 via `buildMcpTools()`. The `inputSchema` is the
    exact JSON Schema the registry derived from each tool's Zod schema, so the MCP
    surface can never drift from the in-app AI surface. A parity test
-   (`src/tools.test.ts`) enforces this. Tools with `available: false` (`generate_mask` —
-   a segmentation is a bitmap, while timeline masks steer by rectangle bounds) are
-   **omitted** until their engine exists. Tools marked `hostUiOnly` are also omitted, and
+   (`src/tools.test.ts`) enforces this. Tools with `available: false` are **omitted** until
+   their engine exists (none is registered today; `generate_mask` was the last). Tools marked `hostUiOnly` are also omitted, and
    refused by name in `session.ts` — hiding a tool from the list is not enforcement when a
    client can still call it directly.
 
@@ -70,7 +69,7 @@ tools edit `project.fp.json` directly and bypass validation/undo.
 - **mutate** (`trim_clip`, `split_clip`, `delete_range`, `ripple_delete`,
   `delete_clip`, `delete_clips`, `move_clip`, `add_clip`, `add_clips`, `add_track`, `remove_track`,
   `move_track`, `add_text_layer`, `add_caption_layer`, `add_keyframes`,
-  `apply_color_grade`, `adjust_audio`, `add_transition`, `add_mask`, `track_object`)
+  `apply_color_grade`, `adjust_audio`, `add_transition`, `track_object`)
   → `result` is `{ applied, patch, validation, diff }`. When `applied` is `false`
   the patch failed validation and the timeline is unchanged (`validation.issues`
   explains why). See [patch-format.md](patch-format.md) and [ai-tools.md](ai-tools.md)

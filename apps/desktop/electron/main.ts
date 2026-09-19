@@ -28,7 +28,7 @@ import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
-import { hostname } from 'node:os';
+import { cpus, hostname, totalmem } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -42,18 +42,27 @@ import {
   session,
   shell,
   type OpenDialogOptions,
+  type SaveDialogOptions,
 } from 'electron';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import type { Patch } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import { ProcessRegistry, type PidFileIO } from './process-registry.js';
 import {
-  readProjectFile,
+  readProjectFile as readProjectFileFromDisk,
   serializeProject,
   writeProjectFile,
 } from '@framepilot/timeline-schema/file';
 
 const aiLog = createLogger('desktop:main');
+
+/**
+ * Every desktop read copies an older-format project aside before migrating it
+ * (`<project>.v<N>.backup.fp.json`, ADR 0178): the next save publishes the new format, and
+ * the user must have a way back that does not depend on the migration being right.
+ */
+const readProjectFile = (projectPath: string): Promise<Project> =>
+  readProjectFileFromDisk(projectPath, { backupBeforeMigration: true });
 import {
   createReferenceAnalyzer,
   ReferenceProfileSchema,
@@ -94,6 +103,10 @@ import {
   type ProviderConfig,
 } from '@framepilot/ai-sdk';
 import { createAutomaticTrackingExecutor } from './ai/automatic-tracking-executor.js';
+import { createMaskingExecutor, MASKING_EXECUTOR_TOOLS } from './ai/masking-executor.js';
+import { createEngineCropColourSource } from './ai/crop-colour-client.js';
+import { createCropReranker } from './ai/crop-reranker.js';
+import { desktopAiMaskingDisabledTools } from './ai/ai-masking-switch.js';
 import { recordAutoAcceptedMemory } from './ai/auto-accept-memory.js';
 import {
   IpcChannels,
@@ -108,6 +121,7 @@ import {
   type AiStreamRequest,
   type DurableRunAccepted,
   type TrackingProgressWire,
+  type MaskTrackResultWire,
   type TrackingRunResultWire,
   type DurableRunSnapshot,
   type DurableRunSubscription,
@@ -152,6 +166,7 @@ import {
   type CapabilityPackStorageSnapshotWire,
   type CapabilityPackRelocationResultWire,
   type CapabilityPackProjectResolutionWire,
+  type MatteValidationIssueWire,
 } from './ipc/contract.js';
 import { SidecarManager, type SidecarProcess } from './sidecar/manager.js';
 import { resolveSidecarCommand, killProcessGroup } from './sidecar/spawn.js';
@@ -177,7 +192,33 @@ import {
 import { withVisualPackLease } from './capability-packs/visual-pack-lease.js';
 import { loadCapabilityPackRootKeys } from './capability-packs/config.js';
 import { FileCapabilityPackLocation } from './capability-packs/location.js';
+import { MaskTrackIntentSchema } from '@framepilot/capability-packs';
 import { buildTrackingWorkerRequest } from './capability-packs/tracking-request.js';
+import { runMaskTrackJob } from './capability-packs/mask-track-service.js';
+import type { MaskTrackIntent } from './capability-packs/track-run.js';
+import {
+  registerJobIpc,
+  registerMatteIpc,
+  registerMatteStorageIpc,
+  resumeMatteJobs,
+} from './capability-packs/matte-ipc.js';
+import {
+  CapabilityPackJobScheduler,
+  createQuitGuard,
+  FileJobJournal,
+  QUIT_PROMPT,
+} from './capability-packs/job-scheduler.js';
+import { validateProjectMattes } from './capability-packs/matte-validation.js';
+import { registerRelinkIpc } from './capability-packs/matte-relink-ipc.js';
+import {
+  buildDiagnosticBundle,
+  MatteReportLog,
+  writeDiagnosticBundle,
+} from './capability-packs/pack-diagnostics.js';
+import {
+  DesktopMatteMediaInspector,
+  resolveMatteFfprobe,
+} from './capability-packs/matte-media-inspector.js';
 import type { CapabilityPackWorkerProgress } from '@framepilot/capability-packs';
 import { AiConfigStore } from './ai/ai-config.js';
 import { LicenseStore, type LicenseCrypto } from './license/license-store.js';
@@ -207,12 +248,14 @@ import { exportViaSidecar } from './render/export-client.js';
 import { ExportHub } from './render/export-hub.js';
 import { saveExportAs } from './render/export-save.js';
 import { importAssetViaSidecar } from './media/asset-media-client.js';
+import { previewTextRasterViaSidecar } from './render/preview-text-client.js';
 import { cacheDerivedMedia, sidecarDerive } from './media/derived-media-cache.js';
 import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
 
 import { StockQuotaStore } from './media/stock-quota.js';
 import {
+  IdentityClient,
   LedgerClient,
   hostedTranscriptionUnavailable,
   silhouetteMasksToTrackSamples,
@@ -767,6 +810,21 @@ function registerIpcHandlers(): void {
     () => visualPackIdentities,
     async (identity) => (await capabilityPackService).acquireVisualPackLease(identity),
   );
+  // ffprobe for stream facts; decoded frames go through the sidecar, which has ffmpeg
+  // (BR4.13). A stopped sidecar makes lock and media checks fail closed.
+  const matteMediaInspector = new DesktopMatteMediaInspector({
+    ffprobe: resolveMatteFfprobe({
+      env: process.env,
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      platform: process.platform,
+      fileExists: existsSync,
+    }),
+    sidecarBaseUrl: engineBaseUrl,
+    fetch: electronFetch,
+  });
+  /** Recent matte job reports for the opt-in diagnostic bundle (BR4.11); memory only. */
+  const matteReportLog = new MatteReportLog();
   const createCapabilityPackService = async (
     rootPath: string,
   ): Promise<CapabilityPackDesktopService> =>
@@ -778,6 +836,13 @@ function registerIpcHandlers(): void {
       trustedRootKeys: await capabilityPackRootKeys,
       appVersion: app.getVersion(),
       runtimeCacheRoot: path.join(app.getPath('userData'), 'capability-pack-cache'),
+      matteMediaInspector,
+      matteObserver: (report) => matteReportLog.record(report),
+      onStoreChanged: (event) => {
+        if (mainWindow !== null && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(IpcChannels.capabilityPackInstalled, event);
+        }
+      },
       fetch: electronFetch,
       onProgress: (progress) => {
         if (mainWindow !== null && !mainWindow.isDestroyed()) {
@@ -882,6 +947,24 @@ function registerIpcHandlers(): void {
       });
     })
     .finally(() => sidecar.start());
+  /**
+   * Quick matte file checks on open (BR4.7): missing, resized or unparseable artifacts come
+   * back with the engine's own code and remedy. Hashing waits for export, which re-verifies.
+   */
+  const validateOpenedMattes = async (
+    projectPath: string,
+    project: Project,
+  ): Promise<readonly MatteValidationIssueWire[]> => {
+    try {
+      return await validateProjectMattes(path.dirname(projectPath), project, { mode: 'quick' });
+    } catch (error) {
+      // Name only: fs messages carry project paths (BR4.11).
+      aiLog.error('matte validation failed', {
+        error: error instanceof Error ? error.name : 'unknown',
+      });
+      return [];
+    }
+  };
   const reconcileCapabilityPacks = async (
     project: Project,
   ): Promise<CapabilityPackProjectResolutionWire> => {
@@ -1039,7 +1122,7 @@ function registerIpcHandlers(): void {
       // list and the revision is never the authority for what gets tracked.
       const project = await readProjectFile(active.path);
       const revision = project.timeline.revision ?? 0;
-      const built = buildTrackingWorkerRequest(project, revision, intent);
+      const built = buildTrackingWorkerRequest(project, revision, intent, path.dirname(active.path));
       if (built.status === 'rejected') {
         return { ok: false, code: built.code, error: built.detail, retryable: false };
       }
@@ -1129,9 +1212,196 @@ function registerIpcHandlers(): void {
       }
     },
   );
+  ipcMain.handle(
+    IpcChannels.capabilityPackTrackMask,
+    async (event, raw: unknown): Promise<MaskTrackResultWire> => {
+      requireLicense();
+      const active = await activeProject.current();
+      if (active === null) {
+        return { ok: false, code: 'no_project', error: 'No project is open.', retryable: false };
+      }
+      const parsed = MaskTrackIntentSchema.safeParse(raw);
+      if (!parsed.success) {
+        return {
+          ok: false,
+          code: 'invalid_request',
+          error: 'This tracking request is malformed.',
+          retryable: false,
+        };
+      }
+      const intent = parsed.data as MaskTrackIntent;
+      // Main re-reads the project from disk: the renderer's view of the mask, the asset and the
+      // revision is never the authority for what gets tracked. (The agent's `track_mask` runs
+      // the same job against its run's working project — see `mask-track-service.ts`.)
+      const project = await readProjectFile(active.path);
+      const controller = new AbortController();
+      trackingRuns.set(intent.requestId, controller);
+      try {
+        return await runMaskTrackJob({
+          project,
+          projectDir: path.dirname(active.path),
+          intent,
+          tracking: async () => (await capabilityPackService).tracking(),
+          signal: controller.signal,
+          onProgress: (progress) => {
+            if (event.sender.isDestroyed()) return;
+            event.sender.send(IpcChannels.capabilityPackTrackProgress, {
+              requestId: intent.requestId,
+              ...progress,
+            } satisfies TrackingProgressWire);
+          },
+        });
+      } finally {
+        trackingRuns.delete(intent.requestId);
+      }
+    },
+  );
   ipcMain.on(IpcChannels.capabilityPackCancelTrack, (_event, requestId: unknown) => {
     if (typeof requestId !== 'string') return;
     trackingRuns.get(requestId)?.abort();
+  });
+  // Background removal + generic pack status (plan/background-removal-ai/03, BR4.4, BR4.6).
+  // One GPU inference job at a time, priorities, pause while exporting, resume after a restart
+  // and a quit prompt (plan/background-removal-ai/03 "Job scheduler", BR4.9).
+  const packJobScheduler = new CapabilityPackJobScheduler({
+    journal: new FileJobJournal(path.join(app.getPath('userData'), 'capability-pack-jobs.json')),
+    onChange: (jobs) => {
+      if (mainWindow !== null && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IpcChannels.capabilityPackJobsChanged, jobs);
+      }
+    },
+  });
+  app.on(
+    'before-quit',
+    createQuitGuard({
+      hasActiveJobs: () => packJobScheduler.hasActiveJobs(),
+      confirmQuit: async () => {
+        const options = {
+          type: 'warning' as const,
+          message: QUIT_PROMPT.message,
+          detail: QUIT_PROMPT.detail,
+          buttons: [...QUIT_PROMPT.buttons],
+          defaultId: 0,
+          cancelId: 0,
+        };
+        const answer =
+          mainWindow === null
+            ? await dialog.showMessageBox(options)
+            : await dialog.showMessageBox(mainWindow, options);
+        return answer.response === 1;
+      },
+      quit: () => app.quit(),
+    }),
+  );
+  const matteIpcDependencies = {
+    ipcMain,
+    requireLicense,
+    scheduler: packJobScheduler,
+    // The crash-recovery snapshot can restore a project, so Clean must keep what it references.
+    referenceFiles: [path.join(app.getPath('userData'), 'recovery-snapshot.json')],
+    capabilityStatus: async (capability: string) =>
+      (await capabilityPackService).capabilityStatus(capability),
+    matte: async () => (await capabilityPackService).matte(),
+    activeProjectPath: async () => (await activeProject.current())?.path ?? null,
+    readProject: (projectPath: string) => readProjectFile(projectPath),
+    // Hover highlight (BR6.11): the pack's warm worker, only while no job or export holds the slot.
+    segmentFrame: async () =>
+      (await capabilityPackService).segmentFrame(() => packJobScheduler.slotFree()),
+    projectStamp: async (projectPath: string) => {
+      const info = await stat(projectPath);
+      return `${String(info.size)}:${String(info.mtimeMs)}`;
+    },
+  };
+  // The warm model is gigabytes: end it with the app, never leave it running.
+  app.on('will-quit', () => {
+    void capabilityPackService
+      .then((service) => service.segmentFrame(() => false).close())
+      .catch(() => undefined);
+  });
+  registerMatteIpc(matteIpcDependencies);
+  registerMatteStorageIpc(matteIpcDependencies);
+  // Opt-in diagnostic bundle: written only where the editor chooses, never uploaded.
+  ipcMain.handle(IpcChannels.capabilityPackExportDiagnostics, async () => {
+    const options: SaveDialogOptions = {
+      title: 'Export diagnostic bundle',
+      defaultPath: `framepilot-pack-diagnostics-${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    };
+    const picked =
+      mainWindow === null
+        ? await dialog.showSaveDialog(options)
+        : await dialog.showSaveDialog(mainWindow, options);
+    if (picked.canceled || picked.filePath === undefined) {
+      return { ok: false as const, code: 'cancelled' as const, error: 'Export cancelled.' };
+    }
+    try {
+      const storage = await (await capabilityPackService).storage().catch(() => undefined);
+      const bundle = buildDiagnosticBundle({
+        generatedAt: new Date().toISOString(),
+        appVersion: app.getVersion(),
+        platform: {
+          os: process.platform,
+          arch: process.arch,
+          totalMemoryBytes: totalmem(),
+          cpuCount: cpus().length,
+        },
+        ...(storage === undefined ? {} : { storage }),
+        jobs: packJobScheduler.snapshot(),
+        reports: matteReportLog.list(),
+      });
+      await writeDiagnosticBundle(picked.filePath, bundle);
+      aiLog.action('pack diagnostics exported', { reports: matteReportLog.list().length });
+      return { ok: true as const };
+    } catch (error) {
+      aiLog.error('pack diagnostics export failed', {
+        error: error instanceof Error ? error.name : 'unknown',
+      });
+      return {
+        ok: false as const,
+        code: 'write_failed' as const,
+        error: 'The diagnostic bundle could not be written there.',
+      };
+    }
+  });
+  registerJobIpc({
+    ipcMain,
+    scheduler: packJobScheduler,
+    cancelMatte: (jobId) =>
+      void matteIpcDependencies.matte().then((service) => service.cancel(jobId)),
+  });
+  // Journaled jobs load dormant at startup and resume only when the editor opens their project
+  // (BR4.12 L6); each re-checks the licence when it actually runs. A job whose matte already
+  // committed completes as a cache hit.
+  void packJobScheduler.loadDormant();
+  const resumeJobsForProject = (openedPath: string): void => {
+    void capabilityPackService
+      .then(() => resumeMatteJobs({ ...matteIpcDependencies, scheduler: packJobScheduler }, openedPath))
+      .catch((error: unknown) =>
+        // Error name only: restore reads project files, and their messages carry paths (BR4.12 L1).
+        aiLog.error('pack job restore failed', {
+          error: error instanceof Error ? error.name : 'unknown',
+        }),
+      );
+  };
+  // Relink or replace an asset's file, then re-check its mattes (BR4.14).
+  registerRelinkIpc({
+    ipcMain,
+    requireLicense,
+    activeProjectPath: matteIpcDependencies.activeProjectPath,
+    readProject: matteIpcDependencies.readProject,
+    inspector: async () => matteMediaInspector,
+    chooseFile: async (assetName) => {
+      const options: OpenDialogOptions = {
+        title: `Relink "${assetName}"`,
+        buttonLabel: 'Relink',
+        properties: ['openFile'],
+      };
+      const picked =
+        mainWindow === null
+          ? await dialog.showOpenDialog(options)
+          : await dialog.showOpenDialog(mainWindow, options);
+      return picked.canceled ? undefined : picked.filePaths[0];
+    },
   });
   ipcMain.handle(
     IpcChannels.capabilityPackInstall,
@@ -1298,7 +1568,9 @@ function registerIpcHandlers(): void {
         warmSessionAnalysis(project.id, guard.path);
         const { revision } = projectCommands.observe(project);
         const capabilityPacks = await reconcileCapabilityPacks(project);
-        return { ok: true, path: guard.path, project, revision, capabilityPacks };
+        const mattes = await validateOpenedMattes(guard.path, project);
+        resumeJobsForProject(guard.path);
+        return { ok: true, path: guard.path, project, revision, capabilityPacks, mattes };
       } catch (error) {
         return { ok: false, error: errorMessage(error) };
       }
@@ -1334,7 +1606,9 @@ function registerIpcHandlers(): void {
       warmSessionAnalysis(project.id, selectedPath);
       const { revision } = projectCommands.observe(project);
       const capabilityPacks = await reconcileCapabilityPacks(project);
-      return { ok: true, path: selectedPath, project, revision, capabilityPacks };
+      const mattes = await validateOpenedMattes(selectedPath, project);
+      resumeJobsForProject(selectedPath);
+      return { ok: true, path: selectedPath, project, revision, capabilityPacks, mattes };
     } catch (error) {
       return { ok: false, error: errorMessage(error) };
     }
@@ -1618,6 +1892,9 @@ function registerIpcHandlers(): void {
     progressChannel: IpcChannels.renderExportProgress,
     baseUrl: () => engineBaseUrl,
     fetchFn: electronFetch,
+    // Pack inference pauses at its next window while any export runs (BR4.9).
+    onActiveCountChange: (active) =>
+      active > 0 ? packJobScheduler.beginExport() : packJobScheduler.endExport(),
   });
   ipcMain.handle(IpcChannels.renderExportStart, async (event, req: unknown): Promise<string> => {
     const requestId = exportHub.mintId();
@@ -1721,6 +1998,12 @@ function registerIpcHandlers(): void {
   // sits inside the projects root, the sidecar measures it, and the renderer gets back a
   // typed profile it cannot have forged. Declared in the contract since Phase 3 but only
   // wired here once `main-channel-registration.test.ts` showed nothing served it.
+  // Program monitor text (PX2.3): text, style params and a frame size only, no paths; the
+  // client validates and bounds the request before the sidecar sees it.
+  ipcMain.handle(IpcChannels.previewTextRaster, (_event, req: unknown) =>
+    previewTextRasterViaSidecar(engineBaseUrl, req, electronFetch),
+  );
+
   ipcMain.handle(
     IpcChannels.referencesAnalyze,
     async (_event, req: unknown): Promise<AnalyzeReferenceResult> => {
@@ -2573,10 +2856,46 @@ function registerIpcHandlers(): void {
   const automaticTrackingExecutor = createAutomaticTrackingExecutor({
     tracking: async () => (await capabilityPackService).tracking(),
   });
+  // The masking domain's measured tools (plan/background-removal-ai/11): the same matte
+  // service, scheduler and mask-track job the Inspector runs, against the run's working project.
+  const identityClient = new IdentityClient({ baseUrl: engineBaseUrl, fetchFn: electronFetch });
+  const maskingExecutor = createMaskingExecutor({
+    tracking: async () => (await capabilityPackService).tracking(),
+    matte: async () => (await capabilityPackService).matte(),
+    scheduler: packJobScheduler,
+    activeProjectPath: async () => (await activeProject.current())?.path ?? null,
+    evidence: {
+      // Per-project opt-in, read from the project brain on every resolution (P15, MD-7): an
+      // editor who withdraws consent mid-session is honoured on the very next call. No
+      // `identities` source is supplied, because the shipped packs cannot produce one for a
+      // detection crop (docs/api/ai-masking.md) — so identity questions go to the face picker
+      // with or without consent, and consent gates nothing it should not.
+      faceRecognitionConsent: async (project) => (await identityClient.state(project.id)).consent,
+      // AM2.5: "the red car" among classed cars — Visual Embed (>= 1.1.0) scores each crop's
+      // colour. Absent, outdated or failing, it answers nothing and the resolver asks.
+      // AM2.7: the engine also measures each crop's colour (CIELAB, the export's decode), and a
+      // pick needs both to agree; an engine that cannot measure leaves SigLIP to decide alone.
+      rerank: createCropReranker({
+        tracking: async () => (await capabilityPackService).tracking(),
+        measure: createEngineCropColourSource({ baseUrl: engineBaseUrl, fetchFn: electronFetch }),
+      }),
+    },
+  });
+  // RD2.1 kill switch for the AI masking tools, read at RUNTIME on every call so support can
+  // switch a shipped build off without a rebuild (`ai/ai-masking-switch.ts`). It reaches the
+  // orchestrator as `disabledTools` below; the routing check here keeps a switched-off call
+  // from reaching a pack worker by any other road.
+  const aiMaskingOff = (): readonly string[] =>
+    desktopAiMaskingDisabledTools({ env: process.env, packaged: app.isPackaged });
   const toolExecutor: HostToolExecutor = {
     async run(call, ctx, signal) {
       if (call.name === AUTOMATIC_TRACKING_TOOL_NAME || call.name === DETECT_SUBJECTS_TOOL_NAME) {
         return automaticTrackingExecutor.run(call, ctx, signal);
+      }
+      // Switched off, a masking call falls through to the sidecar executor, which answers
+      // what it answers for any tool this surface has no route for.
+      if (MASKING_EXECUTOR_TOOLS.has(call.name) && !aiMaskingOff().includes(call.name)) {
+        return maskingExecutor.run(call, ctx, signal);
       }
       return sidecarToolExecutor.run(call, ctx, signal);
     },
@@ -2647,6 +2966,7 @@ function registerIpcHandlers(): void {
     // (invariant 6, R1).
     const orchestratorOptions = {
       executor: toolExecutor,
+      disabledTools: aiMaskingOff,
       ...(effectObserver === undefined ? {} : { effectObserver }),
       ...(name === 'mock' ? {} : buildTierProviders(name)),
     };

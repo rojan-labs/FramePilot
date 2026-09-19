@@ -103,6 +103,23 @@ describe('deriveEngineMedia', () => {
     });
   });
 
+  it('carries pixel aspect ratio and rotation onto the asset (schema v22)', async () => {
+    installBridge({
+      importAsset: async (): Promise<ImportAssetResult> => ({
+        ok: true,
+        durationSeconds: 12,
+        kind: 'video',
+        media: { width: 1440, height: 1080, pixelAspectRatio: 4 / 3, rotation: 270 },
+      }),
+    });
+    await expect(deriveEngineMedia('media/p/hdv.mov')).resolves.toEqual({
+      width: 1440,
+      height: 1080,
+      pixelAspectRatio: 4 / 3,
+      rotation: 270,
+    });
+  });
+
   it('keeps dimensions all-or-nothing, so absent never reads as square', async () => {
     installBridge({
       importAsset: async (): Promise<ImportAssetResult> => ({

@@ -8,6 +8,7 @@ import {
   isDesktop,
   onProjectChanged,
   openProject,
+  openProjectDialog,
   projectsDir,
   revealProject,
   saveProject,
@@ -130,7 +131,14 @@ describe('getBridge / isDesktop', () => {
 
     const wrapped = getBridge()!;
     expect(() => {
-      for (const key of ['openProject', 'openProjectDialog', 'saveProject', 'saveProjectDefault', 'aiStreamStart', 'onProjectChanged'] as const) {
+      for (const key of [
+        'openProject',
+        'openProjectDialog',
+        'saveProject',
+        'saveProjectDefault',
+        'aiStreamStart',
+        'onProjectChanged',
+      ] as const) {
         expect(typeof wrapped[key]).toBe('function');
       }
     }).not.toThrow();
@@ -228,6 +236,31 @@ describe('openProject', () => {
     if (result.ok) {
       expect(result.project.name).toBe('Demo');
       expect(result.path).toBe('/demo.fp.json');
+    }
+  });
+
+  it("carries main's open-time matte check through, from both open paths (BR4.15)", async () => {
+    const project = JSON.parse(JSON.stringify(newProject('Mattes')));
+    const mattes = [
+      {
+        clipId: 'c1',
+        maskId: 'm1',
+        artifactKey: 'a'.repeat(64),
+        code: 'matte_missing',
+        status: 'broken' as const,
+        remedy: 'Background removal data is missing — run Remove background again.',
+      },
+    ];
+    const opened = { ok: true as const, path: '/m.fp.json', project, mattes };
+    const bridge = fakeBridge({
+      openProject: vi.fn(async () => opened),
+      openProjectDialog: vi.fn(async () => opened),
+    });
+    for (const result of [
+      await openProject('/m.fp.json', bridge),
+      await openProjectDialog(bridge),
+    ]) {
+      expect(result.ok && result.mattes).toEqual(mattes);
     }
   });
 

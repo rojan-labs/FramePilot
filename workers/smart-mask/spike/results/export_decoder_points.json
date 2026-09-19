@@ -1,0 +1,16 @@
+{
+  "recordedAt": "2026-09-17T11:57:18",
+  "host": {
+    "platform": "darwin",
+    "machine": "arm64",
+    "python": "3.12.13",
+    "onnxruntime": "1.30.0",
+    "torch": "2.14.0",
+    "cpu": "Apple M1 Pro"
+  },
+  "part": "decoder_points",
+  "file": "sam21l_decoder_points.fp32.onnx",
+  "bytes": 17894692,
+  "sha256": "290b4746cfb966bd224b2bebdd7244083a21d9d25469ff39b7eda97f52ab1136",
+  "seconds": 2.4
+}

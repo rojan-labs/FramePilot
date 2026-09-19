@@ -14,6 +14,7 @@
 import {
   buildAddMusicOps,
   buildAddStockOps,
+  clipBlurEffect,
   firstFreePictureStart,
   createLaneAllocator,
   nextLayerId as coreNextLayerId,
@@ -36,6 +37,7 @@ import type {
   BlendMode,
   CaptionStyle,
   CropRect,
+  EdgeStyleKind,
   EffectLayer,
   Marker,
   SpeedPoint,
@@ -61,10 +63,6 @@ import {
 /** Keyframe-animatable properties offered in the inspector UI. */
 export const KEYFRAME_PROPERTIES = ['scale', 'opacity', 'x', 'y', 'rotation'] as const;
 export type KeyframeProperty = (typeof KEYFRAME_PROPERTIES)[number];
-
-/** Mask shapes offered in the inspector UI (mirrors `AddMaskOp.shape`). */
-export const MASK_SHAPES = ['rectangle', 'ellipse', 'polygon'] as const;
-export type MaskShapeName = (typeof MASK_SHAPES)[number];
 
 /** Easing curves offered in the inspector UI (mirrors the schema enum). */
 export const EASINGS: readonly Easing[] = [
@@ -1353,32 +1351,6 @@ export function setClipTransformPatch(
 }
 
 /**
- * Add a mask to a clip — a centered shape by default. Returns `null` when the
- * clip is missing. Geometry is in frame fractions; the engine rasterizes it.
- */
-export function addMaskPatch(
-  timeline: Timeline,
-  clipId: string,
-  shape: MaskShapeName,
-  feather = 0,
-  opacity = 1,
-): Patch | null {
-  const found = findClip(timeline, clipId);
-  if (!found) {
-    return null;
-  }
-  // A centered shape covering the middle 60% of the frame — a sensible default
-  // the user can refine; polygon falls back to that box until point editing lands.
-  const bounds = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 };
-  return {
-    patchId: patchId(`mask_${clipId}_${shape}_${ms(feather)}_${ms(opacity)}`),
-    createdBy: 'user',
-    reason: `Add ${shape} mask to "${clipId}"`,
-    operations: [{ type: 'add_mask', clipId, shape, bounds, feather, opacity }],
-  };
-}
-
-/**
  * Place an imported asset as a new clip on a track, appended after the track's
  * last clip (so it never overlaps) unless an explicit `atStart` is given.
  * Returns `null` when the target track is missing.
@@ -1892,6 +1864,16 @@ export function deleteFolderPatch(folderId: string): Patch {
   };
 }
 
+/** Point an asset at a different file (relink missing media, replace footage). Undoable. */
+export function relinkAssetPatch(assetId: string, path: string): Patch {
+  return {
+    patchId: patchId(`relink_${assetId}_${path}`),
+    createdBy: 'user',
+    reason: `Relink asset "${assetId}"`,
+    operations: [{ type: 'relink_asset', assetId, path }],
+  };
+}
+
 /** Move an asset into a folder (`null` = bin root). */
 export function moveAssetToFolderPatch(assetId: string, folderId: string | null): Patch {
   return {
@@ -2173,6 +2155,23 @@ export function setColorGradePatch(
         effect: { id: `${clipId}__grade`, type: 'color_grade', params, keyframes: [] },
       },
     ],
+  };
+}
+
+/**
+ * Add the clip's blur, or set its amount (plan 10, MK5: an effect a mask can limit). The blur
+ * lives under the shared id (`clipBlurEffectId`), so re-applying updates it in place and every
+ * mask already limiting it keeps limiting it. Returns `null` when the clip is missing.
+ *
+ * @param amount - Radius as a fraction of the picture's smaller side (`clip-blur.ts`).
+ */
+export function setClipBlurPatch(timeline: Timeline, clipId: string, amount: number): Patch | null {
+  if (!findClip(timeline, clipId)) return null;
+  return {
+    patchId: patchId(`blurset_${clipId}_${Math.round(amount * 1000)}`),
+    createdBy: 'user',
+    reason: `Blur "${clipId}"`,
+    operations: [{ type: 'apply_color_grade', clipId, effect: clipBlurEffect(clipId, amount) }],
   };
 }
 
@@ -3161,6 +3160,29 @@ export function setClipBlendModePatch(
       ? `Set blend mode on "${clipId}" to ${blendMode}`
       : `Reset blend mode on "${clipId}"`,
     operations: [{ type: 'set_clip_blend_mode', clipId, blendMode }],
+  };
+}
+
+/**
+ * Set, edit or remove (`params: null`) one cut-out edge style on a clip (MK9.2): the outline,
+ * glow or shadow drawn around its alpha mask stack. Returns `null` when the clip is missing.
+ * One `set_clip_edge_style` operation, the same one the assistant compiles.
+ */
+export function setClipEdgeStylePatch(
+  timeline: Timeline,
+  clipId: string,
+  kind: EdgeStyleKind,
+  params: Readonly<Record<string, number>> | null,
+): Patch | null {
+  const found = findClip(timeline, clipId);
+  if (!found) return null;
+  const label = kind === 'stroke' ? 'outline' : kind;
+  return {
+    patchId: patchId(`edge_${clipId}_${kind}_${params === null ? 'off' : JSON.stringify(params)}`),
+    createdBy: 'user',
+    reason:
+      params === null ? `Remove the ${label} from "${clipId}"` : `Set the ${label} on "${clipId}"`,
+    operations: [{ type: 'set_clip_edge_style', clipId, kind, params }],
   };
 }
 

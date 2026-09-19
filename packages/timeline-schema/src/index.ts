@@ -15,12 +15,13 @@
  * hand-maintaining a parallel JSON Schema.
  */
 import { z } from 'zod/v4';
+import { decodeFloat64Array } from './float-array-codec.js';
 
 /**
  * Bump on any breaking change to the schema. A migration is required before the
  * schema can change in a way that invalidates existing `project.fp.json` files.
  */
-export const SCHEMA_VERSION = 21 as const;
+export const SCHEMA_VERSION = 23 as const;
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -207,6 +208,553 @@ export const EffectSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Mask stack (schema v22, ADR 0178)
+// ---------------------------------------------------------------------------
+
+/**
+ * How one mask combines with the result of the masks above it in the stack.
+ *
+ * Evaluated top to bottom. The first mask combines with an empty (all-zero)
+ * alpha, so a stack that starts with `subtract` is honestly empty, not full.
+ */
+export const MaskModeSchema = z.enum([
+  'add',
+  'subtract',
+  'intersect',
+  'difference',
+  'lighten',
+  'darken',
+]);
+
+/** The feather curve across the feather band. */
+export const MaskFalloffSchema = z.enum(['linear', 'smooth', 'gaussian']);
+
+/**
+ * Which feather algorithm the mask uses.
+ *
+ * `distance` is the v22 model (signed distance from the edge, inner and outer
+ * bands). `gaussian-legacy` is today's blur of the hard shape and exists ONLY for
+ * masks migrated from v21 `mask` effects, so an existing project exports
+ * byte-identically. For a `gaussian-legacy` mask `featherOuterPx` is the blur
+ * radius in source pixels and `featherInnerPx` is `0`.
+ */
+export const MaskFeatherModelSchema = z.enum(['distance', 'gaussian-legacy']);
+
+/**
+ * `source` geometry moves with the picture (display-corrected source pixels, before
+ * crop); `frame` geometry is fixed to the output frame (output-frame pixels). Masks
+ * on effect layers are always `frame`.
+ */
+export const MaskSpaceSchema = z.enum(['source', 'frame']);
+
+/** Easing into the next keyframe; the same vocabulary as {@link KeyframeSchema}. */
+export const MaskEasingSchema = z.enum([
+  'linear',
+  'ease-in',
+  'ease-out',
+  'ease-in-out',
+  'hold',
+  'bezier',
+]);
+
+/**
+ * What a mask cuts: the clip's alpha, or the output of one effect instance on the
+ * same clip (the effect runs on the frame and is mixed with the original by the
+ * mask's alpha).
+ */
+export const MaskTargetSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('alpha') }),
+  z.object({ kind: z.literal('effect'), effectId: z.string().min(1) }),
+]);
+
+/**
+ * Every scalar a mask keyframe can animate. Which of them apply to a given kind is
+ * a validator rule (`editor-core` `MASK_ANIMATABLE_PROPERTIES`), not a shape rule,
+ * so an invalid pairing gets a remedy message instead of a parse failure.
+ */
+export const MaskScalarPropertySchema = z.enum([
+  'opacity',
+  'expansionPx',
+  'featherInnerPx',
+  'featherOuterPx',
+  'cx',
+  'cy',
+  'width',
+  'height',
+  'rotation',
+  'roundness',
+  'rx',
+  'ry',
+  'originX',
+  'originY',
+  'angle',
+  'softnessPx',
+  'widthPx',
+  'startX',
+  'startY',
+  'endX',
+  'endY',
+  'edgeShiftPx',
+]);
+
+/**
+ * One scalar keyframe on a mask.
+ *
+ * **`sourceTime` is ASSET source seconds** (the same clock as `Clip.sourceStart`),
+ * not timeline seconds and not clip-relative. That is what keeps a mask glued to
+ * the picture through trim, slip, split, ripple, speed changes and speed ramps:
+ * none of those edits change which source frame a keyframe names, so none of them
+ * has to rewrite mask keyframes. For a mask on an effect layer (which has no
+ * source) it is seconds from the layer's `start`.
+ */
+export const MaskKeyframeSchema = z.object({
+  id: z.string().min(1),
+  sourceTime: z.number().nonnegative(),
+  property: MaskScalarPropertySchema,
+  value: z.number(),
+  easing: MaskEasingSchema.default('linear'),
+  handles: z.object({ out: BezierHandleSchema, in: BezierHandleSchema }).optional(),
+});
+
+/** A source-time range, seconds (asset clock). */
+export const SourceTimeRangeSchema = z.object({
+  start: z.number().nonnegative(),
+  end: z.number().nonnegative(),
+});
+
+/**
+ * Review state shared by mattes and tracks: ranges the worker flagged, ranges the
+ * editor approved, and source instants the editor locked as hard constraints.
+ */
+export const MaskReviewSchema = z.object({
+  flagged: z.array(SourceTimeRangeSchema).default([]),
+  approved: z.array(SourceTimeRangeSchema).default([]),
+  locked: z.array(z.number().nonnegative()).default([]),
+});
+
+const Sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/);
+
+/** A digest-pinned, project-owned derived artifact (`.framepilot-derived/<kind>/<key>/`). */
+export const MaskArtifactRefSchema = z.object({
+  key: Sha256HexSchema,
+  sha256: Sha256HexSchema,
+});
+
+export const MaskTrackingMethodSchema = z.enum([
+  'position',
+  'position-scale-rotation',
+  'perspective',
+  'point-cloud',
+]);
+
+/**
+ * A transform track applied ON TOP of the mask's own animation. The per-frame
+ * 3x3 transforms live in the artifact, not inline, so long tracks stay small.
+ */
+export const MaskTrackingSchema = z.object({
+  artifact: MaskArtifactRefSchema,
+  method: MaskTrackingMethodSchema,
+  referenceSourceTime: z.number().nonnegative(),
+  constraints: z.array(z.object({ sourceTime: z.number().nonnegative() })).default([]),
+  review: MaskReviewSchema.default({ flagged: [], approved: [], locked: [] }),
+});
+
+/**
+ * Matte/key/layer clean-up controls, applied to the mask's own edge. All default
+ * to "no change".
+ */
+export const MaskFinesseSchema = z.object({
+  denoise: z.number().min(0).max(1).default(0),
+  morphOpenPx: z.number().nonnegative().default(0),
+  morphClosePx: z.number().nonnegative().default(0),
+  shrinkGrowPx: z.number().finite().default(0),
+  blurPx: z.number().nonnegative().default(0),
+  inOutRatio: z.number().min(-1).max(1).default(0),
+  cleanBlack: z.number().min(0).max(1).default(0),
+  cleanWhite: z.number().min(0).max(1).default(1),
+});
+
+const DEFAULT_FINESSE = {
+  denoise: 0,
+  morphOpenPx: 0,
+  morphClosePx: 0,
+  shrinkGrowPx: 0,
+  blurPx: 0,
+  inOutRatio: 0,
+  cleanBlack: 0,
+  cleanWhite: 1,
+} as const;
+
+/** The v21 `mask` spec values a {@link MaskLegacySpecSchema} keyframe can carry. */
+export const MaskLegacyPropertySchema = z.enum(['x', 'y', 'width', 'height', 'feather']);
+
+/** One v21 spec value at a source instant (the instants of the mask's own keyframes). */
+export const MaskLegacyKeyframeSchema = z.object({
+  sourceTime: z.number().nonnegative(),
+  property: MaskLegacyPropertySchema,
+  value: z.number(),
+});
+
+/**
+ * The v21 `mask` effect spec a `gaussian-legacy` mask was migrated from, verbatim (MK2.5).
+ *
+ * WHY: the v22 geometry is a centre and a size in source pixels, and that is not one-to-one
+ * with the v21 fractions: x = 0.2 and x = 0.19999999999999996 store the same centre, yet
+ * v21 drew the left edge at `x * width` (64.0 vs 63.99999999999999), a pixel apart once
+ * Pillow truncates it. No inverse can tell them apart, so the migration keeps the fractions
+ * v21 drew with: the static bounds, feather and polygon, and at every instant a v21 value
+ * animated, that value. The renderer and the preview draw from these only while they still
+ * map, through the migration's own arithmetic, onto the stored geometry at that instant; a
+ * mask edited since falls back to recovering fractions from its geometry. Written only by the
+ * v21 → v22 migration; nothing else reads it.
+ */
+export const MaskLegacySpecSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+  feather: z.number(),
+  /** A polygon's points (fractions of the cropped frame); absent for a rectangle/ellipse. */
+  points: z.array(z.tuple([z.number(), z.number()])).optional(),
+  keyframes: z.array(MaskLegacyKeyframeSchema).default([]),
+});
+
+/**
+ * Fields every mask kind carries. Defaults describe a fresh, visible, additive,
+ * unfeathered alpha mask in source space.
+ */
+const maskLayerBaseShape = {
+  id: z.string().min(1),
+  name: z.string().default(''),
+  /** Overlay colour in the monitor only; never rendered. */
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .default('#3b82f6'),
+  enabled: z.boolean().default(true),
+  locked: z.boolean().default(false),
+  target: MaskTargetSchema.default({ kind: 'alpha' }),
+  mode: MaskModeSchema.default('add'),
+  opacity: z.number().min(0).max(1).default(1),
+  invert: z.boolean().default(false),
+  /** Grow (+) or shrink (−) the shape, pixels. */
+  expansionPx: z.number().finite().default(0),
+  featherInnerPx: z.number().nonnegative().default(0),
+  featherOuterPx: z.number().nonnegative().default(0),
+  falloff: MaskFalloffSchema.default('smooth'),
+  featherModel: MaskFeatherModelSchema.default('distance'),
+  space: MaskSpaceSchema.default('source'),
+  /**
+   * Present ONLY on a mask migrated from v21 whose media had no probed size.
+   *
+   * Geometry is then stored as fractions of the uncropped source frame (x-like
+   * values of its width, y-like values of its height, lengths of its smaller side)
+   * instead of pixels, because converting would mean guessing a size. The validator
+   * surfaces "Measure this media first" for it; nothing converts it silently.
+   */
+  units: z.literal('normalized').optional(),
+  keyframes: z.array(MaskKeyframeSchema).default([]),
+  tracking: MaskTrackingSchema.optional(),
+  /** Why the v21 → v22 migration produced this mask the way it did, when that matters. */
+  migrationNote: z.string().optional(),
+  /** The exact v21 spec a `gaussian-legacy` mask was migrated from (MK2.5). */
+  legacySpec: MaskLegacySpecSchema.optional(),
+};
+
+/** Rectangle: centre, size, rotation (degrees, clockwise), corner roundness 0..1. */
+export const RectangleMaskSchema = z.object({
+  ...maskLayerBaseShape,
+  kind: z.literal('rectangle'),
+  cx: z.number().finite(),
+  cy: z.number().finite(),
+  width: z.number().nonnegative(),
+  height: z.number().nonnegative(),
+  rotation: z.number().finite().default(0),
+  roundness: z.number().min(0).max(1).default(0),
+});
+
+/** Ellipse: centre, radii, rotation (degrees, clockwise). */
+export const EllipseMaskSchema = z.object({
+  ...maskLayerBaseShape,
+  kind: z.literal('ellipse'),
+  cx: z.number().finite(),
+  cy: z.number().finite(),
+  rx: z.number().nonnegative(),
+  ry: z.number().nonnegative(),
+  rotation: z.number().finite().default(0),
+});
+
+/**
+ * Vertex type codes stored in {@link MaskPathKeyframeSchema.vertexTypes}, by index:
+ * `0` corner, `1` smooth, `2` broken.
+ */
+export const MASK_VERTEX_TYPES = ['corner', 'smooth', 'broken'] as const;
+export type MaskVertexType = (typeof MASK_VERTEX_TYPES)[number];
+
+/**
+ * Number arrays of a path keyframe, validated with one plain loop (MK4.6).
+ *
+ * WHY not `z.array(z.number())`: a rotoscope is 1.2 million numbers per 1,000 keyframes, and
+ * zod's per-element schema cost ~80 ms of the 250 ms save budget; this loop costs ~3 ms and
+ * accepts exactly the same values (finite numbers, optionally non-negative). A string in the
+ * exact `f64le:` file form (see `float-array-codec.ts`) is decoded first, so memory only ever
+ * holds plain arrays. The JSON Schema still describes an array of numbers
+ * ({@link buildProjectJsonSchema}).
+ */
+const FAST_NUMBER_ARRAYS = new WeakMap<object, { readonly minimum?: number }>();
+
+function pathNumberArray(options: { readonly nonNegative?: boolean } = {}) {
+  const valid = (value: unknown): value is number[] => {
+    if (!Array.isArray(value)) return false;
+    for (let index = 0; index < value.length; index += 1) {
+      const item: unknown = value[index];
+      if (typeof item !== 'number' || !Number.isFinite(item)) return false;
+      if (options.nonNegative === true && item < 0) return false;
+    }
+    return true;
+  };
+  const checked = z.custom<number[]>(valid, {
+    message: options.nonNegative
+      ? 'Mask path values must be finite, non-negative numbers (or an f64le: encoded array).'
+      : 'Mask path values must be finite numbers (or an f64le: encoded array).',
+  });
+  FAST_NUMBER_ARRAYS.set(checked, options.nonNegative ? { minimum: 0 } : {});
+  return z.preprocess(
+    (value) => (typeof value === 'string' ? (decodeFloat64Array(value) ?? value) : value),
+    checked,
+  );
+}
+
+/**
+ * One whole-path snapshot of a closed cubic Bezier path, stored compactly.
+ *
+ * `points` is flat: six numbers per vertex, `[x, y, inX, inY, outX, outY, …]`,
+ * with `in*`/`out*` tangents as OFFSETS from the vertex (so `0, 0` is a sharp
+ * polygon corner). `vertexTypes` is a parallel array of small ints
+ * ({@link MASK_VERTEX_TYPES}). `featherPx`, when present, is a parallel per-vertex
+ * feather. A long rotoscope with objects per vertex would be several times larger
+ * on disk; `editor-core` `encodeMaskPath`/`decodeMaskPath` convert.
+ */
+export const MaskPathKeyframeSchema = z.object({
+  id: z.string().min(1),
+  sourceTime: z.number().nonnegative(),
+  easing: MaskEasingSchema.default('linear'),
+  handles: z.object({ out: BezierHandleSchema, in: BezierHandleSchema }).optional(),
+  /** In a file, a long array may be written in the exact `f64le:` binary form (MK4.6). */
+  points: pathNumberArray(),
+  vertexTypes: z.array(z.number().int().min(0).max(2)),
+  featherPx: pathNumberArray({ nonNegative: true }).optional(),
+});
+
+/** Closed Bezier path, animated by whole-path keyframes with matching vertex counts. */
+export const PathMaskSchema = z.object({
+  ...maskLayerBaseShape,
+  kind: z.literal('path'),
+  /** Index of the vertex that starts the path; sets correspondence between keyframes. */
+  firstVertex: z.number().int().nonnegative().default(0),
+  pathKeyframes: z.array(MaskPathKeyframeSchema),
+});
+
+/** Files a matte artifact may carry. */
+export const MatteFileNameSchema = z.enum([
+  'matte.mkv',
+  'foreground.mkv',
+  'preview.webm',
+  'foreground.preview.webm',
+  'frames.json',
+  'report.json',
+]);
+
+/** The digest-pinned output of a `subject.matte` pack job. */
+export const MatteArtifactSchema = z.object({
+  key: Sha256HexSchema,
+  files: z.array(z.object({ name: MatteFileNameSchema, sha256: Sha256HexSchema })),
+  /** Source pixels; must equal the asset's probed size. */
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  coverage: z.object({
+    sourceStart: z.number().nonnegative(),
+    sourceEnd: z.number().nonnegative(),
+  }),
+  packId: z.string().min(1),
+  packVersion: z.string().min(1),
+  modelDigests: z.array(Sha256HexSchema),
+});
+
+const NormalizedCoordinate = z.number().min(0).max(1);
+
+/**
+ * What the editor asked the matte job for. Points and boxes are inline (normalised
+ * frame coordinates); brushes and locks are referenced by the sha256 of their
+ * input PNG; a grounding candidate by its id.
+ */
+export const MattePromptRefSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('points'),
+    sourceTime: z.number().nonnegative(),
+    points: z.array(
+      z.object({
+        x: NormalizedCoordinate,
+        y: NormalizedCoordinate,
+        label: z.enum(['include', 'exclude']),
+      }),
+    ),
+  }),
+  z.object({
+    kind: z.literal('box'),
+    sourceTime: z.number().nonnegative(),
+    box: z.object({
+      x: NormalizedCoordinate,
+      y: NormalizedCoordinate,
+      width: NormalizedCoordinate,
+      height: NormalizedCoordinate,
+    }),
+  }),
+  z.object({
+    kind: z.literal('brush'),
+    sourceTime: z.number().nonnegative(),
+    sha256: Sha256HexSchema,
+  }),
+  z.object({
+    kind: z.literal('lock'),
+    sourceTime: z.number().nonnegative(),
+    sha256: Sha256HexSchema,
+  }),
+  z.object({ kind: z.literal('candidate'), candidateId: z.string().min(1) }),
+]);
+
+/** A raster AI matte from the subject pack (see plan 04). */
+export const MatteMaskSchema = z.object({
+  ...maskLayerBaseShape,
+  kind: z.literal('matte'),
+  artifact: MatteArtifactSchema,
+  prompts: z.array(MattePromptRefSchema).default([]),
+  review: MaskReviewSchema.default({ flagged: [], approved: [], locked: [] }),
+  /** Creative edge shift, pixels. The delivered matte is already the precise one. */
+  edgeShiftPx: z.number().finite().default(0),
+  decontaminate: z.boolean().default(true),
+  /** Edge-quality preset mapped onto {@link MaskFinesseSchema} (Premiere Object Mask parity). */
+  edgeMode: z.enum(['sharp', 'smooth']).default('smooth'),
+  finesse: MaskFinesseSchema.default(DEFAULT_FINESSE),
+});
+
+/** One qualifier range of a `key` mask. Hue ranges may wrap (`low > high`). */
+export const MaskKeyRangeSchema = z.object({
+  channel: z.enum(['hue', 'saturation', 'luma', 'red', 'green', 'blue']),
+  low: z.number().min(0).max(1),
+  high: z.number().min(0).max(1),
+  softness: z.number().min(0).max(1).default(0),
+});
+
+/** A deterministic colour/luma qualifier (chroma key, secondary qualifier). */
+export const KeyMaskSchema = z.object({
+  ...maskLayerBaseShape,
+  kind: z.literal('key'),
+  model: z.enum(['hsl', 'rgb', 'luma', '3d']),
+  /** Used by `hsl`, `rgb` and `luma`. */
+  ranges: z.array(MaskKeyRangeSchema).default([]),
+  /** Used by `3d`: sampled RGB colours in 0..1. */
+  samples3d: z
+    .array(z.tuple([z.number().min(0).max(1), z.number().min(0).max(1), z.number().min(0).max(1)]))
+    .default([]),
+  softness: z.number().min(0).max(1).default(0),
+  despill: z.enum(['none', 'green', 'blue']).default('none'),
+  shadowRetention: z.number().min(0).max(1).default(0),
+  finesse: MaskFinesseSchema.default(DEFAULT_FINESSE),
+});
+
+/** Half-plane split (CapCut Split, Resolve linear window). Angle in degrees. */
+export const LinearMaskSchema = z.object({
+  ...maskLayerBaseShape,
+  kind: z.literal('linear'),
+  originX: z.number().finite(),
+  originY: z.number().finite(),
+  angle: z.number().finite().default(0),
+  softnessPx: z.number().nonnegative().default(0),
+});
+
+/** Band between two parallel lines (mirror / filmstrip). */
+export const BandMaskSchema = z.object({
+  ...maskLayerBaseShape,
+  kind: z.literal('band'),
+  originX: z.number().finite(),
+  originY: z.number().finite(),
+  angle: z.number().finite().default(0),
+  widthPx: z.number().nonnegative(),
+  softnessPx: z.number().nonnegative().default(0),
+});
+
+/** Graduated falloff from start (opaque) to end (clear). */
+export const GradientMaskSchema = z.object({
+  ...maskLayerBaseShape,
+  kind: z.literal('gradient'),
+  shape: z.enum(['linear', 'radial']),
+  startX: z.number().finite(),
+  startY: z.number().finite(),
+  endX: z.number().finite(),
+  endY: z.number().finite(),
+  curve: MaskFalloffSchema.default('linear'),
+});
+
+/** Track matte: another clip's or track's composited alpha or luma at the same instant. */
+export const LayerMaskSchema = z.object({
+  ...maskLayerBaseShape,
+  kind: z.literal('layer'),
+  source: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('clip'), clipId: z.string().min(1) }),
+    z.object({ kind: z.literal('track'), trackId: z.string().min(1) }),
+  ]),
+  channel: z.enum(['alpha', 'luma', 'inverted-alpha', 'inverted-luma']).default('alpha'),
+  finesse: MaskFinesseSchema.default(DEFAULT_FINESSE),
+});
+
+/**
+ * One mask in a clip's (or effect layer's) mask stack. Replaces the v21 `mask`
+ * effect type: there is one alpha model, not two (plan 10, ADR 0178).
+ */
+export const MaskLayerSchema = z.discriminatedUnion('kind', [
+  RectangleMaskSchema,
+  EllipseMaskSchema,
+  PathMaskSchema,
+  MatteMaskSchema,
+  KeyMaskSchema,
+  LinearMaskSchema,
+  BandMaskSchema,
+  GradientMaskSchema,
+  LayerMaskSchema,
+]);
+
+/**
+ * A saved mask look, per project (schema v23, MK4.3): one or more masks and the picture size
+ * they were drawn on, so loading the preset onto other media rescales the geometry exactly as
+ * pasting does (`paste_masks`). Stored in the project through `save_mask_preset` /
+ * `remove_mask_preset`, never in a side store, so presets travel with the project and undo.
+ */
+export const MaskPresetSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  /** Display-corrected source size the masks were drawn on, pixels. */
+  width: z.number().positive(),
+  height: z.number().positive(),
+  /** Source in-point the keyframe instants are relative to. */
+  sourceStart: z.number().nonnegative().default(0),
+  masks: z.array(MaskLayerSchema).min(1),
+});
+
+/** Every mask kind, in declaration order. */
+export const MASK_KINDS = [
+  'rectangle',
+  'ellipse',
+  'path',
+  'matte',
+  'key',
+  'linear',
+  'band',
+  'gradient',
+  'layer',
+] as const;
+
+// ---------------------------------------------------------------------------
 // Effect layers (schema v13, ADR 0088)
 // ---------------------------------------------------------------------------
 
@@ -341,6 +889,13 @@ export const EffectLayerSchema = z
     disabled: z.boolean().optional(),
     /** Per-layer property animation, same vocabulary as clips. */
     keyframes: z.array(KeyframeSchema).default([]),
+    /**
+     * Masks limiting where this adjustment applies (schema v22). Always
+     * `space: 'frame'`; keyframe `sourceTime` is seconds from the layer's `start`.
+     * Optional for the same reason as {@link TrackSchema.effectLayers}; read it
+     * through {@link masksOf}.
+     */
+    masks: z.array(MaskLayerSchema).optional(),
   })
   .refine((layer) => layer.end > layer.start, {
     message: 'Effect layer end must be greater than start (no negative/zero duration).',
@@ -756,7 +1311,7 @@ export const ClipSchema = z
      * project's behaviour, so the migration is a pure passthrough.
      *
      * The timeline duration is the *integral* of the reciprocal rate over the
-     * clip's source span — see `editor-core/src/speed-curve.ts` and its Python
+     * clip's source span — see `timeline-schema/src/speed-curve.ts` and its Python
      * mirror, which are the only two places that arithmetic exists.
      */
     speedRamp: z.array(SpeedPointSchema).optional(),
@@ -777,6 +1332,16 @@ export const ClipSchema = z
      * `docs/adr/0048-clip-blend-mode-schema-v8.md`.
      */
     blendMode: BlendModeSchema.optional(),
+    /**
+     * The clip's mask stack, top first (schema v22, ADR 0178). Replaces the v21
+     * `mask` effect type.
+     *
+     * Optional rather than defaulted for the reason {@link TrackSchema.effectLayers}
+     * gives: a default would make the field required on every `Clip` literal and
+     * write `"masks": []` into every clip of every saved file. **Never read it
+     * directly** — use {@link masksOf}.
+     */
+    masks: z.array(MaskLayerSchema).optional(),
   })
   .refine((clip) => clip.end > clip.start, {
     message: 'Clip end must be greater than start (no negative/zero duration).',
@@ -881,6 +1446,11 @@ export const TimelineSchema = z.object({
    * `buildTimelineMap`, which normalises the absence away.
    */
   revision: z.number().int().nonnegative().optional(),
+  /**
+   * Mask presets saved in this project (schema v23, MK4.3). Optional rather than defaulted so
+   * every existing timeline literal stays valid; absent means none.
+   */
+  maskPresets: z.array(MaskPresetSchema).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -929,6 +1499,26 @@ export const AssetMediaSchema = z.object({
    */
   width: z.number().int().positive().nullish(),
   height: z.number().int().positive().nullish(),
+  /**
+   * Pixel aspect ratio of the coded picture (ffprobe `sample_aspect_ratio`), as a decimal
+   * width/height of one stored pixel — a float for the same reason `Project.fps` is one.
+   * Absent ≡ 1 (square pixels). Schema v22.
+   *
+   * WHY: `width`/`height` are the CODED size. Mask geometry is stored in display-corrected
+   * source pixels (ADR 0178, plan 10 "Units"), and an anamorphic 1440x1080 HDV clip with
+   * SAR 4:3 displays as 1920x1080. Without this field its masks were stored as if the
+   * picture were 1440 wide, so a circle drawn on the monitor was an ellipse in the file.
+   */
+  pixelAspectRatio: z.number().positive().finite().nullish(),
+  /**
+   * Clockwise display rotation in degrees, from the stream's display matrix or legacy
+   * `rotate` tag. Absent ≡ 0. Schema v22.
+   *
+   * WHY: a portrait phone clip is usually coded 1920x1080 with a -90° display matrix, and
+   * every player shows it 1080x1920. Mask pixels are display-corrected, so the width and
+   * height masks are measured against swap for a quarter turn.
+   */
+  rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).nullish(),
   /** Project-relative path to a generated low-res proxy media file. */
   proxyPath: z.string().nullish(),
   /** Downsampled, normalized (0..1) waveform peaks for timeline rendering. */
@@ -1221,6 +1811,43 @@ export type Angle = z.infer<typeof AngleSchema>;
 export type AngleGroup = z.infer<typeof AngleGroupSchema>;
 export type CapabilityPackPin = z.infer<typeof CapabilityPackPinSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
+export type MaskMode = z.infer<typeof MaskModeSchema>;
+export type MaskFalloff = z.infer<typeof MaskFalloffSchema>;
+export type MaskFeatherModel = z.infer<typeof MaskFeatherModelSchema>;
+export type MaskSpace = z.infer<typeof MaskSpaceSchema>;
+export type MaskTarget = z.infer<typeof MaskTargetSchema>;
+export type MaskScalarProperty = z.infer<typeof MaskScalarPropertySchema>;
+export type MaskKeyframe = z.infer<typeof MaskKeyframeSchema>;
+export type MaskLegacySpec = z.infer<typeof MaskLegacySpecSchema>;
+export type MaskLegacyKeyframe = z.infer<typeof MaskLegacyKeyframeSchema>;
+export type SourceTimeRange = z.infer<typeof SourceTimeRangeSchema>;
+export type MaskReview = z.infer<typeof MaskReviewSchema>;
+export type MaskTracking = z.infer<typeof MaskTrackingSchema>;
+export type MaskTrackingMethod = z.infer<typeof MaskTrackingMethodSchema>;
+export type MaskFinesse = z.infer<typeof MaskFinesseSchema>;
+export type MaskPathKeyframe = z.infer<typeof MaskPathKeyframeSchema>;
+export type MatteArtifact = z.infer<typeof MatteArtifactSchema>;
+export type MattePromptRef = z.infer<typeof MattePromptRefSchema>;
+export type MaskKeyRange = z.infer<typeof MaskKeyRangeSchema>;
+export type RectangleMask = z.infer<typeof RectangleMaskSchema>;
+export type EllipseMask = z.infer<typeof EllipseMaskSchema>;
+export type PathMask = z.infer<typeof PathMaskSchema>;
+export type MatteMask = z.infer<typeof MatteMaskSchema>;
+export type KeyMask = z.infer<typeof KeyMaskSchema>;
+export type LinearMask = z.infer<typeof LinearMaskSchema>;
+export type BandMask = z.infer<typeof BandMaskSchema>;
+export type GradientMask = z.infer<typeof GradientMaskSchema>;
+export type LayerMask = z.infer<typeof LayerMaskSchema>;
+export type MaskLayer = z.infer<typeof MaskLayerSchema>;
+export type MaskPreset = z.infer<typeof MaskPresetSchema>;
+export type MaskPresetInput = z.input<typeof MaskPresetSchema>;
+export type MaskKind = MaskLayer['kind'];
+/** A mask as an author writes it: every defaulted field may be omitted. */
+export type MaskLayerInput = z.input<typeof MaskLayerSchema>;
+export type MaskKeyframeInput = z.input<typeof MaskKeyframeSchema>;
+export type MaskPathKeyframeInput = z.input<typeof MaskPathKeyframeSchema>;
+export type MaskTrackingInput = z.input<typeof MaskTrackingSchema>;
+export type MaskReviewInput = z.input<typeof MaskReviewSchema>;
 
 // ---------------------------------------------------------------------------
 // Effect-layer accessors (schema v13, ADR 0088)
@@ -1239,6 +1866,18 @@ const NO_EFFECT_LAYERS: readonly EffectLayer[] = [];
  */
 export function effectLayersOf(track: Track): readonly EffectLayer[] {
   return track.effectLayers ?? NO_EFFECT_LAYERS;
+}
+
+const NO_MASKS: readonly MaskLayer[] = [];
+
+/**
+ * The sanctioned way to read a clip's or effect layer's mask stack (schema v22).
+ * The field is optional; this gives every reader a stable empty array.
+ */
+export function masksOf(owner: {
+  readonly masks?: readonly MaskLayer[] | undefined;
+}): readonly MaskLayer[] {
+  return owner.masks ?? NO_MASKS;
 }
 
 /** Whether this track is an adjustment lane (carries effects, never clips). */
@@ -1318,11 +1957,26 @@ export const safeParseProject = (input: unknown) => ProjectSchema.safeParse(inpu
  * @returns A draft-2020-12 JSON Schema object for the project document.
  */
 export const buildProjectJsonSchema = (): Record<string, unknown> =>
-  z.toJSONSchema(ProjectSchema) as Record<string, unknown>;
+  z.toJSONSchema(ProjectSchema, {
+    // Fast path arrays are `z.custom` checks; the override below describes them, so they are
+    // not "unrepresentable" (every other custom type still leaves `{}` and fails the drift test).
+    unrepresentable: 'any',
+    override: (context) => {
+      const fast = FAST_NUMBER_ARRAYS.get(context.zodSchema);
+      if (fast === undefined) return;
+      context.jsonSchema.type = 'array';
+      context.jsonSchema.items =
+        fast.minimum === undefined ? { type: 'number' } : { type: 'number', minimum: fast.minimum };
+    },
+  }) as Record<string, unknown>;
 
 // ---------------------------------------------------------------------------
 // Re-exports — pure (browser-safe) helpers. Node-only file IO is at `./file`.
 // ---------------------------------------------------------------------------
 
 export * from './migrations.js';
+export { maskLayerFromLegacyMaskEffect } from './mask-migration.js';
 export * from './serialization.js';
+
+export * from './float-array-codec.js';
+export * from './edge-styles.js';

@@ -26,6 +26,7 @@ import logging
 import os
 import re
 import signal
+import subprocess
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -236,6 +237,13 @@ from framepilot_engine.brain.visual_search import (
     transcript_overlap,
 )
 from framepilot_engine.config import DEFAULT_VISUAL_INDEX_CONCURRENCY, Settings, get_settings
+from framepilot_engine.masking.crop_colour import MAX_CROPS as CROP_COLOUR_MAX_CROPS
+from framepilot_engine.masking.crop_colour import (
+    CropBox,
+    CropColourDeadline,
+    CropColourError,
+    measure_crops,
+)
 from framepilot_engine.media.derive import PROXY_ENCODE_VERSION, generate_proxy, generate_thumbnails
 from framepilot_engine.media.ffmpeg import FFmpegError, NoAudioStreamError
 from framepilot_engine.media.probe import MediaInfo, inspect_media
@@ -246,7 +254,30 @@ from framepilot_engine.render.frame_grab import (
     FrameGrabError,
     grab_frame,
 )
+from framepilot_engine.render.frame_hashes import (
+    FrameHashDeadline,
+    FrameHashError,
+    compare_locked_frames,
+    frame_hashes_by_pts,
+)
+from framepilot_engine.render.matte_tier import (
+    MatteTierChanged,
+    MatteTierDeadline,
+    MatteTierError,
+)
+from framepilot_engine.render.matte_tier_job import (
+    MatteTierMissing,
+    MatteTierUnsafePath,
+    make_monitor_tier,
+    monitor_tier_size,
+)
+from framepilot_engine.render.mattes import MATTE_FILE
 from framepilot_engine.render.pipeline import RenderJob, RenderOptions, render
+from framepilot_engine.render.preview_text import (
+    PreviewTextError,
+    baseline_caption_raster,
+    text_overlay_raster,
+)
 from framepilot_engine.render.queue import JobStatus, RenderQueue, RenderTask
 from framepilot_engine.render.queue import RenderRequest as QueuedRenderRequest
 from framepilot_engine.safety import PathTraversalError, resolve_within
@@ -415,6 +446,175 @@ class InspectMediaRequest(BaseModel):
     input_path: str = Field(description="Path to the media file to probe.")
 
 
+#: Total wall-clock budget for one /mattes/* request (BR4.12 M3).
+MATTE_ROUTE_DEADLINE_SECONDS = 600.0
+#: Extra budget per requested pts (one seek and decode each).
+MATTE_DEADLINE_PER_PTS_SECONDS = 30.0
+#: Extra budget per matte frame decoded up to the highest locked index (``select`` reads forward),
+#: so a finished hours-long matte is not discarded by a fixed deadline (BR4.12 re-review).
+MATTE_DEADLINE_PER_FRAME_SECONDS = 0.05
+#: No single /mattes/* request may run longer than this.
+MATTE_DEADLINE_MAX_SECONDS = 6 * 60 * 60.0
+
+
+def matte_route_deadline(pts_count: int = 0, highest_frame: int = 0) -> float:
+    """Seconds one /mattes/* request may take, sized from the work it asks for."""
+    budget = (
+        MATTE_ROUTE_DEADLINE_SECONDS
+        + MATTE_DEADLINE_PER_PTS_SECONDS * pts_count
+        + MATTE_DEADLINE_PER_FRAME_SECONDS * highest_frame
+    )
+    return min(MATTE_DEADLINE_MAX_SECONDS, budget)
+
+
+#: PX5.9: a monitor tier decodes both masters and encodes two streams for every frame (84-205 ms
+#: planes + 24-84 ms alpha per 4K frame on an M1 Pro), so its budget grows with the frame count:
+#: a 3-minute 4K clip (5,400 frames) gets 600 + 2,700 s.
+MATTE_TIER_DEADLINE_PER_FRAME_SECONDS = 0.5
+
+
+def matte_tier_deadline(frame_count: int) -> float:
+    """Seconds ``POST /mattes/monitor-tier`` may take for an artifact of ``frame_count`` frames."""
+    budget = MATTE_ROUTE_DEADLINE_SECONDS + MATTE_TIER_DEADLINE_PER_FRAME_SECONDS * frame_count
+    return min(MATTE_DEADLINE_MAX_SECONDS, budget)
+
+
+class MatteTierFile(BaseModel):
+    """One file the mask pins, by name and digest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: Literal[
+        "matte.mkv",
+        "foreground.mkv",
+        "frames.json",
+        "report.json",
+        "preview.webm",
+        "foreground.preview.webm",
+    ]
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class MatteTierArtifact(BaseModel):
+    """What the mask pins of its artifact: the tier is made only from exactly these masters."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    files: list[MatteTierFile] = Field(min_length=1, max_length=8)
+    width: int = Field(ge=1, le=16384)
+    height: int = Field(ge=1, le=16384)
+
+
+class MatteMonitorTierRequest(BaseModel):
+    """Request body for ``POST /mattes/monitor-tier`` (PX5.9, ADR 0181)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project_dir: str = Field(description="The project folder, inside the projects root.")
+    artifact: MatteTierArtifact
+    proxy_path: str = Field(
+        description="The picture the monitor decodes (the asset's proxy), inside the projects root."
+    )
+    rotation: Literal[0, 90, 180, 270] = 0
+
+
+class MatteMonitorTierResponse(BaseModel):
+    """Whether a tier was written or was already current, and at what size."""
+
+    status: Literal["written", "current"]
+    width: int
+    height: int
+    frame_count: int
+    alpha: bool
+
+
+class CropColourBoxModel(BaseModel):
+    """One detection box to measure: normalised to the frame shown at ``time_seconds``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    time_seconds: float = Field(ge=0, le=7 * 24 * 3600)
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(gt=0, le=1)
+    height: float = Field(gt=0, le=1)
+
+
+class CropColourRequest(BaseModel):
+    """Request body for ``POST /masking/crop-colour`` (AM2.7): colour of detection crops."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    input_path: str = Field(description="The asset's media, inside the projects root.")
+    fps: float = Field(gt=0, le=1000, description="The asset's frame rate.")
+    crops: list[CropColourBoxModel] = Field(min_length=1, max_length=CROP_COLOUR_MAX_CROPS)
+
+
+class CropColourMeasurement(BaseModel):
+    """What one crop's centre-weighted pixels measure in CIELAB (``masking/crop_colour.py``)."""
+
+    neutral_share: float
+    neutral_lightness: float | None
+    lightness: float
+    chroma: float
+    pixels: int
+
+
+class CropColourResponse(BaseModel):
+    """One measurement per requested crop, or ``None`` for a box too small to measure."""
+
+    crops: list[CropColourMeasurement | None]
+
+
+class MatteFrameHashesRequest(BaseModel):
+    """Request body for ``POST /mattes/frame-hashes`` (BR4.13): decoded frames by exact pts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    input_path: str = Field(description="Media inside the projects root.")
+    pts: list[Annotated[int, Field(ge=-(2**52), le=2**52)]] = Field(
+        max_length=256, description="Source-stream pts to hash (bounded well inside int64)."
+    )
+    pixel_format: Literal["native", "gray", "rgb24"] = "native"
+
+
+class MatteFrameHashesResponse(BaseModel):
+    """One sha256 per requested pts, or ``None`` when that exact frame did not decode."""
+
+    hashes: list[str | None]
+
+
+class MatteLockedExpected(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    index: int = Field(ge=0, le=2**31)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class MatteLockedCarried(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    index: int = Field(ge=0, le=2**31)
+    previous_index: int = Field(ge=0, le=2**31)
+
+
+class MatteLockedFramesRequest(BaseModel):
+    """Request body for ``POST /mattes/locked-frames`` (BR4.13)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    matte_path: str = Field(description="A staged or committed matte.mkv inside the projects root.")
+    expected: list[MatteLockedExpected] = Field(default_factory=list, max_length=1024)
+    previous_matte_path: str | None = None
+    carried: list[MatteLockedCarried] = Field(default_factory=list, max_length=1024)
+
+
+class MatteLockedFramesResponse(BaseModel):
+    expected: list[bool]
+    carried: list[bool]
+
+
 class ReferenceAnalysisRequest(BaseModel):
     """Request body for ``POST /references/analyze`` (plan/system-mission P3.3)."""
 
@@ -489,6 +689,11 @@ class AssetMediaResponse(BaseModel):
     #: this is what lets the editor and the agent know which assets those are.
     width: int | None = Field(default=None)
     height: int | None = Field(default=None)
+    #: Display geometry (schema v22): non-square pixel aspect ratio and clockwise quarter-turn
+    #: rotation. Absent means square and unrotated. Mask pixels are display-corrected, so an
+    #: anamorphic or rotated phone clip needs these to be masked undistorted.
+    pixel_aspect_ratio: float | None = Field(default=None, alias="pixelAspectRatio")
+    rotation: Literal[0, 90, 180, 270] | None = Field(default=None)
     peaks: list[float] | None = Field(default=None)
     peaks_per_second: float | None = Field(default=None, alias="peaksPerSecond")
     thumbnail_paths: list[str] | None = Field(default=None, alias="thumbnailPaths")
@@ -546,6 +751,36 @@ class BrainJobsResponse(BaseModel):
     available: bool
     reason: str | None = None
     jobs: list[JobRow] = Field(default_factory=list)
+
+
+class IdentityRequest(BaseModel):
+    """Body of the two face-recognition writes (``/brain/identity/consent``, ``…/delete``)."""
+
+    project_id: str = Field(alias="projectId", min_length=1)
+    consent: bool | None = Field(
+        default=None, description="The editor's choice. Required by the consent route only."
+    )
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+
+class IdentityResponse(BaseModel):
+    """A project's face-recognition state (plan/background-removal-ai/12 P15, MD-7).
+
+    ``people`` is how many identities are stored, so the editor can see what "Delete"
+    would remove. ``deleted*`` are set only by the delete route. Honest-unavailable like
+    every brain surface: ``available=False`` with a reason is "could not read", which a
+    host must treat as NO consent — never as consent it failed to disprove.
+    """
+
+    available: bool
+    reason: str | None = None
+    consent: bool = False
+    people: int = 0
+    deleted_people: int | None = Field(default=None, alias="deletedPeople")
+    deleted_shots: int | None = Field(default=None, alias="deletedShots")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class BrainMemoryRequest(BaseModel):
@@ -730,6 +965,34 @@ class RenderFrameResponse(BaseModel):
     duration_seconds: float = Field(description="The timeline's full duration.")
 
 
+class PreviewTextRasterRequest(BaseModel):
+    """Request body for ``POST /preview/text-raster`` (PX2.3): one text or caption layer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["text", "caption"] = Field(
+        description="'text': a text clip's `text` effect params; 'caption': an unstyled cue."
+    )
+    params: dict[str, Any] | None = Field(
+        default=None, description="The text effect's params (kind 'text')."
+    )
+    text: str | None = Field(
+        default=None, max_length=2000, description="The caption cue text (kind 'caption')."
+    )
+    frame_width: int = Field(ge=1, le=8192, description="Output frame width in pixels.")
+    frame_height: int = Field(ge=1, le=8192, description="Output frame height in pixels.")
+
+
+class PreviewTextRasterResponse(BaseModel):
+    """A text raster as Pillow stores it (straight RGBA, row-major, top row first)."""
+
+    width: int
+    height: int
+    rgba_base64: str = Field(description="width x height x 4 bytes, base64-encoded.")
+    x: int | None = Field(default=None, description="Caption paste x; None for a text clip.")
+    y: int | None = Field(default=None, description="Caption paste y; None for a text clip.")
+
+
 class TemporalEvidenceBatchRequest(AnalysisProjectSource):
     """A bounded evidence batch against the live working project revision."""
 
@@ -897,6 +1160,7 @@ DEFAULT_LEDGER_PAGE = 500
 #: of the assets ITS timeline references and pages; nothing may pull a library into one
 #: response.
 MAX_LEDGER_PAGE = 5000
+
 
 class VisualCaptionProviderPayload(BaseModel):
     """The host-resolved vision provider for captioning, in the request body.
@@ -2664,8 +2928,7 @@ def create_app(
 
         try:
             keyframes = {
-                s.t0: extract_keyframe_jpeg(media_path, s.keyframe_t, timeout=timeout)
-                for s in todo
+                s.t0: extract_keyframe_jpeg(media_path, s.keyframe_t, timeout=timeout) for s in todo
             }
         except (FrameExtractionError, FFmpegError) as exc:
             return VisualIndexItem(asset_id=asset_id, ok=False, reason=str(exc))
@@ -2807,9 +3070,7 @@ def create_app(
         except BrainError as exc:
             return _TierOutcome("failed", str(exc))
         try:
-            stats = measure_asset(
-                media_path, duration=duration, is_image=is_image, timeout=timeout
-            )
+            stats = measure_asset(media_path, duration=duration, is_image=is_image, timeout=timeout)
         except (FFmpegError, OSError) as exc:
             _log.warning("tier 0 measurement failed: asset=%s reason=%s", asset_id, exc)
             return _TierOutcome("failed", str(exc))
@@ -2819,9 +3080,7 @@ def create_app(
         # so `_link_duplicate_shots` filtered on `phash is not None` and matched nothing on
         # every project. One 9x8 grayscale frame per shot, and a frame that will not decode
         # yields no entry rather than a zero every other shot would look like.
-        phashes = keyframe_dhashes(
-            media_path, [s.keyframe_t for s in stats], timeout=timeout
-        )
+        phashes = keyframe_dhashes(media_path, [s.keyframe_t for s in stats], timeout=timeout)
         # `MeasuredFacts.loudnessLufs` had a schema field, a store parameter and no
         # producer: null for every shot of every asset, including assets with an audio
         # stream, which is indistinguishable from "this asset is silent". One `ebur128`
@@ -2851,9 +3110,7 @@ def create_app(
                     content_hash,
                     _asset_shots(store, asset_id),
                     duration_s=duration,
-                    has_speech=bool(
-                        store.list_analysis(asset_id, kind=AnalysisKind.TRANSCRIPTION)
-                    ),
+                    has_speech=bool(store.list_analysis(asset_id, kind=AnalysisKind.TRANSCRIPTION)),
                 )
             )
         except BrainError as exc:
@@ -3115,9 +3372,7 @@ def create_app(
         observations.extend(seed_from_centroid(row.id, row.centroid) for row in stored)
         for item in labelled:
             observations.extend(
-                FaceObservation(
-                    asset_id=asset_id, shot_index=item.shot_index, vector=tuple(vector)
-                )
+                FaceObservation(asset_id=asset_id, shot_index=item.shot_index, vector=tuple(vector))
                 for vector in item.face_vectors
             )
         if not any(observation.shot_index >= 0 for observation in observations):
@@ -3650,9 +3905,7 @@ def create_app(
         payload["assetIds"] = asset_ids
         payload["cursor"] = measured_cursor
         payload["deepCursor"] = deep_cursor
-        return _plan_from_payload(
-            payload, deep_possible=deep_possible, want_measured=want_measured
-        )
+        return _plan_from_payload(payload, deep_possible=deep_possible, want_measured=want_measured)
 
     def _plan_from_payload(
         payload: dict[str, Any], *, deep_possible: bool, want_measured: bool
@@ -3930,9 +4183,7 @@ def create_app(
         tier_states = {
             "measured": "ok" if want_measured else f"skipped: {NOT_REQUESTED_REASON}",
             "labelled": "skipped: the TwelveLabs backend produces no tier-1 labels",
-            "described": (
-                "skipped: TwelveLabs describes footage in its own index, not the ledger"
-            ),
+            "described": ("skipped: TwelveLabs describes footage in its own index, not the ledger"),
         }
         # Phase 1 — resolve/create the job + ensure the project's TL index exists.
         try:
@@ -4075,9 +4326,7 @@ def create_app(
                 # tier 2 runs locally for it — the same producer the built-in route uses,
                 # writing the same `shots.described` rows.
                 if still_producer is not None:
-                    tier2 = _describe_tier2(
-                        store, still_producer, asset_id, resolved_root, timeout
-                    )
+                    tier2 = _describe_tier2(store, still_producer, asset_id, resolved_root, timeout)
                     tiers = {**tiers, "described": tier2.label()}
                     still_item.captioned = tier2.shots
                 still_item.tiers = tiers
@@ -4086,9 +4335,7 @@ def create_app(
                 media_path = resolve_within(resolved_root, asset.path)
             except PathTraversalError as exc:
                 return _AssetOutcome(
-                    item=VisualIndexItem(
-                        asset_id=asset_id, ok=False, reason=str(exc), tiers=tiers
-                    ),
+                    item=VisualIndexItem(asset_id=asset_id, ok=False, reason=str(exc), tiers=tiers),
                     advanced=True,
                 )
             content_hash = asset.content_sha256 or _sha256_file(media_path)
@@ -4126,9 +4373,7 @@ def create_app(
                 store_video_mapping(store, asset_id, content_hash=content_hash, status="failed")
                 _log.warning("twelvelabs index asset failed: asset=%s reason=%s", asset_id, reason)
                 return _AssetOutcome(
-                    item=VisualIndexItem(
-                        asset_id=asset_id, ok=False, reason=reason, tiers=tiers
-                    ),
+                    item=VisualIndexItem(asset_id=asset_id, ok=False, reason=reason, tiers=tiers),
                     advanced=True,
                 )
             return _AssetOutcome(
@@ -4598,8 +4843,7 @@ def create_app(
                         # prevent, on the only install where it matters most.
                         max_workers=index_governor.tier_workers(
                             "measured" if current.phase == MEASURED_PHASE else "labelled",
-                            hosted=current.phase == DEEP_PHASE
-                            and embedder_res.client is not None,
+                            hosted=current.phase == DEEP_PHASE and embedder_res.client is not None,
                         ),
                     )
                 except (
@@ -4670,9 +4914,7 @@ def create_app(
                         ),
                         progress=_job_progress(payload, total, plan.deep_possible),
                         payload=payload,
-                        error=(
-                            EXHAUSTED_REASON if exhausted is not None else all_failed_reason
-                        ),
+                        error=(EXHAUSTED_REASON if exhausted is not None else all_failed_reason),
                     )
                     if captioned and (req.project is not None or req.project_path is not None):
                         reindex_project_embeddings(
@@ -5351,9 +5593,7 @@ def create_app(
                 grouped.setdefault(row.asset_id, []).append(row)
         return grouped
 
-    def _caption_for_span(
-        captions: Sequence[VisualCaptionRow], t0: float, t1: float
-    ) -> str | None:
+    def _caption_for_span(captions: Sequence[VisualCaptionRow], t0: float, t1: float) -> str | None:
         """The stored summary that best covers ``[t0, t1)``, by TIME overlap.
 
         Captions used to be joined to spans by ``scene_index``, which worked only while
@@ -6006,6 +6246,29 @@ def create_app(
             duration_seconds=frame.duration_seconds,
         )
 
+    @app.post("/preview/text-raster", response_model=PreviewTextRasterResponse)
+    def preview_text_raster_route(req: PreviewTextRasterRequest) -> PreviewTextRasterResponse:
+        """Rasterise one text clip or unstyled caption through the export's own Pillow calls.
+
+        The desktop program monitor composites the result on the GPU, so its glyphs are the
+        export's glyphs (see :mod:`framepilot_engine.render.preview_text`). Pure CPU on a
+        single layer; no project, media or MoviePy.
+        """
+        try:
+            if req.kind == "text":
+                raster = text_overlay_raster(req.params or {}, req.frame_width, req.frame_height)
+            else:
+                raster = baseline_caption_raster(req.text or "", req.frame_width, req.frame_height)
+        except PreviewTextError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        return PreviewTextRasterResponse(
+            width=raster.width,
+            height=raster.height,
+            rgba_base64=raster.base64(),
+            x=raster.x,
+            y=raster.y,
+        )
+
     @app.post("/review/temporal-evidence", response_model=TemporalEvidenceBatch)
     async def temporal_evidence_route(
         req: TemporalEvidenceBatchRequest,
@@ -6082,6 +6345,209 @@ def create_app(
             raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
         except FFmpegError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+    # BR4.12 M3: each /mattes/* route decodes untrusted media, so it runs one request at a time
+    # (a second concurrent one gets 503 busy), under one total deadline, and never echoes a
+    # path back (L1: sandbox refusals and decode errors carry at most a base name).
+    matte_route_locks = {
+        "frame-hashes": threading.BoundedSemaphore(1),
+        "locked-frames": threading.BoundedSemaphore(1),
+        "monitor-tier": threading.BoundedSemaphore(1),
+    }
+
+    def matte_path(candidate: str) -> Path:
+        try:
+            return sandbox(candidate)
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_400_BAD_REQUEST:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST, "The file is outside the projects folder."
+                ) from None
+            raise
+
+    def matte_busy() -> HTTPException:
+        return HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "A frame check is already running; try again."
+        )
+
+    def matte_decode_failure(exc: Exception) -> HTTPException:
+        if isinstance(exc, FrameHashDeadline):
+            return HTTPException(
+                status.HTTP_504_GATEWAY_TIMEOUT, "The frame check ran out of time."
+            )
+        return HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "The frames could not be decoded."
+        )
+
+    @app.post("/mattes/frame-hashes", response_model=MatteFrameHashesResponse)
+    def matte_frame_hashes_route(req: MatteFrameHashesRequest) -> MatteFrameHashesResponse:
+        """Decoded-frame sha256 by exact pts, for the host's media re-check (BR4.13)."""
+        input_path = matte_path(req.input_path)
+        if not input_path.is_file():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Media file not found.")
+        lock = matte_route_locks["frame-hashes"]
+        if not lock.acquire(blocking=False):
+            raise matte_busy()
+        try:
+            deadline = time.monotonic() + matte_route_deadline(pts_count=len(req.pts))
+            return MatteFrameHashesResponse(
+                hashes=frame_hashes_by_pts(input_path, req.pts, req.pixel_format, deadline=deadline)
+            )
+        except (FrameHashError, subprocess.SubprocessError, ValueError) as exc:
+            _log.info("matte frame hashes refused: %s", type(exc).__name__)
+            raise matte_decode_failure(exc) from None
+        finally:
+            lock.release()
+
+    @app.post("/mattes/locked-frames", response_model=MatteLockedFramesResponse)
+    def matte_locked_frames_route(req: MatteLockedFramesRequest) -> MatteLockedFramesResponse:
+        """Whether locked matte frames are bit-identical to their inputs and previous matte."""
+        matte = matte_path(req.matte_path)
+        previous = None if req.previous_matte_path is None else matte_path(req.previous_matte_path)
+        for candidate in (matte, previous):
+            if candidate is not None and (candidate.name != MATTE_FILE or not candidate.is_file()):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST, "Only matte.mkv files can be compared."
+                )
+        if req.carried and previous is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "Carried frames need a previous matte."
+            )
+        lock = matte_route_locks["locked-frames"]
+        if not lock.acquire(blocking=False):
+            raise matte_busy()
+        try:
+            result = compare_locked_frames(
+                matte,
+                [(item.index, item.sha256) for item in req.expected],
+                previous,
+                [(item.index, item.previous_index) for item in req.carried],
+                deadline=time.monotonic()
+                + matte_route_deadline(
+                    highest_frame=max(
+                        [item.index for item in req.expected]
+                        + [max(item.index, item.previous_index) for item in req.carried]
+                        + [0]
+                    )
+                ),
+            )
+        except (FrameHashError, subprocess.SubprocessError, ValueError) as exc:
+            _log.info("matte locked frames refused: %s", type(exc).__name__)
+            raise matte_decode_failure(exc) from None
+        finally:
+            lock.release()
+        return MatteLockedFramesResponse(expected=result.expected, carried=result.carried)
+
+    @app.post("/mattes/monitor-tier", response_model=MatteMonitorTierResponse)
+    def matte_monitor_tier_route(req: MatteMonitorTierRequest) -> MatteMonitorTierResponse:
+        """Make a committed artifact's monitor tier beside it (PX5.9, ADR 0181).
+
+        One request at a time (503 busy), one total deadline sized from the frame count (504),
+        hardened decodes, real folders only, digests against the pins before and after the
+        pixels (409 when they differ), staged and renamed into place. No path is ever echoed.
+        """
+        project = matte_path(req.project_dir)
+        proxy = matte_path(req.proxy_path)
+        lock = matte_route_locks["monitor-tier"]
+        if not lock.acquire(blocking=False):
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "A monitor tier is already being made."
+            )
+        try:
+            size = monitor_tier_size(proxy, req.rotation)
+            result = make_monitor_tier(
+                project,
+                req.artifact.model_dump(),
+                size,
+                budget_seconds=matte_tier_deadline,
+            )
+        except MatteTierUnsafePath:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "The matte folder is not a plain folder."
+            ) from None
+        except MatteTierMissing:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, "The background removal data is missing."
+            ) from None
+        except MatteTierChanged:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "The background removal data is not what the mask pins.",
+            ) from None
+        except MatteTierDeadline:
+            raise HTTPException(
+                status.HTTP_504_GATEWAY_TIMEOUT, "The monitor tier ran out of time."
+            ) from None
+        except (MatteTierError, OSError, subprocess.SubprocessError, ValueError) as exc:
+            _log.info("matte monitor tier refused: %s", type(exc).__name__)
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "The monitor tier could not be made."
+            ) from None
+        finally:
+            lock.release()
+        return MatteMonitorTierResponse(
+            status=result.status,
+            width=result.width,
+            height=result.height,
+            frame_count=result.frame_count,
+            alpha=result.alpha,
+        )
+
+    #: Seconds one crop-colour request may spend decoding, in total.
+    crop_colour_deadline_seconds = 60.0
+    crop_colour_lock = threading.BoundedSemaphore(1)
+
+    @app.post("/masking/crop-colour", response_model=CropColourResponse)
+    def masking_crop_colour_route(req: CropColourRequest) -> CropColourResponse:
+        """The CIELAB colour of each detection crop, decoded as the export decodes (AM2.7).
+
+        The desktop's colour re-ranker asks this next to Visual Embed, so "the white car" is
+        decided by a measurement of lightness and chroma as well as by SigLIP. Same hardening as
+        the ``/mattes/*`` routes: sandboxed path, one request at a time (503 busy), one total
+        deadline (504), hardened decodes, and no path echoed back.
+        """
+        media = matte_path(req.input_path)
+        if not media.is_file():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Media file not found.")
+        if not crop_colour_lock.acquire(blocking=False):
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "A colour measurement is already running."
+            )
+        try:
+            measured = measure_crops(
+                media,
+                req.fps,
+                [
+                    CropBox(box.time_seconds, box.x, box.y, box.width, box.height)
+                    for box in req.crops
+                ],
+                deadline=time.monotonic() + crop_colour_deadline_seconds,
+            )
+        except CropColourDeadline:
+            raise HTTPException(
+                status.HTTP_504_GATEWAY_TIMEOUT, "The colour measurement ran out of time."
+            ) from None
+        except (CropColourError, subprocess.SubprocessError, ValueError) as exc:
+            _log.info("crop colour refused: %s", type(exc).__name__)
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "The frames could not be decoded."
+            ) from None
+        finally:
+            crop_colour_lock.release()
+        return CropColourResponse(
+            crops=[
+                None
+                if colour is None
+                else CropColourMeasurement(
+                    neutral_share=colour.neutral_share,
+                    neutral_lightness=colour.neutral_lightness,
+                    lightness=colour.lightness,
+                    chroma=colour.chroma,
+                    pixels=colour.pixels,
+                )
+                for colour in measured
+            ]
+        )
 
     @app.post("/references/analyze", response_model=ReferenceAnalysisResponse)
     def references_analyze_route(req: ReferenceAnalysisRequest) -> ReferenceAnalysisResponse:
@@ -6212,6 +6678,8 @@ def create_app(
             # costs nothing and is the whole of schema v21.
             width=info.width,
             height=info.height,
+            pixelAspectRatio=info.pixel_aspect_ratio,
+            rotation=info.rotation,
             peaks=peaks,
             peaksPerSecond=peaks_per_second,
             thumbnailPaths=thumbnail_paths,
@@ -6965,6 +7433,61 @@ def create_app(
         portable install never writes the real home directory.
         """
         return settings.soul_root if settings.soul_root is not None else soul_root()
+
+    def _identity(
+        project_id: str, act: Callable[[BrainStore], IdentityResponse]
+    ) -> IdentityResponse:
+        """Open the project brain for one identity call, honest-unavailable on any failure."""
+        root = settings.projects_root
+        if root is None:
+            return IdentityResponse(
+                available=False,
+                reason="Face recognition lives in the project brain, which requires a "
+                "configured sandbox root (set FRAMEPILOT_PROJECTS_ROOT).",
+            )
+        try:
+            with open_brain(root.resolve(), project_id) as store:
+                return act(store)
+        except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
+            return IdentityResponse(available=False, reason=str(exc))
+
+    def _identity_state(store: BrainStore) -> IdentityResponse:
+        return IdentityResponse(
+            available=True,
+            consent=store.face_recognition_consent(),
+            people=len(store.list_entities(kind="person")),
+        )
+
+    @app.get("/brain/identity", response_model=IdentityResponse)
+    def brain_identity_route(projectId: str) -> IdentityResponse:
+        """Whether this project opted in to face recognition, and how many people it knows."""
+        return _identity(projectId, _identity_state)
+
+    @app.post("/brain/identity/consent", response_model=IdentityResponse)
+    def brain_identity_consent_route(req: IdentityRequest) -> IdentityResponse:
+        """Record the editor's opt-in or opt-out. Off by default; per project; local only."""
+        if req.consent is None:
+            raise HTTPException(status_code=422, detail="consent is required.")
+        consent = req.consent
+
+        def act(store: BrainStore) -> IdentityResponse:
+            store.set_face_recognition_consent(consent, actor="editor")
+            return _identity_state(store)
+
+        return _identity(req.project_id, act)
+
+    @app.post("/brain/identity/delete", response_model=IdentityResponse)
+    def brain_identity_delete_route(req: IdentityRequest) -> IdentityResponse:
+        """Delete every stored identity in one action, and withdraw consent with it."""
+
+        def act(store: BrainStore) -> IdentityResponse:
+            removed = store.delete_identity_data(actor="editor")
+            state = _identity_state(store)
+            return state.model_copy(
+                update={"deleted_people": removed.people, "deleted_shots": removed.shots}
+            )
+
+        return _identity(req.project_id, act)
 
     @app.post("/brain/memory", response_model=BrainMemoryResponse)
     def brain_memory_route(req: BrainMemoryRequest) -> BrainMemoryResponse:

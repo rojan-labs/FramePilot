@@ -216,7 +216,8 @@ describe('CapabilityPackDesktopService', () => {
         return installed;
       }),
     };
-    const subject = service(root, { installer });
+    const onStoreChanged = vi.fn();
+    const subject = service(root, { installer, onStoreChanged });
     const proposalResult = await subject.proposeProjectDependency('project-1', {
       id: release.id,
       version: release.version,
@@ -240,6 +241,10 @@ describe('CapabilityPackDesktopService', () => {
       await store.refresh();
       expect((await store.list())[0]?.pinnedProjectIds).toEqual(['project-1']);
     });
+    // Open panels refresh from this event, and only once the pin is durable.
+    await vi.waitFor(() =>
+      expect(onStoreChanged).toHaveBeenCalledWith({ kind: 'installed', identity: installed.identity }),
+    );
 
     expect(await subject.proposeProjectDependency('project-1', {
       id: release.id,
@@ -362,7 +367,10 @@ describe('CapabilityPackDesktopService', () => {
     };
     await mkdir(path.join(root, record.installRelativePath), { recursive: true });
     await store.recordInstalled(record);
-    const subject = service(root);
+    const onStoreChanged = vi.fn();
+    const subject = service(root, { onStoreChanged });
+    expect(await subject.capabilityStatus('subject.matte')).toMatchObject({ state: 'missing' });
+    expect(await subject.capabilityStatus('../escape')).toMatchObject({ state: 'invalid' });
 
     expect(await subject.storage()).toMatchObject({ totalBytes: 250, reclaimableBytes: 250 });
     const planned = await subject.planEviction(200);
@@ -407,6 +415,7 @@ describe('CapabilityPackDesktopService', () => {
         approvedIdentityKeys: exactKeys,
       }),
     ).toMatchObject({ ok: true, storage: { totalBytes: 0 } });
+    expect(onStoreChanged).toHaveBeenCalledWith({ kind: 'removed', identity: record.identity });
     await expect(stat(path.join(root, record.installRelativePath))).rejects.toMatchObject({
       code: 'ENOENT',
     });

@@ -38,6 +38,7 @@ from typing import Any
 import numpy as np
 
 from framepilot_engine.render.effect_catalog import clamp_params
+from framepilot_engine.render.frame_masks import FrameMaskStack, layer_mask_stack
 from framepilot_engine.timeline.models import EffectLayer, Timeline
 
 _log = logging.getLogger(__name__)
@@ -123,6 +124,7 @@ def apply_layer_to_frame(
     timeline_time: float,
     *,
     fps: float,
+    mask_alpha: np.ndarray | None = None,
 ) -> np.ndarray:
     """Apply one effect layer to one frame.
 
@@ -130,6 +132,9 @@ def apply_layer_to_frame(
     :param layer: The layer to apply. Assumed live at ``timeline_time``.
     :param timeline_time: Absolute sequence time, seconds.
     :param fps: Output frame rate, for deriving a stable integer frame index.
+    :param mask_alpha: The layer's frame-space mask stack at this instant, shape ``(H, W)`` in
+        ``[0, 1]`` (MK5.2). The pass runs on the whole frame and is mixed back toward the
+        untouched frame by this alpha, which is what limits any catalog kind to a region.
     :returns: A frame of the same dtype and shape as ``frame``.
     """
     pass_fn = PASSES.get(layer.kind)
@@ -178,6 +183,12 @@ def apply_layer_to_frame(
     if strength < 1.0:
         result = source + (result - source) * np.float32(strength)
 
+    # The mask mix, after strength and before the clip, so a masked layer at half strength is
+    # the same frame the preview's finish pass produces (it does the two in this order too).
+    if mask_alpha is not None:
+        weight = mask_alpha.astype(np.float32)[:, :, None]
+        result = source + (result - source) * weight
+
     result = np.clip(result, 0.0, 1.0)
     if was_uint8:
         # +0.5 before truncating = round-half-up, matching how the WebGL path's
@@ -198,6 +209,32 @@ def apply_effect_layers(source: Any, timeline: Timeline, *, fps: float) -> Any:
     if not has_any:
         return source
 
+    # Built once, up front: a mask the export cannot draw faithfully must refuse the render
+    # before a frame is written, never halfway through it (`layer_mask_stack` raises).
+    stacks: dict[str, FrameMaskStack] = {}
+    for track in timeline.tracks:
+        for layer in track.effect_layers or []:
+            stack = layer_mask_stack(layer)
+            if stack is not None:
+                stacks[layer.id] = stack
+    # Per (layer, frame size), the alpha of a stack that does not move, drawn once.
+    static: dict[tuple[str, int, int], np.ndarray] = {}
+
+    def mask_of(layer: EffectLayer, t: float, frame: np.ndarray) -> np.ndarray | None:
+        stack = stacks.get(layer.id)
+        if stack is None:
+            return None
+        height, width = frame.shape[0], frame.shape[1]
+        local = max(0.0, t - layer.start)
+        if stack.animated:
+            return stack.alpha_at(local, width, height)
+        key = (layer.id, width, height)
+        drawn = static.get(key)
+        if drawn is None:
+            drawn = stack.alpha_at(local, width, height)
+            static[key] = drawn
+        return drawn
+
     def transform(get_frame: Callable[[float], np.ndarray], t: float) -> np.ndarray:
         frame = get_frame(t)
         live = timeline.active_effect_layers_at(t)
@@ -207,7 +244,9 @@ def apply_effect_layers(source: Any, timeline: Timeline, *, fps: float) -> Any:
         # start) and the web preview walks the identical sequence — that shared
         # order is what makes stacked effects agree between the two renderers.
         for _track, layer in live:
-            frame = apply_layer_to_frame(frame, layer, t, fps=fps)
+            frame = apply_layer_to_frame(
+                frame, layer, t, fps=fps, mask_alpha=mask_of(layer, t, frame)
+            )
         return frame
 
     return source.transform(transform, apply_to=[])

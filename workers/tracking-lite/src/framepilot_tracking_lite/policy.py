@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 from .backend import Frame, FrameSource
 from .protocol import NormalizedBox, ProtocolError, TrackingRequest, TrackingSample
@@ -39,6 +39,10 @@ class Measurement:
 
     box: NormalizedBox | None
     confidence: float
+    #: The measured plane as a normalized 3x3, reference frame → this frame (MK7.2).
+    transform: tuple[float, ...] | None = None
+    #: Where the request's extra points landed, in request order.
+    points: tuple[Any, ...] | None = None
 
 
 class Tracker:
@@ -79,14 +83,24 @@ def run_tracker(
 
     Cancellation is checked between frames so a long track stops promptly without
     leaving a half-formed terminal message.
+
+    A ``reverse`` request walks the range from its last frame back to its first, because a
+    backward track's features are detected on the frame the mask was drawn on — the range's
+    LAST frame (MK7.2). Everything else, including the hold-and-lose policy, is identical;
+    only the direction the frame counter moves in changes.
     """
-    first_frame = request.media.first_frame
+    step = -1 if request.reverse else 1
+    first_frame = (
+        request.media.last_frame_exclusive - 1 if request.reverse else request.media.first_frame
+    )
     frame_index = first_frame
     last_box: NormalizedBox | None = None
+    last_transform: tuple[float, ...] | None = None
+    last_points: tuple[Any, ...] | None = None
     last_measured_frame: int | None = None
     held_frames = 0
 
-    while frame_index < request.media.last_frame_exclusive:
+    while request.media.first_frame <= frame_index < request.media.last_frame_exclusive:
         if should_cancel():
             raise ProtocolError("cancelled", "tracking cancelled by the host.")
         frame = source.read()
@@ -100,20 +114,31 @@ def run_tracker(
             last_measured_frame = frame_index
             held_frames = 0
             confidence = min(max(measurement.confidence, 0.0), 1.0)
+            last_transform = measurement.transform
+            last_points = measurement.points
             yield TrackingSample(
                 frame=frame_index,
                 box=measurement.box,
                 confidence=confidence,
                 occluded=confidence < OCCLUSION_CONFIDENCE,
+                transform=measurement.transform,
+                points=measurement.points,
             )
         else:
             held_frames += 1
             if last_box is None or held_frames > MAX_HELD_FRAMES:
                 raise TargetLostError(last_measured_frame, held_frames)
+            # A held frame repeats the last MEASURED geometry, transform included, so the host
+            # sees "nothing new was observed here" rather than a gap it has to guess across.
             yield TrackingSample(
-                frame=frame_index, box=last_box, confidence=0.0, occluded=True
+                frame=frame_index,
+                box=last_box,
+                confidence=0.0,
+                occluded=True,
+                transform=last_transform,
+                points=last_points,
             )
-        frame_index += 1
+        frame_index += step
 
     if last_measured_frame is None:
         raise ProtocolError(

@@ -1,6 +1,7 @@
 # ADR 0169 — A full-frame cutaway goes in front
 
-- **Status:** Accepted
+- **Status:** Accepted; its gating role for the program monitor is superseded by ADR 0180 (the
+  layer compositor composites every timeline). The geometry facts stand
 - **Date:** 2026-09-03
 - **Schema:** unchanged (no project-file field, no operation shape, no migration). The
   twelve frozen sessions moved by exactly the tool-definitions token delta — `+125` per

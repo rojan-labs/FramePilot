@@ -74,6 +74,12 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // PX5.7: a measurement run (tests/e2e/scripts/px5-local-run.py) serves a FROZEN tree. With
+    // the watcher on, any edit in the worktree during a run (another agent, an editor save)
+    // hot-replaced the editor under the running test: its engine was rebuilt mid-step, a
+    // playback never started or a telemetry read waited on a replaced decode worker until the
+    // test timed out. No watcher means no hot update and no reload.
+    ...(process.env.FRAMEPILOT_VITE_NO_WATCH === '1' ? { watch: null, hmr: false } : {}),
   },
   test: {
     globals: true,
@@ -83,6 +89,18 @@ export default defineConfig({
     // vitest default when the full turbo graph runs in parallel; give them
     // real headroom instead of load-dependent flakes.
     testTimeout: 15_000,
+    // MK4.6 budget tests are CPU-bound wall-clock measurements. Coverage
+    // instrumentation multiplies their cost and starves the other packages'
+    // workers on a 2-vCPU runner (which is how an unrelated editor-core test
+    // hit its 5 s timeout). CI runs them alone, uninstrumented, with
+    // FRAMEPILOT_RUN_PERF=1; every other run skips them.
+    exclude: [
+      ...(process.env.FRAMEPILOT_RUN_PERF === '1'
+        ? []
+        : ['**/*.perf.test.{ts,tsx}']),
+      '**/node_modules/**',
+      '**/dist/**',
+    ],
     coverage: {
       // Measure source modules only. `main.tsx` is the DOM mount glue
       // (createRoot) with no logic to unit-test — mirroring the desktop app

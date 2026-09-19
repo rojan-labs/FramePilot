@@ -1,0 +1,7 @@
+Aileron Regular — Dot Colon (https://dotcolon.net/fonts/aileron)
+Released under Creative Commons Zero v1.0 Universal (CC0 1.0, public domain dedication).
+
+This file is the reduced character set Pillow embeds as its default FreeType font
+(PIL.ImageFont.load_default). The export rasterises text overlays with that font
+(engine/python/framepilot_engine/render/text_overlay.py), so the preview loads the same
+bytes to lay text out the way the export does.

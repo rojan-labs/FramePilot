@@ -1,0 +1,185 @@
+import { describe, expect, it } from 'vitest';
+import { makeProject } from '../__fixtures__/project.js';
+import { Orchestrator } from '../orchestrator.js';
+import { MockProvider } from '../providers/mock.js';
+import type { AiCompletionRequest, AiProvider, AiResponse } from '../providers/types.js';
+import { ToolRefusalError } from '../tool-refusal.js';
+import { DOMAIN_INDEX, LOADABLE_DOMAINS, domainIndexFor } from '../tool-domains.js';
+import type { HostToolExecutor } from '../tool-executor.js';
+import {
+  AI_MASKING_TOOL_NAMES,
+  aiMaskingEnabled,
+  aiMaskingSetting,
+  aiMaskingUnroutableTools,
+} from './feature-flag.js';
+
+const executor = (unroutable: readonly string[]): HostToolExecutor => ({
+  run: async (call) => ({ status: 'completed', summary: call.name }),
+  unroutableTools: () => new Set(unroutable),
+});
+
+const everyDomain = new Set(LOADABLE_DOMAINS);
+const offered = (unroutable: readonly string[]) =>
+  new Orchestrator(new MockProvider(), { executor: executor(unroutable) }).agentTools(
+    'agent',
+    undefined,
+    everyDomain,
+  );
+
+describe('aiMaskingSetting (RD2.1)', () => {
+  it('is on in development and OFF in a release until the default is flipped', () => {
+    expect(aiMaskingSetting({ development: true })).toBe('on');
+    expect(aiMaskingSetting({ development: false })).toBe('off');
+  });
+
+  it('lets an explicit on or off win in either build', () => {
+    expect(aiMaskingSetting({ explicit: 'off', development: true })).toBe('off');
+    expect(aiMaskingSetting({ explicit: ' ON ', development: false })).toBe('on');
+  });
+
+  it('never lets a typo enable the tools in a release', () => {
+    for (const explicit of ['true', '1', 'yes', 'enabled', '']) {
+      expect(aiMaskingEnabled({ explicit, development: false })).toBe(false);
+      expect(aiMaskingEnabled({ explicit, development: true })).toBe(true);
+    }
+  });
+});
+
+describe('the kill switch, end to end', () => {
+  const off = aiMaskingUnroutableTools({ explicit: 'off', development: true });
+
+  it('removes every new masking tool from what the model is offered', () => {
+    expect(aiMaskingUnroutableTools({ development: true })).toEqual([]);
+    expect(off).toEqual(AI_MASKING_TOOL_NAMES);
+    expect(off).toEqual(
+      expect.arrayContaining([
+        'find_mask_targets',
+        'create_mask',
+        'remove_background',
+        'refine_mask',
+        'follow_subject',
+      ]),
+    );
+    const names = offered(off).map((tool) => tool.name);
+    for (const name of AI_MASKING_TOOL_NAMES) expect(names).not.toContain(name);
+    expect(offered([]).map((tool) => tool.name)).toContain('create_mask');
+  });
+
+  it('does not take the two older tools the domain absorbed with it', () => {
+    const names = offered(off).map((tool) => tool.name);
+    expect(names).toContain('professional_tracking_mask');
+    expect(names).toContain('track_subject_automatically');
+    expect(off).not.toContain('professional_tracking_mask');
+  });
+
+  it('stops the domain index promising what no offered tool can do', () => {
+    const description = offered(off).find((tool) => tool.name === 'load_tools')!.description;
+    expect(description).not.toContain('remove backgrounds');
+    expect(description).toContain('masking: make a mask the editor drew follow its subject');
+    expect(offered([]).find((tool) => tool.name === 'load_tools')!.description).toContain(
+      'remove backgrounds',
+    );
+  });
+
+  it('leaves a domain out of the index when none of its tools can be offered', () => {
+    const index = domainIndexFor(
+      new Set([
+        ...AI_MASKING_TOOL_NAMES,
+        'professional_tracking_mask',
+        'track_subject_automatically',
+      ]),
+    );
+    expect(index).not.toContain('masking:');
+    expect(index).toContain('captions:');
+  });
+
+  it('changes nothing when nothing is unroutable, so the token goldens cannot move', () => {
+    expect(domainIndexFor(new Set())).toBe(DOMAIN_INDEX);
+    expect(domainIndexFor(new Set(['render_preview']))).toBe(DOMAIN_INDEX);
+  });
+});
+
+/** Records what a single-shot mode offered, and answers with one scripted call. */
+class OfferRecorder implements AiProvider {
+  public readonly name = 'mock' as const;
+  public readonly offered: string[][] = [];
+  public constructor(private readonly toolName?: string) {}
+  public async complete(request: AiCompletionRequest): Promise<AiResponse> {
+    this.offered.push((request.tools ?? []).map((tool) => tool.name));
+    return this.toolName === undefined
+      ? { text: 'nothing' }
+      : {
+          text: 'as asked',
+          toolCalls: [{ id: 'c1', name: this.toolName, arguments: { clipId: 'x', maskId: 'm' } }],
+        };
+  }
+}
+
+describe('the kill switch on a host with no executor (the browser without a sidecar)', () => {
+  const off = () => aiMaskingUnroutableTools({ explicit: 'off', development: true });
+  const input = { project: makeProject(), userPrompt: 'delete the mask on that clip' };
+
+  it('withholds the tools and shrinks the index from disabledTools alone', () => {
+    const orchestrator = new Orchestrator(new MockProvider(), { disabledTools: off });
+    const tools = orchestrator.agentTools('agent', undefined, everyDomain);
+    for (const name of AI_MASKING_TOOL_NAMES) {
+      expect(tools.map((tool) => tool.name)).not.toContain(name);
+    }
+    expect(tools.find((tool) => tool.name === 'load_tools')!.description).not.toContain(
+      'remove backgrounds',
+    );
+  });
+
+  it('keeps them out of what edit, variations and autocomplete offer', async () => {
+    const provider = new OfferRecorder();
+    const orchestrator = new Orchestrator(provider, { disabledTools: off });
+    await orchestrator.edit(input);
+    await orchestrator.editVariations(input);
+    await orchestrator.autocomplete(input);
+    expect(provider.offered.length).toBeGreaterThanOrEqual(3);
+    for (const names of provider.offered) {
+      expect(names).toContain('trim_clip');
+      for (const name of AI_MASKING_TOOL_NAMES) expect(names).not.toContain(name);
+    }
+    const on = new OfferRecorder();
+    await new Orchestrator(on).edit(input);
+    expect(on.offered[0]).toContain('delete_mask');
+  });
+
+  it('refuses a switched-off tool the model names anyway, and builds nothing', async () => {
+    const orchestrator = new Orchestrator(new OfferRecorder('delete_mask'), {
+      disabledTools: off,
+    });
+    const refused = orchestrator.edit(input);
+    await expect(refused).rejects.toBeInstanceOf(ToolRefusalError);
+    await expect(refused).rejects.toThrow('"delete_mask" is not available here');
+  });
+});
+
+/** Records every prompt an agent run sends, and answers each with plain text. */
+class PromptRecorder implements AiProvider {
+  public readonly name = 'mock' as const;
+  public readonly prompts: string[] = [];
+  public async complete(request: AiCompletionRequest): Promise<AiResponse> {
+    this.prompts.push(request.messages.map((message) => message.content).join('\n'));
+    return { text: 'Nothing to change.' };
+  }
+}
+
+describe('the masking playbook follows the switch (AM4.2)', () => {
+  const run = async (disabledTools?: () => readonly string[]): Promise<string> => {
+    const provider = new PromptRecorder();
+    await new Orchestrator(provider, disabledTools ? { disabledTools } : {}).agent({
+      project: makeProject(),
+      userPrompt: 'remove the background of clip_a',
+    });
+    return provider.prompts[0] ?? '';
+  };
+
+  it('is in the skills manifest when the tools are on, and gone when they are off', async () => {
+    expect(await run()).toContain('- masking-and-compositing — ');
+    const off = await run(() => aiMaskingUnroutableTools({ explicit: 'off', development: true }));
+    expect(off).not.toContain('masking-and-compositing');
+    expect(off).toContain('- color-grading — ');
+  });
+});

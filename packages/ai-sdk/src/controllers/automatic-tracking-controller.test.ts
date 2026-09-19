@@ -16,15 +16,33 @@ interface Options {
 }
 
 function project(options: Options = {}): Project {
-  const mask = {
-    id: 'shot__mask',
-    type: 'mask',
-    params: {
-      shape: options.shape ?? 'rectangle',
-      bounds: options.bounds ?? { x: 0.2, y: 0.1, width: 0.25, height: 0.4 },
-    },
-    keyframes: [],
-  };
+  // Schema v22: the drawn box as a mask in the 1920x1080 source's pixels.
+  // Integer pixels for the default box so its fractions come back exactly.
+  const box = options.bounds;
+  const geometry =
+    box === undefined
+      ? { cx: 624, cy: 324, width: 480, height: 432 }
+      : {
+          cx: (box.x! + box.width! / 2) * 1920,
+          cy: (box.y! + box.height! / 2) * 1080,
+          width: box.width! * 1920,
+          height: box.height! * 1080,
+        };
+  const mask =
+    options.shape === 'polygon'
+      ? {
+          kind: 'path',
+          id: 'shot__mask',
+          pathKeyframes: [
+            {
+              id: 'p0',
+              sourceTime: 0,
+              points: [0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0],
+              vertexTypes: [0, 0, 0],
+            },
+          ],
+        }
+      : { kind: options.shape ?? 'rectangle', id: 'shot__mask', ...geometry };
   return parseProject({
     id: 'auto_tracking_project',
     name: 'Automatic tracking fixture',
@@ -32,7 +50,13 @@ function project(options: Options = {}): Project {
     fps: 24,
     resolution: { width: 1920, height: 1080 },
     assets: [
-      { id: 'asset', path: 'shot.mp4', kind: options.assetKind ?? 'video', durationSeconds: 900 },
+      {
+        id: 'asset',
+        path: 'shot.mp4',
+        kind: options.assetKind ?? 'video',
+        durationSeconds: 900,
+        media: { width: 1920, height: 1080 },
+      },
     ],
     timeline: {
       revision: 2,
@@ -49,7 +73,8 @@ function project(options: Options = {}): Project {
               end: options.sourceEnd ?? 4,
               sourceStart: 0,
               sourceEnd: options.sourceEnd ?? 4,
-              effects: options.withMask === false ? [] : [mask],
+              effects: [],
+              ...(options.withMask === false ? {} : { masks: [mask] }),
               keyframes: [],
             },
           ],

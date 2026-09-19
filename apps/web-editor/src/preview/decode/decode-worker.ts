@@ -24,8 +24,15 @@
  * displayed"); the session translates to decode order internally via the
  * demuxed table, so B-frame footage decodes correctly.
  */
+import { copyI420, pictureTransfer, type DecodedPicture } from './decoded-picture.js';
+import { DecoderPool, type PooledDecoderHolder } from './decoder-pool.js';
+import { MatteDecodeSession } from './matte-decode-session.js';
+import type { Ffv1Picture } from './ffv1/ffv1-decoder.js';
 import {
   demuxAllVideoSamples,
+  demuxSampleTableStreaming,
+  type ByteRangeReader,
+  type SampleLocation,
   nearestKeyframeIndexAtOrBefore,
   presentationIndexAtOrBefore,
   type DemuxedSampleTable,
@@ -45,6 +52,11 @@ export interface DecodeRangeRequest {
   /** Inclusive PRESENTATION-index range to have decoded output for. */
   fromChunkIndex: number;
   toChunkIndex: number;
+  /**
+   * `frame` (default): transfer each `VideoFrame`. `picture`: copy the planes out and transfer
+   * those (`decoded-picture.ts`), which is what the layer compositor converts itself.
+   */
+  output?: 'frame' | 'picture';
 }
 
 export interface StatsRequest {
@@ -53,17 +65,55 @@ export interface StatsRequest {
   sourceId: string;
 }
 
+/** PX5.1: live `VideoDecoder`s across every source and matte (the pool is per worker). */
+export interface PoolStatsRequest {
+  type: 'poolStats';
+  requestId: number;
+}
+
+/**
+ * PX5.7: what every source's decode call is waiting on now. Answered from the worker's event
+ * loop, so a call stuck on a browser promise (a `flush()` or `copyTo()` that never settles)
+ * does not stop the answer; a worker that does not answer at all is a finding of its own.
+ */
+export interface StagesRequest {
+  type: 'stages';
+  requestId: number;
+}
+
 export interface UnloadSourceRequest {
   type: 'unload';
   requestId: number;
   sourceId: string;
 }
 
+/** BR5.1: open a matte artifact file (FFV1 in Matroska) as its own source. */
+export interface LoadMatteRequest {
+  type: 'loadMatte';
+  requestId: number;
+  sourceId: string;
+  url: string;
+  /** `frames.json`'s frame count. */
+  expectedFrames: number;
+}
+
+export interface DecodeMatteRequest {
+  type: 'decodeMatte';
+  requestId: number;
+  sourceId: string;
+  /** Matte frame index (file order). */
+  frame: number;
+}
+
 export type WorkerRequest =
   | LoadSourceRequest
   | DecodeRangeRequest
   | StatsRequest
-  | UnloadSourceRequest;
+  | PoolStatsRequest
+  | StagesRequest
+  | UnloadSourceRequest
+  | LoadMatteRequest
+  | DecodeMatteRequest;
 
 export interface LoadedResponse {
   type: 'loaded';
@@ -74,7 +124,16 @@ export interface LoadedResponse {
   /** Exact presentation-order timestamps (µs) — the engine maps time↔frame
    * with these (VFR-correct), never by dividing by `frameDurationUs`. */
   presentationTimestampsUs: number[];
+  /** Nominal frame rate from the first sample (`timescale / duration`), exact for CFR proxies. */
+  frameRate: number;
+  /** Variable-frame-rate sources: frame pts in seconds from the first frame; else `null`. */
+  frameTimesSec: number[] | null;
   codec: string;
+  /**
+   * True when the source was opened by range reads (larger than `WHOLE_FILE_MAX_BYTES`):
+   * `fileBytes` is then empty and the monitor has no footage audio for it.
+   */
+  streamed: boolean;
   /** The fetched file bytes, TRANSFERRED back to the main thread once the
    * demux has copied what it needs (EncodedVideoChunk copies sample data at
    * construction). Main uses them for `decodeAudioData` — the file is read
@@ -98,6 +157,18 @@ export interface DecodedFrameMessage {
   decodeStartedAtMs: number;
 }
 
+/** A decoded frame as planes (`output: 'picture'`). */
+export interface DecodedPictureMessage {
+  type: 'picture';
+  requestId: number;
+  sourceId: string;
+  /** PRESENTATION index of this frame. */
+  chunkIndex: number;
+  /** The frame's presentation timestamp (µs, 0-based). */
+  timestampUs: number;
+  picture: DecodedPicture;
+}
+
 export interface RangeDoneResponse {
   type: 'rangeDone';
   requestId: number;
@@ -115,6 +186,66 @@ export interface StatsResponse {
   reconfigureCount: number;
 }
 
+export interface PoolStatsResponse {
+  type: 'poolStats';
+  requestId: number;
+  liveDecoders: number;
+  peakLiveDecoders: number;
+  capacity: number;
+}
+
+/** Where one source's decode call is, for a hang report (PX5.7). */
+export interface WorkerStageReport {
+  readonly sourceId: string;
+  /** The step the running call awaits; `queued` = waiting behind another call of this source. */
+  readonly stage: DecodeStage;
+  readonly ageMs: number;
+  /** The running call's presentation range. */
+  readonly from: number;
+  readonly to: number;
+  /** Calls of this source waiting behind it. */
+  readonly queuedCalls: number;
+  readonly decoderState: string;
+  readonly decodeQueueSize: number;
+  readonly lastOutputPresentation: number;
+  readonly feedCursor: number;
+  readonly stashedFrames: number;
+  /** Plane copies (`VideoFrame.copyTo`) started and not yet posted. */
+  readonly pendingCopies: number;
+}
+
+/** The steps of one `decodeRange` call, in order (`fetch` only for a range-read source). */
+export type DecodeStage = 'queued' | 'fetch' | 'feed' | 'await-output' | 'flush' | 'copy-planes';
+
+export interface StagesResponse {
+  type: 'stages';
+  requestId: number;
+  sessions: WorkerStageReport[];
+}
+
+export interface MatteLoadedResponse {
+  type: 'matteLoaded';
+  requestId: number;
+  sourceId: string;
+  width: number;
+  height: number;
+  format: Ffv1Picture['format'];
+  frameCount: number;
+  intraOnly: boolean;
+}
+
+export interface MatteFrameResponse {
+  type: 'matteFrame';
+  requestId: number;
+  sourceId: string;
+  frame: number;
+  width: number;
+  height: number;
+  format: Ffv1Picture['format'];
+  /** `gray8`: one byte per pixel; `gray16`: native-endian `Uint16Array` bytes; `rgb24`: RGB. */
+  data: ArrayBuffer;
+}
+
 export interface ErrorResponse {
   type: 'error';
   requestId: number;
@@ -125,8 +256,13 @@ export type WorkerResponse =
   | LoadedResponse
   | UnloadedResponse
   | DecodedFrameMessage
+  | DecodedPictureMessage
   | RangeDoneResponse
   | StatsResponse
+  | PoolStatsResponse
+  | StagesResponse
+  | MatteLoadedResponse
+  | MatteFrameResponse
   | ErrorResponse;
 
 interface PostMessageTarget {
@@ -147,14 +283,49 @@ const STALL_OVERFEED_MAX = 8;
  * on a genuinely stalled pipeline, while still bounding worst-case latency. */
 const OUTPUT_STALL_TIMEOUT_MS = 50;
 
-class DecoderSession {
+/**
+ * Files at or below this size are read whole (PX2.6): the sample table demuxes from memory and
+ * the same bytes decode the footage audio. Larger files (unproxied camera originals) are opened
+ * by range reads, so nothing near their size is ever held; their footage audio is not decoded
+ * into the monitor (see `LoadedResponse.streamed`).
+ */
+export const WHOLE_FILE_MAX_BYTES = 256 * 1024 * 1024;
+/** Sample bytes kept around a streamed decode position. */
+const STREAMED_CHUNK_CACHE = 240;
+
+/** The demuxed table a session decodes from: chunks in memory, or located in the file. */
+type SessionTable = Omit<DemuxedSampleTable, 'chunks'> & { readonly chunkCount: number };
+
+/** `fetch` range reads, verified to be honoured. */
+function httpRangeReader(url: string, size: number): ByteRangeReader {
+  return {
+    size,
+    async read(start: number, end: number): Promise<ArrayBuffer> {
+      const response = await fetch(url, { headers: { Range: `bytes=${start}-${end - 1}` } });
+      if (response.status !== 206) {
+        throw new Error(`Range read of ${url} returned ${response.status}, expected 206.`);
+      }
+      return response.arrayBuffer();
+    },
+  };
+}
+
+class DecoderSession implements PooledDecoderHolder {
   /** One decoder for the lifetime of this session — reused via reset() +
    * configure() across every seek, never replaced. Creating a fresh
    * VideoDecoder per seek leaked decoder instances and silently exhausted
    * Chrome's concurrent hardware-decoder limit (gate #5). */
   private decoder: VideoDecoder | undefined;
-  private table: DemuxedSampleTable | undefined;
+  private table: SessionTable | undefined;
+  /** Whole-file mode: every chunk. */
+  private chunks: readonly EncodedVideoChunk[] = [];
+  /** Streaming mode: where each sample lives, and a small cache of fetched chunks. */
+  private locations: readonly SampleLocation[] = [];
+  private reader: ByteRangeReader | undefined;
+  private readonly chunkCache = new Map<number, EncodedVideoChunk>();
   private reconfigureCount = 0;
+  /** A decode call is running; the pool must not take this session's decoder. */
+  busy = false;
 
   // -- Streaming state (valid while `streamActive`) --------------------------
   /** True while the decoder is mid-stream: configured, fed a contiguous run of
@@ -178,6 +349,9 @@ class DecoderSession {
   private currentDecodeStartedAtMs = 0;
   private currentFrom = 0;
   private currentTo = -1;
+  private currentOutput: 'frame' | 'picture' = 'frame';
+  /** Plane copies still in flight for the current call; awaited before `rangeDone`. */
+  private pendingPosts: Promise<void>[] = [];
 
   /** Resolvers woken on every decoder output (progress signal for the
    * await-outputs loop). */
@@ -186,6 +360,16 @@ class DecoderSession {
   /** Serializes decodeRange calls: the engine's pump and an external seek can
    * both be in flight; interleaving their feeds would corrupt the stream. */
   private queue: Promise<unknown> = Promise.resolve();
+
+  // -- PX5.7: where the running call is, for a hang report (`debugStage`) -----
+  private stage: DecodeStage = 'queued';
+  private stageSinceMs = 0;
+  private running = false;
+  /** Calls accepted and not yet finished (the running one included). */
+  private acceptedCalls = 0;
+  private firstQueuedSinceMs = 0;
+  /** `VideoFrame.copyTo` calls started and not settled. */
+  private copiesInFlight = 0;
 
   constructor(
     private readonly sourceId: string,
@@ -196,21 +380,59 @@ class DecoderSession {
     frameCount: number;
     frameDurationUs: number;
     presentationTimestampsUs: number[];
+    frameRate: number;
+    frameTimesSec: number[] | null;
     codec: string;
     fileBytes: ArrayBuffer;
+    streamed: boolean;
   }> {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+    // Probe with a small range: a server that honours it reports the size; one that ignores it
+    // (a plain static route) sends the whole file, which is then used as-is.
+    const probe = await fetch(url, { headers: { Range: 'bytes=0-65535' } });
+    if (!probe.ok) {
+      throw new Error(`Failed to fetch ${url}: ${probe.status} ${probe.statusText}`);
     }
-    const arrayBuffer = await response.arrayBuffer();
-    this.table = await demuxAllVideoSamples(arrayBuffer);
+    const total = Number(/\/(\d+)$/.exec(probe.headers.get('Content-Range') ?? '')?.[1] ?? NaN);
+    if (probe.status === 206 && Number.isFinite(total) && total > WHOLE_FILE_MAX_BYTES) {
+      await probe.body?.cancel();
+      this.reader = httpRangeReader(url, total);
+      const streamed = await demuxSampleTableStreaming(this.reader);
+      this.locations = streamed.samples;
+      this.table = { ...streamed, chunkCount: streamed.samples.length };
+      return {
+        frameCount: this.table.presentationTimestampsUs.length,
+        frameDurationUs: this.table.frameDurationUs,
+        presentationTimestampsUs: this.table.presentationTimestampsUs,
+        frameRate: this.table.frameRate,
+        frameTimesSec: this.table.frameTimesSec,
+        codec: this.table.config.codec,
+        fileBytes: new ArrayBuffer(0),
+        streamed: true,
+      };
+    }
+    let arrayBuffer: ArrayBuffer;
+    if (probe.status === 206) {
+      await probe.body?.cancel();
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+      }
+      arrayBuffer = await response.arrayBuffer();
+    } else {
+      arrayBuffer = await probe.arrayBuffer();
+    }
+    const demuxed = await demuxAllVideoSamples(arrayBuffer);
+    this.chunks = demuxed.chunks;
+    this.table = { ...demuxed, chunkCount: demuxed.chunks.length };
     return {
       frameCount: this.table.presentationTimestampsUs.length,
       frameDurationUs: this.table.frameDurationUs,
       presentationTimestampsUs: this.table.presentationTimestampsUs,
+      frameRate: this.table.frameRate,
+      frameTimesSec: this.table.frameTimesSec,
       codec: this.table.config.codec,
       fileBytes: arrayBuffer,
+      streamed: false,
     };
   }
 
@@ -218,10 +440,28 @@ class DecoderSession {
     requestId: number,
     fromPresentation: number,
     toPresentation: number,
+    output: 'frame' | 'picture' = 'frame',
   ): Promise<{ decodeDurationMs: number; reconfigured: boolean }> {
-    const run = this.queue.then(() =>
-      this.decodeRangeSerialized(requestId, fromPresentation, toPresentation),
-    );
+    if (this.acceptedCalls === 0) this.firstQueuedSinceMs = performance.now();
+    this.acceptedCalls++;
+    const run = this.queue.then(async () => {
+      this.busy = true;
+      this.running = true;
+      if (this.decoder) decoderPool.touch(this);
+      try {
+        return await this.decodeRangeSerialized(
+          requestId,
+          fromPresentation,
+          toPresentation,
+          output,
+        );
+      } finally {
+        this.busy = false;
+        this.running = false;
+        this.acceptedCalls--;
+        this.firstQueuedSinceMs = performance.now();
+      }
+    });
     // Keep the queue alive past a rejection so a failed call doesn't wedge
     // every subsequent one; the failure still propagates to THIS caller.
     this.queue = run.catch(() => undefined);
@@ -232,6 +472,7 @@ class DecoderSession {
     requestId: number,
     fromPresentation: number,
     toPresentation: number,
+    output: 'frame' | 'picture',
   ): Promise<{ decodeDurationMs: number; reconfigured: boolean }> {
     const table = this.table;
     if (!table) throw new Error(`Source ${this.sourceId} not loaded.`);
@@ -241,6 +482,10 @@ class DecoderSession {
     this.currentDecodeStartedAtMs = startedAt;
     this.currentFrom = fromPresentation;
     this.currentTo = toPresentation;
+    this.currentOutput = output;
+    this.pendingPosts = [];
+    this.stage = 'feed';
+    this.stageSinceMs = startedAt;
 
     const continuation =
       this.streamActive &&
@@ -259,20 +504,14 @@ class DecoderSession {
       const stashed = this.stash.get(p);
       if (!stashed) continue;
       this.stash.delete(p);
-      this.post(
-        {
-          type: 'frame',
-          requestId,
-          sourceId: this.sourceId,
-          chunkIndex: p,
-          frame: stashed,
-          decodeStartedAtMs: startedAt,
-        },
-        [stashed],
-      );
+      this.emit(stashed, p, requestId, startedAt);
     }
 
     await this.feedAndAwait(table, toPresentation);
+    // Plane copies are asynchronous; every one must be posted before `rangeDone`.
+    this.enterStage('copy-planes');
+    await Promise.all(this.pendingPosts);
+    this.pendingPosts = [];
 
     this.lastServedTo = toPresentation;
     return { decodeDurationMs: performance.now() - startedAt, reconfigured: !continuation };
@@ -281,7 +520,7 @@ class DecoderSession {
   /** Abandon the current stream (a true seek): drop stashed frames, reset and
    * reconfigure the decoder, and aim the feed cursor at the nearest keyframe
    * at-or-before the target presentation index. */
-  private reseek(table: DemuxedSampleTable, fromPresentation: number): void {
+  private reseek(table: SessionTable, fromPresentation: number): void {
     this.closeStash();
     const keyframePresentation = nearestKeyframeIndexAtOrBefore(
       table.keyframePresentationIndices,
@@ -292,6 +531,7 @@ class DecoderSession {
       throw new Error(`No decode index for keyframe presentation ${keyframePresentation}.`);
     }
     if (!this.decoder || this.decoder.state === 'closed') {
+      decoderPool.admit(this);
       this.decoder = new VideoDecoder({
         output: (frame) => this.handleOutput(frame),
         error: (err) => {
@@ -325,7 +565,7 @@ class DecoderSession {
    * resort `flush()` (which forcibly drains the pipeline but ends the stream —
    * the next call reseeks).
    */
-  private async feedAndAwait(table: DemuxedSampleTable, toPresentation: number): Promise<void> {
+  private async feedAndAwait(table: SessionTable, toPresentation: number): Promise<void> {
     const decoder = this.decoder;
     if (!decoder) throw new Error('feedAndAwait without a configured decoder.');
     const feedTarget = table.decodeThroughByPresentation[toPresentation];
@@ -335,7 +575,7 @@ class DecoderSession {
       );
     }
 
-    this.feedThrough(table, feedTarget);
+    await this.feedThrough(table, feedTarget);
 
     let overfed = 0;
     let consecutiveStalledWaits = 0;
@@ -346,8 +586,8 @@ class DecoderSession {
       // Repeated timed-out waits with input still queued means the pipeline
       // is wedged — escalate the same way rather than waiting forever.
       const stalled = decoder.decodeQueueSize === 0 || consecutiveStalledWaits >= 3;
-      if (stalled && this.feedCursor < table.chunks.length && overfed < STALL_OVERFEED_MAX) {
-        this.feedThrough(table, this.feedCursor); // dislodge with ONE more chunk
+      if (stalled && this.feedCursor < table.chunkCount && overfed < STALL_OVERFEED_MAX) {
+        await this.feedThrough(table, this.feedCursor); // dislodge with ONE more chunk
         overfed++;
         consecutiveStalledWaits = 0;
         continue;
@@ -357,25 +597,61 @@ class DecoderSession {
         // normal stream end at the last frames of a source, and the safety
         // net for a pathological decoder; either way the stream is over.
         this.streamActive = false;
+        this.enterStage('flush');
         await decoder.flush();
         continue;
       }
       // Input still queued — decode is in progress; wait for the next output
       // (the timeout is only a safety net against a wedged pipeline).
+      this.enterStage('await-output');
       const progressed = await this.awaitOutputProgress();
       consecutiveStalledWaits = progressed ? 0 : consecutiveStalledWaits + 1;
     }
   }
 
   /** Feed decode-order chunks `[feedCursor .. throughDecodeIndex]`. */
-  private feedThrough(table: DemuxedSampleTable, throughDecodeIndex: number): void {
+  private async feedThrough(table: SessionTable, throughDecodeIndex: number): Promise<void> {
+    const last = Math.min(throughDecodeIndex, table.chunkCount - 1);
+    this.enterStage(this.reader && this.feedCursor <= last ? 'fetch' : 'feed');
+    if (this.reader && this.feedCursor <= last) await this.fetchChunks(this.feedCursor, last);
+    this.enterStage('feed');
     const decoder = this.decoder;
     if (!decoder) return;
-    while (this.feedCursor <= throughDecodeIndex && this.feedCursor < table.chunks.length) {
-      const chunk = table.chunks[this.feedCursor];
+    while (this.feedCursor <= throughDecodeIndex && this.feedCursor < table.chunkCount) {
+      const chunk = this.reader
+        ? this.chunkCache.get(this.feedCursor)
+        : this.chunks[this.feedCursor];
       if (!chunk) throw new Error(`Chunk ${this.feedCursor} missing for source ${this.sourceId}.`);
       decoder.decode(chunk);
       this.feedCursor++;
+    }
+  }
+
+  /** Streaming mode: read samples `[first, last]` (decode order) in one byte range. */
+  private async fetchChunks(first: number, last: number): Promise<void> {
+    const reader = this.reader;
+    if (!reader) return;
+    let from = first;
+    while (from <= last && this.chunkCache.has(from)) from++;
+    if (from > last) return;
+    const locations = this.locations.slice(from, last + 1);
+    const start = Math.min(...locations.map((l) => l.offset));
+    const end = Math.max(...locations.map((l) => l.offset + l.size));
+    const bytes = new Uint8Array(await reader.read(start, end));
+    locations.forEach((location, index) => {
+      this.chunkCache.set(
+        from + index,
+        new EncodedVideoChunk({
+          type: location.type,
+          timestamp: location.timestamp,
+          duration: location.duration,
+          data: bytes.subarray(location.offset - start, location.offset - start + location.size),
+        }),
+      );
+    });
+    for (const key of [...this.chunkCache.keys()]) {
+      if (this.chunkCache.size <= STREAMED_CHUNK_CACHE) break;
+      if (key < from) this.chunkCache.delete(key);
     }
   }
 
@@ -397,11 +673,46 @@ class DecoderSession {
     for (const wake of waiters) wake();
   }
 
+  private enterStage(stage: DecodeStage): void {
+    if (this.stage === stage) return;
+    this.stage = stage;
+    this.stageSinceMs = performance.now();
+  }
+
+  /** PX5.7: where this source's decode call is, or `null` when it has none. */
+  debugStage(): WorkerStageReport | null {
+    if (this.acceptedCalls === 0) return null;
+    const now = performance.now();
+    return {
+      sourceId: this.sourceId,
+      stage: this.running ? this.stage : 'queued',
+      ageMs: now - (this.running ? this.stageSinceMs : this.firstQueuedSinceMs),
+      from: this.currentFrom,
+      to: this.currentTo,
+      queuedCalls: this.acceptedCalls - (this.running ? 1 : 0),
+      decoderState: this.decoder?.state ?? 'none',
+      decodeQueueSize: this.decoder?.decodeQueueSize ?? 0,
+      lastOutputPresentation: this.lastOutputPresentation,
+      feedCursor: this.feedCursor,
+      stashedFrames: this.stash.size,
+      pendingCopies: this.copiesInFlight,
+    };
+  }
+
   stats(): { reconfigureCount: number } {
     return { reconfigureCount: this.reconfigureCount };
   }
 
+  /** Give the decoder back to the pool; the next request reseeks and creates a new one. */
+  releaseDecoder(): void {
+    this.closeStash();
+    this.streamActive = false;
+    if (this.decoder && this.decoder.state !== 'closed') this.decoder.close();
+    this.decoder = undefined;
+  }
+
   dispose(): void {
+    decoderPool.forget(this);
     this.closeStash();
     this.streamActive = false;
     if (this.decoder && this.decoder.state !== 'closed') this.decoder.close();
@@ -412,6 +723,71 @@ class DecoderSession {
   private closeStash(): void {
     for (const frame of this.stash.values()) frame.close();
     this.stash.clear();
+  }
+
+  /** Hand one in-range frame to the main thread in the current call's output form. */
+  private emit(
+    frame: VideoFrame,
+    presentation: number,
+    requestId: number,
+    startedAt: number,
+  ): void {
+    if (this.currentOutput === 'frame') {
+      this.post(
+        {
+          type: 'frame',
+          requestId,
+          sourceId: this.sourceId,
+          chunkIndex: presentation,
+          frame,
+          decodeStartedAtMs: startedAt,
+        },
+        [frame],
+      );
+      return;
+    }
+    const timestampUs = frame.timestamp;
+    const post = async (): Promise<void> => {
+      let picture: DecodedPicture;
+      this.copiesInFlight++;
+      try {
+        const planes = await copyI420(frame);
+        if (planes === null) {
+          picture = {
+            kind: 'frame',
+            frame,
+            width: frame.displayWidth,
+            height: frame.displayHeight,
+            byteLength: frame.displayWidth * frame.displayHeight * 4,
+          };
+        } else {
+          frame.close();
+          picture = planes;
+        }
+      } catch {
+        picture = {
+          kind: 'frame',
+          frame,
+          width: frame.displayWidth,
+          height: frame.displayHeight,
+          byteLength: frame.displayWidth * frame.displayHeight * 4,
+        };
+      } finally {
+        this.copiesInFlight--;
+      }
+      this.post(
+        {
+          type: 'picture',
+          requestId,
+          sourceId: this.sourceId,
+          chunkIndex: presentation,
+          timestampUs,
+          picture,
+        },
+        pictureTransfer(picture),
+      );
+    };
+    this.pendingPosts.push(post());
   }
 
   private handleOutput(frame: VideoFrame): void {
@@ -432,17 +808,7 @@ class DecoderSession {
       // here rather than transfer it for main to immediately discard.
       frame.close();
     } else if (presentation <= this.currentTo) {
-      this.post(
-        {
-          type: 'frame',
-          requestId: this.currentRequestId,
-          sourceId: this.sourceId,
-          chunkIndex: presentation,
-          frame,
-          decodeStartedAtMs: this.currentDecodeStartedAtMs,
-        },
-        [frame],
-      );
+      this.emit(frame, presentation, this.currentRequestId, this.currentDecodeStartedAtMs);
     } else {
       // Beyond the current range (stall-overfeed product): hold for the next
       // contiguous request instead of discarding a decoded frame.
@@ -453,6 +819,8 @@ class DecoderSession {
 }
 
 const sessions = new Map<string, DecoderSession>();
+const matteSessions = new Map<string, MatteDecodeSession>();
+const decoderPool = new DecoderPool<PooledDecoderHolder>();
 
 function post(message: WorkerResponse, transfer: Transferable[]): void {
   (self as unknown as PostMessageTarget).postMessage(message, transfer);
@@ -465,8 +833,16 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       const session = new DecoderSession(request.sourceId, post);
       sessions.get(request.sourceId)?.dispose();
       sessions.set(request.sourceId, session);
-      const { frameCount, frameDurationUs, presentationTimestampsUs, codec, fileBytes } =
-        await session.load(request.url);
+      const {
+        frameCount,
+        frameDurationUs,
+        presentationTimestampsUs,
+        frameRate,
+        frameTimesSec,
+        codec,
+        fileBytes,
+        streamed,
+      } = await session.load(request.url);
       post(
         {
           type: 'loaded',
@@ -475,14 +851,46 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           frameCount,
           frameDurationUs,
           presentationTimestampsUs,
+          frameRate,
+          frameTimesSec,
           codec,
           fileBytes,
+          streamed,
         },
         [fileBytes],
+      );
+    } else if (request.type === 'loadMatte') {
+      matteSessions.get(request.sourceId)?.dispose();
+      const session = new MatteDecodeSession(decoderPool);
+      matteSessions.set(request.sourceId, session);
+      const info = await session.load(request.url, request.expectedFrames);
+      post(
+        { type: 'matteLoaded', requestId: request.requestId, sourceId: request.sourceId, ...info },
+        [],
+      );
+    } else if (request.type === 'decodeMatte') {
+      const session = matteSessions.get(request.sourceId);
+      if (!session) throw new Error(`Matte source ${request.sourceId} not loaded.`);
+      const picture = await session.decode(request.frame);
+      const data = picture.data.buffer as ArrayBuffer;
+      post(
+        {
+          type: 'matteFrame',
+          requestId: request.requestId,
+          sourceId: request.sourceId,
+          frame: request.frame,
+          width: picture.width,
+          height: picture.height,
+          format: picture.format,
+          data,
+        },
+        [data],
       );
     } else if (request.type === 'unload') {
       sessions.get(request.sourceId)?.dispose();
       sessions.delete(request.sourceId);
+      matteSessions.get(request.sourceId)?.dispose();
+      matteSessions.delete(request.sourceId);
       post({ type: 'unloaded', requestId: request.requestId, sourceId: request.sourceId }, []);
     } else if (request.type === 'decodeRange') {
       const session = sessions.get(request.sourceId);
@@ -491,6 +899,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         request.requestId,
         request.fromChunkIndex,
         request.toChunkIndex,
+        request.output ?? 'frame',
       );
       post(
         {
@@ -502,6 +911,24 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         },
         [],
       );
+    } else if (request.type === 'poolStats') {
+      post(
+        {
+          type: 'poolStats',
+          requestId: request.requestId,
+          liveDecoders: decoderPool.size,
+          peakLiveDecoders: decoderPool.peakSize,
+          capacity: decoderPool.maxSize,
+        },
+        [],
+      );
+    } else if (request.type === 'stages') {
+      const reports: WorkerStageReport[] = [];
+      for (const session of sessions.values()) {
+        const report = session.debugStage();
+        if (report !== null) reports.push(report);
+      }
+      post({ type: 'stages', requestId: request.requestId, sessions: reports }, []);
     } else if (request.type === 'stats') {
       const session = sessions.get(request.sourceId);
       if (!session) throw new Error(`Source ${request.sourceId} not loaded.`);

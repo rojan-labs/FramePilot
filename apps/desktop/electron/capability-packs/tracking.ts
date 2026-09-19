@@ -16,10 +16,14 @@
  * When no healthy pack is installed the answer is an explicit install proposal.
  * Work is never faked, and a missing pack never silently downloads.
  */
-import { lstat } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir, totalmem } from 'node:os';
+import path from 'node:path';
+import { negotiatePackRequest } from '@framepilot/capability-packs';
 import {
   runCapabilityPackWorker,
   CapabilityPackWorkerRuntimeError,
+  killWorkerGroup,
   type CapabilityPackLease,
 } from '@framepilot/capability-packs/node';
 import type {
@@ -31,10 +35,30 @@ import type {
   CapabilityPackWorkerRequest,
   CapabilityPackWorkerResult,
 } from '@framepilot/capability-packs';
-import { createLogger, type CapabilityPackProposalResultWire } from '@framepilot/shared-types';
+import {
+  createLogger,
+  maskingEventPayload,
+  type CapabilityPackProposalResultWire,
+} from '@framepilot/shared-types';
+import { freeDiskBytes } from './matte-disk.js';
 import { compareSemver, resolveInside } from './pack-paths.js';
+import { VISUAL_EMBED_PACK_ID } from './visual-packs.js';
+import {
+  processGroupFootprint,
+  stagingBytes,
+  watchdogLimits,
+  WorkerWatchdog,
+  type WatchdogBreach,
+} from './worker-watchdog.js';
 
 const log = createLogger('desktop:capability-packs:tracking');
+
+/**
+ * The most a tracking/detection/segmentation/embedding job's temp folder may hold. These packs
+ * write no artifact (the host writes the track), so anything on disk is the worker's own temp
+ * files; a job that needs more than this is misbehaving.
+ */
+export const PACK_JOB_TEMP_BUDGET_BYTES = 4 * 1024 * 1024 * 1024;
 
 /** The packs that provide media intelligence. Their rosters are fixed and health-verified. */
 export const TRACKING_PACK_ID = 'framepilot.tracking-lite';
@@ -47,7 +71,13 @@ export type TrackingCapability = (typeof TRACKING_CAPABILITIES)[number];
 export const SUBJECT_PACK_ID = 'framepilot.subject-intelligence';
 export const SUBJECT_CAPABILITIES = ['subject.detect', 'subject.segment'] as const;
 export type SubjectCapability = (typeof SUBJECT_CAPABILITIES)[number];
-export type PackJobCapability = TrackingCapability | SubjectCapability;
+/**
+ * Visual Embed run directly by the host — only for scoring detection crops against a text query
+ * (AM2.5 colour re-ranking). Shot-ledger indexing still runs the pack through the engine.
+ */
+export const VISUAL_EMBED_CAPABILITIES = ['visual.embed', 'visual.text'] as const;
+export type VisualEmbedCapability = (typeof VISUAL_EMBED_CAPABILITIES)[number];
+export type PackJobCapability = TrackingCapability | SubjectCapability | VisualEmbedCapability;
 
 interface PackJobBinding {
   readonly packId: string;
@@ -57,6 +87,13 @@ interface PackJobBinding {
    * resolves `<FRAMEPILOT_CAPABILITY_PACK_ROOT>/models` itself.
    */
   readonly extraEnvironment?: (installRoot: string) => Readonly<Record<string, string>>;
+  /**
+   * The pack keeps derived data (Visual Embed: its prompt-bank vectors) in the host's per-release
+   * cache folder, `FRAMEPILOT_CAPABILITY_PACK_CACHE` — the folder the engine's shot-ledger runs of
+   * the same pack already get (`visual-packs.ts`). Without it every colour re-rank re-encoded the
+   * 43-sentence bank, loading the text tower in a process that only embeds crops (AM2.6).
+   */
+  readonly derivedCache?: boolean;
 }
 
 const PACK_BY_CAPABILITY: Readonly<Record<PackJobCapability, PackJobBinding>> = {
@@ -72,6 +109,18 @@ const PACK_BY_CAPABILITY: Readonly<Record<PackJobCapability, PackJobBinding>> = 
     packId: SUBJECT_PACK_ID,
     entrypointByPlatform: ENTRYPOINT('framepilot-subject-intelligence'),
     extraEnvironment: (installRoot) => ({ FRAMEPILOT_CAPABILITY_PACK_ROOT: installRoot }),
+  },
+  'visual.embed': {
+    packId: VISUAL_EMBED_PACK_ID,
+    entrypointByPlatform: ENTRYPOINT('framepilot-visual-embed'),
+    extraEnvironment: (installRoot) => ({ FRAMEPILOT_CAPABILITY_PACK_ROOT: installRoot }),
+    derivedCache: true,
+  },
+  'visual.text': {
+    packId: VISUAL_EMBED_PACK_ID,
+    entrypointByPlatform: ENTRYPOINT('framepilot-visual-embed'),
+    extraEnvironment: (installRoot) => ({ FRAMEPILOT_CAPABILITY_PACK_ROOT: installRoot }),
+    derivedCache: true,
   },
 };
 
@@ -92,6 +141,25 @@ export interface CapabilityPackTrackingServiceOptions {
   readonly propose: (capabilityId: string) => Promise<CapabilityPackProposalResultWire>;
   readonly runWorker?: typeof runCapabilityPackWorker;
   readonly exists?: (absolutePath: string) => Promise<boolean>;
+  /** Writable parent of each pack release's derived cache (`<root>/<packId>/<version>`). */
+  readonly cacheRoot?: string;
+  readonly ensureDirectory?: (absolutePath: string) => Promise<void>;
+  /**
+   * Watchdog overrides (BR4.12 H2 for pack jobs; follow-up review). Production samples the
+   * process group, uses `os.totalmem()` and a private temp folder under the OS temp directory.
+   */
+  readonly watchdog?: {
+    readonly footprintBytes?: (pid: number) => Promise<number | undefined>;
+    readonly totalMemoryBytes?: number;
+    readonly stallMs?: number;
+    readonly intervalMs?: number;
+    readonly now?: () => number;
+    readonly killGroup?: (pid: number | undefined) => void;
+    readonly tempBudgetBytes?: number;
+    readonly freeDiskBytes?: (directory: string) => Promise<number>;
+    /** Where each job's private temp folder is made (default: the OS temp directory). */
+    readonly temporaryRoot?: string;
+  };
 }
 
 export interface TrackingRunOptions {
@@ -101,6 +169,12 @@ export interface TrackingRunOptions {
   readonly mediaRoot: string;
   readonly signal?: AbortSignal;
   readonly onProgress?: (progress: CapabilityPackWorkerProgress) => void;
+  /**
+   * What a missing pack means to this caller. `propose` (the default) builds the signed install
+   * proposal for the editor. `skip` is for OPTIONAL evidence the editor never asked for — the
+   * colour re-ranker — which answers `pack_absent` without touching the catalog.
+   */
+  readonly whenMissing?: 'propose' | 'skip';
 }
 
 export type TrackingRunOutcome =
@@ -121,10 +195,16 @@ export type TrackingFailureCode =
   | 'cancelled'
   | 'stale_revision'
   | 'pack_unhealthy'
+  /** No such pack is installed, and the caller asked not to be offered one (`whenMissing`). */
+  | 'pack_absent'
   | 'pack_incomplete'
+  /** The installed release predates a request field the host needs (AM2.5 negotiation). */
+  | 'pack_outdated'
   | 'media_rejected'
   | 'worker_failed'
-  | 'timed_out';
+  | 'timed_out'
+  /** The host watchdog stopped the worker (memory, no progress, or its temp folder). */
+  | 'resource_exhausted';
 
 export class CapabilityPackTrackingService {
   private readonly options: CapabilityPackTrackingServiceOptions;
@@ -169,7 +249,22 @@ export class CapabilityPackTrackingService {
           false,
         );
       }
+      if (options.whenMissing === 'skip') {
+        return failed('pack_absent', `${binding.packId} is not installed.`, false);
+      }
       return { status: 'pack_missing', proposal: await this.options.propose(request.capability) };
+    }
+    // Fit the request to THIS release: an older pack's strict parser refuses a field it
+    // predates, so an enrichment is dropped and a requirement is refused before any spawn.
+    const negotiated = negotiatePackRequest(request, record.identity.version);
+    if (negotiated.status === 'pack_outdated') {
+      return failed('pack_outdated', negotiated.detail, false);
+    }
+    if (negotiated.request !== request) {
+      log.debug('requestNegotiated', {
+        capability: request.capability,
+        pack: record.identity.version,
+      });
     }
     let entrypoint: string;
     let installRoot: string;
@@ -179,7 +274,10 @@ export class CapabilityPackTrackingService {
     } catch (error) {
       return failed('pack_incomplete', errorMessage(error), false);
     }
+    const environment = await this.workerEnvironment(binding, record, installRoot);
     const lease = await this.options.store.acquireLease(record.identity);
+    const started = Date.now();
+    const guard = await this.startWatchdog(binding.packId, options.signal);
     try {
       const runWorker = this.options.runWorker ?? runCapabilityPackWorker;
       const runOne = (
@@ -190,29 +288,143 @@ export class CapabilityPackTrackingService {
           entrypoint,
           mediaRoot: options.mediaRoot,
           request: chunk,
-          ...(options.signal === undefined ? {} : { signal: options.signal }),
-          ...(binding.extraEnvironment === undefined
-            ? {}
-            : { extraEnvironment: binding.extraEnvironment(installRoot) }),
-          ...(onProgress === undefined ? {} : { onProgress }),
+          signal: guard.signal,
+          temporaryDirectory: guard.temporaryDirectory,
+          onSpawn: guard.attach,
+          onProgress: (progress) => {
+            guard.watchdog.progress();
+            onProgress?.(progress);
+          },
+          ...(environment === undefined ? {} : { extraEnvironment: environment }),
         });
+      const sent = negotiated.request;
       const result =
-        request.capability === 'subject.segment'
-          ? await runSegmentationInChunks(request, runOne, options.onProgress)
-          : await runOne(request, options.onProgress);
-      log.action('trackingComplete', {
-        capability: request.capability,
-        pack: record.identity.version,
-        samples: 'samples' in result ? result.samples.length : 0,
-        detections: 'detections' in result ? result.detections.length : 0,
-        masks: 'masks' in result ? result.masks.length : 0,
-      });
+        sent.capability === 'subject.segment'
+          ? await runSegmentationInChunks(sent, runOne, options.onProgress)
+          : await runOne(sent, options.onProgress);
+      if (guard.watchdog.breach !== undefined) return resourceExhausted(guard.watchdog.breach);
+      log.action(
+        'trackingComplete',
+        maskingEventPayload('trackingComplete', {
+          capability: request.capability,
+          pack: record.identity.version,
+          samples: 'samples' in result ? result.samples.length : 0,
+          detections: 'detections' in result ? result.detections.length : 0,
+          masks: 'masks' in result ? result.masks.length : 0,
+          elapsedMs: Date.now() - started,
+        }),
+      );
       return { status: 'completed', identity: record.identity, result };
     } catch (error) {
+      if (guard.watchdog.breach !== undefined) return resourceExhausted(guard.watchdog.breach);
       return failed(...classify(error));
     } finally {
+      await guard.stop();
       await lease.release();
     }
+  }
+
+  /**
+   * The same host watchdog a matte job has (BR4.12 H2): the worker's process-group footprint
+   * ≤ min(pack limit, 0.6 × RAM), no progress for 5 minutes, and its private temp folder (the
+   * only place these packs write; TMPDIR/TEMP/TMP point there) ≤ min(budget, free − 1 GB). A
+   * breach kills the group and the job answers `resource_exhausted`.
+   */
+  private async startWatchdog(
+    packId: string,
+    callerSignal: AbortSignal | undefined,
+  ): Promise<{
+    readonly watchdog: WorkerWatchdog;
+    readonly signal: AbortSignal;
+    readonly temporaryDirectory: string;
+    readonly attach: (pid: number) => void;
+    readonly stop: () => Promise<void>;
+  }> {
+    const settings = this.options.watchdog ?? {};
+    const temporaryDirectory = await mkdtemp(
+      path.join(settings.temporaryRoot ?? tmpdir(), 'framepilot-pack-'),
+    );
+    const free = await (settings.freeDiskBytes ?? freeDiskBytes)(temporaryDirectory).catch(
+      () => undefined,
+    );
+    const budget = settings.tempBudgetBytes ?? PACK_JOB_TEMP_BUDGET_BYTES;
+    // Its own controller, so a breach ends the worker without looking like the caller's cancel.
+    const controller = new AbortController();
+    const forward = (): void => controller.abort();
+    callerSignal?.addEventListener('abort', forward, { once: true });
+    if (callerSignal?.aborted === true) controller.abort();
+    let workerPid: number | undefined;
+    const watchdog = new WorkerWatchdog(
+      watchdogLimits({
+        packId,
+        totalMemoryBytes: settings.totalMemoryBytes ?? totalmem(),
+        byteCeiling: budget,
+        freeBytesAtStart: free,
+        stagingBudgetBytes: budget,
+        ...(settings.stallMs === undefined ? {} : { stallMs: settings.stallMs }),
+      }),
+      {
+        footprintBytes: settings.footprintBytes ?? processGroupFootprint(),
+        directoryBytes: stagingBytes,
+        now: settings.now ?? Date.now,
+      },
+      {
+        stagingDirectory: temporaryDirectory,
+        ...(settings.intervalMs === undefined ? {} : { intervalMs: settings.intervalMs }),
+        onBreach: () => {
+          (settings.killGroup ?? killWorkerGroup)(workerPid);
+          controller.abort();
+        },
+      },
+    );
+    watchdog.start();
+    return {
+      watchdog,
+      signal: controller.signal,
+      temporaryDirectory,
+      attach: (pid) => {
+        workerPid = pid;
+        watchdog.attach(pid);
+        // A segmentation runs one process per chunk: each starts with a fresh stall window.
+        watchdog.progress();
+      },
+      stop: async () => {
+        watchdog.stop();
+        callerSignal?.removeEventListener('abort', forward);
+        try {
+          await rm(temporaryDirectory, { recursive: true, force: true });
+        } catch (error) {
+          // Code only: the path is the user's temp folder.
+          log.warn('packTempRemoveFailed', {
+            code: error instanceof Error && 'code' in error ? String(error.code) : 'unknown',
+          });
+        }
+      },
+    };
+  }
+
+  /** The binding's extras, plus the release's derived-cache folder when it keeps one. */
+  private async workerEnvironment(
+    binding: PackJobBinding,
+    record: InstalledCapabilityPack,
+    installRoot: string,
+  ): Promise<Readonly<Record<string, string>> | undefined> {
+    const extras = binding.extraEnvironment?.(installRoot);
+    const { cacheRoot } = this.options;
+    if (binding.derivedCache !== true || cacheRoot === undefined) return extras;
+    const cache = path.join(cacheRoot, binding.packId, record.identity.version);
+    try {
+      await (this.options.ensureDirectory ?? defaultEnsureDirectory)(cache);
+    } catch (error) {
+      // A cache is an optimisation: without it the pack recomputes, it does not fail.
+      // Error name only: fs messages carry the user's app-data path.
+      log.warn('packCacheUnavailable', {
+        pack: binding.packId,
+        error: error instanceof Error ? error.name : 'unknown',
+      });
+      return extras;
+    }
+    return { ...extras, FRAMEPILOT_CAPABILITY_PACK_CACHE: cache };
   }
 
   private installRoot(record: InstalledCapabilityPack): string {
@@ -311,6 +523,16 @@ function resolveInstalledPack(
     .sort((left, right) => compareSemver(right.identity.version, left.identity.version))[0];
 }
 
+const RESOURCE_REMEDIES: Readonly<Record<WatchdogBreach, string>> = {
+  memory: 'The pack needed more memory than this computer can spare and was stopped. Close other apps or use a shorter range.',
+  stalled: 'The pack stopped responding and was stopped. Try again.',
+  disk: 'The pack was writing more temporary data than allowed and was stopped. Free up space and try again.',
+};
+
+function resourceExhausted(breach: WatchdogBreach): TrackingRunOutcome {
+  return failed('resource_exhausted', RESOURCE_REMEDIES[breach], breach !== 'memory');
+}
+
 function classify(error: unknown): [TrackingFailureCode, string, boolean] {
   if (error instanceof CapabilityPackWorkerRuntimeError) {
     switch (error.code) {
@@ -356,6 +578,10 @@ function failed(
   retryable: boolean,
 ): TrackingRunOutcome {
   return { status: 'failed', code, detail, retryable };
+}
+
+async function defaultEnsureDirectory(absolutePath: string): Promise<void> {
+  await mkdir(absolutePath, { recursive: true });
 }
 
 async function defaultExists(absolutePath: string): Promise<boolean> {

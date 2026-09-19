@@ -40,6 +40,9 @@ describe('unusableHostPayload', () => {
       'remove_silences',
       'add_music',
       'add_stock',
+      'create_mask',
+      'remove_background',
+      'track_mask',
       'track_subject_automatically',
     ]);
     for (const { tool, note } of entries) expect(note).toBe(unusableHostPayload(tool));
@@ -55,8 +58,8 @@ describe('unusableHostPayload', () => {
 
 describe('unavailableToolNote', () => {
   it('says the answer will not change later in the run, and closes the call off', () => {
-    const note = unavailableToolNote('generate_mask');
-    expect(note).toMatch(/^Skipped "generate_mask" — /);
+    const note = unavailableToolNote('unbuilt_tool');
+    expect(note).toMatch(/^Skipped "unbuilt_tool" — /);
     // The old sentence was "not available yet" and nothing else — the bare "yet" read as
     // "wait and try later", which is the one thing that cannot work. The note now says
     // for how long the answer holds, and closes the call off.

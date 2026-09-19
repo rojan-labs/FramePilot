@@ -62,8 +62,10 @@ pay no per-frame cost.
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Callable, Mapping, Sequence
+from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, cast
@@ -105,6 +107,11 @@ from framepilot_engine.render.captions import (
     render_caption_image,
     resolve_caption_cue,
 )
+from framepilot_engine.render.clip_blur import (
+    CLIP_BLUR_EFFECT_TYPE,
+    apply_clip_blur,
+    clip_blur_amount,
+)
 from framepilot_engine.render.color import (
     CubeLut,
     apply_color_grade,
@@ -112,16 +119,73 @@ from framepilot_engine.render.color import (
     color_grade_from_params,
     parse_cube_lut,
 )
+from framepilot_engine.render.edge_styles import (
+    EdgeStyleRefusal,
+    apply_edge_styles,
+    clip_edge_styles,
+    edge_distance_scale,
+)
 from framepilot_engine.render.frame_effects import apply_effect_layers
-from framepilot_engine.render.masks import (
-    has_mask_keyframes,
-    mask_spec_at,
-    mask_spec_from_params,
-    rasterize_mask,
+from framepilot_engine.render.frame_masks import layer_mask_stack
+from framepilot_engine.render.frame_plan import (
+    back_to_front,
+    caption_tracks,
+    clips_in_sequence,
+    fit_scale,
+    layer_matte_sources,
+    layer_opacity_at,
+    layer_position_at,
+    layer_scale_at,
+    legacy_transition,
+    live_catalog_transitions,
+    picture_effects,
+    text_overlay_text,
+    transition_underlays,
+    underlay_material,
+    uses_legacy_transition_path,
+    video_source_time,
+)
+from framepilot_engine.render.frame_plan import (
+    clip_kind as clip_kind,
+)
+from framepilot_engine.render.frame_plan import (
+    transition_underlay_window as transition_underlay_window,
+)
+from framepilot_engine.render.key_mask import despill
+from framepilot_engine.render.layer_mattes import (
+    LayerMatteFrame,
+    LayerMatteRefusal,
+    LayerMatteResolver,
+    PicturePlacement,
+    assert_layer_sources,
+)
+from framepilot_engine.render.mask_stack import (
+    ClipMaskStacks,
+    MaskStackRefusal,
+    clip_mask_stacks,
+    mix_by_alpha,
+)
+from framepilot_engine.render.matte_edges import decontaminate
+from framepilot_engine.render.matte_media import assert_media_unchanged
+from framepilot_engine.render.mattes import (
+    MatteFrame,
+    MatteReader,
+    MatteRefusal,
+    PreparedMatte,
+    assert_frames_align,
+    prepare_matte,
 )
 from framepilot_engine.render.presets import ExportPreset
+from framepilot_engine.render.pts_reader import (
+    VideoTiming,
+    VideoTimingError,
+    reader_frame_index,
+    use_pts_reader,
+    video_timing,
+)
 from framepilot_engine.render.resources import close_clip_tree
-from framepilot_engine.render.text_overlay import render_text_overlay_image, text_overlay_layout
+from framepilot_engine.render.text_overlay import rasterize_text_overlay, text_overlay_layout
+from framepilot_engine.render.tracks import TrackArtifact, TrackRefusal, prepare_track
 from framepilot_engine.safety import PathTraversalError, resolve_within
 from framepilot_engine.timeline.models import (
     Clip,
@@ -137,20 +201,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 _RENDERABLE = {TrackType.VIDEO, TrackType.AUDIO}
 _PICTURE_KINDS = frozenset({"video", "image"})
-
-
-def clip_kind(clip: Clip, asset_kinds: Mapping[str, str | None]) -> str:
-    """Derive a clip's renderable kind from its asset (or synthetic id)."""
-    if clip.asset_id == "__text__":
-        return "text"
-    if clip.asset_id == "__caption__":
-        return "caption"
-    kind = asset_kinds.get(clip.asset_id)
-    if kind == "audio":
-        return "audio"
-    if kind == "image":
-        return "image"
-    return "video"
 
 
 def _asset_kinds_from_project(project: Project) -> dict[str, str | None]:
@@ -408,22 +458,12 @@ def _compile_text_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int])
     it had, and render fifteen static ones. An operation that lands in the timeline and
     renders as nothing is the "never fake success" invariant broken from the far end.
     """
-    text_effect = next((e for e in clip.effects if e.type == "text"), None)
-    text = str(text_effect.params.get("text", "")) if text_effect is not None else ""
-    if not text.strip():
+    content = text_overlay_text(clip)
+    if content is None:
         return None
-    style_params = text_effect.params if text_effect is not None else {}
+    text, style_params = content
     layout = text_overlay_layout(style_params, target[0], target[1])
-    image = render_text_overlay_image(
-        text,
-        target[0],
-        target[1],
-        font_size=layout.font_size,
-        color=layout.color,
-        max_width=layout.box_width,
-        align=layout.align,
-        background=layout.background,
-    )
+    image = rasterize_text_overlay(text, style_params, target[0], target[1])
     layer = image_clip_cls(image, transparent=True).with_duration(clip.end - clip.start)
     placed = _place_video_clip(
         layer, clip, target, None, fit_to_frame=False, centre=(layout.centre_x, layout.centre_y)
@@ -454,7 +494,7 @@ def _place_video_clip(
     """
     target_w, target_h = target
     clip_w, clip_h = source.size
-    base_scale: float = float(min(target_w / clip_w, target_h / clip_h)) if fit_to_frame else 1.0
+    base_scale = fit_scale((clip_w, clip_h), target, fit_to_frame=fit_to_frame)
     centre_x, centre_y = centre if centre is not None else (target_w / 2, target_h / 2)
     geo_transition = transition is not None and transitions.affects_geometry(transition)
     if not has_rendered_transform(clip) and not geo_transition:
@@ -465,28 +505,15 @@ def _place_video_clip(
         height = clip_h * base_scale
         return placed.with_position((centre_x - width / 2, centre_y - height / 2))
 
-    def effective_scale(t: float) -> float:
-        scale = evaluate_clip_transform(clip, t).scale
-        if transition is not None and geo_transition:
-            scale *= transitions.scale_at(transition, t)
-        return scale
-
+    # The arithmetic lives in `frame_plan` so the plan the preview is tested against and the
+    # export are one computation, not two that agree today.
     def scale_at(t: float) -> float:
-        return base_scale * effective_scale(t)
+        return base_scale * layer_scale_at(clip, t, transition)
 
     def position_at(t: float) -> tuple[float, float]:
-        transform = evaluate_clip_transform(clip, t)
-        scale = base_scale * effective_scale(t)
-        width = clip_w * scale
-        height = clip_h * scale
-        dx, dy = (
-            transitions.offset_at(transition, t, target_w, target_h)
-            if transition is not None and geo_transition
-            else (0.0, 0.0)
+        return layer_position_at(
+            clip, t, (clip_w, clip_h), base_scale, target, (centre_x, centre_y), transition
         )
-        pos_x = centre_x - width / 2 + transform.x + dx
-        pos_y = centre_y - height / 2 + transform.y + dy
-        return (pos_x, pos_y)
 
     placed = source.resized(scale_at)
     if ROTATION in animated_properties(clip):
@@ -494,85 +521,9 @@ def _place_video_clip(
     return placed.with_position(position_at)
 
 
-#: How close two clips must sit to count as one cut. A frame at 240fps is ~4ms, so this is
-#: below any real edit boundary while still absorbing float noise.
-#:
-#: What it absorbs, precisely (ADR 0146). Edit points authored from now on ARE quantized —
-#: ``packages/editor-core/src/frame-grid.ts`` snaps them when the patch is committed, and
-#: ``frame_grid.py`` mirrors that rule so this side can assert it rather than invent a
-#: second one. Two things still land a hair off an exact frame boundary and both are real:
-#: a project authored BEFORE that ADR keeps its times until an edit touches them, and a
-#: frame at a rational rate (1/24, 1001/30000) has no exact binary representation, so
-#: arithmetic over it drifts by units in the last place. This tolerance covers both. It is
-#: not a substitute for the grid, and it no longer stands in for the absence of one.
-_CUT_ADJACENCY_TOLERANCE = 1e-3
-
-#: How much of a neighbour's handle a transition under-layer may borrow, as a multiple of
-#: the ramp itself. Slightly over 1 so a rounding error at the tail cannot leave the last
-#: frame of the ramp uncovered.
-_UNDERLAY_HANDLE_SLACK = 1.05
-
-
-def transition_underlay_window(
-    clip: Clip, neighbour: Clip, role: str
-) -> tuple[float, float] | None:
-    """The sequence span a transition on ``clip`` needs picture underneath it.
-
-    A transition is stamped on butt-joined clips as an effect, not as an overlap: the
-    incoming clip animates in over its own first ``in_seconds``, by which time the outgoing
-    clip has already ended. Nothing is beneath it, so the reveal composites against the
-    black background — a "cross dissolve" dissolves up from black, and a whip pan whips in
-    over black. Both were reported by the perceptual reviewer as "unexpected black frames"
-    at every cut, and no proposal the agent could make would fix them, because the fault is
-    here.
-
-    :param clip: The clip carrying the transition effect.
-    :param neighbour: The clip on the other side of the cut.
-    :param role: ``"in"`` (ramp after the cut, on the incoming clip) or ``"out"``.
-    :returns: ``(start, end)`` in sequence seconds, or ``None`` when the two clips are not
-        actually adjacent (a transition on a non-cut renders nothing and needs no underlay).
-    """
-    transition = transitions.resolve_from_clip(clip, role)
-    if transition is None or transition.is_cut or transition.duration <= 0.0:
-        return None
-    in_seconds, out_seconds = transitions.transition_window(
-        transition.alignment, transition.duration
-    )
-    span = in_seconds if role == "in" else out_seconds
-    if span <= 0.0:
-        return None
-    if role == "in":
-        # The outgoing clip must end where this one begins, or there is no cut here.
-        if abs(neighbour.end - clip.start) > _CUT_ADJACENCY_TOLERANCE:
-            return None
-        return (clip.start, min(clip.end, clip.start + span))
-    if abs(clip.end - neighbour.start) > _CUT_ADJACENCY_TOLERANCE:
-        return None
-    return (max(clip.start, clip.end - span), clip.end)
-
-
-def _transition_neighbour(
-    clip: Clip,
-    role: str,
-    adjacent: Clip | None,
-    by_id: Mapping[str, Clip],
-) -> Clip | None:
-    """The clip a transition on ``clip`` is transitioning with, or ``None``.
-
-    The effect names its counterpart (``fromClipId`` on the incoming half, ``toClipId`` on
-    the outgoing one), and that name is authoritative — it is what the operation validated
-    against. Sequence adjacency is only the fallback for a hand-written project whose params
-    omit it.
-    """
-    wanted = "transition" if role == "in" else transitions.TRANSITION_OUT_EFFECT_TYPE
-    effect = next((entry for entry in clip.effects if entry.type == wanted), None)
-    if effect is None:
-        return None
-    key = "fromClipId" if role == "in" else "toClipId"
-    named = effect.params.get(key)
-    if isinstance(named, str) and named in by_id:
-        return by_id[named]
-    return adjacent
+# The cut-adjacency tolerance, under-layer windows, neighbour lookup and handle slack live
+# in `frame_plan` (see `transition_underlays` / `underlay_material`), which the compile loop
+# below consumes, so the frame plan and the export cannot place an under-layer differently.
 
 
 def _underlay_layer(
@@ -586,6 +537,7 @@ def _underlay_layer(
     lut_base_dir: Path,
     max_decode_dimension: int | None,
     opened: list[Any],
+    pixel_aspect_ratio: float = 1.0,
 ) -> Any:
     """Build the picture that sits UNDER a transition ramp, from the neighbour's handle.
 
@@ -602,38 +554,23 @@ def _underlay_layer(
     :param opened: The compiler's resource ledger; everything opened here is appended so a
         failed compile still closes it.
     """
-    start, end = window
-    span = end - start
-    reader = _open_source_reader(video_file_clip_cls, path, max_decode_dimension)
+    start, _end = window
+    reader = _open_source_reader(
+        video_file_clip_cls, path, max_decode_dimension, None, pixel_aspect_ratio
+    )
     opened.append(reader)
-    source_duration = float(reader.duration)
-    borrow = span * _UNDERLAY_HANDLE_SLACK
-    if role == "in":
-        # Continue past the out-point, if the asset has anything left there. An absent
-        # `source_end` means the clip plays to the END of its asset, so there is no handle at
-        # all — reading it as 0.0 would put the asset's OPENING under the cut, which is the
-        # right shot at emphatically the wrong moment.
-        handle_start = (
-            float(neighbour.source_end) if neighbour.source_end is not None else source_duration
-        )
-        available = max(0.0, source_duration - handle_start)
-        edge_time = max(0.0, min(handle_start, source_duration - _CUT_ADJACENCY_TOLERANCE))
-    else:
-        # Roll back before the in-point, if there is anything before it.
-        handle_start = max(0.0, float(neighbour.source_start) - borrow)
-        available = float(neighbour.source_start) - handle_start
-        edge_time = max(
-            0.0,
-            min(float(neighbour.source_start), source_duration - _CUT_ADJACENCY_TOLERANCE),
-        )
+    # Which handle (past the out-point for "in", before the in-point for "out") and whether
+    # any is left is decided in `frame_plan.underlay_material`, the same call the plan makes.
+    plan = underlay_material(neighbour, role, window, float(reader.duration))
+    span = plan.span
 
-    if available >= span:
-        material = reader.subclipped(handle_start, handle_start + span)
+    if plan.mode == "subclip":
+        material = reader.subclipped(plan.handle_start, plan.handle_start + span)
     else:
         # No handle left (the neighbour is cut to the very edge of its asset). Hold its edge
         # frame rather than reveal black: a held frame under a fast ramp reads as continuous;
         # black reads as a flash, which is the defect this exists to remove.
-        held = image_clip_cls(reader.get_frame(edge_time)).with_duration(span)
+        held = image_clip_cls(reader.get_frame(plan.edge_time)).with_duration(span)
         opened.append(held)
         material = held
 
@@ -668,18 +605,439 @@ def _apply_transition_blur(
     return source.transform(blurred, keep_duration=True)
 
 
+def _pixel_aspect_ratio(project: Project, clip: Clip) -> float:
+    """The clip asset's probed pixel aspect ratio (1 when square or unprobed)."""
+    asset = next((a for a in project.assets if a.id == clip.asset_id), None)
+    media = asset.media if asset is not None else None
+    par = media.pixel_aspect_ratio if media is not None else None
+    return float(par) if par else 1.0
+
+
+def _asset_media_size(project: Project, clip: Clip) -> tuple[float, float] | None:
+    """The clip asset's display-corrected ``(width, height)`` masks are measured in (v22).
+
+    Pixel aspect ratio and rotation applied (``AssetMedia.display_size``), matching
+    ``editor-core`` ``assetDisplaySize``. The mask becomes fractions of this size and is
+    drawn over the decoded frame: MoviePy decodes a rotated stream already turned, and a
+    horizontal PAR stretch leaves a fraction of the width unchanged, so the fractions land
+    on the same picture points the editor drew them on.
+    """
+    asset = next((a for a in project.assets if a.id == clip.asset_id), None)
+    media = asset.media if asset is not None else None
+    return media.display_size() if media is not None else None
+
+
+def _clip_mask_stacks(
+    clip: Clip,
+    media_size: tuple[float, float] | None,
+    mattes: dict[str, Callable[[float], MatteFrame]] | None = None,
+    decoded_size: tuple[int, int] | None = None,
+    tracks: dict[str, Any] | None = None,
+    layer_mattes: Callable[[Any, float, int, int], tuple[LayerMatteFrame, PicturePlacement]]
+    | None = None,
+    placements: Callable[[float, int, int], tuple[PicturePlacement, tuple[int, int]]] | None = None,
+) -> ClipMaskStacks | None:
+    """The clip's v22 mask stacks, or a :class:`CompileError` naming why export refuses one."""
+    try:
+        return clip_mask_stacks(
+            clip, media_size, mattes, decoded_size, tracks, layer_mattes, placements
+        )
+    except MaskStackRefusal as exc:
+        raise CompileError(str(exc)) from exc
+
+
+def picture_placement_at(
+    clip: Clip,
+    t: float,
+    size: tuple[int, int],
+    target: tuple[int, int],
+    transition: transitions.Transition | None,
+) -> PicturePlacement:
+    """Where :func:`_place_video_clip` lands a clip's ``size`` picture at clip-local ``t``.
+
+    The same decisions, as integers: MoviePy's ``Resize`` truncates ``size * scale``,
+    ``compute_position`` truncates the position (``"center"`` is ``(W - w) / 2``), and rotation is
+    PIL's counter-clockwise angle, applied only when the clip animates rotation. A track matte
+    (MK8.2) needs this to know which frame pixel each of the clip's pixels lands on.
+    """
+    clip_w, clip_h = size
+    target_w, target_h = target
+    base_scale = fit_scale((clip_w, clip_h), target, fit_to_frame=True)
+    geo_transition = transition is not None and transitions.affects_geometry(transition)
+    if not has_rendered_transform(clip) and not geo_transition:
+        width, height = (
+            (clip_w, clip_h)
+            if base_scale == 1.0
+            else (int(clip_w * base_scale), int(clip_h * base_scale))
+        )
+        return PicturePlacement(
+            clip_w,
+            clip_h,
+            width,
+            height,
+            0.0,
+            int((target_w - width) / 2),
+            int((target_h - height) / 2),
+        )
+    scale = base_scale * layer_scale_at(clip, t, transition)
+    x, y = layer_position_at(
+        clip, t, (clip_w, clip_h), base_scale, target, (target_w / 2, target_h / 2), transition
+    )
+    rotation = (
+        float(evaluate_clip_transform(clip, t).rotation)
+        if ROTATION in animated_properties(clip)
+        else 0.0
+    )
+    return PicturePlacement(
+        clip_w, clip_h, int(clip_w * scale), int(clip_h * scale), rotation, int(x), int(y)
+    )
+
+
+def _frame_placement_binding(
+    clip: Clip,
+    target: tuple[int, int],
+    transition: transitions.Transition | None,
+) -> Callable[[float, int, int], tuple[PicturePlacement, tuple[int, int]]]:
+    """Where a clip's raster lands on the frame at clip-local ``t``, and the frame's size (MK9.1).
+
+    A frame-space clip mask is drawn on the output frame and read back through this placement,
+    the same one a track matte uses, so it stays fixed on the frame as the picture moves.
+    """
+
+    def placement_at(t: float, width: int, height: int) -> tuple[PicturePlacement, tuple[int, int]]:
+        return picture_placement_at(clip, t, (width, height), target, transition), target
+
+    return placement_at
+
+
+def _layer_matte_binding(
+    resolver: LayerMatteResolver,
+    clip: Clip,
+    target: tuple[int, int],
+    transition: transitions.Transition | None,
+) -> Callable[[Any, float, int, int], tuple[LayerMatteFrame, PicturePlacement]]:
+    """A clip's track mattes at clip-local ``t``: the source frame and this clip's placement."""
+
+    def matte_at(
+        mask: Any, t: float, width: int, height: int
+    ) -> tuple[LayerMatteFrame, PicturePlacement]:
+        frame = resolver.frame_at(mask.source, clip.start + t)
+        return frame, picture_placement_at(clip, t, (width, height), target, transition)
+
+    return matte_at
+
+
+_log = logging.getLogger(__name__)
+
+#: Per clip id, per matte mask id: the artifact that passed its pre-render checks.
+PreparedMattes = dict[str, dict[str, PreparedMatte]]
+
+#: Per clip id, per tracked mask id: the transform track that passed its pre-render checks.
+PreparedTracks = dict[str, dict[str, TrackArtifact]]
+
+
+def _prepare_clip_tracks(clip: Clip, base_dir: Path) -> dict[str, TrackArtifact]:
+    """Check every tracked mask on ``clip`` (file, digest, document, method) (MK7.1)."""
+    prepared: dict[str, TrackArtifact] = {}
+    for mask in clip.masks or []:
+        if not mask.enabled or mask.tracking is None:
+            continue
+        try:
+            prepared[mask.id] = prepare_track(mask, clip, base_dir)
+        except TrackRefusal as exc:
+            raise CompileError(str(exc)) from exc
+    return prepared
+
+
+def _prepare_clip_mattes(project: Project, clip: Clip, base_dir: Path) -> dict[str, PreparedMatte]:
+    """Check every enabled matte on ``clip`` (files, digests, format, size, coverage) (BR2.3)."""
+    asset = next((a for a in project.assets if a.id == clip.asset_id), None)
+    media = asset.media if asset is not None else None
+    prepared: dict[str, PreparedMatte] = {}
+    for mask in clip.masks or []:
+        if not mask.enabled or mask.kind != "matte":
+            continue
+        try:
+            prepared[mask.id] = prepare_matte(mask, clip, base_dir, media, float(project.fps))
+        except MatteRefusal as exc:
+            raise CompileError(str(exc)) from exc
+    return prepared
+
+
+def _export_source_frames(
+    clip: Clip, reader: Any, output_fps: float, source_fps: float, asset_duration: float | None
+) -> list[int]:
+    """Every decode-order source frame the export reads for ``clip`` at ``output_fps``.
+
+    The composite samples ``t = k / fps`` and a layer plays for ``start <= t < end``; each
+    sample reads the frame :func:`reader_frame_index` names for :func:`video_source_time`
+    (by pts on a variable-rate source).
+    """
+    first = math.ceil(clip.start * output_fps - 1e-9)
+    frames: list[int] = []
+    k = first
+    while k / output_fps < clip.end:
+        local = k / output_fps - clip.start
+        frame = reader_frame_index(
+            reader, video_source_time(clip, local, source_fps, asset_duration), source_fps
+        )
+        if frame is not None:
+            frames.append(frame)
+        k += 1
+    return frames
+
+
+def _source_timing(reader: Any) -> VideoTiming | None:
+    """The opened source's frame timestamps, or ``None`` when they cannot be listed."""
+    filename = getattr(reader, "filename", None)
+    if not isinstance(filename, str):
+        return None
+    try:
+        return video_timing(filename)
+    except (VideoTimingError, OSError) as exc:
+        _log.warning("could not list frame timestamps of %s: %s", Path(filename).name, exc)
+        return None
+
+
+def _bind_mattes(
+    clip: Clip,
+    prepared: dict[str, PreparedMatte],
+    reader: Any,
+    output_fps: float,
+    opened: list[Any],
+) -> dict[str, Callable[[float], MatteFrame]]:
+    """Open a :class:`MatteReader` per matte and bind "frame at clip-relative ``t``" to it.
+
+    Before any frame renders, every source frame the export will read is checked against the
+    artifact (:func:`assert_frames_align`): a matte that cannot be proven frame-exact refuses.
+    """
+    if not prepared:
+        return {}
+    source_fps = float(reader.fps)
+    asset_duration = float(reader.duration) if reader.duration is not None else None
+    frames = sorted(
+        set(_export_source_frames(clip, reader, output_fps, source_fps, asset_duration))
+    )
+    timing = _source_timing(reader)
+    bound: dict[str, Callable[[float], MatteFrame]] = {}
+    for mask_id, matte in prepared.items():
+        try:
+            assert_frames_align(matte, frames, timing)
+            filename = getattr(reader, "filename", None)
+            if isinstance(filename, str):
+                assert_media_unchanged(matte, filename)
+        except MatteRefusal as exc:
+            raise CompileError(str(exc)) from exc
+        mask = next(m for m in clip.masks or [] if m.id == mask_id)
+        want_foreground = bool(getattr(mask, "decontaminate", False))
+        matte_reader = MatteReader(matte, want_foreground=want_foreground)
+        opened.append(matte_reader)
+
+        def frame_at(t: float, matte_reader: MatteReader = matte_reader) -> MatteFrame:
+            source_time = video_source_time(clip, t, source_fps, asset_duration)
+            frame = reader_frame_index(reader, source_time, source_fps)
+            if frame is None:  # pragma: no cover - fps is known once a reader is open
+                raise CompileError(f"Clip {clip.id!r}: the matte frame could not be resolved.")
+            return matte_reader.frame_for_source_frame(frame)
+
+        bound[mask_id] = frame_at
+    _log.debug(
+        "clip %s: %d matte reader(s) over %d source frames", clip.id, len(bound), len(frames)
+    )
+    return bound
+
+
+def _apply_matte_decontamination(source: VideoClip, stacks: ClipMaskStacks | None) -> VideoClip:
+    """Replace edge colour with each matte's foreground estimate before any effect or alpha."""
+    if stacks is None:
+        return source
+    cleaning = [mask for mask in stacks.matte_masks() if mask.decontaminate]
+    if not cleaning:
+        return source
+    clip = stacks.clip
+
+    def cleaned(get_frame: Callable[[float], np.ndarray], t: float) -> np.ndarray:
+        picture = get_frame(t)
+        for mask in reversed(cleaning):
+            matte = stacks.mattes[str(mask.id)](t)
+            if matte.foreground is None:  # pragma: no cover - reader opened with foreground
+                continue
+            picture = decontaminate(
+                picture, matte.alpha, matte.maximum, matte.foreground, clip, stacks.decoded_size
+            )
+        return picture
+
+    return source.transform(cleaned, keep_duration=True)
+
+
+def _apply_key_despill(source: VideoClip, stacks: ClipMaskStacks | None) -> VideoClip:
+    """Pull the backing colour out of the picture for every key asking for despill (MK6.1).
+
+    Applied AFTER the stack has been attached, deliberately: the qualifier has to read the
+    colour the camera recorded, and a limiter that ran first would have already taken the green
+    it is looking for. This is the same order a hardware keyer uses — extract, then suppress —
+    and it is why despill is a stage of its own rather than a step inside the qualifier.
+    """
+    if stacks is None:
+        return source
+    despilling = stacks.despilling_keys()
+    if not despilling:
+        return source
+
+    def cleaned(get_frame: Callable[[float], np.ndarray], t: float) -> np.ndarray:
+        picture = get_frame(t)
+        for mask in reversed(despilling):
+            picture = despill(picture, str(mask.despill))
+        return picture
+
+    return source.transform(cleaned, keep_duration=True)
+
+
+def _refuse_unrenderable_edge_styles(clip: Clip, media_size: tuple[float, float] | None) -> None:
+    """Refuse a malformed edge style, or one whose lengths cannot be scaled (MK9.2)."""
+    try:
+        styles = clip_edge_styles(clip)
+    except EdgeStyleRefusal as exc:
+        raise CompileError(str(exc)) from exc
+    if styles and media_size is None:
+        raise CompileError(
+            f"Edge styles on clip {clip.id!r} are sized in source pixels but the media size is "
+            "unknown. Measure this media first."
+        )
+
+
+def _apply_edge_styles(
+    source: VideoClip,
+    clip: Clip,
+    stacks: ClipMaskStacks | None,
+    media_size: tuple[float, float] | None,
+    transition: transitions.Transition | None,
+) -> VideoClip:
+    """Draw the clip's cut-out edge styles (outline, glow, shadow) under its picture (MK9.2).
+
+    After the stack is attached and despilled: the styles read the alpha-target stack (the
+    cut-out) and the picture goes over them, so the picture keeps every pixel it had. A static
+    stack is evaluated once and reused.
+    """
+    styles = clip_edge_styles(clip)
+    if not styles or stacks is None or not stacks.alpha or media_size is None:
+        return source
+    width, height = source.size
+    scale = edge_distance_scale(clip, media_size, width, height)
+    existing_mask = source.mask
+    keyed = stacks.alpha_needs_picture
+    memo: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    # The cut-out is reused when the stack does not move; opacity is read per instant anyway.
+    static = not stacks.alpha_animated
+    static_cut: list[Any] = []
+
+    def evaluate(t: float, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        key = round(t * 1_000_000)
+        hit = memo.get(key)
+        if hit is not None:
+            return hit
+        alpha = (
+            np.ones((height, width), dtype=np.float64)
+            if existing_mask is None
+            else np.asarray(existing_mask.get_frame(t), dtype=np.float64)
+        )
+        if static and static_cut:
+            cut = static_cut[0]
+        else:
+            picture = (lambda: source.get_frame(t)) if keyed else None
+            cut = stacks.alpha_at(t, width, height, picture)
+            if static:
+                static_cut.append(cut)
+        result = apply_edge_styles(
+            np.asarray(frame, dtype=np.uint8),
+            alpha,
+            cut,
+            styles,
+            scale,
+            layer_opacity_at(clip, t, transition),
+        )
+        if len(memo) > 2:
+            memo.clear()
+        memo[key] = result
+        return result
+
+    def picture_at(get_frame: Callable[[float], np.ndarray], t: float) -> np.ndarray:
+        return evaluate(t, get_frame(t))[0]
+
+    styled = source.transform(picture_at, keep_duration=True)
+
+    def alpha_at(t: float) -> Any:
+        return evaluate(t, source.get_frame(t))[1]
+
+    from moviepy import VideoClip as _VideoClip
+
+    mask = _VideoClip(frame_function=alpha_at, is_mask=True).with_duration(source.duration)
+    _log.debug("edge styles on clip %s: %s", clip.id, ",".join(style.kind for style in styles))
+    return styled.with_mask(mask)
+
+
+def _refuse_unrenderable_masks(
+    project: Project, base_dir: Path | None = None
+) -> tuple[PreparedMattes, PreparedTracks]:
+    """Refuse, before any reader opens, a mask stack the export cannot draw faithfully.
+
+    With ``base_dir`` (the project directory) every enabled matte's artifact and every tracked
+    mask's transform track is checked too, and the artifacts that passed are returned for the
+    compile to open.
+    """
+    prepared: PreparedMattes = {}
+    tracks: PreparedTracks = {}
+    kinds = _asset_kinds_from_project(project)
+    # MK8.2: a track matte whose source is missing, holds no picture, or loops back refuses here.
+    try:
+        assert_layer_sources(project)
+    except LayerMatteRefusal as exc:
+        raise CompileError(str(exc)) from exc
+    for track in project.timeline.tracks:
+        for layer in track.effect_layers or []:
+            # MK5.2: an adjustment lane's stack is in frame pixels on the layer's own clock;
+            # `apply_effect_layers` mixes it. What it cannot draw refuses here, before a frame.
+            try:
+                layer_mask_stack(layer)
+            except MaskStackRefusal as exc:
+                raise CompileError(str(exc)) from exc
+        if track.type != TrackType.VIDEO or track.hidden:
+            continue
+        for clip in track.clips:
+            # Only video clips draw their stack (stills are placed without crop or mask).
+            if clip.masks and kinds.get(clip.asset_id) == "video":
+                _clip_mask_stacks(clip, _asset_media_size(project, clip))
+                _refuse_unrenderable_edge_styles(clip, _asset_media_size(project, clip))
+                if base_dir is not None:
+                    matte = _prepare_clip_mattes(project, clip, base_dir)
+                    if matte:
+                        prepared[clip.id] = matte
+                    tracked = _prepare_clip_tracks(clip, base_dir)
+                    if tracked:
+                        tracks[clip.id] = tracked
+    return prepared, tracks
+
+
 def _attach_mask(
-    source: VideoClip, clip: Clip, transition: transitions.Transition | None
+    source: VideoClip,
+    clip: Clip,
+    transition: transitions.Transition | None,
+    media_size: tuple[float, float] | None = None,
+    stacks: ClipMaskStacks | None = None,
 ) -> VideoClip:
     width, height = source.size
-    mask_effect = next((e for e in clip.effects if e.type == "mask"), None)
-    geometry_animated = mask_effect is not None and has_mask_keyframes(mask_effect)
+    # Schema v22: the clip's alpha-target mask stack, drawn by the exact rasteriser
+    # (render/mask_stack.py, ADR 0178); a stack export cannot draw refuses before rendering.
+    if stacks is None:
+        stacks = _clip_mask_stacks(clip, media_size)
+    alpha_stack = stacks if stacks is not None and stacks.alpha else None
+    geometry_animated = alpha_stack is not None and alpha_stack.alpha_animated
     opacity_animated = OPACITY in animated_properties(clip)
     fade_transition = transition is not None and transitions.affects_opacity(transition)
     wipe_transition = transition is not None and transitions.affects_wipe(transition)
     static_opacity = evaluate_clip_transform(clip, 0.0).opacity
     nothing_to_mask = (
-        mask_effect is None
+        alpha_stack is None
         and not opacity_animated
         and not fade_transition
         and not wipe_transition
@@ -689,11 +1047,7 @@ def _attach_mask(
         return source
 
     def opacity_at(t: float) -> float:
-        opacity = evaluate_clip_transform(clip, t).opacity
-        if fade_transition:
-            assert transition is not None
-            opacity *= transitions.opacity_at(transition, t)
-        return opacity
+        return layer_opacity_at(clip, t, transition)
 
     if wipe_transition:
         assert transition is not None
@@ -705,17 +1059,18 @@ def _attach_mask(
             fracs = 1.0 - fracs
         sweep_fracs = fracs.reshape((1, extent)) if wipe_axis == "x" else fracs.reshape((extent, 1))
 
+    # MK6.1: a key mask reads the clip's own picture at the instant it is drawn, so the mask
+    # clip must ask the source for that frame — and can never be drawn once and reused.
+    keyed = alpha_stack is not None and alpha_stack.alpha_needs_picture
+
     def alpha_at(t: float) -> Any:
         opacity = opacity_at(t)
-        if mask_effect is None:
+        picture = (lambda: source.get_frame(t)) if keyed else None
+        stacked = None if alpha_stack is None else alpha_stack.alpha_at(t, width, height, picture)
+        if stacked is None:
             alpha = np.full((height, width), opacity, dtype=np.float64)
         else:
-            spec = (
-                mask_spec_at(mask_effect, t)
-                if geometry_animated
-                else mask_spec_from_params(mask_effect.params)
-            )
-            alpha = rasterize_mask(spec, width, height) * opacity
+            alpha = stacked * opacity
         if wipe_transition:
             assert transition is not None
             reveal = transitions.wipe_progress_at(transition, t)
@@ -725,7 +1080,9 @@ def _attach_mask(
             alpha = alpha * wipe_band
         return alpha
 
-    time_varying = geometry_animated or opacity_animated or fade_transition or wipe_transition
+    time_varying = (
+        geometry_animated or opacity_animated or fade_transition or wipe_transition or keyed
+    )
     if time_varying:
         from moviepy import VideoClip as _VideoClip
 
@@ -737,22 +1094,11 @@ def _attach_mask(
     return source.with_mask(mask)
 
 
-def _uses_legacy_transition_path(clip: Clip) -> bool:
-    effect = next((e for e in clip.effects if e.type == "transition"), None)
-    if effect is None or effect.params.get("disabled") is True:
-        return False
-    kind = str(effect.params.get("kind", ""))
-    return transitions.is_legacy_kind(kind) and transitions.read_alignment(effect.params) == "start"
+_uses_legacy_transition_path = uses_legacy_transition_path
 
 
 def _apply_catalog_transition(source: VideoClip, clip: Clip, use_legacy: bool) -> VideoClip:
-    incoming = None if use_legacy else transitions.resolve_from_clip(clip, "in")
-    outgoing = transitions.resolve_from_clip(clip, "out")
-    live = [
-        (role, tr)
-        for role, tr in (("out", outgoing), ("in", incoming))
-        if tr is not None and not tr.is_cut and tr.duration > 0.0
-    ]
+    live = live_catalog_transitions(clip, use_legacy)
     if not live:
         return source
 
@@ -827,17 +1173,66 @@ def _load_lut(path: Path, clip_id: str) -> CubeLut:
         raise CompileError(f"Clip {clip_id!r} has an invalid .cube LUT ({path}): {exc}") from exc
 
 
-def _apply_color_grade(source: VideoClip, clip: Clip, lut_base_dir: Path) -> VideoClip:
-    grade_effect = next((e for e in clip.effects if e.type == "color_grade"), None)
-    if grade_effect is not None:
-        grade = color_grade_from_params(grade_effect.params)
-        if not grade.is_identity:
-            source = source.image_transform(lambda frame: apply_color_grade(frame, grade))
-    lut_effect = next((e for e in clip.effects if e.type == "lut"), None)
-    if lut_effect is not None:
-        lut = _load_lut(_resolve_lut_path(lut_effect.params, lut_base_dir, clip.id), clip.id)
-        source = source.image_transform(lambda frame: apply_lut(frame, lut))
+def _apply_color_grade(
+    source: VideoClip,
+    clip: Clip,
+    lut_base_dir: Path,
+    stacks: ClipMaskStacks | None = None,
+) -> VideoClip:
+    for effect in picture_effects(clip):
+        if effect.type == "color_grade":
+            grade = color_grade_from_params(effect.params)
+            if grade.is_identity:
+                continue
+            apply: Callable[[np.ndarray], np.ndarray] = partial(apply_color_grade, grade=grade)
+        elif effect.type == CLIP_BLUR_EFFECT_TYPE:
+            if clip_blur_amount(effect.params) <= 0.0:
+                continue
+            apply = partial(apply_clip_blur, params=dict(effect.params))
+        else:
+            lut = _load_lut(_resolve_lut_path(effect.params, lut_base_dir, clip.id), clip.id)
+            apply = partial(apply_lut, lut=lut)
+        if stacks is not None and stacks.by_effect.get(effect.id):
+            source = _masked_effect(source, stacks, effect.id, apply)
+        else:
+            source = source.image_transform(apply)
     return source
+
+
+def _masked_effect(
+    source: VideoClip,
+    stacks: ClipMaskStacks,
+    effect_id: str,
+    apply: Callable[[np.ndarray], np.ndarray],
+) -> VideoClip:
+    """Apply an effect only where its mask stack lets it through (v22 effect-target masks).
+
+    The effect runs on the whole frame and is mixed with the untouched frame by the stack's
+    alpha at the clip's source instant, so a face blur or sky grade stays glued to the picture.
+    """
+    width, height = source.size
+    static_alpha = (
+        None
+        if stacks.effect_animated(effect_id)
+        else stacks.effect_alpha_at(effect_id, 0.0, width, height)
+    )
+
+    def masked(get_frame: Callable[[float], np.ndarray], t: float) -> np.ndarray:
+        frame = get_frame(t)
+        # A key limiting this effect qualifies the effect's INPUT, not its output: the editor
+        # picked the colour off the picture as it was before the effect ran.
+        alpha = (
+            static_alpha
+            if static_alpha is not None
+            else stacks.effect_alpha_at(effect_id, t, width, height, lambda: frame)
+        )
+        effected = apply(frame)
+        if alpha is None:
+            return effected
+        mixed: np.ndarray = mix_by_alpha(frame, effected, alpha)
+        return mixed
+
+    return source.transform(masked, keep_duration=True)
 
 
 def _audio_settings(clip: Clip) -> dict[str, Any]:
@@ -1028,6 +1423,11 @@ def compile_timeline(
     lut_base_dir = Path(asset_index.base_dir)
     total_clips = sum(len(track.clips) for track in project.timeline.tracks)
     prepared = 0
+    prepared_mattes, prepared_tracks = _refuse_unrenderable_masks(project, lut_base_dir)
+    # MK8.2: clips and tracks another clip reads as its track matte are rendered for the matte
+    # and never composited (the frame plan marks them `matteOnly`).
+    matte_sources = layer_matte_sources(project, asset_kinds)
+    layer_mattes = LayerMatteResolver(target)
 
     def _prepared_one() -> None:
         nonlocal prepared
@@ -1043,8 +1443,7 @@ def compile_timeline(
             track_pictures: list[tuple[Any, str | None]] = []
             # Clips in sequence order, so a transition can find the shot on the other side of
             # its cut and borrow that shot's material for the ramp (see `_underlay_layer`).
-            ordered = sorted(track.clips, key=lambda entry: entry.start)
-            by_id = {entry.id: entry for entry in ordered}
+            ordered = clips_in_sequence(track)
             for position, clip in enumerate(ordered):
                 _prepared_one()
                 kind = clip_kind(clip, asset_kinds)
@@ -1055,7 +1454,10 @@ def compile_timeline(
                     if kind == "image":
                         picture = _compile_image_clip(ImageClip, path, clip, target, lut_base_dir)
                         opened.append(picture)
-                        track_pictures.append((picture, clip.blend_mode))
+                        if matte_sources.consumes(track.id, clip.id, None):
+                            layer_mattes.add(track.id, clip.id, picture)
+                        else:
+                            track_pictures.append((picture, clip.blend_mode))
                     else:
                         # P7.5: when the clip is a plain fit — nothing animated, nothing
                         # cropped, no transition bending its geometry — its displayed size
@@ -1077,6 +1479,7 @@ def compile_timeline(
                             if max_decode_dimension is not None
                             else decode_cap_for_clip(clip, target),
                             target if static_fit else None,
+                            _pixel_aspect_ratio(project, clip),
                         )
                         opened.append(reader)
                         source = _subclipped_source(reader, clip)
@@ -1086,11 +1489,31 @@ def compile_timeline(
                             footage = _apply_audio_effects(source.audio, clip, project.timeline)
                             audio_layers.append(footage.with_start(clip.start))
                         source = source.without_audio()
-                        source = _apply_color_grade(source, clip, lut_base_dir)
-                        use_legacy = _uses_legacy_transition_path(clip)
-                        transition = transitions.transition_from_clip(clip) if use_legacy else None
+                        stacks = _clip_mask_stacks(
+                            clip,
+                            _asset_media_size(project, clip),
+                            _bind_mattes(
+                                clip, prepared_mattes.get(clip.id, {}), reader, fps, opened
+                            ),
+                            (int(reader.size[0]), int(reader.size[1])),
+                            prepared_tracks.get(clip.id, {}),
+                            _layer_matte_binding(
+                                layer_mattes, clip, target, legacy_transition(clip)
+                            ),
+                            _frame_placement_binding(clip, target, legacy_transition(clip)),
+                        )
+                        source = _apply_matte_decontamination(source, stacks)
+                        source = _apply_color_grade(source, clip, lut_base_dir, stacks)
+                        use_legacy = uses_legacy_transition_path(clip)
+                        transition = legacy_transition(clip)
                         source = _apply_transition_blur(source, transition)
-                        source = _attach_mask(source, clip, transition)
+                        source = _attach_mask(
+                            source, clip, transition, _asset_media_size(project, clip), stacks
+                        )
+                        source = _apply_key_despill(source, stacks)
+                        source = _apply_edge_styles(
+                            source, clip, stacks, _asset_media_size(project, clip), transition
+                        )
                         source = _apply_catalog_transition(source, clip, use_legacy)
                         placed = _place_video_clip(source, clip, target, transition)
                         # UNDER-LAYERS FIRST: a transition reveals the shot on the other side
@@ -1098,32 +1521,29 @@ def compile_timeline(
                         # neighbour's handle is placed beneath the ramp before the clip itself
                         # goes on top. Appended in this order because a later entry in the
                         # list composites above an earlier one.
-                        for role, neighbour in (
-                            ("in", ordered[position - 1] if position > 0 else None),
-                            ("out", ordered[position + 1] if position + 1 < len(ordered) else None),
-                        ):
-                            resolved_neighbour = _transition_neighbour(clip, role, neighbour, by_id)
-                            if resolved_neighbour is None:
-                                continue
-                            if clip_kind(resolved_neighbour, asset_kinds) != "video":
-                                continue
-                            window = transition_underlay_window(clip, resolved_neighbour, role)
-                            if window is None:
-                                continue
+                        for planned in transition_underlays(clip, position, ordered, asset_kinds):
+                            resolved_neighbour = planned.neighbour
                             underlay = _underlay_layer(
                                 VideoFileClip,
                                 ImageClip,
                                 resolved_neighbour,
-                                role,
-                                window,
+                                planned.role,
+                                planned.window,
                                 _resolve_clip_asset(resolved_neighbour, asset_index),
                                 target,
                                 lut_base_dir,
                                 max_decode_dimension,
                                 opened,
+                                _pixel_aspect_ratio(project, resolved_neighbour),
                             )
-                            track_pictures.append((underlay, resolved_neighbour.blend_mode))
-                        track_pictures.append((placed.with_start(clip.start), clip.blend_mode))
+                            if matte_sources.consumes(track.id, resolved_neighbour.id, clip.id):
+                                layer_mattes.add(track.id, clip.id, underlay)
+                            else:
+                                track_pictures.append((underlay, resolved_neighbour.blend_mode))
+                        if matte_sources.consumes(track.id, clip.id, None):
+                            layer_mattes.add(track.id, clip.id, placed.with_start(clip.start))
+                        else:
+                            track_pictures.append((placed.with_start(clip.start), clip.blend_mode))
                 elif kind == "audio":
                     if track.muted:
                         continue
@@ -1140,11 +1560,14 @@ def compile_timeline(
                     text_layer = _compile_text_clip(ImageClip, clip, target)
                     if text_layer is not None:
                         opened.append(text_layer)
-                        track_pictures.append((text_layer, clip.blend_mode))
+                        if matte_sources.consumes(track.id, clip.id, None):
+                            layer_mattes.add(track.id, clip.id, text_layer)
+                        else:
+                            track_pictures.append((text_layer, clip.blend_mode))
             picture_by_track.append(track_pictures)
 
         video_layers: list[tuple[Any, str | None]] = []
-        for track_pictures in reversed(picture_by_track):
+        for track_pictures in back_to_front(picture_by_track):
             video_layers.extend(track_pictures)
 
         if not video_layers and audio_layers:
@@ -1268,13 +1691,27 @@ def _caption_position(
     )
 
 
+def baseline_caption_position(
+    target_w: int, target_h: int, box_w: int, box_h: int
+) -> tuple[int, int]:
+    """Where an unstyled caption box is pasted: centred, in the lower safe area.
+
+    Shared with the desktop preview's text raster route, which returns the placement with the
+    raster so the monitor pastes the export's box where the export pastes it.
+    """
+    from framepilot_engine.timeline.models import CaptionStyle
+
+    margin = int(target_h * _CAPTION_BOTTOM_MARGIN_FRACTION)
+    return _caption_position(
+        CaptionStyle(position="bottom"), target_w, target_h, box_w, box_h, margin
+    )
+
+
 def _caption_layers(project: Project, target: tuple[int, int]) -> list[tuple[Any, str | None]]:
     target_w, target_h = target
     margin = int(target_h * _CAPTION_BOTTOM_MARGIN_FRACTION)
     layers: list[tuple[Any, str | None]] = []
-    for track in project.timeline.tracks:
-        if track.type != TrackType.CAPTION or track.hidden:
-            continue
+    for track in caption_tracks(project):
         for clip in track.clips:
             cue = resolve_caption_cue(clip, project.transcript)
             if not cue.text.strip():
@@ -1312,10 +1749,9 @@ def _caption_clip(
         box_w, box_h = picture.size
         placement_style = resolved
         if placement_style is None:
-            from framepilot_engine.timeline.models import CaptionStyle
-
-            placement_style = CaptionStyle(position="bottom")
-        x, y = _caption_position(placement_style, target_w, target_h, box_w, box_h, margin)
+            x, y = baseline_caption_position(target_w, target_h, box_w, box_h)
+        else:
+            x, y = _caption_position(placement_style, target_w, target_h, box_w, box_h, margin)
         return picture.with_start(clip.start).with_position((x, y))
 
     if style is not None and caption_style_is_animated(style):
@@ -1379,7 +1815,9 @@ def decode_cap_for_clip(clip: Clip, target: tuple[int, int]) -> int | None:
     return math.ceil(longest / fraction * DECODE_CAP_HEADROOM)
 
 
-def fitted_decode_size(source: tuple[int, int], target: tuple[int, int]) -> tuple[int, int] | None:
+def fitted_decode_size(
+    source: tuple[float, float], target: tuple[int, int]
+) -> tuple[int, int] | None:
     """The exact size a fit-to-frame clip is displayed at, for ffmpeg to decode straight to.
 
     A landscape 4K source in a 1080x1920 portrait frame is displayed at 1080x608. Decoding
@@ -1405,11 +1843,54 @@ def fitted_decode_size(source: tuple[int, int], target: tuple[int, int]) -> tupl
     )
 
 
+def _even(value: float) -> int:
+    """Nearest even integer (Python ``round`` on the half), at least 2: yuv420p needs even sizes."""
+    return max(2, round(value / 2) * 2)
+
+
+def _open_moviepy_reader(
+    video_file_clip_cls: Any,
+    path: str,
+    max_decode_dimension: int | None,
+    fit_target: tuple[int, int] | None = None,
+    pixel_aspect_ratio: float = 1.0,
+) -> Any:
+    """MoviePy's reader at the decode size the export needs (see :func:`_open_source_reader`)."""
+    reader = video_file_clip_cls(path)
+    width, height = reader.size
+    par = pixel_aspect_ratio if pixel_aspect_ratio and pixel_aspect_ratio > 0 else 1.0
+    # The sample aspect ratio stretches STORAGE width. ffmpeg autorotates a quarter-turned
+    # source and MoviePy swaps `size` first, so there the stretched axis is the upright height
+    # (PX2.11: stretching the upright width squashed rotated anamorphic footage).
+    rotation = abs(int(getattr(getattr(reader, "reader", None), "rotation", 0) or 0))
+    display = (width, height * par) if rotation in (90, 270) else (width * par, height)
+    anamorphic = par != 1.0
+    if fit_target is not None:
+        exact = fitted_decode_size(display, fit_target)
+        if exact is None and anamorphic:
+            exact = (_even(display[0]), _even(display[1]))
+        if exact is not None:
+            reader.close()
+            return video_file_clip_cls(path, target_resolution=exact)
+        return reader
+    longest = max(display)
+    if max_decode_dimension is None or longest <= max_decode_dimension:
+        if not anamorphic:
+            return reader
+        reader.close()
+        return video_file_clip_cls(path, target_resolution=(_even(display[0]), _even(display[1])))
+    scale = max_decode_dimension / longest
+    target = (_even(display[0] * scale), _even(display[1] * scale))
+    reader.close()
+    return video_file_clip_cls(path, target_resolution=target)
+
+
 def _open_source_reader(
     video_file_clip_cls: Any,
     path: str,
     max_decode_dimension: int | None,
     fit_target: tuple[int, int] | None = None,
+    pixel_aspect_ratio: float = 1.0,
 ) -> Any:
     """Open a source, decoding no larger than the export actually needs.
 
@@ -1418,26 +1899,29 @@ def _open_source_reader(
     ffmpeg can be asked for exactly it, leaving MoviePy's per-frame resize a no-op. Any
     clip that moves, scales or is cropped falls back to ``max_decode_dimension``, which
     keeps headroom because the zoom it reaches is not knowable here.
+
+    ``pixel_aspect_ratio`` (PX2.9, ``Asset.media.pixelAspectRatio``): MoviePy reads storage
+    pixels and ignores the sample aspect ratio, so an anamorphic source is decoded straight
+    to its display-corrected size (storage width times PAR, even-rounded) and every later stage
+    sees square pixels. ffmpeg autorotates and MoviePy swaps the size, so for a quarter-turned
+    source the stretch lands on the upright height (PX2.11).
+
+    A variable-frame-rate source (BR2.5) then reads frames by pts
+    (:func:`~framepilot_engine.render.pts_reader.use_pts_reader`); a constant-rate source keeps
+    MoviePy's reader, so its export is unchanged.
     """
-    reader = video_file_clip_cls(path)
-    if fit_target is not None:
-        exact = fitted_decode_size(reader.size, fit_target)
-        if exact is not None:
-            reader.close()
-            return video_file_clip_cls(path, target_resolution=exact)
-        return reader
-    if max_decode_dimension is None:
-        return reader
-    width, height = reader.size
-    if max(width, height) <= max_decode_dimension:
-        return reader
-    scale = max_decode_dimension / max(width, height)
-    target = (
-        max(2, round(width * scale / 2) * 2),
-        max(2, round(height * scale / 2) * 2),
+    clip = _open_moviepy_reader(
+        video_file_clip_cls, path, max_decode_dimension, fit_target, pixel_aspect_ratio
     )
-    reader.close()
-    return video_file_clip_cls(path, target_resolution=target)
+    from moviepy.video.io.ffmpeg_reader import FFMPEG_VideoReader
+
+    if not isinstance(getattr(clip, "reader", None), FFMPEG_VideoReader):
+        return clip
+    try:
+        return use_pts_reader(clip, path)
+    except (VideoTimingError, OSError) as exc:
+        _log.warning("could not check %s for a variable frame rate: %s", Path(path).name, exc)
+        return clip
 
 
 def _resolve_clip_asset(clip: Clip, asset_index: AssetIndex) -> str:

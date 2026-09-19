@@ -172,6 +172,50 @@ describe('captions', () => {
 });
 
 describe('transitions & effects', () => {
+  it('indexes a clip mask stack (schema v22) under the mask category, by mask id', () => {
+    const base = clip('c1', 'v', 'a1', 0, 5, []);
+    const p = project({
+      timeline: {
+        tracks: [
+          track('v', 'video', [
+            {
+              ...base,
+              masks: [
+                {
+                  kind: 'ellipse',
+                  id: 'c1__mask',
+                  name: '',
+                  color: '#3b82f6',
+                  enabled: true,
+                  locked: false,
+                  target: { kind: 'alpha' },
+                  mode: 'add',
+                  opacity: 1,
+                  invert: false,
+                  expansionPx: 0,
+                  featherInnerPx: 0,
+                  featherOuterPx: 0,
+                  falloff: 'smooth',
+                  featherModel: 'distance',
+                  space: 'source',
+                  keyframes: [],
+                  cx: 1,
+                  cy: 1,
+                  rx: 1,
+                  ry: 1,
+                  rotation: 0,
+                },
+              ],
+            },
+          ]),
+        ],
+      },
+    });
+    expect(buildSemanticIndex(p).effects).toEqual([
+      { clipId: 'c1', effectId: 'c1__mask', type: 'mask', category: 'mask' },
+    ]);
+  });
+
   it('separates transitions (with params) from categorized effects', () => {
     const p = project({
       timeline: {

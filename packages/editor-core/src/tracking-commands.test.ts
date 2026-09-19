@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Asset, Timeline } from '@framepilot/timeline-schema';
+import { MaskLayerSchema, type Asset, type Timeline } from '@framepilot/timeline-schema';
 import { applyPatch } from './patch.js';
 import {
   compileTrackingCommand,
@@ -7,7 +7,17 @@ import {
   type TrackingCommandCompileResult,
 } from './tracking-commands.js';
 
-const assets: Asset[] = [{ id: 'asset', path: 'shot.mp4', kind: 'video', durationSeconds: 4 }];
+const W = 1920;
+const H = 1080;
+const assets: Asset[] = [
+  {
+    id: 'asset',
+    path: 'shot.mp4',
+    kind: 'video',
+    durationSeconds: 4,
+    media: { width: W, height: H },
+  },
+];
 
 function timeline(options: { readonly locked?: boolean; readonly shape?: string } = {}): Timeline {
   return {
@@ -26,20 +36,40 @@ function timeline(options: { readonly locked?: boolean; readonly shape?: string 
             end: 4,
             sourceStart: 0,
             sourceEnd: 4,
-            effects: [
-              {
-                id: 'shot__mask',
-                type: 'mask',
-                params: {
-                  shape: options.shape ?? 'rectangle',
-                  bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
-                  feather: 0.05,
-                },
-                keyframes: [
-                  { id: 'x0', time: 0, property: 'x', value: 0.1, easing: 'linear' },
-                  { id: 'x1', time: 4, property: 'x', value: 0.4, easing: 'ease-in-out' },
-                ],
-              },
+            effects: [],
+            masks: [
+              options.shape === 'polygon'
+                ? MaskLayerSchema.parse({
+                    kind: 'path',
+                    id: 'shot__mask',
+                    pathKeyframes: [
+                      {
+                        id: 'p0',
+                        sourceTime: 0,
+                        points: [0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0],
+                        vertexTypes: [0, 0, 0],
+                      },
+                    ],
+                  })
+                : MaskLayerSchema.parse({
+                    kind: 'rectangle',
+                    id: 'shot__mask',
+                    cx: 0.25 * W,
+                    cy: 0.4 * H,
+                    width: 0.3 * W,
+                    height: 0.4 * H,
+                    featherOuterPx: 54,
+                    keyframes: [
+                      { id: 'x0', sourceTime: 0, property: 'cx', value: 0.25 * W },
+                      {
+                        id: 'x1',
+                        sourceTime: 4,
+                        property: 'cx',
+                        value: 0.55 * W,
+                        easing: 'ease-in-out',
+                      },
+                    ],
+                  }),
             ],
             keyframes: [],
           },
@@ -74,24 +104,21 @@ describe('tracking command compiler', () => {
   it('turns existing mask corrections into a reversible manual object track', () => {
     const base = timeline();
     const result = compiled(command(), base);
-    expect(result.patch.operations).toEqual([
-      expect.objectContaining({
-        type: 'track_object',
-        clipId: 'shot',
-        target: 'object',
-        engine: 'manual',
-        region: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
-        keyframes: expect.arrayContaining([
-          expect.objectContaining({ property: 'x', time: 4, value: 0.4 }),
-          expect.objectContaining({ property: 'width', time: 0, value: 0.3 }),
-        ]),
-      }),
-    ]);
+    expect(result.patch.operations).toHaveLength(1);
+    const operation = result.patch.operations[0]!;
+    if (operation.type !== 'track_object') throw new Error('expected track_object');
+    expect(operation).toMatchObject({ clipId: 'shot', target: 'object', engine: 'manual' });
+    expect(operation.region!.x).toBeCloseTo(0.1, 12);
+    expect(operation.region!.width).toBeCloseTo(0.3, 12);
+    const at = (property: string, time: number) =>
+      operation.keyframes!.find(
+        (keyframe) => keyframe.property === property && keyframe.time === time,
+      )!.value;
+    expect(at('x', 4)).toBeCloseTo(0.4, 12);
+    expect(at('width', 0)).toBeCloseTo(0.3, 12);
     const edited = applyPatch(base, result.patch);
-    expect(edited.tracks[0]!.clips[0]!.effects.map((effect) => effect.id)).toEqual([
-      'shot__mask',
-      'shot__track',
-    ]);
+    expect(edited.tracks[0]!.clips[0]!.effects.map((effect) => effect.id)).toEqual(['shot__track']);
+    expect(edited.tracks[0]!.clips[0]!.masks).toEqual(base.tracks[0]!.clips[0]!.masks);
     const restored = applyPatch(edited, result.inversePatch);
     expect({ ...restored, revision: base.revision }).toEqual(base);
   });
@@ -112,10 +139,15 @@ describe('tracking command compiler', () => {
       compileTrackingCommand({ timeline: timeline({ locked: true }), assets, command: command() }),
     ).toMatchObject({ status: 'rejected', code: 'locked_track' });
     expect(
-      compileTrackingCommand({ timeline: timeline({ shape: 'polygon' }), assets, command: command() }),
+      compileTrackingCommand({
+        timeline: timeline({ shape: 'polygon' }),
+        assets,
+        command: command(),
+      }),
     ).toMatchObject({ status: 'rejected', code: 'unsupported_mask_shape' });
     const unsafe = timeline();
-    unsafe.tracks[0]!.clips[0]!.effects[0]!.keyframes[1]!.value = 0.8;
+    const unsafeMask = unsafe.tracks[0]!.clips[0]!.masks![0]!;
+    (unsafeMask.keyframes[1] as { value: number }).value = 0.95 * W;
     expect(compileTrackingCommand({ timeline: unsafe, assets, command: command() })).toMatchObject({
       status: 'rejected',
       code: 'invalid_mask_motion',

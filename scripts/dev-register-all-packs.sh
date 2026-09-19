@@ -31,6 +31,8 @@ PACKS=(
   "subject-intelligence:dev-register-subject-intelligence.sh"
   "visual-embed:dev-register-visual-embed.sh"
   "visual-describe:dev-register-visual-describe.sh"
+  # Needs SMART_MASK_FFMPEG_DIR (an LGPL-only ffmpeg) and the exported graphs; see the script.
+  "smart-mask:dev-register-smart-mask.sh"
 )
 
 # Guard against drift: every per-pack script on disk must be listed above, or a

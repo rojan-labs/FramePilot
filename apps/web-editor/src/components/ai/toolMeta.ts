@@ -135,6 +135,20 @@ const TOOL_META: Record<string, ToolMeta> = {
   detect_subjects: { label: 'Detect subjects', Icon: Scan },
   professional_audio: { label: 'Mix audio', Icon: AudioLines },
 
+  // Masking (plan 11). Labels are the editor's words for the request, not the mechanism.
+  find_mask_targets: { label: 'Find what to mask', Icon: Scan },
+  create_mask: { label: 'Create mask', Icon: Wand2 },
+  remove_background: { label: 'Remove background', Icon: Wand2 },
+  put_text_behind_subject: { label: 'Put text behind subject', Icon: Type },
+  track_mask: { label: 'Track mask', Icon: Scan },
+  refine_mask: { label: 'Refine mask', Icon: SlidersHorizontal },
+  get_masks: { label: 'Read masks', Icon: Square },
+  delete_mask: { label: 'Delete mask', Icon: Trash2 },
+  follow_subject: { label: 'Follow subject', Icon: Scan },
+  create_shape_mask: { label: 'Create shape mask', Icon: Square },
+  mask_with_layer: { label: 'Mask with a layer', Icon: Square },
+  style_cutout_edge: { label: 'Style the cut-out edge', Icon: Scan },
+
   // Timeline edits
   trim_clip: { label: 'Trim clip', Icon: Scissors },
   split_clip: { label: 'Split clip', Icon: Scissors },
@@ -159,10 +173,8 @@ const TOOL_META: Record<string, ToolMeta> = {
   adjust_audio: { label: 'Adjust audio', Icon: Volume2 },
   add_transition: { label: 'Add transition', Icon: ArrowLeftRight },
   add_transitions: { label: 'Place transitions', Icon: ArrowLeftRight },
-  add_mask: { label: 'Add mask', Icon: Square },
   track_object: { label: 'Track object', Icon: Scan },
   set_track_flags: { label: 'Track settings', Icon: SlidersHorizontal },
-  generate_mask: { label: 'Generate mask', Icon: Wand2 },
   set_caption_style: { label: 'Style captions', Icon: Captions },
   set_track_caption_style: { label: 'Style caption track', Icon: Captions },
   discover_caption_styles: { label: 'Browse caption styles', Icon: Search },

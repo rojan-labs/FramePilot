@@ -450,3 +450,295 @@ not receive project-write access, arbitrary command execution, or unrelated prov
 Tracking and segmentation results are compiled into typed reversible project operations. The pack
 that inferred a path is recorded as provenance, but ordinary project rendering consumes the baked
 track/mask data rather than rerunning hidden inference.
+
+## Additive request fields and per-release negotiation (AM2.5)
+
+The protocol version stays 1 for additive fields, but every pack parser is strict: a pack refuses
+a request key it predates, and a host refuses a result key it predates. So an additive field is
+**opt-in by the host, per installed release**, never always-on:
+
+- The new field is optional in `worker-protocol.ts` and absent from anything an older host sends.
+- A pack emits the matching result field **only when the request asked**. Without the flag its
+  output is byte-for-byte the previous shape, so an older host never sees an unknown key.
+- The desktop host fits each request to the exact release that will answer it
+  (`negotiatePackRequest`, called in `CapabilityPackTrackingService.run` after the release is
+  resolved). An enrichment is dropped for an older release, which then answers as before; a field
+  the host cannot do without is refused as `pack_outdated` before anything spawns.
+
+| Field                                                                                     | Since                          | Older release                                      |
+| ----------------------------------------------------------------------------------------- | ------------------------------ | -------------------------------------------------- |
+| `subject.detect` `parameters.classes` → `class`, `classScore` on person/object detections | Subject Intelligence **1.1.0** | Flag dropped; detections carry the label only      |
+| `visual.embed` shot `region` (embed only that crop of the keyframe)                       | Visual Embed **1.1.0**         | Request refused as `pack_outdated`; nothing spawns |
+
+`class` is one of the pinned YOLOX-S model's 80 COCO names (`COCO_CLASS_NAMES`, mirrored by the
+worker's `coco_classes.py`; provenance in that pack's `LICENSES.md`), and `classScore` is the model's
+conditional probability for it (`confidence` stays the joint objectness × class score). A face never
+carries a class; a class without a score, a score without a class, or a name off the list is refused
+on both sides.
+
+A crop is a requirement, not an enrichment: an older Visual Embed would embed the whole frame and
+the host would score it as if it were the crop. The host runs `visual.embed` / `visual.text`
+directly (through `CapabilityPackTrackingService`) only for the AI masking colour re-ranker; shot
+ledger indexing still runs the pack through the engine. That caller passes `whenMissing: 'skip'`,
+so a missing Visual Embed answers `pack_absent` without building an install proposal.
+
+Those host runs get the same per-release cache folder the engine's runs get,
+`FRAMEPILOT_CAPABILITY_PACK_CACHE=<userData>/capability-pack-cache/<packId>/<version>` (AM2.6;
+`derivedCache` on the binding, made on demand, skipped if it cannot be made), so the pack's
+prompt-bank vectors are encoded once per install rather than on every crop request. Visual Embed
+loads each SigLIP tower on first use, on onnxruntime's CPU provider (measured on the M1 Pro:
+CoreML took 13.2 s and 6.95 GiB to load the text tower, CPU 0.55 s and 1.24 GiB); its health check
+still loads both.
+
+**Installed users get classes only after a new signed Subject Intelligence release (1.1.0), and
+crops only after a new signed Visual Embed release (1.1.0).** Signing
+and publishing it is a maintainer action (MO-1..MO-5); until then every installed pack is 1.0.0,
+the flag is negotiated away, and object requests keep asking the editor to pick.
+
+## Background removal: `subject.matte` and `subject.segment_frame`
+
+Plan: `plan/background-removal-ai/03-PROTOCOL-AND-HOST.md`. Decisions MD-3 (one host-created
+staging directory per job) and MD-4 (mattes and correction inputs are project-owned).
+
+**Protocol (`worker-protocol.ts`).** Both capabilities are new members of the version-1 unions, so
+the protocol version stays 1. A pack built before them does not list them in its handshake;
+`negotiateCapabilityPackCapability` reports `capability_absent` and the host answers with an
+install/update proposal (`pack_missing`), never a crash.
+
+- `subject.matte` request parameters: `output` (host-issued write handle: absolute staging
+  directory, the file names the worker may create, a byte ceiling), optional `inputs` (read-only
+  handle listing `corrections/<pts>.png` and `locked/<pts>.png`), `prompts` (`points`, `box`,
+  `brush`, `lock`, 1–512; a grounding candidate is resolved to boxes host-side first), optional
+  `previousArtifact` (sha256 key for a partial re-run) and `previewHeight` (180–1080). A brush or
+  lock file must be named for its own pts and listed in `inputs`; `inputs` may list nothing else.
+- Result: an `artifact` descriptor (`files[{name,bytes,sha256}]`, display-space `width`/`height`,
+  `frameCount`, `firstPts`/`lastPts`, `timeBase`), `executionProvider`, `summary` (verified,
+  flagged, locked frames and self-correction rounds; verified + flagged never exceeds the frame
+  count) and up to 4096 `needsReview` ranges with a closed reason enum.
+- Progress adds `refine`, `consensus`, `self_correct` (with `round`), `matte`, `foreground`,
+  `stabilise` and `verify`. Failures add `output_unwritable` (disk full or folder not writable)
+  and `needs_box` (BR7.5: the only prompt is one include click on a subject that runs off the
+  picture, so one click cannot say where it ends; refused before the long part of the job, never
+  answered with an invented box; the host asks the editor to drag a box with AI Object).
+- `subject.segment_frame` takes `{ pts, points?, box?, hoverPoint?, previewHeight }` and returns a
+  base64 8-bit grayscale PNG (≤ 900 000 characters) with a score. It writes nothing.
+
+**Worker client.** `CAPABILITY_PACK_OUTPUT_HANDLE_CAPABILITIES` is a closed list (`subject.matte`).
+For those, `runCapabilityPackWorker` needs `outputRoot` and refuses to launch unless the output and
+inputs directories exist, are not symlinks, and resolve strictly inside that root.
+
+### Desktop host (`apps/desktop/electron/capability-packs/matte*.ts`)
+
+**Lifecycle (`matte.ts`).** `CapabilityPackMatteService.run(intent, context)`: zod-parse the
+intent (`MatteRunIntentSchema`, no paths) → refuse a stale `timelineRevision` → resolve the asset,
+its decoded timing (packet pts, discarded packets dropped, as `render/pts_reader.py`) and content
+fingerprint → worker prompts in source pts → auto prompt when there are none → cache key → cache
+hit (host record + file digests re-hashed) → disk preflight → pack resolution (`pack_missing`
+proposal for a missing or pre-`1.0.0` Smart Mask; `pack_unhealthy`, `pack_incomplete`) → staging
+and host-written inputs → worker under a storage lease, cancellable, per-job time limit
+(30 min + 30 s/frame, ≤ 24 h), progress with ETA → verification → revision re-check → commit →
+record. A project that moved during the job returns `stale_revision`; the verified artifact is
+kept for a cached retry only if the asset is still in the saved project. Every failure removes the
+staging directory.
+
+Cache key: `sha256(canonical{pipeline, contentFingerprint, firstPts, lastPts, sorted prompts
+rounded to 1e-4 with brush/lock by PNG sha256, packId@version, releaseDigest, foreground,
+previewHeight})`. The release digest stands in for `modelDigests` (unknown before the worker
+runs); it pins the signed artifact and every model in it. The content fingerprint is size +
+sha256 of the first and last 8 MiB + the decoded pts list.
+
+**Project layout (MD-3, MD-4).**
+
+```
+<project>/.framepilot-derived/mattes/
+  <key>/                 committed artifact (only the files a mask pins)
+  .staging/<jobId>/      one host-created directory per job; inputs/{corrections,locked,previous}
+  .inputs/<sha256>.png   project-owned brush fixes and locked alpha
+  .results/<key>.json    host record: summary, review ranges, locked pts, source samples
+```
+
+Every segment is created and `lstat`-checked (a symlink anywhere refuses the job). Commit is one
+`rename`; the first commit of a key wins. The first matte call per project per session sweeps
+staging directories with no live job and older than 24 h. A partial re-run gets copy-on-write
+clones of the previous `matte.mkv`/`frames.json` in `inputs/previous/`, never a path into the store.
+
+**Verification (`matte-verify.ts`), independent of the worker's claims:** only declared, allowed,
+regular files (plus the host's `inputs/`); sizes and the byte ceiling (frames × pixels × 1.1, ×4 with
+RGB foreground, + 256 MiB); sha256 of every file; `frames.json` parsed as the engine does and equal
+to the source's decoded pts over exactly the requested frames (time base and origin included);
+ffprobe pixel format, size (the source's display size) and frame count; locked frames' decoded
+pixels bit-identical to their inputs and to the previous artifact. A check the host cannot run
+(no ffmpeg) fails closed as `verification_unavailable`. Failures return `verification_failed` with
+`verificationCode`.
+
+**Media inspector (`matte-media-inspector.ts`).** Stream facts and decoded timestamps come from the
+app's own ffprobe (`FRAMEPILOT_FFPROBE`, then the bundled engine folder, then PATH). Decoded pixels
+come from the Python sidecar, because packaged builds ship no desktop ffmpeg (BR4.13):
+`POST /mattes/frame-hashes` (sha256 of the decoded frame at each exact pts, `null` when that pts does
+not decode; at most 256 per call) and `POST /mattes/locked-frames` (matte frames by index as 8-bit
+gray, compared with expected pixel hashes and with a previous `matte.mkv`, whose hashes never leave
+the engine). Both routes resolve every path inside the engine's projects-root sandbox and refuse any
+file but `matte.mkv` for comparisons. A stopped sidecar, a 5xx or a refusal is a typed error, and
+every check that needs pixels fails closed.
+
+**Monitor tier (PX5.9, ADR 0181).** After an artifact commits (and on a cache hit) the host calls
+`POST /mattes/monitor-tier` in the background:
+
+| Field | Meaning |
+| --- | --- |
+| `project_dir` | The project folder (inside the projects root). |
+| `artifact` | What the mask pins: `key` (64 hex), `files` (1-8 `{name, sha256}`, names from the artifact contract), `width`, `height` (1-16384). |
+| `proxy_path` | The asset's proxy as stored: the picture the monitor decodes, which sizes the tier. |
+| `rotation` | `0`/`90`/`180`/`270`: the monitor turns the decoded picture by it, so 90/270 swap the size. |
+
+It answers `{status: "written" | "current", width, height, frame_count, alpha}` and writes
+`<project>/.framepilot-derived/matte-tiers/<key>/` (`tier.json`, `planes.mkv`, `alpha.mkv`) through
+`matte-tiers/.staging/<random>/`, probed back and renamed into place. Refusals, all path-free:
+`400` outside the projects folder or a link / non-regular file under `.framepilot-derived`,
+`404` artifact or proxy missing, `409` a master's digest is not the pinned one (checked before and
+after the pixels), `422` undecodable or malformed, `503` another tier is being made, `504` the
+deadline (600 s + 0.5 s per frame, capped at 6 h) passed. The host retries `503` for about 8
+minutes (`MONITOR_TIER_BUSY_RETRY_DELAYS_MS`), sizes its own timeout a minute beyond the engine's
+(`monitorTierTimeoutMs`), skips assets without a proxy and artifacts without a foreground, and
+logs a failure by code only: the tier is an accelerator, never part of the job's outcome.
+
+**Auto prompt (`matte-auto-prompt.ts`).** With no prompts, and only if a healthy Subject
+Intelligence pack is in the local index, `subject.detect` runs on the first in-range frame and the
+largest confident (≥ 0.5, ≥ 1% of the frame) person, else object, box becomes the prompt. Otherwise
+`needs_prompt`. It never proposes a download.
+
+**Storage (`matte-storage.ts`).** `matteStorageSummary` reports bytes per artifact and input,
+referenced/unused totals and staging bytes. References are found anywhere in the saved project JSON
+(clips, effect layers, saved history). `cleanUnusedMattes` removes exactly the confirmed keys that
+are still unreferenced when the project is re-read; `protectedKeys` (undo history) and artifacts a
+running re-run reads are never removed; links are unlinked, not followed.
+
+**Validation (`matte-validation.ts`, `matte-media-recheck.ts`).** Project open returns
+`ProjectOpenResult.mattes`: quick checks (files present, sizes match the record, `frames.json`
+parses) with the engine's codes, BROKEN/STALE status and remedy sentences verbatim (a test reads
+`render/mattes.py`). `full` mode adds cached sha256 and ffprobe. Coverage and display size stay in
+`editor-core/mask-validation.ts`. `recheckProjectMatteMedia` (for relink/replace) compares the
+fingerprint, then the decoded-frame hashes of the coverage's first and last frames plus 16 samples
+recorded at commit; a differing, undecodable or unsampled source is STALE `matte_media_changed`.
+
+**Disk preflight (`matte-disk.ts`).** BR0 storage per minute (1080p30: 23.2 + 81.4 MiB; 4K30:
+61.2 + 218.6 MiB; linear in pixel count), × frames, + 10% previews, × 1.2 headroom, against
+`statfs` free space → `insufficient_disk` with `requiredBytes`/`freeBytes`.
+
+**IPC (named channels only; payloads zod-parsed).**
+
+| Channel | Kind | Purpose |
+| --- | --- | --- |
+| `capabilityPackStatus` | invoke | `ready` / `missing` (proposal) / `unhealthy` (reason) / `unsupported_platform` / `catalog_unconfigured` / `invalid`, with `hardware` for packs with a published minimum |
+| `capabilityPackInstalled` | push | `{ kind: 'installed' \| 'removed', identity }` after the health check and any project pin, or after removal |
+| `capabilityPackMatte` | invoke | run one job; `MatteRunResultWire` |
+| `capabilityPackCancelMatte` | send | cancel by request id |
+| `capabilityPackMatteProgress` | push | `{ requestId, phase, completed, total, round?, etaSeconds? }` |
+| `matteSaveCorrection` | invoke | store a brush fix or locked frame (8-bit gray PNG at the artifact's size, inside its coverage) |
+| `matteStorage` | invoke | per-project storage summary |
+| `matteCleanUnused` | invoke | remove exactly the confirmed unused keys |
+| `projectChooseRelinkFile` | invoke | main's native dialog picks the file to relink one asset to (regular files only) |
+| `matteRecheckMedia` | invoke | re-check mattes on relinked assets → STALE `matte_media_changed` |
+| `capabilityPackJobs` / `capabilityPackJobsChanged` | invoke / push | the job queue for the jobs panel |
+| `capabilityPackJobAction` | invoke | pause, resume or cancel one job |
+| `capabilityPackExportDiagnostics` | invoke | write the opt-in diagnostic bundle to a file the editor picks |
+
+Smart Mask's published hardware minimum (Apple Silicon or Windows x64, 16 GB) is provisional until
+the maintainer decides the floor from BR0-FINDINGS.
+
+**Relink and changed media (BR4.14).** `relink_asset { assetId, path }` is a typed, undoable
+editor-core operation (path only; invert restores the previous path). The media bin's Relink action
+asks main for a file (`projectChooseRelinkFile`), commits the patch and calls `matteRecheckMedia`,
+which compares every matte on the asset with the fingerprint and decoded frames recorded at commit.
+The engine repeats the same check before an export draws a matte (`render/matte_media.py`) and
+refuses `matte_media_changed` with the size-change sentence ("Media changed since background
+removal ran — run Remove background again."). Mattes without a host record are not re-checked.
+
+**Broken mattes at open (BR4.15).** Opening a project runs the quick artifact check (missing,
+resized or unparseable files) in main and returns it as `ProjectOpenResult.mattes`: per matte the
+clip, mask, artifact key, engine code, `broken`/`stale` and the engine's remedy sentence. The web
+editor keeps it in `OpenedMatteIssuesProvider` (`editor/openedMattes.tsx`), and the Inspector's
+background-removal row and the export dialog show it from the first paint. Each surface still asks
+`matteRecheckMedia`; an answer replaces the open-time finding, while no answer (browser build, in
+flight, failed) keeps it. A finding whose clip no longer carries that mask with that artifact key
+(re-run, mask removed) is dropped (`currentMatteIssues`).
+
+**Job scheduler (`job-scheduler.ts`, BR4.9).** One GPU inference job at a time; interactive >
+focused clip > background, FIFO within. Pre-emption, user pauses and export pauses act only at a
+checkpoint between windows; ExportHub reports running exports so inference pauses while exporting.
+Unfinished jobs are journaled in app data (`capability-pack-jobs.json`: kind, label, clip, project
+path, intent, finished windows) and restored after a restart when the project and asset still exist.
+Matte jobs are one window today (the worker protocol has no windows), so a restart re-runs the job
+and a job whose matte already committed completes as a cache hit. Quitting with a live job asks
+"Background removal is running". `JobsPanel` (web-editor) renders the queue with Pause, Resume,
+Cancel and Show clip; it is not placed in the editor layout yet (BR6).
+
+**Observability (BR4.11).** Each matte job ends with one allow-listed report (`matteJobEnd`):
+status, failure or verification code, execution provider, cache hit, pack version, verified and
+flagged frames, flagged ratio, and phase timings (host phases plus each worker phase from progress
+transitions). Reports never carry paths, media, prompts or project/asset/clip/job ids. The last 50
+stay in memory for `capabilityPackExportDiagnostics`, which writes a JSON bundle (reports, queue,
+pack identities and health, coarse machine facts) only where the editor chooses. Nothing uploads.
+
+### Smart Mask worker (`workers/smart-mask`, BR3)
+
+Separate uv project (not a workspace member; never imported by the engine). Entrypoint modes:
+`--framepilot-health-check`, `--framepilot-worker-runtime` (one request) and
+`--framepilot-worker-warm` (serves `subject.segment_frame` requests until stdin closes, keeping the
+SAM graphs and a byte-bounded per-frame embedding LRU; a `subject.matte` request is refused there).
+
+**Pipeline per window** (300 frames, 60 overlap; each frame committed by exactly one window at
+mid-overlap seams): decode → SAM 2.1 passes (forward from the first conditioning frame, backward from
+the last, head frames seeded from the backward pass) → BiRefNet_HR-matting refine on the SAM
+subject crop, gated to it → consensus (majority vote; band = ring around the vote's boundary plus
+soft disagreement; BiRefNet alpha only where soft or agreeing) → self-correction (K = 3 re-prompts
+from confident neighbours) → band alpha at source resolution → locks and brush pixels forced →
+band-only stabilisation (DIS flow, ±24 levels) → foreground colour (multi-level estimation, band
+only) → verify → encode. SAM and BiRefNet are never loaded together. The SAM video orchestration is a
+numpy port of the upstream predictor with a bounded memory bank and at most two conditioning frames
+per step (static memory-attention shapes).
+
+**Contract details the host relies on.**
+
+- **Frame identity and colour** follow the engine: packet pts (discarded dropped, sorted), exact
+  seeks, `-fps_mode passthrough`, autorotate, anamorphic scale with bicubic, rgb24. Output is display
+  space. `frames.json` is compact JSON (≤ 18 bytes per frame + 4 KB).
+- **Files.** `matte.mkv` FFV1 gray (intra-only, slice CRCs), `foreground.mkv` FFV1 `bgr0` (FFV1 has
+  no 8-bit `gbrp`), previews VP9 at `previewHeight` (one packet per frame). Muxing is bitexact, so
+  identical frames give identical bytes.
+- **Staging.** Besides declared files the worker uses two private directories while running,
+  `windows/` (finished-window segments and `done.json` checkpoints) and `scratch/` (memory-mapped
+  frames, spilled embeddings), and removes both before the result. A restart against a staging
+  directory that still holds `windows/` checkpoints with the same job fingerprint reuses those
+  windows; the host currently creates a fresh staging directory per job, so resume across app
+  restarts needs the host to keep and reuse it.
+- **Progress.** Adds `prepare` (model loading and first-run preparation; additive in
+  `worker-protocol.ts`). The last progress line is repeated every 20 s for the whole request, so a
+  long model load or window never trips the host's 5-minute silence limit.
+- **Partial re-run.** A prompt affects frames only if the previous matte does not already satisfy it;
+  frames within 60 of an affecting prompt are recomputed, the rest keep the previous alpha bit for
+  bit and are re-checked with image-based checks only (the previous `report.json` is not among the
+  files the host passes, so earlier estimate-based flags are not carried).
+- **Result.** `backend` names onnxruntime, the provider per model and any accelerator → CPU
+  fallback; `executionProvider` is `cpu` if any delivered pixel came from the CPU EP.
+
+**Limits.** `FRAMEPILOT_SMART_MASK_MEMORY_CEILING_MIB` (default 8192) is enforced on the process's
+physical footprint once a second, chooses the matting tile (768² 3.8 GB, 1024² 6.9 GB, 2048²
+> 12 GB; `FRAMEPILOT_SMART_MASK_MATTING_TILE` overrides) and bounds the embedding cache. A window
+past 600 s + 90 s per frame, or a breach of the ceiling, fails the job `internal_error`.
+`FRAMEPILOT_CAPABILITY_PACK_CACHE`, when the host passes it, stores prepared models keyed by model
+digest + EP + OS version + onnxruntime version + machine.
+
+**Execution providers** are enabled only by parity evidence (`models.py` `PARITY_TABLE`, from
+BR0.2): SAM and BiRefNet run on the CPU EP; CoreML is disabled for both on the measured hardware;
+DirectML and Windows ML are disabled until measured (MO-9).
+
+**Licences.** Decode and encode run through an LGPL-only `bin/ffmpeg` built by
+`tools/build_ffmpeg_lgpl.sh` (pinned FFmpeg 7.1.1 and libvpx 1.15.2 sources); the health check and
+`tools/generate_sbom.py --check` refuse GPL or nonfree builds. PyAV is excluded: its wheels bundle
+libx264/libx265. `LICENSES.md` is hand reviewed and carries the open BiRefNet training-data finding
+(MO-11).
+
+**Development.** `scripts/dev-register-smart-mask.sh` needs `SMART_MASK_FFMPEG_DIR` (an LGPL ffmpeg)
+and the exported graphs (`SMART_MASK_MODELS_FROM`). Real-weight runs (`pytest -m decoded_media`,
+`tools/parity_tracker.py`, `eval/run_eval.py`) go through `spike/watchdog.py`.

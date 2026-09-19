@@ -10,7 +10,12 @@
  * one frame past its asset's real end.
  */
 import { describe, expect, it } from 'vitest';
-import type { Asset, Project, Timeline } from '@framepilot/timeline-schema';
+import {
+  SCHEMA_VERSION,
+  type Asset,
+  type Project,
+  type Timeline,
+} from '@framepilot/timeline-schema';
 import { quantizePatch, secondsToFrame } from './frame-grid.js';
 import type { AnyOperation, Patch } from './patch.js';
 import { applyProjectPatch } from './patch.js';
@@ -52,7 +57,7 @@ function project(clips: readonly { id: string; start: number; end: number }[]): 
     ],
   } as unknown as Timeline;
   return {
-    schemaVersion: 21,
+    schemaVersion: SCHEMA_VERSION,
     fps,
     width: 1080,
     height: 1920,

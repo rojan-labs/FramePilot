@@ -41,6 +41,12 @@ export interface EditorSettings {
   readonly previewVolume: number;
   readonly previewMuted: boolean;
   readonly safeAreaGuidesByDefault: boolean;
+  /**
+   * The program monitor shows captions burned into the frame, as an export with "Burn captions
+   * into the video" draws them. Off, the monitor shows the frame an export without burned
+   * captions produces.
+   */
+  readonly previewBurnCaptions: boolean;
   readonly reducedMotion: boolean;
   readonly inspectorSections: Readonly<Record<string, boolean>>;
   /** Local or TwelveLabs. Legacy Groq/NVIDIA values migrate to Local on load. */
@@ -101,6 +107,7 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   previewVolume: 1,
   previewMuted: false,
   safeAreaGuidesByDefault: false,
+  previewBurnCaptions: true,
   reducedMotion: false,
   inspectorSections: {},
   asrProvider: DEFAULT_ASR_PROVIDER,
@@ -169,6 +176,7 @@ export function mergeSettings(partial: unknown): EditorSettings {
     previewVolume: clampPreviewVolume(p.previewVolume),
     previewMuted: p.previewMuted === true,
     safeAreaGuidesByDefault: p.safeAreaGuidesByDefault === true,
+    previewBurnCaptions: p.previewBurnCaptions !== false,
     reducedMotion: p.reducedMotion === true,
     inspectorSections: coerceSectionMap(p.inspectorSections),
     asrProvider: migrateAsrProviderName(p.asrProvider),

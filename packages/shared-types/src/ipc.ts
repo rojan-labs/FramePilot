@@ -51,6 +51,8 @@ export type ProjectOpenResult =
       project: unknown;
       revision?: number;
       capabilityPacks?: CapabilityPackProjectResolutionWire;
+      /** Matte masks whose files are missing, changed or damaged (BROKEN) or out of date (STALE). */
+      mattes?: readonly MatteValidationIssueWire[];
     }
   | { ok: false; error: string };
 
@@ -74,9 +76,7 @@ export interface ProjectPatchCommitRequest {
 }
 
 export type ProjectPatchConflictKind =
-  | 'disjoint_rebaseable'
-  | 'overlapping_replan'
-  | 'authority_required';
+  'disjoint_rebaseable' | 'overlapping_replan' | 'authority_required';
 
 export type ProjectPatchCommitResult =
   | {
@@ -344,6 +344,13 @@ export type ImportAssetResult =
          */
         width?: number;
         height?: number;
+        /**
+         * Display geometry (schema v22), only alongside width/height: non-square pixel
+         * aspect ratio and clockwise quarter-turn rotation. Absent ≡ square and unrotated.
+         * Mask geometry is stored in display-corrected pixels, so these decide its space.
+         */
+        pixelAspectRatio?: number;
+        rotation?: 0 | 90 | 180 | 270;
         peaks?: number[];
         peaksPerSecond?: number;
         thumbnailPaths?: string[];
@@ -771,6 +778,33 @@ export interface AiStreamReferenceProfile {
   readonly image?: Record<string, unknown> | undefined;
 }
 
+/**
+ * `framepilot:preview:text-raster` — one text clip or unstyled caption rasterised by the engine's
+ * own Pillow path, so the program monitor's glyphs are the export's (PX2.3).
+ */
+export interface PreviewTextRasterRequest {
+  readonly kind: 'text' | 'caption';
+  /** The text effect's params (kind `text`). */
+  readonly params?: Readonly<Record<string, unknown>>;
+  /** The caption cue text (kind `caption`). */
+  readonly text?: string;
+  readonly frameWidth: number;
+  readonly frameHeight: number;
+}
+
+export type PreviewTextRasterResult =
+  | {
+      ok: true;
+      readonly width: number;
+      readonly height: number;
+      /** Straight RGBA as Pillow stores it, row-major, top row first. */
+      readonly rgba: Uint8Array;
+      /** A caption's paste position; `null` for a text clip (the frame plan places it). */
+      readonly x: number | null;
+      readonly y: number | null;
+    }
+  | { ok: false; error: string };
+
 /** `framepilot:references:analyze` — measure one attached reference file once. */
 export interface AnalyzeReferenceRequest {
   readonly projectId: string;
@@ -1129,11 +1163,7 @@ export type CapabilityPackInstallStartResultWire =
  * claim a project state that is no longer current.
  */
 export type PackJobCapabilityWire =
-  | 'tracking.point'
-  | 'tracking.region'
-  | 'tracking.planar'
-  | 'subject.detect'
-  | 'subject.segment';
+  'tracking.point' | 'tracking.region' | 'tracking.planar' | 'subject.detect' | 'subject.segment';
 
 export interface TrackingRequestIntentWire {
   readonly requestId: string;
@@ -1145,6 +1175,62 @@ export interface TrackingRequestIntentWire {
   /** Normalized point, box, corners, labels, or prompt — matching the capability. */
   readonly parameters: unknown;
 }
+
+/**
+ * Track one mask through a clip (MK7.4). Deliberately has no media path, no frame range and no
+ * geometry: main resolves the asset from the project it reads from disk and derives the mask's
+ * bounds, vertices and source range from the mask ITSELF, so a renderer cannot ask for a track of
+ * geometry the project does not contain.
+ */
+export interface MaskTrackIntentWire {
+  readonly requestId: string;
+  readonly clipId: string;
+  readonly maskId: string;
+  readonly method: 'position' | 'position-scale-rotation' | 'perspective' | 'point-cloud';
+  readonly direction: 'forward' | 'backward' | 'one-frame' | 'to-clip-edge' | 'both';
+  /** The source instant the mask's geometry belongs to — where the playhead is. */
+  readonly referenceSourceTime: number;
+  /** Extra texture the tracker should follow, display-corrected source pixels (MK7.4). */
+  readonly featurePoints?: readonly { readonly x: number; readonly y: number }[];
+  /**
+   * Regions the tracker must ignore, display-corrected source pixels (MK7.4), each with the
+   * source instant it was drawn at: the worker follows a box's content from that frame (MK7.7).
+   */
+  readonly exclusions?: readonly {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+    readonly sourceTime?: number;
+  }[];
+  /** Re-measure only around the mask's constraint frames instead of the whole direction. */
+  readonly fromConstraints?: boolean;
+}
+
+/** What a finished mask track gives the renderer: the pin, and what to review. */
+export type MaskTrackResultWire =
+  | {
+      readonly ok: true;
+      readonly artifact: { readonly key: string; readonly sha256: string };
+      readonly method: MaskTrackIntentWire['method'];
+      readonly frames: number;
+      readonly flagged: readonly { readonly start: number; readonly end: number }[];
+      /** The worst model residual over the track, display-corrected source pixels. */
+      readonly worstResidualPx: number;
+      readonly engine: string;
+      readonly projectRevision: number;
+    }
+  | {
+      readonly ok: false;
+      readonly code: 'pack_missing';
+      readonly proposal: CapabilityPackProposalResultWire;
+    }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly error: string;
+      readonly retryable: boolean;
+    };
 
 export interface TrackingSampleWire {
   readonly frame: number;
@@ -1212,6 +1298,323 @@ export interface TrackingProgressWire {
   readonly completed: number;
   readonly total: number;
 }
+
+// ---------------------------------------------------------------------------
+// Generic pack status + background removal (plan/background-removal-ai/03, BR4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether this machine can use one capability right now. Generic: any capability id.
+ * `missing` carries the signed install proposal (or the typed reason there is none).
+ */
+export type CapabilityPackStatusWire =
+  | {
+      readonly state: 'ready';
+      readonly capability: string;
+      readonly pack: CapabilityPackIdentityWire;
+      readonly hardware?: CapabilityPackHardwareWire;
+    }
+  | {
+      readonly state: 'missing';
+      readonly capability: string;
+      readonly proposal: CapabilityPackProposalResultWire;
+      readonly hardware?: CapabilityPackHardwareWire;
+    }
+  | {
+      readonly state: 'unhealthy';
+      readonly capability: string;
+      readonly reason: string;
+      readonly proposal?: CapabilityPackProposalResultWire;
+      readonly hardware?: CapabilityPackHardwareWire;
+    }
+  | {
+      readonly state: 'unsupported_platform';
+      readonly capability: string;
+      readonly hardware?: CapabilityPackHardwareWire;
+    }
+  /** This build has no pack catalog: "This build can't download packs". */
+  | {
+      readonly state: 'catalog_unconfigured';
+      readonly capability: string;
+      readonly hardware?: CapabilityPackHardwareWire;
+    }
+  | { readonly state: 'invalid'; readonly capability: string; readonly error: string };
+
+/** The published minimum hardware for a capability's pack, and whether this machine meets it. */
+export interface CapabilityPackHardwareWire {
+  /** Plain-language requirement, e.g. "Apple Silicon Mac or Windows x64 PC with 16 GB of memory". */
+  readonly requirement: string;
+  readonly platformSupported: boolean;
+  readonly minMemoryBytes: number;
+  readonly memoryBytes: number;
+  /** Platform supported and memory at or above the minimum. */
+  readonly meets: boolean;
+}
+
+/** Pushed after an install finished its health check, or a removal completed. */
+export interface CapabilityPackInstalledEventWire {
+  readonly kind: 'installed' | 'removed';
+  readonly identity: CapabilityPackIdentityWire;
+}
+
+/** What the mask records it asked for (mirrors `MattePromptRefSchema`). */
+export type MattePromptRefWire =
+  | {
+      readonly kind: 'points';
+      readonly sourceTime: number;
+      readonly points: readonly {
+        readonly x: number;
+        readonly y: number;
+        readonly label: 'include' | 'exclude';
+      }[];
+    }
+  | {
+      readonly kind: 'box';
+      readonly sourceTime: number;
+      readonly box: {
+        readonly x: number;
+        readonly y: number;
+        readonly width: number;
+        readonly height: number;
+      };
+    }
+  | { readonly kind: 'brush' | 'lock'; readonly sourceTime: number; readonly sha256: string }
+  | { readonly kind: 'candidate'; readonly candidateId: string };
+
+/** Renderer intent for one background-removal job. No path, no pack, no handle. */
+export interface MatteRunIntentWire {
+  /** 1-64 letters, digits, `-` or `_`; also the cancel handle and the job id. */
+  readonly requestId: string;
+  readonly assetId: string;
+  /** The clip being worked on, for the jobs panel ("Show clip") and priority. */
+  readonly clipId?: string;
+  /** Coverage in asset source seconds, handles included. */
+  readonly sourceStart: number;
+  readonly sourceEnd: number;
+  /** Empty asks main for the main subject; `needs_prompt` comes back when it cannot. */
+  readonly prompts: readonly MattePromptRefWire[];
+  readonly previousArtifactKey?: string;
+  readonly foreground?: boolean;
+  readonly previewHeight?: number;
+  readonly timelineRevision: number;
+}
+
+/** The digest-pinned artifact an `add_mask { kind: 'matte' }` op references. */
+export interface MatteArtifactWire {
+  readonly key: string;
+  readonly files: readonly { readonly name: string; readonly sha256: string }[];
+  readonly width: number;
+  readonly height: number;
+  readonly coverage: { readonly sourceStart: number; readonly sourceEnd: number };
+  readonly packId: string;
+  readonly packVersion: string;
+  readonly modelDigests: readonly string[];
+}
+
+export type MatteRunResultWire =
+  | {
+      readonly ok: true;
+      readonly artifact: MatteArtifactWire;
+      readonly summary: {
+        readonly verifiedFrames: number;
+        readonly flaggedFrames: number;
+        readonly lockedFrames: number;
+        readonly selfCorrectionRounds: number;
+      };
+      readonly needsReview: readonly {
+        readonly start: number;
+        readonly end: number;
+        readonly reason: string;
+      }[];
+      readonly executionProvider: 'coreml' | 'directml' | 'cpu';
+      readonly cacheHit: boolean;
+      readonly projectRevision: number;
+    }
+  | {
+      readonly ok: false;
+      readonly code: 'pack_missing';
+      readonly proposal: CapabilityPackProposalResultWire;
+    }
+  | { readonly ok: false; readonly code: 'needs_prompt' }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly error: string;
+      readonly retryable: boolean;
+      readonly verificationCode?: string;
+      /** `resource_exhausted`: the host watchdog limit the job crossed. */
+      readonly resourceLimit?: 'memory' | 'stalled' | 'disk';
+      /** `insufficient_disk`: bytes needed (estimate + 20% headroom) and bytes free. */
+      readonly requiredBytes?: number;
+      readonly freeBytes?: number;
+    };
+
+export interface MatteProgressWire {
+  readonly requestId: string;
+  readonly phase: string;
+  readonly completed: number;
+  readonly total: number;
+  readonly round?: number;
+  readonly etaSeconds?: number;
+}
+
+/** A brush fix or locked frame drawn on an artifact, as an 8-bit gray PNG at its size. */
+export interface MatteSaveCorrectionWire {
+  readonly artifactKey: string;
+  readonly sourceTime: number;
+  readonly kind: 'brush' | 'lock';
+  readonly png: Uint8Array;
+}
+
+export type MatteSaveCorrectionResultWire =
+  | {
+      readonly ok: true;
+      readonly reference: {
+        readonly kind: 'brush' | 'lock';
+        readonly sourceTime: number;
+        readonly sha256: string;
+      };
+    }
+  | { readonly ok: false; readonly code: string; readonly error: string };
+
+/**
+ * Hover highlight / click preview on one frame (BR6.11): what a click at `hoverPoint` would
+ * select, or what `points` select, on the asset's frame at `sourceTime`. Nothing is written.
+ */
+export interface MatteSegmentFrameIntentWire {
+  readonly requestId: string;
+  readonly assetId: string;
+  readonly sourceTime: number;
+  readonly hoverPoint?: { readonly x: number; readonly y: number };
+  readonly points?: readonly {
+    readonly x: number;
+    readonly y: number;
+    readonly label: 'include' | 'exclude';
+  }[];
+  readonly previewHeight?: number;
+}
+
+export type MatteSegmentFrameResultWire =
+  | {
+      readonly ok: true;
+      /** The frame's pts in the source stream (the worker's frame identity). */
+      readonly pts: number;
+      /** Preview-resolution mask, row-major 8-bit coverage (0 = not the object, 255 = object). */
+      readonly width: number;
+      readonly height: number;
+      readonly mask: Uint8Array;
+      /** The segmenter's own confidence, 0–1. */
+      readonly score: number;
+    }
+  | {
+      readonly ok: false;
+      /**
+       * `busy` (a background removal or export holds the model slot), `superseded` (a newer
+       * request replaced this one), `pack_missing`, `invalid_output` (the worker's answer
+       * failed host verification), and the matte job's failure codes.
+       */
+      readonly code: string;
+      readonly error: string;
+    };
+
+/**
+ * One matte mask the export would refuse, with the engine's own code, status and remedy
+ * sentence (`render/mattes.py` `MATTE_REMEDIES`), so the Inspector and export say the same.
+ */
+export interface MatteValidationIssueWire {
+  readonly clipId: string;
+  readonly maskId: string;
+  readonly artifactKey: string;
+  readonly code: string;
+  readonly status: 'broken' | 'stale';
+  readonly remedy: string;
+}
+
+/** One pack inference job as the jobs panel shows it (BR4.9). */
+export interface CapabilityPackJobWire {
+  readonly id: string;
+  readonly kind: 'matte' | 'tracking' | 'segment_frame';
+  readonly label: string;
+  readonly clipId?: string;
+  readonly priority: 'interactive' | 'focused' | 'background';
+  readonly state:
+    | 'queued'
+    | 'running'
+    | 'preempted'
+    | 'paused'
+    | 'paused_export'
+    | 'completed'
+    | 'failed'
+    | 'cancelled';
+  readonly progress?: {
+    readonly phase: string;
+    readonly completed: number;
+    readonly total: number;
+    readonly round?: number;
+    readonly etaSeconds?: number;
+  };
+  /** Queued again after the app restarted. */
+  readonly resumed: boolean;
+  readonly error?: string;
+}
+
+export interface CapabilityPackJobActionWire {
+  readonly jobId: string;
+  readonly action: 'pause' | 'resume' | 'cancel';
+}
+
+/** A file main chose (native dialog) to relink one asset to; the renderer commits `relink_asset`. */
+export type RelinkFileChoiceWire =
+  | { readonly ok: true; readonly assetId: string; readonly path: string }
+  | {
+      readonly ok: false;
+      readonly code: 'cancelled' | 'no_project' | 'missing_asset' | 'not_a_file';
+      readonly error: string;
+    };
+
+/** STALE mattes after a relink or replace: decoded frames no longer match (BR4.14). */
+export type MatteRecheckResultWire =
+  | { readonly ok: true; readonly issues: readonly MatteValidationIssueWire[] }
+  | { readonly ok: false; readonly code: string; readonly error: string };
+
+/** The open project's background-removal storage (project-owned, MD-4). */
+export type MatteStorageResultWire =
+  | {
+      readonly ok: true;
+      readonly totalBytes: number;
+      readonly referencedBytes: number;
+      readonly unusedBytes: number;
+      readonly stagingBytes: number;
+      readonly artifacts: readonly {
+        readonly key: string;
+        readonly bytes: number;
+        readonly referenced: boolean;
+        readonly assetId?: string;
+        readonly createdAt?: string;
+      }[];
+      readonly inputs: readonly {
+        readonly sha256: string;
+        readonly bytes: number;
+        readonly referenced: boolean;
+      }[];
+    }
+  | { readonly ok: false; readonly code: string; readonly error: string };
+
+/** "Clean unused mattes": exactly the confirmed keys, re-checked against the saved project. */
+export interface MatteCleanRequestWire {
+  readonly approvedKeys: readonly string[];
+  /** Digests the open session's undo history still references; they are never removed. */
+  readonly protectedKeys?: readonly string[];
+}
+
+export type MatteCleanResultWire =
+  | {
+      readonly ok: true;
+      readonly removedKeys: readonly string[];
+      readonly keptKeys: readonly string[];
+      readonly freedBytes: number;
+    }
+  | { readonly ok: false; readonly code: string; readonly error: string };
 
 export interface CapabilityPackEvictionPlanWire {
   readonly planId: string;
@@ -1625,6 +2028,9 @@ export interface StockDownloadedAssetWire {
      */
     readonly width?: number | null;
     readonly height?: number | null;
+    /** Display geometry (schema v22); absent ≡ square and unrotated. */
+    readonly pixelAspectRatio?: number | null;
+    readonly rotation?: 0 | 90 | 180 | 270 | null;
     readonly proxyPath?: string | null;
     readonly peaks?: readonly number[] | null;
     readonly peaksPerSecond?: number | null;
@@ -1698,10 +2104,61 @@ export interface FramePilotBridge {
   ): Promise<CapabilityPackProposalResultWire>;
   /** Reconcile and report the active project's authoritative dependency state. */
   capabilityPackProjectStatus?(projectId: string): Promise<CapabilityPackProjectResolutionWire>;
+  /** Whether any capability is ready, missing (with its proposal), unhealthy or unsupported. */
+  capabilityPackStatus?(capability: string): Promise<CapabilityPackStatusWire>;
+  /** Fires after any install finishes its health check or any removal completes. */
+  onCapabilityPackInstalled?(
+    handler: (event: CapabilityPackInstalledEventWire) => void,
+  ): () => void;
+  /** Run background removal on the active project's asset; main resolves media and pack. */
+  capabilityPackMatte?(intent: MatteRunIntentWire): Promise<MatteRunResultWire>;
+  /** Cancel an in-flight background-removal job by request id. */
+  capabilityPackCancelMatte?(requestId: string): void;
+  onCapabilityPackMatteProgress?(handler: (progress: MatteProgressWire) => void): () => void;
+  /** Store a brush fix or locked frame as a project-owned input; returns its reference. */
+  matteSaveCorrection?(correction: MatteSaveCorrectionWire): Promise<MatteSaveCorrectionResultWire>;
+  /**
+   * The object a click would select on one frame (hover highlight, BR6.11), from the Smart Mask
+   * pack's warm worker. Read-only; a newer call supersedes an older one still in flight.
+   */
+  matteSegmentFrame?(intent: MatteSegmentFrameIntentWire): Promise<MatteSegmentFrameResultWire>;
+  /** Bytes the open project's mattes and corrections use, and which are unreferenced. */
+  matteStorage?(request?: {
+    readonly protectedKeys?: readonly string[];
+  }): Promise<MatteStorageResultWire>;
+  /**
+   * Write an opt-in diagnostic bundle (recent job outcomes and timings, queue, pack health) to a
+   * file the editor chooses. Contains no paths, media, prompts or project ids; nothing uploads.
+   */
+  capabilityPackExportDiagnostics?(): Promise<
+    | { readonly ok: true }
+    | { readonly ok: false; readonly code: 'cancelled' | 'write_failed'; readonly error: string }
+  >;
+  /** Every running, queued, paused and recently finished pack job. */
+  capabilityPackJobs?(): Promise<readonly CapabilityPackJobWire[]>;
+  onCapabilityPackJobsChanged?(
+    handler: (jobs: readonly CapabilityPackJobWire[]) => void,
+  ): () => void;
+  /** Pause, resume or cancel one job; resolves false when the job is not live. */
+  capabilityPackJobAction?(action: CapabilityPackJobActionWire): Promise<boolean>;
+  /** Pick the file to relink an asset to (missing or replaced media); main owns the dialog. */
+  projectChooseRelinkFile?(assetId: string): Promise<RelinkFileChoiceWire>;
+  /** Re-check the mattes on relinked assets; changed media comes back STALE with its remedy. */
+  matteRecheckMedia?(request: {
+    readonly assetIds: readonly string[];
+  }): Promise<MatteRecheckResultWire>;
+  /** Remove exactly the confirmed unused mattes; referenced ones are always kept. */
+  matteCleanUnused?(request: MatteCleanRequestWire): Promise<MatteCleanResultWire>;
   /** Run one tracking job in an isolated signed pack worker; main resolves the media. */
   capabilityPackTrack?(intent: TrackingRequestIntentWire): Promise<TrackingRunResultWire>;
   /** Cancel an in-flight tracking job by request id. */
   capabilityPackCancelTrack?(requestId: string): void;
+  /**
+   * Track one mask and commit its transform-track artifact (MK7.4).
+   *
+   * Progress and cancellation ride the same channels as any other pack job, keyed by request id.
+   */
+  capabilityPackTrackMask?(intent: MaskTrackIntentWire): Promise<MaskTrackResultWire>;
   /** Bounded progress for an in-flight tracking job. */
   onCapabilityPackTrackProgress?(handler: (progress: TrackingProgressWire) => void): () => void;
   /** Install only the exact signed proposal the user explicitly approved. */
@@ -1814,6 +2271,8 @@ export interface FramePilotBridge {
   /** Derive engine media (waveform peaks + thumbnails) for an on-disk media file,
    * so the timeline draws real waveforms/frames. Non-fatal on engine failure. */
   importAsset(req: ImportAssetRequest): Promise<ImportAssetResult>;
+  /** Rasterise one text or caption layer through the engine (program monitor, PX2.3). */
+  previewTextRaster?(req: PreviewTextRasterRequest): Promise<PreviewTextRasterResult>;
   /** Analyze one attached reference file (video/image) once, in the trusted host. */
   analyzeReference?(req: AnalyzeReferenceRequest): Promise<AnalyzeReferenceResult>;
   /** Run configured speech-to-text in the trusted host for one saved media asset. */
