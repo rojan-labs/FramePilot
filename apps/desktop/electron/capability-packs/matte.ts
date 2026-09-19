@@ -73,7 +73,7 @@ import {
   type SubjectMatteResult,
   type VerifiedMatteFile,
 } from './matte-verify.js';
-import { compareSemver, resolveInside } from './pack-paths.js';
+import { compareSemver, projectMediaPath, resolveInside } from './pack-paths.js';
 
 const log = createLogger('desktop:capability-packs:matte');
 /** Display rotations the monitor turns a decoded picture by (`Asset.media.rotation`). */
@@ -478,7 +478,11 @@ export class CapabilityPackMatteService {
       // cache hit); the RESULT is discarded either way, never applied to a newer timeline.
       const current = await context.readCurrent();
       if (current.revision !== context.projectRevision) {
-        if (current.project.assets.some((asset) => asset.path === media.asset.path && asset.id === intent.assetId)) {
+        if (
+          current.project.assets.some(
+            (asset) => projectMediaPath(context.projectDir, asset.path) === media.asset.path && asset.id === intent.assetId,
+          )
+        ) {
           await this.commit(context.projectDir, staging, key, intent, media, pack.record, result, prompts, verified.files, signal);
           committed = true;
         }
@@ -588,8 +592,10 @@ export class CapabilityPackMatteService {
     context: MatteRunContext,
     signal: AbortSignal,
   ): Promise<ResolvedMedia | Extract<MatteRunOutcome, { status: 'failed' }>> {
-    const asset = context.project.assets.find((candidate) => candidate.id === intent.assetId);
-    if (asset === undefined) return failed('missing_asset', 'That media is no longer in this project.', false);
+    const found = context.project.assets.find((candidate) => candidate.id === intent.assetId);
+    if (found === undefined) return failed('missing_asset', 'That media is no longer in this project.', false);
+    // Imported media is stored relative to the project file; read the file the export reads.
+    const asset = { ...found, path: projectMediaPath(context.projectDir, found.path) };
     if (asset.kind !== 'video' && asset.kind !== 'image') {
       return failed('unsupported_asset', 'Background removal works on video and image clips.', false);
     }

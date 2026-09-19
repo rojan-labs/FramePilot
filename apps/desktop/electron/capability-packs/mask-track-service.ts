@@ -94,6 +94,7 @@ export async function runMaskTrackJob(input: MaskTrackJobInput): Promise<MaskTra
         project,
         revision,
         measurementIntent(resolved, measurement, intent, index),
+        input.projectDir,
       );
       if (built.status === 'rejected') return failed(built.code, built.detail);
       const outcome = await (

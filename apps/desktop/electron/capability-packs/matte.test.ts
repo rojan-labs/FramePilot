@@ -211,6 +211,21 @@ describe('CapabilityPackMatteService lifecycle', () => {
     expect(await readdir(matteStagingRoot(h.projectDir))).toEqual([]);
   });
 
+  it('reads imported media stored relative to the project file (E2E.6)', async () => {
+    const h = await harness();
+    const relative = {
+      id: 'p',
+      assets: [{ id: 'asset-1', path: 'media/shot.mp4', kind: 'video', media: { width: 64, height: 36 } }],
+      timeline: { tracks: [], revision: 4 },
+    } as unknown as Project;
+    h.setProject(relative);
+    const outcome = await h.service.run(h.intent(), { ...h.context(), project: relative });
+    expect(outcome.status).toBe('completed');
+    const request = h.requests[0]!;
+    if (request.capability !== 'subject.matte') throw new Error('expected a matte request');
+    expect(request.media.absolutePath).toBe(h.mediaPath);
+  });
+
   it('reports phase timings, provider, flagged ratio and failure codes, never paths or prompts', async () => {
     const reports: MatteJobReport[] = [];
     const h = await harness({ observer: (report) => reports.push(report) });

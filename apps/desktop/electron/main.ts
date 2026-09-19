@@ -1122,7 +1122,7 @@ function registerIpcHandlers(): void {
       // list and the revision is never the authority for what gets tracked.
       const project = await readProjectFile(active.path);
       const revision = project.timeline.revision ?? 0;
-      const built = buildTrackingWorkerRequest(project, revision, intent);
+      const built = buildTrackingWorkerRequest(project, revision, intent, path.dirname(active.path));
       if (built.status === 'rejected') {
         return { ok: false, code: built.code, error: built.detail, retryable: false };
       }

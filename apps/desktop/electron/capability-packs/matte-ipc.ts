@@ -39,6 +39,7 @@ import {
 } from './job-scheduler.js';
 import { cleanUnusedMattes, MatteReferenceScanError, matteStorageSummary } from './matte-storage.js';
 import type { CapabilityPackSegmentFrameService } from './segment-frame.js';
+import { withProjectMediaPaths } from './pack-paths.js';
 
 const log = createLogger('desktop:capability-packs:matte-ipc');
 
@@ -271,7 +272,11 @@ export function registerMatteIpc(dependencies: MatteIpcDependencies): void {
       project = await dependencies.readProject(projectPath);
       hoverProject = stamp === undefined ? undefined : { path: projectPath, stamp, project };
     }
-    return (await dependencies.segmentFrame()).segment(input, { project, projectRevision: project.timeline.revision ?? 0 });
+    // Imported media is stored relative to the project file; the worker reads the real file.
+    return (await dependencies.segmentFrame()).segment(input, {
+      project: withProjectMediaPaths(project, path.dirname(projectPath)),
+      projectRevision: project.timeline.revision ?? 0,
+    });
   });
 
   ipcMain.handle(IpcChannels.matteSaveCorrection, async (_event, input: unknown): Promise<MatteSaveCorrectionResultWire> => {

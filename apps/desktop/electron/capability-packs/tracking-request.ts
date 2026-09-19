@@ -16,6 +16,7 @@ import {
   type CapabilityPackWorkerRequest,
 } from '@framepilot/capability-packs';
 import type { Project } from '@framepilot/timeline-schema';
+import { projectMediaPath } from './pack-paths.js';
 
 /** Renderer-supplied intent. Deliberately has no path and no source range. */
 export interface TrackingRequestIntent {
@@ -73,6 +74,8 @@ export function buildTrackingWorkerRequest(
   project: Project,
   projectRevision: number,
   intent: unknown,
+  /** The project file's folder: project-relative media resolves against it (`projectMediaPath`). */
+  projectDir?: string,
 ): TrackingRequestBuildResult {
   if (!isIntent(intent)) return rejected('invalid_intent', 'Tracking request is malformed.');
   if (
@@ -92,7 +95,9 @@ export function buildTrackingWorkerRequest(
   if (asset.kind !== 'video') {
     return rejected('wrong_asset_kind', 'Only video assets can be tracked.');
   }
-  if (!path.isAbsolute(asset.path)) {
+  const mediaPath =
+    projectDir === undefined ? asset.path : projectMediaPath(projectDir, asset.path);
+  if (!path.isAbsolute(mediaPath)) {
     return rejected('missing_asset', 'The project asset has no resolved absolute media path.');
   }
   const sourceStartSeconds = intent.firstFrame / intent.fps;
@@ -116,7 +121,7 @@ export function buildTrackingWorkerRequest(
     media: {
       handleId: intent.requestId,
       assetId: asset.id,
-      absolutePath: asset.path,
+      absolutePath: mediaPath,
       sourceStartSeconds,
       sourceEndSeconds,
       fps: intent.fps,
@@ -131,5 +136,5 @@ export function buildTrackingWorkerRequest(
       parsed.error.issues[0]?.message ?? 'Tracking request failed protocol validation.',
     );
   }
-  return { status: 'built', request: parsed.data, mediaRoot: path.dirname(asset.path) };
+  return { status: 'built', request: parsed.data, mediaRoot: path.dirname(mediaPath) };
 }

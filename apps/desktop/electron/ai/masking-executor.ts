@@ -65,6 +65,7 @@ import {
 import type { CapabilityPackMatteService, MatteRunOutcome } from '../capability-packs/matte.js';
 import { scheduleMatteJob } from '../capability-packs/matte-ipc.js';
 import { buildTrackingWorkerRequest } from '../capability-packs/tracking-request.js';
+import { withProjectMediaPaths } from '../capability-packs/pack-paths.js';
 import type { CapabilityPackTrackingService } from '../capability-packs/tracking.js';
 
 const log = createLogger('desktop:ai:masking');
@@ -194,6 +195,12 @@ class MaskingRun {
     return this.ctx.project;
   }
 
+  /** The open project's folder, which project-relative media resolves against. */
+  private async projectDir(): Promise<string | undefined> {
+    const projectPath = await this.options.activeProjectPath();
+    return projectPath === null ? undefined : path.dirname(projectPath);
+  }
+
   private fail(code: string, detail: string, retryable = false): never {
     throw new HostRefusal(failed(this.tool, code, detail, retryable));
   }
@@ -228,15 +235,20 @@ class MaskingRun {
     parameters: Readonly<Record<string, unknown>>,
   ): Promise<{ result: Record<string, unknown>; engine: string }> {
     const revision = this.project.timeline.revision ?? 0;
-    const built = buildTrackingWorkerRequest(this.project, revision, {
-      requestId: randomUUID(),
-      assetId: resolved.assetId,
-      capability,
-      firstFrame,
-      lastFrameExclusive,
-      fps: resolved.fps,
-      parameters,
-    });
+    const built = buildTrackingWorkerRequest(
+      this.project,
+      revision,
+      {
+        requestId: randomUUID(),
+        assetId: resolved.assetId,
+        capability,
+        firstFrame,
+        lastFrameExclusive,
+        fps: resolved.fps,
+        parameters,
+      },
+      await this.projectDir(),
+    );
     if (built.status === 'rejected') this.fail(built.code, built.detail);
     log.action('packJobStart', {
       tool: this.tool,
@@ -337,8 +349,12 @@ class MaskingRun {
     const sources = this.options.evidence;
     const plain = candidates;
     if (sources === undefined || plain.length === 0) return ledgerEvidence(this.ctx, resolved);
+    // The evidence sources read media: give them the files the export reads.
+    const directory = await this.projectDir();
+    const measured =
+      directory === undefined ? this.project : withProjectMediaPaths(this.project, directory);
     const rerank = await sources.rerank?.({
-      project: this.project,
+      project: measured,
       assetId: resolved.assetId,
       description,
       candidates: plain,
@@ -351,7 +367,7 @@ class MaskingRun {
     const identities =
       consented === true
         ? await sources.identities?.({
-            project: this.project,
+            project: measured,
             assetId: resolved.assetId,
             candidates: plain.filter((candidate) => candidate.label === 'face'),
           })

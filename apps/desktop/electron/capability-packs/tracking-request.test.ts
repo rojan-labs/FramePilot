@@ -141,4 +141,19 @@ describe('buildTrackingWorkerRequest', () => {
       code: 'missing_asset',
     });
   });
+
+  it('resolves imported, project-relative media against the project folder (E2E.6)', () => {
+    // What a desktop import stores (`importMediaFile`): relative to the project file.
+    const relative = project({
+      assets: [{ id: 'asset-1', path: 'media/shot.mp4', kind: 'video', durationSeconds: 10 }],
+    } as unknown as Partial<Project>);
+    const result = buildTrackingWorkerRequest(relative, 1, intent(), '/projects/demo');
+    if (result.status !== 'built') throw new Error('expected a request');
+    expect(result.request.media.absolutePath).toBe(MEDIA_PATH);
+    expect(result.mediaRoot).toBe('/projects/demo/media');
+    // Linked media keeps its own absolute path.
+    const linked = buildTrackingWorkerRequest(project(), 1, intent(), '/elsewhere');
+    if (linked.status !== 'built') throw new Error('expected a request');
+    expect(linked.request.media.absolutePath).toBe(MEDIA_PATH);
+  });
 });
