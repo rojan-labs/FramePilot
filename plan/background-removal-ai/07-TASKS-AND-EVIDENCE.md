@@ -239,6 +239,8 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [x] BR4.10 Disk-space preflight; relink/replace/re-proxy re-check (frame hashes) → STALE; `catalog_unconfigured` and hardware-minimum states in `capabilityPackStatus`
 - [x] BR4.13 Lock verification and media frame hashing go through the sidecar (packaged builds bundle only ffprobe; today those checks fail closed in release builds)
 - [x] BR4.14 Desktop relink/replace/re-proxy flow calls `recheckProjectMatteMedia` (and tracks after MK7); STALE shown with remedy; engine export refuses `matte_media_changed`
+- [x] BR4.15 (203387ec) The web editor reads `ProjectOpenResult.mattes`: a broken matte shows in the Inspector's background removal row and the export dialog from the moment the project opens (found in E2E.2)
+- [x] BR4.16 (8ac6e2a4) The matte decode gets the same untrusted-media hardening as every other decode path; a concat file named `matte.mkv` that decoded before is now refused (noticed in BR2.8)
 - [x] BR4.11 Observability events and opt-in diagnostic bundle
 - [x] BR4.12 (approved with deferrals; conditions met: ADR/03 wording b8aa5615, CI green incl. fuzz harness at 2bd1511e; runbook docs/runbooks/capability-pack-security.md) **security-reviewer** pass on the sandbox broadening, fuzzed-media corpus and per-job limits
 
@@ -300,7 +302,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [~] AM2.4 (create_shape_mask + mask_with_layer live since MK8; follow_subject mask half done; text half blocked on MO-14) `create_shape_mask`, `mask_with_layer`, `follow_subject` tools
 
 - [x] AM2.5 (eb1e3d9d…c4bcd41a; Subject Intelligence 1.1.0 + Visual Embed 1.1.0, negotiated per installed release) Object classes on Subject Intelligence detections (the pinned YOLOX already computes COCO classes and discards them) and colour-aware SigLIP re-ranking of candidate crops, so object requests resolve instead of asking; installed users get it with the next signed pack release (MO-1..MO-5)
-- [ ] AM2.6 Colour re-ranking on real weights: run the Visual Embed real-inference proof including the new crop path (it was skipped in CI), measure colour-pick accuracy on real crops, and measure/cut the cost (SigLIP is loaded twice per colour request; the prompt-vector cache is not passed)
+- [~] AM2.6 (f4aae974; reports/ai-masking/colour-rerank.json) Colour re-ranking on real weights — 0 wrong picks on 432×2 absent-colour requests, but only 80.6% of colour targets resolve (rest ask): white/grey/silver/black are the misses; the AM5 accuracy (≥ 99%) and unnecessary-ask (≤ 3%) gates are NOT met for colour requests on real weights. Cost fixed: never finished → 1.8 s/request after the first, 1.9 GB peak. Was: Colour re-ranking on real weights: run the Visual Embed real-inference proof including the new crop path (it was skipped in CI), measure colour-pick accuracy on real crops, and measure/cut the cost (SigLIP is loaded twice per colour request; the prompt-vector cache is not passed)
 
 ### AM3 — Verification `[x]` (no `verified` field reaches the model, e10fe4c7)
 

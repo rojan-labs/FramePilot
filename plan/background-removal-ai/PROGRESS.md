@@ -17,6 +17,8 @@ Agent rules to paste into every prompt: single-file tests with `--no-file-parall
 
 ## Done
 
+- BR4.15 (203387ec), BR4.16 (8ac6e2a4), AM2.6 (f4aae974): open-time broken-matte state; hardened matte decode; colour re-rank on real weights + cost fix. CI green run 35409455625
+
 - MK6.4 (9463fef8, 57358449): Apple Silicon monitor now converts YUV→RGB like the export host (was up to 3 levels off on every same-size clip); oracle 297/297 on Metal; baseline keyed by renderer class; CI green run 35397473824. BR2.8 done too: every export decode uses MoviePy's ffmpeg; VFR rows pixel-identical on Metal; CI green run 35403245700
 
 - MK9 (d6d82c20…037832c7): adjustment-lane masks + frame-space clip masks end to end; edge styles outline/glow/shadow (engine numpy + preview shaders, byte-exact vectors); AI `style_cutout_edge` (+5 tokens/request). Follow-up MK9.4: nothing sets `space: 'frame'` on a clip mask yet
@@ -117,6 +119,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
+
+- AM2.6 colour re-rank on REAL SigLIP 2 weights (M1 Pro, 144 generated crops + 3 real): 0 wrong picks on 432 absent-colour requests (held-out set too) ✓; targets resolved 116/144 = 80.6% ✗ for the AM5 accuracy/unnecessary-ask gates — chromatic colours 101/101, neutrals (white/grey/black/silver) 15/43. The synthetic AM5 eval still passes all five gates; the real-weights colour subset does not
 
 - PX5.11 full 3-minute Scale export (ubuntu CI, run 35369857493): 1.322× wall, 1.311× CPU ✓ (gate ≤ 1.5×); no M-series full-row number
 
