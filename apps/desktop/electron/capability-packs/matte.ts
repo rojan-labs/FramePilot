@@ -41,6 +41,7 @@ import { MatteInspectorError, type MatteMediaInspector, type MatteVideoTiming } 
 import { estimateMatteBytes, freeDiskBytes } from './matte-disk.js';
 import {
   processGroupFootprint,
+  STAGING_PRIVATE_ENTRIES,
   stagingBytes,
   watchdogLimits,
   WorkerWatchdog,
@@ -842,6 +843,7 @@ export class CapabilityPackMatteService {
       {
         footprintBytes: settings.footprintBytes ?? processGroupFootprint(),
         directoryBytes: stagingBytes,
+        outputBytes: (directory) => stagingBytes(directory, { exclude: STAGING_PRIVATE_ENTRIES }),
         now: settings.now ?? Date.now,
       },
       {

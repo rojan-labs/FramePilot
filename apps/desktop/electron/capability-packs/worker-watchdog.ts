@@ -13,8 +13,14 @@
  *   - Windows: working set of the worker process (`tasklist /FI "PID eq <pid>" /FO CSV /NH`);
  *     a Job Object memory limit needs native code (recorded in ADR 0114).
  * - **Stalled progress:** no progress message for 5 minutes.
- * - **Staging size:** bytes in the job's staging directory ≤ min(byte ceiling, free space at
- *   start − 1 GB), polled while the job runs rather than only checked afterwards.
+ * - **Staging size**, polled while the job runs rather than only checked afterwards:
+ *   - the declared outputs (everything but the worker's private `windows/` and `scratch/` and the
+ *     host's `inputs/`) ≤ the job's byte ceiling;
+ *   - the whole staging directory ≤ free space at start − 1 GB, so no job fills the disk.
+ *   The two are separate because a Smart Mask worker legitimately holds more than its artifact
+ *   while it runs (BR3.14): decoded frames and spilled embeddings in `scratch/`, and each
+ *   finished window's segments in `windows/` until the final join. Counting those against the
+ *   artifact's ceiling killed healthy jobs on short clips (found in E2E.6).
  *
  * A breach calls `onBreach` once with its kind; the caller kills the group and reports
  * `resource_exhausted`. A sample the platform cannot take is skipped, never treated as a breach.
@@ -43,13 +49,21 @@ export const PACK_MEMORY_LIMIT_BYTES: Readonly<Record<string, number>> = {
 export interface WatchdogLimits {
   readonly memoryBytes: number;
   readonly stallMs: number;
+  /** The whole staging directory (disk-exhaustion guard). */
   readonly stagingBytes: number;
+  /** The declared outputs alone (the artifact's byte ceiling). */
+  readonly outputBytes: number;
 }
+
+/** Staging entries that are not the artifact: the worker's private folders and the host's inputs. */
+export const STAGING_PRIVATE_ENTRIES: readonly string[] = ['windows', 'scratch', 'inputs'];
 
 export interface WatchdogProbes {
   /** Physical footprint of the process group, or `undefined` when it cannot be measured. */
   readonly footprintBytes: (pid: number) => Promise<number | undefined>;
   readonly directoryBytes: (directory: string) => Promise<number>;
+  /** Bytes of the declared outputs; absent, the whole directory is held to both limits. */
+  readonly outputBytes?: (directory: string) => Promise<number>;
   readonly now: () => number;
 }
 
@@ -64,7 +78,8 @@ export function watchdogLimits(options: {
   return {
     memoryBytes: Math.min(packLimit, Math.floor(WATCHDOG_RAM_SHARE * options.totalMemoryBytes)),
     stallMs: options.stallMs ?? WATCHDOG_STALL_MS,
-    stagingBytes: Math.max(0, Math.min(options.byteCeiling, options.freeBytesAtStart - WATCHDOG_DISK_RESERVE_BYTES)),
+    stagingBytes: Math.max(0, options.freeBytesAtStart - WATCHDOG_DISK_RESERVE_BYTES),
+    outputBytes: Math.max(0, options.byteCeiling),
   };
 }
 
@@ -115,8 +130,14 @@ export class WorkerWatchdog {
     this.ticking = true;
     try {
       if (this.probes.now() - this.lastProgress > this.limits.stallMs) return this.trip('stalled');
-      const staged = await this.probes.directoryBytes(this.options.stagingDirectory).catch(() => 0);
+      const directory = this.options.stagingDirectory;
+      const staged = await this.probes.directoryBytes(directory).catch(() => 0);
       if (staged > this.limits.stagingBytes) return this.trip('disk');
+      const outputs =
+        this.probes.outputBytes === undefined
+          ? staged
+          : await this.probes.outputBytes(directory).catch(() => 0);
+      if (outputs > this.limits.outputBytes) return this.trip('disk');
       if (this.pid !== undefined) {
         const footprint = await this.probes.footprintBytes(this.pid).catch(() => undefined);
         if (footprint !== undefined && footprint > this.limits.memoryBytes) return this.trip('memory');
@@ -136,11 +157,16 @@ export class WorkerWatchdog {
 }
 
 /** Bytes under a directory, never following links. */
-export async function stagingBytes(directory: string): Promise<number> {
+export async function stagingBytes(
+  directory: string,
+  options: { readonly exclude?: readonly string[] } = {},
+): Promise<number> {
   let total = 0;
+  const excluded = new Set((options.exclude ?? []).map((name) => path.join(directory, name)));
   const pending = [directory];
   while (pending.length > 0) {
     const current = pending.pop()!;
+    if (excluded.has(current)) continue;
     let stat;
     try {
       stat = await lstat(current);
