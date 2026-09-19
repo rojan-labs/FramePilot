@@ -52,7 +52,7 @@ from framepilot_engine.timeline.transition_policy import transition_eligibility
 _EPSILON = 1e-9
 
 # Effect types apply_color_grade is allowed to attach (mirrors TS).
-SUPPORTED_COLOR_GRADE_EFFECTS = ("color_grade", "lut", "transform")
+SUPPORTED_COLOR_GRADE_EFFECTS = ("color_grade", "lut", "transform", "blur")
 
 # Synthetic asset ids for clips that have no media source (mirrors TS).
 TEXT_OVERLAY_ASSET_ID = "__text__"

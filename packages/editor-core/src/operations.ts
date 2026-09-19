@@ -779,8 +779,11 @@ export type Operation =
 
 export type OperationType = Operation['type'];
 
-/** Effect types the color-grade operation is allowed to attach. */
-export const SUPPORTED_COLOR_GRADE_EFFECTS = ['color_grade', 'lut', 'transform'] as const;
+/**
+ * Effect types the color-grade operation is allowed to attach: the clip's picture effects
+ * (`blur` is the clip blur of `clip-blur.ts`, which a mask can limit like a grade).
+ */
+export const SUPPORTED_COLOR_GRADE_EFFECTS = ['color_grade', 'lut', 'transform', 'blur'] as const;
 
 /** Synthetic asset ids used for clips that have no media source. */
 export const TEXT_OVERLAY_ASSET_ID = '__text__';

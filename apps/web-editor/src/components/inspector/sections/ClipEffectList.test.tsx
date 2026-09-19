@@ -170,4 +170,40 @@ describe('Inspector effect rows (MK5.1)', () => {
     openEffects();
     expect(screen.getByText('1 mask')).toBeTruthy();
   });
+
+  it('adds a blur a mask can limit, and edits its strength in place', () => {
+    let live: ReturnType<typeof useEditor> | null = null;
+    function BlurHost(): JSX.Element {
+      const editor = useEditor(timeline, { assets: [MEASURED, UNMEASURED] });
+      live = editor;
+      return (
+        <SettingsProvider>
+          <button type="button" onClick={() => editor.select('graded')}>
+            select graded clip
+          </button>
+          <Inspector editor={editor} />
+        </SettingsProvider>
+      );
+    }
+    const blurOf = () =>
+      live!.state.timeline.tracks[0]!.clips[0]!.effects.find((effect) => effect.type === 'blur');
+    render(<BlurHost />);
+    fireEvent.click(screen.getByRole('button', { name: 'select graded clip' }));
+    openEffects();
+    fireEvent.click(screen.getByRole('button', { name: 'Add blur' }));
+    expect(blurOf()).toEqual({
+      id: 'graded__blur',
+      type: 'blur',
+      params: { amount: 0.04 },
+      keyframes: [],
+    });
+    // One blur per clip: the button goes, and the blur's row offers "Add mask" like any effect.
+    expect(screen.queryByRole('button', { name: 'Add blur' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add mask to blur' })).toBeTruthy();
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Blur strength' }), {
+      target: { value: '10' },
+    });
+    expect(blurOf()?.params).toEqual({ amount: 0.1 });
+    expect(blurOf()?.id).toBe('graded__blur');
+  });
 });

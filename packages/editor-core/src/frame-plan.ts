@@ -107,7 +107,7 @@ export interface FramePlanLayer {
   readonly geometry: FramePlanGeometry | null;
   readonly opacity: number;
   readonly blendMode: string;
-  /** Per-clip picture effects in the order the export applies them (grade, then LUT). */
+  /** Per-clip picture effects in the order the export applies them (grade, LUT, blur). */
   readonly effects: readonly { type: string; params: Record<string, unknown> }[];
   /**
    * The clip's enabled mask stack (schema v22, ADR 0178), top first, and the ASSET source
@@ -233,8 +233,8 @@ export const FRAME_NUMBER_EPSILON = 0.00001;
 export const FRAME_PTS_EPSILON = 1e-6;
 /** The export composites on black. */
 export const FRAME_PLAN_BACKGROUND: readonly [number, number, number] = [0, 0, 0];
-/** Per-clip picture effects the export applies, in order. */
-const PICTURE_EFFECT_ORDER = ['color_grade', 'lut'] as const;
+/** Per-clip picture effects the export applies, in order (`frame_plan.PICTURE_EFFECT_ORDER`). */
+const PICTURE_EFFECT_ORDER = ['color_grade', 'lut', 'blur'] as const;
 
 const LEGACY_KINDS = new Set([
   'cut',

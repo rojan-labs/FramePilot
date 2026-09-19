@@ -31,6 +31,7 @@ export * from './edit-boundaries.js';
 export * from './professional-commands.js';
 export * from './motion-commands.js';
 export * from './color-commands.js';
+export * from './clip-blur.js';
 export * from './track-follow.js';
 export * from './track-reframe.js';
 export * from './picture-occupancy.js';

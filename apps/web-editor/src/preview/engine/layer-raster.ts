@@ -108,7 +108,7 @@ export interface PictureRasterStep {
   readonly x: number;
   readonly y: number;
   readonly blendMode: string;
-  /** Per-clip picture effects in export order (`color_grade`, then `lut`). */
+  /** Per-clip picture effects in export order (`color_grade`, `lut`, then `blur`). */
   readonly effects: FramePlanLayer['effects'];
   /**
    * MK9.2: the clip's cut-out edge styles, bottom first, drawn under the picture after its alpha

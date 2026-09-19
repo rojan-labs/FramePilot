@@ -70,8 +70,9 @@ FRAME_PTS_EPSILON = 1e-6
 #: The export composites on black (``CompositeVideoClip(bg_color=(0, 0, 0))``).
 BACKGROUND_RGB = (0, 0, 0)
 
-#: The picture effects the compiler applies per clip, in the order it applies them.
-PICTURE_EFFECT_ORDER = ("color_grade", "lut")
+#: The picture effects the compiler applies per clip, in the order it applies them. ``blur``
+#: (``render/clip_blur.py``) runs last, so a blurred region carries the grade it would have had.
+PICTURE_EFFECT_ORDER = ("color_grade", "lut", "blur")
 
 
 class FramePlanError(ValueError):
@@ -251,7 +252,7 @@ def underlay_material(
 
 
 def picture_effects(clip: Clip) -> list[Effect]:
-    """The per-clip picture effects the compiler applies, in apply order (grade, then LUT)."""
+    """The per-clip picture effects the compiler applies, in apply order (grade, LUT, blur)."""
     found: list[Effect] = []
     for effect_type in PICTURE_EFFECT_ORDER:
         effect = next((e for e in clip.effects if e.type == effect_type), None)

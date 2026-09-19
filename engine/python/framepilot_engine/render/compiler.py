@@ -107,6 +107,11 @@ from framepilot_engine.render.captions import (
     render_caption_image,
     resolve_caption_cue,
 )
+from framepilot_engine.render.clip_blur import (
+    CLIP_BLUR_EFFECT_TYPE,
+    apply_clip_blur,
+    clip_blur_amount,
+)
 from framepilot_engine.render.color import (
     CubeLut,
     apply_color_grade,
@@ -1180,6 +1185,10 @@ def _apply_color_grade(
             if grade.is_identity:
                 continue
             apply: Callable[[np.ndarray], np.ndarray] = partial(apply_color_grade, grade=grade)
+        elif effect.type == CLIP_BLUR_EFFECT_TYPE:
+            if clip_blur_amount(effect.params) <= 0.0:
+                continue
+            apply = partial(apply_clip_blur, params=dict(effect.params))
         else:
             lut = _load_lut(_resolve_lut_path(effect.params, lut_base_dir, clip.id), clip.id)
             apply = partial(apply_lut, lut=lut)

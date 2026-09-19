@@ -10,6 +10,7 @@ import { MEASURE_MEDIA_FIRST, assetDisplaySize } from '@framepilot/editor-core';
 import type { UseEditor } from '../editor/useEditor.js';
 import {
   removeEffectLayerPatch,
+  setClipBlurPatch,
   setEffectLayerEnabledPatch,
   setEffectLayerParamsPatch,
 } from '../editor/patch-builders.js';
@@ -292,7 +293,10 @@ export function Inspector({
   }
 
   const { clip, track } = selection.primary;
-  const clipMedia = editor.state.assets.find((asset) => asset.id === clip.assetId)?.media;
+  const clipAsset = editor.state.assets.find((asset) => asset.id === clip.assetId);
+  const clipMedia = clipAsset?.media;
+  // The export applies clip picture effects to footage and stills only (`_apply_color_grade`).
+  const takesPictureEffects = clipAsset?.kind === 'video' || clipAsset?.kind === 'image';
   const clipRelative = Math.max(0, Math.min(clip.end - clip.start, playhead - clip.start));
   const targetIds = selection.clips.map((location) => location.clip.id);
   const multi = selection.kind === 'multi-clip';
@@ -350,6 +354,14 @@ export function Inspector({
               maskToolStore.startMaskFor({ kind: 'effect', effectId });
               setPreferredTab('mask');
             }}
+            {...(takesPictureEffects && !multi
+              ? {
+                  onSetBlur: (amount: number) => {
+                    const patch = setClipBlurPatch(editor.state.timeline, clip.id, amount);
+                    if (patch) editor.applyPatch(patch);
+                  },
+                }
+              : {})}
           />
         );
       default:

@@ -42,7 +42,12 @@ import {
   type StackMask,
   type MatteStackInputs,
 } from '../masks/mask-stack.js';
-import { maskSourceTime, type FramePlanEdgeStyle } from '@framepilot/editor-core';
+import {
+  CLIP_BLUR_EFFECT_TYPE,
+  clipBlurRadius,
+  maskSourceTime,
+  type FramePlanEdgeStyle,
+} from '@framepilot/editor-core';
 import {
   EDGE_COLUMN_FRAGMENT,
   EDGE_COMPOSITE_FRAGMENT,
@@ -444,7 +449,12 @@ export class LayerCompositor {
       const input = current;
       if (effect.type === 'color_grade') current = this.grade(input, effect.params);
       else if (effect.type === 'lut') current = this.lut(input, effect.params);
-      else return;
+      else if (effect.type === CLIP_BLUR_EFFECT_TYPE) {
+        // `render/clip_blur.py`: Pillow's Gaussian at a fraction of the picture's smaller side.
+        const radius = clipBlurRadius(effect.params, input.width, input.height);
+        if (radius <= 0) return;
+        current = this.pilGaussianBlur(input, radius);
+      } else return;
       // An effect-target mask mixes the effect's output with its input by the stack's alpha,
       // inside the effect application (`_masked_effect`), before any blur or alpha.
       const effectId = step.effectIds[index] ?? null;

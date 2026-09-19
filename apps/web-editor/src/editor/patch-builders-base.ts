@@ -14,6 +14,7 @@
 import {
   buildAddMusicOps,
   buildAddStockOps,
+  clipBlurEffect,
   firstFreePictureStart,
   createLaneAllocator,
   nextLayerId as coreNextLayerId,
@@ -2154,6 +2155,23 @@ export function setColorGradePatch(
         effect: { id: `${clipId}__grade`, type: 'color_grade', params, keyframes: [] },
       },
     ],
+  };
+}
+
+/**
+ * Add the clip's blur, or set its amount (plan 10, MK5: an effect a mask can limit). The blur
+ * lives under the shared id (`clipBlurEffectId`), so re-applying updates it in place and every
+ * mask already limiting it keeps limiting it. Returns `null` when the clip is missing.
+ *
+ * @param amount - Radius as a fraction of the picture's smaller side (`clip-blur.ts`).
+ */
+export function setClipBlurPatch(timeline: Timeline, clipId: string, amount: number): Patch | null {
+  if (!findClip(timeline, clipId)) return null;
+  return {
+    patchId: patchId(`blurset_${clipId}_${Math.round(amount * 1000)}`),
+    createdBy: 'user',
+    reason: `Blur "${clipId}"`,
+    operations: [{ type: 'apply_color_grade', clipId, effect: clipBlurEffect(clipId, amount) }],
   };
 }
 
