@@ -8,12 +8,13 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-**CI fully green at 6b77de0e (run 35351484628, 12/12 jobs).** Three fresh agents closing out the rest (maintainer, 2026-09-18: "close out others end to end"; don't resume old agents):
-- BR7.4 — matte eval + accuracy iteration moved to a dispatch-only CI workflow (local memory can't hold BiRefNet at 2048²)
-- E2E + DOC.1: agent stopped by the maintainer. Committed E2E.1 (c55a5366, 63be864b), E2E.2 (17a58563), E2E.5 (f55f23ce), E2E.8 (7dddc8eb, ac424e66); unfinished and uncommitted: tests/e2e/specs/masking-e2e-pro-masking.spec.ts (E2E.3). Not started: E2E.3 finish, E2E.4, E2E.6, E2E.7, DOC.1. Not ticked until CI proves them
-- MK9.4, PX5.11, RD2.2 done (full-row export 1.32× ✓)
-Then: E2E.1–E2E.8 + DOC.1, RD2.2 dashboards, AM2.6 real-weights colour, MK7.5 real clips. RD3 and everything in MAINTAINER_ONLY_ACTIONS.md stay with the maintainer.
-Agent rules to paste into every prompt: single-file tests with `--no-file-parallelism`; no local Playwright or oracle (CI only; poll CI yourself in bounded rounds, never end a turn "waiting"); watchdog for model runs; explicit `git add`, never stage others' files; no stash, force-push or trailers; don't edit plan files.
+Maintainer 2026-09-19: "finish everything; you can run the things on this laptop as well" (local runs allowed, one heavy job at a time, guard: stop if free memory < 25% or swap grows > 1.5 GB).
+Running:
+- E2E.3/E2E.4/E2E.6/E2E.7 + DOC.1 (qa-e2e agent; finishes the untracked draft masking-e2e-pro-masking.spec.ts)
+- MK7.5 real-texture tracking gates (known synthetic motion on real broll frames), confidence recall, correction rate
+- BR7.4 Smart Mask accuracy iterations in the dispatch-only CI eval (2048² doesn't fit locally)
+Blocked on maintainer only: see MAINTAINER_ONLY_ACTIONS.md (MO-1..MO-20). RD3 last.
+Agent rules: single-file tests with `--no-file-parallelism`; local Playwright/model runs one at a time under the guard; poll CI yourself in bounded rounds; explicit `git add`, never stage others' files; no stash, force-push or trailers; don't edit plan files.
 
 ## Done
 
