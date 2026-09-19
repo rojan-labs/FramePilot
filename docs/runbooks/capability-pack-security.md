@@ -21,6 +21,8 @@ install consent are what keep hostile packs out.
 | Media and output handles | `worker-client.ts` (realpath containment), `matte-staging.ts` | The worker is pointed only at approved media and one host-created staging folder |
 | Process group | `process-group.ts`; worker runs and health checks | Timeout, abort, failure and completion kill the group (POSIX) or tree (Windows `taskkill /T`); a job is checked for survivors before verification |
 | Watchdog | `worker-watchdog.ts` | Footprint ≤ min(pack limit, 0.6 × RAM); 5 min without progress; declared outputs ≤ the byte ceiling, and the whole staging folder (incl. the worker's `windows/`/`scratch/` and host `inputs/`) ≤ min(the job's staging budget, free − 1 GB when the volume reports it) → `resource_exhausted`. Bytes under staging are bounded; bytes elsewhere are not (see "Deferred"). The worker's TMPDIR/TEMP/TMP point at `<staging>/scratch/tmp`, so temp files are inside the measured folder. A staging entry the host cannot read is a `disk` breach, not 0 bytes (split in E2E.6: the worker's own scratch had been counted against the artifact ceiling; F1/F3/F4 of the follow-up review) |
+| Resume of a stopped job (E2E.6) | `matte-staging.ts`, `matte-ipc.ts` (`resumeMatteJobs`) | Only a journaled job resumed after a restart adopts its leftover staging folder; a new request refuses an existing one (`job_running`). Every job holds `.staging/<jobId>.lock` (its pid); another running process's lock refuses, a dead process's is taken over. The worker's `windows/` survive only when `inputs/staging.json` (host-written, 0400, one link) names the same cache key (content fingerprint included) and pipeline version, the tree holds only real directories and single-link files within depth 6 / 50 000 entries, and the folder's realpath is unchanged before and after the clean-up. The worker keys its checkpoints on the host's `contentFingerprint` too |
+| Pack jobs (tracking, detection, segmentation, embedding) | `tracking.ts` | The same watchdog: footprint, 5 min without progress, and the job's private temp folder (TMPDIR/TEMP/TMP, under the OS temp directory, removed after) ≤ min(4 GiB, free − 1 GB) → `resource_exhausted` |
 | Host verification | `matte-verify.ts` | Only declared regular files; sizes, ceiling, sha256, frames equal to the source's decoded pts, ffprobe facts, locked frames bit-identical |
 | Pre-rename re-check | `matte-staging.ts` | Same names, regular files, `nlink == 1`, same size, inode and mtime as verified |
 | Warm worker (hover, BR6.11) | `warm-worker.ts`, `segment-frame.ts` | One `--framepilot-worker-warm` process; accepts `subject.segment_frame` only (no write handle), realpath-checks media on every request, scrubbed env, own process group; a bad line, handshake, foreign request id or pts mismatch kills it; ended after 60 s idle and on quit; refused while a job or export holds the slot. Its mask is never written to disk: pts and preview size checked against the host's own computation, PNG decoded strictly, pixels returned |
@@ -39,26 +41,34 @@ install consent are what keep hostile packs out.
 | POSIX `setsid()` / `setpgid()` escape | A descendant that leaves the group is neither killed nor memory-sampled | ADR 0114 amendment |
 | Client-disconnect cancellation on `/mattes/*` | A decode runs until its deadline after the desktop gives up | BR4.12 re-review D4 |
 | Watchdog polling window | Staging size and footprint are sampled every 2 s, so a worker can write (or allocate) up to 2 s of throughput past a limit before it is stopped; a write outside staging and TMPDIR (a path the worker opens itself) is not measured at all — that is the OS-sandbox gap | BR4.12 follow-up F3 |
+| Single app instance | Two app instances can open the same project; the per-job staging lock keeps one from adopting the other's live job, but there is no `requestSingleInstanceLock()`. Two instances taking over the same stale lock at the same moment can both proceed; a reused pid makes a stale lock look live (the resume fails `job_running`, fail closed) | BR4.12 follow-up F5 |
 | Pack-declared memory limit | The limit is a host constant (`PACK_MEMORY_LIMIT_BYTES`), not signed with the release | BR4.12 re-review D5 |
 | `senderFrame` checks on IPC; `mediaRoot = dirname(asset.path)` | Pre-existing; the sidecar sandbox must not be widened | BR4.12 L7 |
 
 ## When something looks wrong
 
 1. **A job failed with `resource_exhausted`.** `resourceLimit` says which: `memory` (shorter range or
-   close apps), `stalled` (retry; if it repeats, reinstall the pack), `disk` (free space). The
-   diagnostic bundle (`capabilityPackExportDiagnostics`) holds the phase timings and codes, no paths.
-2. **`verification_failed` with `changed_after_verify` or `lingering_process`.** Something wrote into
+   close apps), `stalled` (retry; if it repeats, reinstall the pack), `disk` (free space; or the
+   staging folder held more than the job's budget, or something in it could not be read —
+   `workerWatchdogUnmeasurable` in the log with an error code). On a volume that cannot report free
+   space (`matteFreeSpaceUnknown`) the budget is the only bound. The diagnostic bundle
+   (`capabilityPackExportDiagnostics`) holds the phase timings and codes, no paths.
+2. **A resumed job fails with `job_running`.** Another FramePilot process holds
+   `.staging/<jobId>.lock`, or its pid was reused. Close the other window, or run Remove background
+   again (a new job id). A lock that is a link or half-written refuses too; with the app closed,
+   deleting `.framepilot-derived/mattes/.staging/` is safe.
+3. **`verification_failed` with `changed_after_verify` or `lingering_process`.** Something wrote into
    staging after verification or a worker process would not stop. Treat the installed pack as
    suspect: reinstall it from Settings › Storage and report the pack version.
-3. **Processes still running after a job.** On macOS/Linux check `ps -o pid,pgid,command` for a
+4. **Processes still running after a job.** On macOS/Linux check `ps -o pid,pgid,command` for a
    process whose group differs from the worker's (it called `setsid()`): that is the documented
    escape, report the pack. On Windows check for children of the worker in Task Manager.
-4. **Clean refuses with `references_incomplete` or `unsafe_path`.** A project file in the folder is
+5. **Clean refuses with `references_incomplete` or `unsafe_path`.** A project file in the folder is
    unreadable, too large or a link, or the matte store contains a link. Fix or move that file; Clean
    never guesses.
-5. **Frame checks unavailable.** The sidecar is down or busy past the retries; lock checks and
+6. **Frame checks unavailable.** The sidecar is down or busy past the retries; lock checks and
    relink re-checks fail closed until it is back.
-6. **A matte plays slowly in the monitor after background removal.** Its monitor tier was not made
+7. **A matte plays slowly in the monitor after background removal.** Its monitor tier was not made
    (`matteMonitorTierFailed` in the log, with a code: `tool_unavailable` = sidecar down, busy past
    ~8 minutes or out of time; `probe_failed` = refused). Nothing is wrong with the matte: the monitor
    decodes the masters. The tier is made again on the next run of the same job (a cache hit), or

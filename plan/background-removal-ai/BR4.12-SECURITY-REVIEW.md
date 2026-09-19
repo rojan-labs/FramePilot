@@ -74,3 +74,33 @@ Deferred with a documented limit: L1–L7; no OS-level sandbox (seatbelt/AppCont
 | D5 | Pack memory limit declared in host code, not in the signed release | deferred until the release schema gains a field | — |
 
 The operational version of the deferred list lives in `docs/runbooks/capability-pack-security.md`.
+
+## Follow-up review (ae8ef8a5, 4c227ec1)
+
+**Reviewed:** `ae8ef8a5` (the watchdog stops counting the worker's own scratch against the output
+ceiling) and `4c227ec1` (resume adopts a leftover staging folder), by the `security-reviewer`
+specialist, 2026-09-19. **Verdict:** approved with follow-ups. All fixed, one commit each; E2E.6
+(`masking-e2e-resume.spec.ts`) passes locally after the last one (darwin-arm64, 3.8 min).
+
+| # | Severity | Finding | Fix | Commit |
+| --- | --- | --- | --- | --- |
+| F1 | Medium (regression) | `statfs` failing fell back to `Number.MAX_SAFE_INTEGER`, and the whole-folder limit was only `free − 1 GB`: nothing bounded scratch on network/FUSE/cloud volumes; the preflight was skipped | Whole staging folder ≤ min(staging budget, free − 1 GB when known). Budget (`matteStagingBudgetBytes`) = 3 × byte ceiling + one window of scratch (360 frames × 16 B/px) + 8 GiB embedding spill + 1 GiB slack. Unknown free space is logged and the job runs under the budget | `f7b67b06` |
+| F2 | Medium | Resume reused finished windows made from different media: the worker's `fingerprint()` had no content fingerprint | Host writes `inputs/staging.json` (0400: cache key, pipeline version) and adopts `windows/` only when that record is a regular, single-link file matching the current key; the request carries `contentFingerprint`, which the worker folds into `fingerprint()` | `1d324af9` (worker), `4cafea0b` (host) |
+| F3 | Low-Medium | TMPDIR/TEMP/TMP passed through, so temp files escaped the staging guard | `runCapabilityPackWorker({ temporaryDirectory })` points all three at a host-made real directory inside the staging root (`<staging>/scratch/tmp`), removed after the worker; runbook row corrected to "bytes under staging are bounded", 2 s polling window listed as a limit | `aad4762d` |
+| F4 | Low | Unreadable subfolders counted as 0 bytes | A non-ENOENT/ENOTDIR `readdir`/`lstat` failure under staging is a `disk` breach (fail closed) | `46dbb0b3` |
+| F5 | Low | `adoptOrphan: true` for fresh runs; with two app instances, B's adoption deleted A's live staging | `adoptOrphan` only from `resumeMatteJobs`; every staging creation takes `<stagingRoot>/<jobId>.lock` (`wx`, pid): another running pid refuses, a dead pid or this process's own pid is stale and taken over; the startup sweep respects another process's lock | `5755c8b8` |
+| F6 | Low | No realpath re-check after adoption clean-up; `linkFree` accepted `nlink > 1`; unbounded walk | Realpath of the job folder checked before and after clean-up; hard-linked files refused; walk bounded to depth 6 and 50 000 entries | `7e5fde34` |
+| X1 | (extra) | Tracking jobs stage like mattes but ran with no `WorkerWatchdog` | Every pack job run by `CapabilityPackTrackingService` (tracking, detection, segmentation, embedding) gets the H2 watchdog and a private temp folder (TMPDIR) bounded by min(4 GiB, free − 1 GB) → `resource_exhausted` | `d7fb4229` |
+
+Not done, with the reason:
+- **`app.requestSingleInstanceLock()`.** `main.ts` has none today. Adding it changes launch
+  behaviour (a second launch must focus the first window) and would stop a dev build running
+  beside an installed app. The per-job staging lock covers F5 without it.
+- **Lock takeover race.** Two instances that find the same stale lock at the same moment can
+  both take it over (unlink, then `wx`). It needs a dead app, two live ones and the same job id
+  within one call; recorded rather than fixed with a rename protocol.
+- **A reused pid** makes a stale lock look live: the resume then fails `job_running` (fail
+  closed) and the job can be run again.
+- **Worker `tempfile.tempdir`.** Not set in the worker: the host's environment already points
+  TMPDIR/TEMP/TMP at the staging folder, and the change was kept out of `pipeline.py` (BR7.5).
+
