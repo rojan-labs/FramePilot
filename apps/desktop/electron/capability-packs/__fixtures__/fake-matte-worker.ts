@@ -7,7 +7,7 @@
  * against real bytes on disk. Scenarios break exactly one rule each.
  */
 import { createHash } from 'node:crypto';
-import { appendFile, lstat, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { appendFile, lstat, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type {
   CapabilityPackWorkerProgress,
@@ -29,7 +29,8 @@ export type FakeMatteScenario =
   | 'output_unwritable'
   | 'needs_box'
   | 'hang'
-  | 'grow';
+  | 'grow'
+  | 'grow_scratch';
 
 export interface FakeMatteWorkerOptions {
   readonly scenario?: FakeMatteScenario;
@@ -72,6 +73,19 @@ export function fakeMatteWorker(options: FakeMatteWorkerOptions) {
     if (scenario === 'grow') {
       // Keeps writing into staging until the host stops it (ceiling overrun / disk fill).
       const target = path.join(request.parameters.output.absolutePath, 'matte.mkv');
+      await new Promise<void>((_resolve, reject) => {
+        const timer = setInterval(() => void appendFile(target, Buffer.alloc(64 * 1024)).catch(() => undefined), 5);
+        run.signal?.addEventListener('abort', () => {
+          clearInterval(timer);
+          reject(new CapabilityPackWorkerRuntimeError('cancelled', 'Capability Pack request cancelled.'));
+        });
+      });
+    }
+    if (scenario === 'grow_scratch') {
+      // Fills its private scratch/ (not a declared output) until the host stops it (F1).
+      const scratch = path.join(request.parameters.output.absolutePath, 'scratch');
+      await mkdir(scratch, { recursive: true });
+      const target = path.join(scratch, 'frames.u8');
       await new Promise<void>((_resolve, reject) => {
         const timer = setInterval(() => void appendFile(target, Buffer.alloc(64 * 1024)).catch(() => undefined), 5);
         run.signal?.addEventListener('abort', () => {

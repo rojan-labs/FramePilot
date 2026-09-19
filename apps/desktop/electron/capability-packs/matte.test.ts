@@ -75,6 +75,8 @@ interface HarnessOptions {
   timing?: MatteVideoTiming;
   autoPrompt?: MatteAutoPrompt;
   freeDiskBytes?: number;
+  /** The volume cannot report free space (statfs fails), as on some network mounts. */
+  freeDiskFails?: boolean;
   observer?: (report: MatteJobReport) => void;
   watchdog?: ConstructorParameters<typeof CapabilityPackMatteService>[0]['watchdog'];
   onRequest?: (request: CapabilityPackWorkerRequest) => void;
@@ -109,7 +111,10 @@ async function harness(options: HarnessOptions = {}) {
     runWorker: worker,
     isFile: async () => options.isFile ?? true,
     ...(options.autoPrompt === undefined ? {} : { autoPrompt: options.autoPrompt }),
-    freeDiskBytes: async () => options.freeDiskBytes ?? Number.MAX_SAFE_INTEGER,
+    freeDiskBytes: async () => {
+      if (options.freeDiskFails === true) throw Object.assign(new Error('statfs failed'), { code: 'ENOSYS' });
+      return options.freeDiskBytes ?? Number.MAX_SAFE_INTEGER;
+    },
     ...(options.observer === undefined ? {} : { observer: options.observer }),
     // Tests never sample real processes: a tiny footprint unless a test says otherwise.
     watchdog: { footprintBytes: async () => 1024, killGroup: () => undefined, ...options.watchdog },
@@ -385,6 +390,23 @@ describe('CapabilityPackMatteService lifecycle', () => {
       const h = await harness({ scenario: 'grow', freeDiskBytes: GIB + 256 * 1024, watchdog: { intervalMs: 5 } });
       expect(await h.service.run(h.intent(), h.context())).toMatchObject({ code: 'resource_exhausted', resourceLimit: 'disk' });
       expect(await readdir(matteStagingRoot(h.projectDir))).toEqual([]);
+    });
+
+    it('still bounds the staging folder when the volume cannot report free space (F1)', async () => {
+      // The worker fills its own scratch/, which the artifact ceiling does not count; without
+      // free space, the staging budget is what stops it.
+      const h = await harness({
+        scenario: 'grow_scratch',
+        freeDiskFails: true,
+        watchdog: { intervalMs: 5, stagingBudgetBytes: 512 * 1024 },
+      });
+      expect(await h.service.run(h.intent(), h.context())).toMatchObject({ code: 'resource_exhausted', resourceLimit: 'disk' });
+      expect(await readdir(matteStagingRoot(h.projectDir))).toEqual([]);
+    });
+
+    it('runs a healthy job on a volume that cannot report free space (F1)', async () => {
+      const h = await harness({ freeDiskFails: true, watchdog: { intervalMs: 5 } });
+      expect(await h.service.run(h.intent(), h.context())).toMatchObject({ status: 'completed' });
     });
 
     it('leaves a well-behaved job alone', async () => {

@@ -14,19 +14,28 @@ import {
 const GIB = 1024 ** 3;
 
 describe('worker watchdog limits and sampling', () => {
-  it('takes the smaller of the pack limit and 0.6 x RAM; outputs to the ceiling, the folder to free space minus 1 GB', () => {
-    expect(watchdogLimits({ packId: 'framepilot.smart-mask', totalMemoryBytes: 32 * GIB, byteCeiling: 10 * GIB, freeBytesAtStart: 50 * GIB })).toEqual({
+  it('takes the smaller of the pack limit and 0.6 x RAM; outputs to the ceiling, the folder to min(budget, free space minus 1 GB)', () => {
+    const budget = 100 * GIB;
+    expect(watchdogLimits({ packId: 'framepilot.smart-mask', totalMemoryBytes: 32 * GIB, byteCeiling: 10 * GIB, freeBytesAtStart: 50 * GIB, stagingBudgetBytes: budget })).toEqual({
       memoryBytes: 8 * GIB,
       stallMs: 5 * 60 * 1000,
       stagingBytes: 49 * GIB,
       outputBytes: 10 * GIB,
     });
-    expect(watchdogLimits({ packId: 'framepilot.smart-mask', totalMemoryBytes: 8 * GIB, byteCeiling: 10 * GIB, freeBytesAtStart: 3 * GIB })).toMatchObject({
+    expect(watchdogLimits({ packId: 'framepilot.smart-mask', totalMemoryBytes: 8 * GIB, byteCeiling: 10 * GIB, freeBytesAtStart: 3 * GIB, stagingBudgetBytes: budget })).toMatchObject({
       memoryBytes: Math.floor(0.6 * 8 * GIB),
       stagingBytes: 2 * GIB,
       outputBytes: 10 * GIB,
     });
-    expect(watchdogLimits({ packId: 'other', totalMemoryBytes: 10, byteCeiling: 1, freeBytesAtStart: 0 }).stagingBytes).toBe(0);
+    expect(watchdogLimits({ packId: 'other', totalMemoryBytes: 10, byteCeiling: 1, freeBytesAtStart: 0, stagingBudgetBytes: budget }).stagingBytes).toBe(0);
+    // Plenty free: the budget still bounds the folder.
+    expect(watchdogLimits({ packId: 'other', totalMemoryBytes: 10, byteCeiling: 1, freeBytesAtStart: 500 * GIB, stagingBudgetBytes: 20 * GIB }).stagingBytes).toBe(20 * GIB);
+  });
+
+  it('bounds the folder by the budget when free space is unknown, never by nothing (F1)', () => {
+    const limits = watchdogLimits({ packId: 'framepilot.smart-mask', totalMemoryBytes: 32 * GIB, byteCeiling: GIB, freeBytesAtStart: undefined, stagingBudgetBytes: 12 * GIB });
+    expect(limits.stagingBytes).toBe(12 * GIB);
+    expect(Number.isFinite(limits.stagingBytes)).toBe(true);
   });
 
   it('holds the declared outputs to the ceiling and the whole folder to the disk guard (E2E.6)', async () => {

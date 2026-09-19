@@ -45,3 +45,34 @@ export async function freeDiskBytes(directory: string): Promise<number> {
   const info = await statfs(directory);
   return Number(info.bavail) * Number(info.bsize);
 }
+
+const GIB = 1024 * MIB;
+/**
+ * Frames one Smart Mask window holds (`segment.py` WINDOW_FRAMES 300 + WINDOW_OVERLAP 60).
+ * A job shorter than this holds only its own frames.
+ */
+const WORKER_WINDOW_FRAMES = 360;
+/**
+ * Scratch bytes per pixel of one window frame (`pipeline.py`): RGB frames (3) and a reuse copy
+ * (3), plus the u8/bool planes (BiRefNet, alpha, band, estimate, silhouette: 5). Rounded up to 16
+ * so a pipeline change that adds a plane does not kill healthy jobs.
+ */
+const SCRATCH_BYTES_PER_WINDOW_PIXEL = 16;
+/** `PipelineConfig.embedding_spill_bytes`: SAM embeddings spilled to scratch. */
+const EMBEDDING_SPILL_BYTES = 8 * GIB;
+/** Temp files (TMPDIR points into scratch, F3), ffmpeg concat lists, checkpoint JSON. */
+const SCRATCH_SLACK_BYTES = GIB;
+
+/**
+ * The most a matte job's whole staging folder may hold (BR4.12 follow-up F1): three times the
+ * artifact's byte ceiling (the declared outputs, each finished window's segments in `windows/`
+ * until the join, and a re-run's cloned previous matte in `inputs/`) plus one window's scratch.
+ *
+ * A bound, not an estimate: it is what keeps the folder finite when the volume cannot report
+ * free space, and it is generous so a healthy job never meets it.
+ */
+export function matteStagingBudgetBytes(width: number, height: number, frameCount: number, byteCeiling: number): number {
+  const windowFrames = Math.min(Math.max(frameCount, 1), WORKER_WINDOW_FRAMES);
+  const scratch = windowFrames * Math.max(1, width * height) * SCRATCH_BYTES_PER_WINDOW_PIXEL;
+  return 3 * Math.max(0, byteCeiling) + scratch + EMBEDDING_SPILL_BYTES + SCRATCH_SLACK_BYTES;
+}

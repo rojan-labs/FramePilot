@@ -38,7 +38,7 @@ import {
 import { createLogger, maskingEventPayload, type CapabilityPackProposalResultWire } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import { MatteInspectorError, type MatteMediaInspector, type MatteVideoTiming } from './matte-media-inspector.js';
-import { estimateMatteBytes, freeDiskBytes } from './matte-disk.js';
+import { estimateMatteBytes, freeDiskBytes, matteStagingBudgetBytes } from './matte-disk.js';
 import {
   processGroupFootprint,
   STAGING_PRIVATE_ENTRIES,
@@ -204,6 +204,8 @@ export interface CapabilityPackMatteServiceOptions {
     readonly intervalMs?: number;
     readonly now?: () => number;
     readonly killGroup?: (pid: number | undefined) => void;
+    /** Replaces the job's computed staging budget (tests cannot write gigabytes). */
+    readonly stagingBudgetBytes?: number;
   };
   /** Receives one privacy-safe report per finished job (BR4.11 diagnostics). */
   readonly observer?: (report: MatteJobReport) => void;
@@ -453,6 +455,7 @@ export class CapabilityPackMatteService {
       const result = await this.runWorker(pack.record, request, staging, media, intent.requestId, signal, context.onProgress, {
         projectDir: context.projectDir,
         byteCeiling: maxBytes,
+        stagingBudget: matteStagingBudgetBytes(size.width, size.height, media.frameCount, maxBytes),
       });
       addPhase(phases, 'worker', Date.now() - tWorker);
       if ('status' in result) return result;
@@ -571,8 +574,11 @@ export class CapabilityPackMatteService {
     try {
       free = await (this.options.freeDiskBytes ?? freeDiskBytes)(projectDir);
     } catch {
-      // A volume that cannot report free space is not a reason to refuse; the job still
-      // fails cleanly as output_unwritable if it runs out.
+      // A volume that cannot report free space (network, FUSE, cloud sync) is not a reason to
+      // refuse, because the watchdog still holds the whole staging folder to the job's staging
+      // budget (BR4.12 follow-up F1); the job fails as resource_exhausted before it can grow
+      // past it.
+      log.warn('matteFreeSpaceUnknown', {});
       return undefined;
     }
     if (free >= estimate.requiredBytes) return undefined;
@@ -819,7 +825,7 @@ export class CapabilityPackMatteService {
     requestId: string,
     signal: AbortSignal,
     onProgress: MatteRunContext['onProgress'],
-    context: { readonly projectDir: string; readonly byteCeiling: number },
+    context: { readonly projectDir: string; readonly byteCeiling: number; readonly stagingBudget: number },
   ): Promise<SubjectMatteResult | Extract<MatteRunOutcome, { status: 'failed' }>> {
     const installRoot = resolveInside(this.options.storageRoot, record.installRelativePath);
     const entrypoint = resolveInside(installRoot, ENTRYPOINT[this.options.platform.os]);
@@ -831,13 +837,15 @@ export class CapabilityPackMatteService {
     signal.addEventListener('abort', forwardAbort, { once: true });
     let workerPid: number | undefined;
     const settings = this.options.watchdog ?? {};
-    const freeAtStart = await (this.options.freeDiskBytes ?? freeDiskBytes)(context.projectDir).catch(() => Number.MAX_SAFE_INTEGER);
+    // Unknown free space leaves the staging budget as the folder's only bound, never no bound (F1).
+    const freeAtStart = await (this.options.freeDiskBytes ?? freeDiskBytes)(context.projectDir).catch(() => undefined);
     const watchdog = new WorkerWatchdog(
       watchdogLimits({
         packId: record.identity.id,
         totalMemoryBytes: settings.totalMemoryBytes ?? totalmem(),
         byteCeiling: context.byteCeiling,
         freeBytesAtStart: freeAtStart,
+        stagingBudgetBytes: settings.stagingBudgetBytes ?? context.stagingBudget,
         ...(settings.stallMs === undefined ? {} : { stallMs: settings.stallMs }),
       }),
       {

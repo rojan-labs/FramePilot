@@ -16,7 +16,11 @@
  * - **Staging size**, polled while the job runs rather than only checked afterwards:
  *   - the declared outputs (everything but the worker's private `windows/` and `scratch/` and the
  *     host's `inputs/`) ≤ the job's byte ceiling;
- *   - the whole staging directory ≤ free space at start − 1 GB, so no job fills the disk.
+ *   - the whole staging directory ≤ the job's staging budget (its outputs, the worker's scratch
+ *     and checkpoints, the host's inputs; declared by the caller) and, when the volume reports
+ *     it, ≤ free space at start − 1 GB. A volume that cannot report free space (some network,
+ *     FUSE and cloud-sync mounts) still has the budget: the folder is never unbounded (BR4.12
+ *     follow-up F1).
  *   The two are separate because a Smart Mask worker legitimately holds more than its artifact
  *   while it runs (BR3.14): decoded frames and spilled embeddings in `scratch/`, and each
  *   finished window's segments in `windows/` until the final join. Counting those against the
@@ -49,7 +53,7 @@ export const PACK_MEMORY_LIMIT_BYTES: Readonly<Record<string, number>> = {
 export interface WatchdogLimits {
   readonly memoryBytes: number;
   readonly stallMs: number;
-  /** The whole staging directory (disk-exhaustion guard). */
+  /** The whole staging directory: min(the job's staging budget, free − 1 GB when known). */
   readonly stagingBytes: number;
   /** The declared outputs alone (the artifact's byte ceiling). */
   readonly outputBytes: number;
@@ -71,14 +75,22 @@ export function watchdogLimits(options: {
   readonly packId: string;
   readonly totalMemoryBytes: number;
   readonly byteCeiling: number;
-  readonly freeBytesAtStart: number;
+  /** Free bytes on the staging volume at start; `undefined` when the volume cannot say. */
+  readonly freeBytesAtStart: number | undefined;
+  /** The most the whole staging folder may hold for this job, whatever the volume reports. */
+  readonly stagingBudgetBytes: number;
   readonly stallMs?: number;
 }): WatchdogLimits {
   const packLimit = PACK_MEMORY_LIMIT_BYTES[options.packId] ?? Number.POSITIVE_INFINITY;
+  const budget = Math.max(0, options.stagingBudgetBytes);
+  const diskGuard =
+    options.freeBytesAtStart === undefined
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, options.freeBytesAtStart - WATCHDOG_DISK_RESERVE_BYTES);
   return {
     memoryBytes: Math.min(packLimit, Math.floor(WATCHDOG_RAM_SHARE * options.totalMemoryBytes)),
     stallMs: options.stallMs ?? WATCHDOG_STALL_MS,
-    stagingBytes: Math.max(0, options.freeBytesAtStart - WATCHDOG_DISK_RESERVE_BYTES),
+    stagingBytes: Math.min(budget, diskGuard),
     outputBytes: Math.max(0, options.byteCeiling),
   };
 }
