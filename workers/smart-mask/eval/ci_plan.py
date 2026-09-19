@@ -31,7 +31,10 @@ CATEGORIES = (
     "walk_pan",
 )
 SPLITS = ("calibration", "scored")
-SUITES = ("auto", "click", "ablations", "replay")
+#: ``click_calibration`` (never in the default) runs one-click on the calibration split, so a
+#: click rule can be fitted there instead of on the scored clips that judge the gate.
+SUITES = ("auto", "click", "click_calibration", "ablations", "replay")
+DEFAULT_SUITES = ("auto", "click", "ablations", "replay")
 
 
 def _words(text: str) -> list[str]:
@@ -48,7 +51,7 @@ def _pick(requested: str, allowed: tuple[str, ...], what: str) -> list[str]:
 
 def plan(suites: str, categories: str, splits: str, replay_categories: str) -> dict[str, Any]:
     """``{"eval": [{variant, clip, category, split}], "replay": [{clip, category}]}``."""
-    chosen_suites = _pick(suites, SUITES, "suites")
+    chosen_suites = _pick(suites, SUITES, "suites") if _words(suites) else list(DEFAULT_SUITES)
     chosen = _pick(categories, CATEGORIES, "categories")
     chosen_splits = _pick(splits, SPLITS, "splits")
     runs: list[dict[str, str]] = []
@@ -64,6 +67,9 @@ def plan(suites: str, categories: str, splits: str, replay_categories: str) -> d
     if "click" in chosen_suites and "scored" in chosen_splits:
         for category in chosen:
             add("click", category, "scored")
+    if "click_calibration" in chosen_suites and "calibration" in chosen_splits:
+        for category in chosen:
+            add("click", category, "calibration")
     if "ablations" in chosen_suites and "scored" in chosen_splits:
         if "hair_busy" in chosen:
             add("band_off", "hair_busy", "scored")

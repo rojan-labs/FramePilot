@@ -303,3 +303,6 @@ def test_ci_plan_builds_one_job_per_variant_and_clip() -> None:
                                "split": "scored"}], "replay": []}  # fmt: skip
     with pytest.raises(SystemExit, match="unknown categories"):
         ci_plan.plan("auto", "walkpan", "", "")
+    fit = ci_plan.plan("click_calibration", "hair_busy", "", "")["eval"]
+    assert fit == [{"variant": "click", "clip": "hair_busy__calibration", "category": "hair_busy",
+                    "split": "calibration"}]  # fmt: skip
