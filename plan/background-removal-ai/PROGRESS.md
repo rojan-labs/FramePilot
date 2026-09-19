@@ -10,7 +10,6 @@ Read this first after a context reset. Updated after every commit.
 
 Maintainer 2026-09-19: "finish everything; you can run the things on this laptop as well" (local runs allowed, one heavy job at a time, guard: stop if free memory < 25% or swap grows > 1.5 GB).
 Running:
-- Security follow-ups on ae8ef8a5/4c227ec1: review APPROVED WITH FOLLOW-UPS — F1 (disk guard off when free space unknown) and F2 (resume reuses windows from different media) Medium, F3–F6 Low, tracking jobs lack a watchdog → fix agent running
 - E2E.7 cross-OS reopen: CI run 35437415890
 - MK7.7 correction through occlusion (exclusion region + constraint), night-plate margin
 - BR7.5 Smart Mask accuracy levers (subject-crop SAM pass, temporal consistency first, box as second prompt) in the CI eval
@@ -18,6 +17,8 @@ Blocked on maintainer only: see MAINTAINER_ONLY_ACTIONS.md (MO-1..MO-20). RD3 la
 Agent rules: single-file tests with `--no-file-parallelism`; local Playwright/model runs one at a time under the guard; poll CI yourself in bounded rounds; explicit `git add`, never stage others' files; no stash, force-push or trailers; don't edit plan files.
 
 ## Done
+
+- BR4.12 follow-ups on ae8ef8a5/4c227ec1 (f7b67b06…ed7e6567): F1 fail-closed staging budget; F2 host-owned staging.json + media content fingerprint in the worker's resume fingerprint; F3 worker temp under staging; F4 unreadable dir = breach; F5 adopt only on resume + per-job lock; F6 realpath re-check, no hard links, bounded walk; tracking/detection/segment/embed jobs now have the watchdog. 317 desktop pack tests; E2E.6 passes locally. Open (recorded): no single-instance lock, lock-takeover race, reused-pid false live
 
 - E2E.3/.4/.6/(.7 local) + DOC.1: 16/16 masking e2e pass locally at 46438836. 10 product bugs fixed: tracked-mask blur blurred the whole frame in the preview (monitor never read tracks); re-track dropped constraints; no clip blur effect existed anywhere ("blur a face" impossible); resume failed with staging_exists; re-running Remove background stacked a second matte; pack services refused project-relative media; watchdog counted the worker's own scratch (security change — under review); no STALE after relink; sidebar refused the second of two diffs; a wrong refusal message
 
