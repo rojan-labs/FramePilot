@@ -21,7 +21,9 @@
  *  - **`fp-media://`.** Chrome cannot load a custom scheme, so asset paths are rewritten to
  *    same-origin URLs on open and back to project-relative paths on save; artifacts are served
  *    through the monitor's documented stand-in hooks (`__fpMatteArtifactUrl`,
- *    `__fpTrackArtifactUrl`), the same ones the PX4 oracle uses.
+ *    `__fpTrackArtifactUrl`), the same ones the PX4 oracle uses. An absolute path the relink
+ *    dialog chose stays absolute (as on the desktop), and the page's `fetch` of its
+ *    `fp-media://local/…` URL is answered from the same file through the same-origin route.
  *  - **Pack installation.** No signed Smart Mask / Tracking Lite release exists anywhere yet
  *    (MO-1..MO-5), so a "missing" pack carries a stand-in proposal and "installing" it flips the
  *    host's answer and fires `capabilityPackInstalled`, exactly the event a real install fires
@@ -30,7 +32,9 @@
  *  - **Pack workers.** No model runs. A matte job writes a synthetic artifact to the pack's
  *    output contract (FFV1 matte + foreground + `frames.json`) with the engine helper; a track
  *    job writes a `track.json`. The host record (content fingerprint, decoded source samples) is
- *    made with the host's own functions and the real inspector.
+ *    made with the host's own functions and the real inspector. A spec can instead pass the REAL
+ *    matte service over the scripted-model worker (`smart-mask-pack.ts`) and a job journal, which
+ *    adds the real job scheduler, the Jobs panel channels and resume-on-open (E2E.6).
  *  - **The AI model.** A scripted policy (see the AI spec), as in the AM5 eval harness.
  */
 import { randomUUID } from 'node:crypto';
@@ -40,9 +44,15 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Page, Route } from '@playwright/test';
 import { IpcChannels } from '../../../../apps/desktop/dist/ipc/contract.js';
 import {
+  registerJobIpc,
   registerMatteIpc,
+  resumeMatteJobs,
   type MatteIpcEvent,
 } from '../../../../apps/desktop/dist/capability-packs/matte-ipc.js';
+import {
+  CapabilityPackJobScheduler,
+  FileJobJournal,
+} from '../../../../apps/desktop/dist/capability-packs/job-scheduler.js';
 import { registerRelinkIpc } from '../../../../apps/desktop/dist/capability-packs/matte-relink-ipc.js';
 import { DesktopMatteMediaInspector } from '../../../../apps/desktop/dist/capability-packs/matte-media-inspector.js';
 import { validateProjectMattes } from '../../../../apps/desktop/dist/capability-packs/matte-validation.js';
@@ -118,6 +128,9 @@ const INVOKE_CHANNELS: Readonly<Record<string, string>> = {
   matteSaveCorrection: IpcChannels.matteSaveCorrection,
   matteRecheckMedia: IpcChannels.matteRecheckMedia,
   projectChooseRelinkFile: IpcChannels.projectChooseRelinkFile,
+  // Registered only with a job journal (the real scheduler); otherwise answered below.
+  capabilityPackJobs: IpcChannels.capabilityPackJobs,
+  capabilityPackJobAction: IpcChannels.capabilityPackJobAction,
 };
 /** Bridge methods that map to a real `ipcMain.on` channel (fire and forget). */
 const SEND_CHANNELS: Readonly<Record<string, string>> = {
@@ -127,6 +140,7 @@ const SEND_CHANNELS: Readonly<Record<string, string>> = {
 const PUSH_SUBSCRIPTIONS: Readonly<Record<string, string>> = {
   [IpcChannels.capabilityPackMatteProgress]: 'onCapabilityPackMatteProgress',
   [IpcChannels.capabilityPackTrackProgress]: 'onCapabilityPackTrackProgress',
+  [IpcChannels.capabilityPackJobsChanged]: 'onCapabilityPackJobsChanged',
 };
 
 /** Every bridge method the page stub defines (the rest read as absent, as optional ones are). */
@@ -248,6 +262,17 @@ export interface FakeDesktopOptions {
   readonly aiStream?: AiStreamScript;
   /** The file the relink dialog "picks" (absolute). */
   readonly relinkTo?: string;
+  /**
+   * The REAL matte service to run background removal with (see `smart-mask-pack.ts`) instead of
+   * the scripted `matteJob`.
+   */
+  readonly matteService?: (desktop: FakeDesktop) => Promise<unknown>;
+  /**
+   * A job journal file: the host then runs the real job scheduler over it (one job at a time,
+   * the Jobs panel channels) and resumes the open project's journaled jobs on open, as `main.ts`
+   * does. Two hosts on one journal are one app before and after a restart.
+   */
+  readonly jobJournal?: string;
 }
 
 /** One call the page made, for assertions on what crossed the bridge. */
@@ -272,6 +297,9 @@ export class FakeDesktop {
   private opened = false;
   private revision = 1;
   private readonly aiRuns = new Map<string, AbortController>();
+  /** The real job scheduler, when the spec gave a journal. */
+  public readonly scheduler: CapabilityPackJobScheduler | undefined;
+  private readonly matteDependencies: Record<string, unknown>;
 
   public constructor(public readonly options: FakeDesktopOptions) {
     this.packs = {
@@ -308,14 +336,33 @@ export class FakeDesktop {
     };
     const activeProjectPath = async (): Promise<string | null> =>
       this.opened ? options.workspace.projectPath : null;
-    registerMatteIpc({
+    this.scheduler =
+      options.jobJournal === undefined
+        ? undefined
+        : new CapabilityPackJobScheduler({
+            journal: new FileJobJournal(options.jobJournal),
+            onChange: (jobs: unknown) => void this.emit('onCapabilityPackJobsChanged', jobs),
+          });
+    const service = options.matteService;
+    const matte = service === undefined ? async () => scripted : () => service(this);
+    this.matteDependencies = {
       ipcMain: this.ipc,
       requireLicense: () => undefined,
       capabilityStatus: async (capability: string) => this.statusOf(capability),
-      matte: async () => scripted as never,
+      matte,
       activeProjectPath,
       readProject: (path: string) => readProjectFile(path),
-    } as never);
+      ...(this.scheduler === undefined ? {} : { scheduler: this.scheduler }),
+    };
+    registerMatteIpc(this.matteDependencies as never);
+    if (this.scheduler !== undefined) {
+      registerJobIpc({
+        ipcMain: this.ipc,
+        scheduler: this.scheduler,
+        cancelMatte: (jobId: string) =>
+          void matte().then((service) => (service as { cancel(id: string): void }).cancel(jobId)),
+      } as never);
+    }
     registerRelinkIpc({
       ipcMain: this.ipc,
       requireLicense: () => undefined,
@@ -336,6 +383,8 @@ export class FakeDesktop {
   public async install(page: Page, baseURL: string): Promise<void> {
     this.page = page;
     this.origin = new URL(baseURL).origin;
+    // As main does at startup: journaled jobs load dormant until their project opens.
+    await this.scheduler?.loadDormant();
     await page.route(`**${MEDIA_ROUTE}**`, (route) => this.serve(route));
     await page.exposeFunction('__fpE2EInvoke', async (method: string, args: unknown[]) => {
       this.calls.push({ method, args });
@@ -349,7 +398,7 @@ export class FakeDesktop {
       }
     });
     await page.addInitScript(
-      ({ invoke, subscriptions, prefix, root }) => {
+      ({ invoke, subscriptions, prefix, root, workRoot }) => {
         const listeners = new Map<string, Set<(payload: unknown) => void>>();
         const missing = new Set<string>();
         const host = window as unknown as Record<string, unknown>;
@@ -424,12 +473,41 @@ export class FakeDesktop {
         host.__fpMatteTierUrl = () => null;
         host.__fpTrackArtifactUrl = (key: string) =>
           `${location.origin}${prefix}${root}/.framepilot-derived/tracks/${key}/track.json`;
+        // fp-media://local/<absolute path>, stood in for the files under the workspace root: an
+        // asset relinked to an absolute path (the native dialog's answer) is read from the same
+        // file through the same-origin route, as the desktop's protocol handler would serve it.
+        const local = 'fp-media://local/';
+        const served = (url: string): string => {
+          if (!url.startsWith(local)) return url;
+          const absolute = decodeURIComponent(url.slice(local.length));
+          return absolute.startsWith(`${workRoot}/`)
+            ? `${location.origin}${prefix}${absolute.slice(workRoot.length + 1)}`
+            : url;
+        };
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = (input: RequestInfo | URL, init?: RequestInit) =>
+          typeof input === 'string' ? nativeFetch(served(input), init) : nativeFetch(input, init);
+        // The decode workers fetch the URLs they are sent, and a worker has its own `fetch`: the
+        // URL is mapped on its way in instead (plain objects and arrays only; buffers untouched).
+        const rewrite = (value: unknown): unknown => {
+          if (typeof value === 'string') return served(value);
+          if (Array.isArray(value)) return value.map(rewrite);
+          if (value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+            return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, rewrite(item)]));
+          }
+          return value;
+        };
+        const nativePost = Worker.prototype.postMessage;
+        Worker.prototype.postMessage = function (this: Worker, message: unknown, ...rest: unknown[]) {
+          return (nativePost as (...args: unknown[]) => void).call(this, rewrite(message), ...rest);
+        } as typeof Worker.prototype.postMessage;
       },
       {
         invoke: [...INVOKE_METHODS],
         subscriptions: [...SUBSCRIPTIONS],
         prefix: MEDIA_ROUTE,
         root: relative(WORK_ROOT, this.options.workspace.projectDir).split(sep).join('/'),
+        workRoot: WORK_ROOT.split(sep).join('/'),
       },
     );
   }
@@ -512,6 +590,14 @@ export class FakeDesktop {
     } as Project;
   }
 
+  /**
+   * The renderer's live project as the host holds it (paths as stored on disk): what `main.ts`
+   * hands an AI run as its working project.
+   */
+  public diskProject(project: unknown): Project {
+    return this.toDisk(project);
+  }
+
   /** Back to what the desktop stores: paths relative to the project file. */
   private toDisk(project: unknown): Project {
     const dir = this.options.workspace.projectDir;
@@ -540,6 +626,13 @@ export class FakeDesktop {
     try {
       const project = await readProjectFile(path, { backupBeforeMigration: true });
       this.opened = true;
+      if (this.scheduler !== undefined) {
+        // `resumeJobsForProject` in main.ts: this project's journaled jobs wake now.
+        void resumeMatteJobs(
+          { ...this.matteDependencies, scheduler: this.scheduler } as never,
+          path,
+        );
+      }
       const mattes = await validateProjectMattes(dirname(path), project, { mode: 'quick' });
       return {
         ok: true,
@@ -679,10 +772,15 @@ export class FakeDesktop {
         : arg,
     );
     const channel = INVOKE_CHANNELS[method];
-    if (channel !== undefined) {
-      const handler = this.ipc.handlers.get(channel);
-      if (handler === undefined) throw new Error(`No handler registered for ${channel}`);
+    const handler = channel === undefined ? undefined : this.ipc.handlers.get(channel);
+    if (handler !== undefined) {
       return handler({ sender: this.sender() }, ...args);
+    }
+    if (
+      channel !== undefined &&
+      !['capabilityPackJobs', 'capabilityPackJobAction'].includes(method)
+    ) {
+      throw new Error(`No handler registered for ${channel}`);
     }
     const send = SEND_CHANNELS[method];
     if (send !== undefined) {
@@ -727,6 +825,8 @@ export class FakeDesktop {
         return undefined;
       case 'exportVideoStart':
         return this.exportStart(args[0] as Record<string, unknown>);
+      case 'capabilityPackJobAction':
+        return false;
       case 'exportVideoCancel':
       case 'capabilityPackCancel':
       case 'capabilityPackCancelTrack':
