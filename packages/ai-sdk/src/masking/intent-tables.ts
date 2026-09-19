@@ -6,14 +6,20 @@
  * judgement: one row per intent, scaled by the picture so a 4K clip and a 720p clip get the
  * same LOOK rather than the same pixel count.
  *
- * What is deliberately NOT here: `blur_to_hide` and `grade_match_to` resolve to a typed
- * refusal, because the engine has no renderer for them on a clip mask yet. A clip's picture
- * effects are `color_grade` and `lut` (`render/frame_plan.py#picture_effects`); blur exists only
- * as an adjustment-lane effect, whose masks are frame-space and cannot follow a track. A face
- * blur that slides off the face is a privacy failure, so the honest answer is a refusal with
- * the remedy, not an approximate edit (PRD §23: no AI capability ahead of its engine).
+ * `blur_to_hide` is the clip `blur` effect (`editor-core/clip-blur.ts`, `render/clip_blur.py`) at
+ * its default strength, limited by the mask like a grade, so a tracked face blur stays on the
+ * face. It was a refusal until that effect existed: a blur lived only on an adjustment lane,
+ * whose masks cannot follow a track, and a face blur that slides off the face is a privacy
+ * failure.
+ *
+ * What is deliberately NOT here: `grade_match_to` resolves to a typed refusal, because matching a
+ * masked region to another shot has no solver yet (PRD §23: no AI capability ahead of its engine).
  */
-import type { DisplaySize } from '@framepilot/editor-core';
+import {
+  CLIP_BLUR_EFFECT_TYPE,
+  DEFAULT_CLIP_BLUR_AMOUNT,
+  type DisplaySize,
+} from '@framepilot/editor-core';
 
 /** How soft the mask edge is. The model never supplies pixels. */
 export const MASK_EDGE_INTENTS = ['exact', 'soft', 'very_soft'] as const;
@@ -100,7 +106,7 @@ export type EffectIntentResolution =
       readonly ok: true;
       /** The clip picture effect the mask limits. */
       readonly effect: {
-        readonly type: 'color_grade';
+        readonly type: 'color_grade' | typeof CLIP_BLUR_EFFECT_TYPE;
         readonly params: Readonly<Record<string, number>>;
       };
     }
@@ -119,12 +125,8 @@ const GRADE_INTENT_PARAMS: Readonly<
 };
 
 const UNSUPPORTED_EFFECT_INTENT: Readonly<
-  Record<Extract<MaskEffectIntent, 'blur_to_hide' | 'grade_match_to'>, string>
+  Record<Extract<MaskEffectIntent, 'grade_match_to'>, string>
 > = {
-  blur_to_hide:
-    'A blur limited to a clip mask is not something FramePilot can render yet, so nothing was ' +
-    'changed. To hide the region now, use purpose "hide" (it cuts the region out of the clip), ' +
-    'or tell the editor a masked blur is not available yet.',
   grade_match_to:
     'Matching a masked region to another shot is not available yet, so nothing was changed. ' +
     'Use "brighten", "darken" or "desaturate" inside the mask, or match the whole clip with match_color.',
@@ -132,11 +134,17 @@ const UNSUPPORTED_EFFECT_INTENT: Readonly<
 
 /** The catalog effect and deterministic parameters for an effect intent. */
 export function resolveEffectIntent(intent: MaskEffectIntent): EffectIntentResolution {
-  if (intent === 'blur_to_hide' || intent === 'grade_match_to') {
+  if (intent === 'grade_match_to') {
     return {
       ok: false,
       code: 'effect_intent_unsupported',
       message: UNSUPPORTED_EFFECT_INTENT[intent],
+    };
+  }
+  if (intent === 'blur_to_hide') {
+    return {
+      ok: true,
+      effect: { type: CLIP_BLUR_EFFECT_TYPE, params: { amount: DEFAULT_CLIP_BLUR_AMOUNT } },
     };
   }
   return { ok: true, effect: { type: 'color_grade', params: GRADE_INTENT_PARAMS[intent] } };

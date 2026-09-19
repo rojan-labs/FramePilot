@@ -356,12 +356,18 @@ side so 4K and 720p get the same look.
 | `grow`    | `tighter`, `looser`                | ∓1% per call, on `expansionPx` (shape) or `edgeShiftPx` (matte)                       |
 | `purpose` | `cutout`, `hide`, `effect`         | `hide` inverts and, for a shape, adds a 1.5% margin; `effect` retargets the mask      |
 | `effect`  | `brighten`, `darken`, `desaturate` | A clip `color_grade` with fixed offsets, limited by the mask                          |
+| `effect`  | `blur_to_hide`                     | The clip `blur` at 4% of the picture's smaller side, limited by the mask              |
 
-`blur_to_hide` and `grade_match_to` are accepted and **refused with a remedy**. A clip's picture
-effects are `color_grade` and `lut` only (`render/frame_plan.py#picture_effects`); blur exists
-only on an adjustment lane, whose masks are frame-space and cannot follow a track. A face blur
-that slides off the face is a privacy failure, so there is no approximate version. A second
-grade on a clip that already has one is refused for the same kind of reason: only one renders.
+`blur_to_hide` is the clip `blur` picture effect (`editor-core/clip-blur.ts`,
+`render/clip_blur.py`, added for E2E.3/E2E.4): Pillow's Gaussian at `amount` × the smaller side of
+the picture it runs on, after the grade and LUT, mixed by the effect's mask stack like a grade.
+Because the mask is the clip's own, a tracked face blur stays on the face. A clip has one blur
+(id `<clipId>__blur`, the one the Inspector's Effects tab edits); a second face adds a mask to it
+rather than a second blur. Until this effect existed `blur_to_hide` was refused, because a blur
+lived only on an adjustment lane whose masks cannot follow a track.
+
+`grade_match_to` is accepted and **refused with a remedy** (no solver for a masked region yet). A
+second grade on a clip that already has one is refused too: only one renders.
 
 Shapes come from `masking/shape-fit.ts`: rectangle and ellipse from a box; bounding rectangle and
 moment ellipse (it follows a lean) from a bitmap; and a closed Bezier path around the bitmap's
@@ -474,11 +480,12 @@ prompt and cached prefix do not move; the three token-golden suites pass unregen
 `packages/ai-sdk/skills/masking-and-compositing.md` is the masking playbook: the tools in the
 order the work uses them, recipes (background removal, title behind a subject, spotlight with
 `refine_mask` `invert`, out-of-vocabulary targets via `needs_click`, hide, identity requests) and
-the review etiquette. It is grounded in what renders: a masked blur and a title that follows a
-subject are named as unavailable, and the body never recommends `blur_to_hide` or
-`grade_match_to` (a test pins both); since MK8 it teaches split screen, gradients, shape presets
-and video inside text through `create_shape_mask` and `mask_with_layer`. Its description is
-294 of the 300 characters the manifest allows.
+the review etiquette. It is grounded in what renders: a title that follows a subject is named as
+unavailable, the body never recommends `grade_match_to`, and the face/plate blur recipe names
+`blur_to_hide` (a test pins all three); since MK8 it teaches split screen, gradients, shape
+presets and video inside text through `create_shape_mask` and `mask_with_layer`. Its description
+is 298 of the 300 characters the manifest allows (it names "blur a face" since E2E.4, because the
+model chooses skills by description).
 
 A host that cannot offer any of a playbook's tools does not advertise it (`skillsOnOffer`): with
 the kill switch off the agent's manifest drops this skill, and the MCP server's `load_skill`
@@ -650,5 +657,5 @@ were withheld while unavailable).
   follows a track needs `Clip.transformTrack`, an unapproved schema change (**MO-14**). The mask
   half works.
 - `refine_mask` `add` / `remove` candidate (a matte re-run with include/exclude prompts).
-- `blur_to_hide`, `grade_match_to` (no renderer; see above).
+- `grade_match_to` (no solver; see above).
 - MCP and Python mirrors (by design, see the top of this page).

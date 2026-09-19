@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COLOR_GRADE_PARAMETER_CONTRACTS } from '@framepilot/editor-core';
+import { COLOR_GRADE_PARAMETER_CONTRACTS, DEFAULT_CLIP_BLUR_AMOUNT } from '@framepilot/editor-core';
 import {
   MASK_EFFECT_INTENTS,
   growStepPx,
@@ -55,12 +55,17 @@ describe('mask intent tables', () => {
     }
   });
 
-  it('refuses the intents the engine cannot render on a clip mask, with a remedy', () => {
-    for (const intent of ['blur_to_hide', 'grade_match_to'] as const) {
-      const resolved = resolveEffectIntent(intent);
-      expect(resolved).toMatchObject({ ok: false, code: 'effect_intent_unsupported' });
-      if (!resolved.ok) expect(resolved.message).toMatch(/nothing was changed/);
-    }
+  it('refuses the intent that has no renderer on a clip mask, with a remedy', () => {
+    const resolved = resolveEffectIntent('grade_match_to');
+    expect(resolved).toMatchObject({ ok: false, code: 'effect_intent_unsupported' });
+    if (!resolved.ok) expect(resolved.message).toMatch(/nothing was changed/);
+  });
+
+  it('hides with the clip blur at its default strength (E2E.4)', () => {
+    expect(resolveEffectIntent('blur_to_hide')).toEqual({
+      ok: true,
+      effect: { type: 'blur', params: { amount: DEFAULT_CLIP_BLUR_AMOUNT } },
+    });
     expect(MASK_EFFECT_INTENTS).toContain('blur_to_hide');
   });
 });

@@ -14,6 +14,8 @@
 import {
   applyPatch,
   assetDisplaySize,
+  CLIP_BLUR_EFFECT_TYPE,
+  clipBlurEffect,
   compileMaskCommand,
   MEASURE_MEDIA_FIRST,
   nextMaskId,
@@ -245,10 +247,24 @@ export function addLimitedEffect(
   effect: MaskEffectIntent | undefined,
 ): string {
   if (effect === undefined) {
-    throw new ToolRefusalError('purpose "effect" needs an effect: brighten, darken or desaturate.');
+    throw new ToolRefusalError(
+      'purpose "effect" needs an effect: brighten, darken, desaturate or blur_to_hide.',
+    );
   }
   const resolved = resolveEffectIntent(effect);
   if (!resolved.ok) throw new ToolRefusalError(resolved.message);
+  if (resolved.effect.type === CLIP_BLUR_EFFECT_TYPE) {
+    // One blur per clip, limited by every mask that wants it: a second face adds a mask to the
+    // same blur (the stack adds), so "blur both faces" is one effect with two masks.
+    const existing = clip.effects.find((item) => item.type === CLIP_BLUR_EFFECT_TYPE);
+    if (existing !== undefined) return existing.id;
+    const blur = clipBlurEffect(clip.id, Number(resolved.effect.params.amount));
+    chain.append(
+      [{ type: 'apply_color_grade', clipId: clip.id, effect: blur }],
+      'Add the blur the mask limits',
+    );
+    return blur.id;
+  }
   if (clip.effects.some((effect) => effect.type === resolved.effect.type)) {
     throw new ToolRefusalError(
       'This clip already has a grade, and only one grade per clip is rendered, so a second one ' +

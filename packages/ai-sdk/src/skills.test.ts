@@ -259,7 +259,9 @@ describe('masking-and-compositing (AM4.2)', () => {
   });
 
   it('never recommends an effect intent the builder refuses, nor coordinates', () => {
-    expect(skill!.body).not.toMatch(/blur_to_hide|grade_match_to/u);
+    expect(skill!.body).not.toMatch(/grade_match_to/u);
+    // The masked blur renders (clip blur, E2E.4), so the face-blur recipe names it.
+    expect(skill!.body).toContain('effect: "blur_to_hide"');
     expect(skill!.body).toContain('You never give');
     expect(skill!.description).toMatch(/never call a mask verified/u);
   });

@@ -799,7 +799,7 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
     'Mask one candidate from find_mask_targets. precision "cutout" is an exact AI matte; ' +
       '"shape" fits an ellipse, rectangle or path to the measurement. purpose: "cutout" keeps ' +
       'only the subject, "hide" removes it, "effect" limits an effect (brighten, darken, ' +
-      'desaturate) to it. edge is exact, soft or very_soft. track:true makes a shape follow ' +
+      'desaturate, blur_to_hide) to it. edge is exact, soft or very_soft. track:true makes a shape follow ' +
       'the subject. You never give coordinates; userShape is ONLY for numbers the editor ' +
       'typed. The result lists moments that need a look — report that count, and never say ' +
       'the mask is verified.',

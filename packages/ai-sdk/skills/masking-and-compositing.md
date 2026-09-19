@@ -1,6 +1,6 @@
 ---
 name: masking-and-compositing
-description: Masks and cut-outs on request — remove a background, hide or isolate a subject, grade only part of the picture, split screen, gradients, heart/star shapes, video inside text, a title behind someone, tracking. The editor picks unclear targets; report flagged moments, never call a mask verified.
+description: Masks and cut-outs on request — remove a background, blur a face, hide or isolate a subject, grade part of the picture, split screen, gradients, heart/star shapes, video in text, a title behind someone, tracking. The editor picks unclear targets; report flagged moments, never call a mask verified.
 tools: [find_mask_targets, create_mask, remove_background, track_mask, refine_mask, create_shape_mask, mask_with_layer, style_cutout_edge, put_text_behind_subject, follow_subject, get_masks, delete_mask]
 ---
 
@@ -21,9 +21,8 @@ same review list.
 ## When not to use
 
 - A whole-clip look: use the color tools. A mask is for part of the picture.
-- Blurring a face or a plate, or a title that follows a subject: neither renders yet. Say so
-  plainly; do not approximate one (a darkened face is not a hidden one) and do not call anything
-  else by its name.
+- A title that follows a subject: it does not render yet. Say so plainly; do not approximate it
+  and do not call anything else by its name.
 - Filling a removed object with generated picture: not available. A hidden region shows whatever
   is on the layer below, or black.
 
@@ -86,6 +85,8 @@ coordinates. Every mask comes from a detection, a pack measurement, or numbers t
   existing grade to the mask in the Inspector.
 - **Grade only the sky, a sign, a wall:** these are outside the detector's vocabulary, so
   `find_mask_targets` returns `needs_click`. The editor clicks it with the Inspector's subject tool.
+- **Blur a face or a plate:** `create_mask`, `purpose: "effect"`, `effect: "blur_to_hide"`,
+  `track: true` if it moves; one mask per face.
 - **Hide a person or an object:** `create_mask` with `purpose: "hide"` and `track: true` if it
   moves. The region shows the layer below; if nothing is below, say it will export as black.
 - **Split screen:** `create_shape_mask` with `preset: "split"` and `side` on the top clip; the clip
@@ -121,7 +122,7 @@ composite) → cutout. Soft-edged treatment (a spotlight, a grade) → shape wit
 - Choosing between candidates yourself after an `ambiguous_target`.
 - Calling the same host tool again after `pack_missing` or a cut-out waiting for the editor.
 - Saying a mask is verified, done and checked, or omitting the flagged count.
-- Promising a masked blur or a title that follows a subject.
+- Promising a title that follows a subject.
 - Giving a split, a gradient or a shape coordinates: place it on a candidate or the frame.
 
 ## Verification checklist

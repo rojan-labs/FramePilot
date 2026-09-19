@@ -268,16 +268,48 @@ describe('create_mask from a measurement', () => {
     expect(masksOf(clip)[0]!.target).toEqual({ kind: 'effect', effectId: 'shot__grade' });
   });
 
-  it('refuses a masked blur, a second grade, and an effect purpose with no effect', () => {
+  it('blurs a face with the clip blur, and a second face adds a mask to the same blur (E2E.4)', () => {
+    const p = project();
+    const first = maskingOpsFromMeasurement(
+      'create_mask',
+      { ...args, purpose: 'effect', effect: 'blur_to_hide' },
+      { kind: 'create_mask', precision: 'shape', clipId: 'shot', candidate: FACE },
+      ctxOf(p),
+    );
+    const once = land(p, first.operations);
+    const blurs = clipOf(once).effects.filter((effect) => effect.type === 'blur');
+    expect(blurs).toEqual([
+      { id: 'shot__blur', type: 'blur', params: { amount: 0.04 }, keyframes: [] },
+    ]);
+    const other: MaskCandidate = {
+      ...FACE,
+      candidateId: 'f24_ef56ab78',
+      box: { x: 0.7, y: 0.2, width: 0.1, height: 0.2 },
+    };
+    const second = maskingOpsFromMeasurement(
+      'create_mask',
+      { ...args, candidateId: other.candidateId, purpose: 'effect', effect: 'blur_to_hide' },
+      { kind: 'create_mask', precision: 'shape', clipId: 'shot', candidate: other },
+      ctxOf(once),
+    );
+    const twice = clipOf(land(once, second.operations));
+    expect(twice.effects.filter((effect) => effect.type === 'blur')).toHaveLength(1);
+    expect(masksOf(twice).map((mask) => mask.target)).toEqual([
+      { kind: 'effect', effectId: 'shot__blur' },
+      { kind: 'effect', effectId: 'shot__blur' },
+    ]);
+  });
+
+  it('refuses an unrenderable effect intent, a second grade, and an effect purpose with no effect', () => {
     const measured = { kind: 'create_mask', precision: 'shape', clipId: 'shot', candidate: FACE };
     expect(() =>
       maskingOpsFromMeasurement(
         'create_mask',
-        { ...args, purpose: 'effect', effect: 'blur_to_hide' },
+        { ...args, purpose: 'effect', effect: 'grade_match_to' },
         measured,
         ctxOf(project()),
       ),
-    ).toThrow(/not something FramePilot can render yet/);
+    ).toThrow(/not available yet/);
     expect(() =>
       maskingOpsFromMeasurement(
         'create_mask',
