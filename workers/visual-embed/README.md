@@ -37,9 +37,15 @@ a build job does:
 `models.py` refuses a placeholder pin by name and the health check fails while any remains.
 A pack that cannot say which weights it loads must not pass its own health check.
 
-The health check hashes all ~1.5 GiB and lets CoreML compile both towers: ~48 s cold, ~21 s
-warm on an M-series laptop. That is why `healthCheckCapabilityPackWorker` carries a much
-larger bound than a probe command's.
+The health check hashes all ~1.5 GiB and loads both towers. Requests load a tower only when they
+use it, on onnxruntime's CPU provider (AM2.6: on the M1 Pro CoreML took 13.2 s and 6.95 GiB to
+load the text tower, CPU 0.55 s and 1.24 GiB, and CPU also ran faster). A crop request whose
+prompt-bank vectors are cached (`FRAMEPILOT_CAPABILITY_PACK_CACHE`) never loads the text tower.
+`healthCheckCapabilityPackWorker` still carries a larger bound than a probe command's, for the
+hashing on a slow disk.
+
+`tools/colour_rerank_eval.py` measures the colour re-ranker on these weights through this worker
+(`reports/ai-masking/colour-rerank.json`); run it one job at a time under the spike watchdog.
 
 ## What it returns
 

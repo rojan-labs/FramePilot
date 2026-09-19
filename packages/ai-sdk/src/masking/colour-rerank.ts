@@ -12,20 +12,28 @@
  * - **It re-ranks, it never finds.** Only candidates the detector already classed as something the
  *   noun can mean are scored. An unclassed or wrong-class candidate is never shown to SigLIP, so a
  *   high similarity cannot turn a dog into "the red car".
- * - **The colour is a classification, not a similarity.** Each crop is scored against the same noun
- *   in every colour of {@link COLOUR_WORDS} and the named colour's softmax share is its score. A
- *   blue car and a grey car asked about as "the red car" both score low, and the resolver asks —
- *   a raw "closest to red" would have picked one of them.
+ * - **The colour is a classification, not a similarity.** Each crop is classified against the same
+ *   noun in every colour of {@link COLOUR_WORDS} (softmax at the pack's label temperature). A blue
+ *   car and a grey car asked about as "the red car" both score low, and the resolver asks — a raw
+ *   "closest to red" would have picked one of them.
+ * - **The evidence is head to head** (AM2.6): the named colour's share against the crop's
+ *   strongest OTHER colour, `named / (named + rival)`. Above 0.5 means the crop is more that colour
+ *   than anything else. SigLIP spreads a crop's mass over neighbouring words (a white car on grass
+ *   is 0.5 white, 0.3 green), so the raw share asked about crops it had plainly classified.
+ * - **Achromatic words guard each other.** White, grey, silver and black are one lightness scale:
+ *   on real weights every silver crop peaked on white or grey, and grey crops put up to 0.2 on
+ *   silver. A crop asked about as one of them that holds {@link ACHROMATIC_RIVAL_SHARE} or more on
+ *   another is undecided, and so is a crop whose named colour is not strictly ahead: its evidence
+ *   stays just under the resolver's floor, so it blocks a rival but is never picked.
  * - **Only colour.** A request whose other descriptive words the crop cannot be classified on
  *   ("the shiny car", "the car that just parked") gets no plan: the resolver asks.
  *
- * **Unmeasured calibration.** The temperature is the pack's own zero-shot label temperature
- * (`workers/visual-embed/.../policy.py` `LABEL_TEMPERATURE`, 0.01), not a value measured on crops.
- * The resolver's margin (winner ≥ 0.5 and ≥ 1.25× the runner-up) is what stands between a weak
- * separation and a pick; no accuracy on real footage is claimed.
+ * **Measured** on real SigLIP 2 crops (`workers/visual-embed/tools/colour_rerank_eval.py`,
+ * `reports/ai-masking/colour-rerank.json`): no confident-wrong pick; chromatic colours are picked,
+ * achromatic ones ask more often; silver on flat renderings never resolves.
  */
 import type { MaskCandidate } from './contracts.js';
-import { colourOf, parseTargetRequest } from './target-resolution.js';
+import { RERANK_MIN_GROUNDING, colourOf, parseTargetRequest } from './target-resolution.js';
 import { COLOUR_WORDS, GENERIC_OBJECT_WORDS, singularObjectWord } from './target-vocabulary.js';
 
 /** The palette a colour request is classified against, re-exported for hosts and harnesses. */
@@ -35,6 +43,12 @@ export { COLOUR_WORDS } from './target-vocabulary.js';
 export const COLOUR_RERANK_TEMPERATURE = 0.01;
 /** Most crops one re-rank embeds: the protocol's per-request shot bound. */
 export const MAX_RERANK_CROPS = 64;
+/** The lightness scale SigLIP splits a pale or dark crop along (AM2.6). */
+export const ACHROMATIC_COLOURS: ReadonlySet<string> = new Set(['white', 'grey', 'silver', 'black']);
+/** An achromatic crop holding this share on another achromatic word is undecided (AM2.6). */
+export const ACHROMATIC_RIVAL_SHARE = 0.1;
+/** Evidence for an undecided crop: just under the resolver's floor, never picked. */
+const UNDECIDED_EVIDENCE = RERANK_MIN_GROUNDING - 1e-6;
 
 /** What to show the Visual Embed pack for one request, or why nothing is shown. */
 export interface ColourRerankPlan {
@@ -108,22 +122,46 @@ function cosine(left: readonly number[], right: readonly number[]): number {
   return leftNorm === 0 || rightNorm === 0 ? 0 : dot / Math.sqrt(leftNorm * rightNorm);
 }
 
-/** The named colour's softmax share among the palette, for one crop. */
-function colourShare(
+/** One crop's colour classification: a softmax over the palette prompts. */
+function colourDistribution(
   crop: readonly number[],
   prompts: readonly (readonly number[])[],
-  at: number,
-): number {
+): number[] {
   const logits = prompts.map((prompt) => cosine(crop, prompt) / COLOUR_RERANK_TEMPERATURE);
   const peak = Math.max(...logits);
   const weights = logits.map((logit) => Math.exp(logit - peak));
   const total = weights.reduce((sum, weight) => sum + weight, 0);
-  return weights[at]! / total;
+  return weights.map((weight) => weight / total);
 }
 
 /**
- * Turn the pack's vectors into the resolver's `rerank` evidence: candidate id → the share of its
- * crop's colour classification that the named colour gets, in 0..1.
+ * How strongly one crop is the named colour: head to head against its strongest other colour,
+ * held under the resolver's floor when undecided (see the module notes).
+ *
+ * @param distribution - The crop's classification over {@link COLOUR_WORDS}, in that order.
+ * @param at - Index of the named colour.
+ */
+export function colourEvidence(distribution: readonly number[], at: number): number {
+  const named = distribution[at]!;
+  let rival = 0;
+  let achromaticRival = 0;
+  distribution.forEach((share, index) => {
+    if (index === at) return;
+    rival = Math.max(rival, share);
+    if (ACHROMATIC_COLOURS.has(COLOUR_WORDS[index]!)) {
+      achromaticRival = Math.max(achromaticRival, share);
+    }
+  });
+  const headToHead = named + rival === 0 ? 0 : named / (named + rival);
+  const undecided =
+    named <= rival ||
+    (ACHROMATIC_COLOURS.has(COLOUR_WORDS[at]!) && achromaticRival >= ACHROMATIC_RIVAL_SHARE);
+  return undecided ? Math.min(headToHead, UNDECIDED_EVIDENCE) : headToHead;
+}
+
+/**
+ * Turn the pack's vectors into the resolver's `rerank` evidence: candidate id →
+ * {@link colourEvidence} of its crop's colour classification, in 0..1.
  *
  * @param plan - The plan the vectors answer.
  * @param cropVectors - One image vector per `plan.candidates` entry, in that order.
@@ -148,7 +186,7 @@ export function colourRerankScores(
   return new Map(
     plan.candidates.map((candidate, index) => [
       candidate.candidateId,
-      colourShare(cropVectors[index]!, promptVectors, plan.colourIndex),
+      colourEvidence(colourDistribution(cropVectors[index]!, promptVectors), plan.colourIndex),
     ]),
   );
 }

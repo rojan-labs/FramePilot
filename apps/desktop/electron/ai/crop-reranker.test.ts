@@ -7,7 +7,7 @@ import type {
   CapabilityPackTrackingService,
   TrackingRunOptions,
 } from '../capability-packs/tracking.js';
-import { createCropReranker } from './crop-reranker.js';
+import { PromptVectorCache, createCropReranker } from './crop-reranker.js';
 import { packFp16 } from './packed-vector.js';
 
 const FPS = 24;
@@ -48,7 +48,11 @@ const axis = (colour: string): number[] => COLOUR_WORDS.map((each) => (each === 
 type Answer = (request: CapabilityPackWorkerRequest) => unknown;
 
 /** A pack authority that answers visual.embed with one vector per crop, and visual.text per prompt. */
-function packs(colourOf: (box: MaskCandidate['box']) => string, seen: unknown[] = []): Answer {
+function packs(
+  colourOf: (box: MaskCandidate['box']) => string,
+  seen: unknown[] = [],
+  release: (request: CapabilityPackWorkerRequest) => string = () => 'a'.repeat(64),
+): Answer {
   return (request) => {
     seen.push(request);
     if (request.capability === 'visual.embed') {
@@ -57,7 +61,7 @@ function packs(colourOf: (box: MaskCandidate['box']) => string, seen: unknown[] 
         identity: {
           id: 'framepilot.visual-embed',
           version: '1.1.0',
-          releaseDigest: 'a'.repeat(64),
+          releaseDigest: release(request),
         },
         result: {
           capability: 'visual.embed',
@@ -74,7 +78,7 @@ function packs(colourOf: (box: MaskCandidate['box']) => string, seen: unknown[] 
         identity: {
           id: 'framepilot.visual-embed',
           version: '1.1.0',
-          releaseDigest: 'a'.repeat(64),
+          releaseDigest: release(request),
         },
         result: {
           capability: 'visual.text',
@@ -176,5 +180,55 @@ describe('createCropReranker', () => {
         candidates: cars,
       }),
     ).toBeUndefined();
+  });
+
+  describe('the prompt vectors are embedded once per noun and pack release (AM2.6)', () => {
+    const request = { project, assetId: 'asset', description: 'the red car', candidates: cars };
+    const capabilities = (seen: unknown[]): string[] =>
+      (seen as CapabilityPackWorkerRequest[]).map((each) => each.capability);
+
+    it('runs one process per request once the prompts are known', async () => {
+      const seen: unknown[] = [];
+      const rerank = rerankFor(packs(colours, seen));
+      const first = await rerank(request);
+      const second = await rerank(request);
+      expect(capabilities(seen)).toEqual(['visual.embed', 'visual.text', 'visual.embed']);
+      expect([...second!]).toEqual([...first!]);
+      await rerank({ ...request, description: 'the grey car' });
+      // The palette sentences name the noun, not the colour asked: still cached.
+      expect(capabilities(seen)).toHaveLength(4);
+    });
+
+    it('embeds them again for another noun or another pack release', async () => {
+      const seen: unknown[] = [];
+      let digest = 'a'.repeat(64);
+      const rerank = rerankFor(packs(colours, seen, () => digest));
+      await rerank(request);
+      digest = 'b'.repeat(64);
+      await rerank(request);
+      expect(capabilities(seen)).toEqual([
+        'visual.embed',
+        'visual.text',
+        'visual.embed',
+        'visual.text',
+      ]);
+    });
+
+    it('scores nothing when the release changes between the crop and prompt runs', async () => {
+      const seen: unknown[] = [];
+      const answer = packs(colours, seen, (each) =>
+        each.capability === 'visual.embed' ? 'a'.repeat(64) : 'b'.repeat(64),
+      );
+      expect(await rerankFor(answer)(request)).toBeUndefined();
+    });
+
+    it('keeps at most its bound, dropping the oldest first', () => {
+      const cache = new PromptVectorCache(2);
+      cache.remember('r', ['a', 'b'], [[1], [2]]);
+      cache.remember('r', ['c'], [[3]]);
+      expect(cache.all('r', ['a'])).toBeUndefined();
+      expect(cache.all('r', ['b', 'c'])).toEqual([[2], [3]]);
+      expect(cache.all('other', ['b'])).toBeUndefined();
+    });
   });
 });

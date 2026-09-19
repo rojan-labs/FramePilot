@@ -35,6 +35,15 @@ def create_backend() -> VisualEmbedBackend:
     return OnnxVisualEmbedBackend()
 
 
+def create_loaded_backend() -> VisualEmbedBackend:
+    """The health check's backend: both towers loaded, not lazily (AM2.6)."""
+    from .onnx_backend import OnnxVisualEmbedBackend
+
+    backend = OnnxVisualEmbedBackend()
+    backend.load_towers()
+    return backend
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     disable_network()
@@ -51,7 +60,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _health_check() -> int:
     try:
-        handshake = build_handshake(create_backend)
+        handshake = build_handshake(create_loaded_backend)
     except HealthCheckError as error:
         sys.stderr.write(f"Visual Embed health check failed: {error}\n")
         return 1

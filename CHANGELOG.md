@@ -237,6 +237,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **"The white car" no longer picks a silver one.** Measured on the real model, the colour check
+  behind requests like "mask the red car" was reliable for colours such as red, blue or green, but
+  now and then took a silver car or ball when asked for a white or grey one. It now asks you to
+  pick whenever white, grey, silver or black are too close to call, and it picks a car that is
+  plainly the colour you named even when the background tints its crop. After the first such
+  request it answers in about 2 seconds instead of loading the model twice, and it no longer
+  risks running a 16 GB Mac out of memory (AM2.6).
+
 - **A background removal whose files are gone shows it as soon as the project opens.** When a
   project opens, FramePilot already checks that every background removal's files are there and
   readable. The Inspector and the export dialog now show that result straight away, with the same

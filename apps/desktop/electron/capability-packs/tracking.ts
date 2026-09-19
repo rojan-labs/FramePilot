@@ -16,7 +16,8 @@
  * When no healthy pack is installed the answer is an explicit install proposal.
  * Work is never faked, and a missing pack never silently downloads.
  */
-import { lstat } from 'node:fs/promises';
+import { lstat, mkdir } from 'node:fs/promises';
+import path from 'node:path';
 import { negotiatePackRequest } from '@framepilot/capability-packs';
 import {
   runCapabilityPackWorker,
@@ -69,6 +70,13 @@ interface PackJobBinding {
    * resolves `<FRAMEPILOT_CAPABILITY_PACK_ROOT>/models` itself.
    */
   readonly extraEnvironment?: (installRoot: string) => Readonly<Record<string, string>>;
+  /**
+   * The pack keeps derived data (Visual Embed: its prompt-bank vectors) in the host's per-release
+   * cache folder, `FRAMEPILOT_CAPABILITY_PACK_CACHE` — the folder the engine's shot-ledger runs of
+   * the same pack already get (`visual-packs.ts`). Without it every colour re-rank re-encoded the
+   * 43-sentence bank, loading the text tower in a process that only embeds crops (AM2.6).
+   */
+  readonly derivedCache?: boolean;
 }
 
 const PACK_BY_CAPABILITY: Readonly<Record<PackJobCapability, PackJobBinding>> = {
@@ -89,11 +97,13 @@ const PACK_BY_CAPABILITY: Readonly<Record<PackJobCapability, PackJobBinding>> = 
     packId: VISUAL_EMBED_PACK_ID,
     entrypointByPlatform: ENTRYPOINT('framepilot-visual-embed'),
     extraEnvironment: (installRoot) => ({ FRAMEPILOT_CAPABILITY_PACK_ROOT: installRoot }),
+    derivedCache: true,
   },
   'visual.text': {
     packId: VISUAL_EMBED_PACK_ID,
     entrypointByPlatform: ENTRYPOINT('framepilot-visual-embed'),
     extraEnvironment: (installRoot) => ({ FRAMEPILOT_CAPABILITY_PACK_ROOT: installRoot }),
+    derivedCache: true,
   },
 };
 
@@ -114,6 +124,9 @@ export interface CapabilityPackTrackingServiceOptions {
   readonly propose: (capabilityId: string) => Promise<CapabilityPackProposalResultWire>;
   readonly runWorker?: typeof runCapabilityPackWorker;
   readonly exists?: (absolutePath: string) => Promise<boolean>;
+  /** Writable parent of each pack release's derived cache (`<root>/<packId>/<version>`). */
+  readonly cacheRoot?: string;
+  readonly ensureDirectory?: (absolutePath: string) => Promise<void>;
 }
 
 export interface TrackingRunOptions {
@@ -226,6 +239,7 @@ export class CapabilityPackTrackingService {
     } catch (error) {
       return failed('pack_incomplete', errorMessage(error), false);
     }
+    const environment = await this.workerEnvironment(binding, record, installRoot);
     const lease = await this.options.store.acquireLease(record.identity);
     const started = Date.now();
     try {
@@ -239,9 +253,7 @@ export class CapabilityPackTrackingService {
           mediaRoot: options.mediaRoot,
           request: chunk,
           ...(options.signal === undefined ? {} : { signal: options.signal }),
-          ...(binding.extraEnvironment === undefined
-            ? {}
-            : { extraEnvironment: binding.extraEnvironment(installRoot) }),
+          ...(environment === undefined ? {} : { extraEnvironment: environment }),
           ...(onProgress === undefined ? {} : { onProgress }),
         });
       const sent = negotiated.request;
@@ -266,6 +278,30 @@ export class CapabilityPackTrackingService {
     } finally {
       await lease.release();
     }
+  }
+
+  /** The binding's extras, plus the release's derived-cache folder when it keeps one. */
+  private async workerEnvironment(
+    binding: PackJobBinding,
+    record: InstalledCapabilityPack,
+    installRoot: string,
+  ): Promise<Readonly<Record<string, string>> | undefined> {
+    const extras = binding.extraEnvironment?.(installRoot);
+    const { cacheRoot } = this.options;
+    if (binding.derivedCache !== true || cacheRoot === undefined) return extras;
+    const cache = path.join(cacheRoot, binding.packId, record.identity.version);
+    try {
+      await (this.options.ensureDirectory ?? defaultEnsureDirectory)(cache);
+    } catch (error) {
+      // A cache is an optimisation: without it the pack recomputes, it does not fail.
+      // Error name only: fs messages carry the user's app-data path.
+      log.warn('packCacheUnavailable', {
+        pack: binding.packId,
+        error: error instanceof Error ? error.name : 'unknown',
+      });
+      return extras;
+    }
+    return { ...extras, FRAMEPILOT_CAPABILITY_PACK_CACHE: cache };
   }
 
   private installRoot(record: InstalledCapabilityPack): string {
@@ -409,6 +445,10 @@ function failed(
   retryable: boolean,
 ): TrackingRunOutcome {
   return { status: 'failed', code, detail, retryable };
+}
+
+async function defaultEnsureDirectory(absolutePath: string): Promise<void> {
+  await mkdir(absolutePath, { recursive: true });
 }
 
 async function defaultExists(absolutePath: string): Promise<boolean> {

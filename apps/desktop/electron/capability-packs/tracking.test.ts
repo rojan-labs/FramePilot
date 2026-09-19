@@ -124,6 +124,8 @@ function harness(options: {
   records?: readonly InstalledCapabilityPack[];
   runWorker?: (input: unknown) => Promise<CapabilityPackWorkerResult>;
   exists?: boolean;
+  cacheRoot?: string;
+  ensureDirectory?: (absolutePath: string) => Promise<void>;
 }): Harness {
   const leases = { acquired: 0, released: 0 };
   const store: TrackingPackStore = {
@@ -146,6 +148,8 @@ function harness(options: {
     propose,
     exists: async () => options.exists ?? true,
     runWorker: (options.runWorker ?? (async () => result())) as never,
+    ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
+    ensureDirectory: options.ensureDirectory ?? (async () => {}),
   });
   return { service, leases, propose };
 }
@@ -546,6 +550,49 @@ describe('CapabilityPackTrackingService', () => {
       expect(seen.env?.FRAMEPILOT_CAPABILITY_PACK_ROOT).toBe(
         `${STORAGE_ROOT}/${VISUAL_EMBED_PACK_ID}/1.1.0/darwin-arm64`,
       );
+    });
+
+    it('gives Visual Embed the release’s cache folder for its prompt-bank vectors (AM2.6)', async () => {
+      const made: string[] = [];
+      const envs: Record<string, string>[] = [];
+      const { service } = harness({
+        records: [embedAt('1.1.0'), installedSubject()],
+        cacheRoot: '/app-data/capability-pack-cache',
+        ensureDirectory: async (folder) => {
+          made.push(folder);
+        },
+        runWorker: async (input) => {
+          envs.push((input as { extraEnvironment: Record<string, string> }).extraEnvironment);
+          return result();
+        },
+      });
+      await service.run(crops(), { projectRevision: 12, mediaRoot: MEDIA_ROOT });
+      const cache = `/app-data/capability-pack-cache/${VISUAL_EMBED_PACK_ID}/1.1.0`;
+      expect(envs[0]?.FRAMEPILOT_CAPABILITY_PACK_CACHE).toBe(cache);
+      expect(made).toEqual([cache]);
+      // Only the pack that keeps derived data gets one.
+      const detect = request({ capability: 'subject.detect' } as Partial<CapabilityPackWorkerRequest>);
+      await service.run(detect, { projectRevision: 12, mediaRoot: MEDIA_ROOT });
+      expect(envs[1]).not.toHaveProperty('FRAMEPILOT_CAPABILITY_PACK_CACHE');
+    });
+
+    it('runs without the cache when its folder cannot be made', async () => {
+      const envs: Record<string, string>[] = [];
+      const { service } = harness({
+        records: [embedAt('1.1.0')],
+        cacheRoot: '/read-only',
+        ensureDirectory: async () => {
+          throw new Error('EACCES: permission denied, mkdir /read-only/…');
+        },
+        runWorker: async (input) => {
+          envs.push((input as { extraEnvironment: Record<string, string> }).extraEnvironment);
+          return result();
+        },
+      });
+      const outcome = await service.run(crops(), { projectRevision: 12, mediaRoot: MEDIA_ROOT });
+      expect(outcome.status).toBe('completed');
+      expect(envs[0]).not.toHaveProperty('FRAMEPILOT_CAPABILITY_PACK_CACHE');
+      expect(envs[0]?.FRAMEPILOT_CAPABILITY_PACK_ROOT).toBeDefined();
     });
 
     it('refuses a crop to a 1.0 pack before spawning it: a whole frame is not a crop', async () => {

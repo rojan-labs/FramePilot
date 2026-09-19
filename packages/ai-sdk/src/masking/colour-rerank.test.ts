@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ACHROMATIC_RIVAL_SHARE,
   COLOUR_RERANK_TEMPERATURE,
+  colourEvidence,
   colourRerankPlan,
   colourRerankScores,
   type ColourRerankPlan,
 } from './colour-rerank.js';
 import type { MaskCandidate } from './contracts.js';
-import { resolveMaskTargets, rankCandidates, type TargetDetection } from './target-resolution.js';
+import {
+  RERANK_MIN_GROUNDING,
+  resolveMaskTargets,
+  rankCandidates,
+  type TargetDetection,
+} from './target-resolution.js';
 import { COLOUR_WORDS } from './target-vocabulary.js';
 
 const candidate = (
@@ -77,7 +84,7 @@ describe('colourRerankScores', () => {
   ])!;
   const prompts = COLOUR_WORDS.map(axis);
 
-  it('scores each crop by the named colour’s share of its colour classification', () => {
+  it('scores each crop by its named colour head to head with its strongest other colour', () => {
     const scores = colourRerankScores(plan, [axis('red'), axis('grey'), axis('blue')], prompts);
     expect(scores.get('o0_red')).toBeGreaterThan(0.99);
     expect(scores.get('o0_grey')).toBeLessThan(0.01);
@@ -96,6 +103,47 @@ describe('colourRerankScores', () => {
     expect(() => colourRerankScores(plan, [[1], [1], [1]], prompts)).toThrow(/Cannot compare/);
   });
 });
+
+describe('colourEvidence (AM2.6)', () => {
+  /** A classification over the palette with the given shares, the rest spread evenly. */
+  const classified = (shares: Readonly<Record<string, number>>): number[] => {
+    const named = Object.values(shares).reduce((sum, share) => sum + share, 0);
+    const rest = (1 - named) / (COLOUR_WORDS.length - Object.keys(shares).length);
+    return COLOUR_WORDS.map((colour) => shares[colour] ?? rest);
+  };
+  const at = (colour: string): number => COLOUR_WORDS.indexOf(colour);
+
+  it('counts a crop the colour it most is, though SigLIP spread its mass (white car on grass)', () => {
+    const evidence = colourEvidence(classified({ red: 0.45, green: 0.3 }), at('red'));
+    expect(evidence).toBeCloseTo(0.6, 5);
+    expect(evidence).toBeGreaterThanOrEqual(RERANK_MIN_GROUNDING);
+  });
+
+  it('keeps a crop whose named colour is not strictly ahead under the floor', () => {
+    expect(colourEvidence(classified({ red: 0.3, green: 0.3 }), at('red'))).toBeLessThan(
+      RERANK_MIN_GROUNDING,
+    );
+    // No colour at all: an even spread is a tie, not a match.
+    expect(colourEvidence(classified({}), at('red'))).toBeLessThan(RERANK_MIN_GROUNDING);
+    expect(colourEvidence(classified({ red: 0.1, blue: 0.8 }), at('red'))).toBeLessThan(0.2);
+  });
+
+  it('holds an achromatic crop undecided when another achromatic word has a real share', () => {
+    // A pale silver ball reads 0.79 white, 0.16 grey on real weights: never "the white ball".
+    const silverBall = classified({ white: 0.79, grey: 0.16, silver: 0.02 });
+    expect(colourEvidence(silverBall, at('white'))).toBeLessThan(RERANK_MIN_GROUNDING);
+    // A white ball is 0.97 white: decided.
+    const whiteBall = classified({ white: 0.97, grey: 0.02 });
+    expect(colourEvidence(whiteBall, at('white'))).toBeGreaterThan(0.9);
+    expect(ACHROMATIC_RIVAL_SHARE).toBe(0.1);
+  });
+
+  it('leaves chromatic colours to the head-to-head rule alone', () => {
+    const redWithGreyWheels = classified({ red: 0.7, grey: 0.2 });
+    expect(colourEvidence(redWithGreyWheels, at('red'))).toBeGreaterThan(RERANK_MIN_GROUNDING);
+  });
+});
+
 
 describe('colour re-ranking decides only what it can', () => {
   const FRAMES = [0, 8, 16, 24];

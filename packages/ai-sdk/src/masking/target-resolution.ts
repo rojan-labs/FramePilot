@@ -88,7 +88,7 @@ const AREA_MARGIN_RATIO = 1.5;
 /** A re-ranked winner must beat the runner-up's grounding by this ratio… */
 const RERANK_MARGIN_RATIO = 1.25;
 /** …and be a plausible match in absolute terms, or "best of a bad lot" would be chosen. */
-const RERANK_MIN_GROUNDING = 0.5;
+export const RERANK_MIN_GROUNDING = 0.5;
 /** Ledger disagreement demotes a candidate without removing it: tier-1 labels are themselves estimates. */
 const LEDGER_DISAGREEMENT = 0.85;
 

@@ -482,6 +482,14 @@ directly (through `CapabilityPackTrackingService`) only for the AI masking colou
 ledger indexing still runs the pack through the engine. That caller passes `whenMissing: 'skip'`,
 so a missing Visual Embed answers `pack_absent` without building an install proposal.
 
+Those host runs get the same per-release cache folder the engine's runs get,
+`FRAMEPILOT_CAPABILITY_PACK_CACHE=<userData>/capability-pack-cache/<packId>/<version>` (AM2.6;
+`derivedCache` on the binding, made on demand, skipped if it cannot be made), so the pack's
+prompt-bank vectors are encoded once per install rather than on every crop request. Visual Embed
+loads each SigLIP tower on first use, on onnxruntime's CPU provider (measured on the M1 Pro:
+CoreML took 13.2 s and 6.95 GiB to load the text tower, CPU 0.55 s and 1.24 GiB); its health check
+still loads both.
+
 **Installed users get classes only after a new signed Subject Intelligence release (1.1.0), and
 crops only after a new signed Visual Embed release (1.1.0).** Signing
 and publishing it is a maintainer action (MO-1..MO-5); until then every installed pack is 1.0.0,

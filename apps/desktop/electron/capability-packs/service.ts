@@ -305,6 +305,7 @@ export class CapabilityPackDesktopService {
       store: this.store,
       platform: this.platform,
       propose: (capabilityId) => this.propose(capabilityId),
+      ...(this.runtimeCacheRoot === undefined ? {} : { cacheRoot: this.runtimeCacheRoot }),
     });
     return this.trackingService;
   }

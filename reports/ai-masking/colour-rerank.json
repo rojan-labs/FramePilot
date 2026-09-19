@@ -1,0 +1,1011 @@
+{
+ "$comment": "AM2.6: colour re-ranking on real SigLIP 2 weights through the Visual Embed worker (visual.embed shots with a region, visual.text palette prompts), scored with the shipped rule. Produced by workers/visual-embed/tools/colour_rerank_eval.py on the maintainer's M1 Pro, one job at a time under workers/smart-mask/spike/watchdog.py's limits (8 GiB footprint, start at >= 40% free, abort on > 1 GiB swap growth). Not run in CI: it needs the pinned weights.",
+ "measuredAt": "2026-09-19",
+ "machine": {
+  "cpu": "Apple M1 Pro",
+  "memoryGiB": 16,
+  "os": "macOS 26.2",
+  "onnxruntime": "1.29.0",
+  "opencv": "5.0.0"
+ },
+ "weights": {
+  "model": "SigLIP 2 base patch16-224 (ONNX), pack/models.lock.toml",
+  "modelDigests": {
+   "face_detection_yunet_2023mar.onnx": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+   "face_recognition_sface_2021dec.onnx": "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79",
+   "siglip2_base_patch16_224_text.onnx": "baf12d941beabafafb14f7b4adb38dc15be18681b964a84410ec53d9d65e6293",
+   "siglip2_base_patch16_224_vision.onnx": "c0573e3f4140c3a7c4e9cc5912bd6b26a033b46a6a8e8af26cbea262b163bcad",
+   "siglip2_tokenizer.json": "cb9140fae3ac5122c972d37adf83e1248471a38147ad76f8215c8872c6fd8322"
+  },
+  "backend": "onnxruntime-CPUExecutionProvider"
+ },
+ "cropSet": {
+  "synthetic": "48 frames at 640x360 (6 backgrounds: grass, sky, asphalt, off-white wall, dark room, multi-hue clutter; x 2 nouns: car, ball; x 4), three objects per frame in three distinct palette colours drawn by seed, flat-shaded with a vertical light gradient and noise (cars have pale windows and black wheels), encoded H.264 yuv420p crf 18 all-intra and decoded by the worker's OpenCV path; crops are the object's box plus 6% per side, like a detector box. Requests: every colour on the frame (must pick that object) and every colour not on it (must ask): 144 + 432 per set.",
+  "reportedSeed": 20260919,
+  "heldOutSeed": 7,
+  "decodeCheckWorstMeanLevels": 7.01,
+  "realFootage": "tests/fixtures/mission/broll/b4-1080p-50s.mp4 at 2.0 s (fetched fixture, not in git): hand-boxed purple monitor, black microphone, white lamp bulb (lit warm); noun 'object'; 3 present + 9 absent requests. The mission photos were not used (personal documents); the other clips hold no boxable coloured objects.",
+  "caveat": "'silver' is rendered flat (190,192,198) with no metallic sheen; SigLIP reads every such crop as white or grey, so silver ground truth here is harder than a real silver car."
+ },
+ "rules": {
+  "am2.5-share": "AM2.5 as shipped: the named colour's softmax share (T 0.01) over the 12 palette prompts; resolver picks the top candidate when >= 0.5 and >= 1.25x the runner-up.",
+  "am2.6": "Shipped now (colour-rerank.ts colourEvidence): head to head, named / (named + strongest other colour); undecided (held just under 0.5) when the named colour is not strictly ahead, or when an achromatic request (white, grey, silver, black) finds >= 0.1 of the crop on another achromatic word. Same resolver rule. Designed on the reported seed; the held-out seed was generated after."
+ },
+ "accuracy": {
+  "reported": {
+   "am2.5-share": {
+    "summary": {
+     "targetAccuracy": {
+      "passed": 130,
+      "total": 144,
+      "rate": 0.9028
+     },
+     "unnecessaryAsks": {
+      "passed": 14,
+      "total": 144,
+      "rate": 0.0972
+     },
+     "absentColourAskRate": {
+      "passed": 427,
+      "total": 432,
+      "rate": 0.9884
+     },
+     "confidentWrong": 5,
+     "chromaticTargetAccuracy": {
+      "passed": 101,
+      "total": 101,
+      "rate": 1.0
+     },
+     "achromaticTargetAccuracy": {
+      "passed": 29,
+      "total": 43,
+      "rate": 0.6744
+     },
+     "nearColourOnFrame": {
+      "passed": 39,
+      "total": 41,
+      "rate": 0.9512
+     },
+     "byColour": {
+      "red": {
+       "passed": 14,
+       "total": 14,
+       "rate": 1.0
+      },
+      "orange": {
+       "passed": 13,
+       "total": 13,
+       "rate": 1.0
+      },
+      "yellow": {
+       "passed": 11,
+       "total": 11,
+       "rate": 1.0
+      },
+      "green": {
+       "passed": 12,
+       "total": 12,
+       "rate": 1.0
+      },
+      "blue": {
+       "passed": 13,
+       "total": 13,
+       "rate": 1.0
+      },
+      "purple": {
+       "passed": 15,
+       "total": 15,
+       "rate": 1.0
+      },
+      "pink": {
+       "passed": 13,
+       "total": 13,
+       "rate": 1.0
+      },
+      "brown": {
+       "passed": 10,
+       "total": 10,
+       "rate": 1.0
+      },
+      "black": {
+       "passed": 13,
+       "total": 14,
+       "rate": 0.9286
+      },
+      "white": {
+       "passed": 11,
+       "total": 12,
+       "rate": 0.9167
+      },
+      "grey": {
+       "passed": 5,
+       "total": 5,
+       "rate": 1.0
+      },
+      "silver": {
+       "passed": 0,
+       "total": 12,
+       "rate": 0.0
+      }
+     },
+     "byBackground": {
+      "asphalt": {
+       "passed": 23,
+       "total": 24,
+       "rate": 0.9583
+      },
+      "clutter": {
+       "passed": 21,
+       "total": 24,
+       "rate": 0.875
+      },
+      "dark": {
+       "passed": 20,
+       "total": 24,
+       "rate": 0.8333
+      },
+      "grass": {
+       "passed": 21,
+       "total": 24,
+       "rate": 0.875
+      },
+      "sky": {
+       "passed": 23,
+       "total": 24,
+       "rate": 0.9583
+      },
+      "wall": {
+       "passed": 22,
+       "total": 24,
+       "rate": 0.9167
+      }
+     }
+    },
+    "gates": {
+     "targetAccuracy": {
+      "threshold": ">= 0.99",
+      "value": 0.9028,
+      "pass": false
+     },
+     "unnecessaryAskRate": {
+      "threshold": "<= 0.03",
+      "value": 0.0972,
+      "pass": false
+     },
+     "absentColourAskRate (ambiguousAskRate)": {
+      "threshold": ">= 0.97",
+      "value": 0.9884,
+      "pass": true
+     },
+     "confidentWrong": {
+      "threshold": "== 0",
+      "value": 5,
+      "pass": false
+     }
+    }
+   },
+   "am2.6": {
+    "summary": {
+     "targetAccuracy": {
+      "passed": 116,
+      "total": 144,
+      "rate": 0.8056
+     },
+     "unnecessaryAsks": {
+      "passed": 28,
+      "total": 144,
+      "rate": 0.1944
+     },
+     "absentColourAskRate": {
+      "passed": 432,
+      "total": 432,
+      "rate": 1.0
+     },
+     "confidentWrong": 0,
+     "chromaticTargetAccuracy": {
+      "passed": 101,
+      "total": 101,
+      "rate": 1.0
+     },
+     "achromaticTargetAccuracy": {
+      "passed": 15,
+      "total": 43,
+      "rate": 0.3488
+     },
+     "nearColourOnFrame": {
+      "passed": 38,
+      "total": 41,
+      "rate": 0.9268
+     },
+     "byColour": {
+      "red": {
+       "passed": 14,
+       "total": 14,
+       "rate": 1.0
+      },
+      "orange": {
+       "passed": 13,
+       "total": 13,
+       "rate": 1.0
+      },
+      "yellow": {
+       "passed": 11,
+       "total": 11,
+       "rate": 1.0
+      },
+      "green": {
+       "passed": 12,
+       "total": 12,
+       "rate": 1.0
+      },
+      "blue": {
+       "passed": 13,
+       "total": 13,
+       "rate": 1.0
+      },
+      "purple": {
+       "passed": 15,
+       "total": 15,
+       "rate": 1.0
+      },
+      "pink": {
+       "passed": 13,
+       "total": 13,
+       "rate": 1.0
+      },
+      "brown": {
+       "passed": 10,
+       "total": 10,
+       "rate": 1.0
+      },
+      "black": {
+       "passed": 3,
+       "total": 14,
+       "rate": 0.2143
+      },
+      "white": {
+       "passed": 8,
+       "total": 12,
+       "rate": 0.6667
+      },
+      "grey": {
+       "passed": 4,
+       "total": 5,
+       "rate": 0.8
+      },
+      "silver": {
+       "passed": 0,
+       "total": 12,
+       "rate": 0.0
+      }
+     },
+     "byBackground": {
+      "asphalt": {
+       "passed": 19,
+       "total": 24,
+       "rate": 0.7917
+      },
+      "clutter": {
+       "passed": 20,
+       "total": 24,
+       "rate": 0.8333
+      },
+      "dark": {
+       "passed": 15,
+       "total": 24,
+       "rate": 0.625
+      },
+      "grass": {
+       "passed": 22,
+       "total": 24,
+       "rate": 0.9167
+      },
+      "sky": {
+       "passed": 22,
+       "total": 24,
+       "rate": 0.9167
+      },
+      "wall": {
+       "passed": 18,
+       "total": 24,
+       "rate": 0.75
+      }
+     }
+    },
+    "gates": {
+     "targetAccuracy": {
+      "threshold": ">= 0.99",
+      "value": 0.8056,
+      "pass": false
+     },
+     "unnecessaryAskRate": {
+      "threshold": "<= 0.03",
+      "value": 0.1944,
+      "pass": false
+     },
+     "absentColourAskRate (ambiguousAskRate)": {
+      "threshold": ">= 0.97",
+      "value": 1.0,
+      "pass": true
+     },
+     "confidentWrong": {
+      "threshold": "== 0",
+      "value": 0,
+      "pass": true
+     }
+    }
+   }
+  },
+  "heldOut": {
+   "am2.5-share": {
+    "summary": {
+     "targetAccuracy": {
+      "passed": 127,
+      "total": 144,
+      "rate": 0.8819
+     },
+     "unnecessaryAsks": {
+      "passed": 17,
+      "total": 144,
+      "rate": 0.1181
+     },
+     "absentColourAskRate": {
+      "passed": 425,
+      "total": 432,
+      "rate": 0.9838
+     },
+     "confidentWrong": 7,
+     "chromaticTargetAccuracy": {
+      "passed": 101,
+      "total": 101,
+      "rate": 1.0
+     },
+     "achromaticTargetAccuracy": {
+      "passed": 26,
+      "total": 43,
+      "rate": 0.6047
+     },
+     "nearColourOnFrame": {
+      "passed": 31,
+      "total": 36,
+      "rate": 0.8611
+     },
+     "byColour": {
+      "red": {
+       "passed": 9,
+       "total": 9,
+       "rate": 1.0
+      },
+      "orange": {
+       "passed": 11,
+       "total": 11,
+       "rate": 1.0
+      },
+      "yellow": {
+       "passed": 10,
+       "total": 10,
+       "rate": 1.0
+      },
+      "green": {
+       "passed": 13,
+       "total": 13,
+       "rate": 1.0
+      },
+      "blue": {
+       "passed": 9,
+       "total": 9,
+       "rate": 1.0
+      },
+      "purple": {
+       "passed": 17,
+       "total": 17,
+       "rate": 1.0
+      },
+      "pink": {
+       "passed": 14,
+       "total": 14,
+       "rate": 1.0
+      },
+      "brown": {
+       "passed": 18,
+       "total": 18,
+       "rate": 1.0
+      },
+      "black": {
+       "passed": 8,
+       "total": 9,
+       "rate": 0.8889
+      },
+      "white": {
+       "passed": 8,
+       "total": 9,
+       "rate": 0.8889
+      },
+      "grey": {
+       "passed": 10,
+       "total": 10,
+       "rate": 1.0
+      },
+      "silver": {
+       "passed": 0,
+       "total": 15,
+       "rate": 0.0
+      }
+     },
+     "byBackground": {
+      "asphalt": {
+       "passed": 20,
+       "total": 24,
+       "rate": 0.8333
+      },
+      "clutter": {
+       "passed": 19,
+       "total": 24,
+       "rate": 0.7917
+      },
+      "dark": {
+       "passed": 22,
+       "total": 24,
+       "rate": 0.9167
+      },
+      "grass": {
+       "passed": 22,
+       "total": 24,
+       "rate": 0.9167
+      },
+      "sky": {
+       "passed": 22,
+       "total": 24,
+       "rate": 0.9167
+      },
+      "wall": {
+       "passed": 22,
+       "total": 24,
+       "rate": 0.9167
+      }
+     }
+    },
+    "gates": {
+     "targetAccuracy": {
+      "threshold": ">= 0.99",
+      "value": 0.8819,
+      "pass": false
+     },
+     "unnecessaryAskRate": {
+      "threshold": "<= 0.03",
+      "value": 0.1181,
+      "pass": false
+     },
+     "absentColourAskRate (ambiguousAskRate)": {
+      "threshold": ">= 0.97",
+      "value": 0.9838,
+      "pass": true
+     },
+     "confidentWrong": {
+      "threshold": "== 0",
+      "value": 7,
+      "pass": false
+     }
+    }
+   },
+   "am2.6": {
+    "summary": {
+     "targetAccuracy": {
+      "passed": 113,
+      "total": 144,
+      "rate": 0.7847
+     },
+     "unnecessaryAsks": {
+      "passed": 31,
+      "total": 144,
+      "rate": 0.2153
+     },
+     "absentColourAskRate": {
+      "passed": 432,
+      "total": 432,
+      "rate": 1.0
+     },
+     "confidentWrong": 0,
+     "chromaticTargetAccuracy": {
+      "passed": 101,
+      "total": 101,
+      "rate": 1.0
+     },
+     "achromaticTargetAccuracy": {
+      "passed": 12,
+      "total": 43,
+      "rate": 0.2791
+     },
+     "nearColourOnFrame": {
+      "passed": 30,
+      "total": 36,
+      "rate": 0.8333
+     },
+     "byColour": {
+      "red": {
+       "passed": 9,
+       "total": 9,
+       "rate": 1.0
+      },
+      "orange": {
+       "passed": 11,
+       "total": 11,
+       "rate": 1.0
+      },
+      "yellow": {
+       "passed": 10,
+       "total": 10,
+       "rate": 1.0
+      },
+      "green": {
+       "passed": 13,
+       "total": 13,
+       "rate": 1.0
+      },
+      "blue": {
+       "passed": 9,
+       "total": 9,
+       "rate": 1.0
+      },
+      "purple": {
+       "passed": 17,
+       "total": 17,
+       "rate": 1.0
+      },
+      "pink": {
+       "passed": 14,
+       "total": 14,
+       "rate": 1.0
+      },
+      "brown": {
+       "passed": 18,
+       "total": 18,
+       "rate": 1.0
+      },
+      "black": {
+       "passed": 2,
+       "total": 9,
+       "rate": 0.2222
+      },
+      "white": {
+       "passed": 5,
+       "total": 9,
+       "rate": 0.5556
+      },
+      "grey": {
+       "passed": 5,
+       "total": 10,
+       "rate": 0.5
+      },
+      "silver": {
+       "passed": 0,
+       "total": 15,
+       "rate": 0.0
+      }
+     },
+     "byBackground": {
+      "asphalt": {
+       "passed": 19,
+       "total": 24,
+       "rate": 0.7917
+      },
+      "clutter": {
+       "passed": 17,
+       "total": 24,
+       "rate": 0.7083
+      },
+      "dark": {
+       "passed": 19,
+       "total": 24,
+       "rate": 0.7917
+      },
+      "grass": {
+       "passed": 20,
+       "total": 24,
+       "rate": 0.8333
+      },
+      "sky": {
+       "passed": 18,
+       "total": 24,
+       "rate": 0.75
+      },
+      "wall": {
+       "passed": 20,
+       "total": 24,
+       "rate": 0.8333
+      }
+     }
+    },
+    "gates": {
+     "targetAccuracy": {
+      "threshold": ">= 0.99",
+      "value": 0.7847,
+      "pass": false
+     },
+     "unnecessaryAskRate": {
+      "threshold": "<= 0.03",
+      "value": 0.2153,
+      "pass": false
+     },
+     "absentColourAskRate (ambiguousAskRate)": {
+      "threshold": ">= 0.97",
+      "value": 1.0,
+      "pass": true
+     },
+     "confidentWrong": {
+      "threshold": "== 0",
+      "value": 0,
+      "pass": true
+     }
+    }
+   }
+  },
+  "realFootage": {
+   "am2.5-share": {
+    "targetAccuracy": {
+     "passed": 2,
+     "total": 3,
+     "rate": 0.6667
+    },
+    "absentColourAskRate": {
+     "passed": 9,
+     "total": 9,
+     "rate": 1.0
+    },
+    "confidentWrong": 0
+   },
+   "am2.6": {
+    "targetAccuracy": {
+     "passed": 3,
+     "total": 3,
+     "rate": 1.0
+    },
+    "absentColourAskRate": {
+     "passed": 9,
+     "total": 9,
+     "rate": 1.0
+    },
+    "confidentWrong": 0
+   }
+  },
+  "am2.5ConfidentWrong": [
+   "the white ball -> f4-silver",
+   "the white ball -> f7-silver",
+   "the grey car -> f24-silver",
+   "the grey ball -> f28-silver",
+   "the white ball -> f39-silver"
+  ],
+  "am2.6Misses": [
+   {
+    "request": "the silver ball",
+    "expected": "f4-silver",
+    "scores": {
+     "f4-silver": 0.025,
+     "f4-grey": 0.0582,
+     "f4-orange": 0.0001
+    }
+   },
+   {
+    "request": "the silver ball",
+    "expected": "f7-silver",
+    "scores": {
+     "f7-brown": 0.001,
+     "f7-silver": 0.0243,
+     "f7-yellow": 0.0002
+    }
+   },
+   {
+    "request": "the silver car",
+    "expected": "f11-silver",
+    "scores": {
+     "f11-green": 0.0006,
+     "f11-silver": 0.438,
+     "f11-grey": 0.168
+    }
+   },
+   {
+    "request": "the grey car",
+    "expected": "f11-grey",
+    "scores": {
+     "f11-green": 0.0046,
+     "f11-silver": 0.5,
+     "f11-grey": 0.5
+    }
+   },
+   {
+    "request": "the white car",
+    "expected": "f16-white",
+    "scores": {
+     "f16-purple": 0.0004,
+     "f16-white": 0.5,
+     "f16-pink": 0.0003
+    }
+   },
+   {
+    "request": "the white car",
+    "expected": "f17-white",
+    "scores": {
+     "f17-blue": 0.0036,
+     "f17-red": 0.0025,
+     "f17-white": 0.5
+    }
+   },
+   {
+    "request": "the black car",
+    "expected": "f19-black",
+    "scores": {
+     "f19-brown": 0.0037,
+     "f19-purple": 0.0006,
+     "f19-black": 0.4804
+    }
+   },
+   {
+    "request": "the black ball",
+    "expected": "f22-black",
+    "scores": {
+     "f22-purple": 0.0016,
+     "f22-black": 0.5,
+     "f22-brown": 0.0021
+    }
+   },
+   {
+    "request": "the black ball",
+    "expected": "f23-black",
+    "scores": {
+     "f23-white": 0.0022,
+     "f23-black": 0.5,
+     "f23-yellow": 0.0008
+    }
+   },
+   {
+    "request": "the black car",
+    "expected": "f24-black",
+    "scores": {
+     "f24-black": 0.5,
+     "f24-blue": 0.0039,
+     "f24-silver": 0.0202
+    }
+   },
+   {
+    "request": "the silver car",
+    "expected": "f24-silver",
+    "scores": {
+     "f24-black": 0.031,
+     "f24-blue": 0.0078,
+     "f24-silver": 0.3474
+    }
+   },
+   {
+    "request": "the white car",
+    "expected": "f25-white",
+    "scores": {
+     "f25-white": 0.5,
+     "f25-yellow": 0.003,
+     "f25-red": 0.005
+    }
+   },
+   {
+    "request": "the black car",
+    "expected": "f26-black",
+    "scores": {
+     "f26-green": 0.0012,
+     "f26-black": 0.5,
+     "f26-orange": 0.0009
+    }
+   },
+   {
+    "request": "the white car",
+    "expected": "f27-white",
+    "scores": {
+     "f27-pink": 0.0008,
+     "f27-white": 0.5,
+     "f27-red": 0.0048
+    }
+   },
+   {
+    "request": "the silver ball",
+    "expected": "f28-silver",
+    "scores": {
+     "f28-black": 0.0037,
+     "f28-purple": 0.0002,
+     "f28-silver": 0.069
+    }
+   },
+   {
+    "request": "the silver car",
+    "expected": "f32-silver",
+    "scores": {
+     "f32-yellow": 0.0029,
+     "f32-silver": 0.1827,
+     "f32-brown": 0.0016
+    }
+   },
+   {
+    "request": "the black car",
+    "expected": "f33-black",
+    "scores": {
+     "f33-black": 0.5,
+     "f33-purple": 0.0017,
+     "f33-pink": 0.0029
+    }
+   },
+   {
+    "request": "the silver car",
+    "expected": "f34-silver",
+    "scores": {
+     "f34-silver": 0.2353,
+     "f34-orange": 0.0018,
+     "f34-black": 0.0309
+    }
+   },
+   {
+    "request": "the black car",
+    "expected": "f34-black",
+    "scores": {
+     "f34-silver": 0.1307,
+     "f34-orange": 0.0127,
+     "f34-black": 0.5
+    }
+   },
+   {
+    "request": "the black car",
+    "expected": "f35-black",
+    "scores": {
+     "f35-black": 0.5,
+     "f35-silver": 0.1766,
+     "f35-blue": 0.0236
+    }
+   },
+   {
+    "request": "the silver car",
+    "expected": "f35-silver",
+    "scores": {
+     "f35-black": 0.0443,
+     "f35-silver": 0.2419,
+     "f35-blue": 0.0047
+    }
+   },
+   {
+    "request": "the black ball",
+    "expected": "f36-black",
+    "scores": {
+     "f36-white": 0.0042,
+     "f36-black": 0.5,
+     "f36-purple": 0.0043
+    }
+   },
+   {
+    "request": "the black ball",
+    "expected": "f38-black",
+    "scores": {
+     "f38-black": 0.5,
+     "f38-white": 0.0039,
+     "f38-green": 0.005
+    }
+   },
+   {
+    "request": "the silver ball",
+    "expected": "f39-silver",
+    "scores": {
+     "f39-pink": 0.0003,
+     "f39-blue": 0.0023,
+     "f39-silver": 0.0254
+    }
+   },
+   {
+    "request": "the silver car",
+    "expected": "f40-silver",
+    "scores": {
+     "f40-orange": 0.0026,
+     "f40-pink": 0.0004,
+     "f40-silver": 0.4727
+    }
+   },
+   {
+    "request": "the silver car",
+    "expected": "f41-silver",
+    "scores": {
+     "f41-silver": 0.4401,
+     "f41-blue": 0.0062,
+     "f41-green": 0.0008
+    }
+   },
+   {
+    "request": "the black car",
+    "expected": "f42-black",
+    "scores": {
+     "f42-brown": 0.0031,
+     "f42-red": 0.0046,
+     "f42-black": 0.5
+    }
+   },
+   {
+    "request": "the silver ball",
+    "expected": "f47-silver",
+    "scores": {
+     "f47-purple": 0.0006,
+     "f47-red": 0.0002,
+     "f47-silver": 0.0924
+    }
+   }
+  ]
+ },
+ "cost": {
+  "before": {
+   "what": "HEAD before AM2.6: two worker processes per colour request (visual.embed crops, then visual.text prompts), each loading BOTH towers on CoreML and, with no cache folder passed, re-encoding the 43-sentence prompt bank.",
+   "result": "did not complete under the watchdog, twice: killed 18.3 s into the first of the two processes at a 7.50 GiB footprint (swap +1.31 GiB); an earlier single-process load of both towers reached 7.41 GiB (swap +2.90 GiB).",
+   "components": {
+    "coremlVisionLoadSeconds": 3.47,
+    "coremlVisionSecondsPerCrop": 0.18,
+    "coremlVisionFootprintGiB": 0.51,
+    "coremlTextLoadSeconds": 13.16,
+    "coremlText12PromptsSeconds": 0.65,
+    "coremlTextFootprintGiB": 6.95
+   }
+  },
+  "cpuProvider": {
+   "visionLoadSeconds": 0.29,
+   "visionSecondsPerCrop": 0.095,
+   "visionFootprintGiB": 0.41,
+   "textLoadSeconds": 0.55,
+   "text12PromptsSeconds": 0.34,
+   "textFootprintGiB": 1.24
+  },
+  "newPackOldHost": {
+   "what": "CPU provider and lazy towers, still two processes and no cache folder",
+   "runs": [
+    {
+     "attempt": 0,
+     "embedSeconds": 4.65,
+     "textSeconds": 3.02,
+     "totalSeconds": 7.66,
+     "backend": "onnxruntime-CPUExecutionProvider"
+    },
+    {
+     "attempt": 1,
+     "embedSeconds": 4.65,
+     "textSeconds": 3.0,
+     "totalSeconds": 7.65,
+     "backend": "onnxruntime-CPUExecutionProvider"
+    }
+   ],
+   "peakFootprintGiB": 2.99
+  },
+  "after": {
+   "what": "CPU provider, lazy towers, host passes FRAMEPILOT_CAPABILITY_PACK_CACHE and keeps the palette prompt vectors per pack release: the first request per noun runs visual.embed + visual.text; later ones only visual.embed, vision tower only",
+   "runs": [
+    {
+     "attempt": 0,
+     "embedSeconds": 4.76,
+     "textSeconds": 3.0,
+     "totalSeconds": 7.76,
+     "backend": "onnxruntime-CPUExecutionProvider"
+    },
+    {
+     "attempt": 1,
+     "embedSeconds": 1.76,
+     "textSeconds": null,
+     "totalSeconds": 1.76,
+     "backend": "onnxruntime-CPUExecutionProvider"
+    },
+    {
+     "attempt": 2,
+     "embedSeconds": 1.77,
+     "textSeconds": null,
+     "totalSeconds": 1.77,
+     "backend": "onnxruntime-CPUExecutionProvider"
+    }
+   ],
+   "peakFootprintGiB": 1.9
+  },
+  "parity": {
+   "visionCpuVsCoreml": {
+    "crops": 144,
+    "minCosine": 0.99992,
+    "meanCosine": 0.99998
+   },
+   "textCpuVsCoreml": "not measured: the CoreML text load was stopped by the watchdog (7.77 GiB, swap +1.18 GiB)"
+  }
+ },
+ "verdict": "Real crops do not meet the AM5 accuracy or unnecessary-ask gates with either rule; those gates are not lowered. The AM2.5 rule made confident-wrong picks on real weights (5 and 7 of 432 absent-colour requests: 'the white/grey X' taking a silver one); the AM2.6 rule makes none on either set or the real crops. Chromatic colours are 101/101 on both sets; white, grey, black and silver ask far more often (silver never resolves on these renderings)."
+}

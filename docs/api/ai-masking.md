@@ -124,9 +124,10 @@ carry `objectClass` when it was measured.
 descriptive word is one colour and at least two candidates survive the class filter, the desktop's
 `rerank` source (`apps/desktop/electron/ai/crop-reranker.ts`) asks Visual Embed to embed each
 candidate's crop (`visual.embed` shot `region`) and "a photo of a {colour} {noun}" for every colour
-in the palette (`visual.text`). Each crop's score is the named colour's softmax share at the pack's
-own label temperature (0.01); the resolver then needs the usual margin (≥ 0.5 and 1.25× the
-runner-up). Planning and scoring are pure (`masking/colour-rerank.ts`).
+in the palette (`visual.text`). Each crop is classified over the palette at the pack's own label
+temperature (0.01) and scored head to head: the named colour's share against the crop's strongest
+other colour, `named / (named + rival)` (AM2.6). The resolver then needs the usual margin (≥ 0.5 and
+1.25× the runner-up). Planning and scoring are pure (`masking/colour-rerank.ts`, `colourEvidence`).
 
 - **It re-ranks, never finds.** Only candidates already classed as the noun are cropped; an
   unclassed or other-class candidate is never shown to SigLIP and a score cannot vouch for a class.
@@ -136,10 +137,43 @@ runner-up). Planning and scoring are pure (`masking/colour-rerank.ts`).
 - **Optional.** No Visual Embed, one older than 1.1.0 (it cannot crop; the host refuses the request
   as `pack_outdated` before spawning), or a failed job: no evidence, and the resolver asks. A
   missing pack is never proposed for install from here.
-- **Unmeasured.** The calibration is the pack's zero-shot label temperature, not a value measured on
-  crops of real footage; no colour accuracy is claimed. The AM5 eval exercises the path with
-  synthetic vectors (ground truth by construction), which proves the wiring and the decision rules,
-  not SigLIP.
+- **Undecided stays under the floor.** A crop whose named colour is not strictly ahead, or an
+  achromatic request (white, grey, silver, black) whose crop holds ≥ 0.1 on another achromatic
+  word, scores just under 0.5: it can block a rival but is never picked. White, grey and silver are
+  one lightness scale to SigLIP; without this, "the white ball" took a pale silver ball.
+- **One process per request once warm.** The host keeps the palette prompt vectors per pack release
+  (`PromptVectorCache`), so `visual.text` runs once per noun; it passes the release's cache folder
+  (`FRAMEPILOT_CAPABILITY_PACK_CACHE`, the one the engine's shot-ledger runs already use), so the
+  crop run never re-encodes the prompt bank; and the pack loads a tower only when a request uses it,
+  on the CPU provider.
+
+#### Measured on real weights (AM2.6)
+
+`workers/visual-embed/tools/colour_rerank_eval.py` runs the real worker on generated crops with
+known colours (48 frames: cars and balls, three colours to a frame, six backgrounds, H.264 4:2:0)
+and three hand-boxed objects from a fixture clip, and applies the shipped rule. Every colour on a
+frame is asked (must pick) and every colour not on it (must ask). Full numbers:
+`reports/ai-masking/colour-rerank.json`. M1 Pro, 2026-09-19:
+
+| | AM2.5 share | AM2.6 (shipped) |
+| --- | --- | --- |
+| Target picked (reported set / held-out set) | 130/144 / 127/144 | 116/144 / 113/144 |
+| Confident-wrong (of 432 absent-colour requests each) | 5 / 7 | **0 / 0** |
+| Chromatic colours picked | 101/101 / 101/101 | 101/101 / 101/101 |
+| White, grey, black, silver picked | 29/43 / 26/43 | 15/43 / 12/43 |
+| Real crops (purple monitor, black mic, white lamp) | 2/3, 0 wrong | 3/3, 0 wrong |
+
+What real crops show: chromatic colours are reliable; the achromatic words are not, and asking is
+the right answer there. The AM2.5 rule's wrong picks were all "the white/grey X" taking a silver
+one. Silver never resolves on these flat renderings: SigLIP reads every one as white or grey. The
+AM5 accuracy (≥ 0.99) and unnecessary-ask (≤ 3%) gates are **not met** on real crops (80.6%
+picked, 19.4% asked); they are not lowered, and confident-wrong is 0. The AM5 eval still scores the
+wiring with synthetic vectors; `colour-rerank.real-weights.test.ts` replays 36 real crop vectors
+(`reports/ai-masking/colour-rerank-siglip2-vectors.json`) through the shipped code in CI.
+
+Cost of one "the red car" request with three candidates: before AM2.6 it never finished on this
+machine (two processes each loading both towers on CoreML; the local watchdog stopped it at a
+7.5 GiB footprint). After: 7.8 s for the first request per noun, 1.8 s after that, 1.9 GiB peak.
 
 ### What installed users get today
 
