@@ -221,3 +221,39 @@ def test_a_single_click_conditions_on_the_whole_subject_not_the_part() -> None:
     assert whole_object(candidates, np.array([0.80, 0.95, 0.5]), click) is None, "SAM's own pick"
     outside = np.array([10.0, 10.0])
     assert whole_object(candidates[:2], np.array([0.95, 0.9]), outside) is None
+
+
+def test_a_click_rejects_the_largest_candidate_when_its_boundary_is_not_an_image_edge() -> None:
+    """BR7.4 it6: the largest candidate over-reached on product_table and talking_head."""
+    from framepilot_smart_mask.tracker import LOW_RES, whole_object
+
+    frame = np.full((720, 1280, 3), 60, np.uint8)
+    frame[180:540, 400:800] = (200, 60, 50)  # the subject: rows 64-192, cols 80-160 at 256²
+    candidates = np.full((3, LOW_RES, LOW_RES), -8.0, np.float32)
+    candidates[0, 90:120, 100:130] = 8.0  # a part (SAM's pick), inside the subject
+    candidates[1, 50:210, 60:190] = 8.0  # over-reaches into flat background
+    candidates[2, 64:192, 80:160] = 8.0  # the subject, on its edges
+    ious = np.array([0.97, 0.72, 0.9])
+    click = np.array([110.0, 100.0])
+    assert whole_object(candidates, ious, click) == 1, "without the frame: the largest"
+    assert whole_object(candidates, ious, click, frame) == 2, "with it: the edge-true subject"
+
+
+def test_interactive_segmentation_keeps_sams_own_pick() -> None:
+    """Only the matte job (subject_frames set) turns a click into the whole subject."""
+    from framepilot_smart_mask.backend import DecoderOutput
+    from framepilot_smart_mask.tracker import LOW_RES, PointPrompt
+
+    tracker, fake, _cache = tracker_for(square_frames(2))
+    multimasks = np.full((1, 3, LOW_RES, LOW_RES), -8.0, np.float32)
+    multimasks[0, 1] = 8.0
+    original = fake.decode_points
+
+    def decode_points(*args, **kwargs):  # type: ignore[no-untyped-def]
+        out = original(*args, **kwargs)
+        return DecoderOutput(out.low_res_masks, out.high_res_masks, out.ious, out.obj_ptr,
+                             out.object_score_logits, multimasks)  # fmt: skip
+
+    fake.decode_points = decode_points
+    tracker.condition(0, PointPrompt(coords=((0.5, 0.5),), labels=(1,)))
+    assert tracker.click_choices == [], "no whole-object choice outside the matte job"

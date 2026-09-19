@@ -293,9 +293,14 @@ class SamTracker:
         *,
         memory_storage: MemoryStorage = "float32",
         should_stop: Callable[[], None] | None = None,
+        subject_frames: Callable[[int], npt.NDArray[np.uint8]] | None = None,
     ) -> None:
         self.modules = modules
         self.features = features
+        #: Set by the matte job only: a single click then selects the whole subject
+        #: (:func:`whole_object`), judged against this frame's edges. Interactive segmentation
+        #: (AI Object, hover) keeps SAM's own pick, so a click on a part still selects the part.
+        self.subject_frames = subject_frames
         self.memory_storage = memory_storage
         self.should_stop = should_stop or (lambda: None)
         constants = modules.constants
@@ -330,12 +335,19 @@ class SamTracker:
         multimask = labels.shape[1] <= 1
         out = self.modules.decode_points(pix, feats, coords, labels, multimask)
         self.decoder_calls += 1
-        if multimask and prompt.labels == (1,) and out.low_res_multimasks is not None:
+        if (
+            self.subject_frames is not None
+            and multimask
+            and prompt.labels == (1,)
+            and out.low_res_multimasks is not None
+        ):
             candidates = np.asarray(out.low_res_multimasks, np.float32).reshape(
                 -1, LOW_RES, LOW_RES
             )
             ious = np.asarray(out.ious, np.float32).reshape(-1)
-            chosen = whole_object(candidates, ious, coords[0, 0] * LOW_RES / IMAGE_SIZE)
+            chosen = whole_object(
+                candidates, ious, coords[0, 0] * LOW_RES / IMAGE_SIZE, self.subject_frames(index)
+            )
             self.click_candidates.append((index, candidates.copy()))
             self.click_choices.append(
                 {
@@ -479,21 +491,49 @@ class SamTracker:
         return tokens
 
 
-#: One click selects the whole subject: of SAM's candidates that contain the click and whose
-#: predicted IoU is within this margin of the best, the largest (BR7.4 it0: the best-IoU pick was
-#: a part, a torso or a head, in 4 of 5 categories: one-click IoU 0.53-0.86). At 0.15 (it2) the
-#: close-ups still kept a part (hair_busy 0.70, talking_head 0.85); the margin is 0.3 since.
+#: One click selects the whole subject. Of SAM's candidates that contain the click, cover at
+#: most WHOLE_OBJECT_MAX_FRACTION of the frame and score within WHOLE_OBJECT_IOU_MARGIN of the best
+#: predicted IoU, the largest is taken unless its boundary is much weaker against the image than
+#: another candidate's (edge contrast below WHOLE_OBJECT_MIN_CONTRAST_RATIO of the best): then
+#: the candidate with the strongest boundary. BR7.4 evidence (report.json clickChoices and the
+#: eval dump's candidates against ground truth): SAM's best-IoU pick was a part in 8 of 10 scored
+#: categories (it0 one-click IoU 0.50-0.97); "largest within 0.15" left close-ups on a part (it2);
+#: "largest within 0.3" over-reached on product_table and talking_head (it6), whose largest
+#: candidates had 0.52-0.62 of the best boundary contrast while every right "largest" had >= 0.84.
+#: The 0.75 cut was chosen on the calibration clips (it7cal) and held on the scored ones (it7).
 WHOLE_OBJECT_IOU_MARGIN: Final = 0.3
-#: ... but never a candidate covering more than this fraction of the frame (the background).
 WHOLE_OBJECT_MAX_FRACTION: Final = 0.6
+WHOLE_OBJECT_MIN_CONTRAST_RATIO: Final = 0.75
+#: Boundary contrast = mean image gradient on the candidate's boundary / in a ring this wide
+#: (px at 720p, scaled) around it.
+CONTRAST_RING_720P: Final = 12
 
 
-def whole_object(candidates: Float, ious: Float, click_low_res: Float) -> int | None:
+def boundary_contrast(mask: npt.NDArray[np.bool_], gray: Float) -> float:
+    """How much stronger the image gradient is on ``mask``'s boundary than around it."""
+    m = mask.astype(np.uint8)
+    edge = (m - cv2.erode(m, np.ones((3, 3), np.uint8))).astype(bool)
+    if not edge.any():
+        return 0.0
+    magnitude = cv2.magnitude(cv2.Sobel(gray, cv2.CV_32F, 1, 0), cv2.Sobel(gray, cv2.CV_32F, 0, 1))
+    size = 2 * max(2, round(CONTRAST_RING_720P * mask.shape[0] / 720)) + 1
+    kernel = np.ones((size, size), np.uint8)
+    ring = cv2.dilate(m, kernel).astype(bool) & ~cv2.erode(m, kernel).astype(bool)
+    return float(magnitude[edge].mean()) / max(float(magnitude[ring].mean()), 1e-6)
+
+
+def whole_object(
+    candidates: Float,
+    ious: Float,
+    click_low_res: Float,
+    frame: npt.NDArray[np.uint8] | None = None,
+) -> int | None:
     """Index of the candidate to condition on for a single click, or None to keep SAM's pick.
 
     ``candidates`` (M, 256, 256) logits, ``ious`` (M,) predicted IoU, ``click_low_res`` (x, y)
-    in low-res pixels. SAM's own pick is the highest predicted IoU, which for a click on a person
-    is usually a part; background removal wants the subject the click is on.
+    in low-res pixels, ``frame`` the display-size RGB frame (boundary contrast; without it the
+    largest eligible candidate is taken). SAM's own pick is the highest predicted IoU, which for a
+    click on a person is usually a part; background removal wants the subject the click is on.
     """
     x = int(np.clip(click_low_res[0], 0, LOW_RES - 1))
     y = int(np.clip(click_low_res[1], 0, LOW_RES - 1))
@@ -511,6 +551,16 @@ def whole_object(candidates: Float, ious: Float, click_low_res: Float) -> int | 
         index for index in eligible if float(ious[index]) >= best - WHOLE_OBJECT_IOU_MARGIN
     ]
     chosen = max(near_best, key=lambda index: int(areas[index]))
+    if frame is not None and len(near_best) > 1:
+        height, width = frame.shape[:2]
+        gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
+        contrast = {
+            index: boundary_contrast(resize_bilinear(candidates[index], height, width) > 0, gray)
+            for index in near_best
+        }
+        strongest = max(near_best, key=lambda index: contrast[index])
+        if contrast[chosen] < WHOLE_OBJECT_MIN_CONTRAST_RATIO * contrast[strongest]:
+            chosen = strongest
     return None if chosen == int(np.argmax(ious)) else chosen
 
 
@@ -530,6 +580,7 @@ __all__ = [
     "PassResult",
     "PointPrompt",
     "SamTracker",
+    "boundary_contrast",
     "emulate_bfloat16",
     "preprocess",
     "resize_antialias",

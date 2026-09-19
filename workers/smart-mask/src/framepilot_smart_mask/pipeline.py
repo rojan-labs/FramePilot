@@ -661,7 +661,12 @@ class MatteJob:
             release = getattr(self._use_sam(), "release", None)
             if release is not None:
                 release("sam_image_encoder")
-            tracker = SamTracker(self._use_sam(), embeddings.get, should_stop=self._check)
+            tracker = SamTracker(
+                self._use_sam(),
+                embeddings.get,
+                should_stop=self._check,
+                subject_frames=lambda index: store[index],
+            )
             tracked = {"frames": 0}
 
             def on_tracked(_which: str, _index: int) -> None:
