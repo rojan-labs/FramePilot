@@ -17,6 +17,8 @@ Agent rules to paste into every prompt: single-file tests with `--no-file-parall
 
 ## Done
 
+- AM2.7 (6568a21b…279d76a5): measured CIELAB colour + SigLIP must agree; new route /masking/crop-colour (MO-20 to confirm)
+
 - BR4.15 (203387ec), BR4.16 (8ac6e2a4), AM2.6 (f4aae974): open-time broken-matte state; hardened matte decode; colour re-rank on real weights + cost fix. CI green run 35409455625
 
 - MK6.4 (9463fef8, 57358449): Apple Silicon monitor now converts YUV→RGB like the export host (was up to 3 levels off on every same-size clip); oracle 297/297 on Metal; baseline keyed by renderer class; CI green run 35397473824. BR2.8 done too: every export decode uses MoviePy's ffmpeg; VFR rows pixel-identical on Metal; CI green run 35403245700
@@ -119,6 +121,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
+
+- AM2.7 colour on REAL weights: held-out 144/144 (neutrals 52/52), 0 unnecessary asks, 0 wrong of 432 ✓; SigLIP alone 109/144. AM5 all gates pass (run 35415319600)
 
 - AM2.6 colour re-rank on REAL SigLIP 2 weights (M1 Pro, 144 generated crops + 3 real): 0 wrong picks on 432 absent-colour requests (held-out set too) ✓; targets resolved 116/144 = 80.6% ✗ for the AM5 accuracy/unnecessary-ask gates — chromatic colours 101/101, neutrals (white/grey/black/silver) 15/43. The synthetic AM5 eval still passes all five gates; the real-weights colour subset does not
 

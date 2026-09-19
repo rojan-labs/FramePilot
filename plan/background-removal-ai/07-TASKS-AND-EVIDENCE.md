@@ -294,7 +294,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 - [x] AM1.6 (475b7749: numbers bound to units or shape/position words in the current request only) Tighten the geometry-source rule: a typed shape counts as user-given only when its numbers are bound to geometry in the CURRENT request (units or shape words next to them), not merely present anywhere the editor wrote in the conversation (found in AM verification)
 
-### AM2 — Target resolution `[~]` (needs MD-6; AM2.4 partial; AM2.6 real-weights colour check open)
+### AM2 — Target resolution `[~]` (needs MD-6; only AM2.4's text half is open, blocked on MO-14)
 
 - [x] AM2.1 Host-side target resolution: detection + SigLIP re-ranking (when installed), `needs_click` for out-of-vocabulary targets; ranking with identity clusters, ledger facts, temporal persistence
 - [x] AM2.2 `ambiguous_target` with thumbnails; sidebar picker; recalled candidate ids
@@ -302,7 +302,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [~] AM2.4 (create_shape_mask + mask_with_layer live since MK8; follow_subject mask half done; text half blocked on MO-14) `create_shape_mask`, `mask_with_layer`, `follow_subject` tools
 
 - [x] AM2.5 (eb1e3d9d…c4bcd41a; Subject Intelligence 1.1.0 + Visual Embed 1.1.0, negotiated per installed release) Object classes on Subject Intelligence detections (the pinned YOLOX already computes COCO classes and discards them) and colour-aware SigLIP re-ranking of candidate crops, so object requests resolve instead of asking; installed users get it with the next signed pack release (MO-1..MO-5)
-- [~] AM2.6 (f4aae974; reports/ai-masking/colour-rerank.json) Colour re-ranking on real weights — 0 wrong picks on 432×2 absent-colour requests, but only 80.6% of colour targets resolve (rest ask): white/grey/silver/black are the misses; the AM5 accuracy (≥ 99%) and unnecessary-ask (≤ 3%) gates are NOT met for colour requests on real weights. Cost fixed: never finished → 1.8 s/request after the first, 1.9 GB peak. Was: Colour re-ranking on real weights: run the Visual Embed real-inference proof including the new crop path (it was skipped in CI), measure colour-pick accuracy on real crops, and measure/cut the cost (SigLIP is loaded twice per colour request; the prompt-vector cache is not passed)
+- [x] AM2.6 (f4aae974; superseded for neutrals by AM2.7; reports/ai-masking/colour-rerank.json) Colour re-ranking on real weights — 0 wrong picks on 432×2 absent-colour requests, but only 80.6% of colour targets resolve (rest ask): white/grey/silver/black are the misses; the AM5 accuracy (≥ 99%) and unnecessary-ask (≤ 3%) gates are NOT met for colour requests on real weights. Cost fixed: never finished → 1.8 s/request after the first, 1.9 GB peak. Was: Colour re-ranking on real weights: run the Visual Embed real-inference proof including the new crop path (it was skipped in CI), measure colour-pick accuracy on real crops, and measure/cut the cost (SigLIP is loaded twice per colour request; the prompt-vector cache is not passed)
 
 ### AM3 — Verification `[x]` (no `verified` field reaches the model, e10fe4c7)
 
