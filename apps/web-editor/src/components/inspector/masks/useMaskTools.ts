@@ -109,12 +109,17 @@ export interface MaskToolState {
    * once the track exists, so they live with the tools rather than on the mask.
    */
   readonly featurePoints: readonly { readonly x: number; readonly y: number }[];
-  /** Regions the tracker must ignore — a hand passing in front — same units. */
+  /**
+   * Regions the tracker must ignore — a hand passing in front — same units, with the source
+   * instant each was drawn at: the tracker follows a box's content from THAT frame (MK7.7), so a
+   * re-track from a correction uses the boxes drawn on its frame.
+   */
   readonly exclusions: readonly {
     readonly x: number;
     readonly y: number;
     readonly width: number;
     readonly height: number;
+    readonly sourceTime?: number;
   }[];
   /**
    * Where the editor clicked to say "this is the subject" for the next matte (BR6.3).
@@ -266,8 +271,14 @@ export class MaskToolStore {
     });
   }
 
-  /** Add a region the tracker must ignore. */
-  public addExclusion(region: { x: number; y: number; width: number; height: number }): void {
+  /** Add a region the tracker must ignore, drawn at source instant `sourceTime` if known. */
+  public addExclusion(region: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    sourceTime?: number;
+  }): void {
     if (!(region.width > 0) || !(region.height > 0)) return;
     this.update({ exclusions: [...this.state.exclusions, region] });
   }

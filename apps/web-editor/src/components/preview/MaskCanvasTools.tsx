@@ -48,6 +48,8 @@ import {
   rectFromCorners,
   snapPoint,
   toggleVertexSmooth,
+  trackGeometry,
+  trackStateAt,
   transformVertices,
   verticesBounds,
   verticesInRect,
@@ -63,6 +65,7 @@ import {
 } from '@framepilot/editor-core';
 import { masksOf, type Asset, type Clip, type MaskLayer } from '@framepilot/timeline-schema';
 import type { UseEditor } from '../../editor/useEditor.js';
+import { useMaskTrackArtifacts } from './useMaskTrackArtifacts.js';
 import {
   clipSourceTimeAt,
   copyMasks,
@@ -455,6 +458,9 @@ export function MaskCanvasTools({
 
   const { playhead, timeline } = editor.state;
   const sourceTime = clipSourceTimeAt(clip, playhead);
+  // MK7.7: a tracked mask is drawn `T(t) · G(t)`, so its handles sit where it is drawn and an
+  // edit there is a correction relative to the track. A lane mask is never tracked.
+  const trackArtifacts = useMaskTrackArtifacts(onLane ? null : clip);
   const pictureSpace = useMemo(
     () => (onLane ? null : monitorPictureSpace(timeline, assets, playhead, resolution, clip.id)),
     [onLane, timeline, assets, playhead, resolution, clip.id],
@@ -563,10 +569,54 @@ export function MaskCanvasTools({
   const screenPerSource = screenPerFrame * space.scale;
   const px = (screen: number): number => screen / (screenPerSource > 0 ? screenPerSource : 1);
 
+  /** Where `mask` is on screen: its own geometry, moved by its track when it has one. */
+  const onScreen = (mask: MaskLayer): MaskGeometry | null => {
+    const own = maskGeometryAt(mask, sourceTime);
+    const track = trackArtifacts.get(mask.id);
+    if (own === null || track === undefined || mask.space === 'frame') return own;
+    return trackGeometry(own, trackStateAt(track, sourceTime)) ?? own;
+  };
+
+  /** Whether an edit of `mask` here is a correction of its track (it is drawn tracked). */
+  const correctsTrack = (mask: MaskLayer | undefined): boolean => {
+    if (mask === undefined || mask.space === 'frame') return false;
+    const track = trackArtifacts.get(mask.id);
+    const own = maskGeometryAt(mask, sourceTime);
+    return (
+      track !== undefined &&
+      own !== null &&
+      trackGeometry(own, trackStateAt(track, sourceTime)) !== null
+    );
+  };
+
   const geometryOf = (mask: MaskLayer): MaskGeometry | null =>
     tools.live !== null && tools.live.clipId === clip.id && tools.live.maskId === mask.id
       ? tools.live.geometry
-      : maskGeometryAt(mask, sourceTime);
+      : onScreen(mask);
+
+  /**
+   * Commit a geometry the editor put on screen. On a tracked mask that is a correction relative
+   * to the track (hold keyframes over the stretch it fixes, and a constraint — MK7.7); on any
+   * other mask it is the mask's own geometry at this instant.
+   */
+  const commitGeometry = (maskId: string, geometry: MaskGeometry): boolean => {
+    const mask = masksOf(clip).find((candidate) => candidate.id === maskId);
+    const track = trackArtifacts.get(maskId);
+    if (correctsTrack(mask) && track !== undefined) {
+      const committed = run({
+        type: 'correct_tracked_mask',
+        clipId: clip.id,
+        maskId,
+        sourceTime,
+        geometry,
+        track: trackStateAt(track, sourceTime),
+      });
+      if (committed)
+        setAnnouncement('Corrected on this frame. Re-track from constraints to follow it.');
+      return committed;
+    }
+    return run({ type: 'set_mask_geometry', clipId: clip.id, maskId, sourceTime, geometry });
+  };
 
   const scalarOf = (mask: MaskLayer, property: EdgeProperty): number => {
     const live = tools.liveScalars;
@@ -882,12 +932,9 @@ export function MaskCanvasTools({
           const vertex = hitVertex(geometry.vertices, point, tolerance);
           if (vertex >= 0) {
             if (event.metaKey || event.ctrlKey) {
-              run({
-                type: 'set_mask_geometry',
-                clipId: clip.id,
-                maskId: selectedMask.id,
-                sourceTime,
-                geometry: { kind: 'path', vertices: toggleVertexSmooth(geometry.vertices, vertex) },
+              commitGeometry(selectedMask.id, {
+                kind: 'path',
+                vertices: toggleVertexSmooth(geometry.vertices, vertex),
               });
               return;
             }
@@ -1542,13 +1589,7 @@ export function MaskCanvasTools({
           }
           return;
         }
-        run({
-          type: 'set_mask_geometry',
-          clipId: clip.id,
-          maskId: active.maskId,
-          sourceTime,
-          geometry: active.latest,
-        });
+        commitGeometry(active.maskId, active.latest);
         return;
       }
       case 'edge': {
@@ -1643,7 +1684,9 @@ export function MaskCanvasTools({
       }
       case 'draw-exclusion': {
         const region = rectFromCorners(active.start, active.current);
-        store.addExclusion(region);
+        // The frame it was drawn on travels with it: the tracker follows the box's content from
+        // there (MK7.7).
+        store.addExclusion({ ...region, sourceTime });
         setAnnouncement('Excluded region added');
         return;
       }
@@ -1804,15 +1847,7 @@ export function MaskCanvasTools({
             vertices: moveVertices(geometry.vertices, selectedVertices, dx, dy),
           }
         : translateGeometry(geometry, dx, dy);
-    if (
-      run({
-        type: 'set_mask_geometry',
-        clipId: clip.id,
-        maskId: selectedMask.id,
-        sourceTime,
-        geometry: next,
-      })
-    ) {
+    if (commitGeometry(selectedMask.id, next) && !correctsTrack(selectedMask)) {
       setAnnouncement(`Moved ${String(Math.abs(dx || dy))} px`);
     }
   };

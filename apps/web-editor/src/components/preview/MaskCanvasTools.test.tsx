@@ -375,6 +375,68 @@ describe('Select tool', () => {
   });
 });
 
+describe('a tracked mask (MK7.7)', () => {
+  /** A position track moving the mask +100, +50 on every frame, served as the desktop does. */
+  async function trackedSquare(): Promise<Timeline> {
+    const frames = 30;
+    const track = JSON.stringify({
+      version: 1,
+      method: 'position',
+      timeBase: [1, 30],
+      originPts: 0,
+      firstFrame: 0,
+      pts: Array.from({ length: frames }, (_, index) => index),
+      transforms: Array.from({ length: frames }, () => [1, 0, 100, 0, 1, 50, 0, 0, 1]).flat(),
+      confidence: Array.from({ length: frames }, () => 1),
+    });
+    const bytes = new TextEncoder().encode(track);
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    const sha256 = [...new Uint8Array(digest)]
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+    (window as unknown as { __fpTrackArtifactUrl?: (key: string) => string }).__fpTrackArtifactUrl =
+      (key) => `fp-media://track/${key}`;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async () => new Response(bytes, { status: 200 }),
+    );
+    return timeline([
+      {
+        ...square(400, 400, 200),
+        tracking: {
+          artifact: { key: 'e'.repeat(64), sha256 },
+          method: 'position',
+          referenceSourceTime: 0,
+          constraints: [],
+          review: { flagged: [], approved: [], locked: [] },
+        },
+      } as MaskLayerInput,
+    ]);
+  }
+
+  afterEach(() => {
+    delete (window as unknown as { __fpTrackArtifactUrl?: unknown }).__fpTrackArtifactUrl;
+  });
+
+  it('corrects the track on this frame instead of moving the mask everywhere', async () => {
+    mount(await trackedSquare());
+    act(() => store.update({ selectedMaskId: 'c1__mask' }));
+    // The monitor reads the pinned track before its handles move to where the mask is drawn.
+    await act(async () => {
+      for (let turn = 0; turn < 5; turn += 1)
+        await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    fireEvent.keyDown(canvas(), { key: 'ArrowRight' });
+    const [mask] = masks() as [PathMask];
+    // One reversible correction: a constraint on this frame, keyed relative to the track, so
+    // T · G is the nudged on-screen square here…
+    expect(mask.tracking?.constraints).toEqual([{ sourceTime: 0 }]);
+    expect(maskPathVerticesAt(mask, 0)[0]).toMatchObject({ x: 401, y: 400 });
+    // …and the mask's own geometry is unchanged once the corrected frame is past.
+    expect(maskPathVerticesAt(mask, 5)[0]).toMatchObject({ x: 400, y: 400 });
+    expect(historyLength()).toBe(1);
+  });
+});
+
 describe('keyboard drawing (a11y)', () => {
   it('draws a pen path with the crosshair: P, arrows, Space, Enter', () => {
     mount(timeline());
