@@ -95,10 +95,6 @@ body {
 .inspector-pro select,
 .inspector-pro .select select,
 .inspector-pro .inspector-field,
-.inspector-pro .inspector-statusbar {
-  font-size: var(--font-size-xs);
-}
-
 .inspector-pro .inspector-icon-button,
 .inspector-pro .inspector-text-button,
 .inspector-pro .inspector-tab,

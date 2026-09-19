@@ -138,7 +138,8 @@ describe('Editor workspace', () => {
     showInspector();
     fireEvent.click(screen.getByLabelText('clip clip_body'));
     const inspector = screen.getByLabelText('inspector');
-    expect(within(inspector).getByText('clip_body')).toBeDefined();
+    // The header names the clip by its file; the id stays on it as the hover title.
+    expect(within(inspector).getByTitle('clip_body')).toBeDefined();
     expect(screen.getByRole('button', { name: 'Split' })).toHaveProperty('disabled', false);
   });
 

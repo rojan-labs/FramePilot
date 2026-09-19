@@ -723,26 +723,24 @@ describe('Inspector speed/crop/blend mode (H1.2h)', () => {
     render(<Host />);
     fireEvent.click(screen.getByRole('button', { name: 'pick' }));
     const speed = within(screen.getByLabelText('speed'));
-    const apply = speed.getByRole('button', { name: 'Apply speed' });
-    expect(apply).toHaveProperty('disabled', true); // no-op at the default 1x
+    // At the default 1x there is nothing to apply, so the button is not offered.
+    expect(speed.queryByRole('button', { name: 'Apply speed' })).toBeNull();
     // Revamp Phase 10c: a preset is a discrete choice, so it COMMITS on click —
     // matching the reverse/freeze toggles beside it. "Apply speed" exists for the
     // scrub field, which is a drag and would otherwise emit a patch per tick.
     fireEvent.click(speed.getByRole('button', { name: '2x' }));
     expect(speed.getByRole('button', { name: '2x' }).getAttribute('aria-pressed')).toBe('true');
-    expect(apply).toHaveProperty('disabled', true); // already committed
+    expect(speed.queryByRole('button', { name: 'Apply speed' })).toBeNull(); // already committed
   });
 
   it('resets speed back to 1x', () => {
     render(<Host />);
     fireEvent.click(screen.getByRole('button', { name: 'pick' }));
     const speed = within(screen.getByLabelText('speed'));
+    expect(speed.queryByRole('button', { name: 'Reset speed' })).toBeNull(); // already 1x
     fireEvent.click(speed.getByRole('button', { name: '2x' }));
-    fireEvent.click(speed.getByRole('button', { name: 'Apply speed' }));
-    const reset = speed.getByRole('button', { name: 'Reset speed' });
-    expect(reset).toHaveProperty('disabled', false);
-    fireEvent.click(reset);
-    expect(reset).toHaveProperty('disabled', true);
+    fireEvent.click(speed.getByRole('button', { name: 'Reset speed' }));
+    expect(speed.queryByRole('button', { name: 'Reset speed' })).toBeNull();
     expect(speed.getByRole('button', { name: '1x' }).getAttribute('aria-pressed')).toBe('true');
   });
 

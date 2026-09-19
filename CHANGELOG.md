@@ -38,6 +38,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The Inspector and monitor are quieter.** The mask toolbar no longer covers the picture
+  whenever a clip is selected; it appears when you open the Inspector's **Mask** tab, and the
+  move/scale handles are back the rest of the time. The Inspector names the clip by its file
+  and shows its time range, not internal ids, and the id footer is gone. Punch-in folds away
+  under **Position & size** until you open it, and Speed shows its duration note and
+  **Apply**/**Reset** only when there is something to apply or reset.
+
 - **The desktop program monitor shows your clip again instead of a black frame.** The monitor
   reads media with `fetch()`, and the desktop's `fp-media://` scheme did not allow those reads
   from the editor window, so every frame failed to load ("Failed to fetch"). The scheme now

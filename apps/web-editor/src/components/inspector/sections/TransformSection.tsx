@@ -46,6 +46,7 @@ import {
   setKeyframeHandlesPatch,
 } from '../../../editor/patch-builders.js';
 import { ScrubNumber } from '../../ScrubNumber.js';
+import { ChevronRight, ICON_SIZE } from '../../icons.js';
 import { InspectorRow } from '../InspectorRow.js';
 import { LabeledSelect } from '../LabeledSelect.js';
 import { KeyframeButton } from '../KeyframeButton.js';
@@ -273,8 +274,15 @@ export function TransformPanel({
         </p>
       )}
 
-      <div className="inspector-subpanel" aria-label="punch-in">
-        <h4>Punch-in (zoom)</h4>
+      {/* A one-shot preset, not a property: folded away until asked for, so the transform
+          rows above are what the section shows at rest. */}
+      <details className="inspector-subpanel inspector-subdisclosure" aria-label="punch-in">
+        <summary>
+          <span className="inspector-section-chevron" aria-hidden="true">
+            <ChevronRight size={ICON_SIZE.sm} />
+          </span>
+          Punch-in (zoom)
+        </summary>
         <ScrubNumber
           label="From"
           ariaLabel="from scale"
@@ -317,7 +325,7 @@ export function TransformPanel({
         >
           Add punch-in
         </Button>
-      </div>
+      </details>
     </>
   );
 }

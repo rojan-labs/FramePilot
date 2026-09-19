@@ -366,6 +366,38 @@
   border-top: 1px solid var(--border-subtle);
 }
 
+/* A folded sub-form inside a section (the punch-in preset): a quiet one-line row at rest. */
+.inspector-pro .inspector-subdisclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.inspector-pro .inspector-subdisclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.inspector-pro .inspector-subdisclosure > summary:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--focus-ring);
+}
+
+.inspector-pro .inspector-subdisclosure > summary .inspector-section-chevron {
+  order: 0;
+  margin-left: -2px;
+}
+
+.inspector-pro .inspector-subdisclosure[open] > summary .inspector-section-chevron {
+  transform: rotate(90deg);
+}
+
 /* Sentence case, on the scale, at an allowed weight.
    `PUNCH-IN (ZOOM)` at 9.5px/650 with tracking was three separate breaks of the
    type contract at once: below the 11px ordinary-text floor, a weight outside the
@@ -718,6 +750,13 @@
   line-height: 1.45;
 }
 
+/* An empty note is a live region waiting for news (the speed preview): keep it in the tree so
+   the next change is announced, but give it no box. */
+.inspector-pro .inspector-note:empty {
+  margin: 0;
+  padding: 0;
+}
+
 .inspector-pro .inspector-effect-list {
   display: flex;
   flex-direction: column;
@@ -809,25 +848,6 @@
   border-color: var(--tl-select);
   background: var(--tl-select-subtle);
   color: var(--tl-select);
-}
-
-.inspector-pro .inspector-statusbar {
-  position: sticky;
-  bottom: 0;
-  z-index: 8;
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 28px;
-  padding: 0 var(--inspector-inline);
-  border-top: 1px solid var(--border-subtle);
-  background: var(--bg-panel);
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  font-variant-numeric: tabular-nums;
 }
 
 .inspector-pro .inspector-effect-page {

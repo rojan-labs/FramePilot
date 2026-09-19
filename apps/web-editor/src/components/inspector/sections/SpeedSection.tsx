@@ -194,34 +194,41 @@ export function SpeedPanel({
         The resulting duration, BEFORE the commit — the rule the whole panel turns
         on. `aria-live` because the number changing IS the feedback; a screen-reader
         user scrubbing the rate would otherwise get nothing until they committed.
+        At plain 1x there is nothing to say that the Duration row does not already,
+        so the note and the actions stay out of the way until there is.
       */}
       <p className="inspector-note" aria-live="polite">
         {frozen
           ? `Holding one frame for ${formatSeconds(currentDuration)}. Frozen clips render silent.`
-          : preview === null
-            ? `Lasting ${formatSeconds(currentDuration)}.`
+          : preview === null || (!pending && committed === 1)
+            ? null
             : pending
               ? `${formatSeconds(currentDuration)} → ${formatSeconds(preview)} at ${magnitude}x${reversed ? ' reversed' : ''}`
               : `Lasting ${formatSeconds(currentDuration)} at ${magnitude}x${reversed ? ' reversed' : ''}`}
       </p>
 
-      <div className="inspector-actions">
-        <Button variant="secondary" type="button" onClick={() => apply(signed)} disabled={!pending}>
-          Apply speed
-        </Button>
-        <Button
-          variant="ghost"
-          type="button"
-          onClick={() => {
-            setMagnitude(1);
-            setReversed(false);
-            apply(null);
-          }}
-          disabled={committed === 1}
-        >
-          Reset speed
-        </Button>
-      </div>
+      {(pending || committed !== 1) && (
+        <div className="inspector-actions">
+          {pending && (
+            <Button variant="secondary" type="button" onClick={() => apply(signed)}>
+              Apply speed
+            </Button>
+          )}
+          {committed !== 1 && (
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={() => {
+                setMagnitude(1);
+                setReversed(false);
+                apply(null);
+              }}
+            >
+              Reset speed
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

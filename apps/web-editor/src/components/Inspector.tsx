@@ -42,7 +42,7 @@ import { InspectorSection } from './inspector/InspectorSection.js';
 import { visibleSections, type InspectorSectionDef } from './inspector/registry.js';
 import { resolveInspectorSelection } from './inspector/selection.js';
 import { useSectionState } from './inspector/useSectionState.js';
-import { sharedFrom } from './inspector/mixed.js';
+import { assetDisplayName } from '../editor/selectors-base.js';
 import {
   IDENTITY_TRANSFORM,
   applyClipPropertiesPatch,
@@ -300,8 +300,9 @@ export function Inspector({
   const clipRelative = Math.max(0, Math.min(clip.end - clip.start, playhead - clip.start));
   const targetIds = selection.clips.map((location) => location.clip.id);
   const multi = selection.kind === 'multi-clip';
-  const sharedTrack = sharedFrom(selection.clips, (location) => location.track.id);
   const clipKind = displayClipKind(track.type);
+  // The file name the timeline shows on the clip; ids are for patches, not people.
+  const clipTitle = assetDisplayName(clipAsset, clipKind);
   const activeTab = tabs.some((tab) => tab.id === preferredTab) ? preferredTab : 'basic';
   const activeTabLabel = INSPECTOR_TABS.find((tab) => tab.id === activeTab)?.label ?? 'Basic';
 
@@ -336,6 +337,10 @@ export function Inspector({
       case 'transition':
         return <TransitionPanel key={`${clip.id}-transition`} editor={editor} clip={clip} />;
       case 'mask':
+        // Only while its tab is showing: a mounted MaskPanel hands the clip to the monitor,
+        // which then swaps the transform box for the mask toolbar. Sections on hidden tabs
+        // stay mounted, so without this the toolbar covered the picture on every tab.
+        if (activeTab !== 'mask') return null;
         return (
           <>
             <MaskPanel key={`${clip.id}-masks`} editor={editor} clip={clip} />
@@ -377,11 +382,10 @@ export function Inspector({
         </span>
         <div className="inspector-clip-copy">
           <strong title={clip.id}>
-            {multi ? `${selection.clips.length} clips selected` : clip.id}
+            {multi ? `${selection.clips.length} clips selected` : clipTitle}
           </strong>
           <span>
-            {clipKind}
-            {!sharedTrack.mixed && ` · ${track.id}`}
+            {clipKind} · {clip.start.toFixed(2)}s–{clip.end.toFixed(2)}s
           </span>
         </div>
         <div className="inspector-clip-actions" role="group" aria-label="clip properties">
@@ -459,7 +463,7 @@ export function Inspector({
 
       {multi && (
         <p className="inspector-multi" aria-label="multi-selection">
-          {selection.clips.length} clips selected. Editing {clip.id} as the primary clip. Shared
+          {selection.clips.length} clips selected. Editing {clipTitle} as the primary clip. Shared
           changes apply to the selection.
         </p>
       )}
@@ -491,12 +495,6 @@ export function Inspector({
         </div>
       </div>
 
-      <footer className="inspector-statusbar">
-        <span>{sharedTrack.mixed ? 'Mixed tracks' : `${track.type} · ${track.id}`}</span>
-        <span>
-          {clip.start.toFixed(2)}s–{clip.end.toFixed(2)}s
-        </span>
-      </footer>
     </section>
   );
 }
