@@ -310,16 +310,20 @@ class SamTracker:
         #: Per single-click conditioning frame: every candidate's area and predicted IoU, SAM's
         #: pick and the whole-object choice (report.json, so the rule can be checked on real runs).
         self.click_choices: list[dict[str, Any]] = []
+        #: Eval only: the candidates' low-res logits per single-click frame (the eval dump).
+        self.click_candidates: list[tuple[int, Float]] = []
 
     # conditioning frames ----------------------------------------------------------------------
 
     def condition(self, index: int, prompt: CondPrompt) -> FrameOutput:
         feats = self.features(index)
         if isinstance(prompt, PointPrompt):
-            return self._condition_points(feats, prompt)
+            return self._condition_points(feats, prompt, index)
         return self._condition_mask(feats, prompt)
 
-    def _condition_points(self, feats: ImageFeatures, prompt: PointPrompt) -> FrameOutput:
+    def _condition_points(
+        self, feats: ImageFeatures, prompt: PointPrompt, index: int = -1
+    ) -> FrameOutput:
         pix = feats.fpn2 + self._no_mem_embed  # directly_add_no_mem_embed on an initial frame
         coords = np.array(prompt.coords, np.float32).reshape(1, -1, 2) * IMAGE_SIZE
         labels = np.array(prompt.labels, np.int32).reshape(1, -1)
@@ -332,6 +336,7 @@ class SamTracker:
             )
             ious = np.asarray(out.ious, np.float32).reshape(-1)
             chosen = whole_object(candidates, ious, coords[0, 0] * LOW_RES / IMAGE_SIZE)
+            self.click_candidates.append((index, candidates.copy()))
             self.click_choices.append(
                 {
                     "areas": [int((c > 0).sum()) for c in candidates],

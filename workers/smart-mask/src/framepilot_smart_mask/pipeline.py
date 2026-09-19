@@ -672,6 +672,13 @@ class MatteJob:
                 tracker, count, ctx.height, ctx.width, prompts, on_frame=on_tracked
             )
             self.click_choices.extend(tracker.click_choices)
+            if self.config.eval_dump is not None:
+                for local, candidates in tracker.click_candidates:
+                    self.config.eval_dump.mkdir(parents=True, exist_ok=True)
+                    np.savez_compressed(
+                        self.config.eval_dump / f"click-{window.start + local:06d}.npz",
+                        candidates=candidates,
+                    )
             self._timed("segment", started)
 
             birefnet = window.scratch.array("birefnet", (count, ctx.height, ctx.width), np.uint8)
