@@ -8,10 +8,9 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-Maintainer 2026-09-19: "finish everything; you can run the things on this laptop as well" (local runs allowed, one heavy job at a time, guard: stop if free memory < 25% or swap grows > 1.5 GB).
-Running:
-Blocked on maintainer only: see MAINTAINER_ONLY_ACTIONS.md (MO-1..MO-20). RD3 last.
-Agent rules: single-file tests with `--no-file-parallelism`; local Playwright/model runs one at a time under the guard; poll CI yourself in bounded rounds; explicit `git add`, never stage others' files; no stash, force-push or trailers; don't edit plan files.
+**Stopping condition (b) reached, 2026-09-19:** every remaining task is blocked on a maintainer-only action (MAINTAINER_ONLY_ACTIONS.md MO-1..MO-22). CI fully green at cd03e415 (run 35446625262, 17/17 jobs). No agent running.
+To resume after a maintainer action: read this file, then MAINTAINER_ONLY_ACTIONS.md for which task the action unblocks; follow 07 for that task.
+Agent rules: single-file tests with `--no-file-parallelism`; local Playwright/model runs one at a time under the guard (stop if free memory < 25% or swap grows > 1.5 GB); explicit `git add`, never stage others' files; no stash, force-push or trailers.
 
 ## Done
 
@@ -99,6 +98,8 @@ Agent rules: single-file tests with `--no-file-parallelism`; local Playwright/mo
 PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## CI reds
+
+- none: run 35446625262 at cd03e415 green on all 17 jobs (last reds were an untyped helper for mypy and two eslint-disable comments for an unloaded rule, fixed in cd03e415)
 
 - none open: run 35403245700 at 87547198 green on every job
 
