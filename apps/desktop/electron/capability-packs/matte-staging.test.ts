@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -49,6 +49,61 @@ describe('matte staging (MD-3)', () => {
     const other = await createMatteStaging(dir, 'job_2');
     await symlink(await project(), path.join(other.directory, 'scratch'));
     await expect(other.temporaryDirectory()).rejects.toMatchObject({ code: 'unsafe_path' });
+  });
+
+  it('holds <jobId>.lock while staged; commit and discard release it (F5)', async () => {
+    const dir = await project();
+    const staging = await createMatteStaging(dir, 'job_1');
+    const root = matteStagingRoot(dir);
+    expect((await readdir(root)).sort()).toEqual(['job_1', 'job_1.lock']);
+    expect(JSON.parse(await readFile(path.join(root, 'job_1.lock'), 'utf8'))).toEqual({ pid: process.pid });
+    expect((await stat(path.join(root, 'job_1.lock'))).mode & 0o777).toBe(0o600);
+    await staging.discard();
+    expect(await readdir(root)).toEqual([]);
+    const second = await createMatteStaging(dir, 'job_2');
+    await writeFile(path.join(second.directory, 'matte.mkv'), 'm');
+    await commitMatteStaging(dir, second, KEY);
+    expect(await readdir(root)).toEqual([]);
+  });
+
+  it('never adopts a directory another running app instance holds, and takes over a dead one’s lock (F5)', async () => {
+    const dir = await project();
+    const root = matteStagingRoot(dir);
+    const first = await createMatteStaging(dir, 'job_1');
+    await mkdir(path.join(first.directory, 'windows', '1'), { recursive: true });
+    await writeFile(path.join(first.directory, 'windows', '1', 'done.json'), '{}');
+    // The lock now names another process that is running.
+    await writeFile(path.join(root, 'job_1.lock'), JSON.stringify({ pid: 424242 }));
+    const alive = (pid: number) => pid === 424242;
+    await expect(
+      createMatteStaging(dir, 'job_1', undefined, { adoptOrphan: true, isProcessAlive: alive }),
+    ).rejects.toMatchObject({ code: 'staging_exists' });
+    await expect(createMatteStaging(dir, 'job_1', undefined, { isProcessAlive: alive })).rejects.toMatchObject({
+      code: 'staging_exists',
+    });
+    // Nothing was removed and the live lock is intact.
+    expect(await readdir(path.join(first.directory, 'windows', '1'))).toEqual(['done.json']);
+    expect(JSON.parse(await readFile(path.join(root, 'job_1.lock'), 'utf8'))).toEqual({ pid: 424242 });
+    // That process died: its lock is stale, and a resume adopts the directory.
+    const adopted = await createMatteStaging(dir, 'job_1', undefined, { adoptOrphan: true, isProcessAlive: () => false });
+    expect(adopted.directory).toBe(first.directory);
+    expect(JSON.parse(await readFile(path.join(root, 'job_1.lock'), 'utf8'))).toEqual({ pid: process.pid });
+    // A new request still refuses the existing directory, and leaves no lock of its own.
+    await adopted.release();
+    await expect(createMatteStaging(dir, 'job_1', undefined, { isProcessAlive: () => false })).rejects.toMatchObject({
+      code: 'staging_exists',
+    });
+    expect((await readdir(root)).sort()).toEqual(['job_1']);
+  });
+
+  it('refuses a lock that is a link or half-written', async () => {
+    const dir = await project();
+    const root = matteStagingRoot(dir);
+    await createMatteStaging(dir, 'job_0').then((staging) => staging.discard());
+    await symlink(await project(), path.join(root, 'job_1.lock'));
+    await expect(createMatteStaging(dir, 'job_1')).rejects.toMatchObject({ code: 'unsafe_path' });
+    await writeFile(path.join(root, 'job_2.lock'), '');
+    await expect(createMatteStaging(dir, 'job_2')).rejects.toMatchObject({ code: 'staging_exists' });
   });
 
   it('adopts an orphan of a stopped app, keeping only the worker’s finished windows', async () => {
@@ -170,10 +225,27 @@ describe('matte staging (MD-3)', () => {
     for (const target of [orphan.directory, live.directory]) await utimes(target, old, old);
     const { lutimes } = await import('node:fs/promises');
     await lutimes(link, old, old);
-    expect(await sweepMatteStaging(dir, { now, activeJobIds: new Set(['live']) })).toBe(2);
-    expect((await readdir(matteStagingRoot(dir))).sort()).toEqual(['fresh', 'live']);
+    // orphan's lock is as old as it is, and names this process (no live job): stale.
+    await utimes(path.join(matteStagingRoot(dir), 'orphan.lock'), old, old);
+    await utimes(path.join(matteStagingRoot(dir), 'live.lock'), old, old);
+    expect(await sweepMatteStaging(dir, { now, activeJobIds: new Set(['live']) })).toBe(3);
+    expect((await readdir(matteStagingRoot(dir))).sort()).toEqual(['fresh', 'fresh.lock', 'live', 'live.lock']);
     expect(await readdir(outside)).toEqual(['keep.txt']);
     expect(await sweepMatteStaging(await project(), { now, activeJobIds: new Set() })).toBe(0);
+  });
+});
+
+describe('staging sweep and other app instances (F5)', () => {
+  it('leaves an old directory alone while another running process holds its lock', async () => {
+    const dir = await project();
+    const now = new Date(Date.now() + 25 * 3600 * 1000);
+    const staging = await createMatteStaging(dir, 'job_1');
+    await writeFile(path.join(matteStagingRoot(dir), 'job_1.lock'), JSON.stringify({ pid: 424242 }));
+    const alive = (pid: number) => pid === 424242;
+    expect(await sweepMatteStaging(dir, { now, activeJobIds: new Set(), isProcessAlive: alive })).toBe(0);
+    expect((await readdir(matteStagingRoot(dir))).sort()).toEqual(['job_1', 'job_1.lock']);
+    expect(await sweepMatteStaging(dir, { now, activeJobIds: new Set(), isProcessAlive: () => false })).toBe(2);
+    await expect(readdir(staging.directory)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
 

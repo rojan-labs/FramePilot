@@ -119,6 +119,8 @@ export async function matteJobRunner(
   projectPath: string,
   intent: unknown,
   onProgress?: (progress: MatteProgressWire) => void,
+  /** `resume`: a journaled job after a restart, which may adopt its orphaned staging (F5). */
+  options: { readonly resume?: boolean } = {},
 ): Promise<(context?: JobContext) => Promise<MatteRunOutcome>> {
   const parsed = MatteRunIntentSchema.safeParse(intent);
   const service = await dependencies.matte();
@@ -139,6 +141,7 @@ export async function matteJobRunner(
           const current = await dependencies.readProject(projectPath);
           return { revision: current.timeline.revision ?? 0, project: current };
         },
+        ...(options.resume === true ? { resume: true } : {}),
         onProgress: (progress) => {
           context?.progress(progress);
           onProgress?.(progress);
@@ -177,7 +180,7 @@ export async function resumeMatteJobs(
         return undefined;
       }
       const intent = { ...(descriptor.payload as object), timelineRevision: project.timeline.revision ?? 0 };
-      const run = await matteJobRunner(dependencies, openedPath, intent);
+      const run = await matteJobRunner(dependencies, openedPath, intent, undefined, { resume: true });
       return {
         priority: 'background' as const,
         run: async (context?: JobContext) => {

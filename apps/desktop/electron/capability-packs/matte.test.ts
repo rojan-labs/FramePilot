@@ -205,7 +205,7 @@ describe('CapabilityPackMatteService lifecycle', () => {
       await fs.writeFile(path.join(orphan, 'windows', '1', 'done.json'), '{}');
       await fs.writeFile(path.join(orphan, 'matte.mkv'), 'partial');
     });
-    const outcome = await h.service.run(h.intent(), h.context());
+    const outcome = await h.service.run(h.intent(), { ...h.context(), resume: true });
     expect(outcome.status).toBe('completed');
     const request = h.requests[0]!;
     if (request.capability !== 'subject.matte') throw new Error('expected a matte request');
@@ -229,6 +229,21 @@ describe('CapabilityPackMatteService lifecycle', () => {
     const request = h.requests[0]!;
     if (request.capability !== 'subject.matte') throw new Error('expected a matte request');
     expect(request.media.absolutePath).toBe(h.mediaPath);
+  });
+
+  it('never adopts an existing staging directory for a new request, only on resume (F5)', async () => {
+    const h = await harness();
+    // Another app instance's live job (or anything else) already uses this id's directory.
+    const existing = path.join(matteStagingRoot(h.projectDir), 'job1');
+    await import('node:fs/promises').then(async (fs) => {
+      await fs.mkdir(path.join(existing, 'windows', '1'), { recursive: true });
+      await fs.writeFile(path.join(existing, 'windows', '1', 'done.json'), '{}');
+    });
+    expect(await h.service.run(h.intent(), h.context())).toMatchObject({ status: 'failed', code: 'job_running' });
+    expect(h.worker).not.toHaveBeenCalled();
+    // Untouched, and no lock left behind.
+    expect(await readdir(path.join(existing, 'windows', '1'))).toEqual(['done.json']);
+    expect(await readdir(matteStagingRoot(h.projectDir))).toEqual(['job1']);
   });
 
   it('points the worker’s temp folder into its staging directory and removes it after (F3)', async () => {

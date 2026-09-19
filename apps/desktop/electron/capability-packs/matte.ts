@@ -267,6 +267,11 @@ export interface MatteRunContext {
   /** Re-read the saved project when the job finishes (the revision may have moved). */
   readonly readCurrent: () => Promise<{ readonly revision: number; readonly project: Project }>;
   readonly onProgress?: (progress: MatteProgress) => void;
+  /**
+   * Set by the host only for a journaled job resumed after a restart (`resumeMatteJobs`): its
+   * staging directory, if one survived, may be adopted. Never from the renderer's intent.
+   */
+  readonly resume?: boolean;
 }
 
 interface ResolvedMedia {
@@ -423,10 +428,12 @@ export class CapabilityPackMatteService {
     const tStage = Date.now();
     let staging: MatteStaging;
     try {
-      // No live job owns this id (checked in `run`), so a directory it left is an orphan of an
-      // app that stopped mid-job: adopt it, keeping the worker's finished windows (BR3.14).
+      // Only a journaled job resumed after a restart adopts the directory its id left behind,
+      // keeping the worker's finished windows (BR3.14); a new request refuses an existing one
+      // (BR4.12 follow-up F5). Either way the staging lock keeps another live app instance's
+      // directory from being adopted.
       staging = await createMatteStaging(context.projectDir, intent.requestId, MATTES_RELATIVE_DIR, {
-        adoptOrphan: true,
+        adoptOrphan: context.resume === true,
       });
     } catch (error) {
       if (error instanceof MatteStagingError && error.code === 'staging_exists') {

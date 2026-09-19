@@ -18,7 +18,7 @@
  * half-written artifact under a cache key.
  */
 import { constants as fsConstants } from 'node:fs';
-import { copyFile, lstat, mkdir, readdir, realpath, rename, rm, rmdir, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@framepilot/shared-types';
 import {
@@ -203,6 +203,8 @@ export interface MatteStaging {
   clearTemporaryDirectory(): Promise<void>;
   /** Remove the whole staging directory (failure, cancel, stale result). Never throws. */
   discard(): Promise<void>;
+  /** Give up this job's staging lock (commit and discard do it). Never throws. */
+  release(): Promise<void>;
 }
 
 /**
@@ -215,10 +217,101 @@ export interface MatteStagingOptions {
   /**
    * Reuse a staging directory this job id left behind when the app stopped mid-job (a crash, a
    * forced quit), keeping only the worker's `windows/` checkpoints so the re-run resumes from
-   * its finished windows. The caller guarantees no live job owns the id. Without it, an
-   * existing directory is refused.
+   * its finished windows. Only a journaled job resumed after a restart passes it (BR4.12
+   * follow-up F5); a new request refuses an existing directory. Either way the job must first
+   * take `<jobId>.lock`, so a directory another live app instance is using is never adopted.
    */
   readonly adoptOrphan?: boolean;
+  /** Test seam: whether a process id is running (`process.kill(pid, 0)`). */
+  readonly isProcessAlive?: (pid: number) => boolean;
+}
+
+/**
+ * `<stagingRoot>/<jobId>.lock`: held by the app instance whose job uses `<jobId>/` (F5).
+ *
+ * Created exclusively (`wx`) holding the owner's pid. A lock whose pid is not running is stale
+ * (the app died) and is taken over; so is one holding THIS process's pid, because one process
+ * has one matte service, which already refuses a second live job with the same id — such a lock
+ * is a run of this process that never returned. A lock of another running process refuses the
+ * job (`staging_exists`); a reused pid therefore fails closed (the job can be run again). A lock
+ * that is a link, not a regular file, hard-linked or unreadable refuses too.
+ */
+const LOCK_SUFFIX = '.lock';
+const LOCK_MAX_BYTES = 256;
+
+async function acquireStagingLock(
+  lockPath: string,
+  isProcessAlive: (pid: number) => boolean,
+): Promise<void> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const handle = await open(lockPath, 'wx', 0o600);
+      try {
+        await handle.writeFile(JSON.stringify({ pid: process.pid }));
+      } finally {
+        await handle.close();
+      }
+      return;
+    } catch (error) {
+      if (!isCode(error, 'EEXIST')) throw error;
+    }
+    const holder = await readLockHolder(lockPath);
+    if (holder === 'gone') continue;
+    if (holder !== process.pid && isProcessAlive(holder)) {
+      throw new MatteStagingError('staging_exists', 'Another FramePilot window is running this job.');
+    }
+    log.action('matteStagingStaleLock', { ownProcess: holder === process.pid });
+    try {
+      await unlink(lockPath);
+    } catch (error) {
+      if (!isCode(error, 'ENOENT')) throw error;
+    }
+  }
+  throw new MatteStagingError('staging_exists', 'Another FramePilot window is running this job.');
+}
+
+/** The lock's pid, `'gone'` when it vanished, or a refusal when it is not a lock the host wrote. */
+async function readLockHolder(lockPath: string): Promise<number | 'gone'> {
+  let stat;
+  try {
+    stat = await lstat(lockPath);
+  } catch (error) {
+    if (isCode(error, 'ENOENT')) return 'gone';
+    throw error;
+  }
+  if (!stat.isFile() || stat.nlink !== 1 || stat.size > LOCK_MAX_BYTES) {
+    throw new MatteStagingError('unsafe_path', 'The staging lock is a link or not a lock file.');
+  }
+  let pid: unknown;
+  try {
+    pid = (JSON.parse(await readFile(lockPath, 'utf8')) as { pid?: unknown }).pid;
+  } catch (error) {
+    if (isCode(error, 'ENOENT')) return 'gone';
+    // Empty or half-written: its owner may be writing it right now. Refuse rather than guess.
+    throw new MatteStagingError('staging_exists', 'Another FramePilot window is running this job.');
+  }
+  if (typeof pid !== 'number' || !Number.isSafeInteger(pid) || pid <= 0) {
+    throw new MatteStagingError('staging_exists', 'Another FramePilot window is running this job.');
+  }
+  return pid;
+}
+
+function defaultIsProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM: it exists but belongs to someone else, which is still "running".
+    return !isCode(error, 'ESRCH');
+  }
+}
+
+async function releaseStagingLock(lockPath: string): Promise<void> {
+  try {
+    await unlink(lockPath);
+  } catch (error) {
+    if (!isCode(error, 'ENOENT')) log.warn('matteStagingUnlockFailed', { code: errorCode(error) });
+  }
 }
 
 /** Create `<project>/.framepilot-derived/mattes/.staging/<jobId>/` empty, plus its inputs folders. */
@@ -237,19 +330,26 @@ export async function createMatteStaging(
   }
   const stagingRoot = await ensureRealDirectory(projectDir, [...relativeDir, MATTE_STAGING_DIR]);
   const directory = path.join(stagingRoot, jobId);
-  try {
-    // Not recursive: an existing directory for this id is refused unless it is being adopted.
-    await mkdir(directory, { mode: 0o700 });
-  } catch (error) {
-    if (!isCode(error, 'EEXIST')) throw error;
-    if (options.adoptOrphan !== true) {
-      throw new MatteStagingError('staging_exists', 'A matte job with this id is already staged.');
-    }
-    await adoptOrphanedStaging(directory);
-  }
+  const lockPath = path.join(stagingRoot, `${jobId}${LOCK_SUFFIX}`);
+  await acquireStagingLock(lockPath, options.isProcessAlive ?? defaultIsProcessAlive);
   const inputsDirectory = path.join(directory, 'inputs');
-  await mkdir(path.join(inputsDirectory, 'corrections'), { recursive: true, mode: 0o700 });
-  await mkdir(path.join(inputsDirectory, 'locked'), { recursive: true, mode: 0o700 });
+  try {
+    try {
+      // Not recursive: an existing directory for this id is refused unless it is being adopted.
+      await mkdir(directory, { mode: 0o700 });
+    } catch (error) {
+      if (!isCode(error, 'EEXIST')) throw error;
+      if (options.adoptOrphan !== true) {
+        throw new MatteStagingError('staging_exists', 'A matte job with this id is already staged.');
+      }
+      await adoptOrphanedStaging(directory);
+    }
+    await mkdir(path.join(inputsDirectory, 'corrections'), { recursive: true, mode: 0o700 });
+    await mkdir(path.join(inputsDirectory, 'locked'), { recursive: true, mode: 0o700 });
+  } catch (error) {
+    await releaseStagingLock(lockPath);
+    throw error;
+  }
   return {
     jobId,
     stagingRoot,
@@ -315,6 +415,10 @@ export async function createMatteStaging(
     },
     async discard() {
       await removeQuietly(directory, 'discard');
+      await releaseStagingLock(lockPath);
+    },
+    async release() {
+      await releaseStagingLock(lockPath);
     },
   };
 }
@@ -383,7 +487,7 @@ export type MatteCommitOutcome = 'committed' | 'already_present';
  */
 export async function commitMatteStaging(
   projectDir: string,
-  staging: Pick<MatteStaging, 'directory' | 'inputsDirectory'>,
+  staging: Pick<MatteStaging, 'directory' | 'inputsDirectory'> & Partial<Pick<MatteStaging, 'release'>>,
   key: string,
   /**
    * The files verification accepted. Re-checked immediately before the rename: exactly these
@@ -413,6 +517,7 @@ export async function commitMatteStaging(
   if (verifiedFiles !== undefined) await assertStagingUnchanged(staging.directory, verifiedFiles);
   if (await exists(target)) {
     await removeQuietly(staging.directory, 'duplicate');
+    await staging.release?.();
     return 'already_present';
   }
   try {
@@ -421,10 +526,12 @@ export async function commitMatteStaging(
     // A concurrent commit of the same key landed between the check and the rename.
     if ((isCode(error, 'ENOTEMPTY') || isCode(error, 'EEXIST')) && (await exists(target))) {
       await removeQuietly(staging.directory, 'duplicate');
+      await staging.release?.();
       return 'already_present';
     }
     throw error;
   }
+  await staging.release?.();
   return 'committed';
 }
 
@@ -466,6 +573,19 @@ export interface MatteStagingSweepOptions {
   readonly now: Date;
   readonly activeJobIds: ReadonlySet<string>;
   readonly maxAgeMs?: number;
+  /** Test seam, as for `createMatteStaging`. */
+  readonly isProcessAlive?: (pid: number) => boolean;
+}
+
+/** True when the job's lock names another running process (a link or junk lock is not a holder). */
+async function heldByAnotherProcess(lockPath: string, isProcessAlive: (pid: number) => boolean): Promise<boolean> {
+  let holder: number | 'gone';
+  try {
+    holder = await readLockHolder(lockPath);
+  } catch {
+    return false;
+  }
+  return holder !== 'gone' && holder !== process.pid && isProcessAlive(holder);
 }
 
 /**
@@ -491,8 +611,11 @@ export async function sweepMatteStaging(
   if (root === undefined) return 0;
   const maxAge = options.maxAgeMs ?? MATTE_STAGING_ORPHAN_AGE_MS;
   let removed = 0;
+  const isProcessAlive = options.isProcessAlive ?? defaultIsProcessAlive;
   for (const entry of await readdir(root)) {
-    if (options.activeJobIds.has(entry)) continue;
+    const jobId = entry.endsWith(LOCK_SUFFIX) ? entry.slice(0, -LOCK_SUFFIX.length) : entry;
+    // A live job keeps its directory and its lock, however old.
+    if (options.activeJobIds.has(jobId)) continue;
     const entryPath = path.join(root, entry);
     let stat;
     try {
@@ -501,6 +624,8 @@ export async function sweepMatteStaging(
       continue;
     }
     if (options.now.getTime() - stat.mtimeMs < maxAge) continue;
+    // Another running app instance's job is not an orphan (F5); its lock says so.
+    if (await heldByAnotherProcess(path.join(root, `${jobId}${LOCK_SUFFIX}`), isProcessAlive)) continue;
     await rm(entryPath, { recursive: true, force: true });
     removed += 1;
   }
