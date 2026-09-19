@@ -1332,7 +1332,21 @@ That is a thin wrapper over the per-pack scripts, which you can also run individ
 ```bash
 ./scripts/dev-register-tracking-lite.sh          # point / region / planar tracking
 ./scripts/dev-register-subject-intelligence.sh   # face / person / object detection + segmentation
+./scripts/dev-register-visual-embed.sh           # shot embeddings + zero-shot labels
+./scripts/dev-register-visual-describe.sh        # structured shot descriptions (local VLM)
+./scripts/dev-register-smart-mask.sh             # background removal, AI Object / AI Brush
 ```
+
+Nothing needs configuring: no environment variables, no `.env`. The first run is long, and later
+runs reuse what it cached:
+
+- **visual-embed + visual-describe** download ~4.2 GiB of weights between them.
+- **smart-mask** builds an LGPL-only ffmpeg from source (~10 min; needs the Xcode command line
+  tools and `pkg-config`), because the pack refuses GPL builds such as Homebrew's. It then
+  downloads the pinned SAM 2.1 and BiRefNet checkpoints (~1.3 GB) and exports ~1.4 GB of ONNX
+  graphs from them, one after another (each export peaks at ~7.5 GB of memory; there is no
+  free-memory gate). Budget ~8 GB of free disk. Optional overrides (`SMART_MASK_FFMPEG_DIR`,
+  `SMART_MASK_MODELS_FROM`, `FRAMEPILOT_DEV_STORE_ROOT`) are documented in `.env.example`.
 
 `pnpm packs:register` deliberately continues past a pack that fails to build, reports every
 outcome, and exits non-zero if any failed — so one broken pack does not leave the other

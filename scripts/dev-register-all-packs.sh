@@ -15,7 +15,8 @@
 # empty. If a pack ever needs it again, a failure that is "expected" is worth
 # re-reading before it is re-encoded.
 #
-# First run of visual-embed and visual-describe downloads ~4.2 GiB between them.
+# First run of visual-embed and visual-describe downloads ~4.2 GiB between them; smart-mask
+# downloads ~1.3 GB of checkpoints and spends ~10 min building ffmpeg before its exports.
 #
 # Registration is gated by FRAMEPILOT_DEV_PACK_REGISTRATION=1, which the
 # per-pack scripts set only around the registration call. Never set it in a
@@ -31,7 +32,8 @@ PACKS=(
   "subject-intelligence:dev-register-subject-intelligence.sh"
   "visual-embed:dev-register-visual-embed.sh"
   "visual-describe:dev-register-visual-describe.sh"
-  # Needs SMART_MASK_FFMPEG_DIR (an LGPL-only ffmpeg) and the exported graphs; see the script.
+  # First run builds an LGPL-only ffmpeg and exports ~1.4 GB of graphs; both are cached.
+  # See the script.
   "smart-mask:dev-register-smart-mask.sh"
 )
 

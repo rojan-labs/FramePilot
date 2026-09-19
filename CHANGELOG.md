@@ -38,6 +38,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **`pnpm packs:register` registers Smart Mask with no setup.** It used to stop and ask for an
+  LGPL-only ffmpeg and a folder of exported model graphs, neither of which you can download. The
+  script now builds the ffmpeg and exports the graphs from the pinned checkpoints itself, once,
+  and reuses both afterwards. The register scripts also build the pack CLI on a fresh checkout.
+
 - **A tracked mask can be fixed through something passing in front of it.** On a frame the
   track got wrong, drag the mask onto the picture — its handles now sit where the tracked mask
   is drawn, and the edit is kept relative to the track instead of moving the mask on every
