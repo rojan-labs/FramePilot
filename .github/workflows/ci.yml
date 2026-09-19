@@ -426,6 +426,94 @@ jobs:
             reports/e2e
             reports/e2e-results
 
+  # ── E2E.7: a project with masks, mattes and tracks moves between macOS and Windows ────────
+  # plan/background-removal-ai/07 E2E.7 (audit P14). The folder is built, exported and its
+  # reference frames recorded on one OS (`tests.masking_archive create`), handed over as an
+  # artifact, and reopened on the other: the desktop's own open path and FULL matte validation
+  # (`tests/e2e/scripts/masking-archive-open.mjs`), then the engine export compared with the
+  # reference at the PX4 gates (`tests.masking_archive reopen`). Bit-identity across platforms is
+  # reported, not required: the export decoder builds differ by platform. Same-platform
+  # reopen and the incomplete-archive refusal run in the masking-e2e job.
+  masking-archive-create:
+    name: Masking archive · build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install ffmpeg (ffprobe reads the source timing)
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then brew install ffmpeg; else choco install ffmpeg -y --no-progress; fi
+      - name: Sync engine dependencies
+        working-directory: engine/python
+        run: uv sync --extra dev
+      - name: Build the archive and its reference
+        working-directory: engine/python
+        shell: bash
+        run: uv run python -m tests.masking_archive create "$RUNNER_TEMP/masking-archive"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: masking-archive-${{ runner.os }}
+          path: ${{ runner.temp }}/masking-archive
+
+  masking-archive-reopen:
+    name: Masking archive · made on ${{ matrix.from }}, reopened on ${{ matrix.os }}
+    needs: masking-archive-create
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, from: macOS }
+          - { os: macos-14, from: Windows }
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install ffmpeg (ffprobe for the matte validation)
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then brew install ffmpeg; else choco install ffmpeg -y --no-progress; fi
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build the desktop host modules the open check imports
+        run: pnpm exec turbo run build --filter=@framepilot/desktop...
+      - name: Sync engine dependencies
+        working-directory: engine/python
+        run: uv sync --extra dev
+      - uses: actions/download-artifact@v7
+        with:
+          name: masking-archive-${{ matrix.from }}
+          path: ${{ runner.temp }}/moved/archive
+      - name: Open it as the desktop does (paths, artifacts, full matte validation)
+        shell: bash
+        run: node tests/e2e/scripts/masking-archive-open.mjs "$RUNNER_TEMP/moved/archive/project/project.fp.json"
+      - name: Export it and compare with the reference made on ${{ matrix.from }}
+        working-directory: engine/python
+        shell: bash
+        run: uv run python -m tests.masking_archive reopen "$RUNNER_TEMP/moved/archive"
+
   # ── PX5: performance evidence for the layer compositor on the Scale row ───────────────
   # plan/background-removal-ai/PX5-BUDGETS.md. This runner has no GPU (SwiftShader) and few
   # cores, so it GATES on the algorithm's invariants only (decoder pool cap, cache bound, GL
