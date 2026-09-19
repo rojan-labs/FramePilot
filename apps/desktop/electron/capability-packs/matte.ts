@@ -420,7 +420,11 @@ export class CapabilityPackMatteService {
     const tStage = Date.now();
     let staging: MatteStaging;
     try {
-      staging = await createMatteStaging(context.projectDir, intent.requestId);
+      // No live job owns this id (checked in `run`), so a directory it left is an orphan of an
+      // app that stopped mid-job: adopt it, keeping the worker's finished windows (BR3.14).
+      staging = await createMatteStaging(context.projectDir, intent.requestId, MATTES_RELATIVE_DIR, {
+        adoptOrphan: true,
+      });
     } catch (error) {
       if (error instanceof MatteStagingError && error.code === 'staging_exists') {
         return failed('job_running', 'A background removal job with this id is already staged.', false);

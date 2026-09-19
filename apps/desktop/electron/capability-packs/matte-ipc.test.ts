@@ -206,6 +206,54 @@ describe('matte jobs through the scheduler', () => {
   });
 });
 
+describe('resuming journaled matte jobs (BR4.9, E2E.6)', () => {
+  it('wakes the opened project’s jobs only, drops one whose asset is gone, and re-checks the project', async () => {
+    const { CapabilityPackJobScheduler } = await import('./job-scheduler.js');
+    const { resumeMatteJobs } = await import('./matte-ipc.js');
+    const h = await setup();
+    const opened = path.join(h.projectDir, 'edit.fp.json');
+    const journaled = (id: string, projectPath: string, assetId = 'asset-1') => ({
+      id,
+      kind: 'matte' as const,
+      label: 'Remove background',
+      clipId: 'clip-1',
+      projectPath,
+      payload: { ...intent, requestId: id, assetId, timelineRevision: 1 },
+      finishedWindows: [1],
+    });
+    const scheduler = new CapabilityPackJobScheduler({
+      journal: {
+        load: async () => [journaled('mine', opened), journaled('other', '/elsewhere/p.fp.json'), journaled('gone', opened, 'deleted')],
+        save: async () => undefined,
+      },
+    });
+    await scheduler.loadDormant();
+    let open: string | null = opened;
+    const deps = {
+      matte: async () => h.service,
+      readProject: async () =>
+        ({
+          assets: [{ id: 'asset-1', path: path.join(h.projectDir, 'shot.mp4'), kind: 'video', media: { width: 64, height: 36 } }],
+          timeline: { tracks: [], revision: 2 },
+        }) as unknown as Project,
+      requireLicense: () => undefined,
+      activeProjectPath: async () => open,
+      scheduler,
+    };
+    expect(await resumeMatteJobs(deps, opened)).toBe(1);
+    // Re-stamped to the revision on disk, so the job is not refused as stale.
+    await vi.waitFor(() => expect(scheduler.snapshot()).toEqual([expect.objectContaining({ id: 'mine', resumed: true, state: 'completed' })]));
+    // The other project's job stayed dormant until that project was named; when it runs, the
+    // project it belongs to must still be the open one, or it fails instead of writing there.
+    open = null;
+    expect(await resumeMatteJobs(deps, '/elsewhere/p.fp.json')).toBe(1);
+    await vi.waitFor(() =>
+      expect(scheduler.snapshot().find((job) => job.id === 'other')).toMatchObject({ state: 'failed', resumed: true }),
+    );
+    expect(await resumeMatteJobs(deps, opened)).toBe(0);
+  });
+});
+
 describe('matte storage IPC', () => {
   it('summarises and cleans the open project, protecting keys a running re-run reads', async () => {
     const projectDir = await mkdtemp(path.join(tmpdir(), 'framepilot-matte-storage-ipc-'));

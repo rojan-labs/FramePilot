@@ -1,3 +1,4 @@
+import { readdirSync, rmSync } from 'node:fs';
 import { mkdtemp, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -76,6 +77,7 @@ interface HarnessOptions {
   freeDiskBytes?: number;
   observer?: (report: MatteJobReport) => void;
   watchdog?: ConstructorParameters<typeof CapabilityPackMatteService>[0]['watchdog'];
+  onRequest?: (request: CapabilityPackWorkerRequest) => void;
 }
 
 async function harness(options: HarnessOptions = {}) {
@@ -85,7 +87,10 @@ async function harness(options: HarnessOptions = {}) {
   await writeFile(mediaPath, 'fake camera bytes');
   const timing = options.timing ?? TIMING;
   const requests: CapabilityPackWorkerRequest[] = [];
-  const worker = vi.fn(fakeMatteWorker({ scenario: options.scenario ?? 'ok', timing, onRequest: (request) => requests.push(request) }));
+  const worker = vi.fn(fakeMatteWorker({ scenario: options.scenario ?? 'ok', timing, onRequest: (request) => {
+    requests.push(request);
+    options.onRequest?.(request);
+  } }));
   const leases = { acquired: 0, released: 0 };
   const propose = vi.fn(async () => PROPOSAL);
   const inspector = fakeMatteInspector(new Map([[mediaPath, { timing }]]));
@@ -174,6 +179,36 @@ describe('CapabilityPackMatteService lifecycle', () => {
     expect(h.worker.mock.calls[0]![0].outputRoot).toBe(matteStagingRoot(h.projectDir));
     expect(h.leases).toEqual({ acquired: 1, released: 1 });
     expect(h.progress.map((event) => event.phase)).toEqual(['decode', 'matte', 'verify', 'verify']);
+  });
+
+  it('resumes a job an app stopped mid-way: the worker finds its finished windows (E2E.6)', async () => {
+    const seen: string[][] = [];
+    const h = await harness({
+      onRequest: (request) => {
+        if (request.capability !== 'subject.matte') return;
+        const directory = request.parameters.output.absolutePath;
+        seen.push(readdirSync(directory).sort());
+        // The real worker reuses the checkpoint, then removes its private folders.
+        rmSync(path.join(directory, 'windows'), { recursive: true, force: true });
+      },
+    });
+    // The app died while this job ran: its staging directory holds window 1's checkpoint and
+    // a half-written file, and nothing removed it.
+    const orphan = path.join(matteStagingRoot(h.projectDir), 'job1');
+    await import('node:fs/promises').then(async (fs) => {
+      await fs.mkdir(path.join(orphan, 'windows', '1'), { recursive: true });
+      await fs.writeFile(path.join(orphan, 'windows', '1', 'done.json'), '{}');
+      await fs.writeFile(path.join(orphan, 'matte.mkv'), 'partial');
+    });
+    const outcome = await h.service.run(h.intent(), h.context());
+    expect(outcome.status).toBe('completed');
+    const request = h.requests[0]!;
+    if (request.capability !== 'subject.matte') throw new Error('expected a matte request');
+    expect(request.parameters.output.absolutePath).toBe(orphan);
+    // The worker started with the checkpoint and fresh host inputs, not the half-written file.
+    expect(seen).toEqual([['inputs', 'windows']]);
+    // Committed and cleaned up as any other run.
+    expect(await readdir(matteStagingRoot(h.projectDir))).toEqual([]);
   });
 
   it('reports phase timings, provider, flagged ratio and failure codes, never paths or prompts', async () => {

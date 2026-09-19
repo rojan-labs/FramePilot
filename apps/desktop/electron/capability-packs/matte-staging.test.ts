@@ -31,6 +31,43 @@ describe('matte staging (MD-3)', () => {
     expect(staging.inputHandle([])).toBeUndefined();
   });
 
+  it('adopts an orphan of a stopped app, keeping only the worker’s finished windows', async () => {
+    const dir = await project();
+    const first = await createMatteStaging(dir, 'job_1');
+    // What an app that died mid-job leaves: a finished window, scratch, a half-written output
+    // and the old host inputs.
+    await mkdir(path.join(first.directory, 'windows', '1'), { recursive: true });
+    await writeFile(path.join(first.directory, 'windows', '1', 'done.json'), '{}');
+    await mkdir(path.join(first.directory, 'scratch'));
+    await writeFile(path.join(first.directory, 'matte.mkv'), 'partial');
+    await first.writeInput('locked/0.png', new Uint8Array([1]));
+
+    const adopted = await createMatteStaging(dir, 'job_1', undefined, { adoptOrphan: true });
+    expect(adopted.directory).toBe(first.directory);
+    expect((await readdir(adopted.directory)).sort()).toEqual(['inputs', 'windows']);
+    expect(await readdir(path.join(adopted.directory, 'windows', '1'))).toEqual(['done.json']);
+    expect((await readdir(adopted.inputsDirectory)).sort()).toEqual(['corrections', 'locked']);
+    expect(await readdir(path.join(adopted.inputsDirectory, 'locked'))).toEqual([]);
+  });
+
+  it('never keeps a checkpoint tree holding a link, and refuses a linked staging folder', async () => {
+    const dir = await project();
+    const outside = await project();
+    const first = await createMatteStaging(dir, 'job_1');
+    await mkdir(path.join(first.directory, 'windows', '1'), { recursive: true });
+    await symlink(outside, path.join(first.directory, 'windows', '1', 'segments'));
+    const adopted = await createMatteStaging(dir, 'job_1', undefined, { adoptOrphan: true });
+    expect((await readdir(adopted.directory)).sort()).toEqual(['inputs']);
+    expect(await readdir(outside)).toEqual([]);
+
+    const linked = await project();
+    await mkdir(matteStagingRoot(linked), { recursive: true });
+    await symlink(outside, path.join(matteStagingRoot(linked), 'job_2'));
+    await expect(
+      createMatteStaging(linked, 'job_2', undefined, { adoptOrphan: true }),
+    ).rejects.toMatchObject({ code: 'unsafe_path' });
+  });
+
   it.each(['../escape', 'a/b', '', '.', 'x'.repeat(65), 'job:1', '..'])(
     'refuses job id %j',
     async (jobId) => {

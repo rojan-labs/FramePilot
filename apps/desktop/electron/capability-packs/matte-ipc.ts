@@ -151,6 +151,45 @@ export async function matteJobRunner(
   };
 }
 
+/**
+ * Resume the background-removal jobs journaled for `openedPath` (BR4.9, BR4.12 L6): they load
+ * dormant at startup and run only once the editor opens their project. Each is re-checked
+ * against the project as it is now (the asset must still exist; the revision is re-stamped so
+ * the content fingerprint and cache key decide whether the media still matches), and re-checks
+ * the licence and the open project when it actually runs. A job whose matte already committed
+ * completes as a cache hit; one that stopped mid-way resumes from its finished windows.
+ *
+ * @returns How many jobs were queued again.
+ */
+export async function resumeMatteJobs(
+  dependencies: Pick<MatteIpcDependencies, 'matte' | 'readProject' | 'requireLicense' | 'activeProjectPath'> & {
+    readonly scheduler: CapabilityPackJobScheduler;
+  },
+  openedPath: string,
+): Promise<number> {
+  return dependencies.scheduler.resumeDormant(
+    (descriptor) => descriptor.kind === 'matte' && descriptor.projectPath === openedPath,
+    async (descriptor) => {
+      const project = await dependencies.readProject(openedPath).catch(() => undefined);
+      const payload = descriptor.payload as { assetId?: unknown } | null;
+      if (project === undefined || !project.assets.some((asset) => asset.id === payload?.assetId)) {
+        return undefined;
+      }
+      const intent = { ...(descriptor.payload as object), timelineRevision: project.timeline.revision ?? 0 };
+      const run = await matteJobRunner(dependencies, openedPath, intent);
+      return {
+        priority: 'background' as const,
+        run: async (context?: JobContext) => {
+          await context?.checkpoint();
+          dependencies.requireLicense();
+          if ((await dependencies.activeProjectPath()) !== openedPath) throw new Error('The project is no longer open.');
+          return run(context);
+        },
+      };
+    },
+  );
+}
+
 /** The jobs panel channels (BR4.9): list, push on change, pause/resume/cancel. */
 export function registerJobIpc(dependencies: {
   readonly ipcMain: MatteIpcMain;

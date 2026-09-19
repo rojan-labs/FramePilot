@@ -164,6 +164,10 @@ export function BackgroundRemovalRow({
     void start({
       assetId: clip.assetId,
       clipId: clip.id,
+      // Running it again REPLACES this clip's background removal: a stale or broken one's remedy
+      // is "run Remove background again", and a second matte stacked on the old one would leave
+      // the old one refusing the export (found in E2E.6).
+      ...(matte !== null ? { maskId: matte.id } : {}),
       sourceStart: coverage.sourceStart,
       sourceEnd: coverage.sourceEnd,
       prompts: subject === 'auto' ? [] : subjectPrompts(tools.subjectPoints, tools.subjectBox),

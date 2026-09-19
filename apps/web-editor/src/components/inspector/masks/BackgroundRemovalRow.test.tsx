@@ -481,6 +481,50 @@ describe('BackgroundRemovalRow', () => {
     ).toBeTruthy();
   });
 
+  it('replaces the clip’s background removal when it runs again, so a stale one is gone (E2E.6)', async () => {
+    const fresh = 'c'.repeat(64);
+    bridge.capabilityPackMatte.mockResolvedValue({
+      ok: true,
+      artifact: {
+        key: fresh,
+        files: [{ name: 'matte.mkv', sha256: 'd'.repeat(64) }],
+        width: 1920,
+        height: 1080,
+        coverage: { sourceStart: 0, sourceEnd: 8 },
+        packId: 'smart-mask',
+        packVersion: '1.0.0',
+        modelDigests: ['d'.repeat(64)],
+      },
+      summary: { verifiedFrames: 240, flaggedFrames: 0, lockedFrames: 0, selfCorrectionRounds: 0 },
+      needsReview: [],
+      executionProvider: 'cpu',
+      cacheHit: false,
+      projectRevision: 2,
+    });
+    let masks: readonly { id: string; artifact?: { key: string } }[] = [];
+    function Rerun(): JSX.Element {
+      const editor = useEditor(timelineWithMatte, { assets });
+      useMatteJobCommits(editor, jobs);
+      const clip = editor.state.timeline.tracks[0]!.clips[0]!;
+      masks = (clip.masks ?? []) as unknown as typeof masks;
+      return (
+        <BackgroundRemovalRow
+          editor={editor}
+          clip={clip}
+          store={new MaskToolStore()}
+          jobs={jobs}
+          developmentBuild={false}
+        />
+      );
+    }
+    render(<Rerun />);
+    const button = await screen.findByRole('button', { name: 'Remove background' });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(masks[0]?.artifact?.key).toBe(fresh));
+    expect(masks.map((mask) => mask.id)).toEqual(['c1__mask']);
+  });
+
   it('shows the engine’s own remedy sentence for a stale matte', async () => {
     bridge.matteRecheckMedia.mockResolvedValue({
       ok: true,

@@ -197,17 +197,16 @@ import { buildTrackingWorkerRequest } from './capability-packs/tracking-request.
 import { runMaskTrackJob } from './capability-packs/mask-track-service.js';
 import type { MaskTrackIntent } from './capability-packs/track-run.js';
 import {
-  matteJobRunner,
   registerJobIpc,
   registerMatteIpc,
   registerMatteStorageIpc,
+  resumeMatteJobs,
 } from './capability-packs/matte-ipc.js';
 import {
   CapabilityPackJobScheduler,
   createQuitGuard,
   FileJobJournal,
   QUIT_PROMPT,
-  type JobContext,
 } from './capability-packs/job-scheduler.js';
 import { validateProjectMattes } from './capability-packs/matte-validation.js';
 import { registerRelinkIpc } from './capability-packs/matte-relink-ipc.js';
@@ -1376,38 +1375,7 @@ function registerIpcHandlers(): void {
   void packJobScheduler.loadDormant();
   const resumeJobsForProject = (openedPath: string): void => {
     void capabilityPackService
-      .then(() =>
-        packJobScheduler.resumeDormant(
-          (descriptor) => descriptor.kind === 'matte' && descriptor.projectPath === openedPath,
-          async (descriptor) => {
-            const project = await readProjectFile(openedPath).catch(() => undefined);
-            const payload = descriptor.payload as { assetId?: unknown } | null;
-            if (
-              project === undefined ||
-              !project.assets.some((asset) => asset.id === payload?.assetId)
-            ) {
-              return undefined;
-            }
-            // The saved revision may have moved while the app was closed: re-stamp it, and let
-            // the content fingerprint and cache key decide whether the media still matches.
-            const intent = {
-              ...(descriptor.payload as object),
-              timelineRevision: project.timeline.revision ?? 0,
-            };
-            const run = await matteJobRunner(matteIpcDependencies, openedPath, intent);
-            return {
-              priority: 'background' as const,
-              run: async (context?: JobContext) => {
-                await context?.checkpoint();
-                requireLicense();
-                const active = await activeProject.current();
-                if (active?.path !== openedPath) throw new Error('The project is no longer open.');
-                return run(context);
-              },
-            };
-          },
-        ),
-      )
+      .then(() => resumeMatteJobs({ ...matteIpcDependencies, scheduler: packJobScheduler }, openedPath))
       .catch((error: unknown) =>
         // Error name only: restore reads project files, and their messages carry paths (BR4.12 L1).
         aiLog.error('pack job restore failed', {

@@ -192,12 +192,29 @@ export interface MatteStaging {
   discard(): Promise<void>;
 }
 
+/**
+ * The worker's finished-window checkpoints inside a staging directory (BR3.14). They are the
+ * only thing an orphaned staging directory keeps when its job is resumed.
+ */
+export const MATTE_WINDOWS_DIR = 'windows';
+
+export interface MatteStagingOptions {
+  /**
+   * Reuse a staging directory this job id left behind when the app stopped mid-job (a crash, a
+   * forced quit), keeping only the worker's `windows/` checkpoints so the re-run resumes from
+   * its finished windows. The caller guarantees no live job owns the id. Without it, an
+   * existing directory is refused.
+   */
+  readonly adoptOrphan?: boolean;
+}
+
 /** Create `<project>/.framepilot-derived/mattes/.staging/<jobId>/` empty, plus its inputs folders. */
 export async function createMatteStaging(
   projectDir: string,
   jobId: string,
   /** Which derived-artifact store to stage in; tracks use the same mechanism (MK7.1). */
   relativeDir: readonly string[] = MATTES_RELATIVE_DIR,
+  options: MatteStagingOptions = {},
 ): Promise<MatteStaging> {
   if (!isMatteJobId(jobId)) {
     throw new MatteStagingError(
@@ -208,13 +225,14 @@ export async function createMatteStaging(
   const stagingRoot = await ensureRealDirectory(projectDir, [...relativeDir, MATTE_STAGING_DIR]);
   const directory = path.join(stagingRoot, jobId);
   try {
-    // Not recursive: an existing directory for this id is refused, never reused.
+    // Not recursive: an existing directory for this id is refused unless it is being adopted.
     await mkdir(directory, { mode: 0o700 });
   } catch (error) {
-    if (isCode(error, 'EEXIST')) {
+    if (!isCode(error, 'EEXIST')) throw error;
+    if (options.adoptOrphan !== true) {
       throw new MatteStagingError('staging_exists', 'A matte job with this id is already staged.');
     }
-    throw error;
+    await adoptOrphanedStaging(directory);
   }
   const inputsDirectory = path.join(directory, 'inputs');
   await mkdir(path.join(inputsDirectory, 'corrections'), { recursive: true, mode: 0o700 });
@@ -272,6 +290,40 @@ export async function createMatteStaging(
       await removeQuietly(directory, 'discard');
     },
   };
+}
+
+/** True when `root` and everything under it are real files and directories (no links). */
+async function linkFree(root: string): Promise<boolean> {
+  const stat = await lstat(root);
+  if (stat.isSymbolicLink()) return false;
+  if (!stat.isDirectory()) return stat.isFile();
+  for (const entry of await readdir(root)) {
+    if (!(await linkFree(path.join(root, entry)))) return false;
+  }
+  return true;
+}
+
+/**
+ * Empty an orphaned staging directory except the worker's window checkpoints, so a resumed job
+ * starts from its finished windows (the worker re-checks each checkpoint's request and pipeline
+ * fingerprint and recomputes any that do not match). A checkpoint tree holding a link anywhere
+ * is removed too: resume is an optimisation, never a reason to follow a planted link.
+ */
+async function adoptOrphanedStaging(directory: string): Promise<void> {
+  const stat = await lstat(directory);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw new MatteStagingError('unsafe_path', 'The staging folder is a link or a file.');
+  }
+  let keptWindows = false;
+  for (const entry of await readdir(directory)) {
+    const entryPath = path.join(directory, entry);
+    if (entry === MATTE_WINDOWS_DIR && (await linkFree(entryPath))) {
+      keptWindows = (await lstat(entryPath)).isDirectory();
+      if (keptWindows) continue;
+    }
+    await rm(entryPath, { recursive: true, force: true });
+  }
+  log.action('matteStagingAdopted', { keptWindows });
 }
 
 export type MatteCommitOutcome = 'committed' | 'already_present';
