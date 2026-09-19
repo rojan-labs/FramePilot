@@ -16,6 +16,12 @@
  * sentences every time, so their vectors are kept per pack release ({@link PromptVectorCache});
  * the `visual.text` run happens once per noun and release, not once per request. Measured on the
  * M1 Pro: 7.8 s for the first "red car" request, 1.8 s for the next.
+ *
+ * **Measured colour beside SigLIP (AM2.7).** With a `measure` source (the engine's
+ * `/masking/crop-colour`, `crop-colour-client.ts`), each candidate's crop is also measured in
+ * CIELAB — in parallel with the pack run — and a candidate is picked only when both signals agree.
+ * That is what lets "the white car" or "the silver car" resolve: SigLIP barely separates the
+ * neutral colours. A failed measurement is logged and the scores are SigLIP's alone, as before.
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -23,6 +29,7 @@ import {
   colourRerankPlan,
   colourRerankScores,
   type ColourRerankPlan,
+  type CropColourMeasurement,
   type MaskCandidate,
 } from '@framepilot/ai-sdk';
 import type {
@@ -33,6 +40,7 @@ import { createLogger } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import { buildTrackingWorkerRequest } from '../capability-packs/tracking-request.js';
 import type { CapabilityPackTrackingService } from '../capability-packs/tracking.js';
+import type { CropColourSource } from './crop-colour-client.js';
 import { unpackFp16 } from './packed-vector.js';
 
 const log = createLogger('desktop:ai:crop-rerank');
@@ -54,6 +62,8 @@ export interface CropRerankerOptions {
   readonly tracking: () => Promise<CapabilityPackTrackingService>;
   /** Prompt vectors kept across requests; one per reranker by default. Injected in tests. */
   readonly promptCache?: PromptVectorCache;
+  /** The engine's colour measurement of each crop (AM2.7). Absent: SigLIP alone decides. */
+  readonly measure?: CropColourSource;
 }
 
 /** Most prompt vectors kept: 12 palette sentences for about 40 nouns. */
@@ -104,8 +114,12 @@ export function createCropReranker(options: CropRerankerOptions): CropReranker {
     const plan = colourRerankPlan(request.description, request.candidates);
     if (plan === undefined) return undefined;
     try {
-      const scores = await scoreCrops(options, promptCache, request, plan);
-      log.action('cropRerankScored', { candidates: plan.candidates.length, colour: plan.colour });
+      const { scores, measured } = await scoreCrops(options, promptCache, request, plan);
+      log.action('cropRerankScored', {
+        candidates: plan.candidates.length,
+        colour: plan.colour,
+        measured,
+      });
       return scores;
     } catch (error) {
       log.warn('cropRerankUnavailable', {
@@ -116,12 +130,47 @@ export function createCropReranker(options: CropRerankerOptions): CropReranker {
   };
 }
 
+/**
+ * The engine's measurement of every planned crop, or `undefined` when there is no source or it
+ * failed. Never rejects: it runs beside the pack job, and its failure must not fail the re-rank.
+ */
+async function measureCrops(
+  source: CropColourSource | undefined,
+  absolutePath: string | undefined,
+  plan: ColourRerankPlan,
+  frames: readonly number[],
+  fps: number,
+  signal: AbortSignal | undefined,
+): Promise<readonly (CropColourMeasurement | undefined)[] | undefined> {
+  if (source === undefined || absolutePath === undefined) return undefined;
+  try {
+    const measured = await source({
+      absolutePath,
+      fps,
+      crops: plan.candidates.map((candidate, index) => ({
+        timeSeconds: frames[index]! / fps,
+        box: candidate.box,
+      })),
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (measured.length !== plan.candidates.length) {
+      throw new Error('The colour measurement answered a different number of crops.');
+    }
+    return measured;
+  } catch (error) {
+    log.warn('cropColourUnmeasured', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  }
+}
+
 async function scoreCrops(
   options: CropRerankerOptions,
   promptCache: PromptVectorCache,
   request: CropRerankRequest,
   plan: ColourRerankPlan,
-): Promise<ReadonlyMap<string, number>> {
+): Promise<{ readonly scores: ReadonlyMap<string, number>; readonly measured: boolean }> {
   const { project } = request;
   const revision = project.timeline.revision ?? 0;
   const fps = Number(project.fps);
@@ -143,6 +192,16 @@ async function scoreCrops(
     },
   });
   if (built.status === 'rejected') throw new RerankUnavailable(built.detail);
+  // Started before the pack job and awaited after it: the decode and the embedding overlap.
+  const measuring = measureCrops(
+    options.measure,
+    // The builder has just checked this asset is a video with an absolute path.
+    project.assets?.find((asset) => asset.id === request.assetId)?.path,
+    plan,
+    frames,
+    fps,
+    request.signal,
+  );
   const service = await options.tracking();
   const run = async (
     worker: CapabilityPackWorkerRequest,
@@ -192,5 +251,9 @@ async function scoreCrops(
     if (packed === undefined) throw new RerankUnavailable(`No vector for crop ${String(index)}.`);
     return unpackFp16(packed);
   });
-  return colourRerankScores(plan, crops, promptVectors);
+  const measurements = await measuring;
+  return {
+    scores: colourRerankScores(plan, crops, promptVectors, measurements),
+    measured: measurements !== undefined,
+  };
 }

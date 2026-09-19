@@ -7,6 +7,7 @@ import type {
   CapabilityPackTrackingService,
   TrackingRunOptions,
 } from '../capability-packs/tracking.js';
+import type { CropColourQuery, CropColourSource } from './crop-colour-client.js';
 import { PromptVectorCache, createCropReranker } from './crop-reranker.js';
 import { packFp16 } from './packed-vector.js';
 
@@ -229,6 +230,93 @@ describe('createCropReranker', () => {
       expect(cache.all('r', ['a'])).toBeUndefined();
       expect(cache.all('r', ['b', 'c'])).toEqual([[2], [3]]);
       expect(cache.all('other', ['b'])).toBeUndefined();
+    });
+  });
+
+  describe('with the engine’s colour measurement (AM2.7)', () => {
+    const WHITE = { neutralShare: 0.97, neutralLightness: 90 };
+    const SILVER = { neutralShare: 0.97, neutralLightness: 72 };
+    // SigLIP on real weights reads both a white and a flat silver car as white.
+    const siglip = (): string => 'white';
+    const measuring = (
+      answer: (query: CropColourQuery) => ReturnType<CropColourSource>,
+      queries: CropColourQuery[] = [],
+    ): CropColourSource => {
+      return async (query) => {
+        queries.push(query);
+        return answer(query);
+      };
+    };
+    const whiteAndSilver = [car('o24_white', LEFT), car('o24_silver', RIGHT)];
+    const request = (description: string) => ({
+      project,
+      assetId: 'asset',
+      description,
+      candidates: whiteAndSilver,
+    });
+
+    it('measures every planned crop on its own frame of the asset', async () => {
+      const queries: CropColourQuery[] = [];
+      const rerank = createCropReranker({
+        tracking: service(packs(siglip)),
+        measure: measuring(async () => [WHITE, SILVER], queries),
+      });
+      await rerank(request('the white car'));
+      expect(queries).toEqual([
+        {
+          absolutePath: path.join(path.sep, 'media', 'street.mp4'),
+          fps: FPS,
+          crops: [
+            { timeSeconds: 1, box: LEFT },
+            { timeSeconds: 1, box: RIGHT },
+          ],
+        },
+      ]);
+    });
+
+    it('lets the measurement separate white from silver where SigLIP alone cannot', async () => {
+      const alone = await rerankFor(packs(siglip))(request('the silver car'));
+      expect(Math.max(...alone!.values())).toBeLessThan(0.5);
+      const rerank = createCropReranker({
+        tracking: service(packs(siglip)),
+        measure: measuring(async () => [WHITE, SILVER]),
+      });
+      const silver = await rerank(request('the silver car'));
+      expect(silver!.get('o24_silver')).toBeGreaterThanOrEqual(0.5);
+      expect(silver!.get('o24_white')).toBeLessThan(0.4);
+      const white = await rerank(request('the white car'));
+      expect(white!.get('o24_white')).toBeGreaterThanOrEqual(0.5);
+      // Under the floor and under the resolver's 1.25x margin: never a rival pick.
+      expect(white!.get('o24_silver')).toBeLessThan(0.5);
+      expect(white!.get('o24_white')! / white!.get('o24_silver')!).toBeGreaterThanOrEqual(1.25);
+    });
+
+    it('falls back to SigLIP alone when the engine cannot measure', async () => {
+      const cars = [car('o24_red', LEFT), car('o24_grey', RIGHT)];
+      const colours = (box: MaskCandidate['box']): string => (box.x < 0.5 ? 'red' : 'grey');
+      const base = { project, assetId: 'asset', description: 'the red car', candidates: cars };
+      for (const measure of [
+        measuring(async () => {
+          throw new Error('engine down');
+        }),
+        measuring(async () => [WHITE]),
+      ]) {
+        const scores = await createCropReranker({ tracking: service(packs(colours)), measure })(
+          base,
+        );
+        expect(scores?.get('o24_red')).toBeGreaterThan(0.99);
+      }
+    });
+
+    it('asks when the measurement contradicts SigLIP', async () => {
+      const cars = [car('o24_red', LEFT), car('o24_grey', RIGHT)];
+      const colours = (box: MaskCandidate['box']): string => (box.x < 0.5 ? 'red' : 'grey');
+      const scores = await createCropReranker({
+        tracking: service(packs(colours)),
+        // The crop SigLIP calls red measures white: the two do not agree, nobody is picked.
+        measure: measuring(async () => [WHITE, SILVER]),
+      })({ project, assetId: 'asset', description: 'the red car', candidates: cars });
+      expect(Math.max(...scores!.values())).toBeLessThan(0.5);
     });
   });
 });

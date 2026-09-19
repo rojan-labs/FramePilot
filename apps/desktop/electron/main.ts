@@ -104,6 +104,7 @@ import {
 } from '@framepilot/ai-sdk';
 import { createAutomaticTrackingExecutor } from './ai/automatic-tracking-executor.js';
 import { createMaskingExecutor, MASKING_EXECUTOR_TOOLS } from './ai/masking-executor.js';
+import { createEngineCropColourSource } from './ai/crop-colour-client.js';
 import { createCropReranker } from './ai/crop-reranker.js';
 import { desktopAiMaskingDisabledTools } from './ai/ai-masking-switch.js';
 import { recordAutoAcceptedMemory } from './ai/auto-accept-memory.js';
@@ -2904,8 +2905,11 @@ function registerIpcHandlers(): void {
       faceRecognitionConsent: async (project) => (await identityClient.state(project.id)).consent,
       // AM2.5: "the red car" among classed cars — Visual Embed (>= 1.1.0) scores each crop's
       // colour. Absent, outdated or failing, it answers nothing and the resolver asks.
+      // AM2.7: the engine also measures each crop's colour (CIELAB, the export's decode), and a
+      // pick needs both to agree; an engine that cannot measure leaves SigLIP to decide alone.
       rerank: createCropReranker({
         tracking: async () => (await capabilityPackService).tracking(),
+        measure: createEngineCropColourSource({ baseUrl: engineBaseUrl, fetchFn: electronFetch }),
       }),
     },
   });
