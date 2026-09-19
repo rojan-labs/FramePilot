@@ -22,6 +22,11 @@ adds three hand-boxed objects from a real talking-head clip (``broll/b4-1080p-50
 LATENCY is one colour request as the host makes it: before AM2.6 two worker processes (crops,
 then prompts), no cache directory; after, the cache directory and the host's prompt-vector cache.
 
+AM2.7: SigLIP alone is not the shipped rule any more. ``--all-vectors-out`` writes every crop's
+vector, and ``engine/python/tests/colour_rerank_replay.py build`` combines them with the engine's
+CIELAB measurement of the same regenerated crops into ``reports/ai-masking/colour-rerank-replay
+.json``, which CI scores without the weights.
+
 Run ONE at a time, under ``workers/smart-mask/spike/watchdog.py``'s rules: on the 16 GB M1 Pro the
 pre-AM2.6 worker loaded both SigLIP towers on CoreML and reached a 7.4 GiB footprint.
 """

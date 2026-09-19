@@ -1007,5 +1007,1967 @@
    "textCpuVsCoreml": "not measured: the CoreML text load was stopped by the watchdog (7.77 GiB, swap +1.18 GiB)"
   }
  },
- "verdict": "Real crops do not meet the AM5 accuracy or unnecessary-ask gates with either rule; those gates are not lowered. The AM2.5 rule made confident-wrong picks on real weights (5 and 7 of 432 absent-colour requests: 'the white/grey X' taking a silver one); the AM2.6 rule makes none on either set or the real crops. Chromatic colours are 101/101 on both sets; white, grey, black and silver ask far more often (silver never resolves on these renderings)."
+ "verdict": "AM2.7: with the engine's colour measurement beside SigLIP, every AM5 gate is met on the two calibration sets, the three real crops and the held-out set (seed 424242, generated and scored after the thresholds were frozen): held-out targets 144/144, white/grey/silver/black 52/52, confident-wrong 0; SigLIP alone resolves 109/144 of the same targets. Caveat: the crops are flat renderings (no metallic sheen, no coloured light, no shadowed whites) and real footage is three objects; 'silver' is separated from 'grey' by lightness alone.",
+ "am2.7": {
+  "$comment": "AM2.7: SigLIP 2 (real vectors, as AM2.6 measured them) plus the engine's CIELAB measurement of each crop (framepilot_engine/masking/crop_colour.py, decoded by the export's ffmpeg). Scored by engine/python/tests/colour_rerank_replay.py from colour-rerank-replay.json; CI re-derives these numbers and re-measures the synthetic crops (test_colour_rerank_replay.py).",
+  "measurement": {
+   "region": "detection box weighted (1 - (u^2 + v^2))^2: 1 at the centre, 0 on the inscribed ellipse and in the corners; no matte (none exists at find time)",
+   "colourPipeline": "export ffmpeg (find_export_ffmpeg), scale + bicubic + rgb24: the source's tagged BT.601/BT.709 matrix and range; R'G'B' read as sRGB, CIELAB D65",
+   "neutralPixel": "C* < 16",
+   "neutralShare": "weighted share of neutral pixels",
+   "neutralLightness": "dominant L* of the neutral pixels: weighted median within 12 L* of the densest tone (so glass and tyres do not drag a white body to grey)"
+  },
+  "rule": "Pick only when both signals agree. Chromatic colour: SigLIP's decisive pick (AM2.6 evidence >= 0.5 and >= 1.25x runner-up) whose crop measures chromatic. White, grey, silver, black: the single crop measured in that class, with no crop in a band next to it and none mixed or unmeasured; SigLIP's top colour for it must be neutral and at most one step away on black-grey-silver-white, and SigLIP must not name the colour for a rival while not naming it for the pick. Otherwise every candidate is held under the resolver's floor and the editor is asked.",
+  "thresholds": {
+   "fit": {
+    "chromaticMaxShare": 0.49845,
+    "neutralMinShare": 0.71575,
+    "lightness": [
+     {
+      "dark": "black",
+      "darkMax": 21.64575,
+      "lightMin": 39.34125
+     },
+     {
+      "dark": "grey",
+      "darkMax": 55.10575,
+      "lightMin": 65.40725
+     },
+     {
+      "dark": "silver",
+      "darkMax": 77.74175,
+      "lightMin": 83.79525000000001
+     }
+    ]
+   },
+   "frozen": {
+    "chromaticMaxShare": 0.5,
+    "neutralMinShare": 0.72,
+    "lightness": [
+     {
+      "dark": "black",
+      "darkMax": 21.6,
+      "lightMin": 39.3
+     },
+     {
+      "dark": "grey",
+      "darkMax": 55.1,
+      "lightMin": 65.4
+     },
+     {
+      "dark": "silver",
+      "darkMax": 77.7,
+      "lightMin": 83.8
+     }
+    ]
+   },
+   "fitRule": "per neighbouring pair, the middle half of the calibration gap is a dead band (asks); frozen = fit rounded (shares 2 dp, L* 1 dp) before the held-out set was scored"
+  },
+  "sets": {
+   "calibration-20260919": {
+    "role": "calibration",
+    "am2.6": {
+     "summary": {
+      "targetAccuracy": {
+       "passed": 116,
+       "total": 144,
+       "rate": 0.8056
+      },
+      "unnecessaryAsks": {
+       "passed": 28,
+       "total": 144,
+       "rate": 0.1944
+      },
+      "absentColourAskRate": {
+       "passed": 432,
+       "total": 432,
+       "rate": 1.0
+      },
+      "confidentWrong": 0,
+      "chromaticTargetAccuracy": {
+       "passed": 101,
+       "total": 101,
+       "rate": 1.0
+      },
+      "achromaticTargetAccuracy": {
+       "passed": 15,
+       "total": 43,
+       "rate": 0.3488
+      },
+      "byColour": {
+       "red": {
+        "passed": 14,
+        "total": 14,
+        "rate": 1.0
+       },
+       "orange": {
+        "passed": 13,
+        "total": 13,
+        "rate": 1.0
+       },
+       "yellow": {
+        "passed": 11,
+        "total": 11,
+        "rate": 1.0
+       },
+       "green": {
+        "passed": 12,
+        "total": 12,
+        "rate": 1.0
+       },
+       "blue": {
+        "passed": 13,
+        "total": 13,
+        "rate": 1.0
+       },
+       "purple": {
+        "passed": 15,
+        "total": 15,
+        "rate": 1.0
+       },
+       "pink": {
+        "passed": 13,
+        "total": 13,
+        "rate": 1.0
+       },
+       "brown": {
+        "passed": 10,
+        "total": 10,
+        "rate": 1.0
+       },
+       "black": {
+        "passed": 3,
+        "total": 14,
+        "rate": 0.2143
+       },
+       "white": {
+        "passed": 8,
+        "total": 12,
+        "rate": 0.6667
+       },
+       "grey": {
+        "passed": 4,
+        "total": 5,
+        "rate": 0.8
+       },
+       "silver": {
+        "passed": 0,
+        "total": 12,
+        "rate": 0.0
+       }
+      }
+     },
+     "gates": {
+      "targetAccuracy": {
+       "threshold": ">= 0.99",
+       "value": 0.8056,
+       "pass": false
+      },
+      "unnecessaryAskRate": {
+       "threshold": "<= 0.03",
+       "value": 0.1944,
+       "pass": false
+      },
+      "absentColourAskRate": {
+       "threshold": ">= 0.97",
+       "value": 1.0,
+       "pass": true
+      },
+      "confidentWrong": {
+       "threshold": "== 0",
+       "value": 0,
+       "pass": true
+      }
+     },
+     "misses": [
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f4-silver",
+        "f4-grey",
+        "f4-orange"
+       ],
+       "expected": "f4-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f7-brown",
+        "f7-silver",
+        "f7-yellow"
+       ],
+       "expected": "f7-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f11-green",
+        "f11-silver",
+        "f11-grey"
+       ],
+       "expected": "f11-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the grey car",
+       "candidates": [
+        "f11-green",
+        "f11-silver",
+        "f11-grey"
+       ],
+       "expected": "f11-grey",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the white car",
+       "candidates": [
+        "f16-purple",
+        "f16-white",
+        "f16-pink"
+       ],
+       "expected": "f16-white",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the white car",
+       "candidates": [
+        "f17-blue",
+        "f17-red",
+        "f17-white"
+       ],
+       "expected": "f17-white",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f19-brown",
+        "f19-purple",
+        "f19-black"
+       ],
+       "expected": "f19-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black ball",
+       "candidates": [
+        "f22-purple",
+        "f22-black",
+        "f22-brown"
+       ],
+       "expected": "f22-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black ball",
+       "candidates": [
+        "f23-white",
+        "f23-black",
+        "f23-yellow"
+       ],
+       "expected": "f23-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f24-black",
+        "f24-blue",
+        "f24-silver"
+       ],
+       "expected": "f24-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f24-black",
+        "f24-blue",
+        "f24-silver"
+       ],
+       "expected": "f24-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the white car",
+       "candidates": [
+        "f25-white",
+        "f25-yellow",
+        "f25-red"
+       ],
+       "expected": "f25-white",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f26-green",
+        "f26-black",
+        "f26-orange"
+       ],
+       "expected": "f26-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the white car",
+       "candidates": [
+        "f27-pink",
+        "f27-white",
+        "f27-red"
+       ],
+       "expected": "f27-white",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f28-black",
+        "f28-purple",
+        "f28-silver"
+       ],
+       "expected": "f28-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f32-yellow",
+        "f32-silver",
+        "f32-brown"
+       ],
+       "expected": "f32-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f33-black",
+        "f33-purple",
+        "f33-pink"
+       ],
+       "expected": "f33-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f34-silver",
+        "f34-orange",
+        "f34-black"
+       ],
+       "expected": "f34-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f34-silver",
+        "f34-orange",
+        "f34-black"
+       ],
+       "expected": "f34-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f35-black",
+        "f35-silver",
+        "f35-blue"
+       ],
+       "expected": "f35-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f35-black",
+        "f35-silver",
+        "f35-blue"
+       ],
+       "expected": "f35-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black ball",
+       "candidates": [
+        "f36-white",
+        "f36-black",
+        "f36-purple"
+       ],
+       "expected": "f36-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black ball",
+       "candidates": [
+        "f38-black",
+        "f38-white",
+        "f38-green"
+       ],
+       "expected": "f38-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f39-pink",
+        "f39-blue",
+        "f39-silver"
+       ],
+       "expected": "f39-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f40-orange",
+        "f40-pink",
+        "f40-silver"
+       ],
+       "expected": "f40-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f41-silver",
+        "f41-blue",
+        "f41-green"
+       ],
+       "expected": "f41-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f42-brown",
+        "f42-red",
+        "f42-black"
+       ],
+       "expected": "f42-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f47-purple",
+        "f47-red",
+        "f47-silver"
+       ],
+       "expected": "f47-silver",
+       "pick": null,
+       "outcome": "asked"
+      }
+     ]
+    },
+    "am2.7": {
+     "summary": {
+      "targetAccuracy": {
+       "passed": 144,
+       "total": 144,
+       "rate": 1.0
+      },
+      "unnecessaryAsks": {
+       "passed": 0,
+       "total": 144,
+       "rate": 0.0
+      },
+      "absentColourAskRate": {
+       "passed": 432,
+       "total": 432,
+       "rate": 1.0
+      },
+      "confidentWrong": 0,
+      "chromaticTargetAccuracy": {
+       "passed": 101,
+       "total": 101,
+       "rate": 1.0
+      },
+      "achromaticTargetAccuracy": {
+       "passed": 43,
+       "total": 43,
+       "rate": 1.0
+      },
+      "byColour": {
+       "red": {
+        "passed": 14,
+        "total": 14,
+        "rate": 1.0
+       },
+       "orange": {
+        "passed": 13,
+        "total": 13,
+        "rate": 1.0
+       },
+       "yellow": {
+        "passed": 11,
+        "total": 11,
+        "rate": 1.0
+       },
+       "green": {
+        "passed": 12,
+        "total": 12,
+        "rate": 1.0
+       },
+       "blue": {
+        "passed": 13,
+        "total": 13,
+        "rate": 1.0
+       },
+       "purple": {
+        "passed": 15,
+        "total": 15,
+        "rate": 1.0
+       },
+       "pink": {
+        "passed": 13,
+        "total": 13,
+        "rate": 1.0
+       },
+       "brown": {
+        "passed": 10,
+        "total": 10,
+        "rate": 1.0
+       },
+       "black": {
+        "passed": 14,
+        "total": 14,
+        "rate": 1.0
+       },
+       "white": {
+        "passed": 12,
+        "total": 12,
+        "rate": 1.0
+       },
+       "grey": {
+        "passed": 5,
+        "total": 5,
+        "rate": 1.0
+       },
+       "silver": {
+        "passed": 12,
+        "total": 12,
+        "rate": 1.0
+       }
+      }
+     },
+     "gates": {
+      "targetAccuracy": {
+       "threshold": ">= 0.99",
+       "value": 1.0,
+       "pass": true
+      },
+      "unnecessaryAskRate": {
+       "threshold": "<= 0.03",
+       "value": 0.0,
+       "pass": true
+      },
+      "absentColourAskRate": {
+       "threshold": ">= 0.97",
+       "value": 1.0,
+       "pass": true
+      },
+      "confidentWrong": {
+       "threshold": "== 0",
+       "value": 0,
+       "pass": true
+      }
+     },
+     "misses": []
+    },
+    "neutralMarginsL": {
+     "black": 13.86,
+     "grey": 5.15,
+     "silver": 2.98,
+     "white": 3.2
+    }
+   },
+   "calibration-7": {
+    "role": "calibration",
+    "am2.6": {
+     "summary": {
+      "targetAccuracy": {
+       "passed": 113,
+       "total": 144,
+       "rate": 0.7847
+      },
+      "unnecessaryAsks": {
+       "passed": 31,
+       "total": 144,
+       "rate": 0.2153
+      },
+      "absentColourAskRate": {
+       "passed": 432,
+       "total": 432,
+       "rate": 1.0
+      },
+      "confidentWrong": 0,
+      "chromaticTargetAccuracy": {
+       "passed": 101,
+       "total": 101,
+       "rate": 1.0
+      },
+      "achromaticTargetAccuracy": {
+       "passed": 12,
+       "total": 43,
+       "rate": 0.2791
+      },
+      "byColour": {
+       "red": {
+        "passed": 9,
+        "total": 9,
+        "rate": 1.0
+       },
+       "orange": {
+        "passed": 11,
+        "total": 11,
+        "rate": 1.0
+       },
+       "yellow": {
+        "passed": 10,
+        "total": 10,
+        "rate": 1.0
+       },
+       "green": {
+        "passed": 13,
+        "total": 13,
+        "rate": 1.0
+       },
+       "blue": {
+        "passed": 9,
+        "total": 9,
+        "rate": 1.0
+       },
+       "purple": {
+        "passed": 17,
+        "total": 17,
+        "rate": 1.0
+       },
+       "pink": {
+        "passed": 14,
+        "total": 14,
+        "rate": 1.0
+       },
+       "brown": {
+        "passed": 18,
+        "total": 18,
+        "rate": 1.0
+       },
+       "black": {
+        "passed": 2,
+        "total": 9,
+        "rate": 0.2222
+       },
+       "white": {
+        "passed": 5,
+        "total": 9,
+        "rate": 0.5556
+       },
+       "grey": {
+        "passed": 5,
+        "total": 10,
+        "rate": 0.5
+       },
+       "silver": {
+        "passed": 0,
+        "total": 15,
+        "rate": 0.0
+       }
+      }
+     },
+     "gates": {
+      "targetAccuracy": {
+       "threshold": ">= 0.99",
+       "value": 0.7847,
+       "pass": false
+      },
+      "unnecessaryAskRate": {
+       "threshold": "<= 0.03",
+       "value": 0.2153,
+       "pass": false
+      },
+      "absentColourAskRate": {
+       "threshold": ">= 0.97",
+       "value": 1.0,
+       "pass": true
+      },
+      "confidentWrong": {
+       "threshold": "== 0",
+       "value": 0,
+       "pass": true
+      }
+     },
+     "misses": [
+      {
+       "request": "the white car",
+       "candidates": [
+        "f0-purple",
+        "f0-white",
+        "f0-green"
+       ],
+       "expected": "f0-white",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f1-black",
+        "f1-orange",
+        "f1-brown"
+       ],
+       "expected": "f1-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f2-black",
+        "f2-red",
+        "f2-purple"
+       ],
+       "expected": "f2-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f7-silver",
+        "f7-yellow",
+        "f7-purple"
+       ],
+       "expected": "f7-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the white car",
+       "candidates": [
+        "f8-purple",
+        "f8-brown",
+        "f8-white"
+       ],
+       "expected": "f8-white",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the grey car",
+       "candidates": [
+        "f10-grey",
+        "f10-yellow",
+        "f10-white"
+       ],
+       "expected": "f10-grey",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the white car",
+       "candidates": [
+        "f10-grey",
+        "f10-yellow",
+        "f10-white"
+       ],
+       "expected": "f10-white",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the grey car",
+       "candidates": [
+        "f11-red",
+        "f11-grey",
+        "f11-orange"
+       ],
+       "expected": "f11-grey",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f13-silver",
+        "f13-purple",
+        "f13-pink"
+       ],
+       "expected": "f13-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f15-grey",
+        "f15-orange",
+        "f15-silver"
+       ],
+       "expected": "f15-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f16-silver",
+        "f16-pink",
+        "f16-black"
+       ],
+       "expected": "f16-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f16-silver",
+        "f16-pink",
+        "f16-black"
+       ],
+       "expected": "f16-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f19-silver",
+        "f19-pink",
+        "f19-grey"
+       ],
+       "expected": "f19-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the grey car",
+       "candidates": [
+        "f19-silver",
+        "f19-pink",
+        "f19-grey"
+       ],
+       "expected": "f19-grey",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f23-silver",
+        "f23-red",
+        "f23-blue"
+       ],
+       "expected": "f23-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the white car",
+       "candidates": [
+        "f24-brown",
+        "f24-white",
+        "f24-pink"
+       ],
+       "expected": "f24-white",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the grey car",
+       "candidates": [
+        "f27-grey",
+        "f27-orange",
+        "f27-brown"
+       ],
+       "expected": "f27-grey",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f28-yellow",
+        "f28-silver",
+        "f28-purple"
+       ],
+       "expected": "f28-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f30-red",
+        "f30-grey",
+        "f30-silver"
+       ],
+       "expected": "f30-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f33-blue",
+        "f33-silver",
+        "f33-pink"
+       ],
+       "expected": "f33-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the grey car",
+       "candidates": [
+        "f34-brown",
+        "f34-green",
+        "f34-grey"
+       ],
+       "expected": "f34-grey",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f35-silver",
+        "f35-black",
+        "f35-brown"
+       ],
+       "expected": "f35-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f35-silver",
+        "f35-black",
+        "f35-brown"
+       ],
+       "expected": "f35-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black ball",
+       "candidates": [
+        "f39-brown",
+        "f39-blue",
+        "f39-black"
+       ],
+       "expected": "f39-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f40-silver",
+        "f40-white",
+        "f40-purple"
+       ],
+       "expected": "f40-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f41-brown",
+        "f41-orange",
+        "f41-black"
+       ],
+       "expected": "f41-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f42-silver",
+        "f42-black",
+        "f42-pink"
+       ],
+       "expected": "f42-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f42-silver",
+        "f42-black",
+        "f42-pink"
+       ],
+       "expected": "f42-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f44-green",
+        "f44-silver",
+        "f44-purple"
+       ],
+       "expected": "f44-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f45-silver",
+        "f45-orange",
+        "f45-yellow"
+       ],
+       "expected": "f45-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f47-silver",
+        "f47-grey",
+        "f47-purple"
+       ],
+       "expected": "f47-silver",
+       "pick": null,
+       "outcome": "asked"
+      }
+     ]
+    },
+    "am2.7": {
+     "summary": {
+      "targetAccuracy": {
+       "passed": 144,
+       "total": 144,
+       "rate": 1.0
+      },
+      "unnecessaryAsks": {
+       "passed": 0,
+       "total": 144,
+       "rate": 0.0
+      },
+      "absentColourAskRate": {
+       "passed": 432,
+       "total": 432,
+       "rate": 1.0
+      },
+      "confidentWrong": 0,
+      "chromaticTargetAccuracy": {
+       "passed": 101,
+       "total": 101,
+       "rate": 1.0
+      },
+      "achromaticTargetAccuracy": {
+       "passed": 43,
+       "total": 43,
+       "rate": 1.0
+      },
+      "byColour": {
+       "red": {
+        "passed": 9,
+        "total": 9,
+        "rate": 1.0
+       },
+       "orange": {
+        "passed": 11,
+        "total": 11,
+        "rate": 1.0
+       },
+       "yellow": {
+        "passed": 10,
+        "total": 10,
+        "rate": 1.0
+       },
+       "green": {
+        "passed": 13,
+        "total": 13,
+        "rate": 1.0
+       },
+       "blue": {
+        "passed": 9,
+        "total": 9,
+        "rate": 1.0
+       },
+       "purple": {
+        "passed": 17,
+        "total": 17,
+        "rate": 1.0
+       },
+       "pink": {
+        "passed": 14,
+        "total": 14,
+        "rate": 1.0
+       },
+       "brown": {
+        "passed": 18,
+        "total": 18,
+        "rate": 1.0
+       },
+       "black": {
+        "passed": 9,
+        "total": 9,
+        "rate": 1.0
+       },
+       "white": {
+        "passed": 9,
+        "total": 9,
+        "rate": 1.0
+       },
+       "grey": {
+        "passed": 10,
+        "total": 10,
+        "rate": 1.0
+       },
+       "silver": {
+        "passed": 15,
+        "total": 15,
+        "rate": 1.0
+       }
+      }
+     },
+     "gates": {
+      "targetAccuracy": {
+       "threshold": ">= 0.99",
+       "value": 1.0,
+       "pass": true
+      },
+      "unnecessaryAskRate": {
+       "threshold": "<= 0.03",
+       "value": 0.0,
+       "pass": true
+      },
+      "absentColourAskRate": {
+       "threshold": ">= 0.97",
+       "value": 1.0,
+       "pass": true
+      },
+      "confidentWrong": {
+       "threshold": "== 0",
+       "value": 0,
+       "pass": true
+      }
+     },
+     "misses": []
+    },
+    "neutralMarginsL": {
+     "black": 14.03,
+     "grey": 5.15,
+     "silver": 3.03,
+     "white": 3.02
+    }
+   },
+   "heldOut-424242": {
+    "role": "heldOut",
+    "am2.6": {
+     "summary": {
+      "targetAccuracy": {
+       "passed": 109,
+       "total": 144,
+       "rate": 0.7569
+      },
+      "unnecessaryAsks": {
+       "passed": 35,
+       "total": 144,
+       "rate": 0.2431
+      },
+      "absentColourAskRate": {
+       "passed": 432,
+       "total": 432,
+       "rate": 1.0
+      },
+      "confidentWrong": 0,
+      "chromaticTargetAccuracy": {
+       "passed": 92,
+       "total": 92,
+       "rate": 1.0
+      },
+      "achromaticTargetAccuracy": {
+       "passed": 17,
+       "total": 52,
+       "rate": 0.3269
+      },
+      "byColour": {
+       "red": {
+        "passed": 13,
+        "total": 13,
+        "rate": 1.0
+       },
+       "orange": {
+        "passed": 12,
+        "total": 12,
+        "rate": 1.0
+       },
+       "yellow": {
+        "passed": 11,
+        "total": 11,
+        "rate": 1.0
+       },
+       "green": {
+        "passed": 13,
+        "total": 13,
+        "rate": 1.0
+       },
+       "blue": {
+        "passed": 11,
+        "total": 11,
+        "rate": 1.0
+       },
+       "purple": {
+        "passed": 17,
+        "total": 17,
+        "rate": 1.0
+       },
+       "pink": {
+        "passed": 8,
+        "total": 8,
+        "rate": 1.0
+       },
+       "brown": {
+        "passed": 7,
+        "total": 7,
+        "rate": 1.0
+       },
+       "black": {
+        "passed": 4,
+        "total": 11,
+        "rate": 0.3636
+       },
+       "white": {
+        "passed": 7,
+        "total": 13,
+        "rate": 0.5385
+       },
+       "grey": {
+        "passed": 6,
+        "total": 13,
+        "rate": 0.4615
+       },
+       "silver": {
+        "passed": 0,
+        "total": 15,
+        "rate": 0.0
+       }
+      }
+     },
+     "gates": {
+      "targetAccuracy": {
+       "threshold": ">= 0.99",
+       "value": 0.7569,
+       "pass": false
+      },
+      "unnecessaryAskRate": {
+       "threshold": "<= 0.03",
+       "value": 0.2431,
+       "pass": false
+      },
+      "absentColourAskRate": {
+       "threshold": ">= 0.97",
+       "value": 1.0,
+       "pass": true
+      },
+      "confidentWrong": {
+       "threshold": "== 0",
+       "value": 0,
+       "pass": true
+      }
+     },
+     "misses": [
+      {
+       "request": "the grey car",
+       "candidates": [
+        "f0-blue",
+        "f0-grey",
+        "f0-silver"
+       ],
+       "expected": "f0-grey",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f0-blue",
+        "f0-grey",
+        "f0-silver"
+       ],
+       "expected": "f0-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the grey car",
+       "candidates": [
+        "f2-grey",
+        "f2-orange",
+        "f2-pink"
+       ],
+       "expected": "f2-grey",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f3-white",
+        "f3-silver",
+        "f3-pink"
+       ],
+       "expected": "f3-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f4-silver",
+        "f4-purple",
+        "f4-orange"
+       ],
+       "expected": "f4-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f6-purple",
+        "f6-black",
+        "f6-silver"
+       ],
+       "expected": "f6-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f7-silver",
+        "f7-blue",
+        "f7-green"
+       ],
+       "expected": "f7-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f8-purple",
+        "f8-black",
+        "f8-silver"
+       ],
+       "expected": "f8-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f8-purple",
+        "f8-black",
+        "f8-silver"
+       ],
+       "expected": "f8-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f9-silver",
+        "f9-purple",
+        "f9-yellow"
+       ],
+       "expected": "f9-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f10-brown",
+        "f10-green",
+        "f10-black"
+       ],
+       "expected": "f10-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the white car",
+       "candidates": [
+        "f11-white",
+        "f11-red",
+        "f11-yellow"
+       ],
+       "expected": "f11-white",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f15-red",
+        "f15-silver",
+        "f15-black"
+       ],
+       "expected": "f15-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the white car",
+       "candidates": [
+        "f16-white",
+        "f16-grey",
+        "f16-green"
+       ],
+       "expected": "f16-white",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the grey car",
+       "candidates": [
+        "f16-white",
+        "f16-grey",
+        "f16-green"
+       ],
+       "expected": "f16-grey",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f17-brown",
+        "f17-black",
+        "f17-green"
+       ],
+       "expected": "f17-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f21-silver",
+        "f21-grey",
+        "f21-red"
+       ],
+       "expected": "f21-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f22-white",
+        "f22-blue",
+        "f22-silver"
+       ],
+       "expected": "f22-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the white car",
+       "candidates": [
+        "f24-white",
+        "f24-grey",
+        "f24-red"
+       ],
+       "expected": "f24-white",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the grey car",
+       "candidates": [
+        "f24-white",
+        "f24-grey",
+        "f24-red"
+       ],
+       "expected": "f24-grey",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the grey car",
+       "candidates": [
+        "f25-green",
+        "f25-purple",
+        "f25-grey"
+       ],
+       "expected": "f25-grey",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f30-silver",
+        "f30-purple",
+        "f30-blue"
+       ],
+       "expected": "f30-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f31-blue",
+        "f31-orange",
+        "f31-silver"
+       ],
+       "expected": "f31-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the white car",
+       "candidates": [
+        "f32-white",
+        "f32-blue",
+        "f32-black"
+       ],
+       "expected": "f32-white",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f32-white",
+        "f32-blue",
+        "f32-black"
+       ],
+       "expected": "f32-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the white car",
+       "candidates": [
+        "f33-white",
+        "f33-green",
+        "f33-purple"
+       ],
+       "expected": "f33-white",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the grey car",
+       "candidates": [
+        "f34-grey",
+        "f34-silver",
+        "f34-purple"
+       ],
+       "expected": "f34-grey",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver car",
+       "candidates": [
+        "f34-grey",
+        "f34-silver",
+        "f34-purple"
+       ],
+       "expected": "f34-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f35-black",
+        "f35-yellow",
+        "f35-red"
+       ],
+       "expected": "f35-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black ball",
+       "candidates": [
+        "f37-black",
+        "f37-yellow",
+        "f37-white"
+       ],
+       "expected": "f37-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f38-silver",
+        "f38-red",
+        "f38-blue"
+       ],
+       "expected": "f38-silver",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the grey car",
+       "candidates": [
+        "f40-grey",
+        "f40-red",
+        "f40-white"
+       ],
+       "expected": "f40-grey",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the white car",
+       "candidates": [
+        "f40-grey",
+        "f40-red",
+        "f40-white"
+       ],
+       "expected": "f40-white",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the black car",
+       "candidates": [
+        "f42-brown",
+        "f42-black",
+        "f42-white"
+       ],
+       "expected": "f42-black",
+       "pick": null,
+       "outcome": "asked"
+      },
+      {
+       "request": "the silver ball",
+       "candidates": [
+        "f46-grey",
+        "f46-silver",
+        "f46-purple"
+       ],
+       "expected": "f46-silver",
+       "pick": null,
+       "outcome": "asked"
+      }
+     ]
+    },
+    "am2.7": {
+     "summary": {
+      "targetAccuracy": {
+       "passed": 144,
+       "total": 144,
+       "rate": 1.0
+      },
+      "unnecessaryAsks": {
+       "passed": 0,
+       "total": 144,
+       "rate": 0.0
+      },
+      "absentColourAskRate": {
+       "passed": 432,
+       "total": 432,
+       "rate": 1.0
+      },
+      "confidentWrong": 0,
+      "chromaticTargetAccuracy": {
+       "passed": 92,
+       "total": 92,
+       "rate": 1.0
+      },
+      "achromaticTargetAccuracy": {
+       "passed": 52,
+       "total": 52,
+       "rate": 1.0
+      },
+      "byColour": {
+       "red": {
+        "passed": 13,
+        "total": 13,
+        "rate": 1.0
+       },
+       "orange": {
+        "passed": 12,
+        "total": 12,
+        "rate": 1.0
+       },
+       "yellow": {
+        "passed": 11,
+        "total": 11,
+        "rate": 1.0
+       },
+       "green": {
+        "passed": 13,
+        "total": 13,
+        "rate": 1.0
+       },
+       "blue": {
+        "passed": 11,
+        "total": 11,
+        "rate": 1.0
+       },
+       "purple": {
+        "passed": 17,
+        "total": 17,
+        "rate": 1.0
+       },
+       "pink": {
+        "passed": 8,
+        "total": 8,
+        "rate": 1.0
+       },
+       "brown": {
+        "passed": 7,
+        "total": 7,
+        "rate": 1.0
+       },
+       "black": {
+        "passed": 11,
+        "total": 11,
+        "rate": 1.0
+       },
+       "white": {
+        "passed": 13,
+        "total": 13,
+        "rate": 1.0
+       },
+       "grey": {
+        "passed": 13,
+        "total": 13,
+        "rate": 1.0
+       },
+       "silver": {
+        "passed": 15,
+        "total": 15,
+        "rate": 1.0
+       }
+      }
+     },
+     "gates": {
+      "targetAccuracy": {
+       "threshold": ">= 0.99",
+       "value": 1.0,
+       "pass": true
+      },
+      "unnecessaryAskRate": {
+       "threshold": "<= 0.03",
+       "value": 0.0,
+       "pass": true
+      },
+      "absentColourAskRate": {
+       "threshold": ">= 0.97",
+       "value": 1.0,
+       "pass": true
+      },
+      "confidentWrong": {
+       "threshold": "== 0",
+       "value": 0,
+       "pass": true
+      }
+     },
+     "misses": []
+    },
+    "neutralMarginsL": {
+     "black": 13.99,
+     "grey": 5.12,
+     "silver": 3.12,
+     "white": 3.05
+    }
+   },
+   "calibration-real-b4": {
+    "role": "calibration",
+    "am2.6": {
+     "summary": {
+      "targetAccuracy": {
+       "passed": 3,
+       "total": 3,
+       "rate": 1.0
+      },
+      "unnecessaryAsks": {
+       "passed": 0,
+       "total": 3,
+       "rate": 0.0
+      },
+      "absentColourAskRate": {
+       "passed": 9,
+       "total": 9,
+       "rate": 1.0
+      },
+      "confidentWrong": 0,
+      "chromaticTargetAccuracy": {
+       "passed": 1,
+       "total": 1,
+       "rate": 1.0
+      },
+      "achromaticTargetAccuracy": {
+       "passed": 2,
+       "total": 2,
+       "rate": 1.0
+      },
+      "byColour": {
+       "purple": {
+        "passed": 1,
+        "total": 1,
+        "rate": 1.0
+       },
+       "black": {
+        "passed": 1,
+        "total": 1,
+        "rate": 1.0
+       },
+       "white": {
+        "passed": 1,
+        "total": 1,
+        "rate": 1.0
+       }
+      }
+     },
+     "gates": {
+      "targetAccuracy": {
+       "threshold": ">= 0.99",
+       "value": 1.0,
+       "pass": true
+      },
+      "unnecessaryAskRate": {
+       "threshold": "<= 0.03",
+       "value": 0.0,
+       "pass": true
+      },
+      "absentColourAskRate": {
+       "threshold": ">= 0.97",
+       "value": 1.0,
+       "pass": true
+      },
+      "confidentWrong": {
+       "threshold": "== 0",
+       "value": 0,
+       "pass": true
+      }
+     },
+     "misses": []
+    },
+    "am2.7": {
+     "summary": {
+      "targetAccuracy": {
+       "passed": 3,
+       "total": 3,
+       "rate": 1.0
+      },
+      "unnecessaryAsks": {
+       "passed": 0,
+       "total": 3,
+       "rate": 0.0
+      },
+      "absentColourAskRate": {
+       "passed": 9,
+       "total": 9,
+       "rate": 1.0
+      },
+      "confidentWrong": 0,
+      "chromaticTargetAccuracy": {
+       "passed": 1,
+       "total": 1,
+       "rate": 1.0
+      },
+      "achromaticTargetAccuracy": {
+       "passed": 2,
+       "total": 2,
+       "rate": 1.0
+      },
+      "byColour": {
+       "purple": {
+        "passed": 1,
+        "total": 1,
+        "rate": 1.0
+       },
+       "black": {
+        "passed": 1,
+        "total": 1,
+        "rate": 1.0
+       },
+       "white": {
+        "passed": 1,
+        "total": 1,
+        "rate": 1.0
+       }
+      }
+     },
+     "gates": {
+      "targetAccuracy": {
+       "threshold": ">= 0.99",
+       "value": 1.0,
+       "pass": true
+      },
+      "unnecessaryAskRate": {
+       "threshold": "<= 0.03",
+       "value": 0.0,
+       "pass": true
+      },
+      "absentColourAskRate": {
+       "threshold": ">= 0.97",
+       "value": 1.0,
+       "pass": true
+      },
+      "confidentWrong": {
+       "threshold": "== 0",
+       "value": 0,
+       "pass": true
+      }
+     },
+     "misses": []
+    },
+    "neutralMarginsL": {
+     "black": 8.8,
+     "grey": null,
+     "silver": null,
+     "white": 14.47
+    }
+   }
+  }
+ },
+ "am2.6Verdict": "Real crops do not meet the AM5 accuracy or unnecessary-ask gates with either rule; those gates are not lowered. The AM2.5 rule made confident-wrong picks on real weights (5 and 7 of 432 absent-colour requests: 'the white/grey X' taking a silver one); the AM2.6 rule makes none on either set or the real crops. Chromatic colours are 101/101 on both sets; white, grey, black and silver ask far more often (silver never resolves on these renderings)."
 }
