@@ -277,8 +277,10 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [x] BR7.2 (59826ccc; report reports/smart-mask/2026-09-18-darwin-arm64.json, b361595d) `eval/run_eval.py` against the installed entrypoint incl. scripted correction convergence; reports committed for darwin-arm64 and win32-x64
 - [~] BR7.3 (b361595d: most matte gates FAIL on the construction-true pilot — mean IoU 8/10 categories below 0.98, BF 9/10 below 0.95, leak 50%, recall 99.1%, review load 87%; one-click and correction runs not measured locally) **Every matte gate in `06` passes**, or the numbers go to the maintainer
 
-- [ ] BR7.4 Run the matte eval and the accuracy iteration in a dispatch-only CI workflow (ubuntu runner, 16 GB, nothing else competing): BiRefNet at its trained 2048² tile, the one-click and correction-convergence runs, the band/stabilisation ablations; iterate on consensus, self-correction and verify until the 06 gates move — models unchanged
+- [x] BR7.4 (27cb9f6d…869253a0; `smart-mask-eval.yml`, 2048² on linux-x64 CI, it0→it8 in BR0-FINDINGS.md; gates moved but most still miss) Run the matte eval and the accuracy iteration in a dispatch-only CI workflow (ubuntu runner, 16 GB, nothing else competing): BiRefNet at its trained 2048² tile, the one-click and correction-convergence runs, the band/stabilisation ablations; iterate on consensus, self-correction and verify until the 06 gates move — models unchanged
 - [x] PX5.5 cross-ref: preview playback now composites once per project frame (was 1.5–1.7×)
+
+- [ ] BR7.5 The three levers BR7.4 named, each measured in the CI eval: a subject-crop SAM pass for finer silhouettes; temporal consistency before the silhouette is decided (so stabilisation stops adding error); a box as the second prompt when one click finds no whole-subject candidate. Models unchanged
 
 **DoD:** matte eval reports committed for both platforms.
 

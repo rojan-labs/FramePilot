@@ -12,7 +12,7 @@ Maintainer 2026-09-19: "finish everything; you can run the things on this laptop
 Running:
 - E2E.3/E2E.4/E2E.6/E2E.7 + DOC.1 (qa-e2e agent; finishes the untracked draft masking-e2e-pro-masking.spec.ts)
 - MK7.5 real-texture tracking gates (known synthetic motion on real broll frames), confidence recall, correction rate
-- BR7.4 Smart Mask accuracy iterations in the dispatch-only CI eval (2048² doesn't fit locally)
+- BR7.5 Smart Mask accuracy levers (subject-crop SAM pass, temporal consistency first, box as second prompt) in the CI eval
 Blocked on maintainer only: see MAINTAINER_ONLY_ACTIONS.md (MO-1..MO-20). RD3 last.
 Agent rules: single-file tests with `--no-file-parallelism`; local Playwright/model runs one at a time under the guard; poll CI yourself in bounded rounds; explicit `git add`, never stage others' files; no stash, force-push or trailers; don't edit plan files.
 
@@ -122,6 +122,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
+
+- BR7.4 final (linux-x64 CPU, 2048², scored split; it0 → final): mean IoU 2/10 → 5/10 categories ≥ 0.98 (worst 0.807 → 0.903 crossing) ✗; BF@2px 2/10 → 4/10 ✗; leak 58% → 21% ✗; recall 99.2% → 100% (Wilson low 97.4%) ~; review load 87.5% → 79% ✗; fg ΔE 8.8 → 6.7 ✗; one-click worst 0.50 → 0.856 ✗; hair band SAD/Grad ✓; dtSSD ✗ (stabilisation adds error on 7/10); correction 2/4 ✗; locked frames 4/4 ✓; alignment 320/320 ✓
 
 - AM2.7 colour on REAL weights: held-out 144/144 (neutrals 52/52), 0 unnecessary asks, 0 wrong of 432 ✓; SigLIP alone 109/144. AM5 all gates pass (run 35415319600)
 
