@@ -8,6 +8,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **"The white car", "the silver car" and "the black ball" now resolve.** When you ask the
+  assistant to mask an object by a white, grey, silver or black colour and several of that object
+  are on screen, it used to ask you to pick most of the time, because the image model behind the
+  colour check cannot tell those colours apart well. FramePilot now also measures each candidate's
+  colour from the picture itself — decoded exactly as the export decodes it, reading the middle of
+  the object rather than the background — and picks only when the measurement and the model agree;
+  otherwise it still asks. On the colour test set that was held out while this was tuned it picked
+  every one of 144 named colours (52 of them white, grey, silver or black) and never picked an
+  object that was not the colour named; before, it picked 109. If the engine cannot measure, the
+  assistant behaves as before (AM2.7).
 - **Fix a clip's mask to the frame from the Mask tab.** A shape, split, band or gradient on a
   clip now has a **Fixed to** control: **Frame** holds it still on the output frame while the
   picture moves, scales or rotates under it; **Picture** makes it move with the shot again. While a

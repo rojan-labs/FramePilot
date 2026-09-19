@@ -35,6 +35,8 @@ request text + clip + time range
   → candidates:
       subject.detect (faces, persons, COCO objects; Subject Intelligence)
     + SigLIP text-image re-ranking of detection crops ("the red car"), when visual-embed is installed
+    + the crop's measured colour (engine, CIELAB, the export's decode; AM2.7): a colour pick needs
+      SigLIP and the measurement to agree, which is what resolves white/grey/silver/black
     + shot ledger facts (subject kind, identity clusters; VU tier 1/2) when indexed
     + out-of-vocabulary targets ("the sky") → needs_click
   → rank: grounding score × identity/ledger agreement × temporal persistence across sampled frames

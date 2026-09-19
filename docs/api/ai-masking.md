@@ -155,25 +155,120 @@ and three hand-boxed objects from a fixture clip, and applies the shipped rule. 
 frame is asked (must pick) and every colour not on it (must ask). Full numbers:
 `reports/ai-masking/colour-rerank.json`. M1 Pro, 2026-09-19:
 
-| | AM2.5 share | AM2.6 (shipped) |
-| --- | --- | --- |
-| Target picked (reported set / held-out set) | 130/144 / 127/144 | 116/144 / 113/144 |
-| Confident-wrong (of 432 absent-colour requests each) | 5 / 7 | **0 / 0** |
-| Chromatic colours picked | 101/101 / 101/101 | 101/101 / 101/101 |
-| White, grey, black, silver picked | 29/43 / 26/43 | 15/43 / 12/43 |
-| Real crops (purple monitor, black mic, white lamp) | 2/3, 0 wrong | 3/3, 0 wrong |
+|                                                      | AM2.5 share       | AM2.6 (shipped)   |
+| ---------------------------------------------------- | ----------------- | ----------------- |
+| Target picked (reported set / held-out set)          | 130/144 / 127/144 | 116/144 / 113/144 |
+| Confident-wrong (of 432 absent-colour requests each) | 5 / 7             | **0 / 0**         |
+| Chromatic colours picked                             | 101/101 / 101/101 | 101/101 / 101/101 |
+| White, grey, black, silver picked                    | 29/43 / 26/43     | 15/43 / 12/43     |
+| Real crops (purple monitor, black mic, white lamp)   | 2/3, 0 wrong      | 3/3, 0 wrong      |
 
 What real crops show: chromatic colours are reliable; the achromatic words are not, and asking is
 the right answer there. The AM2.5 rule's wrong picks were all "the white/grey X" taking a silver
 one. Silver never resolves on these flat renderings: SigLIP reads every one as white or grey. The
-AM5 accuracy (≥ 0.99) and unnecessary-ask (≤ 3%) gates are **not met** on real crops (80.6%
-picked, 19.4% asked); they are not lowered, and confident-wrong is 0. The AM5 eval still scores the
-wiring with synthetic vectors; `colour-rerank.real-weights.test.ts` replays 36 real crop vectors
+AM5 accuracy (≥ 0.99) and unnecessary-ask (≤ 3%) gates were **not met** by SigLIP alone on real
+crops (80.6% picked, 19.4% asked); they were not lowered, and confident-wrong was 0. AM2.7 below
+is what meets them. `colour-rerank.real-weights.test.ts` replays 36 real crop vectors
 (`reports/ai-masking/colour-rerank-siglip2-vectors.json`) through the shipped code in CI.
 
 Cost of one "the red car" request with three candidates: before AM2.6 it never finished on this
 machine (two processes each loading both towers on CoreML; the local watchdog stopped it at a
 7.5 GiB footprint). After: 7.8 s for the first request per noun, 1.8 s after that, 1.9 GiB peak.
+
+#### The measured colour beside SigLIP (AM2.7)
+
+SigLIP's text-image similarity barely separates white, grey, silver and black, so the host also
+**measures** each candidate's colour and a candidate is picked only when both signals agree.
+
+**The measurement** (`engine/python/framepilot_engine/masking/crop_colour.py`, sidecar route
+`POST /masking/crop-colour`). Body: `input_path` (the asset, inside the projects root), `fps`, and
+1–64 `crops` of `{time_seconds, x, y, width, height}` (normalised). Answer: one entry per crop,
+`{neutral_share, neutral_lightness, lightness, chroma, pixels}`, or `null` for a box too small to
+measure. Same hardening as `/mattes/*`: sandboxed path (400 outside the root, 503 without one),
+whitelisted containers and protocols, bounded decode, one request at a time (503 busy), one 60 s
+deadline (504), no path echoed in any error.
+
+- **Which RGB:** the export's. Each distinct frame is decoded once with the export's own ffmpeg
+  (`find_export_ffmpeg`), `scale` + `bicubic` + `rgb24` — MoviePy's reader arguments — so the
+  file's tagged BT.601/BT.709 matrix and limited/full range are applied by the same libswscale
+  call the export makes (a test encodes the same patch in all four and gets it back within 3
+  levels). R'G'B' is read as sRGB (BT.709 primaries, D65) and converted to CIELAB.
+- **Which pixels:** the object's, not its background's. Each pixel of the detection box is
+  weighted `(1 − (u² + v²))²` — 1 at the centre, 0 on the inscribed ellipse and in the corners.
+  No matte is used: none exists for a candidate when `find_mask_targets` runs, and a segmentation
+  job just to read a colour is not started.
+- **The two numbers the rule reads:** `neutral_share`, the weighted share of pixels with
+  C* < 16 (warm or cool light puts a white surface at C* 10–15), and `neutral_lightness`, the
+  object's dominant neutral L*: the weighted median of neutral pixels within 12 L* of the densest
+  tone, so a white car's windows and tyres do not drag it towards grey.
+
+**The classes** (`packages/ai-sdk/src/masking/colour-measure.ts`, frozen):
+
+| Measured                | Class                               |
+| ----------------------- | ----------------------------------- |
+| `neutral_share` ≤ 0.50  | chromatic                           |
+| 0.50 < share < 0.72     | mixed (blocks every neutral colour) |
+| share ≥ 0.72, L* ≤ 21.6 | black                               |
+| 21.6 < L* < 39.3        | black\|grey band (blocks both)      |
+| 39.3 ≤ L* ≤ 55.1        | grey                                |
+| 55.1 < L* < 65.4        | grey\|silver band                   |
+| 65.4 ≤ L* ≤ 77.7        | silver                              |
+| 77.7 < L* < 83.8        | silver\|white band                  |
+| L* ≥ 83.8               | white                               |
+
+Fitted, then frozen: for each pair of neighbouring classes the band is the middle half of the gap
+between the darker class's highest and the lighter class's lowest value on the **calibration**
+crops (generated seeds 20260919 and 7, plus the three real crops); the frozen values are the fit
+rounded (shares to 2 decimals, L* to 1). Only then was the **held-out** set (seed 424242,
+generated for this) scored. `colour-measure.test.ts` fails if the constants drift from the fit
+recorded in the replay file, and `test_colour_rerank_replay.py` recomputes the fit.
+
+"Silver" is the lighter grey. The test crops are flat renderings with no metallic sheen, so there
+is no specular variance to measure, and lightness is what separates silver from grey in them (as
+in the named colours: CSS silver is L* 78, grey L* 54). Resolving "silver" only to a single
+grey-ish candidate, as first proposed, is not safe on this set: "the silver ball" beside only a
+grey ball would take it, a confident wrong pick. A real silver car in shadow can measure grey; it
+then asks or is refused by SigLIP's check. No real silver object was measured.
+
+**The rule** (`agreedColourPick` in `colour-rerank.ts`): pick only when both agree, else hold every
+candidate under the resolver's floor so it asks.
+
+- Chromatic colour: SigLIP decides (AM2.6 evidence ≥ 0.5 and ≥ 1.25× the runner-up) and the
+  picked crop must measure **chromatic**.
+- White, grey, silver, black: the measurement decides — exactly one crop in that class, and no
+  crop in a band next to it, mixed, or unmeasured — and SigLIP must agree: the crop's top palette
+  word is neutral and at most one step from the named colour on black–grey–silver–white, and
+  SigLIP does not name the colour for a rival while not naming it for the pick.
+- No measurement (engine down, busy, media outside the root, malformed answer): SigLIP decides
+  alone, the AM2.6 behaviour. The host measures in parallel with the Visual Embed job
+  (0.2–0.5 s for a 1080p frame, about 1 s for 4K on the M1 Pro), so a request is no slower.
+
+**Measured** (`reports/ai-masking/colour-rerank.json` → `am2.7`; every target and every
+absent-colour request of each set; real SigLIP 2 vectors, M1 Pro, 2026-09-19):
+
+| Set                          | Role         | Targets picked | White/grey/silver/black | Unnecessary asks | Confident-wrong (absent colours) | SigLIP alone |
+| ---------------------------- | ------------ | -------------- | ----------------------- | ---------------- | -------------------------------- | ------------ |
+| Seed 20260919                | calibration  | 144/144        | 43/43                   | 0                | 0 of 432                         | 116/144      |
+| Seed 7                       | calibration  | 144/144        | 43/43                   | 0                | 0 of 432                         | 113/144      |
+| Real crops (b4 fixture clip) | calibration  | 3/3            | 2/2                     | 0                | 0 of 9                           | 3/3          |
+| **Seed 424242**              | **held out** | **144/144**    | **52/52**               | **0**            | **0 of 432**                     | 109/144      |
+
+Every AM5 gate is met on every set. How close the held-out crops came to leaving their class:
+3.0 L* (white, silver), 5.1 (grey), 14 (black). The honest limits: these are flat renderings
+(no metallic sheen, no coloured light, no shadowed whites), and real footage is three objects, so
+these numbers are about the method on clean pictures, not about every camera file.
+
+**How CI checks it without the weights.** `engine/python/tests/colour_rerank_replay.py` turned the
+SigLIP runs' vectors into `reports/ai-masking/colour-rerank-replay.json`: every crop's cosine with
+its noun's twelve prompts and its measurement, per set, with each set's scene digest.
+`test_colour_rerank_replay.py` re-scores the report from it, recomputes the fit, and regenerates
+the synthetic crops from their seeds (same pixels, by digest), encodes and decodes them on the CI
+machine's ffmpeg and checks every crop measures within 0.05 share / 2 L* of the committed value
+and in the same class. `colour-rerank.replay.test.ts` puts every request of every set through the
+shipped TypeScript (each crop's cosines embedded in a 13-d unit vector, so `colourRerankScores`
+sees exactly them) and must match the Python numbers. Rebuilding needs new SigLIP runs:
+`colour_rerank_eval.py accuracy --all-vectors-out`, then
+`uv run python -m tests.colour_rerank_replay build --vectors-dir … --mission-dir …` and `harness`.
 
 ### What installed users get today
 
@@ -428,8 +523,9 @@ never a frame of output.
 
 ## Eval (AM5)
 
-**The request set** (`tests/fixtures/ai-masking/request-set.json`, AM5.1) is 92 requests over 18
-synthetic scenes. Its labels are ground truth by construction: each scene lists the detector hits
+**The request set** (`tests/fixtures/ai-masking/request-set.json`, AM5.1) is 103 requests over 20
+synthetic scenes (AM2.7 added two scenes and 11 colour items: white, grey, silver and black
+targets, and colours that are not on screen). Its labels are ground truth by construction: each scene lists the detector hits
 the Subject Intelligence pack would return and the things it cannot box, so which thing a request
 means is known exactly. The labels were written by hand, not by a model, under rules fixed in the
 file before any run. Each item expects one outcome: `target`, `ask`, `face_selection`, `click`,
@@ -443,13 +539,18 @@ real path: `Orchestrator.streamAgent` → the desktop `createMaskingExecutor` �
 are supplied instead of measured:
 
 - **The pack.** A stand-in Subject Intelligence service emits the scene's hits and logs every
-  box it emitted.
+  box it emitted. Visual Embed answers with **recorded real SigLIP 2 vectors** (AM2.7): every
+  coloured thing names a held-out crop of its colour and noun (`recordedCrop`), and the crop and
+  palette-prompt requests get that crop's and those sentences' real fp16 vectors
+  (`reports/ai-masking/colour-rerank-harness-vectors.json`). A thing with no recorded crop gets
+  no vector, so the job fails and the resolver asks.
 - **The model.** A scripted policy, not an LLM. It passes the labelled target phrase and masks
   what was chosen. The adversarial items try to get round a rule instead: they use an id the
   editor was asked to pick, strip its `pick.` marker, send a shape the editor never typed, or
   invent an id.
-- **The evidence sources**, set exactly as `main.ts` ships them: no re-ranker, no identity
-  source, and consent read per scene.
+- **The evidence sources**, set exactly as `main.ts` ships them: the crop re-ranker with the
+  engine's colour measurement beside it (answered from the same recorded crop's measurement), no
+  identity source, and consent read per scene.
 
 Scoring reads the patch, not what the tools said about themselves. Every landed mask is traced
 back to a box the pack emitted (and so to a labelled thing) or to the shape the editor typed.
@@ -466,17 +567,24 @@ The test also asserts the gates that must hold: zero confident wrong picks, zero
 geometry, every adversarial item held, the ambiguous-ask gate, and every target the shipped
 detector can name. A dedicated CI step prints the summary on the run page.
 
-**Results (AM5.3), plan 06 gates, never lowered:**
+**Results, plan 06 gates, never lowered:**
 
-| Gate                                           | First run (AM5.2) | Now   | Pass |
-| ---------------------------------------------- | ----------------- | ----- | ---- |
-| Target accuracy, unambiguous (≥ 99%)           | 22/37             | 25/37 | no   |
-| Asks on ambiguous requests (≥ 97%)             | 18/21             | 21/21 | yes  |
-| Unnecessary asks (≤ 3%)                        | 13/37             | 12/37 | no   |
-| Confident wrong picks (0)                      | 5                 | 0     | yes  |
-| Invented geometry (0)                          | 0                 | 0     | yes  |
-| `needs_click` on out-of-vocabulary (by design) | 18/22             | 22/22 | —    |
-| Face picker on identity requests (by design)   | 6/7               | 7/7   | —    |
+| Gate                                           | First run (AM5.2) | AM5.3 | AM2.7 (now, 1.1 packs) | Pass |
+| ---------------------------------------------- | ----------------- | ----- | ---------------------- | ---- |
+| Target accuracy, unambiguous (≥ 99%)           | 22/37             | 25/37 | 44/44                  | yes  |
+| Asks on ambiguous requests (≥ 97%)             | 18/21             | 21/21 | 25/25                  | yes  |
+| Unnecessary asks (≤ 3%)                        | 13/37             | 12/37 | 0/44                   | yes  |
+| Confident wrong picks (0)                      | 5                 | 0     | 0                      | yes  |
+| Invented geometry (0)                          | 0                 | 0     | 0                      | yes  |
+| `needs_click` on out-of-vocabulary (by design) | 18/22             | 22/22 | 22/22                  | —    |
+| Face picker on identity requests (by design)   | 6/7               | 7/7   | 7/7                    | —    |
+
+The AM2.7 column scores the 8 colour targets on recorded real-weights crops (8/8; SigLIP alone,
+with the engine unable to measure, resolves 3 of them and asks on the rest — a test holds that
+difference). The numbers are for Subject Intelligence and Visual Embed 1.1.0; with the installed
+1.0 packs described objects ask, and the legacy-pack test holds confident-wrong at 0.
+
+The AM5.3 history follows.
 
 The eval found four defects, now fixed: pick ids could be forged by stripping the marker, "her
 hair" masked the whole presenter, "all the faces" stopped at twelve, and "the pedestrian" was
