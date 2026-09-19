@@ -66,6 +66,26 @@ Whatever the worker anchored to, the artifact is re-anchored (`H_i · H_ref⁻¹
 sits on the reference frame. "Both ways" is therefore two measurements the host joins, each
 keeping the accuracy of a short run.
 
+## How a frame is measured, and what confidence means
+
+Flow from the previous frame is only the tracker's **guess**. Each frame, the region the mask
+covers on the frame it was drawn on is **registered** onto the current frame (ECC, which ignores
+an overall exposure change), and the features are re-anchored on that plane, so error never
+accumulates from frame to frame. A shape track does the same per vertex, with a small patch
+around each one — a larger one where the vertex sits on something flat — and a vertex its patch
+cannot confirm follows the vertices that were confirmed rather than its own flow.
+
+**Confidence is a check, not a by-product of the fit.** The region is cut into cells, and each
+textured cell is block-matched between the reference frame and the current one. A cell
+_agrees_ (it is where the plane says), _contradicts_ (it clearly sits somewhere else) or is
+_unseen_ (covered — including a flat stretch that has suddenly gained texture, which is
+something passing in front). Confidence is zero at 80 % agreement and reaches the review floor
+at 90 %; contradicting cells, and corners that an independent fit to the agreeing cells places
+more than half a pixel away, pull it down further. A shape frame is as confident as its worst
+vertex. Why: with part of a plane hidden, the visible part fits perfectly while the hidden
+corners are extrapolated, and on real footage that extrapolation is off by pixels; only a
+measure of how much of the plane is actually confirmed catches it.
+
 ## Review, and frames you can promise
 
 Every tracked frame carries a measured confidence, penalised by the model residual. Ranges under
@@ -73,10 +93,16 @@ the floor land on the same review list as background removal — one list, not t
 know half the problem.
 
 Fix the mask on a bad frame and **Lock this frame**. That instant becomes a constraint, and
-**Re-track from constraints** measures outwards from each constraint in both directions, over
-only the stretches still under the floor. The constraints stay on the mask after the re-track, so
+**Re-track from constraints** measures outwards from each constraint in both directions, each
+direction stopping at the end of the first low-confidence stretch it meets, so frames the track
+already had right are kept rather than re-measured. The constraints stay on the mask after the re-track, so
 the next one can use them again (they were dropped before E2E.3). Every frame belongs to its nearest constraint, so it is
 always measured from the closest thing you confirmed.
+
+A constraint does not yet reliably fix a stretch where something covered much of the mask for a
+second or more: the re-track has to see through the same occlusion (MK7.5 measured 0-1 of 5 such
+ranges recovered). Lock a frame on each side of it, or track that stretch again from a frame where
+the mask is fully visible.
 
 A constraint frame is exact by construction, not by tolerance: the re-measured segment is
 anchored **on** it, so its transform there is the identity and your corrected geometry is what

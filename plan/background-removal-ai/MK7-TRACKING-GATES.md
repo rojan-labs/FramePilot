@@ -2,132 +2,233 @@
 
 The numbers mask tracking is allowed to claim. Plan [`06`](./06-PRECISION-AND-EVAL.md) sets the
 thresholds; this file records what they measured, on which run, and which rows are still open.
-Nothing here is retyped by hand: the harness writes `tracking-gates.json`, which the
-**Capability Pack — Tracking Lite** workflow uploads per platform.
+Nothing here is retyped by hand: the harnesses write `tracking-gates.json` and
+`tracking-gates-real-texture.json`, which the **Capability Pack — Tracking Lite** workflow uploads
+per platform.
+
+## Gates
+
+| Gate (plan 06)                                     | Threshold                                                                       | Status                                                                          |
+| -------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Planar track on synthetic warps (known homography) | median corner reprojection ≤ 0.25 px, p95 ≤ 1 px, no frame > 2 px               | **Met** (0.011 px median; CI darwin + local)                                    |
+| Real clips                                         | median ≤ 0.5 px, p95 ≤ 2 px at source resolution                                | **Met on 14 of 15 rows** (real texture, known camera); one recorded miss, below |
+| Drift                                              | ≤ 1 px per 300 frames on static-scene fixtures                                  | **Met** (0.02 px over 300 real frames)                                          |
+| Low-confidence detection recall                    | ≥ 99.5 % of frames with error > 2 px are flagged                                | **Met by the confidence number**: 92 / 92 measured-and-wrong frames flagged     |
+| Constraint frames                                  | 100 % exact after any re-track                                                  | Proved, not sampled (below); a one-frame gap in that proof was found and fixed  |
+| Correction                                         | one constraint frame brings a failing range back within gate in ≥ 95 % of cases | **Open — 0 of 5**; every failing range left is a long partial occlusion (below) |
+
+"Real clips" is measured on **real camera texture moved by a known camera** rather than on
+hand-labelled footage: hand labels are a maintainer action (MO-8) and are themselves a few tenths
+of a pixel wrong, while a known camera makes the truth exact. What it does not cover is listed at
+the end.
 
 ## How the numbers are produced
 
-`workers/tracking-lite/tests/test_tracking_gates.py`, marked `decoded_media`, so it runs in the
-pack workflow with the real OpenCV backend and never in the base CI environment (ADR 0114: the CV
-stack must not enter the base installer).
-
-- **Ground truth is exact by construction.** A deterministic seeded plate is warped by a KNOWN
-  homography per frame, rendered with a bilinear sampler written in NumPy, and round-tripped
-  through lossless PNG. The error is the distance between where the tracker says a corner of the
-  masked quad went and where the known warp actually put it.
-- **No `testsrc`.** ffmpeg's synthetic source differs between ffmpeg versions and has broken a
-  golden in this repository before.
-- **No re-encode.** The rendered frames go to the tracker directly. A codec's own error has no
-  business inside a number about the tracker; decoding is proved separately by
-  `test_decoded_media.py`, which runs real encoded video through the same backend.
-- **The recall gate uses the product's own rule.** `flagged()` in the harness is the host's
-  confidence-penalised-by-residual rule, and `test_tracking_gate_constants_match_the_host` reads
-  `packages/editor-core/src/mask-track-solve.ts` so the harness cannot drift away from what the
-  editor actually flags.
-
-Run it locally with the CV extra:
+Both harnesses are marked `decoded_media`, so they run in the pack workflow with the real OpenCV
+backend and never in the base CI environment (ADR 0114).
 
 ```bash
 cd workers/tracking-lite && uv run --extra cv --no-dev --with pytest pytest -m decoded_media -q
 ```
 
-## Gates
+**`tests/test_tracking_gates.py` — synthetic plate.** A seeded-noise plate warped by a known
+homography per frame, bilinear sampler in NumPy, lossless PNG, no re-encode. Planar gates, drift,
+the reference frame's exactness, and the host flag constants pinned against
+`mask-track-solve.ts`.
 
-| Gate (plan 06)                                     | Threshold                                                                       | Status                               |
-| -------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------ |
-| Planar track on synthetic warps (known homography) | median corner reprojection ≤ 0.25 px, p95 ≤ 1 px, no frame > 2 px               | Measured — see the run below         |
-| Drift                                              | ≤ 1 px per 300 frames on static-scene fixtures                                  | Measured                             |
-| Low-confidence detection recall                    | ≥ 99.5 % of frames with error > 2 px are flagged                                | Measured — met by refusal; see below |
-| Constraint frames                                  | 100 % exact after any re-track                                                  | Proved, not sampled (below)          |
-| Correction                                         | one constraint frame brings a failing range back within gate in ≥ 95 % of cases | **Open** (below)                     |
-| Real clips with hand-labelled corners every 0.5 s  | median ≤ 0.5 px, p95 ≤ 2 px at source resolution                                | **Open** (below)                     |
+**`tests/test_tracking_gates_real_texture.py` — real texture, known camera** (construction in
+`tests/real_texture.py`):
 
-Three warps are measured, because the three motion models the editor can pick have to be right
-for different reasons: a pure **translation**, a **similarity** (translation, uniform scale and
-rotation) and a **perspective** warp with a real third row.
+- **Texture:** three people-free stills from the mission b-roll, committed at 470 KB
+  (`tests/fixtures/real-texture/`, regenerated by `extract.sh`): sunlit foliage on a slope
+  (`b1`), a tree trunk against leaves (`b2`), a low-light road edge and bench (`b3`). No crop
+  holds a person, face or plate; `b4` (a presenter) is not used.
+- **Camera:** each frame is the plate seen through a known 3×3, rendered 2× supersampled and
+  area-reduced. A **handheld pan** (to ~5 px/frame with shake; translation) for _position_, a
+  **push-in with roll** (+35 % scale, 12°; similarity) for _position, scale and rotation_, an
+  **orbit** (keystone to 12 % across the frame, roll, zoom; homography) for _perspective_ and
+  _shape_ (a 12-vertex path).
+- **Degradations, in a camera's order:** motion blur (5 sub-frame exposures across a 180°
+  shutter), exposure breathing (±8 %), sensor noise (σ 2), 8-bit quantisation, then a real
+  **H.264** encode — CRF 18 (camera original) on every row, CRF 28 (proxy grade) on three — that
+  the worker decodes with its own `OpenCvFrameSource`.
+- **Error** is per frame, the WORST corner (or vertex) against the truth — the stricter reading;
+  a shape's per-vertex distribution is recorded beside it.
+- **Recall** is pooled over every measured frame of every run, gate runs plus nine stress scenes
+  built to make the tracker measure a wrong plane: partial occluders of real texture (55 % of
+  the quad on foliage, 30 % on the low-light plate, 40 % over a shape, 45 % on a similarity
+  track), a competing surface of the same foliage, a repeating facade panned near half its
+  period, a ×1.8 lighting jump, a soft shadow sweeping across, a 30 px/frame whip pan. "Caught"
+  means the HOST's rule flags it (confidence penalised by the model residual, under 0.5) — never
+  the true error. A worker refusal is recorded as its own mode, never as a catch.
+- **Correction** follows `mask-track-review.ts`: one constraint per flagged range, at its middle
+  frame, carrying the corrected geometry (the truth there); `retrackPlan` decides what is
+  re-measured; each segment is anchored on its constraint; every frame takes its nearest
+  constraint's segment, the previous track elsewhere. A failing range (flagged, holding a frame
+  over 2 px) is recovered when every frame in it is within 2 px.
 
-### Constraint frames: proved rather than sampled
+## What changed to meet them
 
-"100 % exact after any re-track" is a property of how a re-track is built, not a statistic:
-`mergeTrackSegments` anchors each re-measured segment **on** its constraint frame, so the
-transform there is exactly the identity and the mask's own corrected geometry is what renders.
-Two tests hold it up, on both sides of the protocol:
+The first real-texture run showed the tracker as it stood could not: a plane slid up to 10 px on
+the low-light plate and shape vertices up to 57 px, all at confidence ~0.95; a partial occluder
+produced frames up to 40 px wrong, and the confidence number flagged **none** of them (recall
+0 % by the number; the old 100 % was refusals). The worker and host were changed, never the gates:
 
-- `packages/editor-core/src/mask-track-review.test.ts` — "keeps every constraint frame exactly
-  the identity", including where two segments overlap.
-- `workers/tracking-lite/tests/test_tracking_gates.py` — "the reference frame is exactly the
-  identity", measured on real pixels (error 0.0 px on the anchor frame).
+- **Registration against the reference** (`opencv_backend.align`, `trackers/planar.py`). Flow and
+  RANSAC (and the runner-up plane from the outliers) are only guesses; the quad of the frame the
+  mask was drawn on is registered onto each frame by ECC (gain/offset invariant), re-registered
+  on the cells that still show the plane when any cell is doubtful (and always on a whole plane),
+  and re-fitted from the matched cells when not clean. Features are re-anchored on the verified
+  plane each frame, so nothing accumulates. OpenCV 5.0's ECC asserts when template and input
+  differ in size with a mask; the frame is rectified through the guess first.
+- **Confidence is a check, not a by-product** (`_check`). The quad's cells are block-matched
+  between the reference and the rectified frame within ±32 px: agree / contradict (a strong,
+  distinct match elsewhere) / unseen (no match, or a flat stretch that gained texture — something
+  in front). Confidence is zero at 80 % agreement and at the host floor at 90 %, scaled down by
+  contradiction and by corners an independent fit to the agreeing cells places > 0.5 px away.
+- **Shape tracks register every vertex** by its own patch (affine at 64 px, homography at
+  128/256 px when the small one cannot verify), a frame is as confident as its worst vertex, and
+  an unconfirmed vertex follows the confirmed ones instead of riding its flow off with an
+  occluder (shape under a passing occluder: median 158 px → 0.48 px).
+- **Each corner is verified by the cells around it**: a plane's confidence uses its weakest
+  quadrant's agreement, and small regions are not decided by one cell (one pseudo-agreeing cell;
+  a lone contradicting cell ignored).
+- **Re-track stops where confidence comes back** (`retrackPlan`, plan 10's wording). It used to
+  run to the neighbour midpoint or the clip edge and re-measured good frames — 112 made worse by
+  one constraint inside an occlusion; now 0. And a one-frame flagged range produced no segment,
+  so its constraint frame kept the old, wrong transform; it is now re-measured.
+- **The synthetic harness had an oracle**: its flag rule was given the TRUE error as the model
+  residual, which flags every frame over 2 px by construction. It now uses the model residual.
 
-### Open rows, and why
+## Measured runs
 
-**Real clips with hand-labelled corners.** This repository commits no photographic footage — the
-mission fixtures are fetched on demand (`tests/fixtures/mission/fetch-fixtures.sh`), and MK7 is
-explicitly not the place to add large media. Hand-labelling corners every 0.5 s is also a human
-action, not something an agent can honestly produce. The row stays open and unclaimed; it belongs
-with the beta evidence (MO-7), where real-hardware confirmation of the MK4 pointer budget already
-sits.
+### darwin-arm64 — local, the recorded run
 
-**Correction (≥ 95 % of failing ranges recovered by one constraint).** Measuring this needs
-failing ranges from real footage: a synthetic occluder produces a failure whose recovery is
-decided by the occluder's own length rather than by the tracker, so a number from it would be a
-number about the fixture. The mechanism is implemented and unit-tested (`retrackPlan` measures
-outwards from each constraint, only over stretches still under the floor; `mergeTrackSegments`
-gives every frame to its nearest constraint), and the rate goes with the real-clip set.
+Apple Silicon (this repository's maintainer machine), at `610eaa70`, one job at a time under the
+memory guard (free memory never under 49 %, swap never grew):
+`pytest -m decoded_media tests/` — **39 passed, 2 recorded misses** (xfail, below), 15 min 20 s.
+The tables are generated from that run's `tracking-gates-real-texture.json` and
+`tracking-gates.json`; per-frame error is the frame's worst corner or vertex.
 
-## Measured run
+| Row                                | Size · CRF    | darwin-arm64 (local) median / p95 / max px |
+| ---------------------------------- | ------------- | ------------------------------------------ |
+| hillside / position                | 1280×720 · 18 | 0.045 / 0.104 / 0.119                      |
+| hillside / position+scale+rotation | 1280×720 · 18 | 0.029 / 0.055 / 0.068                      |
+| hillside / perspective             | 1280×720 · 18 | 0.033 / 0.078 / 0.104                      |
+| hillside / shape                   | 1280×720 · 18 | 0.083 / 0.137 / 0.156                      |
+| hillside / perspective             | 1280×720 · 28 | 0.073 / 0.148 / 0.262                      |
+| forest / position                  | 1280×720 · 18 | 0.041 / 0.092 / 0.138                      |
+| forest / position+scale+rotation   | 1280×720 · 18 | 0.044 / 0.082 / 0.107                      |
+| forest / perspective               | 1280×720 · 18 | 0.066 / 0.131 / 0.187                      |
+| forest / shape                     | 1280×720 · 18 | 0.255 / 0.577 / 0.716                      |
+| forest / shape                     | 1280×720 · 28 | 0.227 / 0.413 / 0.716                      |
+| night / position                   | 960×540 · 18  | 0.075 / 0.183 / 0.328                      |
+| night / position+scale+rotation    | 960×540 · 18  | 0.129 / 0.280 / 0.452                      |
+| night / perspective                | 960×540 · 18  | 0.154 / 0.315 / 0.454                      |
+| night / shape                      | 960×540 · 18  | 0.191 / 0.302 / 0.326                      |
+| night / perspective                | 960×540 · 28  | **0.522 / 0.926 / 1.610** (miss)           |
 
-Workflow run **35294557292** (`Capability Pack — Tracking Lite`, `workflow_dispatch` on
-`plan/background-removal-ai` at `fee85dfa`), both shipped platforms green. Numbers are the
-uploaded `tracking-gates-<platform>.json`; do not retype individual figures.
+| Measure                                                    | darwin-arm64 (local)   |
+| ---------------------------------------------------------- | ---------------------- |
+| Shape per-vertex median / p95 / max px (forest, CRF 18)    | 0.068 / 0.248 / 0.716  |
+| Drift over 300 real frames, worst px (perspective · shape) | 0.022 · 0.029          |
+| Recall: flagged / measured-and-wrong                       | **92 / 92** (100.0 %)  |
+| Review load (flagged / measured frames)                    | 9.4 % of 2640          |
+| Refused (target_lost)                                      | stress/competing-plane |
+| Correction: failing ranges recovered                       | **0 / 5**              |
+| Flagged ranges ending within gate                          | 28 / 34                |
+| Frames outside flagged ranges made worse                   | 0                      |
+| Synthetic planar median / p95 / max px (worst of 3 warps)  | 0.011 / 0.016 / 0.017  |
+| Synthetic drift per 300 frames px                          | 9.0e-08                |
 
-### Planar reprojection — gate: median ≤ 0.25 px, p95 ≤ 1 px, max ≤ 2 px
+Per stress scene (darwin-arm64 (local)): wrong frames / flagged of them / frames flagged / worst px
 
-| Platform     | Sequence           | Frames | Median px  | p95 px     | Max px     |
-| ------------ | ------------------ | ------ | ---------- | ---------- | ---------- |
-| darwin-arm64 | planar/translation | 60     | **0.0204** | **0.0338** | **0.0376** |
-| darwin-arm64 | planar/similarity  | 60     | **0.0771** | **0.1559** | **0.1673** |
-| darwin-arm64 | planar/perspective | 60     | **0.0698** | **0.1344** | **0.1533** |
-| win32-x64    | planar/translation | 60     | **0.0205** | **0.0338** | **0.0377** |
-| win32-x64    | planar/similarity  | 60     | **0.0771** | **0.1558** | **0.1671** |
-| win32-x64    | planar/perspective | 60     | **0.0698** | **0.1345** | **0.1533** |
+- `stress/light-jump`: darwin-arm64 (local) 0/0/2/0.28
+- `stress/moving-shadow`: darwin-arm64 (local) 3/3/21/2.60
+- `stress/occluder-30-night`: darwin-arm64 (local) 15/15/40/7.60
+- `stress/occluder-40-shape`: darwin-arm64 (local) 45/45/46/28.96
+- `stress/occluder-45-similarity`: darwin-arm64 (local) 12/12/47/5.04
+- `stress/occluder-55`: darwin-arm64 (local) 17/17/44/7.71
+- `stress/periodic-facade`: darwin-arm64 (local) 0/0/0/0.22
+- `stress/whip-pan`: darwin-arm64 (local) 0/0/13/1.09
 
-Every figure is an order of magnitude inside its threshold, and the two platforms agree to
-within 1e-3 px — the fit is dominated by the image, not by the machine.
+Correction ranges (darwin-arm64 (local)): `moving-shadow` 42–59 2.60→2.42; `occluder-30-night` 45–80 7.60→13.45; `occluder-40-shape` 35–80 28.96→195.34; `occluder-45-similarity` 34–80 5.04→10.08; `occluder-55` 36–79 7.71→20.95
 
-### Drift — gate: ≤ 1 px per 300 frames
+### win32-x64, and the pack workflow
 
-| Platform     | Frames | Final error px | Extrapolated per 300 frames |
-| ------------ | ------ | -------------- | --------------------------- |
-| darwin-arm64 | 120    | 8.0e-14        | **2.0e-13**                 |
-| win32-x64    | 120    | 1.1e-13        | **2.9e-13**                 |
+**Measured in CI when available** — not a blocker for this record. The workflow now runs every
+harness above on both shipped platforms and uploads both JSON reports (`tracking-gates-<platform>`).
+What CI has measured so far, on earlier commits of this change:
 
-Effectively zero: the planar tracker anchors every frame to the features it detected on the
-reference frame rather than to the previous frame, so a static scene has nothing to accumulate.
+- **Run 35435176497 at `943251d0`** — darwin-arm64 **green**: every real-clip row inside the gate
+  (night CRF 28 at 0.483 px there, under it), recall 76 / 76, correction 0 / 5, synthetic planar
+  bit-identical to local. win32-x64 **red on two rows**, both fixed in `610eaa70` and measured
+  here only on darwin-arm64: recall 70 / 71 (the one miss was the frame an occluder left, its
+  motion-blurred ghost over one corner — now caught by per-corner verification), and the 48 px
+  decoded-media subject read as occluded on one frame (one of 16 cells decided it — now
+  smoothed). The CI encoder is imageio-ffmpeg's x264, not the local Homebrew build, so the input
+  bytes differ between local and CI rows; the tracker's numbers agree to within a few hundredths.
+- **Run 35437808014 at `610eaa70`** — dispatched; its per-platform reports are the CI record
+  when it completes.
 
-### Low-confidence detection recall — gate: ≥ 99.5 %
+## Recorded misses, and why
 
-| Platform     | Mode        | Recall   | Detail                                       |
-| ------------ | ----------- | -------- | -------------------------------------------- |
-| darwin-arm64 | **refused** | **100%** | target lost after frame 45 (competing plane) |
-| win32-x64    | **refused** | **100%** | target lost after frame 45 (competing plane) |
+Both are `xfail(strict=False)` in the real-texture module: the gate is asserted and expected to
+fail, so an improvement or a regression shows in every run instead of being absorbed.
 
-Read this honestly. The recall gate asks whether a wrong frame reaches the editor flagged, and
-it does — but on every fixture tried it did so by the worker **refusing** rather than by the
-confidence number catching a wrong plane. Four fixtures were attempted:
+**night/perspective at CRF 28 — median 0.522 px against 0.5 (p95 0.93 px, inside).** A low-light
+pavement at proxy-grade compression. The quad's left half is black, so its corners are
+extrapolated from the texture near the bench; per-corner medians are 0.2–0.4 px, the frame's worst
+corner 0.52. Tried: ECC budget and smoothing (no change), a temporally averaged reference
+(0.48–0.51), a high-pass registration (worse on low light). The same scene at camera quality
+(CRF 18) measures 0.154 px, and the tracker reads the camera original, not the proxy.
 
-1. a total occluder — `target_lost`;
-2. a 26 px/frame motion-blurred burst — `target_lost`;
-3. a 9 px/frame blurred burst — every frame inside the 2 px gate, nothing to catch;
-4. a competing plane sliding across a third of the masked region — `target_lost` after 10 frames
-   of intrusion.
+**Correction, 0 of 5** (1 of 5 at an earlier commit of this change; 1 of 5 with the constraint
+on the range's first frame and 0 of 5 on its last, measured while iterating). Every failing range
+the tracker now produces is a partial occlusion of ~35–45 frames, and one constraint re-tracks the
+whole span through the same occlusion. From a constraint inside it, the re-track's reference
+frame shows the occluder over up to half the quad, and the tracker locks onto it — correctly,
+from what that frame shows. The closest, the moving shadow, ends at 2.42 px against 2.0.
+What it needs is design, not tuning:
 
-The consistent finding is that **this worker refuses far more readily than it reports a wrong
-plane**: its robust fit has an inlier floor (0.5), its point track has a forward/backward
-consistency check, and its policy bounds how long it will hold an unmeasured frame (15). When
-that happens the run fails, nothing is written, and the mask keeps the geometry it had — complete
-detection, by a different route than the confidence number.
+1. **Re-track a flagged stretch from its confident edges**, with the constraint as the anchor,
+   so the reference is a frame where the plane is visible. This collides with an open host
+   question: a correction is a keyframe on the mask's own geometry, and the track is applied on
+   top of the mask's animation, so segments anchored on different frames assume different
+   geometry between keyframes. Deciding how a correction composes with a track is a maintainer
+   decision.
+2. **Exclusion regions as a template mask.** MK7.4's exclusions drop samples whose box centre
+   falls inside one; applied to the registration and the check instead, they would let an editor
+   tell the tracker "that hand is not the plane" — the standard fix in professional trackers.
+3. **Fewer degrees of freedom under partial visibility**: with half the plane hidden, update only
+   a similarity on top of the last verified homography instead of extrapolating perspective.
 
-What is therefore **not** yet evidenced is the confidence number's own recall on frames the
-tracker measures and gets wrong. That band could not be produced synthetically, and measuring it
-needs the real-clip set, so it travels with the two open rows above rather than being claimed
-here.
+The guide (`docs/guides/mask-tracking.md`) tells editors what works today: lock a frame on each
+side of a long occlusion, or track that stretch again from a frame where the mask is fully
+visible.
+
+## Constraint frames: proved rather than sampled
+
+"100 % exact after any re-track" is a property of how a re-track is built: `mergeTrackSegments`
+anchors each re-measured segment **on** its constraint frame, so the transform there is exactly
+the identity and the mask's own corrected geometry renders. MK7.5 found the one case the proof
+missed — a one-frame flagged range produced no segment, so its constraint frame kept the old
+transform — and `retrackPlan` now re-measures it (`mask-track-review.test.ts`: "re-measures a
+one-frame flagged range, so its constraint frame is exact"). The other tests stand:
+`mask-track-review.test.ts` "keeps every constraint frame exactly the identity", and
+`test_tracking_gates.py` "the reference frame is exactly the identity" (0.0 px on real pixels).
+
+## What this does not cover
+
+- **Hand-labelled real footage (MO-8).** The camera here is a homography of a still — a planar
+  scene. Real clips add parallax, rolling shutter, lens distortion, non-rigid subjects and
+  compression of real motion. The construction makes the truth exact; it does not make the scene
+  three-dimensional. The hand-labelled set stays the confirmation for those.
+- **Resolution.** Rows are 1280×720 and 960×540. Registration caps its working region at 160 k px,
+  so a 4K plane is registered at reduced scale; not measured here.
+- **Cost.** A planar frame costs ~30–50 ms at 720p (was ~3 ms), a 12-vertex shape up to ~100 ms on
+  flat footage. Measured in these runs, not budgeted: the tracking budget is MK4's, not MK7.5's.
+- **Review load.** 9.4 % of measured frames are flagged, nearly all in stress scenes (a
+  partial occluder flags its whole passage, a whip pan 13 frames). Of the gate rows, the night
+  CRF 28 plane flags 25 correct frames — its black corners have nothing to verify them — and the
+  forest CRF 28 shape 9.

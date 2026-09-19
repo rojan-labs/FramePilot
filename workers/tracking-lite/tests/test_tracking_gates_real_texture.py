@@ -598,8 +598,9 @@ def test_confidence_flags_the_frames_the_tracker_measures_wrong(media: Path) -> 
         "MK7.5 open row. Every failing range left is a ~40-frame partial occlusion, and one "
         "constraint re-tracks the whole span through the same occlusion: from a constraint "
         "inside it the reference itself shows the occluder, from its edges the hidden corners "
-        "are extrapolated as before. Measured 1/5 (constraint mid-range), 1/5 (first frame), "
-        "0/5 (last frame). Recorded in MK7-TRACKING-GATES.md with the design it needs."
+        "are extrapolated as before. Measured 0-1 of 5 wherever the constraint is placed "
+        "(middle, first or last frame). Recorded in MK7-TRACKING-GATES.md with the design it "
+        "needs."
     ),
 )
 def test_one_constraint_per_flagged_range_brings_it_back_within_the_gate(media: Path) -> None:

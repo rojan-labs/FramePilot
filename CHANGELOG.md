@@ -27,6 +27,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Mask tracking holds on real footage, and says when it is not sure.** Measured on real camera
+  texture moved by a known camera (MK7.5): a tracked plane used to slide by up to 10 px on
+  low-light footage and a shape's vertices by up to 57 px, all reported as confident, and a
+  partial occluder produced frames up to 40 px wrong that the review list never showed. Every
+  plane and every shape vertex is now registered against the frame the mask was drawn on, so
+  nothing accumulates (worst frame 0.1-0.5 px at camera quality), and confidence is an
+  independent check of where the plane actually sits, so all 92 measured-and-wrong frames in
+  the set reach the review list. Re-tracking from a constraint now stops where confidence comes
+  back instead of re-measuring good frames to the clip edge, and a one-frame flagged range is
+  re-measured so its constraint frame is exact. Numbers and the two rows still open:
+  `plan/background-removal-ai/MK7-TRACKING-GATES.md`.
 - **Tracked masks now show on the program monitor.** The monitor never loaded track artifacts, so
   every tracked mask read "Mask not previewed yet" — and an effect it limited (a face blur) covered
   the whole frame in the preview while the export limited it. The monitor loads each track (with
