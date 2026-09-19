@@ -577,3 +577,144 @@ boundary-contrast cut was chosen; it8 (35422198292, 14aaecc8) measured it.
   offline replays of the post-model stages (numpy, no models) ran after the user allowed runs on
   this machine; no model ran locally.
 
+
+## BR7.5 accuracy levers (and BR3.17 contained re-runs), 2026-09-19, linux-x64 CI
+
+> **Same harness and caveats as BR7.4**: `.github/workflows/smart-mask-eval.yml`, BiRefNet at
+> 2048² on every job (no 1024² fallback fired), construction-true pilot, linux-x64 CPU evidence,
+> not the release gate. Decisions were taken on the **calibration** split (offline replays of the
+> dumped estimates, then CI); the tables report the **scored** split. Models unchanged (SAM 2.1
+> Hiera-L, BiRefNet_HR-matting). Where CI runs were cancelled once their calibration clips had
+> decided a lever, their finished jobs were re-scored without models (`rescore_run_id`), so those
+> reports cover part of the categories and say so.
+
+| It | Commit | CI run (scored in) | Change | Decision |
+| --- | --- | --- | --- | --- |
+| it9 | a887eccd | 35427109265 (35436042406) | Lever 1: SAM again on a padded square crop around each small subject, box + deepest point, decides each pass's edge corridor | **Ran on 1 of 320 frames** (the square crop was compared with the frame's short side; the pilot's 140 × 520 px figures never qualified) = a replicate of it6 |
+| it10box | a635ff06 | 35427824860 | Lever 3: a lone click on a subject cut by the frame asks for a box (`needs_box`); the eval scripts the box from ground truth as a second action | **Kept** |
+| it11 | 273b81fe | 35428573449 (cancelled) | Lever 2: motion-compensated temporal vote before the silhouette; reliability-weighted band smoothing | Superseded by it14 (same effect: the crop pass was inert there); **kept**, see it14 |
+| it12rep | 8b959c48 | 35429431193 | BR3.17: a partial re-run changes what its correction reaches (correction replays) | **Kept** |
+| it13 | dc057e6e | 35430014279 (35436041101) | Lever 1 fixed: crop keeps the subject's shape (≤ 16:9), qualifies by area gain ≥ 1.5 (8 of 10 categories) | **Reverted** (4c4f83d8): worse on the calibration split |
+| it14 | 4c4f83d8 | 35436024436 (35444677277 without replays) | Final pipeline: levers 2 + 3, BR3.17, no crop pass | Final |
+
+### Lever 1, subject-crop SAM pass: measured, reverted
+
+it13 against it6, calibration split (IoU / BF@2px): crossing 0.928 / 0.901 → 0.924 / 0.879,
+walk_pan 0.981 / 0.927 → 0.975 / 0.887, low_light 0.962 / 0.838 → 0.950 / 0.769, similar_colour
+0.983 / 0.972 → 0.982 / 0.968, twin_distractor BF 0.921 → 0.915. The crop estimate itself scored
+below the tracked full-frame pass it was meant to refine (walk_pan 0.964 / 0.869 against SAM
+forward 0.975 / 0.912; low_light 0.942 / 0.759 against 0.961 / 0.854), and its masks sit where
+SAM's do (no sub-pixel offset: shifting them ±2 px never helped). A local SAM-only check (not
+2048², no BiRefNet; memory guard held, swap did not grow) on 8 frames each of three calibration
+clips gave the same answer for the other prompt the lever named, **the first mask as a dense
+prompt** (`decode_mask`): walk_pan 0.964 / 0.861, crossing 0.920 / 0.797, low_light 0.946 / 0.766
+against the prior's 0.975 / 0.908, 0.946 / 0.908, 0.962 / 0.860.
+
+**Why resolution is not the lever.** 85–100% of the pixels the delivered matte misses on the
+failing categories are *soft* ground-truth alpha (0.5 ≤ α < 0.98): the pilot's 180° shutter
+motion blur and anti-aliased limbs, where α ≥ 0.5 extends past the edge both models segment.
+Tried offline on the calibration split and rejected: BiRefNet's fractional alpha deciding the
+soft band (low_light BF 0.841 → 0.747 at 8 px, crossing 0.901 → 0.891), and widening the
+silhouette along the subject's own motion (walk_pan IoU 0.982 → 0.968 at a quarter of the
+motion). What would move it: a matting estimate that is right about α = 0.5 inside motion blur
+(a video matting model, or BiRefNet with temporal context), which is outside BR7.5's "no new
+model" scope.
+
+### Lever 2, temporal consistency before the silhouette: kept, gate still missed
+
+The BR7.4 root cause was measured first (calibration clips): warping the ground truth's own
+alpha with the half-resolution DIS flow misses by 11–51 levels in the band, more than the
+per-frame estimate's error (10–18), so every average moved a good edge towards a worse one.
+Full-resolution DIS with finer patches and variational refinement misses by 5–38. A plain
+motion-compensated SAM vote (warp ±1–2 frames, forward-backward gate only) was worse on 6 of 10
+calibration categories (crossing dtSSD −50%, talking_head −75%), partly because a two-vote tie
+fell to BiRefNet. What was kept (`stabilise.py`): each frame's SAM estimate fused with ±2
+neighbours warped by the fine flow at weight 0.5 × photometric reliability (CIELAB residual) ×
+forward-backward consistency, the silhouette taken from that; band smoothing with the same
+reliability weights. Calibration replay against it6's stabilisation: mean dtSSD reduction +2.6%
+(worse than off on 2/10) instead of −3.4% (6/10), leak 20.0% → 18.4%, BF +0.003, wrong frames
+equal. Rejected on calibration: edge-trust hysteresis (+1.3%, worse on 3/10).
+
+it14, scored split, dtSSD against the same pipeline with stabilisation off (it6 in brackets):
+crossing +1.4% (−1.3%), fast_motion +2.1% (−0.1%), hair_busy +5.7% (+1.3%), leave_reenter +0.8%
+(+0.8%), low_light +0.9% (−1.9%), product_table −1.9% (−21.0%), similar_colour −0.2% (−3.0%),
+talking_head +1.6% (−7.5%), twin_distractor +4.0% (+0.7%), walk_pan +2.6% (−4.0%).
+Stabilisation now helps on 8 of 10 categories instead of hurting on 7, and nowhere by more than
+1.9%. **The ≥ 30% gate is not reachable this way**: dtSSD measures the change of alpha error from
+frame to frame, and the per-frame error here is mostly a *consistent* bias (the soft band above),
+which moves with the subject and survives any temporal average; only the uncorrelated part can
+be averaged away, and on this pilot that part is a few percent. What would move it is the same
+thing as lever 1's: a better α in the soft band.
+
+### Lever 3, a box as the second prompt: kept
+
+A lone include click whose whole-subject candidate covers ≥ 5% of any picture edge is refused
+with `needs_box` before the clip is encoded (11 s on the runner); the host passes the code through
+with its remedy sentence, AI Object takes a drag as a box around the subject, and the Inspector
+sends it as a `box` prompt. The pack and the AI never draw the box. The cut was set on the
+calibration clicks (it7cal: the talking head covers 0.29 of the bottom edge, every other
+calibration click none); on the scored split the pack asked on talking_head and hair_busy (the
+portrait's hair runs off the top) and on nothing else. One click, with the box where asked
+(it14): talking_head 0.856 → **0.997**, hair_busy 0.964 → **0.997**; worst category is now
+crossing 0.901 (the tracking loss behind the occluder, the same as auto), 5th percentile
+0.855 → 0.898.
+
+### Foreground colour (ΔE 6.7 → 6.4 against ≤ 2.0): an alpha problem, not a colour one
+
+Decomposed on the calibration split: composited with the **ground-truth alpha**, the pack's
+foreground estimate scores ΔE 0.07–1.51 per category (product_table 0.07, hair_busy 0.44,
+leave_reenter 1.51); with the **delivered alpha and the ground-truth foreground colour** it still
+scores 3.3–13.7, the same as delivered (3.5–13.5). Blur-fusion foreground estimation (Forte &
+Pitié 2021) was no better (±0.1). So the foreground colour estimation in the band is not what
+fails the gate; alpha error in the band is (13.4 leave_reenter, 13.2 low_light), and it moves
+only with the soft-band alpha above. The 6.7 → 6.4 is lever 2's band.
+
+### BR3.17, contained partial re-runs (correction convergence)
+
+BR7.4's replays showed a re-run re-deciding everything it recomputed: 14–16 neighbours of the
+crossing fix lost up to 0.025 IoU to edge re-decisions nowhere near it, and low_light's corrected
+frame lost BF to re-decided unbrushed pixels. Now (`containment.py`): a brushed frame takes the
+re-run only on its brushed pixels; a locked or clicked frame (a prompt the previous matte does
+not already satisfy) takes it whole; any other frame keeps its previous alpha bit for bit unless
+the re-run repeats the correction's change on ≥ half of where the flow carries it (then it takes
+the change within two edge radii of it and passes it on). The half is set a priori, not fitted:
+the pilot has correction replays on scored clips only. Offline on BR7.4's first actions: no
+neighbour moves, crossing's target 0.553 / 0.941 → 0.583 / 0.986, hair_busy's 0.993 / 0.944 →
+0.997 / 1.000.
+
+REPLAY_RESULTS_PLACEHOLDER
+
+### Every 06 matte gate at the end (it14, scored split; it6 in brackets)
+
+| Gate | Threshold | it14 (final) | it6 (BR7.4 final) |
+| --- | --- | --- | --- |
+| Mean IoU, auto prompt, every category | ≥ 0.98 | fail 5/10; worst crossing 0.9027 | fail 5/10; worst crossing 0.9032 |
+| Worst-category mean IoU, one click | ≥ 0.97 | fail crossing 0.9008 (box asked on talking_head, hair_busy: 0.9974, 0.9970) | fail talking_head 0.8556 (it8) |
+| 5th-percentile per-frame IoU, one click | ≥ 0.95 | fail 0.8981 | fail 0.8551 (it8) |
+| BF@2px, every category | ≥ 0.95 | fail 4/10; worst leave_reenter 0.6861 | fail 4/10; worst leave_reenter 0.6786 |
+| Band SAD / Grad, hair category | ≥ 25% lower than band alpha off; within 2% of fp32 | **pass** SAD −56%, Grad −81%; 0.0% from fp32 | **pass** −55% / −80%; 0.01% |
+| Foreground colour error | mean ΔE2000 ≤ 2.0 in the band | fail 6.442 | fail 6.673 |
+| dtSSD | ≥ 30% lower than stabilisation off; blind review | fail: −1.9% … +5.7% (better than off on 8/10) | fail: −21% … +1.3% (worse on 7/10) |
+| Leak rate | ≤ 0.5% of frames | fail 20.9% (67/320) | fail 21.2% (68/320) |
+| Error-detection recall | ≥ 99.5% | **pass** 100% (145/145; Wilson 97.4%) | **pass** 100% (144/144; Wilson 97.4%) |
+| Review load | ≤ 10% | fail 79.1% (45.3% of frames wrong) | fail 79.1% (45.0% wrong) |
+| Correction convergence | ≤ 3 actions → IoU ≥ 0.995, BF ≥ 0.98; neighbours do not regress | CONVERGENCE_CELL | fail 2/4 |
+| Locked frames | 100% bit-identical | LOCKS_CELL | **pass** 4/4 |
+| Frame alignment | 100% | **pass** 320/320 | **pass** 320/320 |
+| Preview ↔ export | 09 oracle rows | not measured (not this harness) | not measured |
+
+### Reading
+
+* **Moved:** one click (talking_head 0.856 → 0.997 and hair_busy 0.964 → 0.997 with the box
+  the pack asks for; p5 0.855 → 0.898), stabilisation from harmful to mildly helpful (8 of 10
+  categories better than off, was 3), correction replays (REPLAY_SUMMARY), foreground ΔE 6.67 →
+  6.44, leak 21.2% → 20.9%, BF similar_colour 0.974 → 0.981.
+* **Not moved, and why:** mean IoU / BF on crossing, fast_motion, leave_reenter, low_light,
+  twin_distractor (and walk_pan BF): the α = 0.5 line inside motion blur and the subject behind
+  the occluder, which neither model estimates and no post-model stage or SAM crop recovers;
+  dtSSD (bounded by the consistent part of that error); leak rate and review load (they track the
+  45% of frames that are wrong); foreground ΔE (alpha error in the band). Each needs a better
+  soft-band alpha estimate than SAM + BiRefNet give on motion blur, i.e. a model change, which
+  BR7.5 excluded.
+* **Not measured:** preview ↔ export (09 oracle, not this harness), MO-8 human labels, the
+  release platforms, the blind dtSSD review.
