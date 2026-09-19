@@ -16,7 +16,9 @@ import { parseTrackArtifact, trackTransformAt, trackWarpPoint } from '@framepilo
 
 import {
   TRACK_FILE,
+  TrackArtifactReadError,
   measuredFrames,
+  readTrackArtifact,
   trackCacheKey,
   trackParameters,
   trackRanges,
@@ -156,6 +158,35 @@ describe('methods', () => {
     }
   });
 
+  it('sends the exclusion regions to the worker, normalized to the coded frame (MK7.7)', () => {
+    const exclusions = [{ x: 20, y: 10, width: 40, height: 20 }];
+    const planar = trackParameters(request({ exclusions }), false);
+    const [box] = (planar.parameters as { exclusions: Record<string, number>[] }).exclusions;
+    expect(box!['x']).toBeCloseTo(0.1, 12);
+    expect(box!['y']).toBeCloseTo(0.1, 12);
+    expect(box!['width']).toBeCloseTo(0.2, 12);
+    expect(box!['height']).toBeCloseTo(0.2, 12);
+    const shape = trackParameters(
+      request({ method: 'point-cloud', vertices: [{ x: 40, y: 20 }], exclusions }),
+      false,
+    );
+    expect(shape.parameters).toMatchObject({ exclusions: [{ x: 0.1, y: 0.1 }] });
+    // Clipped to the frame; a box wholly outside it is not sent at all.
+    const clipped = trackParameters(
+      request({
+        exclusions: [
+          { x: 180, y: 90, width: 100, height: 100 },
+          { x: 500, y: 500, width: 10, height: 10 },
+        ],
+      }),
+      false,
+    );
+    const sent = (clipped.parameters as { exclusions: { x: number; width: number }[] }).exclusions;
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.x + sent[0]!.width).toBeCloseTo(1, 12);
+    expect(trackParameters(request(), false).parameters).not.toHaveProperty('exclusions');
+  });
+
   it('refuses a shape track with no path and one with too many vertices', () => {
     expect(validateTrackJob(request({ method: 'point-cloud' }))).toMatch(/path/);
     expect(
@@ -206,13 +237,13 @@ describe('samples become measured frames', () => {
     expect(trackWarpPoint(frames[0]!.homography, 0, 0)).toEqual([50, 50]);
   });
 
-  it('drops a frame whose measured centre sits inside an exclusion region', () => {
+  it('keeps every measured frame: exclusions are the worker’s, not a reason to drop one', () => {
     const frames = measuredFrames(
       [sample(0, [1, 0, 0, 0, 1, 0, 0, 0, 1]), sample(1, [1, 0, 0, 0, 1, 0, 0, 0, 1])],
       request({ exclusions: [{ x: 80, y: 40, width: 40, height: 20 }] }),
       (frame) => frame,
     );
-    expect(frames).toHaveLength(0);
+    expect(frames).toHaveLength(2);
   });
 
   it('a shape track needs no transform from the worker', () => {
@@ -276,6 +307,55 @@ describe('writing the artifact', () => {
     await expect(
       readFile(path.join(directory, '.framepilot-derived', 'tracks', key, TRACK_FILE)),
     ).rejects.toThrow();
+  });
+
+  it('writes a joined re-track exactly as built, without re-anchoring it', async () => {
+    const directory = await project();
+    // A re-track continued from a correction: nothing is the identity on the request's frame.
+    const built = {
+      version: 1,
+      method: 'position' as const,
+      timeBase: [1, 25] as const,
+      originPts: 0,
+      firstFrame: 10,
+      pts: [10, 11],
+      transforms: [...[1, 0, 3, 0, 1, 1, 0, 0, 1], ...[1, 0, 9, 0, 1, 1, 0, 0, 1]],
+      confidence: [0.4, 0.95],
+    };
+    const outcome = await writeTrackArtifact({
+      projectDir: directory,
+      jobId: 'job-4',
+      key,
+      request: request(),
+      frames: [],
+      built: { artifact: built, residualPx: [0.2] },
+      timeBase: [1, 25],
+      originPts: 0,
+    });
+    expect(outcome).toMatchObject({ status: 'completed', worstResidualPx: 0.2 });
+    const artifact = await readTrackArtifact(directory, {
+      key,
+      sha256: (outcome as { sha256: string }).sha256,
+    });
+    expect(artifact.transforms).toEqual(built.transforms);
+    expect(artifact.confidence).toEqual(built.confidence);
+  });
+
+  it('reads a pinned track back only when its bytes are the ones pinned', async () => {
+    const { directory, outcome } = await write();
+    if (outcome.status !== 'completed') throw new Error('write failed');
+    await expect(
+      readTrackArtifact(directory, { key, sha256: outcome.sha256 }),
+    ).resolves.toMatchObject({ method: 'position' });
+    await expect(readTrackArtifact(directory, { key, sha256: 'c'.repeat(64) })).rejects.toThrow(
+      /Track the mask again/,
+    );
+    await expect(
+      readTrackArtifact(directory, { key: '../escape', sha256: outcome.sha256 }),
+    ).rejects.toBeInstanceOf(TrackArtifactReadError);
+    await expect(
+      readTrackArtifact(directory, { key: 'd'.repeat(64), sha256: outcome.sha256 }),
+    ).rejects.toBeInstanceOf(TrackArtifactReadError);
   });
 
   it('refuses to write through a link planted where the store belongs', async () => {

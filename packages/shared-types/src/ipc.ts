@@ -1192,12 +1192,16 @@ export interface MaskTrackIntentWire {
   readonly referenceSourceTime: number;
   /** Extra texture the tracker should follow, display-corrected source pixels (MK7.4). */
   readonly featurePoints?: readonly { readonly x: number; readonly y: number }[];
-  /** Regions the tracker must ignore, display-corrected source pixels (MK7.4). */
+  /**
+   * Regions the tracker must ignore, display-corrected source pixels (MK7.4), each with the
+   * source instant it was drawn at: the worker follows a box's content from that frame (MK7.7).
+   */
   readonly exclusions?: readonly {
     readonly x: number;
     readonly y: number;
     readonly width: number;
     readonly height: number;
+    readonly sourceTime?: number;
   }[];
   /** Re-measure only around the mask's constraint frames instead of the whole direction. */
   readonly fromConstraints?: boolean;

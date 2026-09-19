@@ -263,7 +263,10 @@ export const MaskTrackIntentSchema = z
       .array(z.object({ x: z.number().finite(), y: z.number().finite() }).strict())
       .max(64)
       .optional(),
-    /** Regions the tracker must ignore, display-corrected source pixels. */
+    /**
+     * Regions the tracker must ignore, display-corrected source pixels, with the source instant
+     * each was drawn at (MK7.7): a measurement carries the boxes drawn on its own first frame.
+     */
     exclusions: z
       .array(
         z
@@ -272,6 +275,7 @@ export const MaskTrackIntentSchema = z
             y: z.number().finite(),
             width: z.number().finite().positive(),
             height: z.number().finite().positive(),
+            sourceTime: SourceTimeSchema.optional(),
           })
           .strict(),
       )

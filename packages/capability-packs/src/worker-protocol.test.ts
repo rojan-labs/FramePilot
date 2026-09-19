@@ -58,6 +58,48 @@ describe('Capability Pack worker protocol', () => {
     expect(CapabilityPackWorkerRequestSchema.parse({ ...base, ...variant })).toMatchObject(variant);
   });
 
+  it('carries the regions a planar or shape track must ignore, bounded (MK7.7)', () => {
+    const exclusions = [{ x: 0.1, y: 0.2, width: 0.3, height: 0.4 }];
+    const planar = {
+      ...base,
+      capability: 'tracking.planar',
+      parameters: {
+        corners: [
+          { x: 0.1, y: 0.1 },
+          { x: 0.8, y: 0.1 },
+          { x: 0.8, y: 0.8 },
+          { x: 0.1, y: 0.8 },
+        ],
+        exclusions,
+      },
+    };
+    expect(CapabilityPackWorkerRequestSchema.parse(planar)).toMatchObject({
+      parameters: { exclusions },
+    });
+    expect(
+      CapabilityPackWorkerRequestSchema.parse({
+        ...base,
+        capability: 'tracking.point',
+        parameters: { point: { x: 0.5, y: 0.5 }, exclusions },
+      }),
+    ).toMatchObject({ parameters: { exclusions } });
+    expect(() =>
+      CapabilityPackWorkerRequestSchema.parse({
+        ...planar,
+        parameters: { ...planar.parameters, exclusions: Array(17).fill(exclusions[0]) },
+      }),
+    ).toThrow();
+    expect(() =>
+      CapabilityPackWorkerRequestSchema.parse({
+        ...planar,
+        parameters: {
+          ...planar.parameters,
+          exclusions: [{ x: 0.9, y: 0.2, width: 0.3, height: 0.4 }],
+        },
+      }),
+    ).toThrow(/inside the frame/i);
+  });
+
   it('rejects escaped geometry, inverted ranges, and ambiguous segmentation prompts', () => {
     expect(() =>
       CapabilityPackWorkerRequestSchema.parse({

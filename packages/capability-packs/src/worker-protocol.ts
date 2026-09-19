@@ -474,6 +474,19 @@ export const CAPABILITY_PACK_WORKER_MAX_TRACK_POINTS = 512;
  */
 const TrackReverseSchema = z.boolean().optional();
 
+/** Most exclusion regions one tracking request may carry (`MAX_EXCLUSIONS` in the worker). */
+export const CAPABILITY_PACK_WORKER_MAX_TRACK_EXCLUSIONS = 16;
+
+/**
+ * Regions of the frame the tracker must ignore (MK7.7): what the editor boxed as passing in front
+ * of the tracked surface, on the frame the measurement starts from. The worker follows each box's
+ * content from there and leaves its pixels out of registration and of the confidence check.
+ */
+const TrackExclusionsSchema = z
+  .array(NormalizedBoxSchema)
+  .max(CAPABILITY_PACK_WORKER_MAX_TRACK_EXCLUSIONS)
+  .optional();
+
 const RequestBaseSchema = z.object({
   type: z.literal('request'),
   protocolVersion: z.literal(CAPABILITY_PACK_WORKER_PROTOCOL_VERSION),
@@ -497,6 +510,7 @@ export const CapabilityPackWorkerRequestSchema = z.discriminatedUnion('capabilit
           .max(CAPABILITY_PACK_WORKER_MAX_TRACK_POINTS)
           .optional(),
         reverse: TrackReverseSchema,
+        exclusions: TrackExclusionsSchema,
       })
       .strict(),
   }).strict(),
@@ -515,6 +529,7 @@ export const CapabilityPackWorkerRequestSchema = z.discriminatedUnion('capabilit
           NormalizedPointSchema,
         ]),
         reverse: TrackReverseSchema,
+        exclusions: TrackExclusionsSchema,
       })
       .strict(),
   }).strict(),

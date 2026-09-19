@@ -17,12 +17,14 @@
  * for a nearest-frame lookup, without threading a rational frame rate through the protocol.
  */
 import {
+  anchorOnConstraint,
   assetDisplaySize,
   buildTrackArtifact,
   maskFrameBox,
   maskGeometryAt,
   mergeTrackSegments,
   retrackPlan,
+  trackWarpAt,
   type MeasuredTrackFrame,
   type SourcePictureGeometry,
   type TrackArtifact,
@@ -47,6 +49,7 @@ import {
   validateTrackJob,
   writeTrackArtifact,
   type TrackDirection,
+  type TrackExclusion,
   type TrackJobOutcome,
   type TrackJobRequest,
   type TrackingSamples,
@@ -66,13 +69,16 @@ export interface MaskTrackIntent {
   readonly direction: TrackDirection;
   readonly referenceSourceTime: number;
   readonly featurePoints?: readonly TrackPoint[];
-  readonly exclusions?: readonly {
-    readonly x: number;
-    readonly y: number;
-    readonly width: number;
-    readonly height: number;
-  }[];
+  readonly exclusions?: readonly TrackExclusion[];
   readonly fromConstraints?: boolean;
+}
+
+/** A box in display-corrected source pixels. */
+interface PixelBounds {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
 }
 
 export type MaskTrackResolution =
@@ -215,6 +221,17 @@ export interface MaskTrackMeasurement {
   readonly firstFrame: number;
   readonly lastFrameExclusive: number;
   readonly reverse: boolean;
+  /** The source instant the measurement starts from: the playhead, or a constraint. */
+  readonly sourceTime: number;
+  /** Where the mask is ON SCREEN there — what the worker is asked to follow. */
+  readonly bounds: PixelBounds;
+  readonly vertices: readonly TrackPoint[];
+  /**
+   * A re-track from a correction (MK7.7): the track it continues. The measurement is composed
+   * with that track's transform on its reference frame (`anchorOnConstraint`), because the
+   * editor's correction there is stored relative to it.
+   */
+  readonly continues?: TrackArtifact;
 }
 
 /**
@@ -241,6 +258,9 @@ export function maskTrackMeasurements(
       firstFrame: segment.firstFrame,
       lastFrameExclusive: segment.lastFrameExclusive,
       reverse: segment.reverse,
+      sourceTime: segment.sourceTime,
+      ...onScreen(resolved, segment.sourceTime, previous),
+      continues: previous,
     }));
   }
   return trackRanges({
@@ -251,7 +271,73 @@ export function maskTrackMeasurements(
   }).map((range: { firstFrame: number; lastFrameExclusive: number; reverse: boolean }) => ({
     ...range,
     referenceFrame: resolved.referenceFrame,
+    sourceTime: intent.referenceSourceTime,
+    bounds: resolved.bounds,
+    vertices: resolved.vertices,
   }));
+}
+
+/**
+ * Where a tracked mask is on the screen at `sourceTime`: its own geometry there, moved by the
+ * track (`T(t) · G(t)`, what both renderers draw). After a correction that is exactly what the
+ * editor put there, and it is what a re-track from that frame must follow.
+ */
+function onScreen(
+  resolved: ResolvedMaskTrack,
+  sourceTime: number,
+  track: TrackArtifact,
+): { readonly bounds: PixelBounds; readonly vertices: readonly TrackPoint[] } {
+  const warp = trackWarpAt(track, sourceTime);
+  const size = assetDisplaySize(resolved.asset.media);
+  const box = size === null ? null : maskFrameBox(resolved.mask, size, sourceTime);
+  const own =
+    box === null || size === null
+      ? resolved.bounds
+      : {
+          x: box.x * size.width,
+          y: box.y * size.height,
+          width: box.width * size.width,
+          height: box.height * size.height,
+        };
+  const corners = [
+    warp(own.x, own.y, -1),
+    warp(own.x + own.width, own.y, -1),
+    warp(own.x + own.width, own.y + own.height, -1),
+    warp(own.x, own.y + own.height, -1),
+  ];
+  const geometry = maskGeometryAt(resolved.mask, sourceTime);
+  const vertices =
+    geometry !== null && geometry.kind === 'path'
+      ? geometry.vertices.map((vertex, index) => {
+          const [x, y] = warp(vertex.x, vertex.y, index);
+          return { x, y };
+        })
+      : [];
+  // A shape track follows the vertices; its box is theirs, as on the reference frame.
+  const outline = vertices.length > 0 ? vertices : corners.map(([x, y]) => ({ x, y }));
+  const xs = outline.map((point) => point.x);
+  const ys = outline.map((point) => point.y);
+  const left = Math.min(...xs);
+  const top = Math.min(...ys);
+  return {
+    bounds: { x: left, y: top, width: Math.max(...xs) - left, height: Math.max(...ys) - top },
+    vertices,
+  };
+}
+
+/**
+ * The exclusions a measurement carries: the ones drawn on the frame it starts from (the worker
+ * follows each box's content from there), and any drawn without a frame.
+ */
+export function exclusionsFor(
+  exclusions: readonly TrackExclusion[] | undefined,
+  sourceTime: number,
+  fps: number,
+): readonly TrackExclusion[] {
+  const halfFrame = fps > 0 ? 0.5 / fps : 0;
+  return (exclusions ?? []).filter(
+    (box) => box.sourceTime === undefined || Math.abs(box.sourceTime - sourceTime) <= halfFrame,
+  );
 }
 
 /** The worker intent for one measurement, in the shape `buildTrackingWorkerRequest` takes. */
@@ -272,13 +358,14 @@ export function measurementIntent(
   const built = trackParameters(
     {
       method: resolved.request.method,
-      bounds: resolved.bounds,
+      bounds: measurement.bounds,
       geometry: resolved.geometry,
       // Feature points the editor added ride with the path's own vertices: they are extra
       // texture the tracker should follow, and a shape track keeps only the vertices.
       ...(resolved.request.method === 'point-cloud'
-        ? { vertices: resolved.vertices }
-        : { vertices: [...resolved.vertices, ...(intent.featurePoints ?? [])] }),
+        ? { vertices: measurement.vertices }
+        : { vertices: [...measurement.vertices, ...(intent.featurePoints ?? [])] }),
+      exclusions: exclusionsFor(intent.exclusions, measurement.sourceTime, resolved.fps),
     },
     measurement.reverse,
   );
@@ -298,30 +385,33 @@ export function ptsOf(frame: number, fps: number): number {
   return Math.round((frame / fps) * TRACK_TIME_BASE_HZ);
 }
 
+/** A measured segment and the model residual of each of its frames. */
+export interface MeasuredSegment extends TrackSegment {
+  readonly residualPx: readonly number[];
+}
+
 /**
  * Turn one measurement's samples into an anchored segment.
  *
- * @returns The segment, or `null` when the measurement produced nothing usable (every frame was
- *   excluded, or the pack never reported a plane) — the caller then has fewer segments, and
- *   fails honestly if none is left rather than committing a track of one frame.
+ * A re-track from a correction is continued from the track it replaces there
+ * (`anchorOnConstraint`); any other measurement is the identity on its reference frame.
+ *
+ * @returns The segment, or `null` when the measurement produced nothing usable (the pack never
+ *   reported a plane) — the caller then has fewer segments, and fails honestly if none is left
+ *   rather than committing a track of one frame.
  */
 export function segmentFromSamples(
   resolved: ResolvedMaskTrack,
   measurement: MaskTrackMeasurement,
   samples: TrackingSamples,
-): TrackSegment | null {
+): MeasuredSegment | null {
   const frames: readonly MeasuredTrackFrame[] = measuredFrames(
     samples,
-    {
-      method: resolved.request.method,
-      geometry: resolved.geometry,
-      ...(resolved.request.exclusions === undefined
-        ? {}
-        : { exclusions: resolved.request.exclusions }),
-    },
+    { method: resolved.request.method, geometry: resolved.geometry },
     (frame) => ptsOf(frame, resolved.fps),
   );
   if (frames.length === 0) return null;
+  const { bounds } = measurement;
   try {
     const built = buildTrackArtifact({
       method: resolved.request.method,
@@ -330,17 +420,20 @@ export function segmentFromSamples(
       frames,
       referenceFrame: measurement.referenceFrame,
       quad: [
-        { x: resolved.bounds.x, y: resolved.bounds.y },
-        { x: resolved.bounds.x + resolved.bounds.width, y: resolved.bounds.y },
-        {
-          x: resolved.bounds.x + resolved.bounds.width,
-          y: resolved.bounds.y + resolved.bounds.height,
-        },
-        { x: resolved.bounds.x, y: resolved.bounds.y + resolved.bounds.height },
+        { x: bounds.x, y: bounds.y },
+        { x: bounds.x + bounds.width, y: bounds.y },
+        { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+        { x: bounds.x, y: bounds.y + bounds.height },
       ],
-      ...(resolved.request.method === 'point-cloud' ? { referencePoints: resolved.vertices } : {}),
+      ...(resolved.request.method === 'point-cloud'
+        ? { referencePoints: measurement.vertices }
+        : {}),
     });
-    return { artifact: built.artifact, referenceFrame: measurement.referenceFrame };
+    const artifact =
+      measurement.continues === undefined
+        ? built.artifact
+        : anchorOnConstraint(built.artifact, measurement.continues, measurement.referenceFrame);
+    return { artifact, referenceFrame: measurement.referenceFrame, residualPx: built.residualPx };
   } catch (error) {
     log.warn('trackSegmentUnusable', {
       clipId: resolved.clip.id,
@@ -354,22 +447,19 @@ export function segmentFromSamples(
 export interface CommitMaskTrackInput {
   readonly projectDir: string;
   readonly resolved: ResolvedMaskTrack;
-  readonly segments: readonly TrackSegment[];
+  readonly segments: readonly MeasuredSegment[];
   readonly fingerprint: string;
   readonly pack: { readonly id: string; readonly version: string; readonly releaseDigest: string };
-  readonly previous?: TrackArtifact;
+  /** The track a re-track replaces, with the digest it was pinned by. */
+  readonly previous?: { readonly artifact: TrackArtifact; readonly sha256: string };
+  /** The constraints the re-track was measured from, source seconds. */
+  readonly constraints?: readonly number[];
 }
 
 /** Join the measurements and commit the artifact. */
 export async function commitMaskTrack(input: CommitMaskTrackInput): Promise<TrackJobOutcome> {
-  const { resolved } = input;
-  const all = [...input.segments];
-  // A re-track replaces only what it measured: the frames the previous track already got right
-  // are kept, so one fixed frame never costs the rest of the track.
-  if (input.previous !== undefined) {
-    all.push({ artifact: input.previous, referenceFrame: resolved.referenceFrame });
-  }
-  if (all.length === 0) {
+  const { resolved, previous } = input;
+  if (input.segments.length === 0) {
     return {
       status: 'failed',
       code: 'no_frames',
@@ -377,7 +467,19 @@ export async function commitMaskTrack(input: CommitMaskTrackInput): Promise<Trac
         'The tracker could not measure this mask. Move the playhead to a clearer frame and track again.',
     };
   }
+  const all: TrackSegment[] = [...input.segments];
+  // A re-track replaces only what it measured: the frames the previous track already got right
+  // are kept, so one fixed frame never costs the rest of the track — and a frame it did
+  // re-measure is never taken back from the old track (`fallback`).
+  if (previous !== undefined) {
+    all.push({
+      artifact: previous.artifact,
+      referenceFrame: resolved.referenceFrame,
+      fallback: true,
+    });
+  }
   const merged = mergeTrackSegments(all);
+  const residualPx = input.segments.flatMap((segment) => segment.residualPx);
   const key = trackCacheKey({
     fingerprint: input.fingerprint,
     method: resolved.request.method,
@@ -390,6 +492,9 @@ export async function commitMaskTrack(input: CommitMaskTrackInput): Promise<Trac
     ...(resolved.request.exclusions === undefined
       ? {}
       : { exclusions: resolved.request.exclusions }),
+    ...(previous === undefined
+      ? {}
+      : { continues: { sha256: previous.sha256, constraints: input.constraints ?? [] } }),
     packId: input.pack.id,
     packVersion: input.pack.version,
     releaseDigest: input.pack.releaseDigest,
@@ -399,22 +504,9 @@ export async function commitMaskTrack(input: CommitMaskTrackInput): Promise<Trac
     jobId: resolved.request.jobId,
     key,
     request: resolved.request,
-    // The merged artifact already holds the anchored transforms; re-building from it keeps one
-    // writer and one verification path.
-    frames: merged.pts.map((pts, index) => ({
-      frame: merged.firstFrame + index,
-      pts,
-      homography: merged.transforms.slice(index * 9, index * 9 + 9),
-      confidence: merged.confidence[index]!,
-      ...(merged.points === undefined
-        ? {}
-        : {
-            points: Array.from({ length: merged.points.count }, (_value, vertex) => ({
-              x: merged.points!.frames[(index * merged.points!.count + vertex) * 2]!,
-              y: merged.points!.frames[(index * merged.points!.count + vertex) * 2 + 1]!,
-            })),
-          }),
-    })),
+    frames: [],
+    // Already built and joined: written as it is (see `WriteTrackInput.built`).
+    built: { artifact: merged, residualPx },
     timeBase: [1, TRACK_TIME_BASE_HZ],
     originPts: 0,
   });

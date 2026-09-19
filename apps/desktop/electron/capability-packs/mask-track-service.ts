@@ -11,8 +11,9 @@
  */
 import type { CapabilityPackProposalResultWire } from '@framepilot/shared-types';
 import type { CapabilityPackWorkerProgress } from '@framepilot/capability-packs';
-import type { TrackSegment } from '@framepilot/editor-core';
+import type { TrackArtifact } from '@framepilot/editor-core';
 import type { Project } from '@framepilot/timeline-schema';
+import { readTrackArtifact, TrackArtifactReadError } from './track-job.js';
 import { buildTrackingWorkerRequest } from './tracking-request.js';
 import type { CapabilityPackTrackingService } from './tracking.js';
 import {
@@ -22,6 +23,7 @@ import {
   resolveMaskTrack,
   segmentFromSamples,
   type MaskTrackIntent,
+  type MeasuredSegment,
 } from './track-run.js';
 
 export type MaskTrackJobResult =
@@ -76,14 +78,32 @@ export async function runMaskTrackJob(input: MaskTrackJobInput): Promise<MaskTra
   const resolution = resolveMaskTrack(project, intent, Number(project.fps));
   if (resolution.status === 'rejected') return failed(resolution.code, resolution.detail);
   const resolved = resolution.resolved;
-  const measurements = maskTrackMeasurements(resolved, intent, undefined);
+  // "Re-track from constraints" continues the track the mask pins (MK7.7): it is read back and
+  // verified by its digest, never re-measured from scratch, so the frames it already got right
+  // stay exactly as they were and a correction composes with the transform it was made against.
+  let previous: { readonly artifact: TrackArtifact; readonly sha256: string } | undefined;
+  const pinned = resolved.mask.tracking?.artifact;
+  if (intent.fromConstraints === true && pinned !== undefined) {
+    try {
+      previous = {
+        artifact: await readTrackArtifact(input.projectDir, pinned),
+        sha256: pinned.sha256,
+      };
+    } catch (error) {
+      if (!(error instanceof TrackArtifactReadError)) throw error;
+      return failed('track_changed', error.message);
+    }
+  }
+  const measurements = maskTrackMeasurements(resolved, intent, previous?.artifact);
   if (measurements.length === 0) {
     return failed(
       'nothing_to_track',
-      'There is nothing to track in that direction. Move the playhead and try again.',
+      intent.fromConstraints === true
+        ? 'No constraint sits on or next to a stretch that needs review. Fix the mask on a flagged frame, then re-track.'
+        : 'There is nothing to track in that direction. Move the playhead and try again.',
     );
   }
-  const segments: TrackSegment[] = [];
+  const segments: MeasuredSegment[] = [];
   let engine = '';
   let releaseDigest = '';
   let packId = '';
@@ -141,6 +161,14 @@ export async function runMaskTrackJob(input: MaskTrackJobInput): Promise<MaskTra
         String(resolved.asset.durationSeconds ?? ''),
       ].join('|'),
       pack: { id: packId, version: packVersion, releaseDigest },
+      ...(previous === undefined
+        ? {}
+        : {
+            previous,
+            constraints: (resolved.mask.tracking?.constraints ?? []).map(
+              (constraint) => constraint.sourceTime,
+            ),
+          }),
     });
     if (committed.status === 'failed') {
       return failed(committed.code, committed.detail, committed.code === 'no_frames');

@@ -19,11 +19,24 @@
  * joins into the single artifact both renderers read. Each frame takes its transform from the
  * segment whose constraint is nearest, so a frame is always measured from the closest thing the
  * editor confirmed.
+ *
+ * **How a correction and the track combine (MK7.7).** Both renderers draw a tracked mask as
+ * `T(t) · G(t)`: the mask's own animation `G`, then the track `T` on top of it. A correction is
+ * a keyframe of `G`, stored RELATIVE to the tracked motion — the geometry the editor put on the
+ * screen, taken back through the track at that instant (`mask-track-correction.ts`). A re-track
+ * anchored on the correction frame `c` therefore does not restart the track at the identity: it
+ * continues from the transform the track had at `c` ({@link anchorOnConstraint}),
+ * `T'(f) = H(c → f) · T(c)`, so `T'(c) · G(c)` is exactly what the editor put on the screen and
+ * every other frame of the stretch carries it with the measured motion. The exactness of a
+ * constraint frame is still a property of the construction, not of a tolerance.
  */
 import {
   TRACK_ARTIFACT_VERSION,
   trackFrameIndexAt,
+  trackMatrixAt,
+  trackPointDelta,
   type TrackArtifact,
+  type TrackMatrix,
   type TrackMethod,
 } from './mask-track.js';
 import { TRACK_FLAG_CONFIDENCE, flaggedTrackRanges, type TrackRange } from './mask-track-solve.js';
@@ -210,8 +223,14 @@ function stretchStartBefore(
 /** A measured segment and the constraint frame it is anchored on. */
 export interface TrackSegment {
   readonly artifact: TrackArtifact;
-  /** The frame whose transform is the identity in this segment. */
+  /** The frame this segment was measured from (its constraint, or the track's reference). */
   readonly referenceFrame: number;
+  /**
+   * The track a re-track replaces: it answers only the frames no re-measured segment covers, so
+   * a frame the editor had re-measured is never taken back from the old track because the old
+   * track's reference happened to be nearer to it.
+   */
+  readonly fallback?: boolean;
 }
 
 export class TrackMergeError extends Error {
@@ -262,8 +281,11 @@ export function mergeTrackSegments(segments: readonly TrackSegment[]): TrackArti
       const current = chosen.get(pts);
       if (
         current === undefined ||
-        distance < current.distance ||
-        (distance === current.distance && segment.referenceFrame < current.segment.referenceFrame)
+        (current.segment.fallback === true && segment.fallback !== true) ||
+        ((current.segment.fallback === true) === (segment.fallback === true) &&
+          (distance < current.distance ||
+            (distance === current.distance &&
+              segment.referenceFrame < current.segment.referenceFrame)))
       ) {
         chosen.set(pts, { segment, index, distance });
       }
@@ -315,4 +337,104 @@ function frameOf(segments: readonly TrackSegment[], pts: number): number {
   }
   /* istanbul ignore next - every pts came from a segment */
   return 0;
+}
+
+/** What a track does at one instant: everything a correction needs to be stored relative to it. */
+export interface TrackStateAt {
+  /** The frame's 3x3, display-corrected source pixels. */
+  readonly matrix: TrackMatrix;
+  /** A shape track's per-vertex displacement at that frame, x/y pairs; absent otherwise. */
+  readonly pointDeltas?: readonly number[];
+  /** Seconds between tracked frames (the track's own grid); 0 for a one-frame track. */
+  readonly frameSeconds: number;
+}
+
+/** The track's state at an asset source instant (the frame nearest to it). */
+export function trackStateAt(artifact: TrackArtifact, sourceSeconds: number): TrackStateAt {
+  const index = trackFrameIndexAt(artifact, sourceSeconds);
+  const frameSeconds =
+    artifact.pts.length > 1
+      ? ((artifact.pts[1]! - artifact.pts[0]!) * artifact.timeBase[0]) / artifact.timeBase[1]
+      : 0;
+  const points = artifact.points;
+  if (points === undefined) return { matrix: trackMatrixAt(artifact, index), frameSeconds };
+  const pointDeltas: number[] = [];
+  for (let vertex = 0; vertex < points.count; vertex += 1) {
+    pointDeltas.push(...trackPointDelta(artifact, index, vertex));
+  }
+  return { matrix: trackMatrixAt(artifact, index), pointDeltas, frameSeconds };
+}
+
+/**
+ * A segment measured from a correction frame, continued from where the track was there.
+ *
+ * `segment` is anchored on `constraintFrame` (its transform there is the identity, as
+ * `buildTrackArtifact` makes every measurement). The editor's correction at that frame is a
+ * keyframe stored relative to the PREVIOUS track's transform there, so the segment is composed
+ * with it: `H(c → f) · T_previous(c)`. A shape track's points are carried the same way — each
+ * vertex continues from its previous displacement at `c` by the motion measured from `c`.
+ *
+ * @param segment - The re-measured stretch, identity on `constraintFrame`, whose shape-track
+ *   reference points are the vertices as the editor put them on the screen there.
+ * @param previous - The track being corrected.
+ * @throws TrackMergeError when the two cannot describe one track.
+ */
+export function anchorOnConstraint(
+  segment: TrackArtifact,
+  previous: TrackArtifact,
+  constraintFrame: number,
+): TrackArtifact {
+  if (
+    segment.method !== previous.method ||
+    segment.timeBase[0] !== previous.timeBase[0] ||
+    segment.timeBase[1] !== previous.timeBase[1] ||
+    segment.originPts !== previous.originPts ||
+    segment.points?.count !== previous.points?.count
+  ) {
+    throw new TrackMergeError('These measurements do not describe one track.');
+  }
+  const at = constraintFrame - previous.firstFrame;
+  const index = at < 0 ? 0 : at >= previous.pts.length ? previous.pts.length - 1 : at;
+  const anchor = trackMatrixAt(previous, index);
+  const transforms: number[] = [];
+  for (let frame = 0; frame < segment.pts.length; frame += 1) {
+    transforms.push(...compose(segment.transforms.slice(frame * 9, frame * 9 + 9), anchor));
+  }
+  const points = segment.points;
+  const before = previous.points;
+  if (points === undefined || before === undefined) return { ...segment, transforms };
+  const frames: number[] = [];
+  for (let frame = 0; frame < segment.pts.length; frame += 1) {
+    for (let vertex = 0; vertex < points.count; vertex += 1) {
+      const base = (frame * points.count + vertex) * 2;
+      const [dx, dy] = trackPointDelta(previous, index, vertex);
+      frames.push(
+        before.reference[vertex * 2]! + dx + (points.frames[base]! - points.reference[vertex * 2]!),
+        before.reference[vertex * 2 + 1]! +
+          dy +
+          (points.frames[base + 1]! - points.reference[vertex * 2 + 1]!),
+      );
+    }
+  }
+  return {
+    ...segment,
+    transforms,
+    points: { count: points.count, reference: before.reference, frames },
+  };
+}
+
+/** `left · right`, row-major 3x3, normalised so the last entry is 1 when it can be. */
+function compose(left: readonly number[], right: readonly number[]): number[] {
+  const out: number[] = [];
+  for (let row = 0; row < 3; row += 1) {
+    for (let column = 0; column < 3; column += 1) {
+      out.push(
+        left[row * 3]! * right[column]! +
+          left[row * 3 + 1]! * right[3 + column]! +
+          left[row * 3 + 2]! * right[6 + column]!,
+      );
+    }
+  }
+  const w = out[8]!;
+  return Math.abs(w) > 1e-12 ? out.map((value) => value / w) : out;
 }

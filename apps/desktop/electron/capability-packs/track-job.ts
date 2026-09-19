@@ -27,6 +27,7 @@ import { createHash } from 'node:crypto';
 import { lstat, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
+  TRACK_ARTIFACT_MAX_BYTES,
   TRACK_MAX_POINTS,
   buildTrackArtifact,
   flaggedTrackRanges,
@@ -37,6 +38,7 @@ import {
   TrackSolveError,
   type MeasuredTrackFrame,
   type SourcePictureGeometry,
+  type TrackArtifact,
   type TrackMethod,
   type TrackPoint,
 } from '@framepilot/editor-core';
@@ -93,12 +95,21 @@ export interface TrackJobRequest {
   /** Coded size, PAR and rotation of the source (MK1.9) — the display correction. */
   readonly geometry: SourcePictureGeometry;
   /** Regions the tracker must ignore, display-corrected source pixels (MK7.4). */
-  readonly exclusions?: readonly {
-    readonly x: number;
-    readonly y: number;
-    readonly width: number;
-    readonly height: number;
-  }[];
+  readonly exclusions?: readonly TrackExclusion[];
+}
+
+/**
+ * A region the editor boxed as passing in front of the tracked surface (MK7.4, MK7.7):
+ * display-corrected source pixels, on the frame it was drawn on. The worker follows the box's
+ * content from the frame a measurement starts on, so a box belongs to the measurement that
+ * starts on the frame it was drawn on; one with no `sourceTime` applies to every measurement.
+ */
+export interface TrackExclusion {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly sourceTime?: number;
 }
 
 export type TrackJobFailureCode =
@@ -189,10 +200,14 @@ export function trackRanges(request: {
  * what the worker decodes; the display correction is applied to the answer, not the question.
  */
 export function trackParameters(
-  request: Pick<TrackJobRequest, 'method' | 'bounds' | 'vertices' | 'geometry'>,
+  request: Pick<TrackJobRequest, 'method' | 'bounds' | 'vertices' | 'geometry' | 'exclusions'>,
   reverse: boolean,
 ): { readonly capability: 'tracking.planar' | 'tracking.point'; readonly parameters: unknown } {
   const { geometry } = request;
+  const exclusions = (request.exclusions ?? [])
+    .map((box) => normalizedBox(box, geometry))
+    .filter((box) => box !== null);
+  const excluded = exclusions.length > 0 ? { exclusions } : {};
   const toNormalized = (point: TrackPoint): { x: number; y: number } => {
     const coded = displayToCodedPoint(point, geometry);
     return {
@@ -212,6 +227,7 @@ export function trackParameters(
         point: toNormalized(centre),
         points: vertices.map(toNormalized),
         reverse,
+        ...excluded,
       },
     };
   }
@@ -221,8 +237,32 @@ export function trackParameters(
     parameters: {
       corners: [toNormalized(a!), toNormalized(b!), toNormalized(c!), toNormalized(d!)],
       reverse,
+      ...excluded,
     },
   };
+}
+
+/**
+ * A display-pixel box as the worker reads it: normalized to the CODED frame and clipped to it.
+ * A rotated or anamorphic source turns the box into another axis-aligned box (a quarter turn
+ * swaps its sides), so its corners are carried over and their bounds taken.
+ */
+function normalizedBox(
+  box: TrackExclusion,
+  geometry: SourcePictureGeometry,
+): { x: number; y: number; width: number; height: number } | null {
+  const corners = [
+    { x: box.x, y: box.y },
+    { x: box.x + box.width, y: box.y },
+    { x: box.x + box.width, y: box.y + box.height },
+    { x: box.x, y: box.y + box.height },
+  ].map((corner) => displayToCodedPoint(corner, geometry));
+  const left = clampUnit(Math.min(...corners.map((corner) => corner.x)) / geometry.codedWidth);
+  const right = clampUnit(Math.max(...corners.map((corner) => corner.x)) / geometry.codedWidth);
+  const top = clampUnit(Math.min(...corners.map((corner) => corner.y)) / geometry.codedHeight);
+  const bottom = clampUnit(Math.max(...corners.map((corner) => corner.y)) / geometry.codedHeight);
+  if (!(right > left) || !(bottom > top)) return null;
+  return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
 function clampUnit(value: number): number {
@@ -258,6 +298,8 @@ export function trackCacheKey(parts: {
   readonly bounds: TrackJobRequest['bounds'];
   readonly vertices?: readonly TrackPoint[];
   readonly exclusions?: TrackJobRequest['exclusions'];
+  /** A re-track (MK7.7): the track it continues and the constraints it was measured from. */
+  readonly continues?: { readonly sha256: string; readonly constraints: readonly number[] };
   readonly packId: string;
   readonly packVersion: string;
   readonly releaseDigest: string;
@@ -288,6 +330,13 @@ export function trackCacheKey(parts: {
         ]),
         pack: `${parts.packId}@${parts.packVersion}`,
         releaseDigest: parts.releaseDigest,
+        // Only present on a re-track, so a fresh track keeps the key it always had.
+        ...(parts.continues === undefined
+          ? {}
+          : {
+              continues: parts.continues.sha256,
+              constraints: parts.continues.constraints.map(round),
+            }),
       }),
     )
     .digest('hex');
@@ -304,18 +353,19 @@ export type TrackingSamples = Extract<CapabilityPackWorkerResult, { samples: unk
  * box, which cannot carry rotation. A shape track needs no transform — its points ARE the
  * measurement — so its frames pass through with the identity.
  *
- * Exclusion regions are applied here, not in the worker: a sample whose measured box centre
- * falls inside one is dropped, which is what "a hand passing in front" means for a track.
+ * Exclusion regions are the WORKER's (MK7.7): it follows each one's content and leaves its pixels
+ * out of registration and of the confidence it reports. They used to be applied here, by
+ * dropping every sample whose measured box centre fell inside one — which threw away exactly
+ * the frames the editor was trying to rescue, and never kept the occluder out of the fit.
  */
 export function measuredFrames(
   samples: TrackingSamples,
-  request: Pick<TrackJobRequest, 'method' | 'geometry' | 'exclusions'>,
+  request: Pick<TrackJobRequest, 'method' | 'geometry'>,
   ptsOf: (frame: number) => number,
 ): readonly MeasuredTrackFrame[] {
   const frames: MeasuredTrackFrame[] = [];
   const { geometry } = request;
   for (const sample of samples) {
-    if (excluded(sample.box, request)) continue;
     let homography = [1, 0, 0, 0, 1, 0, 0, 0, 1] as readonly number[];
     if (request.method !== 'point-cloud') {
       if (sample.transform === undefined) continue;
@@ -341,28 +391,6 @@ export function measuredFrames(
     });
   }
   return frames;
-}
-
-function excluded(
-  box: { readonly x: number; readonly y: number; readonly width: number; readonly height: number },
-  request: Pick<TrackJobRequest, 'geometry' | 'exclusions'>,
-): boolean {
-  const regions = request.exclusions ?? [];
-  if (regions.length === 0) return false;
-  const centre = codedToDisplayPoint(
-    {
-      x: (box.x + box.width / 2) * request.geometry.codedWidth,
-      y: (box.y + box.height / 2) * request.geometry.codedHeight,
-    },
-    request.geometry,
-  );
-  return regions.some(
-    (region) =>
-      centre.x >= region.x &&
-      centre.x <= region.x + region.width &&
-      centre.y >= region.y &&
-      centre.y <= region.y + region.height,
-  );
 }
 
 function codedToDisplayPoint(point: TrackPoint, geometry: SourcePictureGeometry): TrackPoint {
@@ -391,6 +419,12 @@ export interface WriteTrackInput {
   readonly frames: readonly MeasuredTrackFrame[];
   readonly timeBase: readonly [number, number];
   readonly originPts: number;
+  /**
+   * An artifact already built and joined (a re-track, MK7.7): written as it is. Building it again
+   * from its own transforms would re-anchor every frame on the request's reference frame and
+   * penalise each confidence by the model residual a second time.
+   */
+  readonly built?: { readonly artifact: TrackArtifact; readonly residualPx: readonly number[] };
   /** Test seam; the real one is `createMatteStaging` in the tracks store. */
   readonly createStaging?: (projectDir: string, jobId: string) => Promise<MatteStaging>;
 }
@@ -405,26 +439,28 @@ export interface WriteTrackInput {
  */
 export async function writeTrackArtifact(input: WriteTrackInput): Promise<TrackJobOutcome> {
   const { request } = input;
-  let built;
-  try {
-    built = buildTrackArtifact({
-      method: request.method,
-      timeBase: input.timeBase,
-      originPts: input.originPts,
-      frames: input.frames,
-      referenceFrame: request.referenceFrame,
-      quad: modelQuad(request.bounds),
-      ...(request.method === 'point-cloud' ? { referencePoints: request.vertices ?? [] } : {}),
-    });
-  } catch (error) {
-    if (error instanceof TrackSolveError) {
-      return {
-        status: 'failed',
-        code: error.code === 'no_frames' ? 'no_frames' : 'measurement_failed',
-        detail: error.message,
-      };
+  let built = input.built;
+  if (built === undefined) {
+    try {
+      built = buildTrackArtifact({
+        method: request.method,
+        timeBase: input.timeBase,
+        originPts: input.originPts,
+        frames: input.frames,
+        referenceFrame: request.referenceFrame,
+        quad: modelQuad(request.bounds),
+        ...(request.method === 'point-cloud' ? { referencePoints: request.vertices ?? [] } : {}),
+      });
+    } catch (error) {
+      if (error instanceof TrackSolveError) {
+        return {
+          status: 'failed',
+          code: error.code === 'no_frames' ? 'no_frames' : 'measurement_failed',
+          detail: error.message,
+        };
+      }
+      throw error;
     }
-    throw error;
   }
   const staging = await (input.createStaging ?? defaultStaging)(input.projectDir, input.jobId);
   try {
@@ -480,6 +516,54 @@ export async function writeTrackArtifact(input: WriteTrackInput): Promise<TrackJ
   } catch (error) {
     await staging.discard();
     throw error;
+  }
+}
+
+/** Artifact keys are SHA-256 hex; anything else never reaches a path. */
+const TRACK_KEY = /^[0-9a-f]{64}$/;
+
+export class TrackArtifactReadError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = 'TrackArtifactReadError';
+  }
+}
+
+/**
+ * The committed track a mask pins, read back and verified (MK7.7): a re-track continues from it.
+ *
+ * The same checks the export makes before it trusts one: the key names a directory under the
+ * project's tracks store, the file there is a regular file within the size bound, and its bytes
+ * hash to the digest the mask pinned — a track changed outside FramePilot is refused, never
+ * re-tracked from.
+ *
+ * @throws TrackArtifactReadError with a remedy-shaped message and no varying magnitude.
+ */
+export async function readTrackArtifact(
+  projectDir: string,
+  pin: { readonly key: string; readonly sha256: string },
+): Promise<TrackArtifact> {
+  const unreadable = 'The track this mask uses is missing or changed. Track the mask again.';
+  if (!TRACK_KEY.test(pin.key)) throw new TrackArtifactReadError(unreadable);
+  const file = path.join(projectDir, ...TRACKS_RELATIVE_DIR, pin.key, TRACK_FILE);
+  let bytes: Buffer;
+  try {
+    const stat = await lstat(file);
+    if (!stat.isFile() || stat.size > TRACK_ARTIFACT_MAX_BYTES) {
+      throw new TrackArtifactReadError(unreadable);
+    }
+    bytes = await readFile(file);
+  } catch (error) {
+    if (error instanceof TrackArtifactReadError) throw error;
+    throw new TrackArtifactReadError(unreadable);
+  }
+  if (createHash('sha256').update(bytes).digest('hex') !== pin.sha256) {
+    throw new TrackArtifactReadError(unreadable);
+  }
+  try {
+    return parseTrackArtifact(JSON.parse(bytes.toString('utf-8')));
+  } catch {
+    throw new TrackArtifactReadError(unreadable);
   }
 }
 
