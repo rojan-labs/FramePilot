@@ -407,3 +407,173 @@ PNG encode/decode and the shared, swapping machine). Host path with a stub pack:
 the agreed limits (1 GiB swap growth, start at ≥ 40% free). The replay queue was stopped by the
 coordinator and must not be restarted on this machine as configured. Replays, one-click runs and
 the ablations need a machine with headroom, or a smaller per-job footprint.
+
+## BR7.4 matte eval in CI and the accuracy iteration (2026-09-18/19, linux-x64)
+
+> **Where and what.** `.github/workflows/smart-mask-eval.yml`, dispatch only, on GitHub's
+> `ubuntu-latest` (4 vCPU, 16 GB, 24 GB swap added per job), CPU EP, **BiRefNet at its trained
+> 2048² tile on every run** (no job was OOM-killed, so the 1024² fallback never fired; peak RSS
+> 12.3 GiB). One job per (variant, clip); 32-frame 720p clips took 23–95 min each. Reports:
+> `reports/smart-mask/<date>-linux-x64-ci-<iteration>.json` + contact sheet.
+>
+> **Not the release gate.** 06 sets the matte gates for darwin-arm64 and win32-x64 (MO-9, MO-13).
+> These linux-x64 CPU numbers are evidence of the pipeline's accuracy on the construction-true
+> pilot, not a release result, and still not MO-8's human-labelled footage.
+>
+> **Same pipeline, re-exported graphs.** The runner exports the graphs from the pinned
+> checkpoints with the pack's own scripts (`eval/ci_export_graphs.sh`). Six of the seven SAM files
+> are byte-identical to the darwin pins; `sam21l_memory_attention.fp32.onnx` and the BiRefNet
+> graphs are not (same checkpoints, same scripts, different bytes), so each job pins the runner's
+> own digests in its checkout (`eval/ci_graphs.py`, recorded under `provenance.graphs`). The
+> pilot is re-rendered on the runner; its Sintel stills decode to different pixels than the
+> laptop's (another ffmpeg), so CI clips are not byte-identical to BR7.3's.
+
+### What the error attribution showed (it0)
+
+Each run now dumps every independent estimate, and the report scores each against ground truth
+(`attribution`). On the BR7.3 pipeline at 2048² (it0, scored split, IoU / BF@2px):
+
+| Category | SAM fwd | BiRefNet | delivered |
+| --- | --- | --- | --- |
+| product_table | 0.991 / 0.999 | 0.995 / 1.000 | **0.968 / 0.760** |
+| talking_head | 0.993 / 0.949 | 0.948 / 0.683 | 0.993 / 0.797 |
+| low_light | 0.958 / 0.837 | 0.807 / 0.579 | **0.807 / 0.161** |
+| hair_busy | 0.992 / 0.942 | 0.997 / 0.990 | 0.997 / 0.982 |
+| crossing | 0.893 / 0.887 | 0.834 / 0.830 | 0.873 / 0.773 |
+
+The delivered matte was worse than **both** estimates on several categories. Two causes, both
+confirmed by replaying the post-model stages offline on the dumps (no models):
+1. **A second BiRefNet pass nobody meant to run.** Band alpha reran BiRefNet on "downscaled"
+   crops, but the test was "resized", and at 2048² every 720p/1080p crop is *enlarged*. So every
+   frame got a second pass over the whole reflect-padded frame, outside the subject crop, and its
+   band alpha overwrote the crop pass (product_table 0.968/0.760 → 0.995/1.000 without it).
+2. **BiRefNet voting where it is wrong.** Its edge is the best estimate where it agrees with SAM
+   (hair, product, similar colour) and wrong by whole regions where it does not (low light,
+   crossing, talking head), and it had a vote on the silhouette and the band either way.
+
+### Iterations
+
+Every change is a commit with a dispatched run. Levers stayed inside the pipeline; the models are
+unchanged. Thresholds and parameters were chosen on the **calibration** split (offline replay of
+the dumped estimates, then a CI run), and the table reports the **scored** split.
+
+| It | Commit | CI run | Change |
+| --- | --- | --- | --- |
+| it0 | 80cc9bf6 (BR7.3 pipeline) | 35381389465, scored in 35402020729 | Baseline at 2048²: auto, one-click, band/fp32/stabilisation ablations (replays cancelled to free runners for the iterations) |
+| it1 | 6f4d7fdc | 35394205635 | Band pass only for crops actually shrunk into the tile; consensus: SAM + warped previous decide the silhouette, BiRefNet decides pixels within ~1 SAM cell of its boundary only on frames whose boundaries agree (F ≥ 0.9 at 3 px for 720p), and supplies band alpha only there |
+| it2 | eb476cf4 | 35394679138 | One click conditions on the whole subject: the largest decoder candidate containing the click, within 0.15 of the best predicted IoU, ≤ 60% of the frame, as a mask prompt |
+| it3 | 63c8054a | 35394773636 | Brighten under-exposed crops before BiRefNet (low_light, fast_motion only). **No gain; reverted (843ad0a5)** |
+| it4 | 8e34af75 | 35405510388 | SAM masks guided-filtered with the frame (radius 6 px at 720p, eps 0.01) before the vote |
+| it5 | a4837b63 | 35406560494 (cancelled, folded into it6) | One-click margin 0.15 → 0.3 (close-ups kept a part at 0.15); every click's candidates recorded in report.json |
+| it6 | bc81b231 | 35411684916 | Soft guided edge in the band on frames whose edge is SAM's (binarises exactly as the silhouette); band pass only on trusted frames; full suite: auto, one-click, ablations, replays |
+| it7, it7cal | f179d8ce, 09db6876 | 35419077681, 35419105793 | Data only: every click's candidates dumped, scored and calibration split |
+| it8 | 14aaecc8 | 35422198292 | One click: the largest candidate unless its boundary contrast (image gradient on the boundary / in a 12 px ring) is below 0.75 of the strongest candidate's, then the strongest; only in the matte job (it had leaked into interactive AI Object clicks since it2) |
+
+**Automatic accuracy per category (scored split, mean IoU / BF@2px / wrong frames of 32; bold = IoU and BF both pass):**
+
+| Category | it0 | it1 | it4 | it6 |
+| --- | --- | --- | --- | --- |
+| crossing | 0.873 / 0.773 / 26 | 0.898 / 0.898 / 16 | 0.903 / 0.899 / 15 | 0.903 / 0.897 / 15 |
+| fast_motion | 0.958 / 0.847 / 32 | 0.969 / 0.904 / 28 | 0.967 / 0.886 / 30 † | 0.969 / 0.898 / 29 |
+| hair_busy | **0.997 / 0.982** / 3 | **0.997 / 0.987** / 1 | **0.997 / 0.988** / 2 | **0.997 / 0.989 / 2** |
+| leave_reenter | 0.906 / 0.692 / 20 | 0.911 / 0.659 / 20 | 0.914 / 0.667 / 20 | 0.917 / 0.679 / 20 |
+| low_light | 0.807 / 0.161 / 32 | 0.958 / 0.836 / 32 | 0.960 / 0.823 / 32 † | 0.959 / 0.818 / 32 |
+| product_table | 0.968 / 0.760 / 30 | **0.995 / 1.000 / 0** | **0.995 / 1.000 / 0** | **0.995 / 1.000 / 0** |
+| similar_colour | 0.978 / 0.952 / 21 | **0.983 / 0.974 / 6** | **0.983 / 0.974 / 6** | **0.983 / 0.974 / 6** |
+| talking_head | 0.993 / 0.797 / 31 | **0.995 / 0.971 / 3** | **0.997 / 0.992 / 1** | **0.998 / 0.994 / 1** |
+| twin_distractor | 0.955 / 0.834 / 30 | 0.966 / 0.893 / 24 | 0.969 / 0.899 / 23 | 0.969 / 0.901 / 23 |
+| walk_pan | 0.972 / 0.888 / 25 | 0.979 / 0.929 / 17 | 0.981 / 0.926 / 16 | 0.980 / 0.926 / 16 (IoU passes, BF fails) |
+| **All scored** | 0.941 / 0.769 / 250 (78%) | 0.965 / 0.905 / 147 (46%) | 0.967 / 0.905 / 145 (45%) | 0.967 / 0.908 / 144 (45%) |
+
+† it4's dark categories still carried it3's exposure change (reverted before it6).
+
+**One click (scored split, mean IoU; gate: worst category ≥ 0.97, 5th percentile ≥ 0.95).** it5 was
+cancelled and folded into it6; it7 (35419077681) repeated it6's click runs with the candidates dumped
+and reproduced them to the fourth decimal; it7cal (35419105793) ran the calibration split, where the
+boundary-contrast cut was chosen; it8 (35422198292, 14aaecc8) measured it.
+
+| Category | it0 (SAM's pick) | it2 (largest within 0.15) | it6 (largest within 0.3) | it8 (final: + boundary contrast) |
+| --- | --- | --- | --- | --- |
+| crossing | 0.540 | 0.863 | 0.901 | 0.901 |
+| fast_motion | 0.958 | 0.968 | 0.968 | 0.968 |
+| hair_busy | 0.712 | 0.704 | 0.964 | 0.964 |
+| leave_reenter | 0.894 | 0.917 | 0.924 | 0.924 |
+| low_light | 0.499 | 0.670 | 0.953 | 0.953 |
+| product_table | 0.968 | 0.995 | 0.852 | 0.995 |
+| similar_colour | 0.691 | 0.983 | 0.984 | 0.984 |
+| talking_head | 0.749 | 0.852 | 0.647 | 0.856 |
+| twin_distractor | 0.589 | 0.970 | 0.975 | 0.975 |
+| walk_pan | 0.972 | 0.979 | 0.981 | 0.981 |
+
+**Every 06 matte gate per iteration (scored split; it6 column = the final pipeline: it6's runs, one-click from it8):**
+
+| Gate | Threshold | it0 | it1 | it4 | it6 |
+| --- | --- | --- | --- | --- | --- |
+| Mean IoU, auto prompt, every category | ≥ 0.98 | fail 2/10; worst low_light 0.8066 | fail 4/10; worst crossing 0.8978 | fail 5/10; worst crossing 0.9031 | fail 5/10; worst crossing 0.9032 |
+| Worst-category mean IoU, one click | ≥ 0.97 | fail low_light 0.4987 | not run | not run | fail talking_head 0.8556 (it8) |
+| 5th-percentile per-frame IoU, one click | ≥ 0.95 | fail 0.4725 | not run | not run | fail 0.8551 (it8) |
+| BF@2px, every category | ≥ 0.95 | fail 2/10; worst low_light 0.1606 | fail 4/10; worst leave_reenter 0.659 | fail 4/10; worst leave_reenter 0.6673 | fail 4/10; worst leave_reenter 0.6786 |
+| Band SAD / Grad, hair category | ≥ 25% lower than band alpha disabled; within 2% of the fp32 reference | **pass** SAD −59%, Grad −84% vs band off; 0.01% from fp32 | not run | not run | **pass** SAD −55%, Grad −80% vs band off; 0.01% from fp32 |
+| Foreground colour error | mean ΔE2000 ≤ 2.0 in the band | fail 8.809 | fail 8.278 | fail 8.157 | fail 6.673 |
+| dtSSD | ≥ 30% lower than stabilisation disabled; no visible crawl (blind review) | fail reduction vs stabilisation off: best 8%, worst −3% | not run | not run | fail reduction vs stabilisation off: best 1%, worst −21% (stabilisation now adds error on 7/10) |
+| Leak rate | ≤ 0.5% of frames before review | fail 58.4% (187/320) | fail 22.8% (73/320) | fail 23.4% (75/320) | fail 21.2% (68/320) |
+| Error-detection recall | ≥ 99.5% | fail 99.2% (248/250; Wilson 97.1%) | **pass** 100.0% (147/147; Wilson 97.5%) | **pass** 100.0% (145/145; Wilson 97.4%) | **pass** 100.0% (144/144; Wilson 97.4%) |
+| Review load | ≤ 10% of frames on medium categories | fail 87.5% (78% of frames wrong) | fail 72.2% (46% of frames wrong) | fail 79.1% (45% of frames wrong) | fail 79.1% (45% of frames wrong) |
+| Correction convergence | ≤ 3 actions → IoU ≥ 0.995, BF@2px ≥ 0.98 | not measured | not run | not run | fail 2/4 |
+| Locked frames | 100% bit-identical after any later re-run | not measured | not run | not run | **pass** 4/4 replays |
+| Frame alignment | 100% | **pass** 320/320 | **pass** 320/320 | **pass** 320/320 | **pass** 320/320 |
+| Preview ↔ export | the matte and text-behind-subject rows of the 09 oracle pass | not measured | not run | not run | not measured |
+
+### Reading
+
+* **Moved, with the cause named.** Leak rate 58% → 21%, wrong frames 78% → 45%, BF@2px worst category
+  0.16 → 0.68, mean IoU passing categories 2 → 5 (hair_busy, product_table, similar_colour,
+  talking_head, walk_pan), BF 2 → 4. The biggest single step was removing the unintended second
+  BiRefNet pass; the second was taking topology from SAM and BiRefNet's edge only where the two
+  agree. Foreground ΔE 8.8 → 6.7 from the soft edge on SAM-edged frames. One-click worst category
+  0.50 → 0.86. Error-detection recall reaches 100% on held-out frames from it1 on, but its Wilson
+  lower bound (97.4%) is below the 99.5% gate at 144 wrong frames, so the gate is met by the point
+  estimate only.
+* **Pass:** band SAD/Grad on hair (−55% / −80% against band alpha off; the fp32 graph matches the
+  fp16-stored one to 0.01%), locked frames (4/4 replays bit-identical), frame alignment, and
+  recall (point estimate, above).
+* **Still missing, and what would move each:**
+  - *Mean IoU / BF on crossing, leave_reenter, low_light, fast_motion, twin_distractor.* No estimate
+    is right there: SAM itself scores 0.89–0.97 IoU and BiRefNet lower (attribution table in each
+    report). leave_reenter is a 24 px motion smear whose α = 0.5 line neither model finds (BF 0.68 on
+    every frame, prompt frame included); crossing loses the subject behind the occluder (5th
+    percentile IoU 0.18); low_light is noise (exposure normalisation for BiRefNet was tried and
+    reverted, it3). Moving these needs better SAM edges than 256² logits give (a subject-crop SAM
+    pass) or motion-aware matting, not another consensus rule.
+  - *Leak rate (21%).* Mostly the same frames: a leak is a wrong region > 0.05% of the frame, and at
+    720p a 4 px edge sliver along a limb is one. Tracks BF.
+  - *Review load (79% against 45% of frames wrong).* No honest detector can go below the wrong
+    fraction. BiRefNet/SAM edge agreement (recorded per frame as `edgeTrusted`) separates 73%-wrong from
+    28%-wrong frames (it4, 640 frames), but not enough to replace the checks recall needs.
+  - *Foreground ΔE (6.7 against ≤ 2.0).* Dominated by alpha error on the failing categories (13.4
+    leave_reenter, 13.3 low_light; 1.6 product_table, 3.6 hair_busy).
+  - *dtSSD (needs ≥ 30% below stabilisation off).* Band-only stabilisation (±1 frame, ±24 levels)
+    removes at most 8% (it0) and now adds error on 7 of 10 categories (−21% product_table): with the
+    soft edge it averages a rigid subject's already-stable edge with flow-warped neighbours. Offline,
+    wider or stronger smoothing (±2 frames, ±128 levels) cost walk_pan IoU 0.981 → 0.969 and never
+    reached 30%. What would move it is temporal consistency before binarisation (the silhouette vote),
+    not after it. The blind review is a person's and was not done.
+  - *One click (worst talking_head 0.856).* No SAM candidate for a click on the talking head is the
+    whole subject (best candidate IoU 0.74–0.85 against ground truth); the rule already picks the
+    best one on every clip with candidates. Needs a second prompt (a box from the chosen mask) or
+    the auto detector's box.
+  - *Correction convergence (2/4).* talking_head (action 1) and hair_busy (action 2) converge with no
+    neighbour regressing. crossing's worst frame is the subject almost fully behind the occluder (IoU 0.016): action 3
+    makes it exact (0.998 / 0.999) but 14 of its 30 neighbours within 1 s drop by up to 0.025 IoU: the
+    partial re-run recomputes the whole affect radius under the new conditioning. low_light reaches
+    0.994 / 0.971 at action 3 although that action brushes every wrong pixel, and action 2 lowered BF
+    (0.974 → 0.940): the re-run re-decides the target's unbrushed pixels. Both point at the re-run,
+    not the brush: keep the target's unbrushed pixels, and do not re-decide neighbours the correction
+    does not reach.
+* **Not measured:** preview ↔ export (09 oracle; not this harness), MO-8 human-labelled footage,
+  darwin-arm64 / win32-x64 (the release platforms; the laptop cannot hold 2048²).
+* **Throughput on the runner (not a budget, a planning figure).** 32 frames of 720p at 2048²:
+  it0 40–95 min per clip (the double BiRefNet pass), it6 23–57 min; peak RSS 12.3 GiB. The local
+  offline replays of the post-model stages (numpy, no models) ran after the user allowed runs on
+  this machine; no model ran locally.
+

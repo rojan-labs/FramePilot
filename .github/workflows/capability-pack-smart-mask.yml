@@ -6,9 +6,9 @@
 #
 # This workflow runs everything that needs no weights: the protocol/sandbox/runtime contract,
 # every pipeline stage with scripted models, real ffmpeg on generated clips, lint, types, and
-# the licence record. The real-weight proof (`-m decoded_media`) and the accuracy harness
-# (eval/run_eval.py) need the exported graphs and ~8 GB of memory per job; they run on the
-# pack build machine under spike/watchdog.py, not here.
+# the licence record. The real-weight proof (`-m decoded_media`) needs the exported graphs and
+# ~8 GB of memory per job; it runs on the pack build machine under spike/watchdog.py, not here.
+# The accuracy harness (eval/run_eval.py) runs in smart-mask-eval.yml, dispatch only (BR7.4).
 name: Capability Pack — Smart Mask
 
 on:
