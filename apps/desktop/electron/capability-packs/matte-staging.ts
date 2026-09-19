@@ -342,7 +342,7 @@ export async function createMatteStaging(
       if (options.adoptOrphan !== true) {
         throw new MatteStagingError('staging_exists', 'A matte job with this id is already staged.');
       }
-      await adoptOrphanedStaging(directory);
+      await adoptOrphanedStaging(stagingRoot, jobId);
     }
     await mkdir(path.join(inputsDirectory, 'corrections'), { recursive: true, mode: 0o700 });
     await mkdir(path.join(inputsDirectory, 'locked'), { recursive: true, mode: 0o700 });
@@ -442,15 +442,33 @@ async function realSubdirectory(parent: string, name: string): Promise<string> {
   return target;
 }
 
-/** True when `root` and everything under it are real files and directories (no links). */
+/**
+ * How deep and how wide a checkpoint tree may be for resume to keep it (F6). The worker writes
+ * `windows/<index>/<file>` (depth 2), and a 3-hour 60 fps clip is ~2 200 windows of a few files.
+ */
+const CHECKPOINT_MAX_DEPTH = 6;
+const CHECKPOINT_MAX_ENTRIES = 50_000;
+
+/**
+ * True when `root` and everything under it are real directories and regular files with one
+ * link each (no symlinks, no hard-link aliases of files elsewhere), within the depth and entry
+ * bounds. Anything else, including a read failure, is false: the tree is then removed.
+ */
 async function linkFree(root: string): Promise<boolean> {
-  const stat = await lstat(root);
-  if (stat.isSymbolicLink()) return false;
-  if (!stat.isDirectory()) return stat.isFile();
-  for (const entry of await readdir(root)) {
-    if (!(await linkFree(path.join(root, entry)))) return false;
-  }
-  return true;
+  let entries = 0;
+  const walk = async (current: string, depth: number): Promise<boolean> => {
+    const stat = await lstat(current);
+    if (stat.isSymbolicLink()) return false;
+    if (!stat.isDirectory()) return stat.isFile() && stat.nlink === 1;
+    if (depth >= CHECKPOINT_MAX_DEPTH) return false;
+    for (const entry of await readdir(current)) {
+      entries += 1;
+      if (entries > CHECKPOINT_MAX_ENTRIES) return false;
+      if (!(await walk(path.join(current, entry), depth + 1))) return false;
+    }
+    return true;
+  };
+  return await walk(root, 0).catch(() => false);
 }
 
 /**
@@ -459,11 +477,13 @@ async function linkFree(root: string): Promise<boolean> {
  * fingerprint and recomputes any that do not match). A checkpoint tree holding a link anywhere
  * is removed too: resume is an optimisation, never a reason to follow a planted link.
  */
-async function adoptOrphanedStaging(directory: string): Promise<void> {
+async function adoptOrphanedStaging(stagingRoot: string, jobId: string): Promise<void> {
+  const directory = path.join(stagingRoot, jobId);
   const stat = await lstat(directory);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new MatteStagingError('unsafe_path', 'The staging folder is a link or a file.');
   }
+  await assertStagingDirectoryReal(stagingRoot, jobId);
   let keptWindows = false;
   for (const entry of await readdir(directory)) {
     const entryPath = path.join(directory, entry);
@@ -473,7 +493,20 @@ async function adoptOrphanedStaging(directory: string): Promise<void> {
     }
     await rm(entryPath, { recursive: true, force: true });
   }
+  // Nothing moved the folder while it was being emptied (F6).
+  await assertStagingDirectoryReal(stagingRoot, jobId);
   log.action('matteStagingAdopted', { keptWindows });
+}
+
+/** `realpath(<stagingRoot>/<jobId>)` must be the staging root's realpath plus the id. */
+async function assertStagingDirectoryReal(stagingRoot: string, jobId: string): Promise<void> {
+  const [rootReal, directoryReal] = await Promise.all([
+    realpath(stagingRoot),
+    realpath(path.join(stagingRoot, jobId)),
+  ]);
+  if (directoryReal !== path.join(rootReal, jobId)) {
+    throw new MatteStagingError('unsafe_path', 'The staging folder resolves outside the staging root.');
+  }
 }
 
 export type MatteCommitOutcome = 'committed' | 'already_present';

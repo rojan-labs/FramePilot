@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import { link, mkdir, mkdtemp, readdir, readFile, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -141,6 +141,30 @@ describe('matte staging (MD-3)', () => {
     await expect(
       createMatteStaging(linked, 'job_2', undefined, { adoptOrphan: true }),
     ).rejects.toMatchObject({ code: 'unsafe_path' });
+  });
+
+  it('drops a checkpoint tree holding a hard-linked file, or deeper or wider than its bounds (F6)', async () => {
+    const dir = await project();
+    const outside = await project();
+    const adopt = () => createMatteStaging(dir, 'job_1', undefined, { adoptOrphan: true });
+    const first = await createMatteStaging(dir, 'job_1');
+    await first.release();
+    // A hard link aliasing a file outside staging.
+    await writeFile(path.join(outside, 'precious.bin'), 'x');
+    await mkdir(path.join(first.directory, 'windows', '1'), { recursive: true });
+    await link(path.join(outside, 'precious.bin'), path.join(first.directory, 'windows', '1', 'matte.mkv'));
+    await (await adopt()).release();
+    expect((await readdir(first.directory)).sort()).toEqual(['inputs']);
+    expect(await readFile(path.join(outside, 'precious.bin'), 'utf8')).toBe('x');
+    // Too deep.
+    await mkdir(path.join(first.directory, 'windows', 'a', 'b', 'c', 'd', 'e', 'f'), { recursive: true });
+    await (await adopt()).release();
+    expect((await readdir(first.directory)).sort()).toEqual(['inputs']);
+    // A normal checkpoint is kept.
+    await mkdir(path.join(first.directory, 'windows', '1'), { recursive: true });
+    await writeFile(path.join(first.directory, 'windows', '1', 'done.json'), '{}');
+    await (await adopt()).release();
+    expect((await readdir(first.directory)).sort()).toEqual(['inputs', 'windows']);
   });
 
   it.each(['../escape', 'a/b', '', '.', 'x'.repeat(65), 'job:1', '..'])(
