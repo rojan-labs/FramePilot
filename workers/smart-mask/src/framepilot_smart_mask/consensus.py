@@ -87,6 +87,37 @@ def snap_to_image(masks: list[Bool], frame: npt.NDArray[np.uint8]) -> list[Bool]
     return snapped
 
 
+#: On a frame whose edge BiRefNet is not trusted with, the band still needs a soft edge (a hard
+#: 0/255 step is a halo in the composite and flickers): the silhouette guided-filtered with the
+#: frame, clamped so it binarises exactly as the silhouette does. Chosen on the BR7.4 it4
+#: calibration split by replay: talking_head band SAD 1.63 -> 0.85, foreground ΔE 9.0 -> 4.5,
+#: dtSSD 3.4 -> 1.6; IoU and BF@2px unchanged by construction.
+SOFT_EDGE_RADIUS_1080P: Final = 4.5
+SOFT_EDGE_EPS: Final = 0.01
+
+
+def soft_edge(
+    result: FrameConsensus, frame: npt.NDArray[np.uint8], extra_band: Bool | None = None
+) -> npt.NDArray[np.uint8]:
+    """``result.alpha`` with a guided-filter soft edge in the band when the edge is SAM's.
+
+    Pixels under an Edge brush stroke (``extra_band``) keep the matted alpha consensus gave them.
+    """
+    if result.score.get("edgeTrusted", 1.0) or not result.band.any():
+        return result.alpha
+    guide = frame.astype(np.float32) / 255.0
+    radius = _scaled(SOFT_EDGE_RADIUS_1080P, frame.shape[0])
+    filtered = cv2.ximgproc.guidedFilter(
+        guide, result.majority.astype(np.float32), radius, SOFT_EDGE_EPS
+    )
+    soft = np.clip(np.round(filtered * 255.0), 0, 255).astype(np.uint8)
+    soft = np.where(result.majority, np.maximum(soft, 128), np.minimum(soft, 127)).astype(np.uint8)
+    region = result.band if extra_band is None else result.band & ~extra_band
+    alpha = result.alpha.copy()
+    alpha[region] = soft[region]
+    return alpha
+
+
 def _scaled(px_1080p: float, height: int) -> int:
     return max(2, round(px_1080p * height / 1080))
 
@@ -243,4 +274,5 @@ __all__ = [
     "frame_score",
     "iou",
     "snap_to_image",
+    "soft_edge",
 ]

@@ -41,7 +41,7 @@ import numpy.typing as npt
 
 from . import MATTE_PIPELINE_VERSION, PACK_VERSION
 from .backend import MattingModel, MediaUnreadableError, ModelProvider, SamModules, VideoInfo
-from .consensus import consensus, edge_radius, iou, snap_to_image
+from .consensus import consensus, edge_radius, iou, snap_to_image, soft_edge
 from .embeddings import EmbeddingCache
 from .encode import concat_segments, decode_gray_frames, encode_stream, packet_count
 from .flow import flow as dis_flow
@@ -889,10 +889,13 @@ class MatteJob:
                 radius,
                 extra_band=edge_band(frame_prompt),
             )
-            alpha = result.alpha
+            alpha = soft_edge(result, window.store[i], edge_band(frame_prompt))
             if not self.config.band_alpha:
                 alpha = np.where(result.majority, 255, 0).astype(np.uint8)
-            elif matting is not None and refine_records[i].downscaled:
+            elif (
+                matting is not None and refine_records[i].downscaled and result.score["edgeTrusted"]
+            ):
+                # A full-resolution band pass is BiRefNet's edge: only where it is trusted.
                 alpha, passes = band_alpha(
                     matting, window.store[i], alpha, result.band, refine_records[i]
                 )

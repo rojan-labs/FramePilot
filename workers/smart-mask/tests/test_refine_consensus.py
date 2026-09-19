@@ -204,3 +204,29 @@ def test_sam_masks_snap_to_the_image_edge() -> None:
     wrong_after = int((snapped ^ truth).sum())
     assert wrong_after < wrong_before // 3, (wrong_before, wrong_after)
     assert snap_to_image([], frame) == []
+
+
+def test_an_untrusted_edge_gets_a_soft_band_that_binarises_as_the_silhouette() -> None:
+    from framepilot_smart_mask.consensus import soft_edge
+
+    height, width = 720, 1280
+    frame = np.full((height, width, 3), 40, np.uint8)
+    frame[200:600, 500:700] = (220, 190, 160)
+    truth = np.zeros((height, width), bool)
+    truth[200:600, 500:700] = True
+    wrong = np.where(truth, 255, 0).astype(np.uint8)
+    wrong[200:600, 700:900] = 255  # BiRefNet disagrees on a whole side: not trusted
+    result = consensus([truth, truth], None, wrong, None, edge_radius(height))
+    assert result.score["edgeTrusted"] == 0.0
+    soft = soft_edge(result, frame)
+    assert np.array_equal(soft >= 128, result.majority), "IoU and BF are unchanged"
+    assert ((soft[result.band] > 0) & (soft[result.band] < 255)).any(), "the edge is soft"
+    assert np.array_equal(soft[~result.band], result.alpha[~result.band])
+    stroke = np.zeros_like(truth)
+    stroke[:, 690:710] = True
+    kept = soft_edge(result, frame, stroke)
+    assert np.array_equal(kept[stroke], result.alpha[stroke]), (
+        "an Edge brush stroke is not overwritten"
+    )
+    trusted = consensus([truth, truth], None, np.where(truth, 255, 0).astype(np.uint8), None, 4)
+    assert soft_edge(trusted, frame) is trusted.alpha
