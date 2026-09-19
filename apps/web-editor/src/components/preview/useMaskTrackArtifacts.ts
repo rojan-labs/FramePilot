@@ -61,7 +61,6 @@ export function useMaskTrackArtifacts(clip: Clip | null): ReadonlyMap<string, Tr
       live = false;
     };
     // `pins` is the identity of what is loaded; `tracked` changes with every edit of the clip.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pins]);
   return useMemo(() => {
     const ready = new Map<string, TrackArtifact>();
@@ -70,6 +69,5 @@ export function useMaskTrackArtifacts(clip: Clip | null): ReadonlyMap<string, Tr
       if (lookup.state === 'ready') ready.set(mask.id, lookup.artifact);
     }
     return ready;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pins, loaded]);
 }

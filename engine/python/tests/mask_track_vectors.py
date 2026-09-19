@@ -291,7 +291,10 @@ def _corrected_path(mask_id: str, span: tuple[float, float]) -> dict[str, Any]:
     """A path mask as ``correct_tracked_mask`` leaves it: the old animation held up to the frame
     before the stretch, the correction held across it, the old animation again after it."""
     t0, t1 = span
-    at = lambda fraction: t0 + (t1 - t0) * fraction  # noqa: E731
+
+    def at(fraction: float) -> float:
+        return t0 + (t1 - t0) * fraction
+
     types = [0, 1, 2, 0]
 
     def keyframe(key: str, time: float, easing: str, outline: list[Any]) -> dict[str, Any]:
@@ -319,7 +322,9 @@ def _corrected_path(mask_id: str, span: tuple[float, float]) -> dict[str, Any]:
 def _corrected_rectangle(span: tuple[float, float]) -> dict[str, Any]:
     """A rectangle corrected under a similarity track: its scalars keyed the same way."""
     t0, t1 = span
-    at = lambda fraction: t0 + (t1 - t0) * fraction  # noqa: E731
+
+    def at(fraction: float) -> float:
+        return t0 + (t1 - t0) * fraction
 
     def keys(name: str, old: float, corrected: float) -> list[dict[str, Any]]:
         return [
