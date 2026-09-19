@@ -265,6 +265,53 @@ def test_resume_reuses_finished_windows(tmp_path: Path, clip: Path) -> None:
     del clean
 
 
+def test_a_job_resumed_after_the_media_changed_recomputes_every_window(
+    tmp_path: Path, clip: Path
+) -> None:
+    """BR4.12 F2: the host's content fingerprint is part of the checkpoint's identity."""
+    import dataclasses
+
+    from framepilot_smart_mask.protocol import ProtocolError
+    from framepilot_smart_mask.runtime import CancellationFlag
+
+    def decoded_after_crash(name: str, resumed_content: str) -> int:
+        """Frames the resumed run decodes, after a run with content "a"*64 stopped after window 1."""
+        staging = staging_dir(tmp_path, name)
+        request = dataclasses.replace(
+            request_for(clip, staging, COUNT, [{"kind": "box", "pts": 0, "box": BOX}]),
+            content_fingerprint="a" * 64,
+        )
+        flag = CancellationFlag()
+
+        class StopAfterFirstWindow(list):
+            def append(self, item: tuple) -> None:
+                super().append(item)
+                if item[0] == "encode" and item[1] == item[2] and item[2] > 1:
+                    flag.cancel()
+
+        with pytest.raises(ProtocolError):
+            run_job(request, cancellation=flag, progress=StopAfterFirstWindow())
+        assert (staging / "windows" / "1" / "done.json").is_file()
+        events: list = []
+        outcome = run_job(
+            dataclasses.replace(request, content_fingerprint=resumed_content), progress=events
+        )
+        host_verify(staging, outcome, clip, 0, COUNT)
+        return sum(1 for phase, _, _ in events if phase == "decode")
+
+    clean_events: list = []
+    run_job(
+        request_for(clip, staging_dir(tmp_path, "clean"), COUNT, [{"kind": "box", "pts": 0, "box": BOX}]),
+        progress=clean_events,
+    )  # fmt: skip
+    every_window = sum(1 for phase, _, _ in clean_events if phase == "decode")
+    same_media = decoded_after_crash("same", "a" * 64)
+    # Same asset id and range, different bytes (a relink): nothing is restored.
+    changed_media = decoded_after_crash("changed", "b" * 64)
+    assert same_media < every_window, "the same media resumes from its finished window"
+    assert changed_media == every_window, "changed media recomputes every window"
+
+
 def test_eval_ablations_give_a_binary_edge_and_dump_the_estimates(
     tmp_path: Path, clip: Path
 ) -> None:

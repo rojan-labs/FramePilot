@@ -200,6 +200,9 @@ class MatteRequest:
     preview_height: int
     inputs: InputHandle | None = None
     previous_artifact: str | None = None
+    #: The host's content fingerprint of the media (sha256 hex). Part of the job fingerprint, so
+    #: a finished window made from different media is never resumed (BR4.12 follow-up F2).
+    content_fingerprint: str | None = None
     capability: str = "subject.matte"
 
 
@@ -499,7 +502,14 @@ def _prompt(value: Any, where: str) -> Prompt:
 
 
 def _matte_parameters(value: Any) -> dict[str, Any]:
-    keys = {"output", "inputs", "prompts", "previousArtifact", "previewHeight"}
+    keys = {
+        "output",
+        "inputs",
+        "prompts",
+        "previousArtifact",
+        "previewHeight",
+        "contentFingerprint",
+    }
     raw = _object(value, keys, "parameters")
     _require(raw, ("output", "prompts", "previewHeight"), "parameters")
     prompts_raw = raw["prompts"]
@@ -513,6 +523,11 @@ def _matte_parameters(value: Any) -> dict[str, Any]:
     if "previousArtifact" in raw:
         previous = _string(
             raw["previousArtifact"], "parameters.previousArtifact", pattern=SHA256_PATTERN
+        )
+    content = None
+    if "contentFingerprint" in raw:
+        content = _string(
+            raw["contentFingerprint"], "parameters.contentFingerprint", pattern=SHA256_PATTERN
         )
     declared = set(inputs.files) if inputs is not None else set()
     referenced: set[str] = set()
@@ -539,6 +554,7 @@ def _matte_parameters(value: Any) -> dict[str, Any]:
         "inputs": inputs,
         "prompts": prompts,
         "previous_artifact": previous,
+        "content_fingerprint": content,
         "preview_height": _integer(
             raw["previewHeight"],
             "parameters.previewHeight",

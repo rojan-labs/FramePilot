@@ -156,6 +156,17 @@ def test_corrections_alone_need_a_previous_artifact() -> None:
     assert isinstance(parse_input_line(line(accepted)), MatteRequest)
 
 
+def test_content_fingerprint_is_optional_and_must_be_sha256_hex() -> None:
+    request = parse_input_line(line(matte_request()))
+    assert isinstance(request, MatteRequest) and request.content_fingerprint is None
+    with_content = parse_input_line(
+        line(mutate(matte_request(), ["parameters", "contentFingerprint"], SHA))
+    )
+    assert isinstance(with_content, MatteRequest) and with_content.content_fingerprint == SHA
+    bad = mutate(matte_request(), ["parameters", "contentFingerprint"], "not-a-digest")
+    assert "contentFingerprint" in refused(bad).detail
+
+
 def test_segment_frame_requests() -> None:
     request = parse_input_line(line(segment_frame_request()))
     assert isinstance(request, SegmentFrameRequest)

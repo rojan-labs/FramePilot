@@ -518,6 +518,12 @@ describe('Capability Pack worker protocol', () => {
       ).toThrow();
     });
 
+    it('carries the host content fingerprint as sha256 hex, optionally (BR4.12 F2)', () => {
+      expect(CapabilityPackWorkerRequestSchema.parse(matteRequest({ contentFingerprint: sha('e') }))).toBeDefined();
+      expect(CapabilityPackWorkerRequestSchema.parse(matteRequest({}))).toBeDefined();
+      expect(() => CapabilityPackWorkerRequestSchema.parse(matteRequest({ contentFingerprint: 'nope' }))).toThrow();
+    });
+
     it('refuses an empty prompt list and a corrections-only first run', () => {
       expect(() => CapabilityPackWorkerRequestSchema.parse(matteRequest({ prompts: [] }))).toThrow();
       expect(() =>

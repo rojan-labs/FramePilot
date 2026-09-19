@@ -268,6 +268,12 @@ const MatteParametersSchema = z
     /** Re-run: frames the new prompts do not affect reuse this artifact's verified alpha. */
     previousArtifact: Sha256HexSchema.optional(),
     previewHeight: z.number().int().min(180).max(1080),
+    /**
+     * The host's content fingerprint of the media (BR4.12 follow-up F2). The worker folds it
+     * into its checkpoint identity, so a finished window made from different media (a relink
+     * to a file with the same asset id and length) is recomputed, never resumed.
+     */
+    contentFingerprint: Sha256HexSchema.optional(),
   })
   .strict()
   .superRefine((parameters, context) => {

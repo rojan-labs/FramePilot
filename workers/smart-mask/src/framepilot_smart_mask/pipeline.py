@@ -242,6 +242,9 @@ def fingerprint(
             request.media.first_frame,
             request.media.last_frame_exclusive,
         ],
+        # The host's fingerprint of the media's bytes and timing: the asset id and pts range
+        # alone match a relinked file of the same length (BR4.12 follow-up F2).
+        "content": request.content_fingerprint,
         "timing": [
             list(info.time_base),
             info.pts[request.media.first_frame],
