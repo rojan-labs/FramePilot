@@ -176,11 +176,15 @@ def consensus(
     warped_previous: npt.NDArray[Any] | None,
     radius: int,
     extra_band: Bool | None = None,
+    silhouette: Bool | None = None,
 ) -> FrameConsensus:
     """Combine one frame's estimates. ``warped_previous`` is alpha in [0,255] float or None.
 
     ``extra_band`` (the Edge brush) widens the unknown band; it is not a vote and not a
     constraint, so it changes only which pixels may take BiRefNet's fractional alpha.
+    ``silhouette`` (BR7.5, the temporal vote of ``stabilise.temporal_vote``) replaces the
+    per-frame vote of the SAM passes and the warped previous alpha; every score part is still
+    measured on this frame's own estimates.
     """
     birefnet = birefnet_alpha >= 128
     votes: list[Bool] = [*sam_masks, birefnet]
@@ -188,7 +192,8 @@ def consensus(
         votes.append(warped_previous >= 127.5)
     stack = np.stack(votes)
     n = len(votes)
-    silhouette = _silhouette(sam_masks, sam_logits, birefnet, warped_previous)
+    if silhouette is None:
+        silhouette = _silhouette(sam_masks, sam_logits, birefnet, warped_previous)
     height = birefnet.shape[0]
     trusted_edge = (
         boundary_agreement(silhouette, birefnet, _scaled(AGREEMENT_TOLERANCE_1080P, height))

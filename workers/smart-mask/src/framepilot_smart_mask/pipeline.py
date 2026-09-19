@@ -45,8 +45,8 @@ from .consensus import consensus, edge_radius, iou, snap_to_image, soft_edge
 from .crop_refine import refine_in_crop, refined_masks
 from .embeddings import EmbeddingCache
 from .encode import concat_segments, decode_gray_frames, encode_stream, packet_count
+from .flow import fine_flow, gray, lab, reliability, warp
 from .flow import flow as dis_flow
-from .flow import gray, warp
 from .foreground import foreground_frame
 from .frames import FrameStore, decode_into
 from .matting import band_alpha
@@ -91,7 +91,7 @@ from .segment import (
     segment_window,
 )
 from .self_correct import CorrectionReport, Run, self_correct
-from .stabilise import stabilise
+from .stabilise import stabilise, temporal_vote
 from .tracker import (
     CondPrompt,
     MaskPrompt,
@@ -109,6 +109,8 @@ GIB: Final = 1024**3
 AFFECT_RADIUS: Final = 60
 BOX_SATISFIED_IOU: Final = 0.9
 FLOW_CACHE_ENTRIES: Final = 8
+#: Fine flows and CIELAB frames the temporal stage keeps (4 neighbours each way per frame).
+MOTION_CACHE_ENTRIES: Final = 16
 CHECKPOINT_VERSION: Final = 1
 SEGMENT_KINDS: Final = {
     "matte.mkv": "matte",
@@ -188,6 +190,46 @@ class FlowCache:
         while len(self._cache) > FLOW_CACHE_ENTRIES:
             self._cache.popitem(last=False)
         return value
+
+
+class MotionCache:
+    """The temporal stage's motion: fine flow plus per-pixel reliability, both directions."""
+
+    def __init__(self, frame: Callable[[int], Any]) -> None:
+        self._frame = frame
+        self._flows: OrderedDict[tuple[int, int], Any] = OrderedDict()
+        self._grays: OrderedDict[int, Any] = OrderedDict()
+        self._labs: OrderedDict[int, Any] = OrderedDict()
+
+    @staticmethod
+    def _cached(cache: OrderedDict[Any, Any], key: Any, make: Callable[[], Any]) -> Any:
+        hit = cache.get(key)
+        if hit is None:
+            hit = cache[key] = make()
+        cache.move_to_end(key)
+        while len(cache) > MOTION_CACHE_ENTRIES:
+            cache.popitem(last=False)
+        return hit
+
+    def _gray(self, index: int) -> Any:
+        return self._cached(self._grays, index, lambda: gray(self._frame(index)))
+
+    def _lab(self, index: int) -> Any:
+        return self._cached(self._labs, index, lambda: lab(self._frame(index)))
+
+    def _flow(self, source: int, target: int) -> Any:
+        return self._cached(
+            self._flows,
+            (source, target),
+            lambda: fine_flow(self._gray(source), self._gray(target)),
+        )
+
+    def __call__(self, source: int, target: int) -> tuple[Any, Any]:
+        forward = self._flow(source, target)
+        trust = reliability(
+            self._lab(source), self._lab(target), forward, self._flow(target, source)
+        )
+        return forward, trust
 
 
 def fingerprint(
@@ -733,7 +775,7 @@ class MatteJob:
                 crops,
                 has_crop,
             )
-        stabilised = self._stabilise(window, alphas, bands, fixed, flows)
+        stabilised = self._stabilise(window, alphas, bands, fixed)
         flags, signals = self._verify(
             window, segmentation, alphas, bands, grays, flows, parts, locked
         )
@@ -964,6 +1006,14 @@ class MatteJob:
         started = time.monotonic()
         count = window.count
         radius = edge_radius(ctx.height)
+
+        def sam_masks(i: int) -> list[Bool]:
+            refined = refined_masks(segmentation.masks(i), crops[i] if has_crop[i] else None)
+            return snap_to_image(refined, window.store[i])
+
+        silhouettes = (
+            self._temporal_silhouettes(window, sam_masks) if self.config.stabilise else None
+        )
         alphas = window.scratch.array("alpha", (count, ctx.height, ctx.width), np.uint8)
         bands = window.scratch.array("band", (count, ctx.height, ctx.width), np.bool_)
         fixed: list[Bool] = []
@@ -976,14 +1026,17 @@ class MatteJob:
             self._check()
             warped = warp(alphas[i - 1].astype(np.float32), flows(i - 1, i)) if i > 0 else None
             frame_prompt = ctx.resolved.frames.get(window.start + i)
-            sam_masks = refined_masks(segmentation.masks(i), crops[i] if has_crop[i] else None)
+            silhouette = None
+            if silhouettes is not None and silhouettes[1][i]:
+                silhouette = np.array(silhouettes[0][i])
             result = consensus(
-                snap_to_image(sam_masks, window.store[i]),
+                sam_masks(i),
                 segmentation.mean_logits(i),
                 birefnet[i],
                 warped,
                 radius,
                 extra_band=edge_band(frame_prompt),
+                silhouette=silhouette,
             )
             alpha = soft_edge(result, window.store[i], edge_band(frame_prompt))
             if not self.config.band_alpha:
@@ -1005,8 +1058,45 @@ class MatteJob:
         self._timed("matte", started)
         return alphas, bands, fixed
 
+    def _temporal_silhouettes(
+        self, window: WindowState, sam_masks: Callable[[int], list[Bool]]
+    ) -> tuple[Any, list[bool]]:
+        """BR7.5: every frame's silhouette from the motion-compensated temporal vote.
+
+        Computed for the whole window before the matting model can be reopened, so the fine
+        flows are never resident beside it. Returns the silhouettes (a scratch memory map) and
+        which frames have one (a frame without any SAM estimate keeps the per-frame vote).
+        """
+        started = time.monotonic()
+        count, height, width = window.count, window.store[0].shape[0], window.store[0].shape[1]
+        halves = window.scratch.array("estimate", (count, height, width), np.uint8)
+        present: list[bool] = []
+        for i in range(count):
+            self._check()
+            masks = sam_masks(i)
+            present.append(bool(masks))
+            if masks:
+                # 0, 1 or 2 halves: the mean of the passes' masks without float storage.
+                halves[i] = np.round(2 * np.mean(masks, axis=0)).astype(np.uint8)
+
+        def estimate(i: int) -> Any:
+            return halves[i].astype(np.float32) / 2 if present[i] else None
+
+        silhouettes = window.scratch.array("silhouette", (count, height, width), np.bool_)
+        has = [False] * count
+        motion = MotionCache(lambda index: window.store[index])
+        for i in range(count):
+            self._check()
+            fused = temporal_vote(i, count, estimate, motion)
+            if fused is not None:
+                silhouettes[i] = fused
+                has[i] = True
+            self.progress("stabilise", i + 1, count, detail="temporal vote" if i == 0 else None)
+        self._timed("temporal_vote", started)
+        return silhouettes, has
+
     def _stabilise(
-        self, window: WindowState, alphas: Any, bands: Any, fixed: list[Bool], flows: FlowCache
+        self, window: WindowState, alphas: Any, bands: Any, fixed: list[Bool]
     ) -> list[int]:
         started = time.monotonic()
         count = window.count
@@ -1014,7 +1104,10 @@ class MatteJob:
             return [0] * count
         self.progress("stabilise", 0, count)
         smoothed, changed = stabilise(
-            [alphas[i] for i in range(count)], [bands[i] for i in range(count)], fixed, flows
+            [alphas[i] for i in range(count)],
+            [bands[i] for i in range(count)],
+            fixed,
+            MotionCache(lambda index: window.store[index]),
         )
         for i in range(count):
             alphas[i] = smoothed[i]

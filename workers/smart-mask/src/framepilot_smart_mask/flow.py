@@ -17,10 +17,23 @@ import numpy.typing as npt
 FLOW_SCALE: Final = 0.5
 #: Forward-backward round trip error (px) above which a pixel's flow is not trusted.
 CONSISTENCY_PX: Final = 1.5
+#: BR7.5 temporal stage: DIS at full resolution with a finer patch grid and more variational
+#: refinement. Warping the ground-truth alpha of the BR7.4 calibration clips with it misses by
+#: 5-38 levels in the band against 11-51 for the half-resolution preset (hair 8 vs 16, walk
+#: 38 vs 51): the half-resolution flow is good enough to check a silhouette, not to move an edge.
+FINE_PATCH_SIZE: Final = 8
+FINE_PATCH_STRIDE: Final = 3
+FINE_REFINEMENT_ITERATIONS: Final = 10
+#: A warped neighbour is trusted per pixel by how well it predicts this frame's colour: weight
+#: exp(-(r / sigma)^2) of the CIELAB residual r averaged over a (2*patch+1)^2 window, times
+#: forward-backward consistency. Motion boundaries, where DIS is worst and alpha lives, fail it.
+PHOTOMETRIC_SIGMA: Final = 6.0
+PHOTOMETRIC_PATCH: Final = 2
 
 Float = npt.NDArray[Any]
 
 _dis: Any = None
+_fine: Any = None
 
 
 def _estimator() -> Any:
@@ -47,6 +60,42 @@ def flow(source_gray: npt.NDArray[np.uint8], target_gray: npt.NDArray[np.uint8])
         estimate, (width, height), interpolation=cv2.INTER_LINEAR
     ) * np.float32(width / small_w)
     return scaled.astype(np.float32)
+
+
+def _fine_estimator() -> Any:
+    global _fine
+    if _fine is None:
+        create = getattr(cv2, "DISOpticalFlow_create")  # noqa: B009 - absent from OpenCV's stubs
+        _fine = create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
+        _fine.setFinestScale(0)
+        _fine.setPatchSize(FINE_PATCH_SIZE)
+        _fine.setPatchStride(FINE_PATCH_STRIDE)
+        _fine.setVariationalRefinementIterations(FINE_REFINEMENT_ITERATIONS)
+    return _fine
+
+
+def fine_flow(source_gray: npt.NDArray[np.uint8], target_gray: npt.NDArray[np.uint8]) -> Float:
+    """Like :func:`flow` at full resolution and finer (the temporal stage's motion)."""
+    estimate: Float = _fine_estimator().calc(target_gray, source_gray, None)
+    return estimate.astype(np.float32)
+
+
+def lab(frame: npt.NDArray[np.uint8]) -> Float:
+    """CIELAB (OpenCV 8-bit scaling) as float32, for photometric residuals."""
+    out: Float = cv2.cvtColor(frame, cv2.COLOR_RGB2LAB).astype(np.float32)
+    return out
+
+
+def reliability(source_lab: Float, target_lab: Float, forward: Float, backward: Float) -> Float:
+    """Per pixel, how far ``source`` warped by ``forward`` can be trusted on ``target`` (0-1).
+
+    ``forward`` = ``flow(source, target)``, ``backward`` = ``flow(target, source)``.
+    """
+    residual = np.sqrt(((warp(source_lab, forward) - target_lab) ** 2).sum(axis=-1))
+    size = 2 * PHOTOMETRIC_PATCH + 1
+    residual = cv2.blur(residual, (size, size))
+    weight: Float = np.exp(-((residual / PHOTOMETRIC_SIGMA) ** 2)).astype(np.float32)
+    return weight * consistent(forward, backward)
 
 
 def _grid(height: int, width: int) -> tuple[Float, Float]:
@@ -78,4 +127,4 @@ def consistent(forward: Float, backward: Float) -> npt.NDArray[np.bool_]:
     return result
 
 
-__all__ = ["consistent", "flow", "gray", "warp"]
+__all__ = ["consistent", "fine_flow", "flow", "gray", "lab", "reliability", "warp"]

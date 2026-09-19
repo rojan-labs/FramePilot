@@ -12,7 +12,7 @@ from test_refine_consensus import ColourMatting  # noqa: E402
 from framepilot_smart_mask.foreground import estimate_foreground, foreground_frame  # noqa: E402
 from framepilot_smart_mask.matting import band_alpha, tile_origins  # noqa: E402
 from framepilot_smart_mask.refine import RefineRecord  # noqa: E402
-from framepilot_smart_mask.stabilise import MAX_DELTA, stabilise  # noqa: E402
+from framepilot_smart_mask.stabilise import stabilise, temporal_vote  # noqa: E402
 
 
 def test_tiles_cover_every_band_pixel() -> None:
@@ -77,7 +77,14 @@ def test_foreground_frame_is_zero_outside_the_soft_band() -> None:
     assert foreground_frame(frame, np.zeros_like(alpha)).max() == 0
 
 
-def test_stabilisation_smooths_band_shimmer_within_bounds() -> None:
+def _still(height: int, width: int, trust: float = 1.0):
+    return lambda source, target: (
+        np.zeros((height, width, 2), np.float32),
+        np.full((height, width), trust, np.float32),
+    )
+
+
+def test_stabilisation_smooths_band_shimmer_with_trusted_neighbours_only() -> None:
     count, height, width = 5, 40, 60
     base = np.zeros((height, width), np.uint8)
     base[:, :30] = 255
@@ -90,11 +97,30 @@ def test_stabilisation_smooths_band_shimmer_within_bounds() -> None:
         band[:, 29:32] = True
     fixed = [np.zeros((height, width), bool) for _ in range(count)]
     fixed[3][:, 30] = True  # a brushed pixel column
-    still = lambda source, target: np.zeros((height, width, 2), np.float32)  # noqa: E731
-    out, changed = stabilise(alphas, bands, fixed, still)
-    assert out[2][20, 30] == 228 - MAX_DELTA, "moves towards the neighbours, clamped"
+    out, changed = stabilise(alphas, bands, fixed, _still(height, width))
+    # Frame 2 and its four trusted neighbours at 128: (228 + 4 * 128) / 5 = 148.
+    assert out[2][20, 30] == 148, "the flicker moves to the trusted neighbours' mean"
     assert out[2][20, 10] == 200, "outside the band nothing changes"
-    assert np.array_equal(out[3], alphas[3]) or changed[3] == 0
+    assert np.array_equal(out[3][:, 30], alphas[3][:, 30]), "brushed pixels never change"
     assert changed[2] > 0
-    once, _ = stabilise(alphas, bands, fixed, still)
+    once, _ = stabilise(alphas, bands, fixed, _still(height, width))
     assert all(np.array_equal(a, b) for a, b in zip(out, once, strict=True)), "deterministic"
+    untrusted, _ = stabilise(alphas, bands, fixed, _still(height, width, trust=0.0))
+    assert untrusted[2][20, 30] == 228, "a neighbour whose warp cannot be trusted has no say"
+
+
+def test_temporal_vote_fills_a_one_frame_dropout_only_where_the_motion_is_trusted() -> None:
+    count, height, width = 5, 20, 30
+    subject = np.zeros((height, width), np.float32)
+    subject[5:15, 5:20] = 1.0
+    dropped = subject.copy()
+    dropped[5:15, 12:20] = 0.0  # one frame's estimate lost half the subject
+    estimates = [subject, subject, dropped, subject, subject]
+    fused = temporal_vote(2, count, lambda i: estimates[i], _still(height, width))
+    assert fused is not None and fused[10, 15], "four trusted neighbours outvote one frame"
+    alone = temporal_vote(2, count, lambda i: estimates[i], _still(height, width, trust=0.0))
+    assert alone is not None and not alone[10, 15], "untrusted motion leaves the frame's own"
+    assert (
+        temporal_vote(2, count, lambda i: None if i == 2 else subject, _still(height, width))
+        is None
+    )
