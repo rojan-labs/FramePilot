@@ -16,7 +16,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .backend import MattingModel
-from .refine import TILE_OVERLAP_FRACTION, RefineRecord, blend_weight, normalise_exposure
+from .refine import TILE_OVERLAP_FRACTION, RefineRecord, blend_weight
 
 Bool = npt.NDArray[np.bool_]
 #: Band pixels already covered by a tile's inner region need no further tile.
@@ -61,7 +61,6 @@ def band_alpha(
     tile = model.tile
     height, width = band.shape
     pad_h, pad_w = max(tile - height, 0), max(tile - width, 0)
-    frame = normalise_exposure(frame)
     source: Any = (
         cv2.copyMakeBorder(frame, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT)
         if pad_h or pad_w
