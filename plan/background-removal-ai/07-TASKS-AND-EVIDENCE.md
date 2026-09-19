@@ -330,13 +330,13 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 - [x] E2E.1 (c55a5366, 63be864b; green in CI run 35381220944 and later) Desktop: Smart Mask absent → warning + disabled tools → install (local registration) → no restart → remove background → review a flagged range, fix with a brush, lock → VERIFIED → Put text behind subject → preview frame == export frame (oracle) → export → undo chain
 - [x] E2E.2 (17a58563 + product fixes 971fb714, 80cc9bf6; green run 35381220944) Reopen: exports with the packs **uninstalled**; with a matte deleted the clip shows BROKEN and export refuses with the remedy
-- [ ] E2E.3 Manual pro masking: pen path → animate → track (perspective) → review/constraint → effect-target blur → export matches preview
-- [ ] E2E.4 AI: "blur the faces except the host" and "put the title behind her" through the sidebar; ambiguous request asks; result reviewed and exported
+- [x] E2E.3 (masking-e2e-pro-masking.spec.ts; local 16/16 at 46438836; tracker output stubbed — packs not installable, MO-1..5) Manual pro masking: pen path → animate → track (perspective) → review/constraint → effect-target blur → export matches preview
+- [x] E2E.4 (masking-e2e-ai.spec.ts; scripted model, canned face detections, real orchestrator/tools/sidecar consent) AI: "blur the faces except the host" and "put the title behind her" through the sidebar; ambiguous request asks; result reviewed and exported
 - [x] E2E.5 (f55f23ce, 8c0cf056; keyframed case bit-exact after MK2.5, green run 35383876672) v21 project with masks opens, migrates, and exports byte-identically
-- [ ] E2E.6 Crash/quit mid-job → relaunch → job resumes from finished windows → output identical to an uninterrupted run; relink to different media → STALE → recompute
-- [ ] E2E.7 Project archive with masks/mattes/tracks created on macOS reopens and exports identically on Windows (and the reverse)
+- [x] E2E.6 (masking-e2e-resume.spec.ts; Electron stand-in with real desktop modules, real Smart Mask worker with scripted models, forced kill) Crash/quit mid-job → relaunch → job resumes from finished windows → output identical to an uninterrupted run; relink to different media → STALE → recompute
+- [~] E2E.7 (masking-e2e-archive.spec.ts passes on this Mac; macOS↔Windows reopen jobs in CI run 35437415890 pending; packaged-app check is MO-9) Project archive with masks/mattes/tracks created on macOS reopens and exports identically on Windows (and the reverse)
 - [x] E2E.8 (7dddc8eb, ac424e66; green run 35381220944) Split/mirror/gradient/track matte/text-as-mask/adjustment-lane mask/edge-style flows, each preview == export
-- [ ] DOC.1 `docs/guides/masking.md` (tools, tracking, review and fixing, **limitations, shortcuts, troubleshooting, minimum hardware, privacy**), `docs/guides/background-removal.md`, ADRs, `CHANGELOG.md`, `MANUAL_TESTING.md`, public changelog (changelog-maintainer)
+- [x] DOC.1 (docs/guides/masking.md new; background-removal, mask-tools, mask-tracking guides; ADR 0178/0179 amended; CHANGELOG; MANUAL_TESTING 16.11–16.15; website changelog entry marked "coming") `docs/guides/masking.md` (tools, tracking, review and fixing, **limitations, shortcuts, troubleshooting, minimum hardware, privacy**), `docs/guides/background-removal.md`, ADRs, `CHANGELOG.md`, `MANUAL_TESTING.md`, public changelog (changelog-maintainer)
 
 **DoD:** e2e green in CI on the PR head SHA; all gate reports committed; `plan/PLAN.md` phase checked. The single PR is marked ready for review when RD3 passes; before that it stays open with CI running on every push.
 

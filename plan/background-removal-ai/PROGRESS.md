@@ -10,13 +10,16 @@ Read this first after a context reset. Updated after every commit.
 
 Maintainer 2026-09-19: "finish everything; you can run the things on this laptop as well" (local runs allowed, one heavy job at a time, guard: stop if free memory < 25% or swap grows > 1.5 GB).
 Running:
-- E2E.3/E2E.4/E2E.6/E2E.7 + DOC.1 (qa-e2e agent; finishes the untracked draft masking-e2e-pro-masking.spec.ts)
+- Security review of the watchdog scratch-space change (ae8ef8a5) and resume adopting leftover staging (4c227ec1)
+- E2E.7 cross-OS reopen: CI run 35437415890
 - MK7.7 correction through occlusion (exclusion region + constraint), night-plate margin
 - BR7.5 Smart Mask accuracy levers (subject-crop SAM pass, temporal consistency first, box as second prompt) in the CI eval
 Blocked on maintainer only: see MAINTAINER_ONLY_ACTIONS.md (MO-1..MO-20). RD3 last.
 Agent rules: single-file tests with `--no-file-parallelism`; local Playwright/model runs one at a time under the guard; poll CI yourself in bounded rounds; explicit `git add`, never stage others' files; no stash, force-push or trailers; don't edit plan files.
 
 ## Done
+
+- E2E.3/.4/.6/(.7 local) + DOC.1: 16/16 masking e2e pass locally at 46438836. 10 product bugs fixed: tracked-mask blur blurred the whole frame in the preview (monitor never read tracks); re-track dropped constraints; no clip blur effect existed anywhere ("blur a face" impossible); resume failed with staging_exists; re-running Remove background stacked a second matte; pack services refused project-relative media; watchdog counted the worker's own scratch (security change — under review); no STALE after relink; sidebar refused the second of two diffs; a wrong refusal message
 
 - AM2.7 (6568a21b…279d76a5): measured CIELAB colour + SigLIP must agree; new route /masking/crop-colour (MO-20 to confirm)
 
