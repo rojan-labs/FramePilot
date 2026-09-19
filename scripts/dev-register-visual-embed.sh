@@ -32,7 +32,8 @@ ARCH="arm64"
 
 if [[ ! -f "$CLI" ]]; then
   echo "Building @framepilot/capability-packs..." >&2
-  (cd "$REPO_ROOT/packages/capability-packs" && pnpm build)
+  # With its workspace dependencies: a fresh checkout has no shared-types dist either.
+  (cd "$REPO_ROOT" && pnpm --filter "@framepilot/capability-packs..." build)
 fi
 
 echo "Syncing workers/visual-embed (with the cv extra)..." >&2
