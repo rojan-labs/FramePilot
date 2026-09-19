@@ -1,3 +1,5 @@
+import { appendFileSync, existsSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   CapabilityPackWorkerRuntimeError,
@@ -126,6 +128,7 @@ function harness(options: {
   exists?: boolean;
   cacheRoot?: string;
   ensureDirectory?: (absolutePath: string) => Promise<void>;
+  watchdog?: ConstructorParameters<typeof CapabilityPackTrackingService>[0]['watchdog'];
 }): Harness {
   const leases = { acquired: 0, released: 0 };
   const store: TrackingPackStore = {
@@ -150,9 +153,102 @@ function harness(options: {
     runWorker: (options.runWorker ?? (async () => result())) as never,
     ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
     ensureDirectory: options.ensureDirectory ?? (async () => {}),
+    // Tests never sample real processes: a tiny footprint unless a test says otherwise.
+    watchdog: { footprintBytes: async () => 1024, killGroup: () => undefined, ...options.watchdog },
   });
   return { service, leases, propose };
 }
+
+/** A worker that runs until it is aborted, as a stuck or runaway one does. */
+function untilAborted(
+  input: unknown,
+  work?: (typed: { temporaryDirectory: string }) => void,
+): Promise<CapabilityPackWorkerResult> {
+  const typed = input as {
+    signal: AbortSignal;
+    temporaryDirectory: string;
+    onSpawn?: (pid: number) => void;
+  };
+  typed.onSpawn?.(4242);
+  const timer = work === undefined ? undefined : setInterval(() => work(typed), 5);
+  return new Promise((_resolve, reject) => {
+    typed.signal.addEventListener('abort', () => {
+      if (timer !== undefined) clearInterval(timer);
+      reject(new CapabilityPackWorkerRuntimeError('cancelled', 'Capability Pack request cancelled.'));
+    });
+  });
+}
+
+describe('pack job watchdog (BR4.12 H2 for tracking, follow-up review)', () => {
+  const GIB = 1024 ** 3;
+
+  it('gives the worker a private temp folder and removes it after the job', async () => {
+    let temp: string | undefined;
+    let existedDuringRun = false;
+    const { service } = harness({
+      runWorker: async (input) => {
+        temp = (input as { temporaryDirectory: string }).temporaryDirectory;
+        existedDuringRun = existsSync(temp);
+        return result();
+      },
+    });
+    expect((await service.run(request(), { projectRevision: 12, mediaRoot: MEDIA_ROOT })).status).toBe('completed');
+    expect(existedDuringRun).toBe(true);
+    expect(path.basename(temp!)).toMatch(/^framepilot-pack-/u);
+    expect(existsSync(temp!)).toBe(false);
+  });
+
+  it('stops a worker whose process group grows past 0.6 x RAM and kills the group', async () => {
+    const killGroup = vi.fn();
+    const { service, leases } = harness({
+      runWorker: (input) => untilAborted(input),
+      watchdog: { intervalMs: 5, totalMemoryBytes: 8 * GIB, footprintBytes: async () => 6 * GIB, killGroup },
+    });
+    expect(await service.run(request(), { projectRevision: 12, mediaRoot: MEDIA_ROOT })).toMatchObject({
+      status: 'failed',
+      code: 'resource_exhausted',
+      retryable: false,
+    });
+    expect(killGroup).toHaveBeenCalledWith(4242);
+    expect(leases).toEqual({ acquired: 1, released: 1 });
+  });
+
+  it('stops a silent worker after the stall limit', async () => {
+    const { service } = harness({
+      runWorker: (input) => untilAborted(input),
+      watchdog: { intervalMs: 5, stallMs: 20 },
+    });
+    expect(await service.run(request(), { projectRevision: 12, mediaRoot: MEDIA_ROOT })).toMatchObject({
+      code: 'resource_exhausted',
+      retryable: true,
+    });
+  });
+
+  it('stops a worker filling its temp folder past the budget', async () => {
+    let temp: string | undefined;
+    const { service } = harness({
+      runWorker: (input) =>
+        untilAborted(input, (typed) => {
+          temp = typed.temporaryDirectory;
+          appendFileSync(path.join(typed.temporaryDirectory, 'spill.bin'), Buffer.alloc(64 * 1024));
+        }),
+      watchdog: { intervalMs: 5, tempBudgetBytes: 256 * 1024, freeDiskBytes: async () => { throw new Error('statfs'); } },
+    });
+    expect(await service.run(request(), { projectRevision: 12, mediaRoot: MEDIA_ROOT })).toMatchObject({
+      code: 'resource_exhausted',
+      detail: expect.stringContaining('temporary data'),
+    });
+    expect(existsSync(temp!)).toBe(false);
+  });
+
+  it('still reports the caller’s own cancel as cancelled', async () => {
+    const controller = new AbortController();
+    const { service } = harness({ runWorker: (input) => untilAborted(input), watchdog: { intervalMs: 5 } });
+    const outcome = service.run(request(), { projectRevision: 12, mediaRoot: MEDIA_ROOT, signal: controller.signal });
+    setTimeout(() => controller.abort(), 20);
+    expect(await outcome).toMatchObject({ status: 'failed', code: 'cancelled' });
+  });
+});
 
 describe('CapabilityPackTrackingService', () => {
   it('runs the resolved signed entrypoint and returns measurements', async () => {

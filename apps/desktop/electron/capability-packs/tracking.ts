@@ -16,12 +16,14 @@
  * When no healthy pack is installed the answer is an explicit install proposal.
  * Work is never faked, and a missing pack never silently downloads.
  */
-import { lstat, mkdir } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir, totalmem } from 'node:os';
 import path from 'node:path';
 import { negotiatePackRequest } from '@framepilot/capability-packs';
 import {
   runCapabilityPackWorker,
   CapabilityPackWorkerRuntimeError,
+  killWorkerGroup,
   type CapabilityPackLease,
 } from '@framepilot/capability-packs/node';
 import type {
@@ -38,10 +40,25 @@ import {
   maskingEventPayload,
   type CapabilityPackProposalResultWire,
 } from '@framepilot/shared-types';
+import { freeDiskBytes } from './matte-disk.js';
 import { compareSemver, resolveInside } from './pack-paths.js';
 import { VISUAL_EMBED_PACK_ID } from './visual-packs.js';
+import {
+  processGroupFootprint,
+  stagingBytes,
+  watchdogLimits,
+  WorkerWatchdog,
+  type WatchdogBreach,
+} from './worker-watchdog.js';
 
 const log = createLogger('desktop:capability-packs:tracking');
+
+/**
+ * The most a tracking/detection/segmentation/embedding job's temp folder may hold. These packs
+ * write no artifact (the host writes the track), so anything on disk is the worker's own temp
+ * files; a job that needs more than this is misbehaving.
+ */
+export const PACK_JOB_TEMP_BUDGET_BYTES = 4 * 1024 * 1024 * 1024;
 
 /** The packs that provide media intelligence. Their rosters are fixed and health-verified. */
 export const TRACKING_PACK_ID = 'framepilot.tracking-lite';
@@ -127,6 +144,22 @@ export interface CapabilityPackTrackingServiceOptions {
   /** Writable parent of each pack release's derived cache (`<root>/<packId>/<version>`). */
   readonly cacheRoot?: string;
   readonly ensureDirectory?: (absolutePath: string) => Promise<void>;
+  /**
+   * Watchdog overrides (BR4.12 H2 for pack jobs; follow-up review). Production samples the
+   * process group, uses `os.totalmem()` and a private temp folder under the OS temp directory.
+   */
+  readonly watchdog?: {
+    readonly footprintBytes?: (pid: number) => Promise<number | undefined>;
+    readonly totalMemoryBytes?: number;
+    readonly stallMs?: number;
+    readonly intervalMs?: number;
+    readonly now?: () => number;
+    readonly killGroup?: (pid: number | undefined) => void;
+    readonly tempBudgetBytes?: number;
+    readonly freeDiskBytes?: (directory: string) => Promise<number>;
+    /** Where each job's private temp folder is made (default: the OS temp directory). */
+    readonly temporaryRoot?: string;
+  };
 }
 
 export interface TrackingRunOptions {
@@ -169,7 +202,9 @@ export type TrackingFailureCode =
   | 'pack_outdated'
   | 'media_rejected'
   | 'worker_failed'
-  | 'timed_out';
+  | 'timed_out'
+  /** The host watchdog stopped the worker (memory, no progress, or its temp folder). */
+  | 'resource_exhausted';
 
 export class CapabilityPackTrackingService {
   private readonly options: CapabilityPackTrackingServiceOptions;
@@ -242,6 +277,7 @@ export class CapabilityPackTrackingService {
     const environment = await this.workerEnvironment(binding, record, installRoot);
     const lease = await this.options.store.acquireLease(record.identity);
     const started = Date.now();
+    const guard = await this.startWatchdog(binding.packId, options.signal);
     try {
       const runWorker = this.options.runWorker ?? runCapabilityPackWorker;
       const runOne = (
@@ -252,15 +288,21 @@ export class CapabilityPackTrackingService {
           entrypoint,
           mediaRoot: options.mediaRoot,
           request: chunk,
-          ...(options.signal === undefined ? {} : { signal: options.signal }),
+          signal: guard.signal,
+          temporaryDirectory: guard.temporaryDirectory,
+          onSpawn: guard.attach,
+          onProgress: (progress) => {
+            guard.watchdog.progress();
+            onProgress?.(progress);
+          },
           ...(environment === undefined ? {} : { extraEnvironment: environment }),
-          ...(onProgress === undefined ? {} : { onProgress }),
         });
       const sent = negotiated.request;
       const result =
         sent.capability === 'subject.segment'
           ? await runSegmentationInChunks(sent, runOne, options.onProgress)
           : await runOne(sent, options.onProgress);
+      if (guard.watchdog.breach !== undefined) return resourceExhausted(guard.watchdog.breach);
       log.action(
         'trackingComplete',
         maskingEventPayload('trackingComplete', {
@@ -274,10 +316,91 @@ export class CapabilityPackTrackingService {
       );
       return { status: 'completed', identity: record.identity, result };
     } catch (error) {
+      if (guard.watchdog.breach !== undefined) return resourceExhausted(guard.watchdog.breach);
       return failed(...classify(error));
     } finally {
+      await guard.stop();
       await lease.release();
     }
+  }
+
+  /**
+   * The same host watchdog a matte job has (BR4.12 H2): the worker's process-group footprint
+   * ≤ min(pack limit, 0.6 × RAM), no progress for 5 minutes, and its private temp folder (the
+   * only place these packs write; TMPDIR/TEMP/TMP point there) ≤ min(budget, free − 1 GB). A
+   * breach kills the group and the job answers `resource_exhausted`.
+   */
+  private async startWatchdog(
+    packId: string,
+    callerSignal: AbortSignal | undefined,
+  ): Promise<{
+    readonly watchdog: WorkerWatchdog;
+    readonly signal: AbortSignal;
+    readonly temporaryDirectory: string;
+    readonly attach: (pid: number) => void;
+    readonly stop: () => Promise<void>;
+  }> {
+    const settings = this.options.watchdog ?? {};
+    const temporaryDirectory = await mkdtemp(
+      path.join(settings.temporaryRoot ?? tmpdir(), 'framepilot-pack-'),
+    );
+    const free = await (settings.freeDiskBytes ?? freeDiskBytes)(temporaryDirectory).catch(
+      () => undefined,
+    );
+    const budget = settings.tempBudgetBytes ?? PACK_JOB_TEMP_BUDGET_BYTES;
+    // Its own controller, so a breach ends the worker without looking like the caller's cancel.
+    const controller = new AbortController();
+    const forward = (): void => controller.abort();
+    callerSignal?.addEventListener('abort', forward, { once: true });
+    if (callerSignal?.aborted === true) controller.abort();
+    let workerPid: number | undefined;
+    const watchdog = new WorkerWatchdog(
+      watchdogLimits({
+        packId,
+        totalMemoryBytes: settings.totalMemoryBytes ?? totalmem(),
+        byteCeiling: budget,
+        freeBytesAtStart: free,
+        stagingBudgetBytes: budget,
+        ...(settings.stallMs === undefined ? {} : { stallMs: settings.stallMs }),
+      }),
+      {
+        footprintBytes: settings.footprintBytes ?? processGroupFootprint(),
+        directoryBytes: stagingBytes,
+        now: settings.now ?? Date.now,
+      },
+      {
+        stagingDirectory: temporaryDirectory,
+        ...(settings.intervalMs === undefined ? {} : { intervalMs: settings.intervalMs }),
+        onBreach: () => {
+          (settings.killGroup ?? killWorkerGroup)(workerPid);
+          controller.abort();
+        },
+      },
+    );
+    watchdog.start();
+    return {
+      watchdog,
+      signal: controller.signal,
+      temporaryDirectory,
+      attach: (pid) => {
+        workerPid = pid;
+        watchdog.attach(pid);
+        // A segmentation runs one process per chunk: each starts with a fresh stall window.
+        watchdog.progress();
+      },
+      stop: async () => {
+        watchdog.stop();
+        callerSignal?.removeEventListener('abort', forward);
+        try {
+          await rm(temporaryDirectory, { recursive: true, force: true });
+        } catch (error) {
+          // Code only: the path is the user's temp folder.
+          log.warn('packTempRemoveFailed', {
+            code: error instanceof Error && 'code' in error ? String(error.code) : 'unknown',
+          });
+        }
+      },
+    };
   }
 
   /** The binding's extras, plus the release's derived-cache folder when it keeps one. */
@@ -398,6 +521,16 @@ function resolveInstalledPack(
         record.health.status === 'healthy',
     )
     .sort((left, right) => compareSemver(right.identity.version, left.identity.version))[0];
+}
+
+const RESOURCE_REMEDIES: Readonly<Record<WatchdogBreach, string>> = {
+  memory: 'The pack needed more memory than this computer can spare and was stopped. Close other apps or use a shorter range.',
+  stalled: 'The pack stopped responding and was stopped. Try again.',
+  disk: 'The pack was writing more temporary data than allowed and was stopped. Free up space and try again.',
+};
+
+function resourceExhausted(breach: WatchdogBreach): TrackingRunOutcome {
+  return failed('resource_exhausted', RESOURCE_REMEDIES[breach], breach !== 'memory');
 }
 
 function classify(error: unknown): [TrackingFailureCode, string, boolean] {
