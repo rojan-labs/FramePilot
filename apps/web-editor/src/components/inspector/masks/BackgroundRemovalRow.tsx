@@ -26,6 +26,7 @@ import type { UseEditor } from '../../../editor/useEditor.js';
 import { runMaskCommand } from '../../../editor/mask-editing.js';
 import { currentMatteIssues, hasPictureBehind } from '../../../editor/matteReview.js';
 import { useOpenedMatteIssues } from '../../../editor/openedMattes.js';
+import { useRelinkedMatteIssues } from '../../../editor/relinkAsset.js';
 import {
   MATTE_HANDLE_SECONDS,
   estimateMatteJob,
@@ -127,7 +128,8 @@ export function BackgroundRemovalRow({
   });
   const hardware = 'hardware' in status ? status.hardware : null;
   const hardwareLine = hardwareNotice(hardware ?? null);
-  const media = editor.state.assets.find((asset) => asset.id === clip.assetId)?.media;
+  const clipAsset = editor.state.assets.find((asset) => asset.id === clip.assetId);
+  const media = clipAsset?.media;
   const size = assetDisplaySize(media);
   const coverage = {
     sourceStart: Math.max(0, clip.sourceStart - MATTE_HANDLE_SECONDS),
@@ -144,8 +146,18 @@ export function BackgroundRemovalRow({
   // Until main's re-check answers, what it found when the project opened (BR4.15): a deleted
   // matte is BROKEN from the first paint, not only once the re-check comes back.
   const opened = useOpenedMatteIssues();
-  const detected = checked ?? currentMatteIssues(editor.state.timeline, opened);
-  const issue = [...issues, ...detected].find((candidate) => candidate.clipId === clip.id) ?? null;
+  // Main's answer describes the SAVED project, which can lag the one on screen by an autosave:
+  // a finding about an artifact this clip no longer carries (a re-run replaced it) is dropped.
+  const detected = currentMatteIssues(editor.state.timeline, checked ?? opened);
+  // What the relink found, while the clip still plays the file it was checked for and still
+  // carries the matte it was checked against (a re-run replaces the key and clears it).
+  const relinkedIssues = currentMatteIssues(
+    editor.state.timeline,
+    useRelinkedMatteIssues(applied ? clip.assetId : null, clipAsset?.path),
+  );
+  const issue =
+    [...issues, ...detected, ...relinkedIssues].find((candidate) => candidate.clipId === clip.id) ??
+    null;
 
   const run = (): void => {
     setMessage(null);

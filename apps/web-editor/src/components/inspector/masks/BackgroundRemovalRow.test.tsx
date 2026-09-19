@@ -18,6 +18,7 @@ import { OpenedMatteIssuesProvider } from '../../../editor/openedMattes.js';
 import { useEditor } from '../../../editor/useEditor.js';
 import { BackgroundRemovalRow, subjectPrompts } from './BackgroundRemovalRow.js';
 import { MatteJobStore } from './matteJobStore.js';
+import { forgetRelinkedMatteIssues, relinkAsset } from '../../../editor/relinkAsset.js';
 import { useMatteJobCommits } from './useMatteJob.js';
 import { MaskToolStore } from './useMaskTools.js';
 
@@ -185,6 +186,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  forgetRelinkedMatteIssues();
 });
 
 describe('BackgroundRemovalRow', () => {
@@ -523,6 +525,55 @@ describe('BackgroundRemovalRow', () => {
     fireEvent.click(button);
     await waitFor(() => expect(masks[0]?.artifact?.key).toBe(fresh));
     expect(masks.map((mask) => mask.id)).toEqual(['c1__mask']);
+  });
+
+  it('shows STALE right after a relink, before main’s own re-check can see the saved file (E2E.6)', async () => {
+    const remedy = 'Media changed since background removal ran — run Remove background again.';
+    // The relink's re-check found it stale for the file the asset now points at …
+    await relinkAsset('a1', {
+      bridge: {
+        projectChooseRelinkFile: async () => ({ ok: true, assetId: 'a1', path: 'media/a1.mp4' }),
+        matteRecheckMedia: async () => ({
+          ok: true as const,
+          issues: [
+            {
+              clipId: 'c1',
+              maskId: 'c1__mask',
+              artifactKey: 'a'.repeat(64),
+              code: 'matte_media_changed',
+              status: 'stale' as const,
+              remedy,
+            },
+          ],
+        }),
+      },
+      applyPatch: vi.fn(),
+    });
+    // … while the Inspector's re-check reads the disk, where the relink has not landed yet.
+    bridge.matteRecheckMedia.mockResolvedValue({ ok: true, issues: [] });
+    render(<Harness jobs={jobs} withMatte />);
+    expect(await screen.findByText(remedy)).toBeTruthy();
+  });
+
+  it('drops a re-check finding about an artifact the clip no longer carries (E2E.6)', async () => {
+    // Main read the saved project before the re-run's new matte was saved: it reports the OLD key.
+    bridge.matteRecheckMedia.mockResolvedValue({
+      ok: true,
+      issues: [
+        {
+          clipId: 'c1',
+          maskId: 'c1__mask',
+          artifactKey: 'f'.repeat(64),
+          code: 'matte_media_changed',
+          status: 'stale',
+          remedy: 'Media changed since background removal ran — run Remove background again.',
+        },
+      ],
+    });
+    render(<Harness jobs={jobs} withMatte />);
+    await waitFor(() => expect(bridge.matteRecheckMedia).toHaveBeenCalled());
+    await act(async () => undefined);
+    expect(screen.queryByText(/Media changed since background removal ran/)).toBeNull();
   });
 
   it('shows the engine’s own remedy sentence for a stale matte', async () => {

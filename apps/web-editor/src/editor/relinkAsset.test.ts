@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { MatteValidationIssueWire } from '@framepilot/shared-types';
-import { relinkAsset, relinkStatusMessage } from './relinkAsset.js';
+import { relinkAsset, relinkedMatteIssues, relinkStatusMessage } from './relinkAsset.js';
 
 const stale: MatteValidationIssueWire = {
   clipId: 'c1',
@@ -56,5 +56,21 @@ describe('relinkAsset', () => {
         }),
       ),
     ).toBe('Media relinked.');
+  });
+
+  it('keeps what main found for the file it chose, until the asset points elsewhere (E2E.6)', async () => {
+    await relinkAsset('asset-9', {
+      bridge: {
+        projectChooseRelinkFile: async () => ({ ok: true, assetId: 'asset-9', path: '/new/take3.mov' }),
+        matteRecheckMedia: async () => ({ ok: true as const, issues: [stale] }),
+      },
+      applyPatch: vi.fn(),
+    });
+    // The Inspector reads it before the relink is saved (main's own re-check reads the disk).
+    expect(relinkedMatteIssues('asset-9', '/new/take3.mov')).toEqual([stale]);
+    // Undone (the asset points at its old file again), or another asset: nothing.
+    expect(relinkedMatteIssues('asset-9', 'media/take1.mov')).toEqual([]);
+    expect(relinkedMatteIssues('asset-8', '/new/take3.mov')).toEqual([]);
+    expect(relinkedMatteIssues(null, undefined)).toEqual([]);
   });
 });
