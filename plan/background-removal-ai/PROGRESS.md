@@ -10,7 +10,6 @@ Read this first after a context reset. Updated after every commit.
 
 Maintainer 2026-09-19: "finish everything; you can run the things on this laptop as well" (local runs allowed, one heavy job at a time, guard: stop if free memory < 25% or swap grows > 1.5 GB).
 Running:
-- BR7.5 Smart Mask accuracy levers (subject-crop SAM pass, temporal consistency first, box as second prompt) in the CI eval
 Blocked on maintainer only: see MAINTAINER_ONLY_ACTIONS.md (MO-1..MO-20). RD3 last.
 Agent rules: single-file tests with `--no-file-parallelism`; local Playwright/model runs one at a time under the guard; poll CI yourself in bounded rounds; explicit `git add`, never stage others' files; no stash, force-push or trailers; don't edit plan files.
 
@@ -124,6 +123,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
+
+- BR7.5 (it14, linux-x64 2048²): stabilisation now helps on 8/10 categories (was hurting on 7) but dtSSD ≥ 30% unreachable; box-as-second-prompt kept; subject-crop pass reverted (worse on calibration). Root cause of the remaining misses: soft ground-truth alpha in motion blur — needs a model outside the decided set → MO-22
 
 - MK7.5/MK7.7 real texture (local darwin-arm64): all 15 rows ✓ (night perspective 0.461 px), drift 0.11 px ✓, confidence recall 28/28 ✓, correction 4/4 ✓ (was 0/5)
 

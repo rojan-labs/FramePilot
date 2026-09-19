@@ -280,7 +280,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [x] BR7.4 (27cb9f6d…869253a0; `smart-mask-eval.yml`, 2048² on linux-x64 CI, it0→it8 in BR0-FINDINGS.md; gates moved but most still miss) Run the matte eval and the accuracy iteration in a dispatch-only CI workflow (ubuntu runner, 16 GB, nothing else competing): BiRefNet at its trained 2048² tile, the one-click and correction-convergence runs, the band/stabilisation ablations; iterate on consensus, self-correction and verify until the 06 gates move — models unchanged
 - [x] PX5.5 cross-ref: preview playback now composites once per project frame (was 1.5–1.7×)
 
-- [ ] BR7.5 The three levers BR7.4 named, each measured in the CI eval: a subject-crop SAM pass for finer silhouettes; temporal consistency before the silhouette is decided (so stabilisation stops adding error); a box as the second prompt when one click finds no whole-subject candidate. Models unchanged
+- [~] BR7.5 (a635ff06…07fd2bf1, final CI report it14; box-as-second-prompt and temporal consistency kept, subject-crop pass reverted; remaining misses are soft-band alpha the decided models can't reach → MO-22) The three levers BR7.4 named, each measured in the CI eval: a subject-crop SAM pass for finer silhouettes; temporal consistency before the silhouette is decided (so stabilisation stops adding error); a box as the second prompt when one click finds no whole-subject candidate. Models unchanged
 
 **DoD:** matte eval reports committed for both platforms.
 
