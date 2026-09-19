@@ -1,2 +1,3 @@
 # MK7.5 gate numbers: measured in CI, recorded in plan/background-removal-ai/MK7-TRACKING-GATES.md
 tests/tracking-gates.json
+tests/tracking-gates-real-texture.json

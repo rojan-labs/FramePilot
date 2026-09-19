@@ -86,14 +86,18 @@ jobs:
         run: uv sync --extra cv --no-dev --locked --python 3.13
       - name: Pixel proof against real decoded media
         # Includes the MK7.5 tracking gates: every accuracy number mask tracking claims is
-        # measured here, against a ground truth that is exact by construction.
-        run: uv run --extra cv --no-dev --with pytest pytest -m decoded_media -q
+        # measured here, against a ground truth that is exact by construction. The real-texture
+        # gates encode H.264 camera files; `imageio-ffmpeg` supplies an ffmpeg with libx264 to the
+        # TEST run only, the way pytest is supplied — it is not in the lock, the SBOM or the pack.
+        run: uv run --extra cv --no-dev --with pytest --with imageio-ffmpeg pytest -m decoded_media -q
       - name: The measured tracking gates
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: tracking-gates-${{ matrix.platform }}
-          path: workers/tracking-lite/tests/tracking-gates.json
+          path: |
+            workers/tracking-lite/tests/tracking-gates.json
+            workers/tracking-lite/tests/tracking-gates-real-texture.json
           if-no-files-found: warn
       - name: License and SBOM record must match the resolved environment
         run: uv run --extra cv --no-dev python tools/generate_sbom.py --check
