@@ -26,7 +26,7 @@ def test_small_subject_gets_a_padded_crop_inside_the_frame() -> None:
     # The silhouette's box is inside the crop, with padding on every side.
     assert box.x0 < 600 and box.x1 > 700 and box.y0 < 300 and box.y1 > 500
     assert box.x0 >= 0 and box.x1 <= 1280 and box.y0 >= 0 and box.y1 <= 720
-    assert box.width == box.height
+    assert max(box.width, box.height) <= round(16 / 9 * min(box.width, box.height)) + 1
 
 
 def test_crop_near_the_frame_edge_is_shifted_inside() -> None:
@@ -38,8 +38,15 @@ def test_crop_near_the_frame_edge_is_shifted_inside() -> None:
 def test_large_subject_is_not_cropped() -> None:
     # A head-and-shoulders close-up already has enough logit cells.
     assert crop_box(_mask(720, 1280, 300, 100, 900, 720)) is None
-    side = 720 / MIN_GAIN
-    assert crop_box(_mask(720, 1280, 0, 0, int(side), int(side))) is None
+    side = int((720 * 1280) ** 0.5 / MIN_GAIN)
+    assert crop_box(_mask(720, 1280, 0, 0, side, side)) is None
+
+
+def test_a_standing_person_is_cropped() -> None:
+    # BR7.5 it9: the pilot's 140 x 520 px figure at 720p must qualify (it did not when a square
+    # crop's side was compared with the frame's short side).
+    box = crop_box(_mask(720, 1280, 600, 100, 740, 620))
+    assert box is not None and box.height < 720 and box.width < box.height
 
 
 def test_empty_or_tiny_subject_is_not_cropped() -> None:

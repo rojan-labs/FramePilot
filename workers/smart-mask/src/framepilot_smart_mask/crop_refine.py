@@ -9,7 +9,7 @@ part of it; the rest needs more logit cells on the subject.
 
 **What.** After tracking, for each frame whose subject is small enough that a crop around it
 is at least ``MIN_GAIN`` × finer than the frame, the crop (the tracked silhouette's box, padded
-by ``PAD_FRACTION`` of its long side, square where the frame allows) is encoded as its own
+by ``PAD_FRACTION`` of its long side, no narrower than ``MAX_ASPECT``) is encoded as its own
 1024² image and decoded in SAM's image mode with the tracked silhouette as the prompt: its box
 plus one include point at its deepest interior pixel. The crop's logits are mapped back to the
 frame. Nothing is invented: the prompt is the first pass's own answer, and the crop estimate
@@ -43,9 +43,15 @@ _log = logging.getLogger(__name__)
 PAD_FRACTION: Final = 0.15
 #: Minimum padding in display pixels.
 PAD_MIN_PX: Final = 16
+#: The crop's long side is at most this many times its short side (a 16:9 frame's own ratio,
+#: which SAM already sees squashed to 1024² in every tracked frame).
+MAX_ASPECT: Final = 16 / 9
 #: A crop is decoded only if it gives at least this many times more logit cells per pixel on
-#: the subject than the whole frame did (on the frame's short axis). Large subjects (a talking
-#: head, a busy-background portrait) already have enough and pass unchanged.
+#: the subject than the whole frame did (square root of frame area over crop area, i.e. the
+#: crop covers at most 1/MIN_GAIN² = 44% of the frame). Large subjects (a talking head, a
+#: busy-background portrait) already have enough and pass unchanged. BR7.5 it9 measured the
+#: first version, a square crop compared with the frame's SHORT side: a standing person
+#: (140 × 520 px at 720p) failed it, so the pass ran on 1 of 320 frames.
 MIN_GAIN: Final = 1.5
 #: The crop estimate must agree with the tracked silhouette this well to be used.
 MIN_AGREEMENT: Final = 0.85
@@ -103,11 +109,17 @@ def crop_box(prior: Bool) -> CropBox | None:
     x0, x1 = int(xs.min()), int(xs.max()) + 1
     y0, y1 = int(ys.min()), int(ys.max()) + 1
     long_side = max(x1 - x0, y1 - y0)
-    side = long_side + 2 * max(PAD_MIN_PX, round(PAD_FRACTION * long_side))
-    if min(width, height) / min(side, min(width, height)) < MIN_GAIN:
+    pad = 2 * max(PAD_MIN_PX, round(PAD_FRACTION * long_side))
+    crop_w, crop_h = x1 - x0 + pad, y1 - y0 + pad
+    # SAM squashes its input to 1024²; keep the crop within the aspect a 16:9 frame has.
+    crop_w = max(crop_w, round(crop_h / MAX_ASPECT))
+    crop_h = max(crop_h, round(crop_w / MAX_ASPECT))
+    left, right = _fit((x0 + x1) / 2 - crop_w / 2, crop_w, width)
+    top, bottom = _fit((y0 + y1) / 2 - crop_h / 2, crop_h, height)
+    # Logit cells per subject pixel scale with the area SAM's 1024² input covers.
+    gain = ((width * height) / ((right - left) * (bottom - top))) ** 0.5
+    if gain < MIN_GAIN:
         return None
-    left, right = _fit((x0 + x1) / 2 - side / 2, side, width)
-    top, bottom = _fit((y0 + y1) / 2 - side / 2, side, height)
     return CropBox(left, top, right, bottom)
 
 
