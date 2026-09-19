@@ -290,11 +290,8 @@ def test_eval_ablations_give_a_binary_edge_and_dump_the_estimates(
     assert len(windows) == 3
     with np.load(windows[0]) as data:
         assert set(data.files) == {
-            "start", "fwd", "bwd", "hasFwd", "hasBwd", "birefnet", "prestab", "band", "crop",
-            "hasCrop",
+            "start", "fwd", "bwd", "hasFwd", "hasBwd", "birefnet", "prestab", "band",
         }  # fmt: skip
-        # BR7.5: the fake square is small enough for the subject-crop pass on every frame.
-        assert data["hasCrop"].all() and data["crop"].shape == (16, 90, 160)
         assert data["fwd"].shape == (16, 90, 160) and data["fwd"].dtype == np.bool_
         assert int(data["start"]) == 0 and data["hasFwd"].all()
         assert np.array_equal(data["prestab"][:5], matte[:5])

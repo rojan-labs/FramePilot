@@ -43,7 +43,6 @@ from . import MATTE_PIPELINE_VERSION, PACK_VERSION
 from .backend import MattingModel, MediaUnreadableError, ModelProvider, SamModules, VideoInfo
 from .consensus import consensus, edge_radius, iou, snap_to_image, soft_edge
 from .containment import contain
-from .crop_refine import refine_in_crop, refined_masks
 from .embeddings import EmbeddingCache
 from .encode import concat_segments, decode_gray_frames, encode_stream, packet_count
 from .flow import fine_flow, gray, lab, reliability, warp
@@ -139,8 +138,6 @@ class PipelineConfig:
     #: (no BiRefNet alpha in the band) or skips band-only stabilisation. Always True in a pack.
     band_alpha: bool = True
     stabilise: bool = True
-    #: BR7.5 subject-crop SAM pass (crop_refine.py). Always True in a pack.
-    crop_pass: bool = True
     #: Window watchdog budget per frame (memory.py). Raised only for eval runs on slow CPUs.
     window_seconds_per_frame: float = WINDOW_SECONDS_PER_FRAME
     #: Eval only: write each window's independent estimates here for error attribution.
@@ -757,7 +754,6 @@ class MatteJob:
                 ctx, window, tracker, segmentation, birefnet, masks, scores, locked, prompts
             )
             self._timed("self_correct", started)
-            crops, has_crop = self._crop_pass(window, segmentation)
         finally:
             embeddings.clear()
         if report.accepted:
@@ -766,19 +762,10 @@ class MatteJob:
         grays = [gray(store[i]) for i in range(count)]
         flows = FlowCache(grays)
         alphas, bands, fixed = self._final_matte(
-            ctx, window, segmentation, birefnet, refine_records, flows, parts, crops, has_crop
+            ctx, window, segmentation, birefnet, refine_records, flows, parts
         )
         if self.config.eval_dump is not None:
-            _dump_estimates(
-                self.config.eval_dump,
-                window,
-                segmentation,
-                birefnet,
-                alphas,
-                bands,
-                crops,
-                has_crop,
-            )
+            _dump_estimates(self.config.eval_dump, window, segmentation, birefnet, alphas, bands)
         stabilised = self._stabilise(window, alphas, bands, fixed)
         if ctx.previous is not None:
             self._contain(ctx, window, alphas, flows)
@@ -959,43 +946,6 @@ class MatteJob:
             should_stop=self._check,
         )
 
-    def _crop_pass(self, window: WindowState, segmentation: Segmentation) -> tuple[Any, list[bool]]:
-        """BR7.5: SAM again on a tight crop around each small subject (crop_refine.py).
-
-        Runs after self-correction, so it refines the silhouettes that are final. Returns the
-        crop estimates (a scratch memory map) and which frames have one.
-        """
-        count = window.count
-        crops = window.scratch.array(
-            "crop", (count, segmentation.height, segmentation.width), np.bool_
-        )
-        has_crop = [False] * count
-        if not self.config.crop_pass:
-            return crops, has_crop
-        started = time.monotonic()
-        modules = self._use_sam()
-        # Memory attention is done; the image encoder comes back for the crops (BR0.7: never
-        # both resident).
-        release = getattr(modules, "release", None)
-        if release is not None:
-            release("sam_memory_attention")
-        for i in range(count):
-            self._check()
-            masks = segmentation.masks(i)
-            if masks:
-                estimate = refine_in_crop(modules, window.store[i], np.logical_or.reduce(masks))
-                if estimate is not None:
-                    crops[i] = estimate.mask
-                    has_crop[i] = True
-            self.progress(
-                "segment", i + 1, count, detail="refining the subject's edge" if i == 0 else None
-            )
-        if release is not None:
-            release("sam_image_encoder")
-        _log.info("crop pass: %d of %d frames refined", sum(has_crop), count)
-        self._timed("crop_pass", started)
-        return crops, has_crop
-
     def _final_matte(
         self,
         ctx: JobContext,
@@ -1005,8 +955,6 @@ class MatteJob:
         refine_records: list[RefineRecord],
         flows: FlowCache,
         parts: list[dict[str, float]],
-        crops: Any,
-        has_crop: list[bool],
     ) -> tuple[Any, Any, list[Bool]]:
         """Consensus in frame order with the warped previous alpha, band alpha, hard constraints."""
         started = time.monotonic()
@@ -1014,8 +962,7 @@ class MatteJob:
         radius = edge_radius(ctx.height)
 
         def sam_masks(i: int) -> list[Bool]:
-            refined = refined_masks(segmentation.masks(i), crops[i] if has_crop[i] else None)
-            return snap_to_image(refined, window.store[i])
+            return snap_to_image(segmentation.masks(i), window.store[i])
 
         silhouettes = (
             self._temporal_silhouettes(window, sam_masks) if self.config.stabilise else None
@@ -1304,7 +1251,6 @@ class MatteJob:
                 for name, enabled in (
                     ("band_alpha", self.config.band_alpha),
                     ("stabilise", self.config.stabilise),
-                    ("crop_pass", self.config.crop_pass),
                 )
                 if not enabled
             ],
@@ -1334,16 +1280,13 @@ def _dump_estimates(
     birefnet: Any,
     alphas: Any,
     bands: Any,
-    crops: Any,
-    has_crop: list[bool],
 ) -> None:
     """Eval only: one window's independent estimates before stabilisation, for attribution.
 
     ``fwd``/``bwd`` are SAM's binary masks at source size (``hasFwd``/``hasBwd`` say whether the
     pass reached the frame), ``birefnet`` its gated alpha, ``prestab`` the consensus alpha with
-    band alpha and constraints applied, ``band`` the unknown band, ``crop`` the subject-crop
-    SAM estimate (``hasCrop`` where one was used). Frame ``i`` of the arrays is job frame
-    ``start + i``.
+    band alpha and constraints applied, ``band`` the unknown band. Frame ``i`` of the arrays is
+    job frame ``start + i``.
     """
     directory.mkdir(parents=True, exist_ok=True)
     count, height, width = window.count, segmentation.height, segmentation.width
@@ -1364,8 +1307,6 @@ def _dump_estimates(
         birefnet=np.array(birefnet),
         prestab=np.array(alphas),
         band=np.array(bands),
-        crop=np.array(crops),
-        hasCrop=np.array(has_crop),
     )
 
 

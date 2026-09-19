@@ -15,6 +15,6 @@ PACK_VERSION: Final = "1.0.0"
 #: Sorted, and exactly what this worker can actually do.
 PACK_CAPABILITIES: Final = ("subject.matte", "subject.segment_frame")
 #: Bumped when the pipeline changes what an artifact's pixels mean (recorded in report.json).
-MATTE_PIPELINE_VERSION: Final = 2
+MATTE_PIPELINE_VERSION: Final = 3
 
 __all__ = ["MATTE_PIPELINE_VERSION", "PACK_CAPABILITIES", "PACK_ID", "PACK_VERSION"]
