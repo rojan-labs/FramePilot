@@ -86,27 +86,64 @@ vertex. Why: with part of a plane hidden, the visible part fits perfectly while 
 corners are extrapolated, and on real footage that extrapolation is off by pixels; only a
 measure of how much of the plane is actually confirmed catches it.
 
+**The reference learns (MK7.7).** The frame the mask was drawn on is what every other frame is
+registered against, so its own flaws are in every frame: on dim footage at proxy compression its
+coding noise alone moved a plane's corners by 0.46–0.71 px depending on which frame it was. A
+plane's reference is therefore averaged with the first 8 frames that verify cleanly, each
+rectified into it through its own verified registration — the reference keeps its geometry, and
+loses most of its noise. Pixels of the plane that something hid on that frame are filled in from
+the first frame that shows them cleanly.
+
+**Shadows.** ECC models a lighting change as one gain and offset, and a shadow edge across the
+plane is not one: least squares bends the plane to absorb it. When a plane does not verify
+cleanly, a fit on images normalised by their own local contrast is offered as well, and the
+check — which is locally normalised already — decides which one shows the plane.
+
 ## Review, and frames you can promise
 
 Every tracked frame carries a measured confidence, penalised by the model residual. Ranges under
 the floor land on the same review list as background removal — one list, not two panels that each
 know half the problem.
 
-Fix the mask on a bad frame and **Lock this frame**. That instant becomes a constraint, and
-**Re-track from constraints** measures outwards from each constraint in both directions, each
-direction stopping at the end of the first low-confidence stretch it meets, so frames the track
-already had right are kept rather than re-measured. The constraints stay on the mask after the re-track, so
-the next one can use them again (they were dropped before E2E.3). Every frame belongs to its nearest constraint, so it is
-always measured from the closest thing you confirmed.
+### Fixing a flagged stretch
 
-A constraint does not yet reliably fix a stretch where something covered much of the mask for a
-second or more: the re-track has to see through the same occlusion (MK7.5 measured 0-1 of 5 such
-ranges recovered). Lock a frame on each side of it, or track that stretch again from a frame where
-the mask is fully visible.
+1. **Put the mask right on a bad frame.** On the monitor, a tracked mask's handles sit where the
+   mask is drawn — its own geometry moved by the track — so you drag it onto the picture you see.
+2. **If something is in front of it, box it** with **Exclude region** (`X`) on that same frame.
+   Draw around the occluder as it is there; the tracker follows what the box covers from that
+   frame on (a hand does not stay where it was), and leaves those pixels out of the fit and out
+   of the confidence it reports.
+3. **Re-track from constraints.**
 
-A constraint frame is exact by construction, not by tolerance: the re-measured segment is
-anchored **on** it, so its transform there is the identity and your corrected geometry is what
-renders.
+Step 1 is one reversible edit (`correct_tracked_mask`): the frame becomes a constraint, and the
+geometry you put on screen is stored relative to the track. The re-track then measures outwards
+from each constraint in both directions, each direction stopping at the end of the first
+low-confidence stretch it meets, so frames the track already had right are kept exactly as they
+were. The constraints stay on the mask after the re-track, so the next one can use them again.
+Every frame belongs to its nearest constraint, so it is always measured from the closest thing
+you confirmed.
+
+On the real-texture set this recovers every long partial occlusion it produces (4 of 4, one
+adjustment and one box each; MK7.5 measured 0 of 5 without the box). **Lock this frame** still
+exists for a frame that is already right.
+
+### How a correction and the track combine
+
+Both renderers draw a tracked mask as **`T(t) · G(t)`**: the mask's own animation `G`, then the
+track `T` on its control points (`tracked_mask_path_at` in the export, `trackedMaskPathAt` in the
+preview — the same two steps, pinned bit for bit by `tests/fixtures/mask-track/corrected.json`).
+
+A correction is a keyframe of `G` **relative to the tracked motion**: the geometry `D` you put on
+screen at frame `c` is stored as `K = T(c)⁻¹ · D`. It is held (hold keyframes) across the flagged
+stretch it sits in — exactly the stretch the re-track re-measures — with your old animation
+untouched on either side. The re-track does not restart at the identity on `c`; it continues from
+the transform the track had there, `T'(f) = H(c → f) · T(c)`. So on `c`, `T'(c) · K = D`
+exactly — a constraint frame is exact by construction, not by tolerance — and every other frame
+of the stretch carries your correction with the measured motion.
+
+A path can be corrected under any track. A rectangle or an ellipse under a **perspective** track
+is not a rectangle on screen, so it has no rectangle to be the correction of: draw the mask as a
+path to correct it, or track it with position, scale and rotation.
 
 ## Telling the tracker what to watch
 
@@ -121,6 +158,12 @@ They are editor state, not project state: they steer the next run and mean nothi
 exists. Both stay drawn whatever tool is active, because what the tracker will follow has to be
 visible while you adjust the mask.
 
+An excluded region remembers the frame it was drawn on, and the tracker follows its **content**
+from that frame (it keeps moving at its last speed while it cannot be found), so draw it around
+the occluder, not around the path it will take. A re-track from constraints gives each constraint
+the regions drawn on its own frame. On a shape track, a vertex the occluder hides follows the
+surface around the shape, registered with the occluder left out.
+
 Seeing the tracker's **own** detected feature points before a run is not implemented: it would
 need a capability the frozen pack roster does not have. Your points are additive to whatever the
 tracker finds.
@@ -132,13 +175,15 @@ tracker finds.
 | Artifact format, frame lookup, point warp      | `packages/editor-core/src/mask-track.ts`                                                                           |
 | Host policy: methods, residual, flagged ranges | `packages/editor-core/src/mask-track-solve.ts`                                                                     |
 | Review list, constraints, re-track plan, merge | `packages/editor-core/src/mask-track-review.ts`                                                                    |
+| Corrections relative to the track (MK7.7)      | `packages/editor-core/src/mask-track-correction.ts`, `correct_tracked_mask` in `mask-commands.ts`                  |
+| Monitor handles on the drawn mask              | `apps/web-editor/src/components/preview/useMaskTrackArtifacts.ts`, `MaskCanvasTools.tsx`                           |
 | Export reader and path warp                    | `engine/python/framepilot_engine/render/tracks.py`                                                                 |
 | Monitor reader (loaded before a seek presents) | `apps/web-editor/src/preview/masks/track-source.ts`, `track-location.ts`, `preview/engine/layer-preview-engine.ts` |
 | The job: staging, verification, atomic commit  | `apps/desktop/electron/capability-packs/track-job.ts`                                                              |
 | The run: resolve, measure, join, commit        | `apps/desktop/electron/capability-packs/track-run.ts`                                                              |
 | Panel                                          | `apps/web-editor/src/components/inspector/masks/MaskTracking.tsx`                                                  |
 | Worker                                         | `workers/tracking-lite/src/framepilot_tracking_lite/`                                                              |
-| Parity vectors (TS == Python, byte-exact)      | `tests/fixtures/mask-track/transforms.json`                                                                        |
+| Parity vectors (TS == Python, byte-exact)      | `tests/fixtures/mask-track/transforms.json`, `corrected.json`                                                      |
 | Measured gates                                 | [`MK7-TRACKING-GATES.md`](../../plan/background-removal-ai/MK7-TRACKING-GATES.md)                                  |
 
 ## Refusals

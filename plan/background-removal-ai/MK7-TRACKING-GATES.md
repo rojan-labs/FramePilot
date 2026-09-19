@@ -1,4 +1,4 @@
-# MK7.5 — tracking gates: what is measured, and what is not
+# MK7.5 / MK7.7 — tracking gates: what is measured, and what is not
 
 The numbers mask tracking is allowed to claim. Plan [`06`](./06-PRECISION-AND-EVAL.md) sets the
 thresholds; this file records what they measured, on which run, and which rows are still open.
@@ -8,14 +8,14 @@ per platform.
 
 ## Gates
 
-| Gate (plan 06)                                     | Threshold                                                                       | Status                                                                          |
-| -------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Planar track on synthetic warps (known homography) | median corner reprojection ≤ 0.25 px, p95 ≤ 1 px, no frame > 2 px               | **Met** (0.011 px median; CI darwin + local)                                    |
-| Real clips                                         | median ≤ 0.5 px, p95 ≤ 2 px at source resolution                                | **Met on 14 of 15 rows** (real texture, known camera); one recorded miss, below |
-| Drift                                              | ≤ 1 px per 300 frames on static-scene fixtures                                  | **Met** (0.02 px over 300 real frames)                                          |
-| Low-confidence detection recall                    | ≥ 99.5 % of frames with error > 2 px are flagged                                | **Met by the confidence number**: 92 / 92 measured-and-wrong frames flagged     |
-| Constraint frames                                  | 100 % exact after any re-track                                                  | Proved, not sampled (below); a one-frame gap in that proof was found and fixed  |
-| Correction                                         | one constraint frame brings a failing range back within gate in ≥ 95 % of cases | **Open — 0 of 5**; every failing range left is a long partial occlusion (below) |
+| Gate (plan 06)                                     | Threshold                                                                       | Status                                                                      |
+| -------------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Planar track on synthetic warps (known homography) | median corner reprojection ≤ 0.25 px, p95 ≤ 1 px, no frame > 2 px               | **Met** (0.083 px median at MK7.7, was 0.011; below)                        |
+| Real clips                                         | median ≤ 0.5 px, p95 ≤ 2 px at source resolution                                | **Met on 15 of 15 rows** (MK7.7: night CRF 28 0.522 → 0.461 px)             |
+| Drift                                              | ≤ 1 px per 300 frames on static-scene fixtures                                  | **Met** (0.11 px over 300 real frames at MK7.7, was 0.02)                   |
+| Low-confidence detection recall                    | ≥ 99.5 % of frames with error > 2 px are flagged                                | **Met by the confidence number**: 28 / 28 measured-and-wrong frames flagged |
+| Constraint frames                                  | 100 % exact after any re-track                                                  | Proved, not sampled (below), now for a correction relative to the track     |
+| Correction                                         | one constraint frame brings a failing range back within gate in ≥ 95 % of cases | **Met at MK7.7 — 4 of 4** (one adjustment + one exclusion each; below)      |
 
 "Real clips" is measured on **real camera texture moved by a known camera** rather than on
 hand-labelled footage: hand labels are a maintainer action (MO-8) and are themselves a few tenths
@@ -61,11 +61,15 @@ the reference frame's exactness, and the host flag constants pinned against
   period, a ×1.8 lighting jump, a soft shadow sweeping across, a 30 px/frame whip pan. "Caught"
   means the HOST's rule flags it (confidence penalised by the model residual, under 0.5) — never
   the true error. A worker refusal is recorded as its own mode, never as a catch.
-- **Correction** follows `mask-track-review.ts`: one constraint per flagged range, at its middle
-  frame, carrying the corrected geometry (the truth there); `retrackPlan` decides what is
-  re-measured; each segment is anchored on its constraint; every frame takes its nearest
-  constraint's segment, the previous track elsewhere. A failing range (flagged, holding a frame
-  over 2 px) is recovered when every frame in it is within 2 px.
+- **Correction** (MK7.7) scripts what an editor does, and counts it: per flagged range, on its
+  middle frame, ONE mask adjustment (the mask put where the plane is on that frame — for a
+  plane, the visible part fixes the corners it hides) and, when something is in front of the
+  mask there, ONE exclusion box around that occluder as it appears on that frame. Nothing else
+  of the construction is read — not the occluder's path, not the truth on any other frame.
+  `retrackPlan` decides what is re-measured; each segment is measured from its constraint with
+  the exclusion and anchored on it; every frame takes its nearest constraint's segment, the
+  previous track elsewhere. A failing range (flagged, holding a frame over 2 px) is recovered
+  when every frame in it is within 2 px. (MK7.5 used the same rule with no exclusion.)
 
 ## What changed to meet them
 
@@ -171,7 +175,97 @@ What CI has measured so far, on earlier commits of this change:
 - **Run 35437808014 at `610eaa70`** — dispatched; its per-platform reports are the CI record
   when it completes.
 
+## MK7.7 — correction through occlusion, and the night plate
+
+**darwin-arm64, local, at `1e155967`** (worker at `7ab5205f`), one job at a time under the memory
+guard (free memory never under 49 %, swap never grew): `pytest -m decoded_media tests/` — **40
+passed, 1 xpassed** (the night row's former xfail, now removed), 13 min 15 s.
+
+| Row                                | Size · CRF    | MK7.7 median / p95 / max px | MK7.5        |
+| ---------------------------------- | ------------- | --------------------------- | ------------ |
+| hillside / position                | 1280×720 · 18 | 0.063 / 0.127 / 0.149       | 0.045        |
+| hillside / position+scale+rotation | 1280×720 · 18 | 0.038 / 0.077 / 0.091       | 0.029        |
+| hillside / perspective             | 1280×720 · 18 | 0.050 / 0.094 / 0.132       | 0.033        |
+| hillside / shape                   | 1280×720 · 18 | 0.083 / 0.137 / 0.156       | 0.083        |
+| hillside / perspective             | 1280×720 · 28 | 0.090 / 0.172 / 0.279       | 0.073        |
+| forest / position                  | 1280×720 · 18 | 0.067 / 0.132 / 0.185       | 0.041        |
+| forest / position+scale+rotation   | 1280×720 · 18 | 0.063 / 0.106 / 0.137       | 0.044        |
+| forest / perspective               | 1280×720 · 18 | 0.094 / 0.163 / 0.218       | 0.066        |
+| forest / shape                     | 1280×720 · 18 | 0.255 / 0.577 / 0.716       | 0.255        |
+| forest / shape                     | 1280×720 · 28 | 0.240 / 0.467 / 0.827       | 0.227        |
+| night / position                   | 960×540 · 18  | 0.084 / 0.183 / 0.302       | 0.075        |
+| night / position+scale+rotation    | 960×540 · 18  | 0.103 / 0.222 / 0.397       | 0.129        |
+| night / perspective                | 960×540 · 18  | 0.170 / 0.349 / 0.401       | 0.154        |
+| night / shape                      | 960×540 · 18  | 0.191 / 0.302 / 0.326       | 0.191        |
+| night / perspective                | 960×540 · 28  | **0.461 / 0.839 / 1.300**   | 0.522 (miss) |
+
+| Measure                                                    | MK7.7 (local)                     |
+| ---------------------------------------------------------- | --------------------------------- |
+| Drift over 300 real frames, worst px (perspective · shape) | 0.112 · 0.029                     |
+| Recall: flagged / measured-and-wrong                       | **28 / 28** (100 %)               |
+| Review load (flagged / measured frames)                    | 9.1 % of 2640                     |
+| Refused (target_lost)                                      | stress/competing-plane            |
+| Correction: failing ranges recovered                       | **4 / 4**, 8 editor actions       |
+| Flagged ranges ending within gate                          | 27 / 27                           |
+| Frames outside flagged ranges made worse                   | 0 (now asserted)                  |
+| Synthetic planar median / p95 / max px (worst of 3 warps)  | 0.083 / 0.089 / 0.092 (was 0.011) |
+
+Correction ranges (worst px before → after; constraint frame; the one exclusion box, frame px):
+
+- `occluder-55` 36–81, c 58, box 355,164 281×380: 5.79 → **0.53**
+- `occluder-30-night` 45–81, c 62, box 291,123 115×285: 3.22 → **1.43**
+- `occluder-45-similarity` 34–81, c 57, box 353,164 230×380: 4.52 → **0.47**
+- `occluder-40-shape` 35–81, c 57, box 356,164 204×380: 8.42 → **0.70**
+
+`moving-shadow` no longer has a failing range at all: its first track now stays within 1.8 px
+(it was 2.60, and a constraint alone left 2.42). Fewer wrong frames overall (28, was 92) is the
+first track getting better, not the stress scenes softening: the occluded shape fell from 29 px
+to 8.4 px worst, the occluders from 5-8 px to 4.5-5.8 px.
+
+**What changed.**
+
+- **Corrections are what an editor does** (`correct_tracked_mask`, the monitor, the host). The
+  combination rule was already `T(t) · G(t)` in both renderers; a correction is now stored
+  relative to it, `K = T(c)⁻¹ · D`, held over the flagged stretch it sits in, and a re-track
+  continues from `T(c)` (`anchorOnConstraint`) instead of restarting at the identity — which
+  answers the MK7.5 open question of how segments anchored on different frames share one `G`:
+  they do not have to, because the correction holds exactly where its segment rules.
+  "Constraint frames 100 % exact" is still a construction: `T'(c) · K = D`. The desktop re-track
+  now reads the pinned track (it never did: `retrackPlan` had not run in the app, and the commit
+  re-anchored everything on the playhead). Parity: `tests/fixtures/mask-track/corrected.json`,
+  36 cases, engine == preview to the bit.
+- **Exclusions reach the tracker** (panel → IPC → host → worker `exclusions`), and the worker
+  follows each box's content from the frame it was drawn on and leaves its pixels out of
+  features, flow votes, registration and the check, on both frames. A static box around the
+  occluder's whole path was tried first: it rescued two planes but left `occluder-55` at 3.1 px
+  (12 % of the quad left to register on) — the box has to move with what it covers.
+- **The reference learns**: plane pixels hidden on the constraint frame are filled from the first
+  frame that verifies them (an oracle, per-frame exclusion still failed at the forward tail,
+  2.15 px, without it); and a plane's reference is averaged with its first 8 cleanly verified
+  frames. The second closed the night row: its error was the reference's own coding noise — the
+  same row measured 0.456 / 0.522 / 0.550 / 0.709 px from reference frames 30 / 0 / 5 / 1 — and
+  nothing that changed only the registration of the CURRENT frame moved it (cubic resampling
+  0.508, a second ECC pass 0.510, textured-only ECC 0.519, float luma 0.525, more or less ECC
+  smoothing 0.527-0.543, light-normalised ECC 0.65, a temporal prior on the perspective terms
+  0.485 but costing the clean rows 3x). Averaging costs the clean rows a little resampling
+  softness (synthetic 0.011 → 0.083 px, drift 0.02 → 0.11 px, hillside perspective 0.033 → 0.050
+  px), all far inside their gates.
+- **Shadows**: a fit on locally light-normalised images is offered when a plane (≥ 32 cells) does
+  not verify cleanly; the check chooses. Not on vertex patches: there it won by a cell while
+  measuring the forest shape 0.06 px worse.
+- **Shapes**: a hidden vertex is carried by a plane fitted to the confirmed ones (from the
+  reference, so nothing accumulates) instead of their median frame-to-frame shift; with an
+  exclusion it follows the surface around the shape, and a patch the occluder touches is not
+  evidence. A shape whose centre point is swept by the occluder is no longer dropped.
+
+**Not covered:** the scripted adjustment is exact where the plane is on the constraint frame; an
+editor's placement error adds to it and is not modelled. The exclusion follower matches the
+occluder's texture — a flat, textureless occluder keeps its last velocity instead, which is not
+measured here. win32 is CI's to report.
+
 ## Recorded misses, and why
+
+None remain at MK7.7. The two MK7.5 records below are kept as history.
 
 Both are `xfail(strict=False)` in the real-texture module: the gate is asserted and expected to
 fail, so an improvement or a regression shows in every run instead of being absorbed.
@@ -217,6 +311,11 @@ transform — and `retrackPlan` now re-measures it (`mask-track-review.test.ts`:
 one-frame flagged range, so its constraint frame is exact"). The other tests stand:
 `mask-track-review.test.ts` "keeps every constraint frame exactly the identity", and
 `test_tracking_gates.py` "the reference frame is exactly the identity" (0.0 px on real pixels).
+
+MK7.7 changes the anchor, not the proof: a segment is now continued from the previous track's
+transform on its constraint (`T'(c) = T(c)`) because the correction there is stored relative to
+it, so `T'(c) · K = D` exactly (`mask-track-correction.test.ts`, and end to end through the
+desktop service in `mask-track-service.test.ts` "re-tracks from a correction").
 
 ## What this does not cover
 

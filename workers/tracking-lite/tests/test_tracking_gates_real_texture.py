@@ -474,14 +474,7 @@ def record(section: str, name: str, payload: dict[str, Any]) -> None:
 #: Rows measured and recorded that do NOT meet the gate, with why. The gate is not lowered for
 #: them: the test still asserts it and is expected to fail, so a regression or an improvement
 #: shows up rather than being silently absorbed.
-KNOWN_MISSES = {
-    "night/perspective/crf28": (
-        "low-light pavement at proxy-grade H.264: median ~0.52 px against 0.5 (p95 ~1.0 px is "
-        "inside). The quad's left half is black, so its corners are extrapolated from texture "
-        "near the bench; ECC budget, smoothing and a temporally averaged reference were tried "
-        "(best 0.48-0.52). At camera quality (CRF 18) the same scene measures ~0.15 px."
-    ),
-}
+KNOWN_MISSES: dict[str, str] = {}
 
 
 def gate_params() -> list[Any]:

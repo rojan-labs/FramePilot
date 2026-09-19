@@ -27,6 +27,19 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A tracked mask can be fixed through something passing in front of it.** On a frame the
+  track got wrong, drag the mask onto the picture — its handles now sit where the tracked mask
+  is drawn, and the edit is kept relative to the track instead of moving the mask on every
+  frame — box whatever is in front of it with **Exclude region**, and **Re-track from
+  constraints**. The tracker follows the boxed object from that frame, ignores it, and continues
+  the track from your correction; the rest of the track is kept exactly. On the real-texture set
+  this recovers every long partial occlusion (4 of 4; 0 of 5 before). Re-tracking from
+  constraints now also really continues the pinned track (it used to re-measure from the
+  playhead), and a corrected mask draws the same in the monitor and the export (MK7.7).
+- **Mask tracking on dim, heavily compressed footage** no longer carries the noise of the frame
+  the mask was drawn on into every other frame: the reference is averaged with the first frames
+  that verify cleanly (night plate at proxy quality 0.522 → 0.46 px median, under the 0.5 px
+  gate), and a shadow sweeping across a tracked plane no longer bends it (MK7.7).
 - **Mask tracking holds on real footage, and says when it is not sure.** Measured on real camera
   texture moved by a known camera (MK7.5): a tracked plane used to slide by up to 10 px on
   low-light footage and a shape's vertices by up to 57 px, all reported as confident, and a
