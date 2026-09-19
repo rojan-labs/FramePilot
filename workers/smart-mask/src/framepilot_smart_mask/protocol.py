@@ -74,6 +74,7 @@ FailureCode = Literal[
     "cancelled",
     "media_unreadable",
     "target_lost",
+    "needs_box",
     "model_unavailable",
     "hardware_unsupported",
     "invalid_request",

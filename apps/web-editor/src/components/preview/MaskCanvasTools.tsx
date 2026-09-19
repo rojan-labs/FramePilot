@@ -324,6 +324,20 @@ type Gesture =
       readonly label: 'include' | 'exclude';
       readonly samples: PixelPoint[];
     }
+  | {
+      /**
+       * AI Object (BR6.3, BR7.5): a click is a keep/leave-out point; a drag past the click slop
+       * draws a box around the subject, which the pack asks for when one click cannot say
+       * where a subject cut by the frame ends. The box is the editor's own geometry.
+       */
+      readonly kind: 'subject-pick';
+      readonly pointerId: number;
+      readonly label: 'include' | 'exclude';
+      readonly start: PixelPoint;
+      readonly startClient: PixelPoint;
+      current: PixelPoint;
+      dragged: boolean;
+    }
   | { readonly kind: 'pen-drag'; readonly pointerId: number; readonly index: number }
   | {
       readonly kind: 'pan';
@@ -987,6 +1001,29 @@ export function MaskCanvasTools({
     setAnnouncement(label === 'include' ? 'Subject point added' : 'Excluded point added');
   };
 
+  /**
+   * Record the box the editor dragged around the subject (BR7.5), clipped to the picture, as
+   * fractions of it. A box replaces the previous one: the pack takes one box per run.
+   */
+  const addSubjectBox = (region: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  }): void => {
+    if (!(space.sourceWidth > 0) || !(space.sourceHeight > 0)) return;
+    const left = Math.max(0, region.x / space.sourceWidth);
+    const top = Math.max(0, region.y / space.sourceHeight);
+    const right = Math.min(1, (region.x + region.width) / space.sourceWidth);
+    const bottom = Math.min(1, (region.y + region.height) / space.sourceHeight);
+    if (!(right > left) || !(bottom > top)) {
+      report('Drag the box across the subject inside the picture.');
+      return;
+    }
+    store.setSubjectBox({ x: left, y: top, width: right - left, height: bottom - top, sourceTime });
+    setAnnouncement('Subject box drawn');
+  };
+
   /** Sample a brush stroke into evenly spaced subject points. Returns how many it added. */
   const addSubjectStroke = (
     samples: readonly PixelPoint[],
@@ -1040,9 +1077,18 @@ export function MaskCanvasTools({
         setAnnouncement('Feature point toggled');
         return;
       case 'ai-object':
-        // Click = keep this, Alt-click = not this (BR6.3). Nothing runs on the click: the
-        // points are what the NEXT background removal is prompted with.
-        addSubjectPoint(point, event.altKey ? 'exclude' : 'include');
+        // Click = keep this, Alt-click = not this (BR6.3); drag = a box around the subject
+        // (BR7.5). Nothing runs on either: they are what the NEXT background removal is
+        // prompted with. Which one it was is known on release.
+        gesture.current = {
+          kind: 'subject-pick',
+          pointerId: event.pointerId,
+          label: event.altKey ? 'exclude' : 'include',
+          start: point,
+          startClient: { x: event.clientX, y: event.clientY },
+          current: point,
+          dragged: false,
+        };
         return;
       case 'correction-brush':
         gesture.current = {
@@ -1261,6 +1307,17 @@ export function MaskCanvasTools({
         active.current = point;
         setDraft({ marquee: rectFromCorners(active.start, point) });
         return;
+      case 'subject-pick': {
+        active.current = point;
+        const moved = Math.hypot(
+          event.clientX - active.startClient.x,
+          event.clientY - active.startClient.y,
+        );
+        if (!active.dragged && moved < CLICK_SLOP_PX) return;
+        active.dragged = true;
+        setDraft({ marquee: rectFromCorners(active.start, point) });
+        return;
+      }
       case 'draw-box': {
         const target = snapped(point, event, null);
         active.current = target.point;
@@ -1590,6 +1647,14 @@ export function MaskCanvasTools({
         setAnnouncement('Excluded region added');
         return;
       }
+      case 'subject-pick': {
+        if (!active.dragged) {
+          addSubjectPoint(active.start, active.label);
+          return;
+        }
+        addSubjectBox(rectFromCorners(active.start, active.current));
+        return;
+      }
       case 'freehand': {
         const vertices = fitClosedStroke(
           active.samples,
@@ -1867,7 +1932,7 @@ export function MaskCanvasTools({
     if (event.key === 'Escape') {
       if (
         (tools.tool === 'ai-object' || tools.tool === 'ai-brush') &&
-        tools.subjectPoints.length > 0
+        (tools.subjectPoints.length > 0 || tools.subjectBox !== null)
       ) {
         handled();
         store.clearSubjectPoints();
@@ -2077,7 +2142,7 @@ export function MaskCanvasTools({
       {(tools.tool === 'ai-object' || tools.tool === 'ai-brush') && (
         <p className="mask-canvas-hint" role="status">
           {tools.tool === 'ai-object'
-            ? 'Click the subject to keep it. Alt-click anything to leave out. Esc clears.'
+            ? 'Click the subject to keep it, or drag a box around it. Alt-click anything to leave out. Esc clears.'
             : 'Drag across the subject to keep it. Alt-drag over anything to leave out. Esc clears.'}{' '}
           {tools.subjectPoints.length > 0 &&
             `${String(tools.subjectPoints.length)} point(s) picked.`}
@@ -2324,6 +2389,17 @@ export function MaskCanvasTools({
               fill="none"
             />
           ))}
+          {tools.subjectBox !== null && (
+            <rect
+              className="mask-canvas-subject-box"
+              data-testid="mask-subject-box"
+              x={tools.subjectBox.x * space.sourceWidth}
+              y={tools.subjectBox.y * space.sourceHeight}
+              width={tools.subjectBox.width * space.sourceWidth}
+              height={tools.subjectBox.height * space.sourceHeight}
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
           {tools.subjectPoints.map((point) => (
             <g key={`subject-${String(point.x)}-${String(point.y)}-${point.label}`}>
               <circle

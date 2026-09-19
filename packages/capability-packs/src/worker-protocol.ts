@@ -924,6 +924,9 @@ export const CapabilityPackWorkerFailureSchema = z
       'cancelled',
       'media_unreadable',
       'target_lost',
+      // A lone click on a subject that runs off the picture (BR7.5): one click cannot say where
+      // it ends, and the pack never invents a box, so the host asks the editor to draw one.
+      'needs_box',
       'model_unavailable',
       'hardware_unsupported',
       'invalid_request',

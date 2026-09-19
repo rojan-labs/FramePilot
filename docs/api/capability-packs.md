@@ -516,7 +516,10 @@ install/update proposal (`pack_missing`), never a crash.
   flagged, locked frames and self-correction rounds; verified + flagged never exceeds the frame
   count) and up to 4096 `needsReview` ranges with a closed reason enum.
 - Progress adds `refine`, `consensus`, `self_correct` (with `round`), `matte`, `foreground`,
-  `stabilise` and `verify`. Failures add `output_unwritable` (disk full or folder not writable).
+  `stabilise` and `verify`. Failures add `output_unwritable` (disk full or folder not writable)
+  and `needs_box` (BR7.5: the only prompt is one include click on a subject that runs off the
+  picture, so one click cannot say where it ends; refused before the long part of the job, never
+  answered with an invented box; the host asks the editor to drag a box with AI Object).
 - `subject.segment_frame` takes `{ pts, points?, box?, hoverPoint?, previewHeight }` and returns a
   base64 8-bit grayscale PNG (≤ 900 000 characters) with a score. It writes nothing.
 

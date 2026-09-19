@@ -92,7 +92,15 @@ from .segment import (
 )
 from .self_correct import CorrectionReport, Run, self_correct
 from .stabilise import stabilise
-from .tracker import CondPrompt, MaskPrompt, PointPrompt, SamTracker, preprocess, video_logits
+from .tracker import (
+    CondPrompt,
+    MaskPrompt,
+    PointPrompt,
+    SamTracker,
+    click_needs_box,
+    preprocess,
+    video_logits,
+)
 from .verify import Thresholds, flag_frames, frame_signals, review_ranges
 
 _log = logging.getLogger(__name__)
@@ -650,6 +658,7 @@ class MatteJob:
             max_spill_bytes=self.config.embedding_spill_bytes,
         )
         try:
+            self._ask_for_box(window, prompts, embeddings)
             # Encode every frame first (RAM + scratch spill), then release the image encoder so it
             # is never resident beside memory attention: the job's peak drops by ~3 GB.
             for index in range(count):
@@ -754,6 +763,28 @@ class MatteJob:
         )
 
     # stages --------------------------------------------------------------------------------------
+
+    def _ask_for_box(
+        self, window: WindowState, prompts: dict[int, CondPrompt], embeddings: EmbeddingCache
+    ) -> None:
+        """BR7.5: refuse, before the long part, a lone click on a subject cut by the frame.
+
+        One click cannot say where such a subject ends, and the pack never invents a box (the
+        AI never invents geometry), so the host asks the editor to draw one. A partial re-run
+        is anchored by the previous matte and is never refused this way.
+        """
+        if self.request.previous_artifact is not None:
+            return
+        for local, prompt in sorted(prompts.items()):
+            if not isinstance(prompt, PointPrompt) or prompt.labels != (1,):
+                continue
+            if click_needs_box(self._use_sam(), embeddings.get(local), prompt, window.store[local]):
+                _log.info("one click on a subject cut by the frame at window frame %d", local)
+                raise ProtocolError(
+                    "needs_box",
+                    "One click cannot tell where this subject ends: it runs off the edge of the "
+                    "picture. Draw a box around the subject, then run again.",
+                )
 
     def _decode(self, ctx: JobContext, window: WindowState) -> None:
         started = time.monotonic()

@@ -125,6 +125,14 @@ export interface MaskToolState {
    */
   readonly subjectPoints: readonly SubjectPoint[];
   /**
+   * A box the editor dragged around the subject with AI Object (BR7.5), or `null`.
+   *
+   * The pack asks for one when a single click cannot say where the subject ends (it runs off
+   * the picture); the box is the editor's own geometry, never one the pack or the AI made up.
+   * Same units and lifetime as {@link subjectPoints}.
+   */
+  readonly subjectBox: SubjectBox | null;
+  /**
    * Brush fixes drawn on the monitor but not yet applied (BR6.5).
    *
    * Source pixels, so they rasterise straight into a correction mask at the artifact's size. They
@@ -162,6 +170,15 @@ export interface CorrectionStrokeDraft {
   readonly points: readonly { readonly x: number; readonly y: number }[];
 }
 
+/** An AI Object box around the subject, at a source instant, in picture fractions (BR7.5). */
+export interface SubjectBox {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly sourceTime: number;
+}
+
 /** One AI Object click: include or exclude, at a source instant, in picture fractions. */
 export interface SubjectPoint {
   readonly x: number;
@@ -190,6 +207,7 @@ const INITIAL: MaskToolState = {
   pendingTarget: null,
   eyedropper: false,
   subjectPoints: [],
+  subjectBox: null,
   correctionStrokes: [],
   brushKind: 'keep',
   brushRadiusPx: 24,
@@ -310,10 +328,15 @@ export class MaskToolStore {
     this.update({ requestedMaskView: view });
   }
 
-  /** Forget the subject clicks (a finished run, another clip). */
+  /** Set (or with `null`, take back) the box dragged around the subject (BR7.5). */
+  public setSubjectBox(box: SubjectBox | null): void {
+    this.update({ subjectBox: box });
+  }
+
+  /** Forget the subject clicks and box (a finished run, another clip). */
   public clearSubjectPoints(): void {
-    if (this.state.subjectPoints.length === 0) return;
-    this.update({ subjectPoints: [] });
+    if (this.state.subjectPoints.length === 0 && this.state.subjectBox === null) return;
+    this.update({ subjectPoints: [], subjectBox: null });
   }
 
   /** Forget the tracking hints (a new mask, a new shot). */

@@ -564,12 +564,57 @@ def whole_object(
     return None if chosen == int(np.argmax(ious)) else chosen
 
 
+#: BR7.5: a single click cannot say where a subject that runs off the picture ends (a talking
+#: head cut by the bottom edge: every candidate SAM offers is a part, 0.60-0.85 IoU against the
+#: whole in BR7.4's it7/it7cal dumps), so the matte job asks for a box instead of guessing. A
+#: candidate is "cut by the frame" when it covers at least this fraction of any picture edge.
+#: Fitted on the calibration clicks (it7cal): the talking head covers 0.29 of the bottom edge,
+#: every other calibration click covers none of any edge.
+BORDER_CUT_FRACTION: Final = 0.05
+
+
+def cut_by_frame(mask: npt.NDArray[np.bool_]) -> bool:
+    """Whether ``mask`` covers at least :data:`BORDER_CUT_FRACTION` of any picture edge."""
+    edges = (mask[0], mask[-1], mask[:, 0], mask[:, -1])
+    return any(float(edge.mean()) >= BORDER_CUT_FRACTION for edge in edges)
+
+
+def click_needs_box(
+    modules: SamModules,
+    feats: ImageFeatures,
+    prompt: PointPrompt,
+    frame: npt.NDArray[np.uint8],
+) -> bool:
+    """Whether one include click's whole-subject candidate runs off the picture.
+
+    Decodes the click exactly as :meth:`SamTracker._condition_points` does and applies the same
+    :func:`whole_object` choice, so the answer is about the mask the job would condition on.
+    Anything but a lone include click (points plus a box, several points) never needs a box.
+    """
+    if prompt.labels != (1,):
+        return False
+    no_mem = modules.constants.no_mem_embed.reshape(1, HIDDEN_DIM, 1, 1).astype(np.float32)
+    coords = np.array(prompt.coords, np.float32).reshape(1, -1, 2) * IMAGE_SIZE
+    labels = np.array(prompt.labels, np.int32).reshape(1, -1)
+    out = modules.decode_points(feats.fpn2 + no_mem, feats, coords, labels, True)
+    height, width = frame.shape[:2]
+    if out.low_res_multimasks is None:
+        chosen_logits = np.asarray(out.low_res_masks, np.float32).reshape(LOW_RES, LOW_RES)
+    else:
+        candidates = np.asarray(out.low_res_multimasks, np.float32).reshape(-1, LOW_RES, LOW_RES)
+        ious = np.asarray(out.ious, np.float32).reshape(-1)
+        chosen = whole_object(candidates, ious, coords[0, 0] * LOW_RES / IMAGE_SIZE, frame)
+        chosen_logits = candidates[int(np.argmax(ious)) if chosen is None else chosen]
+    return cut_by_frame(resize_bilinear(chosen_logits, height, width) > 0)
+
+
 def video_logits(low_res: Float, height: int, width: int) -> Float:
     """``_get_orig_video_res_output``: bilinear from 256² logits to the display size."""
     return resize_bilinear(low_res, height, width)
 
 
 __all__ = [
+    "BORDER_CUT_FRACTION",
     "IMAGE_SIZE",
     "LOW_RES",
     "MAX_OBJ_PTRS",
@@ -581,6 +626,8 @@ __all__ = [
     "PointPrompt",
     "SamTracker",
     "boundary_contrast",
+    "click_needs_box",
+    "cut_by_frame",
     "emulate_bfloat16",
     "preprocess",
     "resize_antialias",

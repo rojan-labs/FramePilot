@@ -46,6 +46,7 @@ import {
   maskToolStore,
   useMaskTools,
   type MaskToolStore,
+  type SubjectBox,
   type SubjectPoint,
 } from './useMaskTools.js';
 import { LabeledSelect } from '../LabeledSelect.js';
@@ -66,19 +67,26 @@ const TOOL_NAME = 'Background removal';
 const WARNING_ID = 'background-removal-pack-note';
 
 /**
- * The editor's clicks as the wire's prompts: one `points` prompt per source instant, because the
- * pack is prompted at a frame and two clicks on the same frame are one prompt, not two.
+ * The editor's clicks (and box, BR7.5) as the wire's prompts: one `points` prompt per source
+ * instant, because the pack is prompted at a frame and two clicks on the same frame are one
+ * prompt, not two. A box is its own prompt; on the same frame as clicks the pack merges them.
  */
-export function subjectPrompts(points: readonly SubjectPoint[]): MattePromptRefWire[] {
+export function subjectPrompts(
+  points: readonly SubjectPoint[],
+  box: SubjectBox | null = null,
+): MattePromptRefWire[] {
   const byInstant = new Map<number, { x: number; y: number; label: 'include' | 'exclude' }[]>();
   for (const point of points) {
     const list = byInstant.get(point.sourceTime) ?? [];
     list.push({ x: point.x, y: point.y, label: point.label });
     byInstant.set(point.sourceTime, list);
   }
-  return [...byInstant.entries()]
+  const clicks: MattePromptRefWire[] = [...byInstant.entries()]
     .sort(([a], [b]) => a - b)
     .map(([sourceTime, list]) => ({ kind: 'points', sourceTime, points: list }));
+  if (box === null) return clicks;
+  const { sourceTime, ...rect } = box;
+  return [{ kind: 'box', sourceTime, box: rect }, ...clicks];
 }
 
 export interface BackgroundRemovalRowProps {
@@ -141,7 +149,7 @@ export function BackgroundRemovalRow({
 
   const run = (): void => {
     setMessage(null);
-    if (subject === 'pick' && tools.subjectPoints.length === 0) {
+    if (subject === 'pick' && tools.subjectPoints.length === 0 && tools.subjectBox === null) {
       setMessage('Click the subject on the monitor first.');
       return;
     }
@@ -158,7 +166,7 @@ export function BackgroundRemovalRow({
       clipId: clip.id,
       sourceStart: coverage.sourceStart,
       sourceEnd: coverage.sourceEnd,
-      prompts: subject === 'auto' ? [] : subjectPrompts(tools.subjectPoints),
+      prompts: subject === 'auto' ? [] : subjectPrompts(tools.subjectPoints, tools.subjectBox),
       edgeMode,
       timelineRevision: editor.state.timeline.revision ?? 0,
     }).then((refusal) => setMessage(refusal));
@@ -185,9 +193,9 @@ export function BackgroundRemovalRow({
           />
           {subject === 'pick' && (
             <p className="inspector-empty">
-              {tools.subjectPoints.length === 0
-                ? 'Pick AI Object on the monitor, then click the subject.'
-                : `${String(tools.subjectPoints.length)} point(s) picked.`}
+              {tools.subjectPoints.length === 0 && tools.subjectBox === null
+                ? 'Pick AI Object on the monitor, then click the subject or drag a box around it.'
+                : `${String(tools.subjectPoints.length)} point(s) picked${tools.subjectBox === null ? '' : ' and a box drawn'}.`}
             </p>
           )}
           <LabeledSelect

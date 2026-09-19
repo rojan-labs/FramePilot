@@ -144,14 +144,27 @@ def click_point(truth: np.ndarray) -> dict[str, Any]:
     return {"x": round((x + 0.5) / width, 6), "y": round((y + 0.5) / height, 6), "label": "include"}
 
 
+def truth_box(truth: np.ndarray) -> dict[str, float]:
+    """The box an editor drags around the subject: ground truth's alpha >= 0.5 extent (BR7.5)."""
+    ys, xs = np.nonzero(truth >= 128)
+    height, width = truth.shape
+    return {"x": float(xs.min()) / width, "y": float(ys.min()) / height,
+            "width": float(xs.max() + 1 - xs.min()) / width,
+            "height": float(ys.max() + 1 - ys.min()) / height}  # fmt: skip
+
+
 def request_for(
     fixture: Fixture, staging: Path, prompt: str = "auto", foreground: bool = False
 ) -> dict[str, Any]:
     first_pts = source_pts(fixture.clip)[0]
-    if prompt == "click":
+    if prompt in ("click", "click_box"):
         first = fixture.scored_frames()[0]
-        prompts = [{"kind": "points", "pts": source_pts(fixture.clip)[first],
-                    "points": [click_point(fixture.truth(first))]}]  # fmt: skip
+        pts = source_pts(fixture.clip)[first]
+        prompts = [{"kind": "points", "pts": pts, "points": [click_point(fixture.truth(first))]}]
+        if prompt == "click_box":
+            # The editor's second action when the pack asks for one: a box around the subject,
+            # scripted from ground truth exactly as the click is.
+            prompts.insert(0, {"kind": "box", "pts": pts, "box": truth_box(fixture.truth(first))})
     else:
         # Auto mode's prompt: the subject.detect box on the first frame (a perfect detector here).
         prompts = [{"kind": "box", "pts": first_pts, "box": fixture.box}]
@@ -190,7 +203,20 @@ def run_clip(name: str, variant: str = "auto", extra: list[Path] | None = None) 
     env = {**VARIANT_ENV.get(variant, {}), "FRAMEPILOT_SMART_MASK_EVAL_DUMP": str(dump)}
     request = request_for(fixture, staging, prompt, foreground=variant == "auto")
     result = run_request(request, out, env)
+    if prompt == "click" and asked_for_box(result):
+        # BR7.5: the pack refused to guess where a subject cut by the frame ends. The editor's
+        # answer is a box (the UI asks for it); it is recorded as their second action.
+        (out / "result-one-click.json").write_text(json.dumps(result, indent=2))
+        staging = fresh_staging(out)
+        result = run_request(request_for(fixture, staging, "click_box"), out, env)
+        result["userActions"] = ["click", "box (asked for by the pack)"]
+        (out / "result.json").write_text(json.dumps(result, indent=2))
     return 0 if result["terminal"].get("type") == "result" else 1
+
+
+def asked_for_box(result: dict[str, Any]) -> bool:
+    terminal = result["terminal"]
+    return terminal.get("type") == "failure" and terminal.get("code") == "needs_box"
 
 
 def run_replay(name: str, extra: list[Path] | None = None) -> int:
@@ -252,6 +278,7 @@ def load_run(
     aligned, compared = frames_aligned(matte_pts, source_pts(fixture.clip)[:count])
     run: dict[str, Any] = {
         "name": fixture.name, "category": fixture.category, "split": fixture.split,
+        "userActions": result.get("userActions", None),
         "groundTruth": fixture.ground_truth, "frames": frames, "seconds": result["seconds"],
         "job": report["job"], "aligned": aligned, "alignedOf": compared,
     }  # fmt: skip
@@ -717,11 +744,21 @@ def gates(scored: list[dict[str, Any]], click: list[dict[str, Any]], calibrated:
         rows = accuracy_by_category(click)
         worst = min(rows.items(), key=lambda item: item[1]["meanIoU"])
         p5 = float(np.percentile([f["iou"] for run in click for f in _frames_with_truth(run)], 5))
+        boxed = sorted(run["category"] for run in click if run.get("userActions"))
+        second = {
+            "boxAskedFor": boxed,
+            "note": (
+                "One click; where the pack asked for a box (a subject cut by the frame, BR7.5) the editor's box "
+                "is a second user action, scripted from ground truth as the click is."
+            )
+            if boxed
+            else None,
+        }
         out.append(_gate("worst_category_iou_click", "Worst-category mean IoU, one click", ">= 0.97",
                          "pass" if worst[1]["meanIoU"] >= 0.97 else "fail", worst[1]["meanIoU"],
-                         worstCategory=worst[0], categories=len(rows), **_judged(click)))  # fmt: skip
+                         worstCategory=worst[0], categories=len(rows), **second, **_judged(click)))  # fmt: skip
         out.append(_gate("p5_iou_click", "5th-percentile per-frame IoU, one click", ">= 0.95",
-                         "pass" if p5 >= 0.95 else "fail", round(p5, 4), **_judged(click)))  # fmt: skip
+                         "pass" if p5 >= 0.95 else "fail", round(p5, 4), **second, **_judged(click)))  # fmt: skip
     else:
         for gate_id, name, threshold in (("worst_category_iou_click", "Worst-category mean IoU, one click", ">= 0.97"),
                                          ("p5_iou_click", "5th-percentile per-frame IoU, one click", ">= 0.95")):  # fmt: skip

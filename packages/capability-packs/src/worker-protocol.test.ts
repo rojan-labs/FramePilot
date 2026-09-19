@@ -141,6 +141,17 @@ describe('Capability Pack worker protocol', () => {
         retryable: false,
       }),
     ).toMatchObject({ code: 'target_lost', retryable: false });
+    // BR7.5: the Smart Mask pack asks for a box rather than guessing a cut-off subject's extent.
+    expect(
+      CapabilityPackWorkerFailureSchema.parse({
+        type: 'failure',
+        protocolVersion: 1,
+        requestId: base.requestId,
+        code: 'needs_box',
+        detail: 'One click cannot tell where this subject ends.',
+        retryable: false,
+      }),
+    ).toMatchObject({ code: 'needs_box' });
     // A deterministic size-bound refusal carries its own stable code so the host can
     // branch on it instead of matching `detail` text.
     expect(

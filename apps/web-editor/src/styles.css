@@ -1318,6 +1318,13 @@ g.mask-canvas-draft circle {
   stroke: rgba(250, 204, 21, 0.45);
   stroke-dasharray: 2 6;
 }
+/* BR7.5: the box dragged around the subject with AI Object (a prompt, not mask geometry). */
+.mask-canvas-subject-box {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5px;
+  stroke-dasharray: 6 3;
+}
 .mask-canvas-exclusion {
   fill: rgba(220, 38, 38, 0.14);
   stroke: rgb(220, 38, 38);

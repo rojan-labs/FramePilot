@@ -16,7 +16,7 @@ import type {
 } from '@framepilot/shared-types';
 import { OpenedMatteIssuesProvider } from '../../../editor/openedMattes.js';
 import { useEditor } from '../../../editor/useEditor.js';
-import { BackgroundRemovalRow } from './BackgroundRemovalRow.js';
+import { BackgroundRemovalRow, subjectPrompts } from './BackgroundRemovalRow.js';
 import { MatteJobStore } from './matteJobStore.js';
 import { useMatteJobCommits } from './useMatteJob.js';
 import { MaskToolStore } from './useMaskTools.js';
@@ -650,5 +650,20 @@ describe('BackgroundRemovalRow', () => {
       renderOpened([broken('c'.repeat(64))]);
       expect(screen.queryByText(MISSING_REMEDY)).toBeNull();
     });
+  });
+});
+
+describe('subjectPrompts (BR7.5)', () => {
+  it('sends the editor’s box as its own prompt ahead of the clicks, never inventing one', () => {
+    const points = [{ x: 0.5, y: 0.6, label: 'include' as const, sourceTime: 1 }];
+    expect(subjectPrompts(points)).toEqual([
+      { kind: 'points', sourceTime: 1, points: [{ x: 0.5, y: 0.6, label: 'include' }] },
+    ]);
+    expect(
+      subjectPrompts(points, { x: 0.2, y: 0.1, width: 0.6, height: 0.9, sourceTime: 1 }),
+    ).toEqual([
+      { kind: 'box', sourceTime: 1, box: { x: 0.2, y: 0.1, width: 0.6, height: 0.9 } },
+      { kind: 'points', sourceTime: 1, points: [{ x: 0.5, y: 0.6, label: 'include' }] },
+    ]);
   });
 });

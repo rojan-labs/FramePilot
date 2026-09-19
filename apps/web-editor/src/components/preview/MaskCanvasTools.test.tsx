@@ -486,6 +486,32 @@ describe('the AI subject tools', () => {
     expect(masks()).toHaveLength(0);
   });
 
+  it('draws a box around the subject on a drag, and Escape clears it with the points (BR7.5)', async () => {
+    mount(timeline());
+    act(() => store.setTool('ai-object'));
+
+    drag([480, 270], [1440, 1080]);
+
+    // A drag is a box, not a point: in fractions of the picture, at the playhead's instant.
+    expect(store.getState().subjectPoints).toHaveLength(0);
+    expect(store.getState().subjectBox).toMatchObject({
+      x: 0.25,
+      y: 0.25,
+      width: 0.5,
+      height: 0.75,
+      sourceTime: 0,
+    });
+    expect(screen.getByTestId('mask-subject-box')).toBeTruthy();
+    // Picking the subject changes nothing in the project.
+    expect(historyLength()).toBe(0);
+
+    click(960, 540);
+    expect(store.getState().subjectPoints).toHaveLength(1);
+    fireEvent.keyDown(canvas(), { key: 'Escape' });
+    expect(store.getState().subjectBox).toBeNull();
+    expect(store.getState().subjectPoints).toHaveLength(0);
+  });
+
   it('takes a click on an existing point back instead of stacking a second one', async () => {
     mount(timeline());
     act(() => store.setTool('ai-object'));

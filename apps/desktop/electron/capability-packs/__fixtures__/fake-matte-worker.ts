@@ -27,6 +27,7 @@ export type FakeMatteScenario =
   | 'misaligned'
   | 'ignore_locks'
   | 'output_unwritable'
+  | 'needs_box'
   | 'hang'
   | 'grow';
 
@@ -88,6 +89,9 @@ export function fakeMatteWorker(options: FakeMatteWorkerOptions) {
     }
     if (scenario === 'output_unwritable') {
       throw new CapabilityPackWorkerRuntimeError('worker_failed', 'No space left on device.', 'output_unwritable');
+    }
+    if (scenario === 'needs_box') {
+      throw new CapabilityPackWorkerRuntimeError('worker_failed', 'One click cannot tell where this subject ends.', 'needs_box');
     }
     const progress = (phase: CapabilityPackWorkerProgress['phase'], completed: number, total: number): void =>
       run.onProgress?.({

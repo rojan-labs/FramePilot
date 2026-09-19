@@ -133,6 +133,7 @@ export type MatteFailureCode =
   | 'media_rejected'
   | 'media_unreadable'
   | 'target_lost'
+  | 'needs_box'
   | 'model_unavailable'
   | 'hardware_unsupported'
   | 'output_unwritable'
@@ -1166,6 +1167,8 @@ const WORKER_FAILURES: Readonly<Record<string, readonly [MatteFailureCode, strin
   cancelled: ['cancelled', 'Background removal cancelled.', false],
   media_unreadable: ['media_unreadable', 'The media file could not be decoded. Relink or re-import it.', false],
   target_lost: ['target_lost', 'The subject could not be followed. Click the subject on another frame and try again.', false],
+  // BR7.5: the pack asks instead of guessing where a subject cut by the frame ends.
+  needs_box: ['needs_box', 'One click cannot tell where this subject ends: it runs off the edge of the picture. With AI Object, drag a box around the subject on the monitor, then run again.', false],
   model_unavailable: ['model_unavailable', 'The Smart Mask pack’s models are unavailable. Reinstall it in Settings › Storage.', false],
   hardware_unsupported: ['hardware_unsupported', 'This computer cannot run the Smart Mask pack.', false],
   output_unwritable: ['output_unwritable', 'Disk full or folder not writable. Free up space and try again.', true],

@@ -306,3 +306,26 @@ def test_ci_plan_builds_one_job_per_variant_and_clip() -> None:
     fit = ci_plan.plan("click_calibration", "hair_busy", "", "")["eval"]
     assert fit == [{"variant": "click", "clip": "hair_busy__calibration", "category": "hair_busy",
                     "split": "calibration"}]  # fmt: skip
+
+
+def test_one_click_gate_names_the_clips_where_the_pack_asked_for_a_box() -> None:
+    """BR7.5: a box the pack asked for is the editor's second action, and the gate says so."""
+    scored = [_run("scored", [False, False, False, False])]
+    calibrated = {"scored": run_eval.score(scored, run_eval.Thresholds())}
+    plain = _run("scored", [False, False, False, False])
+    boxed = {**_run("scored", [False, True, False, False]), "category": "talking_head",
+             "userActions": ["click", "box (asked for by the pack)"]}  # fmt: skip
+    table = {g["id"]: g for g in run_eval.gates(scored, [plain, boxed], calibrated, [])}
+    for gate_id in ("worst_category_iou_click", "p5_iou_click"):
+        assert table[gate_id]["boxAskedFor"] == ["talking_head"]
+        assert "second user action" in table[gate_id]["note"]
+    alone = {g["id"]: g for g in run_eval.gates(scored, [plain], calibrated, [])}
+    assert alone["worst_category_iou_click"]["boxAskedFor"] == []
+
+
+def test_the_scripted_box_is_the_ground_truth_extent() -> None:
+    truth = np.zeros((18, 32), np.uint8)
+    truth[4:10, 8:24] = 255
+    assert run_eval.truth_box(truth) == {"x": 0.25, "y": 4 / 18, "width": 0.5, "height": 6 / 18}
+    assert run_eval.asked_for_box({"terminal": {"type": "failure", "code": "needs_box"}})
+    assert not run_eval.asked_for_box({"terminal": {"type": "failure", "code": "target_lost"}})

@@ -353,6 +353,13 @@ describe('CapabilityPackMatteService lifecycle', () => {
     });
   });
 
+  it('passes the pack asking for a box through with the remedy the editor acts on (BR7.5)', async () => {
+    const h = await harness({ scenario: 'needs_box' });
+    const outcome = await h.service.run(h.intent(), h.context());
+    expect(outcome).toMatchObject({ status: 'failed', code: 'needs_box', retryable: false });
+    expect(outcome.status === 'failed' && outcome.detail).toContain('drag a box around the subject');
+  });
+
   it('layers a second brush fix on the same frame instead of refusing it (BR7 convergence)', async () => {
     const h = await harness();
     const first = await h.service.run(h.intent(), h.context());
