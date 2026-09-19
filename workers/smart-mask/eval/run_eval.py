@@ -300,7 +300,7 @@ def _foreground_error(fixture: Fixture, path: Path, matte: np.ndarray) -> dict[s
 
 # --- attribution (which estimate carries the error) ---------------------------------------------
 
-ESTIMATES = ("fwd", "bwd", "birefnet", "prestab", "final")
+ESTIMATES = ("fwd", "bwd", "crop", "birefnet", "prestab", "final")
 
 
 def attribution(
@@ -308,8 +308,9 @@ def attribution(
 ) -> list[dict[str, Any]] | None:
     """Per frame, IoU / BF@2px / leak of every independent estimate the worker dumped.
 
-    ``fwd``/``bwd`` = SAM passes, ``birefnet`` = its gated alpha, ``prestab`` = the consensus with
-    band alpha, ``final`` = the delivered matte. Says where an error enters the pipeline.
+    ``fwd``/``bwd`` = SAM passes, ``crop`` = the BR7.5 subject-crop SAM pass (frames it ran on),
+    ``birefnet`` = its gated alpha, ``prestab`` = the consensus with band alpha, ``final`` = the
+    delivered matte. Says where an error enters the pipeline.
     """
     dump = directory / fixture.name / "dump"
     windows = sorted(dump.glob("window-*.npz")) if dump.is_dir() else []
@@ -327,6 +328,9 @@ def attribution(
                 masks = {
                     "fwd": data["fwd"][local] if data["hasFwd"][local] else None,
                     "bwd": data["bwd"][local] if data["hasBwd"][local] else None,
+                    "crop": data["crop"][local]
+                    if "hasCrop" in data.files and data["hasCrop"][local]
+                    else None,
                     "birefnet": binarise(data["birefnet"][local]),
                     "prestab": binarise(data["prestab"][local]),
                     "final": binarise(matte[index]),
@@ -903,8 +907,8 @@ def report(
         "gates": gates(scored, [r for r in clicks if r["split"] == "scored"], calibrated, replays,
                        {v: [r for r in rs if r["split"] == "scored"] for v, rs in variant_runs.items()}),
         "attribution": {"estimates": list(ESTIMATES),
-                        "note": "Per estimate vs ground truth: SAM forward/backward, BiRefNet (gated, a >= 0.5), the "
-                                "consensus before stabilisation, and the delivered matte.",
+                        "note": "Per estimate vs ground truth: SAM forward/backward, the subject-crop SAM pass (BR7.5), "
+                                "BiRefNet (gated, a >= 0.5), the consensus before stabilisation, and the delivered matte.",
                         "scored": attribution_summary(scored), "calibration": attribution_summary(calibration)},
         "oneClickAccuracy": accuracy_by_category([r for r in clicks if r["split"] == "scored"]) if clicks else {},
         "accuracy": accuracy,
