@@ -206,23 +206,23 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** engine tests for new modules pass; golden updated in the same PR.
 
-### BR3 — Smart Mask worker pack `[ ]` (after BR0; parallel with MK and BR2)
+### BR3 — Smart Mask worker pack `[~]` (after BR0; BR3.1–BR3.14 built through df52f3ca; accuracy work in BR3.15/BR3.16/BR7.4)
 
-- [ ] BR3.1 Scaffold `workers/smart-mask` mirroring `subject-intelligence`
-- [ ] BR3.2 Decode with pts and engine-matching colour; `frames.json`
-- [ ] BR3.3 Forward/backward SAM 2.1 propagation with locked-frame seeding; windowing
-- [ ] BR3.15 Pipeline accuracy pass on the construction-true pilot: rebuild the pilot so most frames are correct (as real footage is), fix the prompt and propagation bugs behind mean IoU 0.006–0.967, then re-measure recall and review load with thresholds fixed on a held-out split (not tuned on the scored set)
-- [ ] BR3.4 BiRefNet_HR-matting refinement at 2048² tiles; consensus; unknown band; per-frame score
-- [ ] BR3.5 Self-correction loop (auto prompts from confident neighbours, K=3)
-- [ ] BR3.6 Full-resolution band alpha (BiRefNet_HR-matting tiles); foreground colour estimation; band-only stabilisation
-- [ ] BR3.7 Verification checks → `needsReview`; `report.json`
-- [ ] BR3.8 Brush corrections and locked frames as inputs; partial-window re-run from `previousArtifact`
-- [ ] BR3.9 Encoders (FFV1 master + foreground, VP9 previews); byte ceiling; declared names only
-- [ ] BR3.10 Unit tests with injected backend; `decoded_media` tests with real weights
-- [ ] BR3.11 `dev-register-smart-mask.sh` + `dev-register-all-packs.sh`; health check via `register-local`
-- [ ] BR3.12 `pnpm license:scan`, hand-reviewed `LICENSES.md`, SBOM `--check`, LGPL-only FFmpeg verification
-- [ ] BR3.13 `subject.segment_frame` warm worker with per-frame embedding cache; `prepare` phase and compiled-model cache
-- [ ] BR3.14 Progressive per-window encode/verify; resume from finished windows; per-job memory ceiling, watchdog, GPU OOM → CPU fallback
+- [x] BR3.1 Scaffold `workers/smart-mask` mirroring `subject-intelligence`
+- [x] BR3.2 Decode with pts and engine-matching colour; `frames.json`
+- [x] BR3.3 Forward/backward SAM 2.1 propagation with locked-frame seeding; windowing
+- [~] BR3.15 (c1140aee: pilot rebuilt, held-out calibration; gates still miss — continued in BR7.4/BR3.16) Pipeline accuracy pass on the construction-true pilot: rebuild the pilot so most frames are correct (as real footage is), fix the prompt and propagation bugs behind mean IoU 0.006–0.967, then re-measure recall and review load with thresholds fixed on a held-out split (not tuned on the scored set)
+- [x] BR3.4 BiRefNet_HR-matting refinement at 2048² tiles; consensus; unknown band; per-frame score
+- [x] BR3.5 Self-correction loop (auto prompts from confident neighbours, K=3)
+- [x] BR3.6 Full-resolution band alpha (BiRefNet_HR-matting tiles); foreground colour estimation; band-only stabilisation
+- [x] BR3.7 Verification checks → `needsReview`; `report.json`
+- [x] BR3.8 Brush corrections and locked frames as inputs; partial-window re-run from `previousArtifact`
+- [x] BR3.9 Encoders (FFV1 master + foreground, VP9 previews); byte ceiling; declared names only
+- [x] BR3.10 Unit tests with injected backend; `decoded_media` tests with real weights
+- [x] BR3.11 `dev-register-smart-mask.sh` + `dev-register-all-packs.sh`; health check via `register-local`
+- [x] BR3.12 `pnpm license:scan`, hand-reviewed `LICENSES.md`, SBOM `--check`, LGPL-only FFmpeg verification
+- [x] BR3.13 `subject.segment_frame` warm worker with per-frame embedding cache; `prepare` phase and compiled-model cache
+- [x] BR3.14 Progressive per-window encode/verify; resume from finished windows; per-job memory ceiling, watchdog, GPU OOM → CPU fallback
 
 **DoD:** pack registers locally, passes health, and produces a host-verified artifact with a report on a real 1-min 4K clip.
 
@@ -326,14 +326,14 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 ## E2E + docs (after all tracks) `[ ]`
 
-- [ ] E2E.1 Desktop: Smart Mask absent → warning + disabled tools → install (local registration) → no restart → remove background → review a flagged range, fix with a brush, lock → VERIFIED → Put text behind subject → preview frame == export frame (oracle) → export → undo chain
-- [ ] E2E.2 Reopen: exports with the packs **uninstalled**; with a matte deleted the clip shows BROKEN and export refuses with the remedy
+- [x] E2E.1 (c55a5366, 63be864b; green in CI run 35381220944 and later) Desktop: Smart Mask absent → warning + disabled tools → install (local registration) → no restart → remove background → review a flagged range, fix with a brush, lock → VERIFIED → Put text behind subject → preview frame == export frame (oracle) → export → undo chain
+- [x] E2E.2 (17a58563 + product fixes 971fb714, 80cc9bf6; green run 35381220944) Reopen: exports with the packs **uninstalled**; with a matte deleted the clip shows BROKEN and export refuses with the remedy
 - [ ] E2E.3 Manual pro masking: pen path → animate → track (perspective) → review/constraint → effect-target blur → export matches preview
 - [ ] E2E.4 AI: "blur the faces except the host" and "put the title behind her" through the sidebar; ambiguous request asks; result reviewed and exported
-- [ ] E2E.5 v21 project with masks opens, migrates, and exports byte-identically
+- [x] E2E.5 (f55f23ce, 8c0cf056; keyframed case bit-exact after MK2.5, green run 35383876672) v21 project with masks opens, migrates, and exports byte-identically
 - [ ] E2E.6 Crash/quit mid-job → relaunch → job resumes from finished windows → output identical to an uninterrupted run; relink to different media → STALE → recompute
 - [ ] E2E.7 Project archive with masks/mattes/tracks created on macOS reopens and exports identically on Windows (and the reverse)
-- [ ] E2E.8 Split/mirror/gradient/track matte/text-as-mask/adjustment-lane mask/edge-style flows, each preview == export
+- [x] E2E.8 (7dddc8eb, ac424e66; green run 35381220944) Split/mirror/gradient/track matte/text-as-mask/adjustment-lane mask/edge-style flows, each preview == export
 - [ ] DOC.1 `docs/guides/masking.md` (tools, tracking, review and fixing, **limitations, shortcuts, troubleshooting, minimum hardware, privacy**), `docs/guides/background-removal.md`, ADRs, `CHANGELOG.md`, `MANUAL_TESTING.md`, public changelog (changelog-maintainer)
 
 **DoD:** e2e green in CI on the PR head SHA; all gate reports committed; `plan/PLAN.md` phase checked. The single PR is marked ready for review when RD3 passes; before that it stays open with CI running on every push.
@@ -348,8 +348,8 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 - [ ] RD1.1 Maintainer actions: Apple Developer ID + notarisation, Windows Authenticode certificate, offline catalog root keys (generation ceremony, storage, rotation plan)
 - [ ] RD1.2 CDN hosting for multi-GiB artifacts with range requests; bandwidth and cost estimate
-- [ ] RD1.3 Signed catalog publishing pipeline from pack manifests (release-tooling exists); build embeds root keys and catalog URL for release channels only
-- [ ] RD1.4 CI pack builds for darwin-arm64 and win32-x64 with SBOM and licence gates; artifact signing
+- [~] RD1.3 (the signed-catalog pipeline exists in capability-pack-release.yml; signing skips visibly without MO-3's keys) Signed catalog publishing pipeline from pack manifests (release-tooling exists); build embeds root keys and catalog URL for release channels only
+- [~] RD1.4 (Smart Mask added to the pack release list and CI workflow in BR3; artifact signing needs MO-1/MO-2) CI pack builds for darwin-arm64 and win32-x64 with SBOM and licence gates; artifact signing
 - [ ] RD1.5 Staged rollout and delisting rehearsal (a bad pack version is pulled, installed users are told)
 - [ ] RD1.6 Tracking Lite, Subject Intelligence and Smart Mask published to a beta channel and installed from it on clean machines
 
@@ -359,7 +359,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [~] RD2.2 (eb6edac2: 15-event catalogue through one allow-list, a leak test, runbook `docs/runbooks/masking-observability.md`; creating the dashboards is the maintainer's step, MO-18) Observability dashboards from logger events (job failures by code/EP, flagged ratio, export-time ratio); no media or prompts
 - [ ] RD2.3 Legal review of face-recognition consent copy, privacy docs
 - [ ] RD2.4 Closed beta: ≥ 10 real projects from working editors across macOS and Windows; issues triaged against the gates
-- [~] RD2.5 (masking §16.1–16.3 written incl. kill switch; background-removal steps pending BR6) `MANUAL_TESTING.md` masking and background-removal procedures
+- [x] RD2.5 (MANUAL_TESTING §16.1–16.8 incl. kill switches and background removal) `MANUAL_TESTING.md` masking and background-removal procedures
 
 ### RD3 — Release gate `[ ]`
 
