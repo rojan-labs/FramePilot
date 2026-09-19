@@ -128,6 +128,36 @@ export function mediaContentType(filePath: string): string {
 }
 
 /**
+ * Response headers that let the renderer `fetch()` an `fp-media://` resource cross-origin.
+ *
+ * WHY: the WebCodecs program monitor reads media with `fetch()` (from its decode workers),
+ * not through a `<video>` element. The renderer is served from the Vite dev server
+ * (`http://localhost:5173`) or `file://` when packaged, so every `fp-media://` fetch is
+ * cross-origin; without `corsEnabled` on the scheme and these headers on the response,
+ * Chromium blocks it and the monitor stays black ("Failed to fetch").
+ *
+ * The allow-origin is echoed only for the renderer's own origins, never `*`, so no other
+ * origin can read project media even if one ever loaded in the app.
+ *
+ * @param requestOrigin - The request's `Origin` header (absent on same-origin/no-cors loads).
+ * @param allowedOrigins - The renderer origins permitted to read media.
+ * @returns CORS headers to merge into the response; empty when the origin is not allowed.
+ */
+export function mediaCorsHeaders(
+  requestOrigin: string | null | undefined,
+  allowedOrigins: readonly string[],
+): Record<string, string> {
+  if (!requestOrigin || !allowedOrigins.includes(requestOrigin)) return {};
+  return {
+    'Access-Control-Allow-Origin': requestOrigin,
+    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+    'Access-Control-Allow-Headers': 'Range',
+    'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
+    Vary: 'Origin',
+  };
+}
+
+/**
  * The renderer Content-Security-Policy. Locks scripts/styles to self (the bundled
  * app), allows media only from the `fp-media:` scheme + blob/data (preview object
  * URLs), permits connections to the local engine sidecar and (dev only) the Vite

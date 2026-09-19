@@ -6,6 +6,7 @@ import {
   FP_MEDIA_SCHEME,
   buildCsp,
   mediaContentType,
+  mediaCorsHeaders,
   mediaUrlForPath,
   parseByteRange,
   pathFromMediaUrl,
@@ -134,5 +135,22 @@ describe('buildCsp', () => {
     // The two directives that make the IPC-bytes design work are still open.
     expect(csp).toContain('media-src fp-media: blob: data:');
     expect(csp).toContain('img-src');
+  });
+});
+
+describe('mediaCorsHeaders', () => {
+  const renderer = ['http://localhost:5173'];
+
+  it('echoes an allowed renderer origin and exposes the range headers the decoder reads', () => {
+    const headers = mediaCorsHeaders('http://localhost:5173', renderer);
+    expect(headers['Access-Control-Allow-Origin']).toBe('http://localhost:5173');
+    expect(headers['Access-Control-Allow-Headers']).toBe('Range');
+    expect(headers['Access-Control-Expose-Headers']).toContain('Content-Range');
+  });
+
+  it('grants nothing to any other origin, and never a wildcard', () => {
+    expect(mediaCorsHeaders('https://evil.example', renderer)).toEqual({});
+    expect(mediaCorsHeaders(null, renderer)).toEqual({});
+    expect(Object.values(mediaCorsHeaders('http://localhost:5173', renderer))).not.toContain('*');
   });
 });

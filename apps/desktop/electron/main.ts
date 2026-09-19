@@ -240,6 +240,7 @@ import {
   FP_MEDIA_SCHEME,
   buildCsp,
   mediaContentType,
+  mediaCorsHeaders,
   parseByteRange,
   pathFromMediaUrl,
 } from './security/media-protocol.js';
@@ -3842,7 +3843,8 @@ function createWindow(): BrowserWindow {
 protocol.registerSchemesAsPrivileged([
   {
     scheme: FP_MEDIA_SCHEME,
-    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+    // corsEnabled: the WebCodecs monitor fetch()es media cross-origin from the renderer.
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true },
   },
 ]);
 
@@ -3865,7 +3867,11 @@ function hardenRendererSession(): void {
   });
 
   const projectsRoot = resolveProjectsDir(process.env, app.getPath('documents'));
+  // The renderer's own origin: the Vite server in dev, file:// (sent as `null`) when packaged.
+  const rendererOrigins = app.isPackaged ? ['file://', 'null'] : [DEV_SERVER_URL];
   protocol.handle(FP_MEDIA_SCHEME, async (request) => {
+    const cors = mediaCorsHeaders(request.headers.get('Origin'), rendererOrigins);
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     try {
       const requested = pathFromMediaUrl(request.url);
       // Containment: reject any media path outside the projects sandbox.
@@ -3889,6 +3895,7 @@ function hardenRendererSession(): void {
             'Content-Length': String(end - start + 1),
             'Content-Range': `bytes ${start}-${end}/${size}`,
             'Accept-Ranges': 'bytes',
+            ...cors,
           },
         });
       }
@@ -3899,11 +3906,12 @@ function hardenRendererSession(): void {
           'Content-Type': contentType,
           'Content-Length': String(size),
           'Accept-Ranges': 'bytes',
+          ...cors,
         },
       });
     } catch (error) {
       aiLog.error('fp-media request denied', { error: errorMessage(error) });
-      return new Response('Forbidden', { status: 403 });
+      return new Response('Forbidden', { status: 403, headers: cors });
     }
   });
 }

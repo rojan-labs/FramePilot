@@ -38,6 +38,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The desktop program monitor shows your clip again instead of a black frame.** The monitor
+  reads media with `fetch()`, and the desktop's `fp-media://` scheme did not allow those reads
+  from the editor window, so every frame failed to load ("Failed to fetch"). The scheme now
+  answers the editor's own origin, and no other.
+
 - **`pnpm packs:register` registers Smart Mask with no setup.** It used to stop and ask for an
   LGPL-only ffmpeg and a folder of exported model graphs, neither of which you can download. The
   script now builds the ffmpeg and exports the graphs from the pinned checkpoints itself, once,
