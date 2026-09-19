@@ -10,7 +10,6 @@ Read this first after a context reset. Updated after every commit.
 
 Maintainer 2026-09-19: "finish everything; you can run the things on this laptop as well" (local runs allowed, one heavy job at a time, guard: stop if free memory < 25% or swap grows > 1.5 GB).
 Running:
-- E2E.7 cross-OS reopen: CI run 35437415890
 - MK7.7 correction through occlusion (exclusion region + constraint), night-plate margin
 - BR7.5 Smart Mask accuracy levers (subject-crop SAM pass, temporal consistency first, box as second prompt) in the CI eval
 Blocked on maintainer only: see MAINTAINER_ONLY_ACTIONS.md (MO-1..MO-20). RD3 last.

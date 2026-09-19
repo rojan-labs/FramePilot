@@ -10046,7 +10046,7 @@ masking; AI masking; everything production-grade. **Parity and production audit 
 - [x] RD0 — re-verify competitor parity table (2026-09-16, `12` §E: no new blocker; three small additions folded into MK1/MK4/BR6)
 - [ ] RD1 — release infrastructure: signing identities, catalog keys, CDN, CI pack builds, staged rollout (start now)
 - [ ] RD2 — feature flags, telemetry, consent legal review, closed beta
-- [~] E2E.1–E2E.8 + DOC.1 (E2E.1–E2E.6, E2E.8 and DOC.1 done — 16/16 masking e2e pass locally; E2E.7 cross-OS reopen pending CI) — desktop end-to-end flows incl. resume, relink and cross-platform archives; docs
+- [~] E2E.1–E2E.8 + DOC.1 (all eight E2E flows and DOC.1 done — 16/16 masking e2e locally; E2E.7 cross-OS reopen green in CI run 35437415890) — desktop end-to-end flows incl. resume, relink and cross-platform archives; docs
 - [ ] RD3 — release gate on the release build (the only definition of production ready for this phase)
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
