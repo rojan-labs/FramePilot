@@ -8,6 +8,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Background removal asks for a box instead of guessing, and a fix changes only what it
+  fixes.** When you pick the subject with one click and that subject runs off the edge of the
+  picture (a head and shoulders cut by the bottom of the frame), one click cannot say where it
+  ends, so the Smart Mask pack now stops before the long part of the job and asks you to drag a
+  box around the subject with AI Object; drag on the monitor to draw it. On the test clips this
+  took the talking-head and portrait subjects from 86% and 96% overlap with the true subject to
+  99.7%. Applying a brush fix and re-running now changes the pixels you painted and the frames
+  the fix really reaches; every other frame keeps its previous matte exactly, where before a fix
+  could shift edges on frames a second away. Edge shimmer smoothing now uses only neighbouring
+  frames whose motion it can trust, so it no longer makes rigid subjects' edges crawl (BR7.5,
+  BR3.17).
 - **A clip blur a mask can limit — a face blur that stays on the face.** Inspector → **Effects** →
   **Add blur** puts a Gaussian blur on the clip (strength is a share of the picture, so it looks
   the same at every resolution); **Add mask** on its row, or a mask's **Limits** set to the blur,
