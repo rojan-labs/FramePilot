@@ -13,6 +13,11 @@
 # eval/ci_graphs.py; nothing here is ever committed.
 #
 #   eval/ci_export_graphs.sh <out-dir> [tile ...]      (run from workers/smart-mask)
+#
+# scripts/dev-register-smart-mask.sh reuses it on a developer Mac with
+# SMART_MASK_EXPORT_WATCHDOG=1: every export then runs under spike/watchdog.py, which kills
+# it (and fails this script) before it can take a 16 GB machine down (README). The watchdog
+# measures with macOS tools, so the linux CI runner runs the exports directly.
 set -euo pipefail
 
 OUT="${1:?usage: ci_export_graphs.sh <out-dir> [tile ...]}"
@@ -43,6 +48,16 @@ ln -sfn BiRefNet_HR-matting "$UPSTREAM/birefnet_hr"
 (cd "$PACK/spike" && uv sync --locked --python 3.12 --quiet)
 PY="$PACK/spike/.venv/bin/python"
 
+# One export job, from the spike directory. Output goes to the watchdog log in local mode.
+run_export() {
+  if [[ "${SMART_MASK_EXPORT_WATCHDOG:-}" == "1" ]]; then
+    # 10 GiB: the 768/1024 BiRefNet exports peaked at 7.5 GiB footprint on an M1 Pro.
+    "$PY" watchdog.py --log "$CACHE/export.log" --max-footprint-gib 10 -- "$*"
+  else
+    "$PY" "$@"
+  fi
+}
+
 # Pinned checkpoints, verified by sha256 against pack/models.lock.toml.
 "$PY" "$PACK/tools/fetch_models.py" --sources
 ln -sfn model.safetensors "$CACHE/weights/birefnet_hr_matting.safetensors"
@@ -50,17 +65,17 @@ ln -sfn model.safetensors "$CACHE/weights/birefnet_hr_matting.safetensors"
 cd "$PACK/spike"
 for module in image_encoder decoder_multi_n1 memory_attention memory_encoder; do
   echo "::group::export SAM $module"
-  "$PY" export_sam.py --module "$module" >/dev/null
+  run_export export_sam.py --module "$module" >/dev/null
   echo "::endgroup::"
 done
 for part in decoder_points decoder_mask constants; do
   echo "::group::export $part"
-  "$PY" ../tools/export_onnx.py --part "$part"
+  run_export ../tools/export_onnx.py --part "$part"
   echo "::endgroup::"
 done
 for tile in "${TILES[@]}"; do
   echo "::group::export BiRefNet $tile"
-  "$PY" export_birefnet.py --size "$tile" >/dev/null
+  run_export export_birefnet.py --size "$tile" >/dev/null
   mv "$CACHE/onnx/birefnet_hr_matting_${tile}.fp16s.onnx" "$OUT/"
   if [[ "$tile" == "2048" ]]; then
     mv "$CACHE/onnx/birefnet_hr_matting_2048.fp32.onnx" "$OUT/"
