@@ -98,9 +98,21 @@ def test_routes_refuse_the_corpus_without_paths(corpus: tuple[Path, dict[str, Pa
                 "/mattes/locked-frames",
                 json={"matte_path": str(path), "expected": [{"index": 0, "sha256": "a" * 64}]},
             ),
+            # AM2.7: the colour re-ranker decodes the same untrusted media.
+            client.post(
+                "/masking/crop-colour",
+                json={
+                    "input_path": str(path),
+                    "fps": 30,
+                    "crops": [{"time_seconds": 0, "x": 0, "y": 0, "width": 1, "height": 1}],
+                },
+            ),
         ):
             assert response.status_code in {200, 400, 404, 422, 503, 504}, name
             assert str(root) not in response.text, name
+            if response.status_code == 200 and "crops" in response.json():
+                # A playlist or a file pointing elsewhere must never decode into a picture.
+                assert name not in {"hls_renamed", "ffconcat_renamed", "external_reference"}, name
             if (
                 response.status_code == 200
                 and "hashes" in response.json()

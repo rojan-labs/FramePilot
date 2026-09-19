@@ -237,6 +237,13 @@ from framepilot_engine.brain.visual_search import (
     transcript_overlap,
 )
 from framepilot_engine.config import DEFAULT_VISUAL_INDEX_CONCURRENCY, Settings, get_settings
+from framepilot_engine.masking.crop_colour import MAX_CROPS as CROP_COLOUR_MAX_CROPS
+from framepilot_engine.masking.crop_colour import (
+    CropBox,
+    CropColourDeadline,
+    CropColourError,
+    measure_crops,
+)
 from framepilot_engine.media.derive import PROXY_ENCODE_VERSION, generate_proxy, generate_thumbnails
 from framepilot_engine.media.ffmpeg import FFmpegError, NoAudioStreamError
 from framepilot_engine.media.probe import MediaInfo, inspect_media
@@ -520,6 +527,44 @@ class MatteMonitorTierResponse(BaseModel):
     height: int
     frame_count: int
     alpha: bool
+
+
+class CropColourBoxModel(BaseModel):
+    """One detection box to measure: normalised to the frame shown at ``time_seconds``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    time_seconds: float = Field(ge=0, le=7 * 24 * 3600)
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(gt=0, le=1)
+    height: float = Field(gt=0, le=1)
+
+
+class CropColourRequest(BaseModel):
+    """Request body for ``POST /masking/crop-colour`` (AM2.7): colour of detection crops."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    input_path: str = Field(description="The asset's media, inside the projects root.")
+    fps: float = Field(gt=0, le=1000, description="The asset's frame rate.")
+    crops: list[CropColourBoxModel] = Field(min_length=1, max_length=CROP_COLOUR_MAX_CROPS)
+
+
+class CropColourMeasurement(BaseModel):
+    """What one crop's centre-weighted pixels measure in CIELAB (``masking/crop_colour.py``)."""
+
+    neutral_share: float
+    neutral_lightness: float | None
+    lightness: float
+    chroma: float
+    pixels: int
+
+
+class CropColourResponse(BaseModel):
+    """One measurement per requested crop, or ``None`` for a box too small to measure."""
+
+    crops: list[CropColourMeasurement | None]
 
 
 class MatteFrameHashesRequest(BaseModel):
@@ -6446,6 +6491,62 @@ def create_app(
             height=result.height,
             frame_count=result.frame_count,
             alpha=result.alpha,
+        )
+
+    #: Seconds one crop-colour request may spend decoding, in total.
+    crop_colour_deadline_seconds = 60.0
+    crop_colour_lock = threading.BoundedSemaphore(1)
+
+    @app.post("/masking/crop-colour", response_model=CropColourResponse)
+    def masking_crop_colour_route(req: CropColourRequest) -> CropColourResponse:
+        """The CIELAB colour of each detection crop, decoded as the export decodes (AM2.7).
+
+        The desktop's colour re-ranker asks this next to Visual Embed, so "the white car" is
+        decided by a measurement of lightness and chroma as well as by SigLIP. Same hardening as
+        the ``/mattes/*`` routes: sandboxed path, one request at a time (503 busy), one total
+        deadline (504), hardened decodes, and no path echoed back.
+        """
+        media = matte_path(req.input_path)
+        if not media.is_file():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Media file not found.")
+        if not crop_colour_lock.acquire(blocking=False):
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "A colour measurement is already running."
+            )
+        try:
+            measured = measure_crops(
+                media,
+                req.fps,
+                [
+                    CropBox(box.time_seconds, box.x, box.y, box.width, box.height)
+                    for box in req.crops
+                ],
+                deadline=time.monotonic() + crop_colour_deadline_seconds,
+            )
+        except CropColourDeadline:
+            raise HTTPException(
+                status.HTTP_504_GATEWAY_TIMEOUT, "The colour measurement ran out of time."
+            ) from None
+        except (CropColourError, subprocess.SubprocessError, ValueError) as exc:
+            _log.info("crop colour refused: %s", type(exc).__name__)
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "The frames could not be decoded."
+            ) from None
+        finally:
+            crop_colour_lock.release()
+        return CropColourResponse(
+            crops=[
+                None
+                if colour is None
+                else CropColourMeasurement(
+                    neutral_share=colour.neutral_share,
+                    neutral_lightness=colour.neutral_lightness,
+                    lightness=colour.lightness,
+                    chroma=colour.chroma,
+                    pixels=colour.pixels,
+                )
+                for colour in measured
+            ]
         )
 
     @app.post("/references/analyze", response_model=ReferenceAnalysisResponse)
