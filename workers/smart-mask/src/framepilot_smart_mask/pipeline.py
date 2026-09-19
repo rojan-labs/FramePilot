@@ -42,6 +42,7 @@ import numpy.typing as npt
 from . import MATTE_PIPELINE_VERSION, PACK_VERSION
 from .backend import MattingModel, MediaUnreadableError, ModelProvider, SamModules, VideoInfo
 from .consensus import consensus, edge_radius, iou, snap_to_image, soft_edge
+from .containment import contain
 from .crop_refine import refine_in_crop, refined_masks
 from .embeddings import EmbeddingCache
 from .encode import concat_segments, decode_gray_frames, encode_stream, packet_count
@@ -365,6 +366,8 @@ class JobContext:
     records: list[FrameRecord]
     segments: dict[str, list[str]]
     carried: dict[int, U8] = field(default_factory=dict)
+    #: Prompt frames of a partial re-run the previous matte does not already satisfy (BR3.17).
+    affecting: set[int] = field(default_factory=set)
 
     @property
     def count(self) -> int:
@@ -584,6 +587,7 @@ class MatteJob:
             if index not in previous
             or not _prompt_satisfied(frame, previous[index], ctx.width, ctx.height)
         ]
+        ctx.affecting = set(affecting)
         missing = [(index, index + 1) for index in range(ctx.count) if index not in previous]
         return _merge(affected_ranges(affecting, ctx.count, self.config.affect_radius) + missing)
 
@@ -776,6 +780,8 @@ class MatteJob:
                 has_crop,
             )
         stabilised = self._stabilise(window, alphas, bands, fixed)
+        if ctx.previous is not None:
+            self._contain(ctx, window, alphas, flows)
         flags, signals = self._verify(
             window, segmentation, alphas, bands, grays, flows, parts, locked
         )
@@ -1057,6 +1063,28 @@ class MatteJob:
         self._close_models()
         self._timed("matte", started)
         return alphas, bands, fixed
+
+    def _contain(self, ctx: JobContext, window: WindowState, alphas: Any, flows: FlowCache) -> None:
+        """BR3.17: a partial re-run keeps what its prompts do not reach (containment.py)."""
+        started = time.monotonic()
+        previous = ctx.previous
+        assert previous is not None
+        count = window.count
+        prompts = {
+            index - window.start: frame
+            for index, frame in ctx.resolved.frames.items()
+            if index in ctx.affecting and window.start <= index < window.end
+        }
+        before = [previous.get(window.start + i) for i in range(count)]
+        contained, taken = contain(
+            before, [np.array(alphas[i]) for i in range(count)], prompts, flows
+        )
+        for i in range(count):
+            alphas[i] = contained[i]
+        _log.info(
+            "partial re-run: %d of %d recomputed frames take re-run pixels", sum(taken), count
+        )
+        self._timed("contain", started)
 
     def _temporal_silhouettes(
         self, window: WindowState, sam_masks: Callable[[int], list[Bool]]
