@@ -51,6 +51,14 @@ VERTEX_MIN_CELLS: Final = 4
 VERTEX_WELL_VERIFIED: Final = 0.9
 
 
+def _median(values: list[float]) -> float:
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+
 class PointTracker(Tracker):
     """One point, plus any number of extra points followed in the SAME pass.
 
@@ -118,21 +126,52 @@ class PointTracker(Tracker):
         error_confidence = 1.0 - clamp(candidate.error / MAX_FLOW_ERROR, 0.0, 1.0)
         round_trip_confidence = 1.0 - clamp(round_trip / MAX_ROUND_TRIP_PIXELS, 0.0, 1.0)
         confidence = error_confidence * round_trip_confidence
+        before = list(self._extra)
+        flowed: list[Point | None] = []
         for index in range(len(self._extra)):
             sample = forward[index + 1] if index + 1 < len(forward) else None
-            flowed = sample.point if sample is not None and sample.ok else None
-            confidence = min(confidence, self._register_vertex(index, frame, flowed))
+            flowed.append(sample.point if sample is not None and sample.ok else None)
+        results = [
+            self._register_vertex(index, frame, flowed[index]) for index in range(len(before))
+        ]
+        # A vertex its own patch could not confirm (covered, or on a surface that left) is
+        # tried again from where the confirmed vertices say the shape went, and placed there if
+        # it still cannot be confirmed: its raw flow follows whatever covered it, and a vertex
+        # that rides an occluder off the frame never comes back.
+        moved = [
+            (self._extra[i][0] - before[i][0], self._extra[i][1] - before[i][1])
+            for i, (_, verified) in enumerate(results)
+            if verified
+        ]
+        if moved:
+            shift = (_median([m[0] for m in moved]), _median([m[1] for m in moved]))
+            for index, (vertex_confidence, verified) in enumerate(results):
+                if verified:
+                    continue
+                predicted = (before[index][0] + shift[0], before[index][1] + shift[1])
+                retried, confirmed = self._register_vertex(index, frame, predicted)
+                if not confirmed:
+                    self._extra[index] = predicted
+                results[index] = (max(vertex_confidence, retried), confirmed)
+        for vertex_confidence, _ in results:
+            confidence = min(confidence, vertex_confidence)
         return Measurement(
             box=self._box(self._point),
             confidence=confidence,
             points=self._normalized_extra(),
         )
 
-    def _register_vertex(self, index: int, frame: Frame, flowed: Point | None) -> float:
-        """Move vertex `index` with its registered patch; return that vertex's confidence."""
+    def _register_vertex(
+        self, index: int, frame: Frame, flowed: Point | None
+    ) -> tuple[float, bool]:
+        """Move vertex `index` with its registered patch.
+
+        Returns the vertex's confidence and whether the patch confirmed it (it only moves when
+        it did; otherwise it follows `flowed`, the caller's best guess).
+        """
         reference = self._reference
         if reference is None:  # pragma: no cover - driver always initializes first
-            return 0.0
+            return 0.0, False
         vertex = self._vertices[index]
         warp = self._warps[index]
         guesses: list[Matrix3x3] = []
@@ -166,18 +205,18 @@ class PointTracker(Tracker):
             if verified_confidence(alignment) >= VERTEX_WELL_VERIFIED:
                 break
         if alignment is None or alignment.cells == 0:
-            # Nothing around this vertex can be verified: it follows its flow, unconfirmed.
+            # Nothing around this vertex can be verified: it follows its guess, unconfirmed.
             if flowed is not None:
                 self._extra[index] = flowed
-            return 0.0
+            return 0.0, False
         moved = apply_homography(alignment.matrix, vertex)
         if moved is None or alignment.agreement < ANCHOR_AGREEMENT:
             if flowed is not None:
                 self._extra[index] = flowed
-            return verified_confidence(alignment)
+            return verified_confidence(alignment), False
         self._warps[index] = alignment.matrix
         self._extra[index] = moved
-        return verified_confidence(alignment)
+        return verified_confidence(alignment), True
 
     def _normalized_extra(self) -> tuple[NormalizedPoint, ...] | None:
         if not self._extra:

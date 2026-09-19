@@ -58,6 +58,11 @@ FLOW_HYPOTHESES: Final = 2
 MAX_FLOW_ERROR: Final = 40.0
 #: Below this verified agreement the plane is not reported at all (held, then lost).
 MIN_AGREEMENT: Final = 0.2
+#: Agreement at which confidence reaches zero; 90 % agreement is exactly the host floor.
+AGREEMENT_AT_ZERO: Final = 0.8
+#: Corner disagreement (px) that costs nothing, and the span over which it costs everything.
+DISAGREEMENT_FREE_PX: Final = 0.5
+DISAGREEMENT_SPAN_PX: Final = 1.0
 #: A contradicting-cell fraction at which confidence reaches zero.
 CONTRADICTION_CEILING: Final = 0.2
 #: At or above this agreement the registered plane becomes the next frame's anchor.
@@ -67,14 +72,26 @@ ANCHOR_AGREEMENT: Final = 0.5
 def verified_confidence(alignment: Alignment) -> float:
     """How much of the plane the check confirmed, as the number the host thresholds.
 
-    Squared agreement: the host flags below 0.5, so a plane is only confident once about 71 % of
-    its verifiable texture lands where the plane says. What is NOT verified is where a plane is
-    wrong without contradiction — with half the quad hidden, the visible half fits perfectly and
-    the hidden corners are extrapolated, and on real footage that extrapolation is off by pixels.
-    Any positive contradiction (cells that clearly sit somewhere else) scales it down further.
+    Linear in agreement, zero at 80 %: the host flags below 0.5, so a plane is confident only
+    while at least 90 % of its verifiable texture lands where the plane says. Calibrated on the
+    real-texture set, where every measured-and-wrong frame but one sat below 90 % and no frame
+    of any gate sequence did. What is NOT verified is where a plane goes wrong without
+    contradiction — with part of the quad hidden, the visible part fits and the hidden corners
+    are extrapolated, and on real footage that extrapolation is off by pixels.
+    Any positive contradiction (cells that clearly sit somewhere else) scales it down further, and
+    so does a dispute at the corners between the registration and an independent fit to the
+    agreeing cells (`Alignment.disagreement`).
     """
     penalty = clamp(1.0 - alignment.contradiction / CONTRADICTION_CEILING, 0.0, 1.0)
-    return alignment.agreement * alignment.agreement * penalty
+    # The corners the independent fit disputes: free up to half a pixel, zero by 1.5 px, so a
+    # plane whose corners are disputed by a pixel (half the 2 px gate) lands under the floor.
+    unconfirmed = clamp(
+        1.0 - (alignment.disagreement - DISAGREEMENT_FREE_PX) / DISAGREEMENT_SPAN_PX, 0.0, 1.0
+    )
+    verified = clamp(
+        (alignment.agreement - AGREEMENT_AT_ZERO) / (1.0 - AGREEMENT_AT_ZERO), 0.0, 1.0
+    )
+    return verified * penalty * unconfirmed
 
 
 class PlanarTracker(Tracker):

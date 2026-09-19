@@ -75,6 +75,10 @@ class Alignment:
     contradiction: float
     #: Textured cells the check could measure; 0 means nothing in the region was verifiable.
     cells: int
+    #: Source pixels between the registration and an independent fit to the agreeing cells'
+    #: own matches, at the region's corners (at its centre, for a vertex patch). A tilt of a
+    #: pixel across the cells is several at a corner far from them; this is where it shows.
+    disagreement: float = 0.0
 
 
 @runtime_checkable

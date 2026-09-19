@@ -109,11 +109,11 @@ def test_extra_points_follow_the_subject_in_one_decode() -> None:
 
 
 def test_a_shape_frame_is_only_as_confident_as_its_worst_vertex() -> None:
-    # Every vertex patch verifies 60 % at frame 2: 0.6² — a frame the host has to flag, however
-    # sure the primary point's own flow is.
-    backend = ScriptedBackend(agreement={2: 0.6})
+    # Every vertex patch verifies 85 % at frame 2: (0.85 - 0.8) / 0.2 = 0.25 — a frame the host
+    # has to flag, however sure the primary point's own flow is.
+    backend = ScriptedBackend(agreement={2: 0.85})
     samples = track(backend, point_request(media=media_handle(0, 4), points=VERTICES))
-    assert samples[2].confidence == pytest.approx(0.36, abs=1e-9)
+    assert samples[2].confidence == pytest.approx(0.25, abs=1e-9)
     assert samples[1].confidence == pytest.approx(1.0, abs=1e-9)
 
 

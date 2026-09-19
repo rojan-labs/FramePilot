@@ -138,19 +138,22 @@ def test_planar_track_projects_the_requested_quad_through_the_homography() -> No
     assert samples[-1].confidence > 0.9
 
 
-def test_planar_confidence_is_the_squared_verified_agreement() -> None:
-    # 80 % of the quad's cells confirm the plane at frame 2: 0.8² = 0.64.
-    backend = ScriptedBackend(agreement={2: 0.8})
+def test_planar_confidence_is_linear_in_the_verified_agreement() -> None:
+    # 95 % of the quad's cells confirm the plane at frame 2: (0.95 - 0.8) / 0.2 = 0.75; 90 % is
+    # exactly the host's floor, and 80 % is nothing.
+    backend = ScriptedBackend(agreement={2: 0.95, 3: 0.9, 4: 0.8})
     samples = track(backend, planar_request(media=media_handle(0, 5)))
-    assert samples[2].confidence == pytest.approx(0.64, abs=1e-9)
+    assert samples[2].confidence == pytest.approx(0.75, abs=1e-9)
+    assert samples[3].confidence == pytest.approx(0.5, abs=1e-9)
+    assert samples[4].confidence == pytest.approx(0.0, abs=1e-9)
     assert samples[1].confidence == pytest.approx(1.0, abs=1e-9)
 
 
 def test_contradicting_cells_pull_planar_confidence_under_the_host_floor() -> None:
-    # 90 % agree, but 10 % clearly sit somewhere else: evidence the plane is wrong.
-    backend = ScriptedBackend(agreement={2: 0.9}, contradiction={2: 0.1})
+    # 95 % agree, but 10 % clearly sit somewhere else: evidence the plane is wrong.
+    backend = ScriptedBackend(agreement={2: 0.95}, contradiction={2: 0.1})
     samples = track(backend, planar_request(media=media_handle(0, 5)))
-    assert samples[2].confidence == pytest.approx(0.81 * 0.5, abs=1e-9)
+    assert samples[2].confidence == pytest.approx(0.75 * 0.5, abs=1e-9)
     assert samples[2].confidence < 0.5
 
 

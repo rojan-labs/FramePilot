@@ -63,6 +63,8 @@ CHECK_CELL_MAX: Final = 32
 CHECK_CELL_MIN: Final = 12
 CHECK_SEARCH: Final = 32
 CHECK_NARROW: Final = 4
+#: A reference-flat cell whose registered place now has this much texture has been covered.
+CHECK_APPEARED_TEXTURE: Final = 8.0
 #: Blur (sigma, working pixels) applied to both sides of the check. A sharp reference against a
 #: motion-blurred frame must not read as "unseen"; a 1.5 px blur leaves a 1 px shift measurable.
 CHECK_SMOOTHING: Final = 1.5
@@ -86,6 +88,10 @@ CHECK_GOOD_ENOUGH: Final = 0.9
 #: Room ECC's residual warp has to move in, working pixels.
 ECC_PADDING: Final = 12
 
+#: A region with this many verifiable cells (a whole plane, not a vertex patch) is always
+#: re-registered on its agreeing textured cells: flat stretches then cannot let a sliver of
+#: occluder pull the fit even while every textured cell still agrees.
+REREGISTER_ALWAYS_CELLS: Final = 16
 #: Matched cells needed before they are trusted to re-fit a doubtful registration.
 REFIT_MIN_CELLS: Final = 8
 #: RANSAC tolerance for that re-fit, working pixels.
@@ -378,6 +384,10 @@ class _Checked:
     cells: int
     #: Matched cells as (template point, where it was found in template coordinates).
     matches: tuple[tuple[tuple[float, float], tuple[float, float]], ...]
+    #: The cells that agreed, as (top, left, size) in template pixels.
+    agreeing: tuple[tuple[int, int, int], ...] = ()
+    #: The agreeing cells' own sub-pixel matches, for the independent estimate.
+    agreeing_matches: tuple[tuple[tuple[float, float], tuple[float, float]], ...] = ()
 
 
 class OpenCvBackend:
@@ -501,6 +511,8 @@ class OpenCvBackend:
                 break
         if best is None:
             return None
+        if best.agreement < 1.0 or best.cells >= REREGISTER_ALWAYS_CELLS:
+            best = self._reregister(template, working, best, motion)
         if best.agreement < CHECK_GOOD_ENOUGH:
             best = self._refit(template, working, best, motion)
         return Alignment(
@@ -508,7 +520,32 @@ class OpenCvBackend:
             agreement=best.agreement,
             contradiction=best.contradiction,
             cells=best.cells,
+            disagreement=_disagreement(template, best, region, motion),
         )
+
+    def _reregister(
+        self, template: _Template, working: _Working, best: _Checked, motion: str
+    ) -> _Checked:
+        """Register again on the cells that agreed only.
+
+        ECC is a least-squares fit, so an occluder's pixels pull it; with those cells masked out
+        the plane is fitted to what still shows it. Kept only if the check prefers it.
+        """
+        if len(best.agreeing) < REFIT_MIN_CELLS:
+            return best
+        mask = np.zeros_like(template.mask)
+        for top, left, size in best.agreeing:
+            mask[top : top + size, left : left + size] = 255
+        mask = cv2.bitwise_and(mask, template.mask)
+        pad = ECC_PADDING
+        padded = cv2.copyMakeBorder(mask, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0)
+        candidate = self._refine(template, working, best.matrix, motion, padded)
+        if candidate is None:
+            return best
+        checked = _check(template, working, candidate)
+        # Fitted to exactly the cells that still show the plane, this is the better estimate
+        # whenever the check rates it no worse: the full-region fit is the one an occluder pulled.
+        return checked if _score(checked) >= _score(best) else best
 
     def _refit(
         self, template: _Template, working: _Working, best: _Checked, motion: str
@@ -574,10 +611,11 @@ class OpenCvBackend:
         )
         cv2.fillPoly(mask, [np.round(polygon[:2] / polygon[2]).T.astype(np.int32)], 255)
         pad = ECC_PADDING
+        smoothed = cv2.GaussianBlur(image, (0, 0), CHECK_SMOOTHING)
         template = _Template(
             frame=reference,
             image=image,
-            smoothed=cv2.GaussianBlur(image, (0, 0), CHECK_SMOOTHING),
+            smoothed=smoothed,
             mask=mask,
             padded_image=cv2.copyMakeBorder(image, pad, pad, pad, pad, cv2.BORDER_REPLICATE),
             padded_mask=cv2.copyMakeBorder(mask, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0),
@@ -615,7 +653,12 @@ class OpenCvBackend:
         return working
 
     def _refine(
-        self, template: _Template, working: _Working, guess: Any, motion: str
+        self,
+        template: _Template,
+        working: _Working,
+        guess: Any,
+        motion: str,
+        mask: Any | None = None,
     ) -> Any | None:
         """The guess, ECC-refined against the reference, or ``None`` if ECC cannot converge.
 
@@ -646,7 +689,7 @@ class OpenCvBackend:
                 residual,
                 cv2.MOTION_HOMOGRAPHY if homography else cv2.MOTION_AFFINE,
                 ECC_CRITERIA,
-                template.padded_mask,
+                template.padded_mask if mask is None else mask,
                 ECC_SMOOTHING,
             )
         except cv2.error:
@@ -660,6 +703,10 @@ class OpenCvBackend:
         return matrix / matrix[2][2]
 
 
+def _cell_size(width: int, height: int) -> int:
+    return max(CHECK_CELL_MIN, min(CHECK_CELL_MAX, min(width, height) // 3))
+
+
 def _resampling(sx: float, sy: float, dx: float, dy: float) -> Any:
     """Pixel-centre map of a resize by (sx, sy) after a shift: x -> (x + dx + 0.5) * s - 0.5."""
     return np.array(
@@ -669,6 +716,47 @@ def _resampling(sx: float, sy: float, dx: float, dy: float) -> Any:
             [0.0, 0.0, 1.0],
         ]
     )
+
+
+def _disagreement(
+    template: _Template, best: _Checked, region: Sequence[Point], motion: str
+) -> float:
+    """How far, in source pixels, the matched cells put the region from where it was registered.
+
+    A cell only agrees within a pixel, but a pixel of tilt across the cells becomes several at a
+    corner far from them. A least-squares fit to the agreeing cells' own sub-pixel matches is an
+    estimate of the region that owes nothing to the registration; where the two part at the
+    region's corners (at the vertex, for a patch), the registration is not confirmed there.
+    """
+    agreeing = best.agreeing_matches
+    if len(agreeing) < REFIT_MIN_CELLS:
+        return 0.0
+    source = np.array([m[0] for m in agreeing], dtype=np.float64)
+    target = np.array([m[1] for m in agreeing], dtype=np.float64)
+    if motion == "homography":
+        correction, _ = cv2.findHomography(source, target, 0)
+    else:
+        affine, _ = cv2.estimateAffine2D(source, target, method=cv2.LMEDS)
+        correction = None if affine is None else np.vstack([affine, [0.0, 0.0, 1.0]])
+    if correction is None or not np.all(np.isfinite(correction)):
+        return 0.0
+    to_template = np.linalg.inv(template.to_reference)
+    if motion == "homography":
+        points = list(region)
+    else:
+        points = [
+            (sum(p[0] for p in region) / len(region), sum(p[1] for p in region) / len(region))
+        ]
+    worst = 0.0
+    for x, y in points:
+        u = to_template @ np.array([x, y, 1.0])
+        moved = correction @ u
+        if abs(moved[2]) < 1e-12:
+            return float("inf")
+        dx = moved[0] / moved[2] - u[0] / u[2]
+        dy = moved[1] / moved[2] - u[1] / u[2]
+        worst = max(worst, float(np.hypot(dx, dy)) / template.scale)
+    return worst
 
 
 def _score(checked: _Checked) -> float:
@@ -714,11 +802,13 @@ def _check(template: _Template, working: _Working, matrix: Any) -> _Checked:
     inside = cv2.warpPerspective(
         working.valid, warp @ unpad, padded, flags=cv2.INTER_NEAREST | inverse
     )
-    cell = max(CHECK_CELL_MIN, min(CHECK_CELL_MAX, min(width, height) // 3))
+    cell = _cell_size(width, height)
     agree = 0
     contradict = 0
     cells = 0
     matches: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    agreeing: list[tuple[int, int, int]] = []
+    agreeing_matches: list[tuple[tuple[float, float], tuple[float, float]]] = []
     for top in range(0, height - cell + 1, cell):
         for left in range(0, width - cell + 1, cell):
             if template.mask[top : top + cell, left : left + cell].min() == 0:
@@ -729,6 +819,14 @@ def _check(template: _Template, working: _Working, matrix: Any) -> _Checked:
                 continue
             patch = template.smoothed[top : top + cell, left : left + cell]
             if float(patch.std()) < CHECK_MIN_TEXTURE:
+                # A flat part of the plane carries no position, but it can still say "something
+                # is in front of me now": texture appearing where the plane was flat is an
+                # occluder, and it counts as an unseen cell rather than being ignored.
+                here = rectified[
+                    top + search : top + search + cell, left + search : left + search + cell
+                ]
+                if float(here.std()) >= CHECK_APPEARED_TEXTURE:
+                    cells += 1
                 continue
             cells += 1
             centre = (left + (cell - 1) / 2.0, top + (cell - 1) / 2.0)
@@ -744,7 +842,9 @@ def _check(template: _Template, working: _Working, matrix: Any) -> _Checked:
             dx, dy, _, peak, at_zero = found
             if _within(found, template.scale):
                 agree += 1
+                agreeing.append((top, left, cell))
                 matches.append((centre, (centre[0] + dx, centre[1] + dy)))
+                agreeing_matches.append((centre, (centre[0] + dx, centre[1] + dy)))
             elif peak >= CHECK_CONTRADICTION_MATCH and peak - at_zero >= CHECK_DISTINCT:
                 # Only a STRONG, DISTINCT match elsewhere is evidence. A weak one in a wide window
                 # is what an occluder's own texture produces by chance; a strong one barely
@@ -757,6 +857,8 @@ def _check(template: _Template, working: _Working, matrix: Any) -> _Checked:
         contradiction=contradict / cells if cells else 0.0,
         cells=cells,
         matches=tuple(matches),
+        agreeing=tuple(agreeing),
+        agreeing_matches=tuple(agreeing_matches),
     )
 
 
