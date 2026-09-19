@@ -465,6 +465,10 @@ jobs:
         with:
           name: masking-archive-${{ runner.os }}
           path: ${{ runner.temp }}/masking-archive
+          # The mattes and tracks live in the project's `.framepilot-derived/`; upload-artifact
+          # leaves dot-folders out unless told, which is exactly the incomplete archive the
+          # reopen check refuses.
+          include-hidden-files: true
 
   masking-archive-reopen:
     name: Masking archive · made on ${{ matrix.from }}, reopened on ${{ matrix.os }}
@@ -497,8 +501,13 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # TypeScript only: some packages' build scripts also write Linux-only generated files
+      # (editor-core's frame-grid parity), which fail on Windows paths. The desktop build is
+      # itself only `tsc`.
       - name: Build the desktop host modules the open check imports
-        run: pnpm exec turbo run build --filter=@framepilot/desktop...
+        run: |
+          pnpm --filter "@framepilot/desktop^..." exec tsc -b
+          pnpm --filter @framepilot/desktop run build
       - name: Sync engine dependencies
         working-directory: engine/python
         run: uv sync --extra dev
