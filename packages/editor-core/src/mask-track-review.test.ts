@@ -79,8 +79,50 @@ describe('the re-track plan', () => {
       ...clip,
     });
     expect(plan).toHaveLength(2);
-    expect(plan[0]).toMatchObject({ referenceFrame: 4, firstFrame: 4, reverse: false });
-    expect(plan[1]).toMatchObject({ referenceFrame: 4, lastFrameExclusive: 5, reverse: true });
+    // Each direction stops where confidence comes back: frames 6..9 and 0..1 were already right.
+    expect(plan[0]).toMatchObject({
+      referenceFrame: 4,
+      firstFrame: 4,
+      lastFrameExclusive: 6,
+      reverse: false,
+    });
+    expect(plan[1]).toMatchObject({
+      referenceFrame: 4,
+      firstFrame: 2,
+      lastFrameExclusive: 5,
+      reverse: true,
+    });
+  });
+
+  it('re-measures a one-frame flagged range, so its constraint frame is exact', () => {
+    const plan = retrackPlan({
+      artifact: artifact([1, 1, 1, 0.1, 1, 1]),
+      constraints: [{ sourceTime: 0.3 }],
+      ...clip,
+      lastFrameExclusive: 6,
+    });
+    expect(plan).toEqual([
+      { sourceTime: 0.3, referenceFrame: 3, firstFrame: 3, lastFrameExclusive: 4, reverse: false },
+    ]);
+  });
+
+  it('runs a constraint on a good frame through the next low stretch, and no further', () => {
+    const plan = retrackPlan({
+      artifact: artifact([1, 1, 1, 1, 0.1, 0.1, 1, 1, 0.1, 1]),
+      constraints: [{ sourceTime: 0.2 }],
+      ...clip,
+    });
+    // Forward from frame 2 meets the stretch 4..5 and stops at 6; the later stretch at 8 is a
+    // separate range, fixed by its own constraint. Backward from 2 meets nothing low.
+    expect(plan).toEqual([
+      {
+        sourceTime: 0.2,
+        referenceFrame: 2,
+        firstFrame: 2,
+        lastFrameExclusive: 6,
+        reverse: false,
+      },
+    ]);
   });
 
   it('gives every frame to its nearest constraint', () => {

@@ -108,11 +108,17 @@ export interface RetrackPlanInput {
  *
  * Each constraint owns the frames that are nearer to it than to any other constraint, and is
  * measured outwards in both directions — so a constraint in the middle of a bad stretch produces
- * two runs, and the frames between two constraints are always measured from the closer one. A
- * segment that would cover only its own frame is left out: there is nothing to measure.
+ * two runs, and the frames between two constraints are always measured from the closer one.
  *
  * Only stretches that need it are re-measured: a constraint whose whole neighbourhood already
  * clears the floor produces no run at all, so fixing one frame does not re-track the clip.
+ *
+ * And a run stops where confidence does come back (plan 10: "re-runs from it in both directions
+ * until it meets confidence again"): each direction measures from the constraint to the end of
+ * the first low-confidence stretch it meets, not to the clip edge. Before MK7.5 a run went on to
+ * the neighbour midpoint or the edge and replaced frames the first track already had right —
+ * measured on real texture, one constraint inside an occlusion re-measured up to 85 good frames
+ * and made 112 of them worse than before.
  */
 export function retrackPlan(input: RetrackPlanInput): readonly RetrackSegment[] {
   const { artifact, firstFrame, lastFrameExclusive } = input;
@@ -134,20 +140,25 @@ export function retrackPlan(input: RetrackPlanInput): readonly RetrackSegment[] 
       previous === undefined ? firstFrame : Math.ceil((previous.frame + anchor.frame) / 2);
     const high =
       next === undefined ? lastFrameExclusive : Math.ceil((anchor.frame + next.frame) / 2);
-    if (needsMeasuring(artifact, anchor.frame, high, floor)) {
+    const forwardEnd = stretchEndAfter(artifact, anchor.frame, high, floor);
+    // A run of just the constraint frame is still a run: it is what makes that frame exact
+    // (identity on the editor's corrected geometry). Skipping it left a one-frame flagged range
+    // on its old, wrong transform.
+    if (forwardEnd !== undefined && forwardEnd - anchor.frame >= 1) {
       segments.push({
         sourceTime: anchor.sourceTime,
         referenceFrame: anchor.frame,
         firstFrame: anchor.frame,
-        lastFrameExclusive: high,
+        lastFrameExclusive: forwardEnd,
         reverse: false,
       });
     }
-    if (needsMeasuring(artifact, low, anchor.frame + 1, floor)) {
+    const backwardStart = stretchStartBefore(artifact, anchor.frame, low, floor);
+    if (backwardStart !== undefined && anchor.frame + 1 - backwardStart > 1) {
       segments.push({
         sourceTime: anchor.sourceTime,
         referenceFrame: anchor.frame,
-        firstFrame: low,
+        firstFrame: backwardStart,
         lastFrameExclusive: anchor.frame + 1,
         reverse: true,
       });
@@ -156,20 +167,44 @@ export function retrackPlan(input: RetrackPlanInput): readonly RetrackSegment[] 
   return segments;
 }
 
-/** Whether any frame of `[first, last)` is under the floor — otherwise there is nothing to fix. */
-function needsMeasuring(
+function isLow(artifact: TrackArtifact, frame: number, floor: number): boolean {
+  const index = frame - artifact.firstFrame;
+  if (index < 0 || index >= artifact.confidence.length) return false;
+  return artifact.confidence[index]! < floor;
+}
+
+/**
+ * Walking forwards from `anchor` (inclusive) up to `high` (exclusive): the frame just past the
+ * first low-confidence stretch met, or `undefined` when nothing in reach is low.
+ */
+function stretchEndAfter(
   artifact: TrackArtifact,
-  firstFrame: number,
-  lastFrameExclusive: number,
+  anchor: number,
+  high: number,
   floor: number,
-): boolean {
-  if (lastFrameExclusive - firstFrame <= 1) return false;
-  for (let frame = firstFrame; frame < lastFrameExclusive; frame += 1) {
-    const index = frame - artifact.firstFrame;
-    if (index < 0 || index >= artifact.confidence.length) continue;
-    if (artifact.confidence[index]! < floor) return true;
-  }
-  return false;
+): number | undefined {
+  let frame = anchor;
+  while (frame < high && !isLow(artifact, frame, floor)) frame += 1;
+  if (frame >= high) return undefined;
+  while (frame < high && isLow(artifact, frame, floor)) frame += 1;
+  return frame;
+}
+
+/**
+ * Walking backwards from `anchor` (inclusive) down to `low` (inclusive): the first frame of the
+ * first low-confidence stretch met, or `undefined` when nothing in reach is low.
+ */
+function stretchStartBefore(
+  artifact: TrackArtifact,
+  anchor: number,
+  low: number,
+  floor: number,
+): number | undefined {
+  let frame = anchor;
+  while (frame >= low && !isLow(artifact, frame, floor)) frame -= 1;
+  if (frame < low) return undefined;
+  while (frame >= low && isLow(artifact, frame, floor)) frame -= 1;
+  return frame + 1;
 }
 
 /** A measured segment and the constraint frame it is anchored on. */
