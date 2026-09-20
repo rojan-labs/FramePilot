@@ -38,11 +38,11 @@ importers:
         specifier: ^1.2.1
         version: 1.2.2
       prettier:
-        specifier: ^3.9.6
-        version: 3.9.6
+        specifier: ^3.9.7
+        version: 3.9.7
       turbo:
-        specifier: ^2.10.12
-        version: 2.10.12
+        specifier: ^2.10.13
+        version: 2.10.13
       typescript:
         specifier: ^5.5.0
         version: 5.9.3
@@ -132,8 +132,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ui
       '@tanstack/react-virtual':
-        specifier: ^3.14.11
-        version: 3.14.11(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^3.14.13
+        version: 3.14.13(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       framer-motion:
         specifier: ^12.43.0
         version: 12.43.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -296,8 +296,8 @@ importers:
   packages/ai-sdk:
     dependencies:
       '@anthropic-ai/claude-agent-sdk':
-        specifier: 0.3.268
-        version: 0.3.268(@anthropic-ai/sdk@0.122.0(zod@3.25.76))(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@3.25.76))(zod@3.25.76)
+        specifier: 0.3.275
+        version: 0.3.275(@anthropic-ai/sdk@0.122.0(zod@3.25.76))(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@3.25.76))(zod@3.25.76)
       '@framepilot/capability-packs':
         specifier: workspace:*
         version: link:../capability-packs
@@ -312,28 +312,28 @@ importers:
         version: link:../timeline-schema
       '@langchain/anthropic':
         specifier: 1.5.10
-        version: 1.5.10(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))
+        version: 1.5.10(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))
       '@langchain/core':
-        specifier: 1.2.10
-        version: 1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
+        specifier: 1.2.11
+        version: 1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
       '@langchain/deepseek':
-        specifier: 1.1.12
-        version: 1.1.12(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(undici@6.28.1)(ws@8.21.0)
+        specifier: 1.1.13
+        version: 1.1.13(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(undici@6.28.1)(ws@8.21.0)
       '@langchain/google-genai':
-        specifier: 2.3.1
-        version: 2.3.1(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))
+        specifier: 2.3.2
+        version: 2.3.2(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))
       '@langchain/groq':
         specifier: 1.3.1
-        version: 1.3.1(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))
+        version: 1.3.1(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))
       '@langchain/langgraph':
-        specifier: 1.4.14
-        version: 1.4.14(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@3.25.76)
+        specifier: 1.4.15
+        version: 1.4.15(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@3.25.76)
       '@langchain/ollama':
         specifier: 1.3.0
-        version: 1.3.0(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))
+        version: 1.3.0(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))
       '@langchain/openai':
-        specifier: 1.5.12
-        version: 1.5.12(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(undici@6.28.1)(ws@8.21.0)
+        specifier: 1.5.13
+        version: 1.5.13(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(undici@6.28.1)(ws@8.21.0)
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(@cfworker/json-schema@4.1.1)(zod@3.25.76)
@@ -596,48 +596,48 @@ packages:
     resolution: {integrity: sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw==}
     engines: {node: '>=6.0.0'}
 
-  '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.268':
-    resolution: {integrity: sha512-LdWLd0osGaDWXX6iYtDjUBRiY5ORoTSPfdkGRo7egbTYumRhHQi/B7JmbGUMqfNxpmKgTI8YsW+YTniUsBEVsw==}
+  '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.275':
+    resolution: {integrity: sha512-Z1REueAYspMGiFEjD0RodRvWk3/h0QM1ifwcrM8b5C5ieJrhVEXAr+/FewwbmKje6BapbtzN1NY2aMEeMumaTg==}
     cpu: [arm64]
     os: [darwin]
 
-  '@anthropic-ai/claude-agent-sdk-darwin-x64@0.3.268':
-    resolution: {integrity: sha512-MHu24qCzyRjnfiaXOUB5vwtNPUUTuv1T1dAovbF3IQhKoPANVVt7dYW4uGczcVwrrDjiYWd5R6NLnFrz2//mkQ==}
+  '@anthropic-ai/claude-agent-sdk-darwin-x64@0.3.275':
+    resolution: {integrity: sha512-3T6LvA1hFD5C2FoMkNSvzJZe5Xz04vZlGqCMUVpXP9qjCuVrJW5L1RFuxuyL4aWi4twEwQnLpnjB876WjzCbog==}
     cpu: [x64]
     os: [darwin]
 
-  '@anthropic-ai/claude-agent-sdk-linux-arm64-musl@0.3.268':
-    resolution: {integrity: sha512-qQcJ5iIepKU1eHy6KTtE0PUJ5DDtb+HkokcLpVRZeIowCF4RSbOso5siiO/TUFNwoSrIB7ri7ji6ge5juHYrrg==}
+  '@anthropic-ai/claude-agent-sdk-linux-arm64-musl@0.3.275':
+    resolution: {integrity: sha512-z3f9zNjZ44BCnKs/vuoO/sGKTzGw+W5EZGY5WAH4OKN8zmKF0TQpyHe9j8f0JycOV80c0qLsPTCZNJsPbKoiUw==}
     cpu: [arm64]
     os: [linux]
 
-  '@anthropic-ai/claude-agent-sdk-linux-arm64@0.3.268':
-    resolution: {integrity: sha512-IgvuEx9s1F+dhq8B9XqEoUGJCYK1d1yN4TkDILeWQ5tI/Y6fX7MKppF1GVgiRd1R7YI2L4IGBkFcry5gJAunkg==}
+  '@anthropic-ai/claude-agent-sdk-linux-arm64@0.3.275':
+    resolution: {integrity: sha512-iQOfJVM7eaighDbE6q3AwiP/RamOSwDBCoBvGdD5agFmM11u++S23grB3PEp65WLPkdu1oT3natRttpZOLCeng==}
     cpu: [arm64]
     os: [linux]
 
-  '@anthropic-ai/claude-agent-sdk-linux-x64-musl@0.3.268':
-    resolution: {integrity: sha512-BguDX5ZRLHeEI7R+lKu0BI2iv8SmlMwZCNnqWRo2x79yRsdjD2Hcvjsj79HholtzD6YPA/R2USlxuT7Ygj9k0w==}
+  '@anthropic-ai/claude-agent-sdk-linux-x64-musl@0.3.275':
+    resolution: {integrity: sha512-xg8qI2q4QkBQaGGThBe/TQG+OTste7mcn945tw0o19/w7imVuG4Txxv97bHYBOYQDLRZLIRzNcRw12ER7giIAA==}
     cpu: [x64]
     os: [linux]
 
-  '@anthropic-ai/claude-agent-sdk-linux-x64@0.3.268':
-    resolution: {integrity: sha512-mIvSW1iyZpdq+G7nv+GSLhPSLG3OyhWKbL2BZ2/Zn9VSgtKjwMtnINW19pU84D+J+heRlqKUMAx4EbH4DOHolw==}
+  '@anthropic-ai/claude-agent-sdk-linux-x64@0.3.275':
+    resolution: {integrity: sha512-U3tOB4pvd/NeLdenY/YD4u35bcF0vV0UUXr3gwXuUEFPa1JeI3Pd5vMsqwnHf7dXkGW41TTg7IRj0Atc0S2pfQ==}
     cpu: [x64]
     os: [linux]
 
-  '@anthropic-ai/claude-agent-sdk-win32-arm64@0.3.268':
-    resolution: {integrity: sha512-p8Aj7iohK2TddsQZ+tNhG2w6np1MmdpPVqHpOuElab7Iu4OA3iOerc/21T+Z3fza/gOPaTV0nKiEIO0tbAQrLA==}
+  '@anthropic-ai/claude-agent-sdk-win32-arm64@0.3.275':
+    resolution: {integrity: sha512-DmXugsXOp2fmFSafiyFpuITZkMC6OPDfaeibSnB3xww2ZgIq/SqZXK5iHZKC3IpbYRnLr4qb8HqD4MUOOcClKA==}
     cpu: [arm64]
     os: [win32]
 
-  '@anthropic-ai/claude-agent-sdk-win32-x64@0.3.268':
-    resolution: {integrity: sha512-zT56NISgATcVk6hVLr/CIl+5H/G6mqjhd1t/V/JMVupMuc3ffirEPu47cVJldGf0DVMa+sZ17uRwXvIM2Vi4iA==}
+  '@anthropic-ai/claude-agent-sdk-win32-x64@0.3.275':
+    resolution: {integrity: sha512-I1kTtgV5b0S3XwoWCgpT92nGQPztC1fDj4BALT6qXGcMtdcAHrgjt4OrSf2oxqnIP5AnIgmF7H+7VjOVqwR63g==}
     cpu: [x64]
     os: [win32]
 
-  '@anthropic-ai/claude-agent-sdk@0.3.268':
-    resolution: {integrity: sha512-24oj+nuSjSYF/yrZefXdjUIYPJ+OnbTNP5GkaSiOiY4lfPF9PPwtDviDp3hojYpgvL5wDKaueNWmbfc/DVVbWQ==}
+  '@anthropic-ai/claude-agent-sdk@0.3.275':
+    resolution: {integrity: sha512-6BkXqnbb/aSet0l61Jp7m5yTmLzQVS+CJAXKmfcjjpNlFtMQPNBSGaL/uP2xUw4ABn4sMMNFNrzsRb+fv5b/sw==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
       '@anthropic-ai/sdk': '>=0.93.0'
@@ -1460,21 +1460,21 @@ packages:
     peerDependencies:
       '@langchain/core': ^1.2.10
 
-  '@langchain/core@1.2.10':
-    resolution: {integrity: sha512-skr9zkyidZSzhoqhWINdULRstPT5aMD+w3tWtE3puxffWH7wxAp8tx1gMqadjKZwlgo6exlK0nHncFJv6m+3Cg==}
+  '@langchain/core@1.2.11':
+    resolution: {integrity: sha512-8yuWLLloTSYA453akm2JSadOVa8kGDY8v+kTzQ6kTY6aIETTEIxgysjZWyKrWQLo3UazctsSoGJ8JrdCGFL4/w==}
     engines: {node: '>=20'}
 
-  '@langchain/deepseek@1.1.12':
-    resolution: {integrity: sha512-+C2gOfNUjtFPNC9+QFhWUbupn3VS1pnD2etphIJzHJ08qAdcRHp3oWwTBAFj5+HWfxbb0ro6Y6msbrXlZgmcsg==}
+  '@langchain/deepseek@1.1.13':
+    resolution: {integrity: sha512-EIGg/+gJJqtqA/xPQivgaLII3VU390zQ0Q03NttHjtFBtgsT5f4LeeSoth5D2soZacr9AwyjRAY7hbPu8Hb7wg==}
     engines: {node: '>=20'}
     peerDependencies:
       '@langchain/core': ^1.0.0
 
-  '@langchain/google-genai@2.3.1':
-    resolution: {integrity: sha512-xoJVzzPA2zgGgHCy4pqTAlXSBKncutXcfzjtYdl9g8biRKjjvczpdpVs2gB0OxsYVX15fgaIJaCmo64+72cj2w==}
+  '@langchain/google-genai@2.3.2':
+    resolution: {integrity: sha512-wiiHx3aBJmWJcKmYs/4xZo5KNRICYjdbwegtmH8ega7liYFKBY6e1F4ocMNL+ylApaRIYeO54ceAHNbKmRVHeQ==}
     engines: {node: '>=20'}
     peerDependencies:
-      '@langchain/core': ^1.2.10
+      '@langchain/core': ^1.2.11
 
   '@langchain/groq@1.3.1':
     resolution: {integrity: sha512-ImxfGBis4FEHpZdeT6dot6V6l09uBLYm/1BHQ6x3XEQmJFF7aKwbOeSOV5h/h5IeRx+2gaInR+LfyYoqT8satQ==}
@@ -1488,8 +1488,8 @@ packages:
     peerDependencies:
       '@langchain/core': ^1.1.48
 
-  '@langchain/langgraph-sdk@1.10.2':
-    resolution: {integrity: sha512-86qsfdBZWu1ZgywLN8AThU/jXi9rjPDZPWcTJp4SA1A/L62ypTNoSXbvtiwZt1odokXccYTxK1XWS8tmVdvEmw==}
+  '@langchain/langgraph-sdk@1.11.1':
+    resolution: {integrity: sha512-g29J8FH684kVRCQW+CaO5OrR+hV2IJwIEuBKdPFwRgm05RZXEEsDSx0/1FBpQQJRzsVElmLBVSHuGGpwdxGnYg==}
     peerDependencies:
       '@langchain/core': ^1.1.48
       react: ^18 || ^19
@@ -1500,8 +1500,8 @@ packages:
       react-dom:
         optional: true
 
-  '@langchain/langgraph@1.4.14':
-    resolution: {integrity: sha512-uWAdRYTllfKCnTrlyovExPJCHJwcf3Wl2LzUlnaqsT7Rmoo3aCeYtq/7MV/Pw4q11motG8pR8bjr6T6V8Pe1gQ==}
+  '@langchain/langgraph@1.4.15':
+    resolution: {integrity: sha512-QG8led1xbFfgikAIF9E5G1Kp1KLtq/xv7YASWy+wnPftQw0Hxu0kpPXl0Q1U2Dfpwb8w/Vfz0QarUR8eI/xtRw==}
     engines: {node: '>=18'}
     peerDependencies:
       '@langchain/core': ^1.1.48
@@ -1513,11 +1513,11 @@ packages:
     peerDependencies:
       '@langchain/core': ^1.0.0
 
-  '@langchain/openai@1.5.12':
-    resolution: {integrity: sha512-5tMWHUEo/ZGkLmSNxjA1w0ofRGoUiMXpI3pVrnvRgBBxFxHaZtDndzwZpU5Z8UFW/nWd4XW5Je/PEkZgW2K31w==}
+  '@langchain/openai@1.5.13':
+    resolution: {integrity: sha512-SA1QWNgM/p8xhdwU82CJ7OofhHEExpAaIwJ7j9ELIyVW795Mn0jDRQO/5yChawLcPhuLkeL+jMesi0FnXbImSg==}
     engines: {node: '>=22'}
     peerDependencies:
-      '@langchain/core': ^1.2.10
+      '@langchain/core': ^1.2.11
 
   '@langchain/protocol@0.0.19':
     resolution: {integrity: sha512-9hKcRrH7cBX6gfutdfXPoft1OCchHe4FEpALoDJMl5Qu+n/YG5ynZmyu8+8cxORlPwHBoKTxggvXz+76M1yX1Q==}
@@ -1962,14 +1962,14 @@ packages:
   '@tailwindcss/postcss@4.3.3':
     resolution: {integrity: sha512-JTSZZGQi1AyKirbLN3azmjVzef92tcX7h+iSqPdaeStyFpGpDlKvvpxeOE8njhbUanbRwr3z8DyzhICWnMtQeg==}
 
-  '@tanstack/react-virtual@3.14.11':
-    resolution: {integrity: sha512-SStWf8bYdTgAquYqG4Pi2+d1XimQKoCIJ94H3jsm0D6UA0yqffvWuvUzrrQ4idewFWq8BSPpahnmLVosJIAs6g==}
+  '@tanstack/react-virtual@3.14.13':
+    resolution: {integrity: sha512-JbDTAwtzZ99aOeCrAfW5EsE5KSq5RWh6Af2dtFwyLIIk48Ja7vm6n4axu/43T3vfjFnEGJalxJ1wyYjSQD6bSg==}
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
-  '@tanstack/virtual-core@3.17.9':
-    resolution: {integrity: sha512-M8Bzy7CCMvUjRiuoHVH9mRjyUVczRs8v8RcUEphLFGc445ZP4KQ15Y1sLqhQqJi/HgGJrxfCHnEnIX0x9mVrBg==}
+  '@tanstack/virtual-core@3.17.11':
+    resolution: {integrity: sha512-+ILjvtHup6Y2hzQ6YzwMgX1Q+oQpxEGOXCEsCNaPoIP0VxMbizIBTmYTDtkerkIQS8/CbP1BRuyt8V/8BCsy1g==}
 
   '@testing-library/dom@10.4.1':
     resolution: {integrity: sha512-o4PXJQidqJl82ckFaXUeoAW+XysPLauYI43Abki5hABd853iMhitooc6znOnczgbTYmEP6U6/y1ZyKAIsvMKGg==}
@@ -1990,33 +1990,33 @@ packages:
       '@types/react-dom':
         optional: true
 
-  '@turbo/darwin-64@2.10.12':
-    resolution: {integrity: sha512-9nKgKoF6ZOUsM+or0OtNf+TTJSfGvDNP7ZFv/ZGWVwOSCkumyctQiTeHwB4UNljHTnC41AqylgbunLDHoccNrA==}
+  '@turbo/darwin-64@2.10.13':
+    resolution: {integrity: sha512-m5DBcpkxmcKpEJHHFUfqf9GLUjSmw3cDnBJM9nghPW3kjCNb5OyNKmzG7/yT5x5AwzOO+HMwKN+UI4iVKL87YA==}
     cpu: [x64]
     os: [darwin]
 
-  '@turbo/darwin-arm64@2.10.12':
-    resolution: {integrity: sha512-H4Elb1jqTZVeIC9bbcNwjSzemZ6RegoTOVHeuV5Osirt2Z8UguTyisMEkvZjPVZgMeN9J4ERZBFad40tFnkb7w==}
+  '@turbo/darwin-arm64@2.10.13':
+    resolution: {integrity: sha512-vfKPvSuoY8BJGj8M8yN+a7aq1g+CejbEacDSDlJLDkSbPN3J/U1DbYAmPG8Ype5XvImI0SgfvUhIorNnFj67zw==}
     cpu: [arm64]
     os: [darwin]
 
-  '@turbo/linux-64@2.10.12':
-    resolution: {integrity: sha512-lr7KIotukvjZwEXiFSYAeOH3BWzjFVBbSzTbv0fuGFsNukYyH0+g1hB5ecqnJkgkYU+KHEMG1edOhnjiKON1wQ==}
+  '@turbo/linux-64@2.10.13':
+    resolution: {integrity: sha512-Zp0N5M6j9iEjJtFLTA2L+52TLuYy0VbXT3zLZzfMeqqdKSUJ7pDo2pA1NhqjoQcF2dIsktZ8xZRW3pGI6T81fw==}
     cpu: [x64]
     os: [android, linux]
 
-  '@turbo/linux-arm64@2.10.12':
-    resolution: {integrity: sha512-f0pZDTtvzB5SuNwuXBaKbZHUCMCukgc8nMlHEuvLmj91Fzec+MEbr3cAvGNor5htEDqZnO6Lxt9N/GPI/77oGA==}
+  '@turbo/linux-arm64@2.10.13':
+    resolution: {integrity: sha512-M8XcfWdS2D4EP3wzd5ehUyCANucMIOsRE6gZuV0Mr2NIn+FpsUjXFCh7r9HY7GnNcjXH4tUnT76OsCDg2c0Fng==}
     cpu: [arm64]
     os: [android, linux]
 
-  '@turbo/windows-64@2.10.12':
-    resolution: {integrity: sha512-SDOueJRjS/QcykWf2KCRtTLmIl5YMKsLbXkXQGhDwcTXvKXZiS5ih5lBl/gkwZIpYFjqA/rAlfMzlAFcVHNe0g==}
+  '@turbo/windows-64@2.10.13':
+    resolution: {integrity: sha512-QFd3KBMpBBCc31TbxMnxgdBivie8lxJXV8EqmanH8fg8l2e1BdCLWpZJbxk48VNvcF4LHUnwO0FJOq+veKN1cw==}
     cpu: [x64]
     os: [win32]
 
-  '@turbo/windows-arm64@2.10.12':
-    resolution: {integrity: sha512-0i0mVUa4kKk+/B3RwEwPMf9CB+T7ul56hn5FFHNA4VUNTOoLBEd6aNf3FaKfCatDNZ6cicCEf6if9QUTVyzzcA==}
+  '@turbo/windows-arm64@2.10.13':
+    resolution: {integrity: sha512-rM+cFO1P8iAHXdasOdMyK9nDk0UGII7VEFLIA8+jwv/+rh48pnVBbF2OSjJDBOw57pxNLIOEDA0JyKcarTBcIw==}
     cpu: [arm64]
     os: [win32]
 
@@ -3495,8 +3495,8 @@ packages:
     resolution: {integrity: sha512-dcS1ul+9tmeD95T+x28/ehLgd9mENa3LsvDTtzm3vyBEO7RPptvAD+t44WVXaUjTBRcrpFeFlC8WCruUR456hw==}
     engines: {node: '>=0.10.0'}
 
-  langsmith@0.10.3:
-    resolution: {integrity: sha512-QQjH27gbMHGfEwCMN7wcE2a+AV3GrVAL3dZX33ZMGC45a6XeGtSB4Qnl1JiNdWe4QS4P3dsYQLsuCnN1Liztmw==}
+  langsmith@0.10.4:
+    resolution: {integrity: sha512-P8kIZYLih9zDOr6e+wBTIKjSe3ak6LeFMKQFQJgAWQ65tjzrI/NcathO31Txr6BQZCCN2HEPfKX/YFmdbVBTgQ==}
     peerDependencies:
       '@opentelemetry/api': '*'
       '@opentelemetry/exporter-trace-otlp-proto': '*'
@@ -4020,8 +4020,8 @@ packages:
     resolution: {integrity: sha512-uxyNYDsCh5YIJ780G7hC5OHjVUr9reHsbZNMM80L9tZlTpb3hUzb36KXgW4ZUGtJKQnGA3xegmWg1BxhWV0jJA==}
     hasBin: true
 
-  openai@7.15.0:
-    resolution: {integrity: sha512-2DIwesnPSduw68MFx7nAdgvshrgvS8WOan5W8+tgUMlAy/tY+Q41g80Pa+w/v64rHA6rtn+dketa8QvMVxU96w==}
+  openai@7.20.0:
+    resolution: {integrity: sha512-5x5ru4cKEvEqHqYZbdIbT57OE7KqmP9YYxZiUKuKng016grOHXqom1vmu34MTPPW30q+lcP9RhxAbaRse+Xlcw==}
     engines: {node: '>=22.0.0'}
     peerDependencies:
       '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
@@ -4205,8 +4205,8 @@ packages:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
 
-  prettier@3.9.6:
-    resolution: {integrity: sha512-OpN0zzVdiaiAhxpuuj5efpIS4sY9j7bY6uR5mnj5yPzGkdkjNKSJeUThPb60Jw29QuAZgA4o+/iB49kFiaBX6g==}
+  prettier@3.9.7:
+    resolution: {integrity: sha512-T3mF5P7HFzZVLDQuCUNtJj6WK1pcpLMweMNUVwGb01bLNkH9AkKxtZvmInw8K6bnn2O3d6/5RHl6zSHiBAD0Og==}
     engines: {node: '>=14'}
     hasBin: true
 
@@ -4767,8 +4767,8 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
-  turbo@2.10.12:
-    resolution: {integrity: sha512-AswgMPnpOoaVZHrrSBejETzEbuIA69OVGwfkHwfrY0A23VjWXBANzgq9+OymWOHAIArB7D1+1z498WY8fGg1Jw==}
+  turbo@2.10.13:
+    resolution: {integrity: sha512-69MkPbjk+G8oyC7pC2DeBk0rPdbLz51wuH5eAT0Q4BVJkzq/b1XM4kUUidsARbmDjwIELSJwd1ezITULY9kWNw==}
     hasBin: true
 
   type-check@0.4.0:
@@ -5104,44 +5104,44 @@ snapshots:
       '@jridgewell/gen-mapping': 0.3.13
       '@jridgewell/trace-mapping': 0.3.31
 
-  '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.268':
+  '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.275':
     optional: true
 
-  '@anthropic-ai/claude-agent-sdk-darwin-x64@0.3.268':
+  '@anthropic-ai/claude-agent-sdk-darwin-x64@0.3.275':
     optional: true
 
-  '@anthropic-ai/claude-agent-sdk-linux-arm64-musl@0.3.268':
+  '@anthropic-ai/claude-agent-sdk-linux-arm64-musl@0.3.275':
     optional: true
 
-  '@anthropic-ai/claude-agent-sdk-linux-arm64@0.3.268':
+  '@anthropic-ai/claude-agent-sdk-linux-arm64@0.3.275':
     optional: true
 
-  '@anthropic-ai/claude-agent-sdk-linux-x64-musl@0.3.268':
+  '@anthropic-ai/claude-agent-sdk-linux-x64-musl@0.3.275':
     optional: true
 
-  '@anthropic-ai/claude-agent-sdk-linux-x64@0.3.268':
+  '@anthropic-ai/claude-agent-sdk-linux-x64@0.3.275':
     optional: true
 
-  '@anthropic-ai/claude-agent-sdk-win32-arm64@0.3.268':
+  '@anthropic-ai/claude-agent-sdk-win32-arm64@0.3.275':
     optional: true
 
-  '@anthropic-ai/claude-agent-sdk-win32-x64@0.3.268':
+  '@anthropic-ai/claude-agent-sdk-win32-x64@0.3.275':
     optional: true
 
-  '@anthropic-ai/claude-agent-sdk@0.3.268(@anthropic-ai/sdk@0.122.0(zod@3.25.76))(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@3.25.76))(zod@3.25.76)':
+  '@anthropic-ai/claude-agent-sdk@0.3.275(@anthropic-ai/sdk@0.122.0(zod@3.25.76))(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@3.25.76))(zod@3.25.76)':
     dependencies:
       '@anthropic-ai/sdk': 0.122.0(zod@3.25.76)
       '@modelcontextprotocol/sdk': 1.30.0(@cfworker/json-schema@4.1.1)(zod@3.25.76)
       zod: 3.25.76
     optionalDependencies:
-      '@anthropic-ai/claude-agent-sdk-darwin-arm64': 0.3.268
-      '@anthropic-ai/claude-agent-sdk-darwin-x64': 0.3.268
-      '@anthropic-ai/claude-agent-sdk-linux-arm64': 0.3.268
-      '@anthropic-ai/claude-agent-sdk-linux-arm64-musl': 0.3.268
-      '@anthropic-ai/claude-agent-sdk-linux-x64': 0.3.268
-      '@anthropic-ai/claude-agent-sdk-linux-x64-musl': 0.3.268
-      '@anthropic-ai/claude-agent-sdk-win32-arm64': 0.3.268
-      '@anthropic-ai/claude-agent-sdk-win32-x64': 0.3.268
+      '@anthropic-ai/claude-agent-sdk-darwin-arm64': 0.3.275
+      '@anthropic-ai/claude-agent-sdk-darwin-x64': 0.3.275
+      '@anthropic-ai/claude-agent-sdk-linux-arm64': 0.3.275
+      '@anthropic-ai/claude-agent-sdk-linux-arm64-musl': 0.3.275
+      '@anthropic-ai/claude-agent-sdk-linux-x64': 0.3.275
+      '@anthropic-ai/claude-agent-sdk-linux-x64-musl': 0.3.275
+      '@anthropic-ai/claude-agent-sdk-win32-arm64': 0.3.275
+      '@anthropic-ai/claude-agent-sdk-win32-x64': 0.3.275
 
   '@anthropic-ai/sdk@0.122.0(zod@3.25.76)':
     dependencies:
@@ -5822,18 +5822,18 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@langchain/anthropic@1.5.10(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))':
+  '@langchain/anthropic@1.5.10(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))':
     dependencies:
       '@anthropic-ai/sdk': 0.122.0(zod@3.25.76)
-      '@langchain/core': 1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
+      '@langchain/core': 1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
       zod: 3.25.76
 
-  '@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)':
+  '@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)':
     dependencies:
       '@cfworker/json-schema': 4.1.1
       '@standard-schema/spec': 1.1.0
       js-tiktoken: 1.0.21
-      langsmith: 0.10.3(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
+      langsmith: 0.10.4(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
       mustache: 4.2.0
       p-queue: 6.6.2
       zod: 3.25.76
@@ -5844,10 +5844,10 @@ snapshots:
       - openai
       - ws
 
-  '@langchain/deepseek@1.1.12(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(undici@6.28.1)(ws@8.21.0)':
+  '@langchain/deepseek@1.1.13(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(undici@6.28.1)(ws@8.21.0)':
     dependencies:
-      '@langchain/core': 1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
-      '@langchain/openai': 1.5.12(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(undici@6.28.1)(ws@8.21.0)
+      '@langchain/core': 1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
+      '@langchain/openai': 1.5.13(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(undici@6.28.1)(ws@8.21.0)
     transitivePeerDependencies:
       - '@aws-sdk/credential-provider-node'
       - '@smithy/hash-node'
@@ -5855,23 +5855,23 @@ snapshots:
       - undici
       - ws
 
-  '@langchain/google-genai@2.3.1(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))':
+  '@langchain/google-genai@2.3.2(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))':
     dependencies:
       '@google/generative-ai': 0.24.1
-      '@langchain/core': 1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
+      '@langchain/core': 1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
 
-  '@langchain/groq@1.3.1(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))':
+  '@langchain/groq@1.3.1(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))':
     dependencies:
-      '@langchain/core': 1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
+      '@langchain/core': 1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
       groq-sdk: 1.5.0
 
-  '@langchain/langgraph-checkpoint@1.1.5(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))':
+  '@langchain/langgraph-checkpoint@1.1.5(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))':
     dependencies:
-      '@langchain/core': 1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
+      '@langchain/core': 1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
 
-  '@langchain/langgraph-sdk@1.10.2(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@langchain/langgraph-sdk@1.11.1(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@langchain/core': 1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
+      '@langchain/core': 1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
       '@langchain/protocol': 0.0.19
       '@types/json-schema': 7.0.15
       p-queue: 9.3.3
@@ -5880,11 +5880,11 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@langchain/langgraph@1.4.14(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@3.25.76)':
+  '@langchain/langgraph@1.4.15(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@3.25.76)':
     dependencies:
-      '@langchain/core': 1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
-      '@langchain/langgraph-checkpoint': 1.1.5(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))
-      '@langchain/langgraph-sdk': 1.10.2(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@langchain/core': 1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
+      '@langchain/langgraph-checkpoint': 1.1.5(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))
+      '@langchain/langgraph-sdk': 1.11.1(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@langchain/protocol': 0.0.19
       '@standard-schema/spec': 1.1.0
       zod: 3.25.76
@@ -5892,16 +5892,16 @@ snapshots:
       - react
       - react-dom
 
-  '@langchain/ollama@1.3.0(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))':
+  '@langchain/ollama@1.3.0(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))':
     dependencies:
-      '@langchain/core': 1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
+      '@langchain/core': 1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
       ollama: 0.6.3
 
-  '@langchain/openai@1.5.12(@langchain/core@1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(undici@6.28.1)(ws@8.21.0)':
+  '@langchain/openai@1.5.13(@langchain/core@1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0))(undici@6.28.1)(ws@8.21.0)':
     dependencies:
-      '@langchain/core': 1.2.10(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
+      '@langchain/core': 1.2.11(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0)
       js-tiktoken: 1.0.21
-      openai: 7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76)
+      openai: 7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76)
       zod: 3.25.76
     transitivePeerDependencies:
       - '@aws-sdk/credential-provider-node'
@@ -6261,13 +6261,13 @@ snapshots:
       postcss: 8.5.28
       tailwindcss: 4.3.3
 
-  '@tanstack/react-virtual@3.14.11(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@tanstack/react-virtual@3.14.13(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@tanstack/virtual-core': 3.17.9
+      '@tanstack/virtual-core': 3.17.11
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@tanstack/virtual-core@3.17.9': {}
+  '@tanstack/virtual-core@3.17.11': {}
 
   '@testing-library/dom@10.4.1':
     dependencies:
@@ -6290,22 +6290,22 @@ snapshots:
       '@types/react': 18.3.31
       '@types/react-dom': 18.3.7(@types/react@18.3.31)
 
-  '@turbo/darwin-64@2.10.12':
+  '@turbo/darwin-64@2.10.13':
     optional: true
 
-  '@turbo/darwin-arm64@2.10.12':
+  '@turbo/darwin-arm64@2.10.13':
     optional: true
 
-  '@turbo/linux-64@2.10.12':
+  '@turbo/linux-64@2.10.13':
     optional: true
 
-  '@turbo/linux-arm64@2.10.12':
+  '@turbo/linux-arm64@2.10.13':
     optional: true
 
-  '@turbo/windows-64@2.10.12':
+  '@turbo/windows-64@2.10.13':
     optional: true
 
-  '@turbo/windows-arm64@2.10.12':
+  '@turbo/windows-arm64@2.10.13':
     optional: true
 
   '@types/aria-query@5.0.4': {}
@@ -8153,11 +8153,11 @@ snapshots:
 
   kind-of@6.0.3: {}
 
-  langsmith@0.10.3(openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0):
+  langsmith@0.10.4(openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76))(ws@8.21.0):
     dependencies:
       p-queue: 6.6.2
     optionalDependencies:
-      openai: 7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76)
+      openai: 7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76)
       ws: 8.21.0
 
   lazy-val@1.0.5: {}
@@ -8844,7 +8844,7 @@ snapshots:
     dependencies:
       which-pm-runs: 1.1.0
 
-  openai@7.15.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76):
+  openai@7.20.0(undici@6.28.1)(ws@8.21.0)(zod@3.25.76):
     optionalDependencies:
       undici: 6.28.1
       ws: 8.21.0
@@ -8997,7 +8997,7 @@ snapshots:
 
   prelude-ls@1.2.1: {}
 
-  prettier@3.9.6: {}
+  prettier@3.9.7: {}
 
   pretty-format@27.5.1:
     dependencies:
@@ -9675,14 +9675,14 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.3
 
-  turbo@2.10.12:
+  turbo@2.10.13:
     optionalDependencies:
-      '@turbo/darwin-64': 2.10.12
-      '@turbo/darwin-arm64': 2.10.12
-      '@turbo/linux-64': 2.10.12
-      '@turbo/linux-arm64': 2.10.12
-      '@turbo/windows-64': 2.10.12
-      '@turbo/windows-arm64': 2.10.12
+      '@turbo/darwin-64': 2.10.13
+      '@turbo/darwin-arm64': 2.10.13
+      '@turbo/linux-64': 2.10.13
+      '@turbo/linux-arm64': 2.10.13
+      '@turbo/windows-64': 2.10.13
+      '@turbo/windows-arm64': 2.10.13
 
   type-check@0.4.0:
     dependencies:
