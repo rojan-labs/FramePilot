@@ -132,6 +132,10 @@ FAST_WINDOW_FRAMES: Final = 240
 FAST_WINDOW_OVERLAP: Final = 30
 #: Alpha strictly between these is the soft edge (not solid background, not solid subject).
 #: Threads for the Fast engine's independent per-frame CPU stages.
+#: A seeded Fast matte with more than this share of its area outside the (padded) box is not the
+#: subject the editor boxed.
+FAST_MAX_OUTSIDE_BOX_SHARE: Final = 0.3
+FAST_BOX_PAD_SHARE: Final = 0.08
 FAST_THREADS: Final = 4
 #: The survey looks at one frame in this many.
 FAST_SURVEY_STEP: Final = 6
@@ -436,6 +440,8 @@ class JobContext:
     carried: dict[int, U8] = field(default_factory=dict)
     #: Fast engine: background Vision sometimes fuses into the subject (see ``_fast_survey``).
     twin_mask: TwinModel | None = None
+    #: Fast engine: the largest share of a seeded frame's matte found outside the editor's box.
+    box_disagreement: float = 0.0
     #: Prompt frames of a partial re-run the previous matte does not already satisfy (BR3.17).
     affecting: set[int] = field(default_factory=set)
 
@@ -941,6 +947,10 @@ class MatteJob:
                 if i in seeds:
                     self._fast_seed = seeds[i]
                 alphas[i] = estimate.alpha
+                if i in seeds:
+                    ctx.box_disagreement = max(
+                        ctx.box_disagreement, _outside_box_share(estimate.alpha, seeds[i])
+                    )
                 solids.append(small_mask(estimate.alpha))
                 persons.append(estimate.person)
                 found.append(estimate.found)
@@ -1006,7 +1016,16 @@ class MatteJob:
 
         for i in window.committed:
             record = ctx.records[window.start + i]
-            record.checks = flags[i] if found[i] else [*flags[i], "target_lost"]
+            # "h" = subject_lost. An invented code here crashed the whole job in review_ranges
+            # (KeyError) the first time Vision found nothing in a frame: found by eval/fast_gates.
+            record.checks = flags[i] if found[i] or "h" in flags[i] else [*flags[i], "h"]
+            # Vision answers "what is foreground", not "which of it did the editor box". When
+            # much of the matte lies outside the box the job was given, Vision has fused the
+            # subject with something else and follows that for the rest of the job; on the 06
+            # fixtures the image checks caught 1 of 32 such frames. Every frame is then the
+            # editor's to look at ("estimates_disagree": the box and the matte do).
+            if ctx.box_disagreement > FAST_MAX_OUTSIDE_BOX_SHARE and "e" not in record.checks:
+                record.checks = [*record.checks, "e"]
             record.refine = "vision"
             record.stabilised_pixels = stabilised[i]
             record.signals = signals[i]
@@ -1486,6 +1505,12 @@ class MatteJob:
         first = int(state["first"])
         for offset, saved in enumerate(state["records"]):
             ctx.records[first + offset].restore(saved)
+        if self.config.engine == ENGINE_VISION and any(
+            "e" in ctx.records[first + offset].checks for offset in range(len(state["records"]))
+        ):
+            # A resumed Fast job: the seeded window already found that the box and the matte
+            # disagree ("e" is set by nothing else on this engine); later windows must say so too.
+            ctx.box_disagreement = 1.0
         ctx.carried.clear()
         carry = directory / "carry.npz"
         if carry.is_file():
@@ -1590,6 +1615,7 @@ class MatteJob:
             "memory": self.memory_probe() if self.memory_probe is not None else None,
             "reusedFrames": sum(1 for record in records if record.reused),
             "promptFrames": len(ctx.resolved.frames),
+            "boxDisagreement": round(ctx.box_disagreement, 4),
         }
 
     def _execution_provider(self) -> ExecutionProvider:
@@ -1630,6 +1656,23 @@ class _Downscaled:
         self.grays = [row[0] for row in rows]
         self.alphas = [row[1] for row in rows]
         self.bands = [row[2] for row in rows]
+
+
+def _outside_box_share(alpha: U8, seed: Seed) -> float:
+    """The share of a matte's solid area outside the editor's box (0 for a click: no extent)."""
+    if seed.x1 - seed.x0 <= 0 or seed.y1 - seed.y0 <= 0:
+        return 0.0
+    solid = alpha >= 128
+    total = int(solid.sum())
+    if total == 0:
+        return 0.0
+    height, width = solid.shape
+    pad_x, pad_y = FAST_BOX_PAD_SHARE * width, FAST_BOX_PAD_SHARE * height
+    inside = solid[
+        max(0, int(seed.y0 * height - pad_y)) : int(seed.y1 * height + pad_y) + 1,
+        max(0, int(seed.x0 * width - pad_x)) : int(seed.x1 * width + pad_x) + 1,
+    ]
+    return 1.0 - int(inside.sum()) / total
 
 
 def _soft_band(alpha: U8, extra: Bool | None) -> Bool:

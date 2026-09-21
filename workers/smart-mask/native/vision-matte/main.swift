@@ -152,6 +152,14 @@ func select(_ observation: VNInstanceMaskObservation, box: [Float], seedLargest:
     let seeded = !seedLargest && (point ? inside[label] > 0 : share >= FOLLOW_OVERLAP)
     if follow ? share >= FOLLOW_OVERLAP : seeded { chosen.insert(label) }
   }
+  if !seedLargest && !follow && chosen.isEmpty {
+    // Seeded by a box, and no instance is mostly inside it: Vision fused the subject with its
+    // neighbours, so the instance is mostly OUTSIDE the box. An empty matte is the worst answer
+    // (the 06 fixtures: 5 of 10 clips); take the instance with the most pixels in the box.
+    if let inBox = observation.allInstances.max(by: { inside[$0] < inside[$1] }), inside[inBox] > 0 {
+      chosen.insert(inBox)
+    }
+  }
   if seedLargest && chosen.isEmpty {
     // Mode 0 with nothing to follow (first frame, or the subject was lost): the largest instance.
     if let largest = observation.allInstances.max(by: { area[$0] < area[$1] }), area[largest] > 0,

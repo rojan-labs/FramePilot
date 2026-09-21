@@ -166,6 +166,44 @@ def test_a_fast_job_is_host_verifiable_and_reports_whole_job_progress(
 
 
 @needs_ffmpeg
+def test_frames_where_vision_finds_nothing_are_flagged_subject_lost_not_a_crash(
+    tmp_path: Path, scripted: type[RedEstimator]
+) -> None:
+    # The subject leaves for frames 10-17: the estimator finds nothing there.
+    clip = tmp_path / "clip.mkv"
+    make_clip(clip, square_frames(COUNT, gap=range(10, 18)))
+    staging = staging_dir(tmp_path)
+    request = request_for(
+        clip, staging, COUNT, [{"kind": "box", "pts": 0, "box": BOX}], quality="fast"
+    )
+    outcome = run_job(request, config=FAST)
+    host_verify(staging, outcome, clip, 0, COUNT)
+    assert any(review.reason == "subject_lost" for review in outcome.needs_review)
+    report = json.loads((staging / "report.json").read_text())
+    assert all("h" in report["frames"][index]["checks"] for index in range(10, 18))
+
+
+@needs_ffmpeg
+def test_a_matte_that_disagrees_with_the_editors_box_sends_every_frame_to_review(
+    tmp_path: Path, scripted: type[RedEstimator]
+) -> None:
+    # Two red squares; the editor boxed the left one, the estimator returns both (a fused answer).
+    frames = square_frames(COUNT)
+    frames[:, 30:54, 110:150] = (220, 30, 30)
+    clip = tmp_path / "clip.mkv"
+    make_clip(clip, frames)
+    staging = staging_dir(tmp_path)
+    request = request_for(
+        clip, staging, COUNT, [{"kind": "box", "pts": 0, "box": BOX}], quality="fast"
+    )
+    outcome = run_job(request, config=FAST)
+    assert outcome.summary.flagged_frames == COUNT
+    assert {review.reason for review in outcome.needs_review} == {"estimates_disagree"}
+    job = json.loads((staging / "report.json").read_text())["job"]
+    assert job["boxDisagreement"] > 0.3
+
+
+@needs_ffmpeg
 def test_a_host_that_did_not_ask_gets_no_overall_fields(
     tmp_path: Path, scripted: type[RedEstimator]
 ) -> None:
