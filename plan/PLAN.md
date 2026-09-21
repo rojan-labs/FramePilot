@@ -29,8 +29,12 @@ restart loses up to ~100 min; the Jobs bar drew one phase's counter as the job's
   Evidence: real-pipeline run on the real clip; the installed 1.1.0 pack driven through the host's
   own `runCapabilityPackWorker` and its artifact accepted by `verifyMatteStaging`; **CI green on
   460d2c87 (run 35631571413, all jobs)**, which also cleared two Inspector e2e expectations that
-  were already red on main. **Not yet done: a run started from the Inspector inside the desktop
-  app** (local Electron e2e is off-limits on this 16 GB machine).
+  were already red on main. The desktop's REAL matte path was also run on a copy of the maintainer's project
+  (`CapabilityPackDesktopService` + scheduler + real pack store, staging, worker, verify, commit):
+  paused at frame 263 → `matteJobSuspended` → `paused` → Resume → `matteStagingAdopted
+  {keptWindows: true}` → committed; 600 frames in 312 s including the pause. **Still not done: the
+  click itself** — a run started from the Inspector in the running Electron app (local Electron
+  e2e is off-limits on this 16 GB machine; the renderer side is covered by its unit tests).
 - [x] **SP5** Fast against the 06 per-frame gates: passes the one-clear-subject categories (0.994 /
   0.987 IoU), fails crowded, dark and re-entry scenes. Shipped response: the Inspector says what
   Fast is for, and a matte that does not fit the editor's box sends the whole clip to review
