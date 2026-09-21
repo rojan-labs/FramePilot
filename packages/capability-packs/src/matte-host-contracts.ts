@@ -80,12 +80,21 @@ export const MatteRunIntentSchema = z
      * default for this machine, which is `fast` wherever it can run.
      */
     quality: z.enum(['fast', 'best']).optional(),
+    /**
+     * ADR 0182: recompute the moments the previous artifact flagged for review with the models
+     * (Best), keeping every other frame. Needs `previousArtifactKey`. The HOST reads the ranges
+     * from the previous artifact's own record; the renderer never sends ranges.
+     */
+    refineFlagged: z.boolean().optional(),
     /** The renderer's timeline revision; a moved project refuses or discards the job. */
     timelineRevision: z.number().int().nonnegative(),
   })
   .strict()
   .refine((intent) => intent.sourceEnd > intent.sourceStart, {
     message: 'matte coverage must be a positive range',
+  })
+  .refine((intent) => intent.refineFlagged !== true || intent.previousArtifactKey !== undefined, {
+    message: 'refining flagged moments needs the artifact that flagged them',
   });
 
 export const MatteSaveCorrectionSchema = z

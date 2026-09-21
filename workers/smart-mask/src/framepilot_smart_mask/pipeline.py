@@ -324,6 +324,7 @@ def fingerprint(
         ],
         "prompts": [asdict(prompt) for prompt in request.prompts],
         "previous": request.previous_artifact,
+        "recompute": [list(item) for item in request.recompute],
         "preview": request.preview_height,
         "files": sorted(request.output.allowed_files),
         "config": {**asdict(config), "thresholds": config.thresholds.as_json()},
@@ -444,6 +445,8 @@ class JobContext:
     box_disagreement: float = 0.0
     #: Prompt frames of a partial re-run the previous matte does not already satisfy (BR3.17).
     affecting: set[int] = field(default_factory=set)
+    #: Frames the host asked to have recomputed outright (``MatteRequest.recompute``).
+    recompute: set[int] = field(default_factory=set)
 
     @property
     def count(self) -> int:
@@ -696,15 +699,43 @@ class MatteJob:
         previous = ctx.previous
         if previous is None:
             return [(0, ctx.count)]
+        # In a refine (`recompute`) the clicks and boxes are the ORIGINAL job's: they name the
+        # subject for the models and are not news. Counting them recomputed the 60 frames around
+        # the first-frame box on top of the two frames that were asked for (found on real
+        # footage). Locks and brush strokes are always the editor's corrections and still count.
+        refining = bool(self.request.recompute)
         affecting = [
             index
             for index, frame in ctx.resolved.frames.items()
             if index not in previous
-            or not _prompt_satisfied(frame, previous[index], ctx.width, ctx.height)
+            or (
+                not (
+                    refining
+                    and frame.lock is None
+                    and frame.keep is None
+                    and frame.remove is None
+                    and frame.edge is None
+                )
+                and not _prompt_satisfied(frame, previous[index], ctx.width, ctx.height)
+            )
         ]
         ctx.affecting = set(affecting)
         missing = [(index, index + 1) for index in range(ctx.count) if index not in previous]
-        return _merge(affected_ranges(affecting, ctx.count, self.config.affect_radius) + missing)
+        # ADR 0182: ranges the host asked to have recomputed (the moments a Fast matte flagged,
+        # refined by the models). No radius: exactly those frames, anchored at both edges by
+        # the previous matte like any partial re-run.
+        asked: list[tuple[int, int]] = []
+        for start_pts, end_pts in self.request.recompute:
+            inside = [i for i, value in enumerate(ctx.pts) if start_pts <= value <= end_pts]
+            if inside:
+                # One frame each side is computed too but keeps its previous alpha: it is the
+                # anchor. A partial re-run seeds its edges from the previous matte, and the
+                # edge frames OF the range are the ones being replaced because they are wrong.
+                asked.append((max(inside[0] - 1, 0), min(inside[-1] + 2, ctx.count)))
+                ctx.recompute.update(inside)
+        return _merge(
+            affected_ranges(affecting, ctx.count, self.config.affect_radius) + missing + asked
+        )
 
     # reused frames -----------------------------------------------------------------------------
 
@@ -1337,11 +1368,12 @@ class MatteJob:
             if index in ctx.affecting and window.start <= index < window.end
         }
         before = [previous.get(window.start + i) for i in range(count)]
-        contained, taken = contain(
-            before, [np.array(alphas[i]) for i in range(count)], prompts, flows
-        )
+        fresh = [np.array(alphas[i]) for i in range(count)]
+        contained, taken = contain(before, fresh, prompts, flows)
         for i in range(count):
-            alphas[i] = contained[i]
+            # Containment exists so a FIX changes only what it reaches. A frame the host asked to
+            # have recomputed is the opposite request: the whole frame is the re-run's.
+            alphas[i] = fresh[i] if window.start + i in ctx.recompute else contained[i]
         _log.info(
             "partial re-run: %d of %d recomputed frames take re-run pixels", sum(taken), count
         )

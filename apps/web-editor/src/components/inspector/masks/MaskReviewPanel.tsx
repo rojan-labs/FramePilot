@@ -21,7 +21,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { assetDisplaySize } from '@framepilot/editor-core';
 import type { Clip, MaskLayer } from '@framepilot/timeline-schema';
 import { Button } from '@framepilot/ui';
-import { createLogger } from '@framepilot/shared-types';
+import { COMPUTE_SECONDS_PER_FOOTAGE_SECOND_1080P, createLogger } from '@framepilot/shared-types';
 import type { UseEditor } from '../../../editor/useEditor.js';
 import { getBridge } from '../../../editor/bridge.js';
 import {
@@ -30,6 +30,7 @@ import {
   runMaskCommand,
 } from '../../../editor/mask-editing.js';
 import { encodeGrayPng, paintCorrection } from './matteCorrectionPng.js';
+import { formatDuration } from './matteEstimate.js';
 import { reviewReasonFor } from './matteReviewReasons.js';
 import { matteJobStore, type MatteJobStore } from './matteJobStore.js';
 import { maskToolStore, useMaskTools, type MaskToolStore } from './useMaskTools.js';
@@ -214,6 +215,44 @@ export function MaskReviewPanel({
     }
   };
 
+  /**
+   * ADR 0182: Fast everywhere, the models only where the checks flagged. The host reads the
+   * flagged ranges from the artifact's own record; this only asks for it. It is the slow engine
+   * (tens of seconds per frame), so the button says how long, and asks first.
+   */
+  const flaggedSeconds = flagged.reduce((total, range) => total + Math.max(range.end - range.start, 1 / 30), 0);
+  const refineSeconds = flaggedSeconds * COMPUTE_SECONDS_PER_FOOTAGE_SECOND_1080P;
+  const refine = async (): Promise<void> => {
+    if (mask.kind !== 'matte' || artifactKey === null) return;
+    if (
+      !window.confirm(
+        `Best quality re-does the flagged moments with the slower models: about ${formatDuration(refineSeconds)} on this computer. Everything else keeps its current result. Start it?`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    // Said before the job is awaited: `start` answers when the job ENDS, and this one is long.
+    setMessage('Refining the flagged moments…');
+    try {
+      const refusal = await jobs.start({
+        assetId: clip.assetId,
+        clipId: clip.id,
+        maskId: mask.id,
+        sourceStart: mask.artifact.coverage.sourceStart,
+        sourceEnd: mask.artifact.coverage.sourceEnd,
+        prompts: mask.prompts,
+        previousArtifactKey: artifactKey,
+        refineFlagged: true,
+        timelineRevision: editor.state.timeline.revision ?? 0,
+      });
+      setMessage(refusal);
+      log.action('matte refine ended', { clipId: clip.id, flagged: flagged.length });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLUListElement>): void => {
     const key = event.key.toLowerCase();
     if (key !== 'j' && key !== 'k') return;
@@ -285,6 +324,11 @@ export function MaskReviewPanel({
         <p className="inspector-empty">
           J and K step through the moments. Press Looks right when a moment is fine.
         </p>
+      )}
+      {!verified && subject === 'matte' && getBridge() !== null && (
+        <Button variant="secondary" type="button" disabled={busy} onClick={() => void refine()}>
+          Refine flagged moments with Best quality
+        </Button>
       )}
       {subject === 'matte' && (
         <div className="mask-review-brushes" role="group" aria-label="Fix this moment">

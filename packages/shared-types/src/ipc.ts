@@ -1404,6 +1404,8 @@ export interface MatteRunIntentWire {
   readonly previewHeight?: number;
   /** `fast` (minutes, macOS) or `best` (hours). Absent = the host's default for this machine. */
   readonly quality?: 'fast' | 'best';
+  /** Recompute the previous artifact's flagged moments with Best; needs `previousArtifactKey`. */
+  readonly refineFlagged?: boolean;
   readonly timelineRevision: number;
 }
 

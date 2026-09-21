@@ -27,6 +27,7 @@ SMART_MASK_CAPABILITIES: Final = ("subject.matte", "subject.segment_frame")
 #: Mirrors CAPABILITY_PACK_MATTE_* in worker-protocol.ts.
 MAX_PROMPTS: Final = 512
 MATTE_QUALITIES: Final = ("fast", "best")
+MAX_RECOMPUTE_RANGES: Final = 4096
 MAX_POINTS: Final = 64
 MAX_REVIEW_RANGES: Final = 4096
 MAX_SIDE: Final = 8192
@@ -209,6 +210,10 @@ class MatteRequest:
     #: ``fast`` (Apple Vision) or ``best`` (the models). ``None`` = a host from before plan 13:
     #: it gets the models and no ``overall`` progress fields, which its strict schema refuses.
     quality: str | None = None
+    #: Frames to recompute although no new prompt reaches them, as inclusive pts ranges (ADR
+    #: 0182: "refine the flagged moments with Best"). Needs ``previous_artifact``: every other
+    #: frame keeps its previous alpha bit for bit.
+    recompute: tuple[tuple[int, int], ...] = ()
     capability: str = "subject.matte"
 
 
@@ -516,6 +521,7 @@ def _matte_parameters(value: Any) -> dict[str, Any]:
         "previewHeight",
         "contentFingerprint",
         "quality",
+        "recompute",
     }
     raw = _object(value, keys, "parameters")
     _require(raw, ("output", "prompts", "previewHeight"), "parameters")
@@ -561,8 +567,27 @@ def _matte_parameters(value: Any) -> dict[str, Any]:
         quality = raw["quality"]
         if quality not in MATTE_QUALITIES:
             raise _invalid("parameters.quality must be fast or best.")
+    recompute: list[tuple[int, int]] = []
+    if "recompute" in raw:
+        ranges = raw["recompute"]
+        if previous is None:
+            raise _invalid("parameters.recompute needs previousArtifact.")
+        if not isinstance(ranges, list) or not 1 <= len(ranges) <= MAX_RECOMPUTE_RANGES:
+            raise _invalid(f"parameters.recompute must hold 1 to {MAX_RECOMPUTE_RANGES} ranges.")
+        for index, item in enumerate(ranges):
+            where = f"parameters.recompute[{index}]"
+            entry = _object(item, {"startPts", "endPts"}, where)
+            _require(entry, ("startPts", "endPts"), where)
+            start, end = (
+                _pts(entry["startPts"], f"{where}.startPts"),
+                _pts(entry["endPts"], f"{where}.endPts"),
+            )
+            if end < start:
+                raise _invalid(f"{where} must not end before it starts.")
+            recompute.append((start, end))
     return {
         "quality": quality,
+        "recompute": tuple(recompute),
         "output": _output_handle(raw["output"]),
         "inputs": inputs,
         "prompts": prompts,

@@ -93,6 +93,12 @@ export const MATTE_SOURCE_SAMPLES = 16;
 const ENTRYPOINT = { darwin: 'bin/framepilot-smart-mask', win32: 'bin/framepilot-smart-mask.exe' } as const;
 /** P17 per-job time limit: a base plus a generous per-frame budget (BR0: ~15 s/frame on CPU). */
 /** Steps measured before a phase's rate is trusted enough to show a time. */
+/** Above this share of flagged frames a refine has nothing good to anchor on: run Best outright. */
+const REFINE_WHOLE_CLIP_SHARE = 0.5;
+interface MatteRecomputeRange {
+  readonly startPts: number;
+  readonly endPts: number;
+}
 const ETA_MIN_SAMPLES = 3;
 /** Whole-job frames measured before the job's rate is trusted enough to show a time. */
 const JOB_ETA_MIN_FRAMES = 30;
@@ -330,6 +336,36 @@ export class CapabilityPackMatteService {
   }
 
   /**
+   * What "refine the flagged moments" means for one artifact (ADR 0182): the pts ranges its own
+   * record flagged, within this job's frames. The ranges come from the host's verified record,
+   * never from the renderer.
+   */
+  private async refinePlan(
+    projectDir: string,
+    previousKey: string,
+    media: ResolvedMedia,
+  ): Promise<{ kind: 'nothing' } | { kind: 'whole_clip' } | { kind: 'ranges'; ranges: readonly MatteRecomputeRange[] }> {
+    const record = await readMatteRecord(projectDir, previousKey).catch(() => undefined);
+    if (record === undefined || record.needsReview.length === 0) return { kind: 'nothing' };
+    const half = frameDuration(media.timing) / 2;
+    const job = media.timing.pts.slice(media.firstFrame, media.firstFrame + media.frameCount);
+    const ranges: MatteRecomputeRange[] = [];
+    let flagged = 0;
+    for (const review of record.needsReview) {
+      const inside = job.filter((pts) => {
+        const seconds = ptsToSeconds(media.timing, pts);
+        return seconds >= review.start - half && seconds <= review.end + half;
+      });
+      if (inside.length === 0) continue;
+      flagged += inside.length;
+      ranges.push({ startPts: inside[0]!, endPts: inside.at(-1)! });
+    }
+    if (ranges.length === 0) return { kind: 'nothing' };
+    if (flagged > REFINE_WHOLE_CLIP_SHARE * media.frameCount) return { kind: 'whole_clip' };
+    return { kind: 'ranges', ranges };
+  }
+
+  /**
    * Stop a running job so it can be continued (pause, export): the worker ends, but its staging
    * directory and finished windows are KEPT, and the next `run` of the same intent with
    * `resume: true` picks them up. `cancel` throws that work away.
@@ -416,7 +452,9 @@ export class CapabilityPackMatteService {
     } catch (error) {
       return failed('invalid_intent', errorMessage(error), false);
     }
-    if (prompts.length === 0 && intent.previousArtifactKey === undefined) {
+    // A refine is a models run over ranges of the clip: it needs the subject named like any run,
+    // and the matte it refines may have been made in Auto mode with no stored prompt.
+    if (prompts.length === 0 && (intent.previousArtifactKey === undefined || intent.refineFlagged === true)) {
       const tAuto = Date.now();
       const auto = await this.options.autoPrompt?.({
         requestId: intent.requestId,
@@ -438,7 +476,24 @@ export class CapabilityPackMatteService {
       prompts = [...auto];
     }
 
-    const quality = resolveMatteQuality(intent.quality, this.options.platform.os, pack.record.identity.version);
+    let quality = resolveMatteQuality(intent.quality, this.options.platform.os, pack.record.identity.version);
+    let recompute: readonly MatteRecomputeRange[] | undefined;
+    if (intent.refineFlagged === true) {
+      if (quality === undefined) {
+        return failed('invalid_intent', 'Update the Smart Mask pack to refine flagged moments.', false);
+      }
+      const plan = await this.refinePlan(context.projectDir, intent.previousArtifactKey!, media);
+      if (plan.kind === 'nothing') return failed('invalid_intent', 'Nothing in this background removal is flagged for review.', false);
+      quality = 'best';
+      if (plan.kind === 'whole_clip') {
+        // Most of the clip is flagged (a Fast matte of the wrong subject): there is no good
+        // frame to anchor on, so this is simply a Best run. The previous matte is not an input.
+        intent = { ...intent, previousArtifactKey: undefined, refineFlagged: undefined };
+      } else {
+        recompute = plan.ranges;
+      }
+      log.action('matteRefine', { plan: plan.kind, ranges: plan.kind === 'ranges' ? plan.ranges.length : 0 });
+    }
     const key = matteCacheKey({
       fingerprint: media.fingerprint,
       firstPts: media.timing.pts[media.firstFrame]!,
@@ -450,6 +505,7 @@ export class CapabilityPackMatteService {
       foreground: intent.foreground,
       previewHeight: intent.previewHeight,
       ...(quality === 'fast' ? { quality } : {}),
+      ...(recompute === undefined ? {} : { refined: { previous: intent.previousArtifactKey!, ranges: recompute } }),
     });
     const tCache = Date.now();
     const hit = await this.cacheHit(context.projectDir, key, signal);
@@ -496,7 +552,7 @@ export class CapabilityPackMatteService {
       ];
       const size = media.displaySize ?? { width: 8192, height: 8192 };
       const maxBytes = matteByteCeiling(size.width, size.height, media.frameCount, intent.foreground);
-      const request = this.buildRequest(intent, context, media, prompts, staging, inputs.files, allowedFiles, maxBytes, quality);
+      const request = this.buildRequest(intent, context, media, prompts, staging, inputs.files, allowedFiles, maxBytes, quality, recompute);
       if ('status' in request) return request;
       addPhase(phases, 'stage', Date.now() - tStage);
 
@@ -840,6 +896,7 @@ export class CapabilityPackMatteService {
     allowedFiles: readonly MatteArtifactFileName[],
     maxBytes: number,
     quality: MatteQuality | undefined,
+    recompute: readonly MatteRecomputeRange[] | undefined,
   ): CapabilityPackWorkerRequest | Extract<MatteRunOutcome, { status: 'failed' }> {
     const inputs = staging.inputHandle(inputFiles);
     const request = {
@@ -867,6 +924,7 @@ export class CapabilityPackMatteService {
         // The worker's checkpoints are keyed on the media's content too (F2).
         contentFingerprint: media.fingerprint,
         ...(quality === undefined ? {} : { quality }),
+        ...(recompute === undefined ? {} : { recompute: [...recompute] }),
       },
     };
     return request;
@@ -1035,6 +1093,8 @@ export function matteCacheKey(parts: {
   readonly previewHeight: number;
   /** Only `fast` is written, so every matte made before plan 13 keeps its key. */
   readonly quality?: 'fast';
+  /** A refined matte is a mix of two engines' frames: never the plain Best run's key. */
+  readonly refined?: { readonly previous: string; readonly ranges: readonly MatteRecomputeRange[] };
 }): string {
   return createHash('sha256')
     .update(
@@ -1049,6 +1109,7 @@ export function matteCacheKey(parts: {
         foreground: parts.foreground,
         previewHeight: parts.previewHeight,
         ...(parts.quality === undefined ? {} : { quality: parts.quality }),
+        ...(parts.refined === undefined ? {} : { refined: parts.refined }),
       }),
     )
     .digest('hex');

@@ -391,6 +391,51 @@ describe('CapabilityPackMatteService lifecycle', () => {
     expect(await h.service.run(h.intent(), h.context())).toMatchObject({ status: 'failed', code: 'job_running' });
   });
 
+  it('refines the flagged moments with Best: the ranges come from the artifact\u2019s own record (ADR 0182)', async () => {
+    const newer = packRecord();
+    const h = await harness({ records: [{ ...newer, identity: { ...newer.identity, version: '1.1.0' } }] });
+    const first = await h.service.run(h.intent(), h.context());
+    if (first.status !== 'completed') throw new Error(`expected completion: ${JSON.stringify(first)}`);
+    const firstRequest = h.requests.at(-1)!;
+    if (firstRequest.capability !== 'subject.matte') throw new Error('expected matte');
+    expect(firstRequest.parameters.quality).toBe('fast');
+    expect(firstRequest.parameters.recompute).toBeUndefined();
+
+    const refined = await h.service.run(
+      h.intent({ requestId: 'refine1', previousArtifactKey: first.artifact.key, refineFlagged: true }),
+      h.context(),
+    );
+    expect(refined, JSON.stringify(refined)).toMatchObject({ status: 'completed' });
+    const request = h.requests.at(-1)!;
+    if (request.capability !== 'subject.matte' || refined.status !== 'completed') throw new Error('expected matte');
+    // The fake worker flags its first frame: exactly that frame, by the models, from the previous matte.
+    expect(request.parameters).toMatchObject({
+      quality: 'best',
+      previousArtifact: first.artifact.key,
+      recompute: [{ startPts: TIMING.pts[firstRequest.media.firstFrame], endPts: TIMING.pts[firstRequest.media.firstFrame] }],
+    });
+    expect(request.parameters.inputs?.files).toEqual(expect.arrayContaining(['previous/matte.mkv', 'previous/frames.json']));
+    // A refined matte is its own artifact: not the Fast one, and not a plain Best run's key.
+    expect(refined.artifact.key).not.toBe(first.artifact.key);
+    const best = await h.service.run(h.intent({ requestId: 'best1', quality: 'best' }), h.context());
+    if (best.status !== 'completed') throw new Error('expected completion');
+    expect(best.artifact.key).not.toBe(refined.artifact.key);
+  });
+
+  it('refuses a refine with nothing to refine, and from a pack that cannot do it', async () => {
+    const old = await harness();
+    const first = await old.service.run(old.intent(), old.context());
+    if (first.status !== 'completed') throw new Error('expected completion');
+    expect(
+      await old.service.run(old.intent({ requestId: 'r', previousArtifactKey: first.artifact.key, refineFlagged: true }), old.context()),
+    ).toMatchObject({ status: 'failed', code: 'invalid_intent', detail: expect.stringContaining('Update the Smart Mask pack') });
+    const newer = packRecord();
+    const h = await harness({ records: [{ ...newer, identity: { ...newer.identity, version: '1.1.0' } }] });
+    expect(
+      await h.service.run(h.intent({ requestId: 'r2', previousArtifactKey: 'e'.repeat(64), refineFlagged: true }), h.context()),
+    ).toMatchObject({ status: 'failed', code: 'invalid_intent', detail: expect.stringContaining('Nothing in this background removal is flagged') });
+  });
+
   it('refuses a request built for an older revision before any work', async () => {
     const h = await harness();
     expect(await h.service.run(h.intent({ timelineRevision: 3 }), h.context())).toMatchObject({ status: 'failed', code: 'stale_revision' });

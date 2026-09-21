@@ -234,6 +234,32 @@ describe('MaskReviewPanel', () => {
     expect(store.getState().correctionStrokes).toHaveLength(0);
   });
 
+  it('refines the flagged moments with Best quality: asks first, and sends no ranges of its own (ADR 0182)', async () => {
+    bridge.capabilityPackMatte.mockImplementation((() => new Promise(() => {})) as never);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true);
+    mount(timeline({ flagged: [{ start: 1, end: 1.5 }] }));
+
+    const refine = screen.getByRole('button', { name: 'Refine flagged moments with Best quality' });
+    fireEvent.click(refine);
+    // Half a second of footage at the models' measured 520 compute-seconds per footage second.
+    expect(confirm.mock.calls[0]![0]).toMatch(/about 4 minutes on this computer/i);
+    expect(bridge.capabilityPackMatte).not.toHaveBeenCalled();
+
+    fireEvent.click(refine);
+    await waitFor(() => expect(bridge.capabilityPackMatte).toHaveBeenCalled());
+    const intent = bridge.capabilityPackMatte.mock.calls[0]![0] as Record<string, unknown>;
+    expect(intent).toMatchObject({ refineFlagged: true, previousArtifactKey: matte()!.artifact.key });
+    // The host reads the ranges from the artifact's verified record; the renderer names none.
+    expect(intent).not.toHaveProperty('recompute');
+    expect(await screen.findByText('Refining the flagged moments…')).toBeTruthy();
+    confirm.mockRestore();
+  });
+
+  it('offers no refine once every moment is cleared', () => {
+    mount(timeline({ flagged: [], approved: [{ start: 0, end: 1 }] }));
+    expect(screen.queryByRole('button', { name: 'Refine flagged moments with Best quality' })).toBeNull();
+  });
+
   it('arms the edge brush like Keep and Remove, and saves an edge stroke as a brush fix (BR6.10)', async () => {
     bridge.matteSaveCorrection.mockResolvedValue({
       ok: true,

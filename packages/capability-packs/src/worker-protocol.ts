@@ -137,6 +137,7 @@ const NormalizedPointSchema = z
 // ---------------------------------------------------------------------------
 
 /** Prompts one `subject.matte` request may carry (clicks, boxes, brush fixes, locked frames). */
+export const CAPABILITY_PACK_MATTE_MAX_RECOMPUTE_RANGES = 4096;
 export const CAPABILITY_PACK_MATTE_MAX_PROMPTS = 512;
 /** Points one `points` prompt may carry. */
 export const CAPABILITY_PACK_MATTE_MAX_POINTS = 64;
@@ -280,9 +281,27 @@ const MatteParametersSchema = z
      * a request that carries it also asks for the progress line's `overall*` fields.
      */
     quality: z.enum(['fast', 'best']).optional(),
+    /**
+     * Inclusive pts ranges to recompute although no new prompt reaches them (ADR 0182: refine
+     * the moments a Fast matte flagged with the models). Needs `previousArtifact`; every other
+     * frame keeps its previous alpha bit for bit. Only for Smart Mask >= 1.1.0.
+     */
+    recompute: z
+      .array(z.object({ startPts: PtsSchema, endPts: PtsSchema }).strict())
+      .min(1)
+      .max(CAPABILITY_PACK_MATTE_MAX_RECOMPUTE_RANGES)
+      .optional(),
   })
   .strict()
   .superRefine((parameters, context) => {
+    if (parameters.recompute !== undefined && parameters.previousArtifact === undefined) {
+      context.addIssue({ code: 'custom', path: ['recompute'], message: 'recompute needs previousArtifact' });
+    }
+    parameters.recompute?.forEach((range, index) => {
+      if (range.endPts < range.startPts) {
+        context.addIssue({ code: 'custom', path: ['recompute', index], message: 'a recompute range must not end before it starts' });
+      }
+    });
     const declared = new Set(parameters.inputs?.files ?? []);
     const referenced = new Set<string>();
     parameters.prompts.forEach((prompt, index) => {

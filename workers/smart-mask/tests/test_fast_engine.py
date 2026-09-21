@@ -266,6 +266,70 @@ def test_fast_and_best_never_share_a_checkpoint(tmp_path: Path) -> None:
     )
 
 
+@needs_ffmpeg
+def test_refining_flagged_ranges_recomputes_exactly_those_frames_with_the_models(
+    tmp_path: Path,
+) -> None:
+    """ADR 0182: Fast everywhere, the models only where the checks flagged."""
+    import subprocess
+
+    count = 48
+    clip = tmp_path / "clip.mkv"
+    make_clip(clip, square_frames(count, step=1))
+    expected = truth(count, step=1)
+    # A "Fast" matte that lost the subject on frames 20-29 and on frame 40.
+    previous_alpha = np.where(expected, 255, 0).astype(np.uint8)
+    previous_alpha[20:30] = 0
+    previous_alpha[40] = 0
+    # ... and that does not fit the job's own box on its first frames. The box only names the
+    # subject; in a refine it must not drag the 60 frames around it into the recompute.
+    previous_alpha[0:3] = 0
+    staging = staging_dir(tmp_path)
+    previous = staging / "inputs" / "previous"
+    previous.mkdir()
+    subprocess.run(
+        [shutil.which("ffmpeg"), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", "160x90", "-r", "24",
+         "-i", "-", "-c:v", "ffv1", str(previous / "matte.mkv")],
+        input=previous_alpha.tobytes(), check=True,
+    )  # fmt: skip
+    probe = staging_dir(tmp_path, "probe")
+    run_job(request_for(clip, probe, count, [{"kind": "box", "pts": 0, "box": BOX}],
+                        files=["matte.mkv", "frames.json"]))  # fmt: skip
+    shutil.copyfile(probe / "frames.json", previous / "frames.json")
+    pts = json.loads((probe / "frames.json").read_text())["pts"]
+
+    request = request_for(
+        clip, staging, count, [{"kind": "box", "pts": pts[0], "box": BOX}],
+        inputs={"handleId": "in", "absolutePath": str(staging / "inputs"),
+                "files": ["previous/matte.mkv", "previous/frames.json"]},
+        previous="c" * 64, files=["matte.mkv", "frames.json", "report.json"], quality="best",
+        recompute=[{"startPts": pts[20], "endPts": pts[29]}],
+    )  # fmt: skip
+    outcome = run_job(request)
+    matte = host_verify(staging, outcome, clip, 0, count)
+    for index in range(20, 30):
+        assert np.array_equal(matte[index] >= 128, expected[index]), index
+    # Everything else is the previous matte bit for bit, INCLUDING the wrong frame nobody asked
+    # about: the refine touches what it was pointed at and nothing else.
+    for index in [*range(0, 20), *range(30, count)]:
+        assert np.array_equal(matte[index], previous_alpha[index]), index
+    assert not matte[40].any()
+
+
+def test_recompute_needs_a_previous_artifact_and_ordered_ranges() -> None:
+    def parameters(extra: dict[str, Any]) -> str:
+        document = json.loads(_request("best"))
+        document["parameters"].update(extra)
+        return json.dumps(document)
+
+    with pytest.raises(ProtocolError):
+        parse_input_line(parameters({"recompute": [{"startPts": 0, "endPts": 3}]}))
+    with pytest.raises(ProtocolError):
+        parse_input_line(
+            parameters({"previousArtifact": "c" * 64, "recompute": [{"startPts": 3, "endPts": 0}]})
+        )
+
+
 # --- stages ------------------------------------------------------------------------------------
 
 
