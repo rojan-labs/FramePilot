@@ -10,15 +10,15 @@ these models, Apple Vision does. Open: SP4 (Windows), SP5 (precision gates for F
 
 ## A. What actually happened (measured on the live job)
 
-| Fact | Evidence |
-| --- | --- |
-| Clip: 1920×1080, 30 fps, 51.8 s = 1,553 frames, no prompts | `capability-pack-jobs.json`, `scratch/window-0.u8` = 300 × 6.2 MB |
-| The worker runs on the **CPU only** | ORT CPU EP; the CoreML EP was disabled in BR0 (SAM-L fp32 does not build as a set, 16 GB footprint) |
-| Stage 1 of ~10 (SAM image encoding) ran at **≈ 6–7 s per frame** | ~96 embeddings after 11.8 min of wall time at 4 busy cores |
-| The plan already predicted this | BR0.7: **≈ 520 compute-seconds per footage-second** at 1080p30 with 1024² matting, ≈ 1,210 at 2048² ("≈ 20 h per footage minute"). For this clip: **7.5–17 h**, before up to three self-correction rounds. The host's job timeout ceiling is 24 h |
-| A restart throws away up to ~100 minutes | Checkpoints exist only per 300-frame window, and stages run breadth-first across the window (encode all 300 → track all → matte all → …). The journal showed `finishedWindows: []` after the restart: everything before it was lost |
-| The host treats the clip as **one unit** | `matte-ipc.ts` calls `checkpoint()` once, before the worker starts, and `finishWindow(0)` once, at the end. So **Pause does nothing** for hours, the export pause never engages, and nothing is committed until the whole clip is done |
-| The bar and the ETA were wrong | The bar drew one phase's counter (`prepare 1/1` = 100%); `withEta` divided the whole job's elapsed time by one phase's counter; `prepare` had no label |
+| Fact                                                             | Evidence                                                                                                                                                                                                                                          |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Clip: 1920×1080, 30 fps, 51.8 s = 1,553 frames, no prompts       | `capability-pack-jobs.json`, `scratch/window-0.u8` = 300 × 6.2 MB                                                                                                                                                                                 |
+| The worker runs on the **CPU only**                              | ORT CPU EP; the CoreML EP was disabled in BR0 (SAM-L fp32 does not build as a set, 16 GB footprint)                                                                                                                                               |
+| Stage 1 of ~10 (SAM image encoding) ran at **≈ 6–7 s per frame** | ~96 embeddings after 11.8 min of wall time at 4 busy cores                                                                                                                                                                                        |
+| The plan already predicted this                                  | BR0.7: **≈ 520 compute-seconds per footage-second** at 1080p30 with 1024² matting, ≈ 1,210 at 2048² ("≈ 20 h per footage minute"). For this clip: **7.5–17 h**, before up to three self-correction rounds. The host's job timeout ceiling is 24 h |
+| A restart throws away up to ~100 minutes                         | Checkpoints exist only per 300-frame window, and stages run breadth-first across the window (encode all 300 → track all → matte all → …). The journal showed `finishedWindows: []` after the restart: everything before it was lost               |
+| The host treats the clip as **one unit**                         | `matte-ipc.ts` calls `checkpoint()` once, before the worker starts, and `finishWindow(0)` once, at the end. So **Pause does nothing** for hours, the export pause never engages, and nothing is committed until the whole clip is done            |
+| The bar and the ETA were wrong                                   | The bar drew one phase's counter (`prepare 1/1` = 100%); `withEta` divided the whole job's elapsed time by one phase's counter; `prepare` had no label                                                                                            |
 
 So this is not a hang. It is an accuracy-first research pipeline (SAM 2.1 **Large** fp32 → BiRefNet-HR
 → consensus → K=3 self-correction → stabilise → verify), on the CPU, shipped as the only path.
@@ -41,15 +41,15 @@ faking it from one phase's counter is the bug being fixed. It arrives with SP2.
 
 ## C. Research: what fast and precise looks like in 2026
 
-| Option | Speed evidence | Quality | Licence | Verdict |
-| --- | --- | --- | --- | --- |
-| Current (SAM 2.1-L fp32 + BiRefNet-HR, ORT CPU) | 17–40 s/frame measured here | Best of the set (06 gates) | Apache / MIT (MO-11 open on HR-matting data) | Keep as opt-in **Best**, never the default |
-| SAM 2.1 via **Core ML directly** (coremltools fp16, static 1024²) | Encoder ≈ 310 ms on CPU+GPU vs 5.2 s here; does not fit the ANE | Same model family | Apache-2.0 | Strong candidate for the tracker. BR0 tested only the **ORT CoreML EP on fp32 Large**, which is the slow way to use Core ML |
-| **EdgeTAM** (Meta, CVPR 2025) | 16 fps on an iPhone 15 Pro Max via Core ML, 22× SAM 2 | On par with SAM 2 on video benchmarks | Apache-2.0 | Best tracker candidate for the **Fast** tier |
-| BiRefNet (lite / dynamic / matting), fp16 on GPU, **subject crop only** | 17 fps at 1024² fp16 on an RTX 4090; M-series to be measured | Hair-level alpha | MIT | Keep as the matting model; stop running it on full frames at fp32 on the CPU |
-| MatAnyone 2 (CVPR 2026) | 30 fps on the ANE (A18) | State-of-the-art human video matting | **NTU S-Lab, non-commercial** | Not usable |
-| Robust Video Matting | 4K 76 fps on a 1080 Ti | Good, people only | **GPL-3.0** | Not usable |
-| Apple Vision (`VNGeneratePersonSegmentationRequest` `.accurate`, `VNGenerateForegroundInstanceMaskRequest`) | 60 fps on M1 | Good soft matte; people / salient subject only, no prompts | OS API | Zero-model **instant draft** on macOS, via a small signed Swift helper |
+| Option                                                                                                      | Speed evidence                                                  | Quality                                                    | Licence                                      | Verdict                                                                                                                     |
+| ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Current (SAM 2.1-L fp32 + BiRefNet-HR, ORT CPU)                                                             | 17–40 s/frame measured here                                     | Best of the set (06 gates)                                 | Apache / MIT (MO-11 open on HR-matting data) | Keep as opt-in **Best**, never the default                                                                                  |
+| SAM 2.1 via **Core ML directly** (coremltools fp16, static 1024²)                                           | Encoder ≈ 310 ms on CPU+GPU vs 5.2 s here; does not fit the ANE | Same model family                                          | Apache-2.0                                   | Strong candidate for the tracker. BR0 tested only the **ORT CoreML EP on fp32 Large**, which is the slow way to use Core ML |
+| **EdgeTAM** (Meta, CVPR 2025)                                                                               | 16 fps on an iPhone 15 Pro Max via Core ML, 22× SAM 2           | On par with SAM 2 on video benchmarks                      | Apache-2.0                                   | Best tracker candidate for the **Fast** tier                                                                                |
+| BiRefNet (lite / dynamic / matting), fp16 on GPU, **subject crop only**                                     | 17 fps at 1024² fp16 on an RTX 4090; M-series to be measured    | Hair-level alpha                                           | MIT                                          | Keep as the matting model; stop running it on full frames at fp32 on the CPU                                                |
+| MatAnyone 2 (CVPR 2026)                                                                                     | 30 fps on the ANE (A18)                                         | State-of-the-art human video matting                       | **NTU S-Lab, non-commercial**                | Not usable                                                                                                                  |
+| Robust Video Matting                                                                                        | 4K 76 fps on a 1080 Ti                                          | Good, people only                                          | **GPL-3.0**                                  | Not usable                                                                                                                  |
+| Apple Vision (`VNGeneratePersonSegmentationRequest` `.accurate`, `VNGenerateForegroundInstanceMaskRequest`) | 60 fps on M1                                                    | Good soft matte; people / salient subject only, no prompts | OS API                                       | Zero-model **instant draft** on macOS, via a small signed Swift helper                                                      |
 
 ## D. Recommendation: three structural changes
 
@@ -100,12 +100,12 @@ Deferred on purpose: multi-subject instance mattes, cloud offload, 4K-native mat
 
 ## F. What the spike found (2026-09-21, M1 Pro, the maintainer's 1080p30 clip)
 
-| Option | Per frame | Verdict |
-| --- | --- | --- |
-| Shipped pipeline, CPU | 17–40 s | Best only |
-| SAM 2.1-L image encoder, PyTorch MPS fp16 / fp32 | 0.92 s / 1.03 s | A GPU port is ~6× faster and still an hour per clip |
-| BiRefNet-HR, MPS fp16, 768² / 1024² | 0.83 s / 2.37 s | same |
-| Vision person matte (`.accurate`) | 0.087 s | People only; drops the held microphone |
+| Option                                               | Per frame        | Verdict                                                         |
+| ---------------------------------------------------- | ---------------- | --------------------------------------------------------------- |
+| Shipped pipeline, CPU                                | 17–40 s          | Best only                                                       |
+| SAM 2.1-L image encoder, PyTorch MPS fp16 / fp32     | 0.92 s / 1.03 s  | A GPU port is ~6× faster and still an hour per clip             |
+| BiRefNet-HR, MPS fp16, 768² / 1024²                  | 0.83 s / 2.37 s  | same                                                            |
+| Vision person matte (`.accurate`)                    | 0.087 s          | People only; drops the held microphone                          |
 | **Vision foreground instance + scaled matte, piped** | **0.035–0.06 s** | Chosen: keeps what the subject holds, soft matte at source size |
 
 End to end through the real pipeline (decode → survey → Vision → gates → stabilise → checks →

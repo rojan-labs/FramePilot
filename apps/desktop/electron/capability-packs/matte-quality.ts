@@ -17,7 +17,11 @@ export type MatteQuality = 'fast' | 'best';
  * Which engine a job uses. The Fast engine is Apple's Vision framework, so it exists only on
  * macOS; asked for anywhere else, or of an older pack, the job runs Best, never fails.
  */
-export function resolveMatteQuality(asked: MatteQuality | undefined, os: string, packVersion: string): MatteQuality | undefined {
+export function resolveMatteQuality(
+  asked: MatteQuality | undefined,
+  os: string,
+  packVersion: string,
+): MatteQuality | undefined {
   if (compareSemver(packVersion, MATTE_QUALITY_MIN_PACK_VERSION) < 0) return undefined;
   if (os !== 'darwin') return 'best';
   return asked ?? 'fast';

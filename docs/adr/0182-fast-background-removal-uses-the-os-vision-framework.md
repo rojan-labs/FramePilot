@@ -13,11 +13,11 @@ finishing one 300-frame window. Nothing was broken: the pack runs SAM 2.1 Large 
 the CPU, and BR0.7 had measured ≈ 520 compute-seconds per footage-second. Measured on the same
 M1 Pro for this decision:
 
-| Path | Per 1080p frame |
-| --- | --- |
-| The shipped pipeline, CPU | 17–40 s |
+| Path                                                                              | Per 1080p frame          |
+| --------------------------------------------------------------------------------- | ------------------------ |
+| The shipped pipeline, CPU                                                         | 17–40 s                  |
 | Same models on the GPU (PyTorch MPS, fp16): SAM-L encoder / BiRefNet 768² / 1024² | 0.92 s / 0.83 s / 2.37 s |
-| Apple Vision `VNGenerateForegroundInstanceMaskRequest` + scaled matte, via a pipe | 0.035–0.06 s |
+| Apple Vision `VNGenerateForegroundInstanceMaskRequest` + scaled matte, via a pipe | 0.035–0.06 s             |
 
 Even on the GPU the models cost 2–3 s per frame (an hour for that clip). No GPU port of these
 models makes background removal feel like an editor's tool. MatAnyone 2 (NTU S-Lab,

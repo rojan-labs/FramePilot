@@ -14,7 +14,12 @@ const intent = {
   timelineRevision: 2,
 };
 const project = { assets: [], timeline: { tracks: [], revision: 2 } } as unknown as Project;
-const cancelled: MatteRunOutcome = { status: 'failed', code: 'cancelled', detail: 'Background removal cancelled.', retryable: false };
+const cancelled: MatteRunOutcome = {
+  status: 'failed',
+  code: 'cancelled',
+  detail: 'Background removal cancelled.',
+  retryable: false,
+};
 const completed = { status: 'completed' } as unknown as MatteRunOutcome;
 
 /** A matte service whose worker "runs" until it is suspended or cancelled, then finishes. */

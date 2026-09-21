@@ -40,14 +40,22 @@ describe('createPhaseEta', () => {
   it('estimates the whole job from this run\u2019s frame rate, so a resumed job is not flattered', () => {
     let now = 0;
     const eta = createPhaseEta(() => now);
-    const overall = (done: number) => ({ ...line('segment', 1, 240), overallCompleted: done, overallTotal: 1_500 });
+    const overall = (done: number) => ({
+      ...line('segment', 1, 240),
+      overallCompleted: done,
+      overallTotal: 1_500,
+    });
     // Resumed at 600 frames already done: those took no time in THIS run.
     expect(eta('r', overall(600)).jobEtaSeconds).toBeUndefined();
     now = 10_000;
     expect(eta('r', overall(620)).jobEtaSeconds).toBeUndefined();
     now = 20_000;
     const progress = eta('r', overall(640));
-    expect(progress).toMatchObject({ overallCompleted: 640, overallTotal: 1_500, jobEtaSeconds: 430 });
+    expect(progress).toMatchObject({
+      overallCompleted: 640,
+      overallTotal: 1_500,
+      jobEtaSeconds: 430,
+    });
     expect(eta('r', line('segment', 2, 240)).overallTotal).toBeUndefined();
   });
 });
