@@ -230,7 +230,15 @@ export interface MatteJobContext {
     total: number;
     round?: number;
     etaSeconds?: number;
+    /** Whole-job frames and time left (ADR 0182), as Smart Mask >= 1.1.0 reports them. */
+    overallCompleted?: number;
+    overallTotal?: number;
+    jobEtaSeconds?: number;
   }) => void;
+  /** True when the host re-ran this job after suspending it (Pause, export): ADR 0182. */
+  readonly resume: boolean;
+  /** Resolves when the host suspends this run; a scripted worker stops as the real one does. */
+  readonly suspended: Promise<void>;
   readonly desktop: FakeDesktop;
 }
 
@@ -257,6 +265,8 @@ export interface FakeDesktopOptions {
   /** The engine sidecar (text rasters, decoded frame hashes). */
   readonly sidecarUrl: string;
   readonly packs?: Partial<Record<KnownCapability, PackState>>;
+  /** The host says the Fast engine can run here (macOS + Smart Mask >= 1.1.0): ADR 0182. */
+  readonly fastMatte?: boolean;
   readonly matteJob?: MatteJobScript;
   readonly trackJob?: TrackJobScript;
   readonly aiStream?: AiStreamScript;
@@ -312,6 +322,8 @@ export class FakeDesktop {
       sidecarBaseUrl: options.sidecarUrl,
       fetch: globalThis.fetch,
     });
+    // The run in flight, so `suspend` can end it the way the real service ends its worker.
+    let suspendRun: (() => void) | undefined;
     const scripted = {
       run: async (
         intent: unknown,
@@ -319,21 +331,43 @@ export class FakeDesktop {
           project: Project;
           projectRevision: number;
           onProgress: MatteJobContext['onProgress'];
+          resume?: boolean;
         },
       ) => {
         if (options.matteJob === undefined) throw new Error('This spec scripts no matte job.');
-        return options.matteJob(intent as Record<string, unknown>, {
-          workspace: options.workspace,
-          project: context.project,
-          projectRevision: context.projectRevision,
-          onProgress: context.onProgress,
-          desktop: this,
-        });
+        const suspended = new Promise<void>((resolve) => (suspendRun = resolve));
+        const stopped = suspended.then((): MatteRunOutcome => ({
+          status: 'failed',
+          code: 'cancelled',
+          detail: 'Background removal cancelled.',
+          retryable: false,
+        }));
+        try {
+          return await Promise.race([
+            options.matteJob(intent as Record<string, unknown>, {
+              workspace: options.workspace,
+              project: context.project,
+              projectRevision: context.projectRevision,
+              onProgress: context.onProgress,
+              resume: context.resume === true,
+              suspended,
+              desktop: this,
+            }),
+            stopped,
+          ]);
+        } finally {
+          suspendRun = undefined;
+        }
       },
       cancel: () => undefined,
       // ADR 0182: see CapabilityPackMatteService.defaultQuality / suspend.
-      defaultQuality: async () => 'best' as const,
-      suspend: () => false,
+      defaultQuality: async () =>
+        options.fastMatte === true ? ('fast' as const) : ('best' as const),
+      suspend: () => {
+        if (suspendRun === undefined) return false;
+        suspendRun();
+        return true;
+      },
       activeJobIds: () => [],
       busyArtifactKeys: () => [],
     };
@@ -495,13 +529,23 @@ export class FakeDesktop {
         const rewrite = (value: unknown): unknown => {
           if (typeof value === 'string') return served(value);
           if (Array.isArray(value)) return value.map(rewrite);
-          if (value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
-            return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, rewrite(item)]));
+          if (
+            value !== null &&
+            typeof value === 'object' &&
+            Object.getPrototypeOf(value) === Object.prototype
+          ) {
+            return Object.fromEntries(
+              Object.entries(value).map(([key, item]) => [key, rewrite(item)]),
+            );
           }
           return value;
         };
         const nativePost = Worker.prototype.postMessage;
-        Worker.prototype.postMessage = function (this: Worker, message: unknown, ...rest: unknown[]) {
+        Worker.prototype.postMessage = function (
+          this: Worker,
+          message: unknown,
+          ...rest: unknown[]
+        ) {
           return (nativePost as (...args: unknown[]) => void).call(this, rewrite(message), ...rest);
         } as typeof Worker.prototype.postMessage;
       },
@@ -522,12 +566,11 @@ export class FakeDesktop {
   public async recheckAfter(since: number, timeoutMs = 30_000): Promise<unknown[]> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-      const found = this.results
-        .slice(since)
-        .find((entry) => entry.method === 'matteRecheckMedia');
+      const found = this.results.slice(since).find((entry) => entry.method === 'matteRecheckMedia');
       if (found !== undefined) {
         const answer = found.result as { ok?: boolean; issues?: unknown[] };
-        if (answer.ok !== true) throw new Error(`matteRecheckMedia failed: ${JSON.stringify(answer)}`);
+        if (answer.ok !== true)
+          throw new Error(`matteRecheckMedia failed: ${JSON.stringify(answer)}`);
         return answer.issues ?? [];
       }
       if (Date.now() > deadline) throw new Error('No matteRecheckMedia answer arrived.');
@@ -667,7 +710,15 @@ export class FakeDesktop {
     const known = capability in PACKS ? (capability as KnownCapability) : null;
     if (known === null) return { state: 'catalog_unconfigured', capability };
     const state = this.packs[known];
-    if (state === 'ready') return { state: 'ready', capability, pack: identityOf(known) };
+    if (state === 'ready') {
+      const fastMatte = known === 'subject.matte' && this.options.fastMatte === true;
+      return {
+        state: 'ready',
+        capability,
+        pack: identityOf(known),
+        ...(fastMatte ? { fastMatte } : {}),
+      };
+    }
     if (state === 'missing') {
       return { state: 'missing', capability, proposal: { ok: true, proposal: proposalFor(known) } };
     }
