@@ -32,7 +32,11 @@ restart loses up to ~100 min; the Jobs bar drew one phase's counter as the job's
   were already red on main. The desktop's REAL matte path was also run on a copy of the maintainer's project
   (`CapabilityPackDesktopService` + scheduler + real pack store, staging, worker, verify, commit):
   paused at frame 263 → `matteJobSuspended` → `paused` → Resume → `matteStagingAdopted
-  {keptWindows: true}` → committed; 600 frames in 312 s including the pause. **Still not done: the
+  {keptWindows: true}` → committed; 600 frames in 312 s including the pause. The maintainer's
+  journaled 5-hour job was reproduced the same way: stale lock and old staging cleared, real auto
+  prompt, re-ran as Fast, committed. The Inspector click-through (Speed → run → whole-clip progress
+  → Pause → Resume → committed edit) is CI spec **E2E.9**; refine-flagged-with-Best shipped
+  (ADR 0182 §8). CI green on d6323687 (run 35650982431). **Still not done: the
   click itself** — a run started from the Inspector in the running Electron app (local Electron
   e2e is off-limits on this 16 GB machine; the renderer side is covered by its unit tests).
 - [x] **SP5** Fast against the 06 per-frame gates: passes the one-clear-subject categories (0.994 /
