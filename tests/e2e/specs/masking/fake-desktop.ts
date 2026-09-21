@@ -331,6 +331,9 @@ export class FakeDesktop {
         });
       },
       cancel: () => undefined,
+      // ADR 0182: see CapabilityPackMatteService.defaultQuality / suspend.
+      defaultQuality: async () => 'best' as const,
+      suspend: () => false,
       activeJobIds: () => [],
       busyArtifactKeys: () => [],
     };

@@ -303,6 +303,10 @@ test('E2E.4 blur the faces except the host, put the title behind her, through th
             projectRevision: context.projectRevision,
           }),
         cancel: () => undefined,
+        // ADR 0182: the executor prices a cut-out by the engine that will run, and the
+        // scheduler suspends a running job through the service.
+        defaultQuality: async () => 'best' as const,
+        suspend: () => false,
         activeJobIds: () => new Set<string>(),
         busyArtifactKeys: () => new Set<string>(),
       }) as never,
