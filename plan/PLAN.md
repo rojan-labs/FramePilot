@@ -20,8 +20,16 @@ hang: the Smart Mask worker is CPU-only and BR0.7 already measured ≈ 520 compu
 restart loses up to ~100 min; the Jobs bar drew one phase's counter as the job's.
 - [x] **SP0** Jobs panel shows a labelled current step, elapsed time, a per-step ETA measured from
   the phase start, and "Pausing after this step" (targeted vitest green; CI not yet run).
-- [ ] **SP1** GPU/Core ML + model spike — **blocked on maintainer approval of new dependencies**.
-- [ ] **SP2** host-visible chunks · [ ] **SP3** Fast default / Best opt-in · [ ] **SP4** Windows · [ ] **SP5** release gate.
+- [x] **SP1** spike: the GPU does not rescue these models (SAM-L 0.92 s + BiRefNet 0.83–2.37 s per
+  frame on MPS); Apple Vision does (0.035–0.06 s). ADR 0182.
+- [x] **SP2** Pause/export suspend the worker and resume from finished windows; whole-job progress
+  + job ETA in the protocol, the Jobs tab and the Inspector.
+- [x] **SP3** Fast engine (Vision helper in the Smart Mask pack 1.1.0), default on macOS, Best as
+  the opt-in Speed choice. Maintainer's clip: **8–17 h → 7.5 min**, fused lamp 405 frames → 0.
+  Evidence: real-pipeline run on the real clip + targeted pytest/vitest; **CI not yet run; not yet
+  exercised inside the packaged desktop app.**
+- [ ] **SP4** Windows Fast engine (blocked: MO-9 hardware) · [ ] **SP5** run Fast against the 06
+  precision gates; no precision claim for Fast until then.
 
 **Status snapshot (2026-09-15, latency · accuracy · precision pass — `perf/ai-latency-accuracy-2026-09-14`, PR #121):**
 agent turns decomposed per model call (TRACKING.md §U–§W): thinking effort follows the run

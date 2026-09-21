@@ -511,12 +511,22 @@ install/update proposal (`pack_missing`), never a crash.
   `brush`, `lock`, 1–512; a grounding candidate is resolved to boxes host-side first), optional
   `previousArtifact` (sha256 key for a partial re-run) and `previewHeight` (180–1080). A brush or
   lock file must be named for its own pts and listed in `inputs`; `inputs` may list nothing else.
+  Optional `quality` (`fast` | `best`, ADR 0182): `fast` is the OS vision framework (macOS),
+  `best` the pack's models. The host sends it only to Smart Mask ≥ 1.1.0 (an older pack's strict
+  parser refuses unknown keys) and resolves `fast` to `best` off macOS; a worker that cannot serve
+  `fast` answers `hardware_unsupported`, never a silent Best job. A request that carries `quality`
+  also asks for whole-job progress (below).
 - Result: an `artifact` descriptor (`files[{name,bytes,sha256}]`, display-space `width`/`height`,
   `frameCount`, `firstPts`/`lastPts`, `timeBase`), `executionProvider`, `summary` (verified,
   flagged, locked frames and self-correction rounds; verified + flagged never exceeds the frame
   count) and up to 4096 `needsReview` ranges with a closed reason enum.
 - Progress adds `refine`, `consensus`, `self_correct` (with `round`), `matte`, `foreground`,
-  `stabilise` and `verify`. Failures add `output_unwritable` (disk full or folder not writable)
+  `stabilise` and `verify` (the Fast engine also uses `detect` for its survey of the clip).
+  `completed`/`total` count ONE phase of one window and restart constantly; never draw them as
+  the job. `overallCompleted`/`overallTotal` (both or neither, additive, only for a request that
+  carried `quality`) are whole-job frames and never go backwards; the host derives
+  `jobEtaSeconds` from them over this run only, so a resumed job's earlier windows do not
+  flatter the rate. Failures add `output_unwritable` (disk full or folder not writable)
   and `needs_box` (BR7.5: the only prompt is one include click on a subject that runs off the
   picture, so one click cannot say where it ends; refused before the long part of the job, never
   answered with an invented box; the host asks the editor to drag a box with AI Object).
@@ -543,7 +553,8 @@ staging directory.
 
 Cache key: `sha256(canonical{pipeline, contentFingerprint, firstPts, lastPts, sorted prompts
 rounded to 1e-4 with brush/lock by PNG sha256, packId@version, releaseDigest, foreground,
-previewHeight})`. The release digest stands in for `modelDigests` (unknown before the worker
+previewHeight, quality?})`. `quality` is written only when it is `fast`, so every matte made
+before ADR 0182 keeps its key. The release digest stands in for `modelDigests` (unknown before the worker
 runs); it pins the signed artifact and every model in it. The content fingerprint is size +
 sha256 of the first and last 8 MiB + the decoded pts list.
 

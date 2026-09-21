@@ -8,6 +8,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Background removal in minutes, not hours (Mac).** Remove background has a new **Speed**
+  choice, and the default is **Fast**: a 50-second 1080p clip that took 8–17 hours now takes about
+  7.5 minutes on an M1 Pro. Fast uses Apple's Vision framework to find the subject in every frame
+  (it keeps what they hold, such as a microphone), then FramePilot removes background objects
+  Vision sometimes grabs with the subject, steadies still edges, checks every frame and cleans
+  edge colour. **Best quality** is still there for a hero shot and says plainly that it can take
+  hours. Both make the same kind of matte, so brush fixes, locked frames, review and export are
+  unchanged. Windows has no Fast engine yet and shows no choice. The assistant's cost check uses
+  the engine that will really run, so it no longer refuses ordinary clips as "hours long"
+  (Smart Mask pack 1.1.0, ADR 0182).
+- **Pause works on a running background removal, and the bar is the whole clip.** Pause (or
+  starting an export) now stops the job within seconds and keeps the parts already done; Resume
+  continues from there. The Jobs tab and the Inspector show frames finished out of the clip's
+  total with a time left for the whole job, measured from how fast this run is actually going.
 - **Background removal asks for a box instead of guessing, and a fix changes only what it
   fixes.** When you pick the subject with one click and that subject runs off the edge of the
   picture (a head and shoulders cut by the bottom of the frame), one click cannot say where it

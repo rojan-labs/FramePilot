@@ -74,9 +74,28 @@ to the pack — the delivered matte is the precise one either way.
 
 Picking a subject changes nothing in the project. Only a finished run does, as one undoable edit.
 
+## Speed: Fast or Best quality
+
+On a Mac the row has a **Speed** choice (ADR 0182):
+
+- **Fast (minutes)** — the default. Apple's Vision framework finds the subject in every frame;
+  FramePilot then removes background objects Vision sometimes grabs with it (a lamp behind your
+  hand), steadies still edges, checks every frame and cleans edge colour. Measured: a 50-second
+  1080p clip in 7.5 minutes on an M1 Pro. It follows the main subject, or the one you clicked or
+  boxed. It ignores exclude clicks.
+- **Best quality (can take hours)** — the pack's models (SAM 2.1 + BiRefNet, cross-checked and
+  self-corrected). The same clip takes 8–17 hours on the same Mac. Use it for a hero shot with
+  hair against a busy background, not for every clip.
+
+Both produce the same kind of matte: brush fixes, locked frames, review, text behind the subject
+and export work identically. On Windows there is no Fast engine yet, so there is no choice and
+every job is a Best job.
+
 ## The estimate
 
-"About 69 minutes on this computer · 100 MB on disk" comes from the BR0 spike's **measured** CPU
+The estimate follows the Speed you chose. Fast uses 10 compute-seconds per second of 1080p30
+footage (measured end to end, M1 Pro). For Best, "About 69 minutes on this computer · 100 MB on
+disk" comes from the BR0 spike's **measured** CPU
 throughput (520 compute-seconds per second of 1080p30 footage) and its storage table. Per-EP
 throughput is still open, so a machine with a GPU execution provider may well beat it: an estimate
 that finishes early is a kept promise, a hopeful one is not. A job over ten minutes asks you to
@@ -88,6 +107,12 @@ The phase is in plain words — reading the footage, finding the subject, refini
 cross-checking the result, correcting itself (round _n_ of 3), building the cut-out, cleaning
 colour from the edges, steadying the edges, checking every frame, saving the result. The first run
 on a computer also prepares the models, which is why it takes longer than later ones.
+
+**The bar is the whole clip.** With Smart Mask 1.1 the pack reports frames finished out of the
+clip's total, so the bar, the percentage and "about N minutes left" describe the job, and the
+phase is named beside them. An older pack reports only the step it is on; the row then says
+"left in this step" and shows how long the job has run, rather than dressing a step's counter up
+as the job's. A step that cannot be counted (loading a model) shows a moving bar, never 0% or 100%.
 
 **The job is not tied to the panel.** Select another clip and it keeps running; come back and the
 row reconnects to it. When it finishes it becomes an edit on the right clip whatever you are
@@ -103,6 +128,11 @@ job in the project — background removals and mask tracks, running, waiting, pa
 export, or finished — with the clip's media file, the phase, progress and ETA, and **Pause**,
 **Resume**, **Cancel** and **Show clip**. Show clip selects the clip, moves the playhead to it and
 opens the Inspector, where the job's row is. A job resumed after a restart says so.
+
+**Pause really pauses.** Pausing a running background removal (or starting an export) stops the
+worker within seconds and keeps the parts of the clip it has finished; Resume, or the end of the
+export, continues from there. The row says "Pausing after this step" for the moment in between.
+At most one part of the clip (about a minute of Fast work) is redone.
 
 **Quitting or crashing mid-job.** The job is journaled when it starts. Reopen the project and it
 is queued again ("Resumed after restart"); the Smart Mask worker keeps each finished window's

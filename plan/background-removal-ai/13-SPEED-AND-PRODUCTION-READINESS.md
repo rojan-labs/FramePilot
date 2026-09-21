@@ -4,8 +4,9 @@ Triggered by a maintainer report: _Remove background_ on a 52-second 1080p clip 
 five hours without finishing a step, the Jobs panel showed a full bar beside the word "prepare",
 and the clip was processed as one piece.
 
-Status: **diagnosis done, panel fixed (SP0). SP1 onward needs a maintainer decision** (new
-runtime dependencies and models; CLAUDE.md §5).
+Status: **SP0–SP3 shipped** (ADR 0182). The maintainer asked for the structural change on
+2026-09-21. The spike changed the plan: see "F. What the spike found" — the GPU does not rescue
+these models, Apple Vision does. Open: SP4 (Windows), SP5 (precision gates for Fast).
 
 ## A. What actually happened (measured on the live job)
 
@@ -80,20 +81,46 @@ subject crop, window 300 → 90 frames.
 
 ## E. Tasks
 
-- [x] **SP0** Honest Jobs panel + per-step ETA + pause-pending (this change).
-- [ ] **SP1 — spike, 1–2 days, decides everything below.** On this exact clip and the 06 eval
-      set, on the M1 Pro, one heavy job at a time: (a) SAM 2.1 base+/large via coremltools fp16,
-      (b) EdgeTAM Core ML, (c) BiRefNet-matting fp16 Core ML on subject crops at 768/1024,
-      (d) Apple Vision. Record fps, peak footprint, and the 06 gates per option. _Needs approval:
-      coremltools / torch (conversion only), model downloads._
-- [ ] **SP2** Host-visible chunks: per-chunk checkpoint, journal, progressive commit, overall
-      progress + job ETA, playhead-first ordering.
-- [ ] **SP3** Fast tier as the default; Best tier opt-in and auto-applied to review-flagged ranges.
+- [x] **SP0** Honest Jobs panel + per-step ETA + pause-pending.
+- [x] **SP1 — spike.** Measured on the maintainer's clip, M1 Pro, one heavy job at a time
+      (section F). Decided: Apple Vision for Fast; no new runtime dependency, no new weights.
+- [x] **SP2** Pause/export suspend the worker and resume from finished windows; whole-job
+      progress (`overallCompleted`/`overallTotal`) and a job ETA from this run's frame rate;
+      Fast windows of 240 frames so a restart loses ≤ ~1 min. _Not done, deferred on purpose:_
+      committing finished parts to the project while the job runs, and playhead-first ordering —
+      at 7.5 minutes per clip the striped "processing" band is enough; revisit for long clips.
+- [x] **SP3** Fast is the default on macOS; Best is the opt-in Speed choice. _Deferred:_ running
+      Best automatically on the ranges Fast flags for review (needs a partial re-run seeded from
+      a Fast matte; the pipeline's `previousArtifact` path is the place).
 - [ ] **SP4** Windows path (DirectML) — blocked on MO-9 hardware.
 - [ ] **SP5** Release gate: a 60 s 1080p clip finishes Fast in ≤ 10 min on the hardware floor and
       passes the 06 gates chosen for Fast; desktop-scale media, not fixtures.
 
 Deferred on purpose: multi-subject instance mattes, cloud offload, 4K-native matting.
+
+## F. What the spike found (2026-09-21, M1 Pro, the maintainer's 1080p30 clip)
+
+| Option | Per frame | Verdict |
+| --- | --- | --- |
+| Shipped pipeline, CPU | 17–40 s | Best only |
+| SAM 2.1-L image encoder, PyTorch MPS fp16 / fp32 | 0.92 s / 1.03 s | A GPU port is ~6× faster and still an hour per clip |
+| BiRefNet-HR, MPS fp16, 768² / 1024² | 0.83 s / 2.37 s | same |
+| Vision person matte (`.accurate`) | 0.087 s | People only; drops the held microphone |
+| **Vision foreground instance + scaled matte, piped** | **0.035–0.06 s** | Chosen: keeps what the subject holds, soft matte at source size |
+
+End to end through the real pipeline (decode → survey → Vision → gates → stabilise → checks →
+foreground → encode, all six artifact files): **1,492 frames in 451 s = 3.3 frames/s**, against
+8–17 hours. Where the time goes now: Vision + gates 40%, foreground colour 20%, stabilise 14%,
+checks 12%, encode 10%. Every CPU stage had to be rebuilt for this path; at full size with optical
+flow they cost 3.7 s per frame, 60× the estimate they wrapped.
+
+The defect worth recording: Vision fused a background lamp into the presenter's instance in 405 of
+1,492 frames. Fixed by evidence gathered over a sparse survey of the whole clip (ADR 0182 §4):
+0 frames with the lamp afterwards, and no pixel removed outside that object. Two wrong turns on
+the way, kept here so nobody repeats them: per-pixel gating cut a hole in a black microphone over a
+black monitor (colour says nothing dark on dark — the region must switch as a whole); and a colour
+model averaged over all frames matched the microphone where the microphone usually sits (the model
+must be the pixel's colour when it is NOT in the matte).
 
 ## Sources
 
