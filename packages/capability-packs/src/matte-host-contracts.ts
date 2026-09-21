@@ -75,6 +75,11 @@ export const MatteRunIntentSchema = z
     /** Write `foreground.mkv` for clean edges (`decontaminate`). */
     foreground: z.boolean().default(true),
     previewHeight: z.number().int().min(180).max(1080).default(540),
+    /**
+     * Plan 13: `fast` (minutes, macOS) or `best` (the models, hours). Absent = the host's
+     * default for this machine, which is `fast` wherever it can run.
+     */
+    quality: z.enum(['fast', 'best']).optional(),
     /** The renderer's timeline revision; a moved project refuses or discards the job. */
     timelineRevision: z.number().int().nonnegative(),
   })

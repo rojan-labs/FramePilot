@@ -75,6 +75,7 @@ import {
   type VerifiedMatteFile,
 } from './matte-verify.js';
 import { compareSemver, projectMediaPath, resolveInside } from './pack-paths.js';
+import { resolveMatteQuality, type MatteQuality } from './matte-quality.js';
 
 const log = createLogger('desktop:capability-packs:matte');
 /** Display rotations the monitor turns a decoded picture by (`Asset.media.rotation`). */
@@ -86,12 +87,15 @@ export const MATTE_CAPABILITIES = ['subject.matte', 'subject.segment_frame'] as 
 export const MATTE_PIPELINE_VERSION = 1;
 /** Oldest Smart Mask release that speaks `subject.matte`. Older installs get an update proposal. */
 export const MATTE_MIN_PACK_VERSION = '1.0.0';
+export { MATTE_QUALITY_MIN_PACK_VERSION, resolveMatteQuality, type MatteQuality } from './matte-quality.js';
 /** Evenly spaced source frames hashed at commit, besides the exact first and last (BR4.10). */
 export const MATTE_SOURCE_SAMPLES = 16;
 const ENTRYPOINT = { darwin: 'bin/framepilot-smart-mask', win32: 'bin/framepilot-smart-mask.exe' } as const;
 /** P17 per-job time limit: a base plus a generous per-frame budget (BR0: ~15 s/frame on CPU). */
 /** Steps measured before a phase's rate is trusted enough to show a time. */
 const ETA_MIN_SAMPLES = 3;
+/** Whole-job frames measured before the job's rate is trusted enough to show a time. */
+const JOB_ETA_MIN_FRAMES = 30;
 const JOB_TIMEOUT_BASE_MS = 30 * 60 * 1_000;
 const JOB_TIMEOUT_PER_FRAME_MS = 30_000;
 const JOB_TIMEOUT_MAX_MS = 24 * 60 * 60 * 1_000;
@@ -110,6 +114,9 @@ export interface MatteProgress {
   readonly total: number;
   readonly round?: number;
   readonly etaSeconds?: number;
+  readonly overallCompleted?: number;
+  readonly overallTotal?: number;
+  readonly jobEtaSeconds?: number;
 }
 
 /** What the renderer turns into an `add_mask` (`MatteArtifactSchema` shape). */
@@ -288,6 +295,8 @@ interface ResolvedMedia {
 
 export class CapabilityPackMatteService {
   private readonly jobs = new Map<string, AbortController>();
+  /** Jobs stopped by `suspend`: their staging is released for a resume, not discarded. */
+  private readonly suspended = new Set<string>();
   private readonly previousKeys = new Map<string, string>();
   /** PX5.9: monitor tiers being made in the background. */
   private readonly tierJobs = new Set<Promise<void>>();
@@ -307,6 +316,32 @@ export class CapabilityPackMatteService {
   public cancel(requestId: unknown): void {
     if (typeof requestId !== 'string') return;
     this.jobs.get(requestId)?.abort();
+  }
+
+  /**
+   * The engine a job started now, without an explicit choice, would run: what a cost estimate
+   * must assume. `best` when no usable pack is installed (the slower number is the safe one).
+   */
+  public async defaultQuality(): Promise<MatteQuality> {
+    const installed = await this.options.store.list().catch(() => []);
+    const record = newestHealthy(installed, SMART_MASK_PACK_ID);
+    if (record === undefined) return 'best';
+    return resolveMatteQuality(undefined, this.options.platform.os, record.identity.version) ?? 'best';
+  }
+
+  /**
+   * Stop a running job so it can be continued (pause, export): the worker ends, but its staging
+   * directory and finished windows are KEPT, and the next `run` of the same intent with
+   * `resume: true` picks them up. `cancel` throws that work away.
+   *
+   * @returns Whether a running job was stopped.
+   */
+  public suspend(requestId: string): boolean {
+    const controller = this.jobs.get(requestId);
+    if (controller === undefined) return false;
+    this.suspended.add(requestId);
+    controller.abort();
+    return true;
   }
 
   public async run(intentInput: unknown, context: MatteRunContext): Promise<MatteRunOutcome> {
@@ -403,6 +438,7 @@ export class CapabilityPackMatteService {
       prompts = [...auto];
     }
 
+    const quality = resolveMatteQuality(intent.quality, this.options.platform.os, pack.record.identity.version);
     const key = matteCacheKey({
       fingerprint: media.fingerprint,
       firstPts: media.timing.pts[media.firstFrame]!,
@@ -413,6 +449,7 @@ export class CapabilityPackMatteService {
       releaseDigest: pack.record.identity.releaseDigest,
       foreground: intent.foreground,
       previewHeight: intent.previewHeight,
+      ...(quality === 'fast' ? { quality } : {}),
     });
     const tCache = Date.now();
     const hit = await this.cacheHit(context.projectDir, key, signal);
@@ -459,7 +496,7 @@ export class CapabilityPackMatteService {
       ];
       const size = media.displaySize ?? { width: 8192, height: 8192 };
       const maxBytes = matteByteCeiling(size.width, size.height, media.frameCount, intent.foreground);
-      const request = this.buildRequest(intent, context, media, prompts, staging, inputs.files, allowedFiles, maxBytes);
+      const request = this.buildRequest(intent, context, media, prompts, staging, inputs.files, allowedFiles, maxBytes, quality);
       if ('status' in request) return request;
       addPhase(phases, 'stage', Date.now() - tStage);
 
@@ -513,7 +550,9 @@ export class CapabilityPackMatteService {
     } catch (error) {
       return classifyFailure(error, signal);
     } finally {
-      if (!committed) await staging.discard();
+      if (committed) this.suspended.delete(intent.requestId);
+      else if (this.suspended.delete(intent.requestId)) await staging.release();
+      else await staging.discard();
     }
   }
 
@@ -800,6 +839,7 @@ export class CapabilityPackMatteService {
     inputFiles: readonly string[],
     allowedFiles: readonly MatteArtifactFileName[],
     maxBytes: number,
+    quality: MatteQuality | undefined,
   ): CapabilityPackWorkerRequest | Extract<MatteRunOutcome, { status: 'failed' }> {
     const inputs = staging.inputHandle(inputFiles);
     const request = {
@@ -826,6 +866,7 @@ export class CapabilityPackMatteService {
         previewHeight: intent.previewHeight,
         // The worker's checkpoints are keyed on the media's content too (F2).
         contentFingerprint: media.fingerprint,
+        ...(quality === undefined ? {} : { quality }),
       },
     };
     return request;
@@ -992,6 +1033,8 @@ export function matteCacheKey(parts: {
   readonly releaseDigest: string;
   readonly foreground: boolean;
   readonly previewHeight: number;
+  /** Only `fast` is written, so every matte made before plan 13 keeps its key. */
+  readonly quality?: 'fast';
 }): string {
   return createHash('sha256')
     .update(
@@ -1005,6 +1048,7 @@ export function matteCacheKey(parts: {
         releaseDigest: parts.releaseDigest,
         foreground: parts.foreground,
         previewHeight: parts.previewHeight,
+        ...(parts.quality === undefined ? {} : { quality: parts.quality }),
       }),
     )
     .digest('hex');
@@ -1171,6 +1215,8 @@ function newestHealthy(records: readonly InstalledCapabilityPack[], packId: stri
 export function createPhaseEta(now: () => number = Date.now): (requestId: string, progress: CapabilityPackWorkerProgress) => MatteProgress {
   let phase: { readonly name: string; readonly at: number; readonly completed: number } | undefined;
   let lastCompleted = 0;
+  // The whole job's rate is measured from this RUN's first line: a resumed job starts part done.
+  let job: { readonly at: number; readonly completed: number } | undefined;
   return (requestId, progress) => {
     // A counter that goes backwards is the same phase starting again in the next window.
     if (phase === undefined || phase.name !== progress.phase || progress.completed < lastCompleted) {
@@ -1183,11 +1229,25 @@ export function createPhaseEta(now: () => number = Date.now): (requestId: string
       done >= ETA_MIN_SAMPLES && progress.completed < progress.total
         ? Math.round((elapsedSeconds / done) * (progress.total - progress.completed))
         : undefined;
-    return withEta(requestId, progress, etaSeconds);
+    let jobEtaSeconds: number | undefined;
+    if (progress.overallCompleted !== undefined && progress.overallTotal !== undefined) {
+      job ??= { at: now(), completed: progress.overallCompleted };
+      const framesDone = progress.overallCompleted - job.completed;
+      const left = progress.overallTotal - progress.overallCompleted;
+      if (framesDone >= JOB_ETA_MIN_FRAMES && left > 0) {
+        jobEtaSeconds = Math.round(((now() - job.at) / 1_000 / framesDone) * left);
+      }
+    }
+    return withEta(requestId, progress, etaSeconds, jobEtaSeconds);
   };
 }
 
-function withEta(requestId: string, progress: CapabilityPackWorkerProgress, etaSeconds: number | undefined): MatteProgress {
+function withEta(
+  requestId: string,
+  progress: CapabilityPackWorkerProgress,
+  etaSeconds: number | undefined,
+  jobEtaSeconds: number | undefined,
+): MatteProgress {
   return {
     requestId,
     phase: progress.phase,
@@ -1195,6 +1255,10 @@ function withEta(requestId: string, progress: CapabilityPackWorkerProgress, etaS
     total: progress.total,
     ...(progress.round === undefined ? {} : { round: progress.round }),
     ...(etaSeconds === undefined ? {} : { etaSeconds }),
+    ...(progress.overallCompleted === undefined || progress.overallTotal === undefined
+      ? {}
+      : { overallCompleted: progress.overallCompleted, overallTotal: progress.overallTotal }),
+    ...(jobEtaSeconds === undefined ? {} : { jobEtaSeconds }),
   };
 }
 

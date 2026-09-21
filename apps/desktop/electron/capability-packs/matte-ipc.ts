@@ -125,30 +125,50 @@ export async function matteJobRunner(
   const parsed = MatteRunIntentSchema.safeParse(intent);
   const service = await dependencies.matte();
   return async (context?: JobContext): Promise<MatteRunOutcome> => {
-    await context?.checkpoint();
-    // Re-read at start: a queued job must see the project as it is when it runs.
-    const project = await dependencies.readProject(projectPath);
     const abort = (): void => {
       if (parsed.success) service.cancel(parsed.data.requestId);
     };
     context?.signal.addEventListener('abort', abort, { once: true });
+    // Pause and export stop the WORKER, keeping its finished windows; the loop then waits at the
+    // checkpoint and runs the same intent again as a resume. Before plan 13 the only checkpoint
+    // was the one before the worker started, so Pause did nothing for the hours a clip took.
+    let suspendedNow = false;
+    let suspendAsked = false;
+    context?.onSuspendRequest(() => {
+      suspendAsked = true;
+      if (parsed.success && service.suspend(parsed.data.requestId)) suspendedNow = true;
+    });
     try {
-      const outcome = await service.run(intent, {
-        projectDir: path.dirname(projectPath),
-        project,
-        projectRevision: project.timeline.revision ?? 0,
-        readCurrent: async () => {
-          const current = await dependencies.readProject(projectPath);
-          return { revision: current.timeline.revision ?? 0, project: current };
-        },
-        ...(options.resume === true ? { resume: true } : {}),
-        onProgress: (progress) => {
-          context?.progress(progress);
-          onProgress?.(progress);
-        },
-      });
-      if (outcome.status === 'completed') context?.finishWindow(0);
-      return outcome;
+      for (let attempt = 0; ; attempt += 1) {
+        await context?.checkpoint();
+        suspendedNow = false;
+        suspendAsked = false;
+        // Re-read at start: a queued job must see the project as it is when it runs.
+        const project = await dependencies.readProject(projectPath);
+        // Asked to stop between the checkpoint and the worker starting: there is no worker to
+        // stop yet, so go back to the checkpoint, which now holds the job.
+        if (suspendAsked) continue;
+        const outcome = await service.run(intent, {
+          projectDir: path.dirname(projectPath),
+          project,
+          projectRevision: project.timeline.revision ?? 0,
+          readCurrent: async () => {
+            const current = await dependencies.readProject(projectPath);
+            return { revision: current.timeline.revision ?? 0, project: current };
+          },
+          ...(options.resume === true || attempt > 0 ? { resume: true } : {}),
+          onProgress: (progress) => {
+            context?.progress(progress);
+            onProgress?.(progress);
+          },
+        });
+        if (suspendedNow && outcome.status === 'failed' && context?.signal.aborted !== true) {
+          log.action('matteJobSuspended', { attempt });
+          continue;
+        }
+        if (outcome.status === 'completed') context?.finishWindow(0);
+        return outcome;
+      }
     } finally {
       context?.signal.removeEventListener('abort', abort);
     }

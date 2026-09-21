@@ -498,9 +498,13 @@ class MaskingRun {
       previewHeight: 540,
       timelineRevision: this.project.timeline.revision ?? 0,
     };
+    // The estimate must be for the engine that will run: Fast is ~50x quicker than Best, and
+    // judging a Fast job by Best's numbers refused nearly every clip the agent was asked about.
+    const quality = await (await this.options.matte()).defaultQuality();
     const estimate = estimateMatteJob(
       job.sourceEnd - job.sourceStart,
       assetDisplaySize(asset?.media),
+      quality,
     );
     if (estimate.needsConfirmation) {
       log.action('matteNeedsEditorStart', {

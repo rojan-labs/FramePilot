@@ -53,6 +53,9 @@ export interface JobProgress {
   readonly total: number;
   readonly round?: number;
   readonly etaSeconds?: number;
+  readonly overallCompleted?: number;
+  readonly overallTotal?: number;
+  readonly jobEtaSeconds?: number;
 }
 
 export interface JobSnapshot {
@@ -79,6 +82,13 @@ export interface JobContext {
   progress(progress: JobProgress): void;
   /** Record a finished window so a restart can skip it. */
   finishWindow(index: number): void;
+  /**
+   * For a job that cannot reach a checkpoint for a long time (one worker run for a whole clip):
+   * `handler` is called when the user pauses it or an export starts. The job stops its work in a
+   * way it can pick up again and calls `checkpoint()`, which then holds it. Without a handler a
+   * running job pauses only at its own next checkpoint.
+   */
+  onSuspendRequest(handler: () => void): void;
   readonly finishedWindows: ReadonlySet<number>;
 }
 
@@ -113,6 +123,8 @@ interface Entry {
   reject(error: unknown): void;
   /** Set while suspended at a checkpoint; calling it lets the job continue. */
   wake?: (() => void) | undefined;
+  /** The running job's own way to stop early and reach a checkpoint. */
+  suspend?: (() => void) | undefined;
 }
 
 export interface JobSchedulerOptions {
@@ -165,8 +177,10 @@ export class CapabilityPackJobScheduler {
     const entry = this.live(jobId);
     if (entry === undefined || entry.userPaused) return false;
     entry.userPaused = true;
-    // A queued or suspended job pauses now; a running one at its next checkpoint.
+    // A queued or suspended job pauses now; a running one at its next checkpoint, which a job
+    // with a suspend handler reaches straight away.
     if (entry !== this.active) entry.state = 'paused';
+    else entry.suspend?.();
     this.changed();
     return true;
   }
@@ -200,6 +214,7 @@ export class CapabilityPackJobScheduler {
   public beginExport(): void {
     this.exporting = true;
     log.action('jobsPausedForExport', { active: this.active !== undefined });
+    this.active?.suspend?.();
     this.changed();
   }
 
@@ -346,6 +361,9 @@ export class CapabilityPackJobScheduler {
     return {
       signal: entry.controller.signal,
       finishedWindows: finished,
+      onSuspendRequest: (handler) => {
+        entry.suspend = handler;
+      },
       progress: (progress) => {
         entry.progress = progress;
         this.changed(false);

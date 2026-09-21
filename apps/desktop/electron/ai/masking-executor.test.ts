@@ -130,9 +130,11 @@ function tracking(
 const matte = (
   outcome: MatteRunOutcome,
   seen: unknown[] = [],
+  quality: 'fast' | 'best' = 'best',
 ): (() => Promise<CapabilityPackMatteService>) => {
   return async () =>
     ({
+      defaultQuality: async () => quality,
       run: async (intent: unknown, context: { project: Project; projectRevision: number }) => {
         seen.push({ intent, revision: context.projectRevision });
         return outcome;
@@ -501,6 +503,17 @@ describe('cut-outs', () => {
       job: { assetId: 'asset', clipId: 'shot', sourceStart: 0, sourceEnd: 6, prompts: [] },
     });
     expect((outcome.data as { estimateSeconds: number }).estimateSeconds).toBeGreaterThan(600);
+  });
+
+  it('judges the cost by the engine that will run: the same clip starts when Fast is available (ADR 0182)', async () => {
+    const { project, projectPath } = await openProject(4);
+    const seen: unknown[] = [];
+    const outcome = await executor(projectPath, { matte: matte(MATTE_DONE, seen, 'fast') }).run(
+      { name: 'remove_background', arguments: { clipId: 'shot' } },
+      ctxOf(project),
+    );
+    expect(outcome.status).not.toBe('failed');
+    expect(seen).toHaveLength(1);
   });
 
   it('carries a missing pack’s signed proposal to the install card, for every pack it uses', async () => {

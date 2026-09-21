@@ -274,6 +274,12 @@ const MatteParametersSchema = z
      * to a file with the same asset id and length) is recomputed, never resumed.
      */
     contentFingerprint: Sha256HexSchema.optional(),
+    /**
+     * Plan 13: `fast` = the OS vision framework (minutes per clip, macOS), `best` = the pack's
+     * models (hours). Sent only to a pack new enough to parse it (`MATTE_QUALITY_MIN_PACK_VERSION`);
+     * a request that carries it also asks for the progress line's `overall*` fields.
+     */
+    quality: z.enum(['fast', 'best']).optional(),
   })
   .strict()
   .superRefine((parameters, context) => {
@@ -671,11 +677,23 @@ export const CapabilityPackWorkerProgressSchema = z
     /** Self-correction round, 1-based. Only `self_correct` progress carries it. */
     round: z.number().int().positive().max(16).optional(),
     detail: z.string().max(512).optional(),
+    /**
+     * Whole-job frames (plan 13). `completed`/`total` count ONE phase of one window and restart
+     * constantly; these never go backwards. Sent only when the request carried `quality`.
+     */
+    overallCompleted: z.number().int().nonnegative().optional(),
+    overallTotal: z.number().int().positive().optional(),
   })
   .strict()
   .refine((value) => value.completed <= value.total, {
     message: 'worker progress cannot exceed its total',
-  });
+  })
+  .refine(
+    (value) =>
+      (value.overallCompleted === undefined) === (value.overallTotal === undefined) &&
+      (value.overallCompleted ?? 0) <= (value.overallTotal ?? 1),
+    { message: 'overall progress needs both fields and cannot exceed its total' },
+  );
 
 const TrackingSampleSchema = z
   .object({

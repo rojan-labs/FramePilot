@@ -378,6 +378,19 @@ describe('CapabilityPackMatteService lifecycle', () => {
     expect([...h.service.activeJobIds()]).toEqual([]);
   });
 
+  it('suspends a running job KEEPING its staging, and the same intent then resumes it', async () => {
+    const h = await harness({ scenario: 'hang' });
+    const running = h.service.run(h.intent(), h.context());
+    await vi.waitFor(() => expect(h.worker).toHaveBeenCalled());
+    expect(h.service.suspend('job1')).toBe(true);
+    expect(await running).toMatchObject({ status: 'failed', code: 'cancelled' });
+    // Unlike cancel: the directory (the worker's finished windows) survives, without its lock.
+    expect(await readdir(matteStagingRoot(h.projectDir))).toEqual(['job1']);
+    expect(h.service.suspend('job1')).toBe(false);
+    // A new request refuses a directory it did not make; only a resume adopts it.
+    expect(await h.service.run(h.intent(), h.context())).toMatchObject({ status: 'failed', code: 'job_running' });
+  });
+
   it('refuses a request built for an older revision before any work', async () => {
     const h = await harness();
     expect(await h.service.run(h.intent({ timelineRevision: 3 }), h.context())).toMatchObject({ status: 'failed', code: 'stale_revision' });

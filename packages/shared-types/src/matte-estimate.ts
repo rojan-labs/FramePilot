@@ -16,6 +16,13 @@
 export const COMPUTE_SECONDS_PER_FOOTAGE_SECOND_1080P = 520;
 /** The same figure at 4K30, where the subject crop needs 2×2 matting tiles. */
 export const COMPUTE_SECONDS_PER_FOOTAGE_SECOND_4K = 1230;
+/**
+ * The Fast engine (Apple Vision, plan 13), measured end to end on the same M1 Pro: a 49.8 s
+ * 1080p30 clip in 451 s = 9.1 compute-seconds per footage-second, rounded up.
+ */
+export const FAST_COMPUTE_SECONDS_PER_FOOTAGE_SECOND_1080P = 10;
+/** Not measured: Vision's cost is flat, the CPU stages around it grow with the pixel count. */
+export const FAST_COMPUTE_SECONDS_PER_FOOTAGE_SECOND_4K = 32;
 /** Matte + foreground on disk, MiB per minute of 1080p30 (FFV1 level 3, measured). */
 export const STORAGE_MIB_PER_MINUTE_1080P = 105;
 /** The same at 4K30. */
@@ -54,21 +61,29 @@ export interface MatteEstimate {
  *
  * @param coverageSeconds - Footage seconds to process, handles included.
  * @param size - The media's picture size, or `null` when it has not been measured.
+ * @param quality - Which engine will run; the two differ by about fifty times.
  * @returns The estimate, using the 1080p row when the size is unknown.
  */
 export function estimateMatteJob(
   coverageSeconds: number,
   size: { readonly width: number; readonly height: number } | null,
+  quality: 'fast' | 'best' = 'best',
 ): MatteEstimate {
   const seconds = Math.max(0, coverageSeconds);
   const pixels = size === null ? PIXELS_1080P : size.width * size.height;
   const computeSeconds =
     seconds *
-    betweenMeasured(
-      pixels,
-      COMPUTE_SECONDS_PER_FOOTAGE_SECOND_1080P,
-      COMPUTE_SECONDS_PER_FOOTAGE_SECOND_4K,
-    );
+    (quality === 'fast'
+      ? betweenMeasured(
+          pixels,
+          FAST_COMPUTE_SECONDS_PER_FOOTAGE_SECOND_1080P,
+          FAST_COMPUTE_SECONDS_PER_FOOTAGE_SECOND_4K,
+        )
+      : betweenMeasured(
+          pixels,
+          COMPUTE_SECONDS_PER_FOOTAGE_SECOND_1080P,
+          COMPUTE_SECONDS_PER_FOOTAGE_SECOND_4K,
+        ));
   const mib =
     (seconds / 60) *
     betweenMeasured(pixels, STORAGE_MIB_PER_MINUTE_1080P, STORAGE_MIB_PER_MINUTE_4K);

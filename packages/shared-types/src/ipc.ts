@@ -1313,6 +1313,12 @@ export type CapabilityPackStatusWire =
       readonly capability: string;
       readonly pack: CapabilityPackIdentityWire;
       readonly hardware?: CapabilityPackHardwareWire;
+      /**
+       * `subject.matte` only (plan 13): the Fast engine (minutes per clip) can run here. It is
+       * Apple's Vision framework, so macOS only, and needs a pack that knows about it; without
+       * it every job is a Best job and the UI must not offer the choice.
+       */
+      readonly fastMatte?: boolean;
     }
   | {
       readonly state: 'missing';
@@ -1396,6 +1402,8 @@ export interface MatteRunIntentWire {
   readonly previousArtifactKey?: string;
   readonly foreground?: boolean;
   readonly previewHeight?: number;
+  /** `fast` (minutes, macOS) or `best` (hours). Absent = the host's default for this machine. */
+  readonly quality?: 'fast' | 'best';
   readonly timelineRevision: number;
 }
 
@@ -1455,7 +1463,13 @@ export interface MatteProgressWire {
   readonly completed: number;
   readonly total: number;
   readonly round?: number;
+  /** Time left in THIS phase. */
   readonly etaSeconds?: number;
+  /** Whole-job frames done and in total (plan 13); absent from a pack that does not report them. */
+  readonly overallCompleted?: number;
+  readonly overallTotal?: number;
+  /** Time left in the whole job, from the measured frame rate of this run. */
+  readonly jobEtaSeconds?: number;
 }
 
 /** A brush fix or locked frame drawn on an artifact, as an 8-bit gray PNG at its size. */
@@ -1553,6 +1567,10 @@ export interface CapabilityPackJobWire {
     readonly round?: number;
     /** Time left in THIS phase (`completed`/`total` count one phase, not the whole job). */
     readonly etaSeconds?: number;
+    /** Whole-job units done and in total; when present the panel draws the JOB's bar from them. */
+    readonly overallCompleted?: number;
+    readonly overallTotal?: number;
+    readonly jobEtaSeconds?: number;
   };
   /** Queued again after the app restarted. */
   readonly resumed: boolean;

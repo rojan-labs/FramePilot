@@ -139,6 +139,39 @@ describe('CapabilityPackJobScheduler', () => {
     expect(scheduler.hasActiveJobs()).toBe(false);
   });
 
+  it('asks a job with a suspend handler to stop on pause and on export, instead of waiting for it', async () => {
+    const scheduler = new CapabilityPackJobScheduler();
+    const asked: string[] = [];
+    let release: (() => void) | undefined;
+    let working = -1;
+    const done = scheduler.submit(descriptor('long'), 'focused', async (ctx) => {
+      // One long stretch of work per attempt, like a worker run over a whole clip.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await ctx.checkpoint();
+        ctx.onSuspendRequest(() => {
+          asked.push(`attempt ${attempt}`);
+          release?.();
+        });
+        working = attempt;
+        await new Promise<void>((resolve) => (release = resolve));
+      }
+      return 'done';
+    });
+    await vi.waitFor(() => expect(release).toBeDefined());
+    expect(scheduler.pause('long')).toBe(true);
+    await vi.waitFor(() => expect(scheduler.snapshot()[0]?.state).toBe('paused'));
+    expect(asked).toEqual(['attempt 0']);
+    scheduler.resume('long');
+    await vi.waitFor(() => expect(working).toBe(1));
+    scheduler.beginExport();
+    await vi.waitFor(() => expect(scheduler.snapshot()[0]?.state).toBe('paused_export'));
+    expect(asked).toEqual(['attempt 0', 'attempt 1']);
+    scheduler.endExport();
+    await vi.waitFor(() => expect(working).toBe(2));
+    release?.();
+    expect(await done).toBe('done');
+  });
+
   it('cancels a job suspended at a checkpoint', async () => {
     const log: string[] = [];
     const scheduler = new CapabilityPackJobScheduler();

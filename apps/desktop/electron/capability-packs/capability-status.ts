@@ -17,6 +17,7 @@ import type {
 } from '@framepilot/shared-types';
 import { CapabilityIdSchema, type InstalledCapabilityPack } from '@framepilot/capability-packs';
 import { compareSemver } from './pack-paths.js';
+import { resolveMatteQuality } from './matte-quality.js';
 
 /**
  * Which pack answers each capability the host knows how to run. Installed records do not carry
@@ -92,7 +93,12 @@ export async function resolveCapabilityPackStatus(
   const ready = candidates
     .filter((record) => record.state === 'installed' && record.health.status === 'healthy')
     .sort((left, right) => compareSemver(right.identity.version, left.identity.version))[0];
-  if (ready !== undefined) return { state: 'ready', capability, pack: ready.identity, ...withHardware };
+  if (ready !== undefined) {
+    const fastMatte =
+      capability === 'subject.matte' &&
+      resolveMatteQuality('fast', dependencies.platform.os, ready.identity.version) === 'fast';
+    return { state: 'ready', capability, pack: ready.identity, ...withHardware, ...(fastMatte ? { fastMatte } : {}) };
+  }
   const proposal = await dependencies.propose(capability);
   const present = candidates[0];
   if (present !== undefined) {
