@@ -307,10 +307,12 @@ describe('BackgroundRemovalRow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove background' }));
     await waitFor(() => expect(bridge.capabilityPackMatte).toHaveBeenCalled());
     expect(bridge.capabilityPackMatte.mock.calls[0]![0]).toMatchObject({ quality: 'fast' });
+    expect(screen.getByText(/Fast works best with one clear subject/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('combobox', { name: 'background removal speed' }));
     fireEvent.click(screen.getByRole('option', { name: 'Best quality (can take hours)' }));
     expect(await screen.findByText(/About 69 minutes on this computer/)).toBeTruthy();
+    expect(screen.queryByText(/Fast works best with one clear subject/)).toBeNull();
   });
 
   it('offers no speed choice, and sends none, where only the models can run', async () => {

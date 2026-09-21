@@ -6,7 +6,7 @@ and the clip was processed as one piece.
 
 Status: **SP0–SP3 shipped** (ADR 0182). The maintainer asked for the structural change on
 2026-09-21. The spike changed the plan: see "F. What the spike found" — the GPU does not rescue
-these models, Apple Vision does. Open: SP4 (Windows), SP5 (precision gates for Fast).
+these models, Apple Vision does. SP5 measured (section G): Fast is a one-clear-subject engine. Open: SP4 (Windows).
 
 ## A. What actually happened (measured on the live job)
 
@@ -132,3 +132,37 @@ must be the pixel's colour when it is NOT in the matte).
 - Apple Vision: <https://developer.apple.com/documentation/vision/vngeneratepersonsegmentationrequest>,
   <https://developer.apple.com/documentation/vision/vngenerateforegroundinstancemaskrequest>
 - Masking speed across editors: <https://larryjordan.com/articles/compare-ai-assisted-masking-in-final-cut-premiere-resolve/>
+
+## G. SP5 — Fast against the 06 per-frame gates (2026-09-22)
+
+`workers/smart-mask/eval/fast_gates.py`, scored split, construction-true fixtures, M1 Pro.
+
+| Category                                          | mean IoU | BF@2px | wrong frames | caught |
+| ------------------------------------------------- | -------- | ------ | ------------ | ------ |
+| hair_busy                                         | 0.994    | 0.958  | 10 / 32      | 0      |
+| product_table                                     | 0.987    | 0.999  | 0 / 32       | –      |
+| fast_motion                                       | 0.941    | 0.762  | 32           | 27     |
+| similar_colour                                    | 0.940    | 0.805  | 32           | 32     |
+| talking_head (film characters behind the subject) | 0.593    | 0.298  | 32           | 32     |
+| walk_pan                                          | 0.504    | 0.445  | 32           | 32     |
+| low_light                                         | 0.270    | 0.276  | 32           | 32     |
+| twin_distractor                                   | 0.185    | 0.350  | 32           | 32     |
+| crossing                                          | 0.138    | 0.139  | 32           | 32     |
+| leave_reenter                                     | 0.013    | 0.014  | 32           | 32     |
+
+Gates: mean IoU ≥ 0.98 in 2/10 categories ✗; error-detection recall 94.4% ✗ (gate 99.5%; was 54.9%
+before the box-disagreement check); review load 78% ✗ (it is high BECAUSE the wrong clips are all
+flagged — on the maintainer's real clip it is 1 frame in 300).
+
+What this means: Fast is correct when Vision has one thing to call foreground and wrong when it
+has several. The fixtures exaggerate this (their backgrounds are film stills full of characters,
+and their subjects are rendered puppets Vision was never trained on), but two people in a shot is
+a real case. The product answer shipped: the Inspector says what Fast is for, and a Fast matte
+that does not fit the box it was given sends the whole clip to review. The engineering answer
+(splitting a fused instance) is open: instance picking cannot do it, and the region follower that
+can regressed three other categories.
+
+- [x] **SP5** measured and recorded; Fast's scope stated in the product. Precision gates NOT met
+      outside the one-clear-subject case.
+- [ ] **SP6** split a fused instance (candidates: Vision person-instance masks for people, a
+      light tracker as the region prior). Needs its own spike.

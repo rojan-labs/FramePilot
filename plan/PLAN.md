@@ -31,8 +31,11 @@ restart loses up to ~100 min; the Jobs bar drew one phase's counter as the job's
   460d2c87 (run 35631571413, all jobs)**, which also cleared two Inspector e2e expectations that
   were already red on main. **Not yet done: a run started from the Inspector inside the desktop
   app** (local Electron e2e is off-limits on this 16 GB machine).
-- [ ] **SP4** Windows Fast engine (blocked: MO-9 hardware) · [ ] **SP5** run Fast against the 06
-  precision gates; no precision claim for Fast until then.
+- [x] **SP5** Fast against the 06 per-frame gates: passes the one-clear-subject categories (0.994 /
+  0.987 IoU), fails crowded, dark and re-entry scenes. Shipped response: the Inspector says what
+  Fast is for, and a matte that does not fit the editor's box sends the whole clip to review
+  (bad-frame recall 55% → 94%; gate 99.5% not met). The run also found and fixed a crash.
+- [ ] **SP4** Windows Fast engine (blocked: MO-9 hardware) · [ ] **SP6** split a fused instance.
 
 **Status snapshot (2026-09-15, latency · accuracy · precision pass — `perf/ai-latency-accuracy-2026-09-14`, PR #121):**
 agent turns decomposed per model call (TRACKING.md §U–§W): thinking effort follows the run

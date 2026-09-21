@@ -17,7 +17,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   hours. Both make the same kind of matte, so brush fixes, locked frames, review and export are
   unchanged. Windows has no Fast engine yet and shows no choice. The assistant's cost check uses
   the engine that will really run, so it no longer refuses ordinary clips as "hours long"
-  (Smart Mask pack 1.1.0, ADR 0182).
+  (Smart Mask pack 1.1.0, ADR 0182). Fast is built for a shot with one clear subject: in a
+  crowded or dark shot it can grab more than you boxed, and when that happens it now sends the
+  whole clip to review instead of looking finished, so you know to run Best quality.
 - **Pause works on a running background removal, and the bar is the whole clip.** Pause (or
   starting an export) now stops the job within seconds and keeps the parts already done; Resume
   continues from there. The Jobs tab and the Inspector show frames finished out of the clip's

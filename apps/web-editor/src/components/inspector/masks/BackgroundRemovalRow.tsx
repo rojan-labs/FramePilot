@@ -233,6 +233,14 @@ export function BackgroundRemovalRow({
               onChange={(value) => setChosenQuality(value)}
             />
           )}
+          {fastAvailable && quality === 'fast' && (
+            // Measured (plan 13 SP5): Fast is right with one clear subject and wrong in crowded
+            // or dark shots, where it now sends the whole clip to review. Say so BEFORE the run.
+            <p className="inspector-empty">
+              Fast works best with one clear subject. For a crowded or dark shot, choose Best
+              quality.
+            </p>
+          )}
           <LabeledSelect
             caption="Edges"
             label="background removal edges"

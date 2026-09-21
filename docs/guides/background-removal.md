@@ -87,6 +87,15 @@ On a Mac the row has a **Speed** choice (ADR 0182):
   self-corrected). The same clip takes 8–17 hours on the same Mac. Use it for a hero shot with
   hair against a busy background, not for every clip.
 
+**Where Fast is wrong, and how you find out** (measured on the precision fixtures, plan 13 SP5):
+Fast is right when the shot has one clear subject (hair on a busy background 0.994 IoU, a product
+on a table 0.987) and wrong when Vision has several things to call foreground — two people, a
+crowd behind the subject, a dark shot, a subject that leaves and comes back. Vision answers "what
+is foreground", not "which of it did you box". When the matte it returns does not fit the box the
+job was given, **every frame of the clip is sent to review** ("the estimates disagree") rather
+than looking finished; that raised the share of bad frames caught from 55% to 94%. If a Fast
+result asks you to review the whole clip, run it again with Best quality.
+
 Both produce the same kind of matte: brush fixes, locked frames, review, text behind the subject
 and export work identically. On Windows there is no Fast engine yet, so there is no choice and
 every job is a Best job.

@@ -66,6 +66,15 @@ non-commercial) and Robust Video Matting (GPL-3.0) are not usable.
 - Fast follows the main subject or the clicked/boxed one by instance overlap. It has no exclude
   clicks and no per-frame model consensus, so its review flags are the image-based checks only.
   Hair-level alpha on hard backgrounds remains Best's job; the Speed choice says so.
-- The 06 precision gates were calibrated for the models. Fast has not been run against them:
-  **no precision claim is made for Fast beyond the measured clip** (SP5).
+- **Fast against the 06 per-frame gates** (`eval/fast_gates.py`, report
+  `reports/smart-mask/2026-09-22-fast-darwin-arm64.json`, construction-true fixtures): 2 of 10
+  categories pass (hair on a busy background, product); crowded scenes, low light, a twin and
+  leave/re-enter fail, because Vision answers "what is foreground", not "which of it was boxed".
+  Fast is therefore the engine for **one clear subject**, and says so in the Inspector. It must
+  not look finished when it is wrong: a seeded matte with more than 30% of its area outside the
+  editor's box sends every frame to review, which took error-detection recall from 55% to 94%
+  (gate: 99.5%, **not met**; the misses are borderline edge frames). The run also found a crash
+  (an invented check code) the first time Vision found no subject — fixed, with a test. A region
+  follower that cuts fused neighbours away was tried and reverted: it rescued the fused cases
+  and regressed fast motion, similar colour and re-entry.
 - A fast matte has its own cache key (`quality: 'fast'`); every matte made before this keeps its key.
