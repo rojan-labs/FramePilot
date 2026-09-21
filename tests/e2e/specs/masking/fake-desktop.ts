@@ -348,7 +348,13 @@ export class FakeDesktop {
               workspace: options.workspace,
               project: context.project,
               projectRevision: context.projectRevision,
-              onProgress: context.onProgress,
+              // The real service stamps the job's id on every progress line; the Inspector matches
+              // on it and silently drops a line without one.
+              onProgress: (progress) =>
+                context.onProgress({
+                  requestId: (intent as { requestId?: unknown }).requestId,
+                  ...progress,
+                } as never),
               resume: context.resume === true,
               suspended,
               desktop: this,
