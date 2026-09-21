@@ -26,8 +26,11 @@ restart loses up to ~100 min; the Jobs bar drew one phase's counter as the job's
   + job ETA in the protocol, the Jobs tab and the Inspector.
 - [x] **SP3** Fast engine (Vision helper in the Smart Mask pack 1.1.0), default on macOS, Best as
   the opt-in Speed choice. Maintainer's clip: **8–17 h → 7.5 min**, fused lamp 405 frames → 0.
-  Evidence: real-pipeline run on the real clip + targeted pytest/vitest; **CI not yet run; not yet
-  exercised inside the packaged desktop app.**
+  Evidence: real-pipeline run on the real clip; the installed 1.1.0 pack driven through the host's
+  own `runCapabilityPackWorker` and its artifact accepted by `verifyMatteStaging`; **CI green on
+  460d2c87 (run 35631571413, all jobs)**, which also cleared two Inspector e2e expectations that
+  were already red on main. **Not yet done: a run started from the Inspector inside the desktop
+  app** (local Electron e2e is off-limits on this 16 GB machine).
 - [ ] **SP4** Windows Fast engine (blocked: MO-9 hardware) · [ ] **SP5** run Fast against the 06
   precision gates; no precision claim for Fast until then.
 
