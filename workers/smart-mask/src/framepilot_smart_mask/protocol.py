@@ -26,6 +26,7 @@ SMART_MASK_CAPABILITIES: Final = ("subject.matte", "subject.segment_frame")
 
 #: Mirrors CAPABILITY_PACK_MATTE_* in worker-protocol.ts.
 MAX_PROMPTS: Final = 512
+MATTE_QUALITIES: Final = ("fast", "best")
 MAX_POINTS: Final = 64
 MAX_REVIEW_RANGES: Final = 4096
 MAX_SIDE: Final = 8192
@@ -84,6 +85,8 @@ FailureCode = Literal[
 ]
 ProgressPhase = Literal[
     "decode",
+    # The Fast engine's survey of the clip (plan 13); already a phase of worker protocol v1.
+    "detect",
     "initialize",
     "prepare",
     "segment",
@@ -203,6 +206,9 @@ class MatteRequest:
     #: The host's content fingerprint of the media (sha256 hex). Part of the job fingerprint, so
     #: a finished window made from different media is never resumed (BR4.12 follow-up F2).
     content_fingerprint: str | None = None
+    #: ``fast`` (Apple Vision) or ``best`` (the models). ``None`` = a host from before plan 13:
+    #: it gets the models and no ``overall`` progress fields, which its strict schema refuses.
+    quality: str | None = None
     capability: str = "subject.matte"
 
 
@@ -509,6 +515,7 @@ def _matte_parameters(value: Any) -> dict[str, Any]:
         "previousArtifact",
         "previewHeight",
         "contentFingerprint",
+        "quality",
     }
     raw = _object(value, keys, "parameters")
     _require(raw, ("output", "prompts", "previewHeight"), "parameters")
@@ -549,7 +556,13 @@ def _matte_parameters(value: Any) -> dict[str, Any]:
             raise _invalid("the inputs handle may list only files a prompt references.")
     if all(prompt.kind in ("brush", "lock") for prompt in prompts) and previous is None:
         raise _invalid("a matte needs a point or box prompt unless it refines a previous artifact.")
+    quality = None
+    if "quality" in raw:
+        quality = raw["quality"]
+        if quality not in MATTE_QUALITIES:
+            raise _invalid("parameters.quality must be fast or best.")
     return {
+        "quality": quality,
         "output": _output_handle(raw["output"]),
         "inputs": inputs,
         "prompts": prompts,
@@ -674,6 +687,7 @@ def progress_message(
     *,
     round_number: int | None = None,
     detail: str | None = None,
+    overall: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     bounded_total = max(total, 1)
     message: dict[str, Any] = {
@@ -690,6 +704,11 @@ def progress_message(
         message["round"] = min(max(round_number, 1), MAX_SELF_CORRECTION_ROUNDS)
     if detail is not None:
         message["detail"] = detail[:512]
+    if overall is not None:
+        # Whole-job frames (plan 13). `completed`/`total` above count one phase of one window.
+        overall_total = max(overall[1], 1)
+        message["overallCompleted"] = min(max(overall[0], 0), overall_total)
+        message["overallTotal"] = overall_total
     return message
 
 

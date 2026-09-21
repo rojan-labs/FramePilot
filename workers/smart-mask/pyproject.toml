@@ -11,7 +11,7 @@
 # this project.
 [project]
 name = "framepilot-smart-mask"
-version = "1.0.0"
+version = "1.1.0"
 description = "FramePilot Smart Mask Capability Pack worker (video subject mattes, interactive segmentation)"
 readme = "README.md"
 license = { text = "Proprietary" }

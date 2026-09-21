@@ -32,6 +32,7 @@ import shutil
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Final
@@ -47,7 +48,7 @@ from .embeddings import EmbeddingCache
 from .encode import concat_segments, decode_gray_frames, encode_stream, packet_count
 from .flow import fine_flow, gray, lab, reliability, warp
 from .flow import flow as dis_flow
-from .foreground import foreground_frame
+from .foreground import fast_foreground_frame, foreground_frame
 from .frames import FrameStore, decode_into
 from .matting import band_alpha
 from .media import encode_frames_json, frames_document
@@ -91,7 +92,7 @@ from .segment import (
     segment_window,
 )
 from .self_correct import CorrectionReport, Run, self_correct
-from .stabilise import stabilise, temporal_vote
+from .stabilise import stabilise, still_stabilise, temporal_vote
 from .tracker import (
     CondPrompt,
     MaskPrompt,
@@ -102,6 +103,17 @@ from .tracker import (
     video_logits,
 )
 from .verify import Thresholds, flag_frames, frame_signals, review_ranges
+from .vision import (
+    BackgroundTwins,
+    Seed,
+    TwinModel,
+    VisionEstimator,
+    apply_gate,
+    faint_islands,
+    small_alpha,
+    small_mask,
+    small_rgb,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -112,6 +124,47 @@ FLOW_CACHE_ENTRIES: Final = 8
 #: Fine flows and CIELAB frames the temporal stage keeps (4 neighbours each way per frame).
 MOTION_CACHE_ENTRIES: Final = 16
 CHECKPOINT_VERSION: Final = 1
+ENGINE_MODELS: Final = "models"
+ENGINE_VISION: Final = "vision"
+#: Fast-engine windows: long enough that background Vision only sometimes takes shows up as
+#: sometimes-taken inside one window, short enough that a restart loses under a minute of work.
+FAST_WINDOW_FRAMES: Final = 240
+FAST_WINDOW_OVERLAP: Final = 30
+#: Alpha strictly between these is the soft edge (not solid background, not solid subject).
+#: Threads for the Fast engine's independent per-frame CPU stages.
+FAST_THREADS: Final = 4
+#: The survey looks at one frame in this many.
+FAST_SURVEY_STEP: Final = 6
+#: The Fast engine measures its checks at this share of the frame size: they are ratios and
+#: pixel distances already scaled by height, and at full size they cost more than Vision does.
+FAST_VERIFY_SCALE: Final = 0.5
+SOFT_BAND_LOW: Final = 8
+SOFT_BAND_HIGH: Final = 247
+#: Where each phase sits inside one window's share of the job, per engine: (start, end) of 1.
+#: Rough by design: it drives a progress bar, and the measured frame rate drives the ETA.
+PHASE_SPANS: Final[dict[str, dict[str, tuple[float, float]]]] = {
+    ENGINE_VISION: {
+        "detect": (0.0, 0.0),
+        "decode": (0.0, 0.1),
+        "segment": (0.1, 0.7),
+        "stabilise": (0.7, 0.8),
+        "verify": (0.8, 0.85),
+        "foreground": (0.85, 0.95),
+        "encode": (0.95, 1.0),
+    },
+    ENGINE_MODELS: {
+        "decode": (0.0, 0.02),
+        "segment": (0.02, 0.4),
+        "refine": (0.4, 0.62),
+        "consensus": (0.62, 0.64),
+        "self_correct": (0.64, 0.82),
+        "matte": (0.82, 0.9),
+        "stabilise": (0.9, 0.94),
+        "verify": (0.94, 0.96),
+        "foreground": (0.96, 0.99),
+        "encode": (0.99, 1.0),
+    },
+}
 SEGMENT_KINDS: Final = {
     "matte.mkv": "matte",
     "foreground.mkv": "foreground",
@@ -142,6 +195,9 @@ class PipelineConfig:
     window_seconds_per_frame: float = WINDOW_SECONDS_PER_FRAME
     #: Eval only: write each window's independent estimates here for error attribution.
     eval_dump: Path | None = None
+    #: ``models`` = SAM + BiRefNet + consensus + self-correction (Best). ``vision`` = Apple Vision
+    #: (Fast, macOS). Part of the fingerprint, so a resume never mixes the two.
+    engine: str = ENGINE_MODELS
 
 
 @dataclass
@@ -228,6 +284,18 @@ class MotionCache:
             self._lab(source), self._lab(target), forward, self._flow(target, source)
         )
         return forward, trust
+
+
+def _in_chunks(count: int, work: Callable[[range], list[Any]]) -> list[Any]:
+    """``work`` over contiguous chunks of ``range(count)`` on a few threads, results in order.
+
+    numpy and OpenCV release the GIL, and these per-frame stages are independent; contiguous
+    chunks let each thread keep its own small flow cache.
+    """
+    size = max(1, -(-count // FAST_THREADS))
+    chunks = [range(start, min(start + size, count)) for start in range(0, count, size)]
+    with ThreadPoolExecutor(max_workers=FAST_THREADS) as pool:
+        return [item for part in pool.map(work, chunks) for item in part]
 
 
 def fingerprint(
@@ -366,6 +434,8 @@ class JobContext:
     records: list[FrameRecord]
     segments: dict[str, list[str]]
     carried: dict[int, U8] = field(default_factory=dict)
+    #: Fast engine: background Vision sometimes fuses into the subject (see ``_fast_survey``).
+    twin_mask: TwinModel | None = None
     #: Prompt frames of a partial re-run the previous matte does not already satisfy (BR3.17).
     affecting: set[int] = field(default_factory=set)
 
@@ -430,11 +500,46 @@ class MatteJob:
         self.windows_dir = self.output.private_directory(WINDOWS_DIRECTORY)
         self.scratch_dir = self.output.private_directory(SCRATCH_DIRECTORY)
         self.timings: dict[str, float] = {}
+        #: Fast engine: the seed the subject was last picked with; later windows follow it.
+        self._fast_seed: Seed | None = None
         self.rounds_used = 0
         self._sam: SamModules | None = None
         self._matting: MattingModel | None = None
         self._tile: TileChoice | None = None
         self.click_choices: list[dict[str, Any]] = []
+        #: Whole-job progress for a host that asked for it (it sent ``quality``): job frames
+        #: finished before the current window, the window's committed frames, the job's frames.
+        self._overall_base = 0
+        self._overall_window = 0
+        self._overall_total = request.media.frame_count
+        self._overall_sent = 0
+        self._sink = progress
+        if request.quality is not None:
+            self.progress = self._progress_with_overall  # type: ignore[assignment]
+
+    def _progress_with_overall(
+        self,
+        phase: Any,
+        completed: int,
+        total: int,
+        *,
+        round_number: int | None = None,
+        detail: str | None = None,
+    ) -> None:
+        spans = PHASE_SPANS.get(self.config.engine, {})
+        start, end = spans.get(phase, (0.0, 0.0))
+        inside = start + (end - start) * (completed / total if total else 0.0)
+        done = self._overall_base + round(self._overall_window * inside)
+        # Repeated phases (self-correction re-refines) must not walk the bar backwards.
+        self._overall_sent = max(self._overall_sent, min(done, self._overall_total))
+        self._sink(
+            phase,
+            completed,
+            total,
+            round_number=round_number,
+            detail=detail,
+            overall=(self._overall_sent, max(self._overall_total, 1)),
+        )
 
     # model lifetime: one family in memory at a time ---------------------------------------------
 
@@ -525,9 +630,13 @@ class MatteJob:
             )
         document = frames_document(info, first, count)
         pts: list[int] = document["pts"]
-        self._tile = choose_tile(
-            self.provider.matting_tiles, self.config.memory_ceiling_bytes, self.config.matting_tile
-        )
+        # The Fast engine loads no matting model, so a machine too small for any tile can run it.
+        if self.config.engine != ENGINE_VISION:
+            self._tile = choose_tile(
+                self.provider.matting_tiles,
+                self.config.memory_ceiling_bytes,
+                self.config.matting_tile,
+            )
         resolved = resolve_prompts(request, tuple(pts), width, height, self.inputs)
         records = [FrameRecord(pts=value) for value in pts]
         for index in resolved.locked:
@@ -654,6 +763,9 @@ class MatteJob:
             directory = self.windows_dir / f"{work_index + 1 + plan.index}"
             done = directory / "done.json"
             state = _read_checkpoint(done, ctx.fingerprint) if done.is_file() else None
+            self._overall_total = ctx.count
+            self._overall_base = start + plan.commit_start
+            self._overall_window = plan.commit_end - plan.commit_start
             if state is not None:
                 self._restore(ctx, state, directory)
                 continue
@@ -683,6 +795,9 @@ class MatteJob:
             self._timed("windows", started)
 
     def _window(self, ctx: JobContext, window: WindowState) -> None:
+        if self.config.engine == ENGINE_VISION:
+            self._window_fast(ctx, window)
+            return
         count = window.count
         self._decode(ctx, window)
         prompts = self._window_prompts(ctx, window)
@@ -799,6 +914,183 @@ class MatteJob:
             carried=ctx.carried,
             rounds=report.rounds,
         )
+
+    # fast engine -------------------------------------------------------------------------------
+
+    def _window_fast(self, ctx: JobContext, window: WindowState) -> None:
+        """Plan 13: one Vision estimate per frame in place of SAM, BiRefNet, consensus and
+        self-correction; everything after the estimate (the editor's constraints, band
+        stabilisation, the image-based checks, foreground colour, encode, checkpoint) is shared.
+        """
+        count = window.count
+        store = window.store
+        self._decode(ctx, window)
+        started = time.monotonic()
+        alphas = window.scratch.array("alpha", (count, ctx.height, ctx.width), np.uint8)
+        solids: list[Bool] = []
+        persons: list[Bool] = []
+        found: list[bool] = []
+        twins = self._fast_survey(ctx)
+        seeds = self._fast_seeds(ctx, window)
+        with VisionEstimator(ctx.width, ctx.height) as estimator:
+            for i in range(count):
+                self._check()
+                if i in seeds:
+                    estimator.reset()
+                estimate = estimator.estimate(store[i], seeds.get(i) or self._fast_seed)
+                if i in seeds:
+                    self._fast_seed = seeds[i]
+                alphas[i] = estimate.alpha
+                solids.append(small_mask(estimate.alpha))
+                persons.append(estimate.person)
+                found.append(estimate.found)
+                self.progress("segment", i + 1, count, detail="fast" if i == 0 else None)
+        for i in range(count):
+            gate = twins.gate(solids[i], persons[i], small_rgb(store[i]))
+            gated = apply_gate(alphas[i], gate)
+            faint = faint_islands(small_alpha(gated))
+            alphas[i] = apply_gate(gated, ~faint) if faint.any() else gated
+        self._timed("segment", started)
+
+        bands = window.scratch.array("band", (count, ctx.height, ctx.width), np.bool_)
+        fixed: list[Bool] = []
+        for i in range(count):
+            frame = ctx.resolved.frames.get(window.start + i)
+            alphas[i] = apply_constraints(alphas[i], frame)
+            bands[i] = _soft_band(alphas[i], edge_band(frame))
+            fixed.append(constrained_pixels(frame, (ctx.height, ctx.width)))
+        stabilised = self._stabilise(window, alphas, bands, fixed)
+
+        started = time.monotonic()
+        small = _Downscaled(store, alphas, bands, count, FAST_VERIFY_SCALE)
+        unmeasured = (float("nan"), float("nan"))
+        measured = {"frames": 0}
+
+        def measure(chunk: range) -> list[dict[str, Any]]:
+            flows = FlowCache(small.grays)
+            out = []
+            for i in chunk:
+                self._check()
+                out.append(
+                    frame_signals(
+                        i,
+                        small.alphas,
+                        small.grays,
+                        flows,
+                        {"estimates": 1.0},
+                        unmeasured,
+                        small.bands,
+                    )
+                )
+                measured["frames"] += 1
+                self.progress("verify", min(measured["frames"], count), count)
+            return out
+
+        signals = _in_chunks(count, measure)
+        # One estimate per frame: the checks that compare model estimates cannot run. The
+        # island/hole count check is off too: on the maintainer's clip it was 81 of 88 flags, all
+        # of them the gap between an arm and the body opening or closing, which is the picture
+        # changing, not the matte failing. 85 "moments need a look" on a good matte teaches the
+        # editor to ignore the list.
+        thresholds = replace(
+            self.config.thresholds,
+            b_components=False,
+            e_sam_pair_iou=None,
+            e_sam_birefnet_iou=None,
+            e_hard_disagreement=None,
+            f_object_score=False,
+        )
+        locked = {i - window.start for i in ctx.resolved.locked if window.start <= i < window.end}
+        flags = flag_frames(_without_unmeasured(signals), thresholds, locked)
+        self._timed("verify", started)
+
+        for i in window.committed:
+            record = ctx.records[window.start + i]
+            record.checks = flags[i] if found[i] else [*flags[i], "target_lost"]
+            record.refine = "vision"
+            record.stabilised_pixels = stabilised[i]
+            record.signals = signals[i]
+        ctx.carried.clear()
+        self._encode_window(ctx, window, alphas)
+        _write_checkpoint(
+            window.directory,
+            ctx.fingerprint,
+            records=[ctx.records[window.start + i].as_json() for i in window.committed],
+            first=window.commit_start,
+            carried={},
+            rounds=0,
+        )
+
+    def _fast_survey(self, ctx: JobContext) -> TwinModel:
+        """Background that Vision sometimes fuses into the subject, judged over the WHOLE job.
+
+        Gathering the evidence window by window left the first windows ungated (on the
+        maintainer's clip the lamp stayed in 33% of the first window's frames, 13% overall);
+        a sparse look through the whole range first gets 2%. It costs one extra decode plus one
+        Vision call per :data:`FAST_SURVEY_STEP` frames, and is kept for a resumed job.
+        """
+        if ctx.twin_mask is not None:
+            return ctx.twin_mask
+        saved = self.windows_dir / f"survey-{ctx.fingerprint[:16]}.npz"
+        if saved.is_file():
+            with np.load(saved) as data:
+                ctx.twin_mask = TwinModel(np.array(data["region"]), np.array(data["colour"]))
+            return ctx.twin_mask
+        started = time.monotonic()
+        evidence: BackgroundTwins | None = None
+        first = self.request.media.first_frame
+        frames = self.media.frames(self.request.media.absolute_path, ctx.info, first, ctx.count)
+        with VisionEstimator(ctx.width, ctx.height) as estimator:
+            seed = self._fast_first_seed(ctx)
+            for index, frame in enumerate(frames):
+                if index % FAST_SURVEY_STEP:
+                    continue
+                self._check()
+                estimate = estimator.estimate(frame, seed)
+                rgb = small_rgb(frame)
+                if evidence is None:
+                    evidence = BackgroundTwins(rgb.shape[0], rgb.shape[1])
+                evidence.add(small_mask(estimate.alpha), rgb)
+                self.progress("detect", index + 1, ctx.count)
+        assert evidence is not None
+        ctx.twin_mask = evidence.model()
+        np.savez_compressed(saved, region=ctx.twin_mask.region, colour=ctx.twin_mask.colour)
+        self._timed("survey", started)
+        return ctx.twin_mask
+
+    def _fast_first_seed(self, ctx: JobContext) -> Seed | None:
+        """The editor's earliest click or box, which names the subject for the whole job."""
+        for index in sorted(ctx.resolved.frames):
+            seeds = self._seed_of(ctx.resolved.frames[index])
+            if seeds is not None:
+                return seeds
+        return None
+
+    @staticmethod
+    def _seed_of(frame: FramePrompts) -> Seed | None:
+        include = [
+            coord for coord, label in zip(frame.coords, frame.labels, strict=True) if label != 0
+        ]
+        if not include:
+            return None
+        xs = [x for x, _y in include]
+        ys = [y for _x, y in include]
+        return Seed(min(xs), min(ys), max(xs), max(ys))
+
+    def _fast_seeds(self, ctx: JobContext, window: WindowState) -> dict[int, Seed]:
+        """The editor's clicks and boxes in this window, as Vision seeds by window frame."""
+        seeds: dict[int, Seed] = {}
+        for index, frame in ctx.resolved.frames.items():
+            if not window.start <= index < window.end:
+                continue
+            seed = self._seed_of(frame)
+            if seed is not None:
+                seeds[index - window.start] = seed
+        if not seeds and self._fast_seed is None:
+            # A window before (or a resumed job after) the seeded frame still follows the subject
+            # the editor named, not whatever is largest.
+            self._fast_seed = self._fast_first_seed(ctx)
+        return seeds
 
     # stages --------------------------------------------------------------------------------------
 
@@ -1081,12 +1373,30 @@ class MatteJob:
         if not self.config.stabilise:
             return [0] * count
         self.progress("stabilise", 0, count)
-        smoothed, changed = stabilise(
-            [alphas[i] for i in range(count)],
-            [bands[i] for i in range(count)],
-            fixed,
-            MotionCache(lambda index: window.store[index]),
-        )
+        alpha_list = [alphas[i] for i in range(count)]
+        band_list = [bands[i] for i in range(count)]
+        if self.config.engine == ENGINE_VISION:
+            pairs = _in_chunks(
+                count,
+                lambda chunk: list(
+                    zip(
+                        *still_stabilise(
+                            alpha_list,
+                            band_list,
+                            fixed,
+                            lambda index: window.store[index],
+                            indices=chunk,
+                        ),
+                        strict=True,
+                    )
+                ),
+            )
+            smoothed = [pair[0] for pair in pairs]
+            changed = [pair[1] for pair in pairs]
+        else:
+            smoothed, changed = stabilise(
+                alpha_list, band_list, fixed, MotionCache(lambda index: window.store[index])
+            )
         for i in range(count):
             alphas[i] = smoothed[i]
         self.progress("stabilise", count, count)
@@ -1124,7 +1434,21 @@ class MatteJob:
         committed = window.committed
         started = time.monotonic()
         foregrounds: list[U8] = []
-        if self._wants_foreground():
+        if self._wants_foreground() and self.config.engine == ENGINE_VISION:
+            done = {"frames": 0}
+
+            def colour(chunk: range) -> list[U8]:
+                out = []
+                for position in chunk:
+                    self._check()
+                    i = committed[position]
+                    out.append(fast_foreground_frame(window.store[i], alphas[i]))
+                    done["frames"] += 1
+                    self.progress("foreground", min(done["frames"], len(committed)), len(committed))
+                return out
+
+            foregrounds = _in_chunks(len(committed), colour)
+        elif self._wants_foreground():
             for position, i in enumerate(committed):
                 self._check()
                 foregrounds.append(foreground_frame(window.store[i], alphas[i]))
@@ -1179,6 +1503,7 @@ class MatteJob:
 
     def _finish(self, ctx: JobContext) -> MatteOutcome:
         count = ctx.count
+        self._overall_base, self._overall_window = count, 0
         self.progress("encode", 0, count, detail="joining windows")
         for name, parts in ctx.segments.items():
             destination = self.output.artifact_path(name)
@@ -1274,6 +1599,42 @@ class MatteJob:
         if report.get("fallbacks") or "cpu" in chosen:
             return "cpu"
         return result_provider(sorted(chosen)[0])
+
+
+class _Downscaled:
+    """A window's frames, mattes and bands at the Fast engine's checking size."""
+
+    def __init__(self, store: Any, alphas: Any, bands: Any, count: int, scale: float) -> None:
+        import cv2
+
+        height, width = alphas[0].shape
+        size = (max(1, round(width * scale)), max(1, round(height * scale)))
+
+        def shrink(chunk: range) -> list[tuple[Any, Any, Any]]:
+            return [
+                (
+                    gray(cv2.resize(store[i], size, interpolation=cv2.INTER_AREA)),
+                    cv2.resize(alphas[i], size, interpolation=cv2.INTER_AREA),
+                    cv2.resize(bands[i].astype(np.uint8), size, interpolation=cv2.INTER_NEAREST)
+                    > 0,
+                )
+                for i in chunk
+            ]
+
+        rows = _in_chunks(count, shrink)
+        self.grays = [row[0] for row in rows]
+        self.alphas = [row[1] for row in rows]
+        self.bands = [row[2] for row in rows]
+
+
+def _soft_band(alpha: U8, extra: Bool | None) -> Bool:
+    """The Fast engine's edge band: where the matte is fractional, plus the editor's Edge strokes.
+
+    Band-only stabilisation and the band checks work here; solid subject and solid background
+    are never touched.
+    """
+    band = (alpha > SOFT_BAND_LOW) & (alpha < SOFT_BAND_HIGH)
+    return band if extra is None else band | extra
 
 
 def _dump_estimates(

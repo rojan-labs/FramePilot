@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Final
 
 PACK_ID: Final = "framepilot.smart-mask"
-PACK_VERSION: Final = "1.0.0"
+PACK_VERSION: Final = "1.1.0"
 #: Sorted, and exactly what this worker can actually do.
 PACK_CAPABILITIES: Final = ("subject.matte", "subject.segment_frame")
 #: Bumped when the pipeline changes what an artifact's pixels mean (recorded in report.json).

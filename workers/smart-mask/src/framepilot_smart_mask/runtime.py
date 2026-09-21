@@ -87,6 +87,7 @@ class ProgressSink(Protocol):
         *,
         round_number: int | None = None,
         detail: str | None = None,
+        overall: tuple[int, int] | None = None,
     ) -> None: ...
 
 
@@ -155,6 +156,7 @@ class ProgressChannel:
         *,
         round_number: int | None = None,
         detail: str | None = None,
+        overall: tuple[int, int] | None = None,
     ) -> None:
         with self._lock:
             if self._stopped.is_set():
@@ -167,6 +169,7 @@ class ProgressChannel:
                 "completed": completed,
                 "total": total,
                 "round_number": round_number,
+                "overall": overall,
             }
             if (
                 not changed
@@ -177,7 +180,7 @@ class ProgressChannel:
                 return
             self._phase = phase
             self._at = now
-            self._emit(phase, completed, total, round_number, detail)
+            self._emit(phase, completed, total, round_number, detail, overall)
 
     def _emit(
         self,
@@ -186,6 +189,7 @@ class ProgressChannel:
         total: int,
         round_number: int | None,
         detail: str | None,
+        overall: tuple[int, int] | None = None,
     ) -> None:
         self._write(
             encode_line(
@@ -196,6 +200,7 @@ class ProgressChannel:
                     total,
                     round_number=round_number,
                     detail=detail,
+                    overall=overall,
                 )
             )
         )
@@ -214,6 +219,7 @@ class ProgressChannel:
                 int(last["total"]),  # type: ignore[call-overload]
                 round_number if phase == "self_correct" else None,  # type: ignore[arg-type]
                 None,
+                last.get("overall"),  # type: ignore[arg-type]
             )
             self._at = self._clock()
 

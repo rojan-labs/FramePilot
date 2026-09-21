@@ -89,6 +89,10 @@ trap 'rm -rf "$STAGE" "$INPUT_JSON" "$RESULT_JSON"' EXIT
 mkdir -p "$STAGE/bin" "$STAGE/models"
 cp "$WORKER_DIR/.venv/bin/framepilot-smart-mask" "$STAGE/bin/"
 cp "$FFMPEG_DIR/ffmpeg" "$FFMPEG_DIR/ffprobe" "$STAGE/bin/"
+# The Fast engine's native helper (plan 13): Apple Vision, driven by the worker over a pipe.
+echo "Building the Vision helper (Fast background removal)..." >&2
+bash "$WORKER_DIR/native/vision-matte/build.sh"
+cp "$WORKER_DIR/native/vision-matte/build/fp-vision-matte" "$STAGE/bin/"
 # Hard links keep the 1.4 GB of graphs from being duplicated in the temporary stage.
 ln "$MODELS_DIR"/*.onnx "$MODELS_DIR"/*.npz "$STAGE/models/" 2>/dev/null \
   || cp "$MODELS_DIR"/*.onnx "$MODELS_DIR"/*.npz "$STAGE/models/"
@@ -97,7 +101,7 @@ STORE_ROOT="${FRAMEPILOT_DEV_STORE_ROOT:-$HOME/Library/Application Support/@fram
 cat > "$INPUT_JSON" <<JSON
 {
   "packId": "framepilot.smart-mask",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "payloadRoot": "$STAGE",
   "entrypoint": "bin/framepilot-smart-mask",
   "capabilities": ["subject.matte", "subject.segment_frame"],

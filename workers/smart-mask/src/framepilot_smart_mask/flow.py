@@ -8,6 +8,7 @@ single pixels, and half resolution keeps 4K flow bounded.
 
 from __future__ import annotations
 
+import threading
 from typing import Any, Final
 
 import cv2
@@ -36,12 +37,23 @@ _dis: Any = None
 _fine: Any = None
 
 
+_local = threading.local()
+
+
 def _estimator() -> Any:
+    # One estimator per thread: a DISOpticalFlow object keeps state between calls and crashes
+    # the process (SIGTRAP) when two threads share it, as the Fast engine's threaded checks did.
     global _dis
-    if _dis is None:
-        create = getattr(cv2, "DISOpticalFlow_create")  # noqa: B009 - absent from OpenCV's stubs
-        _dis = create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
-    return _dis
+    if threading.current_thread() is threading.main_thread():
+        if _dis is None:
+            create = getattr(cv2, "DISOpticalFlow_create")  # noqa: B009 - absent from OpenCV's stubs
+            _dis = create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
+        return _dis
+    own = getattr(_local, "dis", None)
+    if own is None:
+        create = getattr(cv2, "DISOpticalFlow_create")  # noqa: B009
+        own = _local.dis = create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
+    return own
 
 
 def gray(frame: npt.NDArray[np.uint8]) -> npt.NDArray[Any]:

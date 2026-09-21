@@ -189,6 +189,16 @@ for archive in lock.get("archive", []):
     echo "Building the LGPL-only ffmpeg..." >&2
     "$WORKER_DIR/tools/build_ffmpeg_lgpl.sh" "$PAYLOAD/bin" >&2
   fi
+  # A native helper the worker drives on macOS (Smart Mask's Fast engine, plan 13: Apple's Vision
+  # framework has no Python binding a pack may ship). Built here so it is inside the payload the
+  # pack is hashed, signed and notarized as; other platforms simply do not get one, and the worker
+  # then refuses Fast with a typed error rather than falling back to an hours-long job.
+  if [[ "$(uname -s)" == "Darwin" && -x "$WORKER_DIR/native/vision-matte/build.sh" ]]; then
+    echo "Building the Vision helper..." >&2
+    "$WORKER_DIR/native/vision-matte/build.sh" >&2
+    cp "$WORKER_DIR/native/vision-matte/build/fp-vision-matte" "$PAYLOAD/bin/"
+    chmod 755 "$PAYLOAD/bin/fp-vision-matte"
+  fi
 
   assert_standalone
 }

@@ -48,6 +48,15 @@ OpenCV's wheel redistributes FFmpeg (LGPL-2.1-or-later) and other natives listed
 `LICENSE-3RD-PARTY.txt`; `--check` verifies the notice still lists them. The pack never decodes
 through OpenCV's FFmpeg (`cv2.VideoCapture` has no pts or edit-list semantics).
 
+## The Fast engine's native helper (`bin/fp-vision-matte`, macOS only)
+
+One Swift source file of this project (`native/vision-matte/main.swift`, proprietary like the
+worker), compiled by the pack build and linked only against Apple system frameworks (Vision,
+Core Image, Core Video, Accelerate, Foundation). It ships **no model and no third-party code**:
+the segmentation it returns comes from the operating system's Vision framework, used under the
+macOS SDK terms like any other system API. Nothing to attribute, nothing to add to the SBOM
+beyond the binary itself (ADR 0182).
+
 ## FFmpeg: an LGPL-only binary, not PyAV
 
 Decode and encode run through `bin/ffmpeg` and `bin/ffprobe`, built by

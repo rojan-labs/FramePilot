@@ -51,10 +51,10 @@ Float = npt.NDArray[Any]
 MotionFn = Callable[[int, int], tuple[Float, Float]]
 
 
-def _neighbours(index: int, count: int) -> list[int]:
+def _neighbours(index: int, count: int, radius: int = RADIUS) -> list[int]:
     return [
         n
-        for offset in range(1, RADIUS + 1)
+        for offset in range(1, radius + 1)
         for n in (index - offset, index + offset)
         if 0 <= n < count
     ]
@@ -90,10 +90,13 @@ def stabilise(
     bands: list[Bool],
     fixed: list[Bool],
     motion: MotionFn,
+    radius: int = RADIUS,
 ) -> tuple[list[npt.NDArray[np.uint8]], list[int]]:
     """Return band-smoothed alphas and the number of changed pixels per frame.
 
-    ``fixed[t]`` marks pixels that must not change (locks, brush keep/remove).
+    ``fixed[t]`` marks pixels that must not change (locks, brush keep/remove). ``radius`` is the
+    number of frames each way that smooth; the Fast engine uses 1 (its estimates are already
+    temporally coherent, and motion is two thirds of its per-frame cost).
     """
     count = len(alphas)
     out: list[npt.NDArray[np.uint8]] = []
@@ -106,7 +109,7 @@ def stabilise(
             continue
         total = alphas[index].astype(np.float32) * CENTRE_WEIGHT
         weight = np.full(total.shape, CENTRE_WEIGHT, np.float32)
-        for neighbour in _neighbours(index, count):
+        for neighbour in _neighbours(index, count, radius):
             forward, trust = motion(neighbour, index)
             total += trust * warp(alphas[neighbour].astype(np.float32), forward)
             weight += trust
@@ -118,4 +121,56 @@ def stabilise(
     return out, changed
 
 
-__all__ = ["NEIGHBOUR_WEIGHT", "RADIUS", "stabilise", "temporal_vote"]
+def still_stabilise(
+    alphas: list[npt.NDArray[np.uint8]],
+    bands: list[Bool],
+    fixed: list[Bool],
+    frame: Callable[[int], npt.NDArray[np.uint8]],
+    radius: int = RADIUS,
+    indices: range | None = None,
+) -> tuple[list[npt.NDArray[np.uint8]], list[int]]:
+    """:func:`stabilise` for the Fast engine: no optical flow, and only the band's bounding box.
+
+    Optical flow was two thirds of the Fast engine's time per frame. Shimmer is visible on edges
+    that stand still; an edge that moves is hidden by its own motion. So neighbours vote at the
+    SAME pixel, weighted by how alike the two frames are there (the photometric reliability the
+    flow path uses, at zero motion): still edges are smoothed, moving ones are left exactly as
+    estimated, and nothing ghosts. ``frame(i)`` is frame ``i`` as RGB. ``indices`` limits the
+    frames returned (every frame still reads its neighbours' ORIGINAL alphas), so callers can
+    split the window across threads.
+    """
+    import cv2
+
+    from .flow import PHOTOMETRIC_PATCH, PHOTOMETRIC_SIGMA, lab
+
+    count = len(alphas)
+    out: list[npt.NDArray[np.uint8]] = []
+    changed: list[int] = []
+    patch = (2 * PHOTOMETRIC_PATCH + 1, 2 * PHOTOMETRIC_PATCH + 1)
+    for index in indices if indices is not None else range(count):
+        editable = bands[index] & ~fixed[index]
+        if count < 2 or not editable.any():
+            out.append(alphas[index])
+            changed.append(0)
+            continue
+        ys, xs = np.nonzero(editable)
+        box = np.s_[int(ys.min()) : int(ys.max()) + 1, int(xs.min()) : int(xs.max()) + 1]
+        own_lab = lab(np.ascontiguousarray(frame(index)[box]))
+        total = alphas[index][box].astype(np.float32) * CENTRE_WEIGHT
+        weight = np.full(total.shape, CENTRE_WEIGHT, np.float32)
+        for neighbour in _neighbours(index, count, radius):
+            other_lab = lab(np.ascontiguousarray(frame(neighbour)[box]))
+            residual = cv2.blur(np.sqrt(((other_lab - own_lab) ** 2).sum(axis=-1)), patch)
+            trust = NEIGHBOUR_WEIGHT * np.exp(-((residual / PHOTOMETRIC_SIGMA) ** 2))
+            total += trust * alphas[neighbour][box].astype(np.float32)
+            weight += trust
+        values = np.clip(np.round(total / weight), 0, 255).astype(np.uint8)
+        result = alphas[index].copy()
+        local = editable[box]
+        result[box][local] = values[local]
+        out.append(result)
+        changed.append(int((result != alphas[index]).sum()))
+    return out, changed
+
+
+__all__ = ["NEIGHBOUR_WEIGHT", "RADIUS", "stabilise", "still_stabilise", "temporal_vote"]

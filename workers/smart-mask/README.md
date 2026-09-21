@@ -18,6 +18,20 @@ Execution providers are enabled by parity evidence only (`models.py` `PARITY_TAB
 SAM and BiRefNet both run on the **CPU EP**. CoreML is disabled for both on the measured
 hardware; DirectML and Windows ML are unmeasured (MO-9) and therefore disabled.
 
+## Two engines (ADR 0182)
+
+`parameters.quality` picks one; everything after the per-frame estimate is shared.
+
+| | `best` (and any request without `quality`) | `fast` (macOS) |
+| --- | --- | --- |
+| Estimate | SAM 2.1 passes → BiRefNet → consensus → self-correction | Apple Vision, via `native/vision-matte` (`vision.py`) |
+| Per 1080p frame, M1 Pro | 17–40 s | 0.3 s end to end |
+| Windows | 300 frames, 60 overlap | 240 frames, 30 overlap, after a sparse survey of the whole job |
+| Cleans up | disagreement between models | background objects Vision fuses into the subject (`BackgroundTwins`), faint islands |
+
+Build the helper with `native/vision-matte/build.sh` (needs the Xcode command line tools); the
+pack build and `scripts/dev-register-smart-mask.sh` do it for you.
+
 ## Pipeline
 
 `decode → prompts → SAM forward + backward (windows of 300, 60 overlap, bounded memory bank)

@@ -100,6 +100,7 @@ def make_clip(path: Path, frames: np.ndarray, rate: int = 24) -> None:
 def request_for(
     clip: Path, staging: Path, count: int, prompts: list[dict[str, Any]], *, inputs: dict[str, Any] | None = None,
     previous: str | None = None, first: int = 0, files: list[str] | None = None,
+    quality: str | None = None,
 ) -> MatteRequest:  # fmt: skip
     parameters: dict[str, Any] = {
         "output": {
@@ -115,6 +116,8 @@ def request_for(
         parameters["inputs"] = inputs
     if previous is not None:
         parameters["previousArtifact"] = previous
+    if quality is not None:
+        parameters["quality"] = quality
     message = {
         "type": "request", "protocolVersion": 1, "requestId": "job-1", "projectRevision": 1,
         "media": {"handleId": "m", "assetId": "a", "absolutePath": str(clip), "sourceStartSeconds": 0.0,
@@ -138,8 +141,11 @@ def run_job(request: MatteRequest, provider: FakeProvider | None = None, config:
         *,
         round_number: int | None = None,
         detail: str | None = None,
+        overall: tuple[int, int] | None = None,
     ) -> None:
-        events.append((phase, completed, total))
+        events.append(
+            (phase, completed, total) if overall is None else (phase, completed, total, overall)
+        )
 
     job = MatteJob(
         request,

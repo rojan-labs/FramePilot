@@ -106,6 +106,27 @@ def pipeline_config(environment: Mapping[str, str] | None = None) -> Any:
     )
 
 
+def config_for(config: Any, quality: str | None) -> Any:
+    """The pipeline configuration a request's ``quality`` selects (plan 13).
+
+    ``fast`` is the Vision engine with its own window plan; anything else is the models, exactly
+    as configured. A Fast request on a platform without the helper fails with a typed refusal in
+    the estimator: it must never fall back, silently, to a job that takes hours.
+    """
+    if quality != "fast":
+        return config
+    from dataclasses import replace
+
+    from .pipeline import ENGINE_VISION, FAST_WINDOW_FRAMES, FAST_WINDOW_OVERLAP
+
+    return replace(
+        config,
+        engine=ENGINE_VISION,
+        window_frames=FAST_WINDOW_FRAMES,
+        window_overlap=FAST_WINDOW_OVERLAP,
+    )
+
+
 class PackServices:
     """The real :class:`WorkerServices`."""
 
@@ -159,7 +180,7 @@ class PackServices:
                 provider=self.provider,
                 media=self.tools,
                 tools=ToolPaths(str(self.tools.ffmpeg), str(self.tools.ffprobe), report),
-                config=self.config,
+                config=config_for(self.config, request.quality),
                 progress=progress,
                 cancellation=cancellation,
                 memory_probe=governor.report,

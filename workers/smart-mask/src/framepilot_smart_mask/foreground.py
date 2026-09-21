@@ -128,4 +128,67 @@ def foreground_frame(
     return out
 
 
-__all__ = ["estimate_foreground", "foreground_frame"]
+#: Blur-Fusion radii at 1080p (Forte & Pitié, "Approximate Fast Foreground Colour Estimation",
+#: ICIP 2021): a wide pass to reach clean colour on both sides of the edge, a narrow one to
+#: restore detail.
+FUSION_RADII_1080P: Final = (90, 6)
+FUSION_EPSILON: Final = 1e-5
+#: Blurs at least this wide are smooth enough to compute at a quarter of the size.
+FUSION_DOWNSCALE_FROM: Final = 16
+
+
+def _wide_blur(values: Float, radius: int) -> Float:
+    """A box blur; wide ones run at a quarter of the size, where they cost a sixteenth."""
+    if radius < FUSION_DOWNSCALE_FROM:
+        return np.asarray(cv2.blur(values, (2 * radius + 1, 2 * radius + 1)))
+    height, width = values.shape[:2]
+    small = cv2.resize(
+        values, (max(1, width // 4), max(1, height // 4)), interpolation=cv2.INTER_AREA
+    )
+    reach = max(1, radius // 4)
+    blurred = cv2.blur(small, (2 * reach + 1, 2 * reach + 1))
+    return np.asarray(cv2.resize(blurred, (width, height), interpolation=cv2.INTER_LINEAR))
+
+
+def _blur_fusion(
+    image: Float, alpha: Float, foreground: Float, background: Float, radius: int
+) -> tuple[Float, Float]:
+    a = alpha[..., None]
+    blurred_a = _wide_blur(alpha, radius)[..., None]
+    blurred_f = _wide_blur(foreground * a, radius) / (blurred_a + FUSION_EPSILON)
+    blurred_b = _wide_blur(background * (1 - a), radius) / ((1 - blurred_a) + FUSION_EPSILON)
+    blurred_f = blurred_f + a * (image - a * blurred_f - (1 - a) * blurred_b)
+    return np.clip(blurred_f, 0.0, 1.0), blurred_b
+
+
+def fast_foreground_frame(
+    frame: npt.NDArray[np.uint8], alpha: npt.NDArray[np.uint8]
+) -> npt.NDArray[np.uint8]:
+    """:func:`foreground_frame` for the Fast engine: Blur-Fusion instead of the multi-level solve.
+
+    The multi-level solver costs ~1.6 s per 1080p frame, which was noise beside 20 s of model
+    time and is most of the budget beside 50 ms of Vision. Two box-blur passes cost a few tens
+    of milliseconds and remove the same background spill from the soft edge.
+    """
+    height, width = alpha.shape
+    out = np.zeros((height, width, 3), np.uint8)
+    soft = (alpha > 0) & (alpha < 255)
+    if not soft.any():
+        return out
+    ys, xs = np.nonzero(soft)
+    wide = max(1, round(FUSION_RADII_1080P[0] * height / 1080))
+    top, bottom = max(int(ys.min()) - wide, 0), min(int(ys.max()) + wide + 1, height)
+    left, right = max(int(xs.min()) - wide, 0), min(int(xs.max()) + wide + 1, width)
+    image = frame[top:bottom, left:right].astype(np.float32) / 255.0
+    local_alpha = alpha[top:bottom, left:right].astype(np.float32) / 255.0
+    foreground, background = image, image
+    for radius_1080p in FUSION_RADII_1080P:
+        radius = max(1, round(radius_1080p * height / 1080))
+        foreground, background = _blur_fusion(image, local_alpha, foreground, background, radius)
+    region = np.clip(np.round(foreground * 255.0), 0, 255).astype(np.uint8)
+    local_soft = soft[top:bottom, left:right]
+    out[top:bottom, left:right][local_soft] = region[local_soft]
+    return out
+
+
+__all__ = ["estimate_foreground", "fast_foreground_frame", "foreground_frame"]
