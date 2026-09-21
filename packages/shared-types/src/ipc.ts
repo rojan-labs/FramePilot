@@ -1551,11 +1551,19 @@ export interface CapabilityPackJobWire {
     readonly completed: number;
     readonly total: number;
     readonly round?: number;
+    /** Time left in THIS phase (`completed`/`total` count one phase, not the whole job). */
     readonly etaSeconds?: number;
   };
   /** Queued again after the app restarted. */
   readonly resumed: boolean;
   readonly error?: string;
+  /** When this run of the job began (epoch ms), so the panel can show how long it has taken. */
+  readonly startedAt?: number;
+  /**
+   * Pause was asked of a RUNNING job. It only stops at its next checkpoint, which for a long
+   * step can be far away; the panel must say "pausing", never pretend it already stopped.
+   */
+  readonly pausePending?: boolean;
 }
 
 export interface CapabilityPackJobActionWire {

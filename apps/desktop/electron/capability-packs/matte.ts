@@ -90,6 +90,8 @@ export const MATTE_MIN_PACK_VERSION = '1.0.0';
 export const MATTE_SOURCE_SAMPLES = 16;
 const ENTRYPOINT = { darwin: 'bin/framepilot-smart-mask', win32: 'bin/framepilot-smart-mask.exe' } as const;
 /** P17 per-job time limit: a base plus a generous per-frame budget (BR0: ~15 s/frame on CPU). */
+/** Steps measured before a phase's rate is trusted enough to show a time. */
+const ETA_MIN_SAMPLES = 3;
 const JOB_TIMEOUT_BASE_MS = 30 * 60 * 1_000;
 const JOB_TIMEOUT_PER_FRAME_MS = 30_000;
 const JOB_TIMEOUT_MAX_MS = 24 * 60 * 60 * 1_000;
@@ -842,7 +844,6 @@ export class CapabilityPackMatteService {
     const installRoot = resolveInside(this.options.storageRoot, record.installRelativePath);
     const entrypoint = resolveInside(installRoot, ENTRYPOINT[this.options.platform.os]);
     const lease = await this.options.store.acquireLease(record.identity);
-    const startedAt = Date.now();
     // The watchdog's own controller, so a breach ends the worker without looking like a user cancel.
     const workerController = new AbortController();
     const forwardAbort = (): void => workerController.abort();
@@ -876,6 +877,7 @@ export class CapabilityPackMatteService {
       },
     );
     watchdog.start();
+    const phaseEta = createPhaseEta();
     try {
       // The worker's temp files go under staging, where the watchdog measures them (F3).
       const temporaryDirectory = await staging.temporaryDirectory();
@@ -894,7 +896,7 @@ export class CapabilityPackMatteService {
         },
         onProgress: (progress) => {
           watchdog.progress();
-          onProgress?.(withEta(requestId, progress, startedAt));
+          onProgress?.(phaseEta(requestId, progress));
         },
       });
       if (watchdog.breach !== undefined) return resourceExhausted(watchdog.breach);
@@ -1161,12 +1163,31 @@ function newestHealthy(records: readonly InstalledCapabilityPack[], packId: stri
     .sort((left, right) => compareSemver(right.identity.version, left.identity.version))[0];
 }
 
-function withEta(requestId: string, progress: CapabilityPackWorkerProgress, startedAt: number): MatteProgress {
-  const elapsedSeconds = (Date.now() - startedAt) / 1_000;
-  const etaSeconds =
-    progress.completed > 0 && progress.completed < progress.total
-      ? Math.round((elapsedSeconds / progress.completed) * (progress.total - progress.completed))
-      : undefined;
+/**
+ * Time left in the CURRENT phase. `completed`/`total` restart with every phase and window, so the
+ * rate is measured from the first line of this phase, never from the job's start: dividing the
+ * whole job's elapsed time by one phase's counter produced estimates that were off by hours.
+ */
+export function createPhaseEta(now: () => number = Date.now): (requestId: string, progress: CapabilityPackWorkerProgress) => MatteProgress {
+  let phase: { readonly name: string; readonly at: number; readonly completed: number } | undefined;
+  let lastCompleted = 0;
+  return (requestId, progress) => {
+    // A counter that goes backwards is the same phase starting again in the next window.
+    if (phase === undefined || phase.name !== progress.phase || progress.completed < lastCompleted) {
+      phase = { name: progress.phase, at: now(), completed: progress.completed };
+    }
+    lastCompleted = progress.completed;
+    const done = progress.completed - phase.completed;
+    const elapsedSeconds = (now() - phase.at) / 1_000;
+    const etaSeconds =
+      done >= ETA_MIN_SAMPLES && progress.completed < progress.total
+        ? Math.round((elapsedSeconds / done) * (progress.total - progress.completed))
+        : undefined;
+    return withEta(requestId, progress, etaSeconds);
+  };
+}
+
+function withEta(requestId: string, progress: CapabilityPackWorkerProgress, etaSeconds: number | undefined): MatteProgress {
   return {
     requestId,
     phase: progress.phase,

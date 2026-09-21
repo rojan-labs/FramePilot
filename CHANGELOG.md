@@ -38,6 +38,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The Jobs panel tells the truth about a long job.** It used to draw a full bar beside the word
+  "prepare" and a time left that was off by hours, because it showed one step's counter as the
+  whole job's. Each job now shows the step it is on by name ("Finding the subject · 71 of 300")
+  with that step's own bar and time left, how long the job has been running, and a moving bar
+  for steps that cannot be counted, such as loading models. Pausing a running job now says
+  "Pausing after this step" instead of appearing to do nothing. Why background removal itself is
+  slow, and the plan to fix it, is in `plan/background-removal-ai/13-SPEED-AND-PRODUCTION-READINESS.md` (SP0).
 - **The Inspector and monitor are quieter.** The mask toolbar no longer covers the picture
   whenever a clip is selected; it appears when you open the Inspector's **Mask** tab, and the
   move/scale handles are back the rest of the time. The Inspector names the clip by its file

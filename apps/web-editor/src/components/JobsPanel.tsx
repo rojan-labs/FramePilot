@@ -5,8 +5,14 @@
  * ETA, and Pause / Resume / Cancel / Show clip. Scheduling lives in the desktop host; this is a
  * view over `capabilityPackJobs` plus three actions, so the panel can never disagree with what
  * actually runs. A job resumed after a restart says so, and an export pause is named.
+ *
+ * The host's `progress` counts ONE step (and restarts with every step and every part of a long
+ * clip), so the bar and the time left are labelled as the current step's. Drawing them as the
+ * job's made a "Loading models 1/1" read as a finished job that then ran for hours. What the row
+ * can say truthfully about the whole job is how long it has been running.
  */
 import { useCallback, useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Button } from '@framepilot/ui';
 import type { CapabilityPackJobWire, FramePilotBridge } from '@framepilot/shared-types';
 import type { Asset, Timeline } from '@framepilot/timeline-schema';
@@ -25,6 +31,12 @@ const STATE_LABEL: Readonly<Record<CapabilityPackJobWire['state'], string>> = {
 
 /** Phase names as the editor reads them (05-INSPECTOR-UX "RUNNING"). */
 const PHASE_LABEL: Readonly<Record<string, string>> = {
+  prepare: 'Loading models',
+  initialize: 'Getting ready',
+  track: 'Following the subject',
+  detect: 'Looking for subjects',
+  embed: 'Reading the picture',
+  describe: 'Describing the picture',
   decode: 'Reading frames',
   segment: 'Finding the subject',
   refine: 'Refining',
@@ -36,6 +48,9 @@ const PHASE_LABEL: Readonly<Record<string, string>> = {
   verify: 'Checking every frame',
   encode: 'Saving',
 };
+
+/** The elapsed-time label only needs minute precision. */
+const ELAPSED_TICK_MS = 30_000;
 
 const LIVE: ReadonlySet<CapabilityPackJobWire['state']> = new Set(['queued', 'running', 'preempted', 'paused', 'paused_export']);
 
@@ -52,6 +67,7 @@ export interface JobsPanelProps {
 
 export function JobsPanel({ jobs, onAction, onShowClip, clipLabel }: JobsPanelProps): JSX.Element {
   const live = jobs.filter((job) => LIVE.has(job.state)).length;
+  const now = useNow(jobs.some((job) => job.state === 'running' && job.startedAt !== undefined));
   return (
     <section className="jobs-panel" aria-labelledby="jobs-panel-title">
       <div className="panel-head">
@@ -66,6 +82,7 @@ export function JobsPanel({ jobs, onAction, onShowClip, clipLabel }: JobsPanelPr
             <JobRow
               key={job.id}
               job={job}
+              now={now}
               onAction={onAction}
               {...(onShowClip === undefined ? {} : { onShowClip })}
               {...(clipLabel === undefined ? {} : { clipLabel })}
@@ -79,15 +96,15 @@ export function JobsPanel({ jobs, onAction, onShowClip, clipLabel }: JobsPanelPr
 
 function JobRow({
   job,
+  now,
   onAction,
   onShowClip,
   clipLabel,
-}: { readonly job: CapabilityPackJobWire } & Omit<JobsPanelProps, 'jobs'>): JSX.Element {
-  const progress = job.progress;
-  const percent = progress === undefined || progress.total === 0 ? undefined : Math.round((progress.completed / progress.total) * 100);
-  const phase = progress === undefined ? undefined : (PHASE_LABEL[progress.phase] ?? progress.phase);
-  const round = progress?.round === undefined ? '' : ` (round ${progress.round})`;
+}: { readonly job: CapabilityPackJobWire; readonly now: number } & Omit<JobsPanelProps, 'jobs'>): JSX.Element {
   const isLive = LIVE.has(job.state);
+  const running = job.state === 'running';
+  const pausing = running && job.pausePending === true;
+  const elapsed = running && job.startedAt !== undefined ? formatElapsed((now - job.startedAt) / 1_000) : undefined;
   return (
     <li className="jobs-row" data-state={job.state} aria-label={`${job.label}: ${STATE_LABEL[job.state]}`}>
       <div className="jobs-row-head">
@@ -97,34 +114,22 @@ function JobRow({
         )}
       </div>
       <div className="jobs-row-status">
-        <span>{STATE_LABEL[job.state]}</span>
-        {job.state === 'running' && phase !== undefined && (
-          <span>
-            {' · '}
-            {phase}
-            {round}
-          </span>
-        )}
-        {progress?.etaSeconds !== undefined && job.state === 'running' && <span> · {formatEta(progress.etaSeconds)}</span>}
+        <span>{pausing ? 'Pausing after this step' : STATE_LABEL[job.state]}</span>
+        {elapsed !== undefined && <span> · {elapsed}</span>}
         {job.resumed && <span className="jobs-row-resumed"> · Resumed after restart</span>}
       </div>
-      {isLive && percent !== undefined && (
-        <div
-          className="jobs-progress"
-          role="progressbar"
-          aria-label={`${job.label} progress`}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={percent}
-        >
-          <span className="jobs-progress-fill" style={{ width: `${percent}%` }} />
-        </div>
-      )}
+      {isLive && job.progress !== undefined && <JobStep label={job.label} progress={job.progress} running={running} />}
       {job.state === 'failed' && job.error !== undefined && <p className="panel-hint">{job.error}</p>}
       <div className="jobs-row-actions">
-        {(job.state === 'running' || job.state === 'queued' || job.state === 'preempted') && (
-          <Button variant="ghost" size="sm" onClick={() => onAction(job.id, 'pause')} aria-label={`Pause ${job.label}`}>
-            Pause
+        {(running || job.state === 'queued' || job.state === 'preempted') && (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={pausing}
+            onClick={() => onAction(job.id, 'pause')}
+            aria-label={`Pause ${job.label}`}
+          >
+            {pausing ? 'Pausing…' : 'Pause'}
           </Button>
         )}
         {job.state === 'paused' && (
@@ -145,6 +150,79 @@ function JobRow({
       </div>
     </li>
   );
+}
+
+/** The step the job is on: its name, its own count and bar, and the time left in it. */
+function JobStep({
+  label,
+  progress,
+  running,
+}: {
+  readonly label: string;
+  readonly progress: NonNullable<CapabilityPackJobWire['progress']>;
+  /** A paused or waiting job keeps the step it stopped on, without a sweep or a time left. */
+  readonly running: boolean;
+}): JSX.Element {
+  const phase = PHASE_LABEL[progress.phase] ?? progress.phase;
+  const round = progress.round === undefined ? '' : ` (round ${progress.round})`;
+  // A step of one unit (loading a model) has nothing to count: 0% or 100% would both mislead.
+  const counted = progress.total > 1;
+  const percent = counted ? Math.round((progress.completed / progress.total) * 100) : undefined;
+  const bar: ReactNode =
+    percent === undefined ? (
+      <div className="jobs-progress" data-indeterminate={running ? 'true' : 'idle'} role="progressbar" aria-label={`${label} progress`}>
+        <span className="jobs-progress-fill" />
+      </div>
+    ) : (
+      <div
+        className="jobs-progress"
+        role="progressbar"
+        aria-label={`${label} progress`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        aria-valuetext={`${phase}: ${progress.completed} of ${progress.total}`}
+      >
+        <span className="jobs-progress-fill" style={{ width: `${percent}%` }} />
+      </div>
+    );
+  return (
+    <div className="jobs-step">
+      <div className="jobs-step-head">
+        <span className="jobs-step-name">
+          {phase}
+          {round}
+        </span>
+        {counted && (
+          <span className="jobs-step-count">
+            {progress.completed} of {progress.total}
+          </span>
+        )}
+      </div>
+      {bar}
+      {running && progress.etaSeconds !== undefined && <span className="jobs-step-eta">{formatEta(progress.etaSeconds)} in this step</span>}
+    </div>
+  );
+}
+
+/** A clock for the elapsed label, ticking only while something is running. */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return undefined;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), ELAPSED_TICK_MS);
+    return () => clearInterval(timer);
+  }, [active]);
+  return now;
+}
+
+export function formatElapsed(seconds: number): string {
+  const minutes = Math.floor(Math.max(0, seconds) / 60);
+  if (minutes < 1) return 'Just started';
+  if (minutes < 60) return `${minutes} min so far`;
+  const rest = minutes % 60;
+  return rest === 0 ? `${Math.floor(minutes / 60)} h so far` : `${Math.floor(minutes / 60)} h ${rest} min so far`;
 }
 
 export function formatEta(seconds: number): string {

@@ -13,6 +13,16 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-09-21, BACKGROUND-REMOVAL speed — `plan/background-removal-ai/13-SPEED-AND-PRODUCTION-READINESS.md`):**
+a maintainer's 52 s 1080p clip ran _Remove background_ for 5+ hours without finishing a step. Not a
+hang: the Smart Mask worker is CPU-only and BR0.7 already measured ≈ 520 compute-s per footage-s
+(7.5–17 h for this clip); the host treats the clip as one unit, so Pause never engages and a
+restart loses up to ~100 min; the Jobs bar drew one phase's counter as the job's.
+- [x] **SP0** Jobs panel shows a labelled current step, elapsed time, a per-step ETA measured from
+  the phase start, and "Pausing after this step" (targeted vitest green; CI not yet run).
+- [ ] **SP1** GPU/Core ML + model spike — **blocked on maintainer approval of new dependencies**.
+- [ ] **SP2** host-visible chunks · [ ] **SP3** Fast default / Best opt-in · [ ] **SP4** Windows · [ ] **SP5** release gate.
+
 **Status snapshot (2026-09-15, latency · accuracy · precision pass — `perf/ai-latency-accuracy-2026-09-14`, PR #121):**
 agent turns decomposed per model call (TRACKING.md §U–§W): thinking effort follows the run
 stage, mutation results carry where clips landed so the run stops reading back after edits,

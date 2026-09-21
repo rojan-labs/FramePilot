@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import type { CapabilityPackJobWire } from '@framepilot/shared-types';
-import { formatEta, JobsPanel, useCapabilityPackJobs } from './JobsPanel.js';
+import { formatElapsed, formatEta, JobsPanel, useCapabilityPackJobs } from './JobsPanel.js';
 
 const job = (overrides: Partial<CapabilityPackJobWire> = {}): CapabilityPackJobWire => ({
   id: 'job-1',
@@ -16,13 +16,41 @@ const job = (overrides: Partial<CapabilityPackJobWire> = {}): CapabilityPackJobW
 });
 
 describe('JobsPanel', () => {
+  it('never draws a one-unit step as a finished job: model loading is named and uncounted', () => {
+    render(
+      <JobsPanel
+        jobs={[job({ progress: { phase: 'prepare', completed: 1, total: 1 }, resumed: true, startedAt: Date.now() - 95 * 60_000 })]}
+        onAction={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Loading models')).toBeTruthy();
+    expect(screen.queryByText('prepare')).toBeNull();
+    const bar = screen.getByRole('progressbar', { name: 'Remove background progress' });
+    expect(bar.getAttribute('aria-valuenow')).toBeNull();
+    expect(bar.getAttribute('data-indeterminate')).toBe('true');
+    expect(screen.getByText(/1 h 35 min so far/)).toBeTruthy();
+  });
+
+  it('says a running job is pausing, not paused, until it reaches a checkpoint', () => {
+    render(<JobsPanel jobs={[job({ pausePending: true })]} onAction={vi.fn()} />);
+    expect(screen.getByText('Pausing after this step')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Pause Remove background' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('formats elapsed time to the minute', () => {
+    expect(formatElapsed(20)).toBe('Just started');
+    expect(formatElapsed(12 * 60)).toBe('12 min so far');
+    expect(formatElapsed(2 * 3600)).toBe('2 h so far');
+  });
+
   it('shows name, clip, phase with round, progress and ETA for a running job', () => {
     render(<JobsPanel jobs={[job()]} onAction={vi.fn()} onShowClip={vi.fn()} />);
     expect(screen.getByRole('heading', { name: 'Jobs' })).toBeTruthy();
     expect(screen.getByText('1 active')).toBeTruthy();
     expect(screen.getByText('Clip clip-7')).toBeTruthy();
     expect(screen.getByText(/Self-correcting \(round 2\)/)).toBeTruthy();
-    expect(screen.getByText(/About 5 min left/)).toBeTruthy();
+    expect(screen.getByText('About 5 min left in this step')).toBeTruthy();
+    expect(screen.getByText('30 of 120')).toBeTruthy();
     const bar = screen.getByRole('progressbar', { name: 'Remove background progress' });
     expect(bar.getAttribute('aria-valuenow')).toBe('25');
   });

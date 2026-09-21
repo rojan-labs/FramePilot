@@ -15595,6 +15595,32 @@ a.export-credits-license {
 .jobs-row-resumed {
   color: var(--text-tertiary);
 }
+.jobs-step {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+.jobs-step-head {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  justify-content: space-between;
+  min-width: 0;
+  font-size: 0.8rem;
+}
+.jobs-step-name {
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jobs-step-count,
+.jobs-step-eta {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
 .jobs-progress {
   height: 4px;
   overflow: hidden;
@@ -15607,9 +15633,27 @@ a.export-credits-license {
   background: var(--accent);
   transition: width 120ms linear;
 }
+.jobs-progress[data-indeterminate] .jobs-progress-fill {
+  width: 35%;
+}
+.jobs-progress[data-indeterminate='true'] .jobs-progress-fill {
+  animation: jobs-progress-sweep 1.4s ease-in-out infinite;
+}
+@keyframes jobs-progress-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(290%);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .jobs-progress-fill {
     transition: none;
+  }
+  /* No sweep: a still, part-filled bar still reads as "working, not counted". */
+  .jobs-progress[data-indeterminate='true'] .jobs-progress-fill {
+    animation: none;
   }
 }
 .jobs-row-actions {

@@ -66,6 +66,10 @@ export interface JobSnapshot {
   /** Queued again after an app restart. */
   readonly resumed: boolean;
   readonly error?: string;
+  /** When this run began (epoch ms). */
+  readonly startedAt?: number;
+  /** Pause asked of the running job; it stops at its next checkpoint. */
+  readonly pausePending?: boolean;
 }
 
 export interface JobContext {
@@ -102,6 +106,7 @@ interface Entry {
   resumed: boolean;
   progress?: JobProgress;
   error?: string;
+  startedAt?: number;
   readonly controller: AbortController;
   readonly run: JobRunner<unknown>;
   resolve(value: unknown): void;
@@ -229,6 +234,8 @@ export class CapabilityPackJobScheduler {
       ...(entry.progress === undefined ? {} : { progress: entry.progress }),
       resumed: entry.resumed,
       ...(entry.error === undefined ? {} : { error: entry.error }),
+      ...(entry.startedAt === undefined ? {} : { startedAt: entry.startedAt }),
+      ...(entry.userPaused && entry.state === 'running' ? { pausePending: true } : {}),
     }));
   }
 
@@ -307,6 +314,7 @@ export class CapabilityPackJobScheduler {
     }
     next.started = true;
     const started = Date.now();
+    next.startedAt = started;
     void next
       .run(this.contextFor(next))
       .then(

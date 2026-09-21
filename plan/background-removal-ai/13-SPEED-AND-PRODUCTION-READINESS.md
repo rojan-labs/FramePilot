@@ -1,0 +1,107 @@
+# 13 · Speed and production readiness (2026-09-21)
+
+Triggered by a maintainer report: _Remove background_ on a 52-second 1080p clip ran for more than
+five hours without finishing a step, the Jobs panel showed a full bar beside the word "prepare",
+and the clip was processed as one piece.
+
+Status: **diagnosis done, panel fixed (SP0). SP1 onward needs a maintainer decision** (new
+runtime dependencies and models; CLAUDE.md §5).
+
+## A. What actually happened (measured on the live job)
+
+| Fact | Evidence |
+| --- | --- |
+| Clip: 1920×1080, 30 fps, 51.8 s = 1,553 frames, no prompts | `capability-pack-jobs.json`, `scratch/window-0.u8` = 300 × 6.2 MB |
+| The worker runs on the **CPU only** | ORT CPU EP; the CoreML EP was disabled in BR0 (SAM-L fp32 does not build as a set, 16 GB footprint) |
+| Stage 1 of ~10 (SAM image encoding) ran at **≈ 6–7 s per frame** | ~96 embeddings after 11.8 min of wall time at 4 busy cores |
+| The plan already predicted this | BR0.7: **≈ 520 compute-seconds per footage-second** at 1080p30 with 1024² matting, ≈ 1,210 at 2048² ("≈ 20 h per footage minute"). For this clip: **7.5–17 h**, before up to three self-correction rounds. The host's job timeout ceiling is 24 h |
+| A restart throws away up to ~100 minutes | Checkpoints exist only per 300-frame window, and stages run breadth-first across the window (encode all 300 → track all → matte all → …). The journal showed `finishedWindows: []` after the restart: everything before it was lost |
+| The host treats the clip as **one unit** | `matte-ipc.ts` calls `checkpoint()` once, before the worker starts, and `finishWindow(0)` once, at the end. So **Pause does nothing** for hours, the export pause never engages, and nothing is committed until the whole clip is done |
+| The bar and the ETA were wrong | The bar drew one phase's counter (`prepare 1/1` = 100%); `withEta` divided the whole job's elapsed time by one phase's counter; `prepare` had no label |
+
+So this is not a hang. It is an accuracy-first research pipeline (SAM 2.1 **Large** fp32 → BiRefNet-HR
+→ consensus → K=3 self-correction → stabilise → verify), on the CPU, shipped as the only path.
+`08-DEFERRED-AND-RISKS` rated "throughput too slow" High and answered it with "an honest ETA",
+which is not a product answer: Final Cut's Magnetic Mask and Resolve's Magic Mask 2 do the same
+user task in roughly clip-length time on the same Macs.
+
+## B. SP0 — shipped in this change (no new dependency, no protocol change)
+
+- Panel: a labelled **current step** ("Finding the subject · 71 of 300") with its own bar and
+  "about N min left in this step"; uncounted steps (model loading) sweep instead of showing 0/100%;
+  the row says how long the job has run; every phase has an editor-facing name.
+- Pause on a running job says **"Pausing after this step"** and disables the button, instead of
+  silently doing nothing (`pausePending` on the job wire).
+- Host: the step ETA is measured from the start of the phase and restarts per window
+  (`createPhaseEta`).
+
+What SP0 deliberately does **not** claim: whole-job progress. The worker does not report it, and
+faking it from one phase's counter is the bug being fixed. It arrives with SP2.
+
+## C. Research: what fast and precise looks like in 2026
+
+| Option | Speed evidence | Quality | Licence | Verdict |
+| --- | --- | --- | --- | --- |
+| Current (SAM 2.1-L fp32 + BiRefNet-HR, ORT CPU) | 17–40 s/frame measured here | Best of the set (06 gates) | Apache / MIT (MO-11 open on HR-matting data) | Keep as opt-in **Best**, never the default |
+| SAM 2.1 via **Core ML directly** (coremltools fp16, static 1024²) | Encoder ≈ 310 ms on CPU+GPU vs 5.2 s here; does not fit the ANE | Same model family | Apache-2.0 | Strong candidate for the tracker. BR0 tested only the **ORT CoreML EP on fp32 Large**, which is the slow way to use Core ML |
+| **EdgeTAM** (Meta, CVPR 2025) | 16 fps on an iPhone 15 Pro Max via Core ML, 22× SAM 2 | On par with SAM 2 on video benchmarks | Apache-2.0 | Best tracker candidate for the **Fast** tier |
+| BiRefNet (lite / dynamic / matting), fp16 on GPU, **subject crop only** | 17 fps at 1024² fp16 on an RTX 4090; M-series to be measured | Hair-level alpha | MIT | Keep as the matting model; stop running it on full frames at fp32 on the CPU |
+| MatAnyone 2 (CVPR 2026) | 30 fps on the ANE (A18) | State-of-the-art human video matting | **NTU S-Lab, non-commercial** | Not usable |
+| Robust Video Matting | 4K 76 fps on a 1080 Ti | Good, people only | **GPL-3.0** | Not usable |
+| Apple Vision (`VNGeneratePersonSegmentationRequest` `.accurate`, `VNGenerateForegroundInstanceMaskRequest`) | 60 fps on M1 | Good soft matte; people / salient subject only, no prompts | OS API | Zero-model **instant draft** on macOS, via a small signed Swift helper |
+
+## D. Recommendation: three structural changes
+
+1. **Get off the CPU.** macOS: Core ML models converted with coremltools (fp16, static shapes,
+   CPU+GPU), loaded by the worker; Windows: ORT DirectML/WinML fp16. This alone is worth ~10–20×
+   on the tracker. New dependency (`coremltools` at build time, a Core ML runner at run time) →
+   maintainer approval + licence scan.
+2. **Two tiers, fast by default.**
+   - **Fast** (default): EdgeTAM or SAM 2.1 base+ tracker → BiRefNet on the subject crop, in the
+     edge band, fp16 on the GPU → the existing CPU stabilise + verify. No consensus, no
+     self-correction. Planning target (to be **measured**, not promised): ≥ 5 fps at 1080p on an
+     M1 Pro, i.e. the 52 s clip in about five minutes instead of 8–17 hours.
+   - **Best** (opt-in, and automatic only on the ranges `verify` flags for review): today's
+     consensus + self-correction, on the GPU. Precision is spent where the checks say it is
+     needed, not on all 1,553 frames.
+   - Optional macOS **draft in seconds** from Apple Vision while Fast runs.
+3. **Chunks are the unit of work, host-visible.** Split at shot cuts into 2–4 s chunks
+   (60–120 frames, overlap kept for temporal continuity); run each chunk depth-first
+   (decode → … → encode) and **commit it to the artifact when it finishes** (BR5 preview already
+   draws unprocessed ranges as "Processing"); `checkpoint()` between chunks so Pause, export pause
+   and pre-emption work within seconds; chunk nearest the playhead first; journal per chunk so a
+   restart loses at most one chunk. Whole-job progress becomes `frames done / total` with an ETA
+   from measured frames per second — additive `overall` fields on the worker progress line, gated
+   on pack version because the host schema is `.strict()`.
+
+Cheap wins available inside the current stack, if D.1 is delayed: SAM-L → base+ (encoder ≈ 3–4×
+faster on CPU), skip self-correction unless `verify` flags the window, BiRefNet at 768² on the
+subject crop, window 300 → 90 frames.
+
+## E. Tasks
+
+- [x] **SP0** Honest Jobs panel + per-step ETA + pause-pending (this change).
+- [ ] **SP1 — spike, 1–2 days, decides everything below.** On this exact clip and the 06 eval
+      set, on the M1 Pro, one heavy job at a time: (a) SAM 2.1 base+/large via coremltools fp16,
+      (b) EdgeTAM Core ML, (c) BiRefNet-matting fp16 Core ML on subject crops at 768/1024,
+      (d) Apple Vision. Record fps, peak footprint, and the 06 gates per option. _Needs approval:
+      coremltools / torch (conversion only), model downloads._
+- [ ] **SP2** Host-visible chunks: per-chunk checkpoint, journal, progressive commit, overall
+      progress + job ETA, playhead-first ordering.
+- [ ] **SP3** Fast tier as the default; Best tier opt-in and auto-applied to review-flagged ranges.
+- [ ] **SP4** Windows path (DirectML) — blocked on MO-9 hardware.
+- [ ] **SP5** Release gate: a 60 s 1080p clip finishes Fast in ≤ 10 min on the hardware floor and
+      passes the 06 gates chosen for Fast; desktop-scale media, not fixtures.
+
+Deferred on purpose: multi-subject instance mattes, cloud offload, 4K-native matting.
+
+## Sources
+
+- EdgeTAM: <https://github.com/facebookresearch/EdgeTAM>, <https://arxiv.org/abs/2501.07256>
+- MatAnyone 2 (licence): <https://github.com/pq-yang/MatAnyone2>
+- Robust Video Matting (GPL-3.0): <https://github.com/PeterL1n/RobustVideoMatting>
+- BiRefNet: <https://github.com/ZhengPeng7/BiRefNet>
+- SAM 2 on Core ML: <https://github.com/alexhaugland/segment-anything-2-coreml>
+- Apple Vision: <https://developer.apple.com/documentation/vision/vngeneratepersonsegmentationrequest>,
+  <https://developer.apple.com/documentation/vision/vngenerateforegroundinstancemaskrequest>
+- Masking speed across editors: <https://larryjordan.com/articles/compare-ai-assisted-masking-in-final-cut-premiere-resolve/>

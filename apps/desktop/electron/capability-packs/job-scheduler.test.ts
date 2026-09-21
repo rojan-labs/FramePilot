@@ -116,8 +116,12 @@ describe('CapabilityPackJobScheduler', () => {
     const done = scheduler.submit(descriptor('job'), 'focused', job.run);
     await vi.waitFor(() => expect(log).toContain('job:start:0'));
     expect(scheduler.pause('job')).toBe(true);
+    // Mid-window the job is still running: the snapshot says a pause is pending, and since when.
+    expect(scheduler.snapshot()[0]).toMatchObject({ state: 'running', pausePending: true });
+    expect(scheduler.snapshot()[0]?.startedAt).toBeTypeOf('number');
     await job.step();
     await vi.waitFor(() => expect(scheduler.snapshot()[0]?.state).toBe('paused'));
+    expect(scheduler.snapshot()[0]?.pausePending).toBeUndefined();
     const other = windowedJob(1, log, 'other');
     const otherDone = scheduler.submit(descriptor('other'), 'background', other.run);
     await other.step();
