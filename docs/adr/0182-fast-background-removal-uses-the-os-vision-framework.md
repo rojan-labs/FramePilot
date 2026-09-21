@@ -57,6 +57,13 @@ non-commercial) and Robust Video Matting (GPL-3.0) are not usable.
    waits for a checkpoint: killing an hours-long Best window for a click would cost more than it
    saves.
 
+8. **Best is spent where the checks ask for it.** A Fast matte's flagged moments can be refined:
+   the host reads the ranges from the artifact's own record, sends them as `recompute` with the
+   Fast matte as `previousArtifact` and `quality: best`; the worker recomputes exactly those
+   frames with the models, anchored on the unflagged frame each side, and every other frame keeps
+   its alpha bit for bit. It is an explicit, priced action in the Review panel, not automatic:
+   at ~520 compute-seconds per footage-second an automatic refine would quietly make Fast slow.
+
 ## Consequences
 
 - The maintainer's clip: **8–17 h → 7.5 min** (3.3 frames/s end to end, 1080p30, M1 Pro), and a

@@ -89,9 +89,10 @@ subject crop, window 300 → 90 frames.
       Fast windows of 240 frames so a restart loses ≤ ~1 min. _Not done, deferred on purpose:_
       committing finished parts to the project while the job runs, and playhead-first ordering —
       at 7.5 minutes per clip the striped "processing" band is enough; revisit for long clips.
-- [x] **SP3** Fast is the default on macOS; Best is the opt-in Speed choice. _Deferred:_ running
-      Best automatically on the ranges Fast flags for review (needs a partial re-run seeded from
-      a Fast matte; the pipeline's `previousArtifact` path is the place).
+- [x] **SP3** Fast is the default on macOS; Best is the opt-in Speed choice. Best on the ranges
+      Fast flags is shipped as an explicit, priced action (**Refine flagged moments with Best
+      quality**, ADR 0182 §8): `recompute` ranges over the Fast matte as `previousArtifact`.
+      Deliberately not automatic: it costs ~9 minutes per flagged second.
 - [ ] **SP4** Windows path (DirectML) — blocked on MO-9 hardware.
 - [ ] **SP5** Release gate: a 60 s 1080p clip finishes Fast in ≤ 10 min on the hardware floor and
       passes the 06 gates chosen for Fast; desktop-scale media, not fixtures.

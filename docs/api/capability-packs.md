@@ -515,7 +515,15 @@ install/update proposal (`pack_missing`), never a crash.
   `best` the pack's models. The host sends it only to Smart Mask ≥ 1.1.0 (an older pack's strict
   parser refuses unknown keys) and resolves `fast` to `best` off macOS; a worker that cannot serve
   `fast` answers `hardware_unsupported`, never a silent Best job. A request that carries `quality`
-  also asks for whole-job progress (below).
+  also asks for whole-job progress (below). Optional `recompute` (1–4096 inclusive
+  `{startPts,endPts}` ranges, needs `previousArtifact`): frames to recompute although no new
+  prompt reaches them — the host's "refine flagged moments". The worker computes one extra frame
+  each side as the anchor (seeded from the previous matte, output unchanged), lets the recomputed
+  frames bypass BR3.17 containment, and keeps every other frame's previous alpha bit for bit.
+  The host intent is `refineFlagged: true` + `previousArtifactKey`; the HOST derives the ranges
+  from that artifact's record (`needsReview`), forces `quality: best`, and above 50% flagged
+  frames drops the previous artifact and runs Best outright. Refined mattes have their own cache
+  key (`refined: {previous, ranges}`).
 - Result: an `artifact` descriptor (`files[{name,bytes,sha256}]`, display-space `width`/`height`,
   `frameCount`, `firstPts`/`lastPts`, `timeBase`), `executionProvider`, `summary` (verified,
   flagged, locked frames and self-correction rounds; verified + flagged never exceeds the frame

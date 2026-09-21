@@ -20,6 +20,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (Smart Mask pack 1.1.0, ADR 0182). Fast is built for a shot with one clear subject: in a
   crowded or dark shot it can grab more than you boxed, and when that happens it now sends the
   whole clip to review instead of looking finished, so you know to run Best quality.
+- **Refine only what needs it.** When a Fast background removal flags moments for review, the
+  Review panel can now **Refine flagged moments with Best quality**: the slow, most precise
+  models re-do exactly those moments and every other frame stays as it was. It tells you how
+  long it will take and asks first.
 - **Pause works on a running background removal, and the bar is the whole clip.** Pause (or
   starting an export) now stops the job within seconds and keeps the parts already done; Resume
   continues from there. The Jobs tab and the Inspector show frames finished out of the clip's

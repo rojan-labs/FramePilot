@@ -96,6 +96,13 @@ job was given, **every frame of the clip is sent to review** ("the estimates dis
 than looking finished; that raised the share of bad frames caught from 55% to 94%. If a Fast
 result asks you to review the whole clip, run it again with Best quality.
 
+**Fast first, Best only where it is needed.** When a Fast result flags moments for review, the
+Review panel offers **Refine flagged moments with Best quality**. It re-does exactly those
+moments with the slow models, anchored on the good frames either side, and keeps every other
+frame bit for bit; it tells you how long first (about nine minutes per flagged second) and asks.
+If more than half the clip is flagged there is nothing good to anchor on, so it simply runs Best
+on the whole clip. The ranges come from the matte's own verified record, never from the page.
+
 Both produce the same kind of matte: brush fixes, locked frames, review, text behind the subject
 and export work identically. On Windows there is no Fast engine yet, so there is no choice and
 every job is a Best job.
