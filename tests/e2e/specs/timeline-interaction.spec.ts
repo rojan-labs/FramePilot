@@ -33,7 +33,10 @@ test.describe('timeline interaction', () => {
     await expect(page.getByRole('button', { name: 'Split', exact: true })).toBeEnabled();
 
     await page.getByRole('tab', { name: 'Inspector' }).click();
-    await expect(page.locator('.inspector-clip-copy strong')).toHaveText('clip_intro');
+    // The Inspector names the clip by its media file; the id is the hover title (00f70063).
+    const heading = page.locator('.inspector-clip-copy strong');
+    await expect(heading).toHaveText('intro.mp4');
+    await expect(heading).toHaveAttribute('title', 'clip_intro');
   });
 
   test('split at playhead (S) divides one clip into two, and undo reverts it', async ({ page }) => {
