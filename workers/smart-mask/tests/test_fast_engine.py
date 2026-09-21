@@ -154,6 +154,7 @@ def test_a_fast_job_is_host_verifiable_and_reports_whole_job_progress(
     for index in range(COUNT):
         assert np.array_equal(matte[index] >= 128, expected[index])
     assert outcome.summary.self_correction_rounds == 0
+    assert outcome.execution_provider == "coreml"
     # No model was opened: the Fast engine never touches SAM or the matting model.
     phases = {event[0] for event in events}
     assert "detect" in phases and not phases & {"refine", "consensus", "self_correct", "matte"}

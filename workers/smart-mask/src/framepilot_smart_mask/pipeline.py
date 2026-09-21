@@ -1594,6 +1594,11 @@ class MatteJob:
 
     def _execution_provider(self) -> ExecutionProvider:
         """The least accelerated provider that produced delivered pixels."""
+        if self.config.engine == ENGINE_VISION:
+            # Vision runs its models through Core ML on the Neural Engine and GPU. The closed
+            # enum has no "vision"; "cpu" would be false, and a new value would be refused by
+            # every host and artifact record written before it.
+            return "coreml"
         report = self._provider_report()
         chosen = set(report.get("chosen", {}).values()) or {"cpu"}
         if report.get("fallbacks") or "cpu" in chosen:
