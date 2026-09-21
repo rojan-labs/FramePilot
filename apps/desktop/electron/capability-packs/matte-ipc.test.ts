@@ -291,6 +291,19 @@ describe('generic capability status', () => {
   const proposal = { ok: true, proposal: { proposalId: 'p' } } as unknown as CapabilityPackProposalResultWire;
   const platform = { os: 'darwin', arch: 'arm64' };
 
+  it('says Fast background removal can run only on macOS with a pack that knows it (ADR 0182)', async () => {
+    const newer = record({ identity: { ...record().identity, version: '1.1.0' } });
+    const ready = (records: InstalledCapabilityPack[], os: 'darwin' | 'win32') =>
+      resolveCapabilityPackStatus('subject.matte', {
+        records: records.map((item) => ({ ...item, identity: { ...item.identity, os } })),
+        platform: { os, arch: os === 'darwin' ? 'arm64' : 'x64' },
+        propose: propose(proposal),
+      });
+    expect(await ready([newer], 'darwin')).toMatchObject({ state: 'ready', fastMatte: true });
+    expect(await ready([record()], 'darwin')).not.toHaveProperty('fastMatte');
+    expect(await ready([newer], 'win32')).not.toHaveProperty('fastMatte');
+  });
+
   it('reports ready, missing with a proposal, unhealthy with a reason, and unsupported platforms', async () => {
     expect(await resolveCapabilityPackStatus('tracking.point', { records: [], platform, propose: propose(proposal) })).toMatchObject({
       state: 'missing',
