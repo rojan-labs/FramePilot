@@ -31,6 +31,25 @@ describe('JobsPanel', () => {
     expect(screen.getByText(/1 h 35 min so far/)).toBeTruthy();
   });
 
+  it('draws the whole job, and the job\u2019s time left, when the pack reports whole-job frames', () => {
+    render(
+      <JobsPanel
+        jobs={[
+          job({
+            progress: { phase: 'segment', completed: 12, total: 240, etaSeconds: 40, overallCompleted: 600, overallTotal: 1500, jobEtaSeconds: 300 },
+          }),
+        ]}
+        onAction={vi.fn()}
+      />,
+    );
+    const bar = screen.getByRole('progressbar', { name: 'Remove background progress' });
+    expect(bar.getAttribute('aria-valuenow')).toBe('40');
+    expect(screen.getByText('40%')).toBeTruthy();
+    expect(screen.getByText('Finding the subject')).toBeTruthy();
+    expect(screen.getByText('About 5 min left')).toBeTruthy();
+    expect(screen.queryByText(/in this step/)).toBeNull();
+  });
+
   it('says a running job is pausing, not paused, until it reaches a checkpoint', () => {
     render(<JobsPanel jobs={[job({ pausePending: true })]} onAction={vi.fn()} />);
     expect(screen.getByText('Pausing after this step')).toBeTruthy();

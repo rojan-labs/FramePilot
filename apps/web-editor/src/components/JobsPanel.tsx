@@ -6,10 +6,11 @@
  * view over `capabilityPackJobs` plus three actions, so the panel can never disagree with what
  * actually runs. A job resumed after a restart says so, and an export pause is named.
  *
- * The host's `progress` counts ONE step (and restarts with every step and every part of a long
- * clip), so the bar and the time left are labelled as the current step's. Drawing them as the
- * job's made a "Loading models 1/1" read as a finished job that then ran for hours. What the row
- * can say truthfully about the whole job is how long it has been running.
+ * The host's `completed`/`total` count ONE step (and restart with every step and every part of a
+ * long clip). Drawing them as the job's made a "Loading models 1/1" read as a finished job that
+ * then ran for hours. So: when the pack reports whole-job frames (plan 13) the bar and the time
+ * left are the JOB's, with the step named beside them; from an older pack they are the current
+ * step's and say so, and the only whole-job fact shown is how long it has been running.
  */
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -152,7 +153,7 @@ function JobRow({
   );
 }
 
-/** The step the job is on: its name, its own count and bar, and the time left in it. */
+/** How far the job is: the whole job when the pack says, otherwise the step it is on. */
 function JobStep({
   label,
   progress,
@@ -165,9 +166,13 @@ function JobStep({
 }): JSX.Element {
   const phase = PHASE_LABEL[progress.phase] ?? progress.phase;
   const round = progress.round === undefined ? '' : ` (round ${progress.round})`;
+  const whole = progress.overallTotal !== undefined && progress.overallCompleted !== undefined && progress.overallTotal > 0;
+  const done = whole ? progress.overallCompleted! : progress.completed;
+  const total = whole ? progress.overallTotal! : progress.total;
   // A step of one unit (loading a model) has nothing to count: 0% or 100% would both mislead.
-  const counted = progress.total > 1;
-  const percent = counted ? Math.round((progress.completed / progress.total) * 100) : undefined;
+  const counted = whole || progress.total > 1;
+  const percent = counted ? Math.round((done / total) * 100) : undefined;
+  const eta = whole ? progress.jobEtaSeconds : progress.etaSeconds;
   const bar: ReactNode =
     percent === undefined ? (
       <div className="jobs-progress" data-indeterminate={running ? 'true' : 'idle'} role="progressbar" aria-label={`${label} progress`}>
@@ -181,7 +186,7 @@ function JobStep({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent}
-        aria-valuetext={`${phase}: ${progress.completed} of ${progress.total}`}
+        aria-valuetext={whole ? `${percent}% of the clip, ${phase}` : `${phase}: ${done} of ${total}`}
       >
         <span className="jobs-progress-fill" style={{ width: `${percent}%` }} />
       </div>
@@ -193,14 +198,15 @@ function JobStep({
           {phase}
           {round}
         </span>
-        {counted && (
-          <span className="jobs-step-count">
-            {progress.completed} of {progress.total}
-          </span>
-        )}
+        {counted && <span className="jobs-step-count">{whole ? `${percent}%` : `${done} of ${total}`}</span>}
       </div>
       {bar}
-      {running && progress.etaSeconds !== undefined && <span className="jobs-step-eta">{formatEta(progress.etaSeconds)} in this step</span>}
+      {running && eta !== undefined && (
+        <span className="jobs-step-eta">
+          {formatEta(eta)}
+          {whole ? '' : ' in this step'}
+        </span>
+      )}
     </div>
   );
 }

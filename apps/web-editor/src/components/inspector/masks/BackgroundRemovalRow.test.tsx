@@ -298,6 +298,32 @@ describe('BackgroundRemovalRow', () => {
     expect(await screen.findByText(/About 69 minutes on this computer/)).toBeTruthy();
     expect(screen.getByText(/Covers this clip plus 2 s of handles/)).toBeTruthy();
   });
+  it('defaults to Fast where the host offers it, with its own estimate, and sends the choice (plan 13)', async () => {
+    bridge.capabilityPackStatus.mockResolvedValue({ ...READY, fastMatte: true });
+    bridge.capabilityPackMatte.mockResolvedValue({ ok: false, code: 'needs_prompt' });
+    render(<Harness jobs={jobs} />);
+    // 8 s of 1080p at the measured 10 compute-seconds per footage second, not 69 minutes.
+    expect(await screen.findByText(/About 80 seconds on this computer|About 1 minute on this computer/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove background' }));
+    await waitFor(() => expect(bridge.capabilityPackMatte).toHaveBeenCalled());
+    expect(bridge.capabilityPackMatte.mock.calls[0]![0]).toMatchObject({ quality: 'fast' });
+
+    fireEvent.click(screen.getByRole('combobox', { name: 'background removal speed' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Best quality (can take hours)' }));
+    expect(await screen.findByText(/About 69 minutes on this computer/)).toBeTruthy();
+  });
+
+  it('offers no speed choice, and sends none, where only the models can run', async () => {
+    bridge.capabilityPackMatte.mockResolvedValue({ ok: false, code: 'needs_prompt' });
+    render(<Harness jobs={jobs} />);
+    const button = await screen.findByRole('button', { name: 'Remove background' });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByRole('combobox', { name: 'background removal speed' })).toBeNull();
+    fireEvent.click(button);
+    await waitFor(() => expect(bridge.capabilityPackMatte).toHaveBeenCalled());
+    expect(bridge.capabilityPackMatte.mock.calls[0]![0]).not.toHaveProperty('quality');
+  });
+
   it('offers Reinstall, not Install, when the installed pack failed its health check', async () => {
     bridge.capabilityPackStatus.mockResolvedValue({
       state: 'unhealthy',
@@ -407,8 +433,27 @@ describe('BackgroundRemovalRow', () => {
     expect(await screen.findByText('Correcting itself (round 2 of 3)')).toBeTruthy();
     const bar = screen.getByRole('progressbar', { name: 'Background removal progress' });
     expect(bar.getAttribute('aria-valuenow')).toBe('30');
-    expect(bar.getAttribute('aria-valuetext')).toBe('30 of 120 frames');
-    expect(screen.getByText(/about 4 minutes left/)).toBeTruthy();
+    // A pack that reports only the step: the counts and the time are the STEP's, and say so.
+    expect(bar.getAttribute('aria-valuetext')).toBe('Correcting itself (round 2 of 3): 30 of 120');
+    expect(screen.getByText(/about 4 minutes left in this step/)).toBeTruthy();
+
+    // Plan 13: whole-job frames take over the bar and the time left; the step is only named.
+    act(() =>
+      emitProgress!({
+        requestId,
+        phase: 'segment',
+        completed: 12,
+        total: 240,
+        etaSeconds: 40,
+        overallCompleted: 600,
+        overallTotal: 1500,
+        jobEtaSeconds: 300,
+      }),
+    );
+    expect(await screen.findByText('Finding the subject · 40% of the clip')).toBeTruthy();
+    expect(bar.getAttribute('aria-valuenow')).toBe('600');
+    expect(bar.getAttribute('aria-valuetext')).toBe('600 of 1500 frames');
+    expect(screen.getByText(/about 5 minutes left$/)).toBeTruthy();
 
     // Cancel goes to main by request id; the outcome still comes back through the promise.
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));

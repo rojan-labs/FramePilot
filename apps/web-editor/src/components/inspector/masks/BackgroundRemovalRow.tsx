@@ -57,6 +57,9 @@ import { SUBJECT_MATTE_CAPABILITY, usePackStatus } from './usePackStatus.js';
 /** How the editor tells the pack which subject to keep. */
 export type SubjectMode = 'auto' | 'pick';
 
+type Quality = 'fast' | 'best';
+const QUALITIES: readonly Quality[] = ['fast', 'best'];
+const QUALITY_LABELS = ['Fast (minutes)', 'Best quality (can take hours)'] as const;
 const SUBJECT_MODES: readonly SubjectMode[] = ['auto', 'pick'];
 const SUBJECT_LABELS = ['Auto (main subject)', 'Click to pick'] as const;
 
@@ -118,6 +121,11 @@ export function BackgroundRemovalRow({
   // RD0 parity control (Premiere Object Mask): the delivered matte is the precise one either way;
   // this is which edge treatment the mask carries.
   const [edgeMode, setEdgeMode] = useState<'sharp' | 'smooth'>('smooth');
+  // Plan 13: the Fast engine exists only where the host says so (macOS, a pack that knows it).
+  // Elsewhere every job is a Best job, and offering a choice that does nothing would be a lie.
+  const fastAvailable = status.kind === 'ready' && status.fastMatte;
+  const [chosenQuality, setChosenQuality] = useState<Quality>('fast');
+  const quality: Quality = fastAvailable ? chosenQuality : 'best';
   const [message, setMessage] = useState<string | null>(null);
   const [behindText, setBehindText] = useState('');
 
@@ -135,7 +143,7 @@ export function BackgroundRemovalRow({
     sourceStart: Math.max(0, clip.sourceStart - MATTE_HANDLE_SECONDS),
     sourceEnd: clip.sourceEnd + MATTE_HANDLE_SECONDS,
   };
-  const estimate = estimateMatteJob(coverage.sourceEnd - coverage.sourceStart, size);
+  const estimate = estimateMatteJob(coverage.sourceEnd - coverage.sourceStart, size, quality);
   const running = job !== null;
   const matte = masksOf(clip).find((mask) => mask.kind === 'matte') ?? null;
   const applied = matte !== null;
@@ -184,6 +192,7 @@ export function BackgroundRemovalRow({
       sourceEnd: coverage.sourceEnd,
       prompts: subject === 'auto' ? [] : subjectPrompts(tools.subjectPoints, tools.subjectBox),
       edgeMode,
+      ...(fastAvailable ? { quality } : {}),
       timelineRevision: editor.state.timeline.revision ?? 0,
     }).then((refusal) => setMessage(refusal));
   };
@@ -213,6 +222,16 @@ export function BackgroundRemovalRow({
                 ? 'Pick AI Object on the monitor, then click the subject or drag a box around it.'
                 : `${String(tools.subjectPoints.length)} point(s) picked${tools.subjectBox === null ? '' : ' and a box drawn'}.`}
             </p>
+          )}
+          {fastAvailable && (
+            <LabeledSelect
+              caption="Speed"
+              label="background removal speed"
+              value={chosenQuality}
+              options={QUALITIES}
+              labels={QUALITY_LABELS}
+              onChange={(value) => setChosenQuality(value)}
+            />
           )}
           <LabeledSelect
             caption="Edges"
@@ -338,31 +357,47 @@ export function MatteProgress({
   }, []);
   const elapsed = Math.max(0, (now - job.startedAt) / 1000);
   const label = mattePhaseLabel(job.phase, job.round);
+  // Whole-job frames when the pack reports them. `completed`/`total` count ONE phase of one part
+  // of the clip: drawn as the job's bar they showed "done" at the first loaded model (plan 13).
+  const whole = job.overallTotal !== null && job.overallCompleted !== null && job.overallTotal > 0;
+  const done = whole ? job.overallCompleted! : job.completed;
+  const total = whole ? job.overallTotal! : job.total;
+  const counted = whole || job.total > 1;
+  const percent = counted && total > 0 ? Math.round((done / total) * 100) : null;
+  const left = whole ? job.jobEtaSeconds : job.etaSeconds;
 
   return (
     <div className="background-removal-progress">
       <p className="inspector-empty" role="status" aria-live="polite">
         {label}
+        {whole && percent !== null ? ` · ${String(percent)}% of the clip` : ''}
       </p>
       <div
         role="progressbar"
         className="background-removal-bar"
+        data-indeterminate={percent === null ? 'true' : undefined}
         aria-label="Background removal progress"
         aria-valuemin={0}
-        aria-valuemax={job.total > 0 ? job.total : 100}
-        {...(job.total > 0 ? { 'aria-valuenow': job.completed } : {})}
+        aria-valuemax={percent === null ? 100 : total}
+        {...(percent === null ? {} : { 'aria-valuenow': done })}
         aria-valuetext={
-          job.total > 0 ? `${String(job.completed)} of ${String(job.total)} frames` : 'Starting…'
+          percent === null
+            ? label
+            : whole
+              ? `${String(done)} of ${String(total)} frames`
+              : `${label}: ${String(done)} of ${String(total)}`
         }
       >
         <span
           className="background-removal-bar-fill"
-          style={{ width: job.total > 0 ? `${String((job.completed / job.total) * 100)}%` : '0%' }}
+          style={percent === null ? undefined : { width: `${String((done / total) * 100)}%` }}
         />
       </div>
       <p className="inspector-empty">
         {formatClock(elapsed)} elapsed
-        {job.etaSeconds === null ? '' : ` · about ${formatDuration(job.etaSeconds)} left`}
+        {left === null
+          ? ''
+          : ` · about ${formatDuration(left)} left${whole ? '' : ' in this step'}`}
       </p>
       <Button variant="secondary" type="button" disabled={job.cancelling} onClick={onCancel}>
         {job.cancelling ? 'Stopping…' : 'Cancel'}

@@ -1026,6 +1026,16 @@
   height: 100%;
   background: var(--accent);
 }
+/* A step that cannot be counted (loading a model): a part-filled bar that sweeps, never 0/100%. */
+.inspector-pro .background-removal-bar[data-indeterminate='true'] .background-removal-bar-fill {
+  width: 35%;
+  animation: jobs-progress-sweep 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .inspector-pro .background-removal-bar[data-indeterminate='true'] .background-removal-bar-fill {
+    animation: none;
+  }
+}
 
 /* ---- Review list, shared by mattes and tracks (BR6.5) ------------------- */
 .inspector-pro .mask-review {

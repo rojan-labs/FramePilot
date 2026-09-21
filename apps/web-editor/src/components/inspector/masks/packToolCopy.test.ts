@@ -36,6 +36,7 @@ describe('packToolCopy', () => {
       kind: 'ready',
       pack: proposal.identity,
       hardware: null,
+      fastMatte: false,
     };
     expect(packToolCopy(status, options).blocked).toBe(false);
   });

@@ -43,6 +43,8 @@ export type PackStatus =
       readonly kind: 'ready';
       readonly pack: CapabilityPackIdentityWire;
       readonly hardware: CapabilityPackHardwareWire | null;
+      /** `subject.matte`: the Fast engine can run on this machine (plan 13). */
+      readonly fastMatte: boolean;
     }
   | {
       readonly kind: 'missing';
@@ -77,7 +79,7 @@ export function packStatusOf(wire: CapabilityPackStatusWire): PackStatus {
   const hardware = 'hardware' in wire ? (wire.hardware ?? null) : null;
   switch (wire.state) {
     case 'ready':
-      return { kind: 'ready', pack: wire.pack, hardware };
+      return { kind: 'ready', pack: wire.pack, hardware, fastMatte: wire.fastMatte === true };
     case 'missing':
       return { kind: 'missing', ...proposalOf(wire.proposal), hardware };
     case 'unhealthy':

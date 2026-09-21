@@ -32,10 +32,13 @@ const log = createLogger('web-editor:matte-job');
  */
 export const MATTE_PHASE_LABELS: Readonly<Record<string, string>> = {
   prepare: 'Preparing models',
+  detect: 'Looking through the clip',
   decode: 'Reading the footage',
   segment: 'Finding the subject',
   refine: 'Refining the edges',
   consensus: 'Cross-checking the result',
+  // The pack says `self_correct`; the hyphenated key was never matched, so the raw word showed.
+  self_correct: 'Correcting itself',
   'self-correct': 'Correcting itself',
   matte: 'Building the cut-out',
   foreground: 'Cleaning colour from the edges',
@@ -62,8 +65,16 @@ export interface MatteJobState {
   readonly round: number | null;
   readonly completed: number;
   readonly total: number;
-  /** The host's ETA in seconds, or `null` until it has one. */
+  /** The host's ETA for the current PHASE in seconds, or `null` until it has one. */
   readonly etaSeconds: number | null;
+  /**
+   * Whole-job frames (plan 13), `null` from a pack that does not report them. `completed` and
+   * `total` count one phase of one part of the clip and restart constantly; only these may be
+   * drawn as the job's progress.
+   */
+  readonly overallCompleted: number | null;
+  readonly overallTotal: number | null;
+  readonly jobEtaSeconds: number | null;
   readonly startedAt: number;
   readonly cancelling: boolean;
   readonly edgeMode: 'sharp' | 'smooth' | null;
@@ -187,6 +198,9 @@ export class MatteJobStore {
               completed: message.completed,
               total: message.total,
               etaSeconds: message.etaSeconds ?? null,
+              overallCompleted: message.overallCompleted ?? null,
+              overallTotal: message.overallTotal ?? null,
+              jobEtaSeconds: message.jobEtaSeconds ?? null,
             },
           },
         });
@@ -238,6 +252,9 @@ export class MatteJobStore {
       completed: 0,
       total: 0,
       etaSeconds: null,
+      overallCompleted: null,
+      overallTotal: null,
+      jobEtaSeconds: null,
       startedAt: Date.now(),
       cancelling: false,
       edgeMode: edgeMode ?? null,
