@@ -134,8 +134,11 @@ as the job's. A step that cannot be counted (loading a model) shows a moving bar
 row reconnects to it. When it finishes it becomes an edit on the right clip whatever you are
 looking at.
 
-Finished windows show matted in the monitor while the rest runs, so the timeline draws a striped
-band over the part not reached yet — otherwise a half-processed clip looks finished.
+While a job runs the timeline draws a striped band over the part of the clip it has not reached
+yet, from the whole clip's progress. The matte itself appears in the monitor when the job
+finishes, as one edit. (This guide used to say finished parts show up while the rest runs; they
+do not. Doing that means letting the monitor read a running job's staging folder, which is a
+media-sandbox change that has not been decided.)
 
 ### The Jobs tab
 

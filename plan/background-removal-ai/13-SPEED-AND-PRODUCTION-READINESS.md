@@ -86,9 +86,13 @@ subject crop, window 300 → 90 frames.
       (section F). Decided: Apple Vision for Fast; no new runtime dependency, no new weights.
 - [x] **SP2** Pause/export suspend the worker and resume from finished windows; whole-job
       progress (`overallCompleted`/`overallTotal`) and a job ETA from this run's frame rate;
-      Fast windows of 240 frames so a restart loses ≤ ~1 min. _Not done, deferred on purpose:_
-      committing finished parts to the project while the job runs, and playhead-first ordering —
-      at 7.5 minutes per clip the striped "processing" band is enough; revisit for long clips.
+      Fast windows of 240 frames so a restart loses ≤ ~1 min. _Not done:_ showing finished
+      parts in the monitor while the job runs, and playhead-first ordering. The guide and
+      `ClipProcessingBand` CLAIMED the former already worked; it never did (nothing in the preview
+      reads a job's staging), and both now say so. It needs `fp-media://` to serve a running
+      job's staging folder — broadening the media sandbox is a maintainer decision (CLAUDE.md §5)
+      — plus a transient, non-undoable mask in the preview. The band now follows whole-clip
+      progress (it used one step's counter and swept back and forth).
 - [x] **SP3** Fast is the default on macOS; Best is the opt-in Speed choice. Best on the ranges
       Fast flags is shipped as an explicit, priced action (**Refine flagged moments with Best
       quality**, ADR 0182 §8): `recompute` ranges over the Fast matte as `previousArtifact`.
