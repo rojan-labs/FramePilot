@@ -276,6 +276,7 @@ const LOGIN_PROVIDERS: readonly AiProviderName[] = ['claude-agent-sdk'];
  * the broken option.
  */
 const CLAUDE_LOGIN_MODELS: readonly string[] = [
+  'claude-opus-5-5',
   'claude-opus-5',
   'claude-sonnet-5',
   'claude-opus-4-8',
@@ -323,6 +324,70 @@ function normalizedModelId(model: string): string {
 
 /** Providers that will pick the underlying model for you, and so lose the prompt cache. */
 const AUTO_ROUTING_PROVIDERS: readonly AiProviderName[] = ['openrouter', 'vercel-gateway'];
+
+/** Sentinel option that reveals the free-text field; never stored as a model id. */
+const CUSTOM_MODEL_OPTION = '__custom__';
+
+/**
+ * Model picker for the Claude Code login provider: the app's {@link Select} over the
+ * known ids, plus a "Custom model id" option that reveals a text field. The field must
+ * still accept free text so a model released after this build stays usable — the
+ * custom path is that escape hatch, and an unlisted saved id opens straight into it.
+ */
+function ClaudeLoginModelField({
+  name,
+  model,
+  onChange,
+}: {
+  readonly name: string;
+  readonly model: string;
+  readonly onChange: (model: string) => void;
+}): JSX.Element {
+  const isListed = CLAUDE_LOGIN_MODELS.includes(model);
+  const [customOpen, setCustomOpen] = useState(model !== '' && !isListed);
+  const showCustom = customOpen || (model !== '' && !isListed);
+
+  const options = [
+    ...CLAUDE_LOGIN_MODELS.map((id) => ({ value: id, label: id })),
+    { value: CUSTOM_MODEL_OPTION, label: 'Custom model id…' },
+  ];
+
+  return (
+    <>
+      <Select
+        id={`ai-model-${name}`}
+        label="Model"
+        placeholder="claude-sonnet-5"
+        value={showCustom ? CUSTOM_MODEL_OPTION : model}
+        options={options}
+        onChange={(value) => {
+          if (value === CUSTOM_MODEL_OPTION) {
+            setCustomOpen(true);
+            return;
+          }
+          setCustomOpen(false);
+          onChange(value);
+        }}
+      />
+      {showCustom ? (
+        <input
+          id={`ai-model-custom-${name}`}
+          type="text"
+          className="setting-text-input"
+          aria-label="Custom model id"
+          spellCheck={false}
+          placeholder="claude-…"
+          value={model}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      ) : null}
+      <span className="setting-hint">
+        Use a full model id, not a short alias like <code>opus</code>: the context meter sizes the
+        window by matching the id, and an alias matches nothing.
+      </span>
+    </>
+  );
+}
 
 function ProviderKeyField({
   name,
@@ -438,35 +503,22 @@ function ProviderKeyField({
         <label className="setting-field-label" htmlFor={`ai-model-${name}`}>
           Model
         </label>
-        <input
-          id={`ai-model-${name}`}
-          type="text"
-          className="setting-text-input"
-          spellCheck={false}
-          {...(signsInSeparately
-            ? { list: `ai-model-options-${name}`, placeholder: 'claude-sonnet-5' }
-            : {})}
-          value={info?.model ?? ''}
-          onChange={(event) => setModel(name, event.target.value)}
-        />
-        {/* Suggestions, not a fixed dropdown: the field must stay free text so a model
-            released after this build is still usable, but nobody should have to guess an
-            id from memory. A `datalist` gives both. Only offered for the login provider,
-            whose accepted ids are a short known set — every other provider serves an
-            open-ended catalogue where a five-item list would be misleading. */}
         {signsInSeparately ? (
-          <datalist id={`ai-model-options-${name}`}>
-            {CLAUDE_LOGIN_MODELS.map((id) => (
-              <option key={id} value={id} />
-            ))}
-          </datalist>
-        ) : null}
-        {signsInSeparately ? (
-          <span className="setting-hint">
-            Use a full model id, not a short alias like <code>opus</code>: the context meter sizes
-            the window by matching the id, and an alias matches nothing.
-          </span>
-        ) : null}
+          <ClaudeLoginModelField
+            name={name}
+            model={info?.model ?? ''}
+            onChange={(model) => setModel(name, model)}
+          />
+        ) : (
+          <input
+            id={`ai-model-${name}`}
+            type="text"
+            className="setting-text-input"
+            spellCheck={false}
+            value={info?.model ?? ''}
+            onChange={(event) => setModel(name, event.target.value)}
+          />
+        )}
         {unknownModelHint ? <span className="setting-hint">{unknownModelHint}</span> : null}
         {autoRoutingHint ? (
           <span className="setting-hint" role="note">

@@ -8,6 +8,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Claude Opus 5.5 for the Claude Code login.** Settings → AI → Claude (your Claude Code
+  login) now offers `claude-opus-5-5`, and the context meter knows its 1M window / 128K output.
+  The model field is now the app's own dropdown instead of the browser's native suggestion list;
+  pick **Custom model id…** to type any id, so a model newer than this build still works.
 - **Background removal in minutes, not hours (Mac).** Remove background has a new **Speed**
   choice, and the default is **Fast**: a 50-second 1080p clip that took 8–17 hours now takes about
   7.5 minutes on an M1 Pro. Fast uses Apple's Vision framework to find the subject in every frame

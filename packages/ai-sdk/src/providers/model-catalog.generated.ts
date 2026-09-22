@@ -37,6 +37,7 @@ export const MODEL_CATALOG: Readonly<Record<string, CatalogLimits>> = Object.fre
   'claude-opus-4-7': { contextWindow: 1000000, maxOutputTokens: 128000 },
   'claude-opus-4-8': { contextWindow: 1000000, maxOutputTokens: 128000 },
   'claude-opus-5': { contextWindow: 1000000, maxOutputTokens: 128000 },
+  'claude-opus-5-5': { contextWindow: 1000000, maxOutputTokens: 128000 },
   'claude-sonnet-4-0': { contextWindow: 200000, maxOutputTokens: 64000 },
   'claude-sonnet-4-20250514': { contextWindow: 200000, maxOutputTokens: 64000 },
   'claude-sonnet-4-5': { contextWindow: 200000, maxOutputTokens: 64000 },

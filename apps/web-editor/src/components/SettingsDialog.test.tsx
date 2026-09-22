@@ -223,8 +223,14 @@ describe('SettingsDialog', () => {
     expect(document.getElementById('ai-key-claude-agent-sdk')).toBeNull();
     expect(screen.getByText('How this signs in')).toBeTruthy();
     expect(screen.getAllByText('claude login').length).toBeGreaterThan(0);
-    // Suggestions exist, but the field stays free text so a newer model is still usable.
-    expect(document.getElementById('ai-model-options-claude-agent-sdk')).toBeTruthy();
+    // The model is picked from the app's Select, not a native datalist.
+    const picker = document.getElementById('ai-model-claude-agent-sdk') as HTMLElement;
+    expect(picker.getAttribute('role')).toBe('combobox');
+    fireEvent.click(picker);
+    expect(screen.getByRole('option', { name: 'claude-opus-5-5' })).toBeTruthy();
+    // A custom id is still possible, so a model newer than this build stays usable.
+    fireEvent.click(screen.getByRole('option', { name: 'Custom model id…' }));
+    expect(screen.getByRole('textbox', { name: 'Custom model id' })).toBeTruthy();
   });
 
   it('expands a collapsed provider row to reveal its fields (accordion)', () => {
