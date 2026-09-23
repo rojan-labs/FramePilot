@@ -105,6 +105,7 @@ import { TaskRunView } from './TaskRunView.js';
 import { PlanApprovalCard } from './PlanApprovalCard.js';
 import { PlanAccordion } from './PlanAccordion.js';
 import { SelfCheckGroup } from './SelfCheckGroup.js';
+import { dropActionsListedByDiff } from './diffActionRows.js';
 import { type ActivityRow, groupSelfCheckNotices } from './selfCheckRows.js';
 import type { StepOutcome } from './EventNode.js';
 import { SteeringInput } from './SteeringInput.js';
@@ -747,7 +748,12 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   const { latestPlan, activityNodes } = useMemo(() => {
     let latest: Extract<ViewNode, { kind: 'plan' }> | undefined;
     const activity: ViewNode[] = [];
-    for (const node of view.nodes) {
+    // A diff card already lists its operations; the loose action rows beside it repeated them.
+    const rendered = dropActionsListedByDiff(
+      view.nodes,
+      (node) => node.kind === 'diff' && !mergedDiffNodeIds.has(node.id),
+    );
+    for (const node of rendered) {
       // A plan belongs to the turn that drafted it: a later message from the editor starts
       // a new run (or a chat), and the old ledger pinned over it read as that run's plan.
       if (node.kind === 'user') latest = undefined;
