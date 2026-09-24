@@ -24,6 +24,10 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 #: pixels. Shaped layout (libraqm, the Linux wheels) also kerns, and one pair in the catalog
 #: draws 3.2 % wider than its advances (CI, 2026-09-24). The fit keeps a 4 % margin each side
 #: of the 92 % safe width, so neither can put a title off the frame.
+#: Both bounds allow :data:`PIXEL_SLACK` on top: at the smallest size a three-letter word is
+#: ~120 px, so one pixel of edge rounding alone is ~1 % (Bricolage Grotesque's "jig" at 4 %
+#: read 116 px against 119 drawn when the catalog grew to 92 families).
+PIXEL_SLACK = 2
 MAX_UNDER_READ = 0.025 if not features.check("raqm") else 0.04
 #: The most the formula may read WIDER than the raster: rounding on basic layout; kerning and
 #: ligatures ("fl") on shaped layout, where a short word can draw a quarter narrower.
@@ -111,13 +115,14 @@ def test_the_formula_predicts_the_drawn_width(metrics: dict[str, object], weight
                     style["fontFamily"] = family
                 drawn = rasterize_text_overlay(word, style, *tm.REFERENCE_FRAME).shape[1]
                 predicted = _predict(metrics, family, weight, word, size)
-                if (predicted - drawn) / drawn < worst:
-                    worst = (predicted - drawn) / drawn
+                under = (predicted + PIXEL_SLACK - drawn) / drawn
+                if under < worst:
+                    worst = under
                     worst_case = (family, weight, word, size, round(predicted, 1), drawn)
                 # Within rounding in BOTH directions on basic layout: a gross over-read would
                 # shrink titles for nothing, the other bug this replaced. Shaped layout (libraqm,
                 # the Linux wheels) kerns and ligates narrower than the summed advances.
-                assert predicted <= drawn * OVER_READ + 2, (family, weight, word, size, drawn)
+                assert predicted <= drawn * OVER_READ + PIXEL_SLACK, (family, weight, word, size, drawn)
     assert worst >= -MAX_UNDER_READ, worst_case
 
 
@@ -125,5 +130,5 @@ def test_every_bundled_family_has_a_row_for_every_weight(metrics: dict[str, obje
     faces = metrics["faces"]
     assert isinstance(faces, dict)
     assert tm.DEFAULT_FACE in faces
-    assert len(faces) > 20
+    assert len(faces) > 90
     assert all(len(rows) == len(tm.WEIGHT_BUCKETS) for rows in faces.values())

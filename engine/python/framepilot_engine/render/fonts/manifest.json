@@ -1,5 +1,5 @@
 {
-  "comment": "Generated from packages/timeline-schema/src/caption-fonts.ts. Bundled OFL caption fonts; keep binary assets mirrored with apps/web-editor/public/fonts/.",
+  "comment": "Generated from packages/timeline-schema/src/caption-fonts.ts. Bundled OFL/Apache-2.0 caption fonts; keep binary assets mirrored with apps/web-editor/public/fonts/.",
   "families": {
     "Inter": {
       "file": "Inter-Variable.ttf",
@@ -73,6 +73,120 @@
       "maxWeight": 900,
       "variable": true
     },
+    "Plus Jakarta Sans": {
+      "file": "PlusJakartaSans-Variable.ttf",
+      "category": "sans",
+      "minWeight": 200,
+      "maxWeight": 800,
+      "variable": true
+    },
+    "Outfit": {
+      "file": "Outfit-Variable.ttf",
+      "category": "sans",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Lexend": {
+      "file": "Lexend-Variable.ttf",
+      "category": "sans",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Sora": {
+      "file": "Sora-Variable.ttf",
+      "category": "sans",
+      "minWeight": 100,
+      "maxWeight": 800,
+      "variable": true
+    },
+    "Urbanist": {
+      "file": "Urbanist-Variable.ttf",
+      "category": "sans",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "DM Sans": {
+      "file": "DMSans-Variable.ttf",
+      "category": "sans",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Space Grotesk": {
+      "file": "SpaceGrotesk-Variable.ttf",
+      "category": "sans",
+      "minWeight": 300,
+      "maxWeight": 700,
+      "variable": true
+    },
+    "Rubik": {
+      "file": "Rubik-Variable.ttf",
+      "category": "sans",
+      "minWeight": 300,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Kanit": {
+      "file": "Kanit-Regular.ttf",
+      "category": "sans",
+      "minWeight": 400,
+      "maxWeight": 800,
+      "boldFile": "Kanit-ExtraBold.ttf",
+      "variable": false
+    },
+    "Barlow": {
+      "file": "Barlow-Regular.ttf",
+      "category": "sans",
+      "minWeight": 400,
+      "maxWeight": 700,
+      "boldFile": "Barlow-Bold.ttf",
+      "variable": false
+    },
+    "League Spartan": {
+      "file": "LeagueSpartan-Variable.ttf",
+      "category": "sans",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Geist": {
+      "file": "Geist-Variable.ttf",
+      "category": "sans",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Bricolage Grotesque": {
+      "file": "BricolageGrotesque-Variable.ttf",
+      "category": "sans",
+      "minWeight": 200,
+      "maxWeight": 800,
+      "variable": true
+    },
+    "Fredoka": {
+      "file": "Fredoka-Variable.ttf",
+      "category": "sans",
+      "minWeight": 300,
+      "maxWeight": 700,
+      "variable": true
+    },
+    "Quicksand": {
+      "file": "Quicksand-Variable.ttf",
+      "category": "sans",
+      "minWeight": 300,
+      "maxWeight": 700,
+      "variable": true
+    },
+    "Josefin Sans": {
+      "file": "JosefinSans-Variable.ttf",
+      "category": "sans",
+      "minWeight": 100,
+      "maxWeight": 700,
+      "variable": true
+    },
     "Archivo Black": {
       "file": "ArchivoBlack-Regular.ttf",
       "category": "display",
@@ -108,6 +222,169 @@
       "maxWeight": 400,
       "variable": false
     },
+    "Unbounded": {
+      "file": "Unbounded-Variable.ttf",
+      "category": "display",
+      "minWeight": 200,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Syne": {
+      "file": "Syne-Variable.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 800,
+      "variable": true
+    },
+    "Exo 2": {
+      "file": "Exo2-Variable.ttf",
+      "category": "display",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Barlow Condensed": {
+      "file": "BarlowCondensed-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 800,
+      "boldFile": "BarlowCondensed-ExtraBold.ttf",
+      "variable": false
+    },
+    "Luckiest Guy": {
+      "file": "LuckiestGuy-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Lilita One": {
+      "file": "LilitaOne-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Titan One": {
+      "file": "TitanOne-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Bungee": {
+      "file": "Bungee-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Rubik Mono One": {
+      "file": "RubikMonoOne-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Righteous": {
+      "file": "Righteous-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Staatliches": {
+      "file": "Staatliches-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Teko": {
+      "file": "Teko-Variable.ttf",
+      "category": "display",
+      "minWeight": 300,
+      "maxWeight": 700,
+      "variable": true
+    },
+    "Big Shoulders": {
+      "file": "BigShoulders-Variable.ttf",
+      "category": "display",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "League Gothic": {
+      "file": "LeagueGothic-Variable.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": true
+    },
+    "Alfa Slab One": {
+      "file": "AlfaSlabOne-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Russo One": {
+      "file": "RussoOne-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Orbitron": {
+      "file": "Orbitron-Variable.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Passion One": {
+      "file": "PassionOne-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 700,
+      "boldFile": "PassionOne-Bold.ttf",
+      "variable": false
+    },
+    "Paytone One": {
+      "file": "PaytoneOne-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Chewy": {
+      "file": "Chewy-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Knewave": {
+      "file": "Knewave-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Shrikhand": {
+      "file": "Shrikhand-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Abril Fatface": {
+      "file": "AbrilFatface-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
     "DM Serif Display": {
       "file": "DMSerifDisplay-Regular.ttf",
       "category": "serif",
@@ -121,6 +398,7 @@
       "category": "serif",
       "minWeight": 400,
       "maxWeight": 900,
+      "italicFile": "PlayfairDisplay-Italic-Variable.ttf",
       "variable": true
     },
     "Merriweather": {
@@ -130,12 +408,133 @@
       "maxWeight": 900,
       "variable": true
     },
+    "Fraunces": {
+      "file": "Fraunces-Variable.ttf",
+      "category": "serif",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "italicFile": "Fraunces-Italic-Variable.ttf",
+      "variable": true
+    },
+    "Instrument Serif": {
+      "file": "InstrumentSerif-Regular.ttf",
+      "category": "serif",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "italicFile": "InstrumentSerif-Italic.ttf",
+      "variable": false
+    },
+    "Lora": {
+      "file": "Lora-Variable.ttf",
+      "category": "serif",
+      "minWeight": 400,
+      "maxWeight": 700,
+      "italicFile": "Lora-Italic-Variable.ttf",
+      "variable": true
+    },
+    "Libre Baskerville": {
+      "file": "LibreBaskerville-Variable.ttf",
+      "category": "serif",
+      "minWeight": 400,
+      "maxWeight": 700,
+      "italicFile": "LibreBaskerville-Italic-Variable.ttf",
+      "variable": true
+    },
+    "Bodoni Moda": {
+      "file": "BodoniModa-Variable.ttf",
+      "category": "serif",
+      "minWeight": 400,
+      "maxWeight": 900,
+      "italicFile": "BodoniModa-Italic-Variable.ttf",
+      "variable": true
+    },
+    "Cinzel": {
+      "file": "Cinzel-Variable.ttf",
+      "category": "serif",
+      "minWeight": 400,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Prata": {
+      "file": "Prata-Regular.ttf",
+      "category": "serif",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Roboto Slab": {
+      "file": "RobotoSlab-Variable.ttf",
+      "category": "serif",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Young Serif": {
+      "file": "YoungSerif-Regular.ttf",
+      "category": "serif",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Gloock": {
+      "file": "Gloock-Regular.ttf",
+      "category": "serif",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
     "Space Mono": {
       "file": "SpaceMono-Regular.ttf",
       "category": "mono",
       "minWeight": 400,
       "maxWeight": 700,
       "boldFile": "SpaceMono-Bold.ttf",
+      "variable": false
+    },
+    "JetBrains Mono": {
+      "file": "JetBrainsMono-Variable.ttf",
+      "category": "mono",
+      "minWeight": 100,
+      "maxWeight": 800,
+      "variable": true
+    },
+    "IBM Plex Mono": {
+      "file": "IBMPlexMono-Regular.ttf",
+      "category": "mono",
+      "minWeight": 400,
+      "maxWeight": 700,
+      "boldFile": "IBMPlexMono-Bold.ttf",
+      "variable": false
+    },
+    "Courier Prime": {
+      "file": "CourierPrime-Regular.ttf",
+      "category": "mono",
+      "minWeight": 400,
+      "maxWeight": 700,
+      "boldFile": "CourierPrime-Bold.ttf",
+      "italicFile": "CourierPrime-Italic.ttf",
+      "variable": false
+    },
+    "VT323": {
+      "file": "VT323-Regular.ttf",
+      "category": "mono",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Press Start 2P": {
+      "file": "PressStart2P-Regular.ttf",
+      "category": "mono",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Silkscreen": {
+      "file": "Silkscreen-Regular.ttf",
+      "category": "mono",
+      "minWeight": 400,
+      "maxWeight": 700,
+      "boldFile": "Silkscreen-Bold.ttf",
       "variable": false
     },
     "Caveat": {
@@ -157,6 +556,112 @@
       "category": "handwritten",
       "minWeight": 400,
       "maxWeight": 400,
+      "variable": false
+    },
+    "Permanent Marker": {
+      "file": "PermanentMarker-Regular.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Dancing Script": {
+      "file": "DancingScript-Variable.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 700,
+      "variable": true
+    },
+    "Satisfy": {
+      "file": "Satisfy-Regular.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Great Vibes": {
+      "file": "GreatVibes-Regular.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Sacramento": {
+      "file": "Sacramento-Regular.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Yellowtail": {
+      "file": "Yellowtail-Regular.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Lobster": {
+      "file": "Lobster-Regular.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Patrick Hand": {
+      "file": "PatrickHand-Regular.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Rock Salt": {
+      "file": "RockSalt-Regular.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Gloria Hallelujah": {
+      "file": "GloriaHallelujah-Regular.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Homemade Apple": {
+      "file": "HomemadeApple-Regular.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Kaushan Script": {
+      "file": "KaushanScript-Regular.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Mr Dafoe": {
+      "file": "MrDafoe-Regular.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Caveat Brush": {
+      "file": "CaveatBrush-Regular.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Amatic SC": {
+      "file": "AmaticSC-Regular.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 700,
+      "boldFile": "AmaticSC-Bold.ttf",
       "variable": false
     }
   }

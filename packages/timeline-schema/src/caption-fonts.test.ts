@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
@@ -13,8 +13,8 @@ const engineFontDir = `${root}/engine/python/framepilot_engine/render/fonts`;
 const webFontDir = `${root}/apps/web-editor/public/fonts`;
 
 describe('CAPTION_FONT_CATALOG', () => {
-  it('ships at least 20 unique generally useful families across creative categories', () => {
-    expect(CAPTION_FONT_CATALOG.length).toBeGreaterThanOrEqual(20);
+  it('ships at least 90 unique families across creative categories', () => {
+    expect(CAPTION_FONT_CATALOG.length).toBeGreaterThanOrEqual(90);
     expect(new Set(CAPTION_FONT_CATALOG.map((font) => font.family)).size).toBe(
       CAPTION_FONT_CATALOG.length,
     );
@@ -41,6 +41,20 @@ describe('CAPTION_FONT_CATALOG', () => {
         // Buffer.equals is an exact byte comparison; used instead of structural
         // `toEqual`, which is prohibitively slow on multi-MB binaries in vitest 3.
         expect(engineBytes.equals(webBytes), file).toBe(true);
+      }
+    }
+  });
+
+  it('ships the licence text for every family next to its files in both runtimes', () => {
+    // Bundling a face is redistribution: OFL 1.1 and Apache 2.0 both require the
+    // licence to travel with the font, so a family without one must not ship.
+    for (const font of CAPTION_FONT_CATALOG) {
+      const slug = font.family.replace(/\s+/g, '').toLowerCase();
+      for (const dir of [engineFontDir, webFontDir]) {
+        const licences = [`${dir}/OFL-${slug}.txt`, `${dir}/Apache-${slug}.txt`].filter((file) =>
+          existsSync(file),
+        );
+        expect(licences, `${font.family} in ${dir}`).toHaveLength(1);
       }
     }
   });

@@ -89,7 +89,7 @@ writeJson(path.join(here, '..', 'schema', 'caption-fonts.json'), fontCatalog);
 
 const fontManifest = {
   comment:
-    'Generated from packages/timeline-schema/src/caption-fonts.ts. Bundled OFL caption fonts; keep binary assets mirrored with apps/web-editor/public/fonts/.',
+    'Generated from packages/timeline-schema/src/caption-fonts.ts. Bundled OFL/Apache-2.0 caption fonts; keep binary assets mirrored with apps/web-editor/public/fonts/.',
   families: Object.fromEntries(
     CAPTION_FONT_CATALOG.map((font) => [
       font.family,
@@ -126,11 +126,14 @@ const face = (font, file, weight, style = 'normal') =>
 const fontCss = [
   '/* Generated from @framepilot/timeline-schema/caption-fonts. Do not edit by hand. */',
   ...CAPTION_FONT_CATALOG.flatMap((font) => {
-    const rules = [
-      face(font, font.file, font.variable ? `${font.minWeight} ${font.maxWeight}` : font.minWeight),
-    ];
+    // A variable file covers its whole weight range; a static file is one weight.
+    const baseWeight = font.variable ? `${font.minWeight} ${font.maxWeight}` : font.minWeight;
+    const rules = [face(font, font.file, baseWeight)];
     if (font.boldFile) rules.push(face(font, font.boldFile, font.maxWeight));
-    if (font.italicFile) rules.push(face(font, font.italicFile, font.minWeight, 'italic'));
+    // The italic file of a variable family is variable too (the engine sets its
+    // weight axis the same way), so it must be declared over the same range or
+    // the browser would draw every italic weight from a single instance.
+    if (font.italicFile) rules.push(face(font, font.italicFile, baseWeight, 'italic'));
     return rules;
   }),
 ]

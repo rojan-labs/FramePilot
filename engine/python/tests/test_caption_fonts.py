@@ -19,7 +19,7 @@ _TS_ARTIFACT = (
 
 def test_every_catalog_font_resolves_to_a_bundled_face() -> None:
     catalog = json.loads(_TS_ARTIFACT.read_text(encoding="utf-8"))
-    assert len(catalog["fonts"]) >= 20
+    assert len(catalog["fonts"]) >= 90
     for font in catalog["fonts"]:
         resolved = _bundled_font_path(font["family"], 700, False)
         assert resolved is not None
@@ -29,7 +29,16 @@ def test_every_catalog_font_resolves_to_a_bundled_face() -> None:
 
 
 def test_representative_new_faces_load_in_the_rasterizer() -> None:
-    for family in ("Montserrat", "Bebas Neue", "Playfair Display", "Pacifico"):
+    for family in (
+        "Montserrat",
+        "Bebas Neue",
+        "Playfair Display",
+        "Pacifico",
+        "Plus Jakarta Sans",
+        "Luckiest Guy",
+        "Fraunces",
+        "Permanent Marker",
+    ):
         font = _load_font(family, 32, 700, False)
         assert font.getbbox("FramePilot captions") is not None
 
