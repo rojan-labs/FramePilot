@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
+import { getCaptionTemplate } from '@framepilot/timeline-schema/caption-templates';
 import type { ToolContext } from '../tool-context.js';
 import { getTool } from '../tool-registry.js';
 import { ToolRefusalError } from '../tool-refusal.js';
@@ -122,7 +123,8 @@ describe('discover_caption_styles shows the numbers a chip override has to match
     expect(result.units).toBe(CAPTION_STYLE_UNITS);
     const [tag] = result.templates as Record<string, unknown>[];
     expect(tag?.templateId).toBe('tag');
-    expect(tag?.background).toEqual({ color: '#ffffff', radius: 0.35, paddingX: 0.45, paddingY: 0.3 });
+    // The payload carries the catalog's own numbers, whatever they are today.
+    expect(tag?.background).toEqual(getCaptionTemplate('tag')?.style.background);
   });
 
   it('answers a right id in the wrong category with the near misses, not with nothing', () => {

@@ -6,7 +6,7 @@
  * closed enum vocabularies (`display` × emphasis × entrance × accent) that the
  * renderers interpret generically. Neither the Python engine nor the web
  * preview may ever branch on a template id — that is the extensibility
- * contract that makes "add template #46" a one-object change to this file.
+ * contract that makes "add a template" a one-object change to this file.
  *
  * Cross-language parity: `scripts/generate-json-schema.mjs` exports this
  * catalog to `schema/caption-templates.json` and copies it into the Python
@@ -22,14 +22,7 @@ import { CaptionStyleSchema, type CaptionStyle } from './index.js';
 
 /** Gallery grouping, mirroring the reference template-gallery tabs. */
 export type CaptionTemplateCategory =
-  | 'one-word'
-  | 'phrase'
-  | 'karaoke'
-  | 'build'
-  | 'boxed'
-  | 'editorial'
-  | 'aesthetic'
-  | 'cinematic';
+  'one-word' | 'phrase' | 'karaoke' | 'build' | 'boxed' | 'editorial' | 'aesthetic' | 'cinematic';
 
 export interface CaptionTemplate {
   /** Stable id persisted in `captionStyle.templateId`. Never rename. */
@@ -50,43 +43,105 @@ export interface CaptionTemplate {
   readonly style: CaptionStyle;
 }
 
-// Shared palette (approximated from the reference gallery's dark-canvas look).
+// ----------------------------------------------------------------- palette
+// Tuned against real footage, not a dark canvas: every text colour is chosen to
+// survive both a blown-out sky and a dark room once its separation layer (below)
+// is applied.
 const WHITE = '#ffffff';
-const OFF_WHITE = '#e8e8ee';
+const OFF_WHITE = '#f4f1ea';
+const SOFT_WHITE = '#fffffff2';
 const YELLOW = '#ffd60a';
-const GOLD = '#e6b800';
-const RED = '#e63946';
-const GREEN = '#a8e05f';
+const GOLD = '#f2c14e';
+const RED = '#ff2e4d';
+const LIME = '#8cff5a';
 const ORANGE = '#ff6b1a';
-const INK = '#111111';
-const CHIP_DARK = '#000000b3'; // rgba(0,0,0,0.7)
+const CYAN = '#3de0ff';
+const PINK = '#ff4fa3';
+const INK = '#0b0b0f';
+const PHOSPHOR = '#7dff9b';
 
-const SANS = 'Inter';
-const HEAVY = 'Archivo Black';
-const CONDENSED = 'Oswald';
-const SERIF = 'DM Serif Display';
-const MONO = 'Space Mono';
-const SCRIPT = 'Caveat';
-const ROUNDED = 'Nunito';
-const MODERN = 'Montserrat';
-const CREATOR = 'Poppins';
-const HUMANIST = 'Open Sans';
-const NEUTRAL = 'Roboto';
-const WARM = 'Lato';
-const ELEGANT = 'Raleway';
-const FRIENDLY = 'Figtree';
-const POLISHED = 'Manrope';
-const CLASSIC = 'Playfair Display';
-const READABLE_SERIF = 'Merriweather';
-const POSTER = 'Anton';
-const TALL = 'Bebas Neue';
-const COMIC = 'Bangers';
-const BRUSH = 'Pacifico';
-const MARKER = 'Shadows Into Light';
+// ------------------------------------------------------ separation layers
+// WHY every template carries one: a caption is drawn over footage nobody chose
+// for it. Plain white text with no outline, shadow or chip vanishes on a sky, a
+// white wall or a bright shirt — the failure `caption_legibility.py` measures.
+// The catalog used to ship a dozen such templates. Units: blur/offsets are
+// fractions of the font size; `outlineWidth` is sixteenths of it.
+
+/** A soft drop shadow: lifts light text off bright picture without a hard edge. */
+const SOFT_DROP = { color: '#000000b3', blur: 0.2, offsetX: 0, offsetY: 0.06 } as const;
+/** A dark halo with no offset: the quiet choice for serif and light-weight looks. */
+const HALO = { color: '#000000d9', blur: 0.26, offsetX: 0, offsetY: 0.02 } as const;
+/** A hard offset shadow: the sticker/comic look, reads at a glance on anything. */
+const HARD_DROP = { color: '#000000', blur: 0, offsetX: 0.05, offsetY: 0.07 } as const;
+/** Outline widths (sixteenths of the font size). */
+const THIN = 1;
+const MEDIUM = 1.5;
+const BOLD = 2;
+const HEAVY_STROKE = 2.5;
+
+// ------------------------------------------------------------------- fonts
+// Every family is bundled (`caption-fonts.ts`) and drawn identically by both
+// renderers. Italic is only asked of families that ship an italic file — the
+// renderers never fake one.
+const ANTON = 'Anton';
+const LUCKIEST = 'Luckiest Guy';
+const ARCHIVO_BLACK = 'Archivo Black';
+const BEBAS = 'Bebas Neue';
+const BANGERS = 'Bangers';
+const UNBOUNDED = 'Unbounded';
+const JAKARTA = 'Plus Jakarta Sans';
+const OUTFIT = 'Outfit';
+const RUBIK = 'Rubik';
+const JOSEFIN = 'Josefin Sans';
+const SORA = 'Sora';
+const PATRICK = 'Patrick Hand';
+const POPPINS = 'Poppins';
+const MONTSERRAT = 'Montserrat';
+const BARLOW = 'Barlow';
+const KANIT = 'Kanit';
+const GEIST = 'Geist';
+const LEXEND = 'Lexend';
+const FREDOKA = 'Fredoka';
+const COURIER = 'Courier Prime';
+const JETBRAINS = 'JetBrains Mono';
+const SPARTAN = 'League Spartan';
+const RUSSO = 'Russo One';
+const QUICKSAND = 'Quicksand';
+const LILITA = 'Lilita One';
+const INTER = 'Inter';
+const INSTRUMENT = 'Instrument Serif';
+const LORA = 'Lora';
+const BASKERVILLE = 'Libre Baskerville';
+const DM_SANS = 'DM Sans';
+const PLAYFAIR = 'Playfair Display';
+const CINZEL = 'Cinzel';
+const URBANIST = 'Urbanist';
+const NUNITO = 'Nunito';
+const BUNGEE = 'Bungee';
+const VT323 = 'VT323';
+const ORBITRON = 'Orbitron';
+const RUBIK_MONO = 'Rubik Mono One';
+const BIG_SHOULDERS = 'Big Shoulders';
+const BARLOW_CONDENSED = 'Barlow Condensed';
+const SYNE = 'Syne';
+const STAATLICHES = 'Staatliches';
+const PERMANENT_MARKER = 'Permanent Marker';
+const MANROPE = 'Manrope';
+const DM_SERIF = 'DM Serif Display';
+const YELLOWTAIL = 'Yellowtail';
+const BODONI = 'Bodoni Moda';
+const MERRIWEATHER = 'Merriweather';
+const GREAT_VIBES = 'Great Vibes';
+const TITAN = 'Titan One';
+const RIGHTEOUS = 'Righteous';
+const PRESS_START = 'Press Start 2P';
+const MR_DAFOE = 'Mr Dafoe';
 
 /**
  * The built-in caption template catalog. Order within each category is the
- * gallery display order. 45 templates — the full reference gallery.
+ * gallery display order. Ids are persisted in projects and never change; the
+ * look behind an id may be revised (2026-09-24: every template given a
+ * separation layer and a font from the 92-family catalog).
  */
 export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
   // -------------------------------------------------------------- one-word
@@ -97,11 +152,15 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 1,
     style: {
       display: 'active-word',
-      fontFamily: POSTER,
-      fontWeight: 900,
+      fontFamily: ANTON,
+      fontWeight: 400,
       textTransform: 'uppercase',
-      fontScale: 1.5,
+      letterSpacing: 0.01,
+      fontScale: 1.55,
       textColor: WHITE,
+      outlineColor: INK,
+      outlineWidth: BOLD,
+      shadow: SOFT_DROP,
       animation: { in: { type: 'zoom', duration: 0.12 } },
     },
   },
@@ -112,14 +171,15 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 1,
     style: {
       display: 'active-word',
-      fontFamily: COMIC,
-      fontWeight: 700,
+      fontFamily: LUCKIEST,
+      fontWeight: 400,
       textTransform: 'uppercase',
-      fontScale: 1.7,
+      fontScale: 1.4,
       textColor: WHITE,
       outlineColor: INK,
-      outlineWidth: 2,
-      animation: { in: { type: 'bounce', duration: 0.18 } },
+      outlineWidth: HEAVY_STROKE,
+      shadow: HARD_DROP,
+      animation: { in: { type: 'bounce', duration: 0.22 } },
     },
   },
   {
@@ -129,11 +189,14 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 1,
     style: {
       display: 'active-word',
-      fontFamily: HEAVY,
+      fontFamily: ARCHIVO_BLACK,
       fontWeight: 900,
       textTransform: 'uppercase',
-      fontScale: 1.5,
+      fontScale: 1.45,
       textColor: YELLOW,
+      outlineColor: INK,
+      outlineWidth: BOLD,
+      shadow: SOFT_DROP,
       animation: { in: { type: 'zoom', duration: 0.1 } },
     },
   },
@@ -144,13 +207,52 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 1,
     style: {
       display: 'active-word',
-      fontFamily: TALL,
+      fontFamily: BEBAS,
+      fontWeight: 400,
+      textTransform: 'uppercase',
+      letterSpacing: 0.04,
+      fontScale: 1.35,
+      textColor: WHITE,
+      background: { color: RED, radius: 0.12, paddingX: 0.38, paddingY: 0.14 },
+      animation: { in: { type: 'zoom', duration: 0.1 } },
+    },
+  },
+  {
+    id: 'comic',
+    label: 'Comic',
+    category: 'one-word',
+    suggestedWordsPerLine: 1,
+    style: {
+      display: 'active-word',
+      fontFamily: BANGERS,
+      fontWeight: 400,
+      textTransform: 'uppercase',
+      letterSpacing: 0.03,
+      fontScale: 1.55,
+      textColor: YELLOW,
+      outlineColor: INK,
+      outlineWidth: HEAVY_STROKE,
+      shadow: HARD_DROP,
+      rotation: -4,
+      animation: { in: { type: 'bounce', duration: 0.2 } },
+    },
+  },
+  {
+    id: 'shout',
+    label: 'Shout',
+    category: 'one-word',
+    suggestedWordsPerLine: 1,
+    style: {
+      display: 'active-word',
+      fontFamily: UNBOUNDED,
       fontWeight: 900,
       textTransform: 'uppercase',
-      fontScale: 1.3,
+      fontScale: 1.05,
       textColor: WHITE,
-      background: { color: RED, radius: 0.2, paddingX: 0.4, paddingY: 0.25 },
-      animation: { in: { type: 'zoom', duration: 0.1 } },
+      outlineColor: INK,
+      outlineWidth: BOLD,
+      shadow: SOFT_DROP,
+      animation: { in: { type: 'zoom', duration: 0.09 } },
     },
   },
   // ---------------------------------------------------------------- phrase
@@ -161,10 +263,12 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 3,
     style: {
       display: 'phrase',
-      fontFamily: CREATOR,
-      fontWeight: 600,
+      fontFamily: JAKARTA,
+      fontWeight: 700,
       textTransform: 'lowercase',
+      fontScale: 1.1,
       textColor: WHITE,
+      shadow: SOFT_DROP,
       animation: { in: { type: 'fade', duration: 0.12 } },
     },
   },
@@ -175,11 +279,15 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 2,
     style: {
       display: 'phrase',
-      fontFamily: MODERN,
+      fontFamily: OUTFIT,
       fontWeight: 800,
       textTransform: 'uppercase',
-      fontScale: 1.2,
+      letterSpacing: 0.01,
+      fontScale: 1.3,
       textColor: WHITE,
+      outlineColor: INK,
+      outlineWidth: MEDIUM,
+      shadow: SOFT_DROP,
       animation: { in: { type: 'fade', duration: 0.1 } },
     },
   },
@@ -190,11 +298,14 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 3,
     style: {
       display: 'phrase',
-      fontFamily: FRIENDLY,
+      fontFamily: RUBIK,
       fontWeight: 800,
       textTransform: 'uppercase',
+      fontScale: 1.1,
       textColor: WHITE,
-      highlight: { enabled: true, color: YELLOW, animation: 'pop', scale: 1.15 },
+      outlineColor: INK,
+      outlineWidth: MEDIUM,
+      highlight: { enabled: true, color: YELLOW, animation: 'pop', scale: 1.18 },
     },
   },
   {
@@ -204,11 +315,14 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 2,
     style: {
       display: 'phrase',
-      fontFamily: ELEGANT,
-      fontWeight: 600,
+      fontFamily: JOSEFIN,
+      fontWeight: 700,
       textTransform: 'lowercase',
+      fontScale: 1.2,
       textColor: WHITE,
+      shadow: SOFT_DROP,
       highlight: { enabled: true, color: GOLD, animation: 'color' },
+      animation: { in: { type: 'fade', duration: 0.15 } },
     },
   },
   {
@@ -218,10 +332,13 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 3,
     style: {
       display: 'phrase',
-      fontFamily: POLISHED,
+      fontFamily: SORA,
       fontWeight: 800,
       textTransform: 'uppercase',
       textColor: WHITE,
+      outlineColor: INK,
+      outlineWidth: THIN,
+      shadow: SOFT_DROP,
       highlight: { enabled: true, color: WHITE, animation: 'background', background: RED },
     },
   },
@@ -232,11 +349,49 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 3,
     style: {
       display: 'phrase',
-      fontFamily: MARKER,
+      fontFamily: PATRICK,
+      fontWeight: 400,
+      textTransform: 'lowercase',
+      fontScale: 1.25,
+      textColor: WHITE,
+      shadow: SOFT_DROP,
+      highlight: { enabled: true, color: INK, animation: 'background', background: YELLOW },
+    },
+  },
+  {
+    id: 'bubble',
+    label: 'Bubble',
+    category: 'phrase',
+    suggestedWordsPerLine: 3,
+    style: {
+      display: 'phrase',
+      fontFamily: TITAN,
+      fontWeight: 400,
+      textTransform: 'lowercase',
+      fontScale: 1.15,
+      textColor: WHITE,
+      outlineColor: PINK,
+      outlineWidth: MEDIUM,
+      shadow: HARD_DROP,
+      highlight: { enabled: true, color: YELLOW, animation: 'pop', scale: 1.15 },
+      animation: { in: { type: 'bounce', duration: 0.2 } },
+    },
+  },
+  {
+    id: 'vlog',
+    label: 'Vlog',
+    category: 'phrase',
+    suggestedWordsPerLine: 4,
+    style: {
+      display: 'phrase',
+      fontFamily: FREDOKA,
       fontWeight: 600,
       textTransform: 'lowercase',
-      textColor: WHITE,
-      highlight: { enabled: true, color: INK, animation: 'background', background: YELLOW },
+      fontScale: 1.05,
+      textColor: INK,
+      background: { color: '#fffffff0', radius: 0.45, paddingX: 0.5, paddingY: 0.22 },
+      highlight: { enabled: true, color: PINK, animation: 'color' },
+      animation: { in: { type: 'slide-up', duration: 0.14 } },
     },
   },
   // --------------------------------------------------------------- karaoke
@@ -247,23 +402,28 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 5,
     style: {
       display: 'phrase',
-      fontFamily: NEUTRAL,
-      fontWeight: 700,
+      fontFamily: MONTSERRAT,
+      fontWeight: 800,
       textColor: WHITE,
-      highlight: { enabled: true, color: RED, animation: 'karaoke-fill' },
+      outlineColor: INK,
+      outlineWidth: MEDIUM,
+      shadow: SOFT_DROP,
+      highlight: { enabled: true, color: YELLOW, animation: 'karaoke-fill' },
     },
   },
   {
     id: 'broadcast',
     label: 'Broadcast',
     category: 'karaoke',
-    suggestedWordsPerLine: 5,
+    suggestedWordsPerLine: 6,
     style: {
       display: 'phrase',
-      fontFamily: HUMANIST,
+      fontFamily: BARLOW,
       fontWeight: 700,
       textColor: WHITE,
-      shadow: { color: '#000000cc', blur: 0.12, offsetX: 0, offsetY: 0.06 },
+      outlineColor: INK,
+      outlineWidth: THIN,
+      shadow: { color: '#000000e6', blur: 0.14, offsetX: 0, offsetY: 0.05 },
       highlight: { enabled: true, color: YELLOW, animation: 'karaoke-fill' },
     },
   },
@@ -271,15 +431,16 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     id: 'outline',
     label: 'Outline',
     category: 'karaoke',
-    suggestedWordsPerLine: 5,
+    suggestedWordsPerLine: 4,
     style: {
       display: 'phrase',
-      fontFamily: WARM,
+      fontFamily: KANIT,
       fontWeight: 800,
       textTransform: 'uppercase',
+      fontScale: 1.1,
       textColor: WHITE,
       outlineColor: INK,
-      outlineWidth: 2,
+      outlineWidth: HEAVY_STROKE,
       highlight: { enabled: true, color: RED, animation: 'karaoke-fill' },
     },
   },
@@ -290,12 +451,14 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 5,
     style: {
       display: 'phrase',
-      fontFamily: SANS,
+      fontFamily: SORA,
       fontWeight: 600,
       textTransform: 'lowercase',
       textColor: WHITE,
-      shadow: { color: GREEN, blur: 0.35, offsetX: 0, offsetY: 0 },
-      highlight: { enabled: true, color: GREEN, animation: 'glow' },
+      outlineColor: INK,
+      outlineWidth: THIN,
+      shadow: { color: '#8cff5a8c', blur: 0.45, offsetX: 0, offsetY: 0 },
+      highlight: { enabled: true, color: LIME, animation: 'glow' },
     },
   },
   {
@@ -305,10 +468,28 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 5,
     style: {
       display: 'phrase',
-      fontFamily: SANS,
-      fontWeight: 500,
+      fontFamily: GEIST,
+      fontWeight: 600,
       textColor: WHITE,
+      shadow: HALO,
       highlight: { enabled: true, color: WHITE, animation: 'karaoke-fill' },
+    },
+  },
+  {
+    id: 'podcast',
+    label: 'Podcast',
+    category: 'karaoke',
+    suggestedWordsPerLine: 6,
+    style: {
+      display: 'phrase',
+      fontFamily: LEXEND,
+      fontWeight: 700,
+      textColor: WHITE,
+      outlineColor: INK,
+      outlineWidth: MEDIUM,
+      shadow: SOFT_DROP,
+      lineHeight: 1.15,
+      highlight: { enabled: true, color: CYAN, animation: 'karaoke-fill' },
     },
   },
   // ----------------------------------------------------------------- build
@@ -319,13 +500,15 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 3,
     style: {
       display: 'cumulative',
-      fontFamily: HEAVY,
+      fontFamily: MONTSERRAT,
       fontWeight: 900,
       textTransform: 'uppercase',
+      fontScale: 1.15,
       textColor: WHITE,
       outlineColor: INK,
-      outlineWidth: 2,
-      highlight: { enabled: true, color: YELLOW, animation: 'pop', scale: 1.15 },
+      outlineWidth: HEAVY_STROKE,
+      shadow: SOFT_DROP,
+      highlight: { enabled: true, color: YELLOW, animation: 'pop', scale: 1.12 },
       animation: { perWord: true, in: { type: 'zoom', duration: 0.08 } },
     },
   },
@@ -336,12 +519,14 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 3,
     style: {
       display: 'cumulative',
-      fontFamily: SANS,
-      fontWeight: 600,
+      fontFamily: OUTFIT,
+      fontWeight: 700,
       textTransform: 'lowercase',
+      fontScale: 1.1,
       textColor: WHITE,
-      highlight: { enabled: true, color: GOLD, animation: 'color' },
-      animation: { perWord: true, in: { type: 'slide-up', duration: 0.15 } },
+      shadow: SOFT_DROP,
+      highlight: { enabled: true, color: YELLOW, animation: 'color' },
+      animation: { perWord: true, in: { type: 'slide-up', duration: 0.14 } },
     },
   },
   {
@@ -351,12 +536,15 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 3,
     style: {
       display: 'cumulative',
-      fontFamily: SANS,
+      fontFamily: FREDOKA,
       fontWeight: 700,
       textTransform: 'lowercase',
+      fontScale: 1.15,
       textColor: WHITE,
-      highlight: { enabled: true, color: GOLD, animation: 'color' },
-      animation: { perWord: true, in: { type: 'bounce', duration: 0.2 } },
+      outlineColor: INK,
+      outlineWidth: MEDIUM,
+      highlight: { enabled: true, color: YELLOW, animation: 'color' },
+      animation: { perWord: true, in: { type: 'bounce', duration: 0.22 } },
     },
   },
   {
@@ -366,12 +554,15 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 4,
     style: {
       display: 'cumulative',
-      fontFamily: MONO,
+      fontFamily: COURIER,
       fontWeight: 700,
       textTransform: 'lowercase',
-      letterSpacing: 0.05,
+      letterSpacing: 0.02,
       textColor: WHITE,
-      highlight: { enabled: true, color: GOLD, animation: 'color' },
+      shadow: HALO,
+      outlineColor: INK,
+      outlineWidth: THIN,
+      highlight: { enabled: true, color: YELLOW, animation: 'color' },
       animation: { perWord: true, in: { type: 'typewriter', duration: 0.15 } },
     },
   },
@@ -382,12 +573,33 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 4,
     style: {
       display: 'cumulative',
-      fontFamily: MONO,
-      fontWeight: 700,
+      fontFamily: JETBRAINS,
+      fontWeight: 800,
       textTransform: 'uppercase',
-      letterSpacing: 0.08,
+      letterSpacing: 0.04,
+      fontScale: 0.9,
       textColor: WHITE,
-      highlight: { enabled: true, color: GOLD, animation: 'color' },
+      background: { color: '#0b0b0fd9', radius: 0.08, paddingX: 0.45, paddingY: 0.22 },
+      highlight: { enabled: true, color: CYAN, animation: 'color' },
+    },
+  },
+  {
+    id: 'gamer',
+    label: 'Gamer',
+    category: 'build',
+    suggestedWordsPerLine: 3,
+    style: {
+      display: 'cumulative',
+      fontFamily: RUSSO,
+      fontWeight: 400,
+      textTransform: 'uppercase',
+      fontScale: 1.1,
+      textColor: WHITE,
+      outlineColor: INK,
+      outlineWidth: BOLD,
+      shadow: HARD_DROP,
+      highlight: { enabled: true, color: CYAN, animation: 'pop', scale: 1.15 },
+      animation: { perWord: true, in: { type: 'zoom', duration: 0.08 } },
     },
   },
   // ----------------------------------------------------------------- boxed
@@ -395,14 +607,14 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     id: 'boxed',
     label: 'Boxed',
     category: 'boxed',
-    suggestedWordsPerLine: 5,
+    suggestedWordsPerLine: 4,
     style: {
       display: 'phrase',
-      fontFamily: SANS,
+      fontFamily: GEIST,
       fontWeight: 800,
       textTransform: 'uppercase',
       textColor: WHITE,
-      background: { color: CHIP_DARK, radius: 0.15, paddingX: 0.4, paddingY: 0.3 },
+      background: { color: '#0b0b0fcc', radius: 0.18, paddingX: 0.45, paddingY: 0.26 },
       highlight: { enabled: true, color: WHITE, animation: 'background', background: RED },
     },
   },
@@ -413,12 +625,30 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 1,
     style: {
       display: 'active-word',
-      fontFamily: ROUNDED,
-      fontWeight: 800,
+      fontFamily: QUICKSAND,
+      fontWeight: 700,
       textTransform: 'lowercase',
+      fontScale: 1.15,
       textColor: INK,
-      background: { color: WHITE, radius: 0.35, paddingX: 0.45, paddingY: 0.3 },
+      background: { color: WHITE, radius: 0.5, paddingX: 0.5, paddingY: 0.2 },
       animation: { in: { type: 'zoom', duration: 0.12 } },
+    },
+  },
+  {
+    id: 'sticker',
+    label: 'Sticker',
+    category: 'boxed',
+    suggestedWordsPerLine: 1,
+    style: {
+      display: 'active-word',
+      fontFamily: LILITA,
+      fontWeight: 400,
+      textTransform: 'lowercase',
+      fontScale: 1.35,
+      textColor: INK,
+      background: { color: YELLOW, radius: 0.28, paddingX: 0.42, paddingY: 0.14 },
+      rotation: -3,
+      animation: { in: { type: 'bounce', duration: 0.2 } },
     },
   },
   // ------------------------------------------------------------- editorial
@@ -429,10 +659,12 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 6,
     style: {
       display: 'phrase',
-      fontFamily: CLASSIC,
+      fontFamily: INSTRUMENT,
       fontWeight: 400,
       textTransform: 'lowercase',
+      fontScale: 1.2,
       textColor: OFF_WHITE,
+      shadow: HALO,
       highlight: { enabled: true, color: WHITE, animation: 'color' },
       animation: { in: { type: 'fade', duration: 0.2 } },
     },
@@ -444,11 +676,12 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 3,
     style: {
       display: 'phrase',
-      fontFamily: READABLE_SERIF,
-      fontWeight: 400,
+      fontFamily: LORA,
+      fontWeight: 600,
       textTransform: 'lowercase',
       fontScale: 1.2,
       textColor: WHITE,
+      shadow: HALO,
       accent: { mode: 'last-word', fontStyle: 'italic', color: GOLD },
       animation: { in: { type: 'fade', duration: 0.2 } },
     },
@@ -460,12 +693,34 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 6,
     style: {
       display: 'phrase',
-      fontFamily: SERIF,
+      fontFamily: BASKERVILLE,
       fontWeight: 400,
+      fontStyle: 'italic',
       textTransform: 'lowercase',
-      fontScale: 0.85,
+      fontScale: 0.95,
       textColor: OFF_WHITE,
-      animation: { in: { type: 'fade', duration: 0.3 } },
+      shadow: HALO,
+      animation: { in: { type: 'fade', duration: 0.35 } },
+    },
+  },
+  {
+    id: 'luxe',
+    label: 'Luxe',
+    category: 'editorial',
+    suggestedWordsPerLine: 4,
+    style: {
+      display: 'phrase',
+      fontFamily: CINZEL,
+      fontWeight: 600,
+      textTransform: 'uppercase',
+      letterSpacing: 0.08,
+      fontScale: 0.95,
+      textColor: OFF_WHITE,
+      shadow: HALO,
+      // Gold marks the spoken word only: gold text throughout vanishes on warm,
+      // bright picture — the exact footage (interiors, sunsets) this look is for.
+      highlight: { enabled: true, color: GOLD, animation: 'color' },
+      animation: { in: { type: 'fade', duration: 0.4 } },
     },
   },
   // ------------------------------------------------------------- aesthetic
@@ -476,10 +731,12 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 5,
     style: {
       display: 'phrase',
-      fontFamily: SANS,
-      fontWeight: 700,
+      fontFamily: URBANIST,
+      fontWeight: 800,
       textTransform: 'lowercase',
+      fontScale: 1.05,
       textColor: WHITE,
+      shadow: SOFT_DROP,
       highlight: { enabled: true, color: INK, animation: 'background', background: YELLOW },
     },
   },
@@ -490,11 +747,12 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 1,
     style: {
       display: 'active-word',
-      fontFamily: ROUNDED,
-      fontWeight: 700,
+      fontFamily: NUNITO,
+      fontWeight: 800,
       textTransform: 'lowercase',
+      fontScale: 1.1,
       textColor: WHITE,
-      background: { color: '#ffffff33', radius: 0.6, paddingX: 0.5, paddingY: 0.3 },
+      background: { color: '#0b0b0f8c', radius: 0.6, paddingX: 0.55, paddingY: 0.2 },
       animation: { in: { type: 'fade', duration: 0.12 } },
     },
   },
@@ -505,12 +763,14 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 1,
     style: {
       display: 'active-word',
-      fontFamily: HEAVY,
-      fontWeight: 900,
+      fontFamily: BUNGEE,
+      fontWeight: 400,
       textTransform: 'uppercase',
-      fontScale: 1.4,
+      fontScale: 1.25,
       textColor: ORANGE,
-      shadow: { color: ORANGE, blur: 0.4, offsetX: 0, offsetY: 0 },
+      outlineColor: '#2a0800',
+      outlineWidth: THIN,
+      shadow: { color: '#ff6b1acc', blur: 0.45, offsetX: 0, offsetY: 0 },
       animation: { in: { type: 'fade', duration: 0.1 }, loop: { type: 'pulse', period: 1.2 } },
     },
   },
@@ -518,15 +778,19 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     id: 'retro',
     label: 'Retro',
     category: 'aesthetic',
-    suggestedWordsPerLine: 6,
+    suggestedWordsPerLine: 5,
     style: {
       display: 'phrase',
-      fontFamily: MONO,
-      fontWeight: 700,
+      fontFamily: VT323,
+      fontWeight: 400,
       textTransform: 'uppercase',
-      letterSpacing: 0.1,
-      textColor: WHITE,
-      highlight: { enabled: true, color: RED, animation: 'color' },
+      letterSpacing: 0.03,
+      fontScale: 1.45,
+      textColor: PHOSPHOR,
+      outlineColor: INK,
+      outlineWidth: THIN,
+      shadow: { color: '#7dff9b80', blur: 0.35, offsetX: 0, offsetY: 0 },
+      highlight: { enabled: true, color: WHITE, animation: 'color' },
     },
   },
   {
@@ -536,12 +800,11 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 6,
     style: {
       display: 'phrase',
-      fontFamily: SANS,
+      fontFamily: LEXEND,
       fontWeight: 500,
-      textTransform: 'lowercase',
       textColor: WHITE,
-      background: { color: '#00000080', radius: 0, paddingX: 0.6, paddingY: 0.35 },
-      highlight: { enabled: true, color: GOLD, animation: 'color' },
+      background: { color: '#000000b3', radius: 0.12, paddingX: 0.6, paddingY: 0.3 },
+      highlight: { enabled: true, color: YELLOW, animation: 'color' },
     },
   },
   {
@@ -551,12 +814,14 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 1,
     style: {
       display: 'active-word',
-      fontFamily: SANS,
-      fontWeight: 800,
+      fontFamily: ORBITRON,
+      fontWeight: 900,
       textTransform: 'uppercase',
-      fontScale: 1.4,
-      textColor: GREEN,
-      shadow: { color: GREEN, blur: 0.35, offsetX: 0, offsetY: 0 },
+      fontScale: 1.2,
+      textColor: LIME,
+      outlineColor: INK,
+      outlineWidth: THIN,
+      shadow: { color: '#8cff5a99', blur: 0.4, offsetX: 0, offsetY: 0 },
       animation: { in: { type: 'zoom', duration: 0.1 }, loop: { type: 'pulse', period: 0.8 } },
     },
   },
@@ -567,13 +832,13 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 1,
     style: {
       display: 'active-word',
-      fontFamily: HEAVY,
-      fontWeight: 900,
+      fontFamily: RUBIK_MONO,
+      fontWeight: 400,
       textTransform: 'uppercase',
-      fontScale: 1.3,
+      fontScale: 1.05,
       textColor: INK,
-      background: { color: WHITE, radius: 0, paddingX: 0.4, paddingY: 0.25 },
-      animation: { in: { type: 'fade', duration: 0.08 } },
+      background: { color: WHITE, radius: 0, paddingX: 0.35, paddingY: 0.2 },
+      animation: { in: { type: 'zoom', duration: 0.08 } },
     },
   },
   {
@@ -583,11 +848,15 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 2,
     style: {
       display: 'phrase',
-      fontFamily: CONDENSED,
-      fontWeight: 700,
+      fontFamily: BIG_SHOULDERS,
+      fontWeight: 900,
       textTransform: 'uppercase',
-      fontScale: 1.4,
+      letterSpacing: 0.01,
+      fontScale: 1.55,
       textColor: WHITE,
+      outlineColor: INK,
+      outlineWidth: MEDIUM,
+      shadow: SOFT_DROP,
       highlight: { enabled: true, color: RED, animation: 'color' },
     },
   },
@@ -598,11 +867,13 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 2,
     style: {
       display: 'phrase',
-      fontFamily: CONDENSED,
-      fontWeight: 700,
+      fontFamily: BARLOW_CONDENSED,
+      fontWeight: 800,
       textTransform: 'uppercase',
-      fontScale: 1.3,
+      fontScale: 1.45,
       textColor: WHITE,
+      outlineColor: INK,
+      outlineWidth: MEDIUM,
       highlight: { enabled: true, color: RED, animation: 'pop', scale: 1.2 },
       animation: { perWord: true, in: { type: 'zoom', duration: 0.1 } },
     },
@@ -611,13 +882,17 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     id: 'cascade',
     label: 'Cascade',
     category: 'aesthetic',
-    suggestedWordsPerLine: 2,
+    suggestedWordsPerLine: 3,
     style: {
       display: 'phrase',
-      fontFamily: SANS,
-      fontWeight: 600,
+      fontFamily: SYNE,
+      fontWeight: 700,
       textTransform: 'lowercase',
-      textColor: GREEN,
+      fontScale: 1.1,
+      textColor: LIME,
+      outlineColor: INK,
+      outlineWidth: THIN,
+      shadow: SOFT_DROP,
       animation: { perWord: true, in: { type: 'fade', duration: 0.25 } },
     },
   },
@@ -628,13 +903,55 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 2,
     style: {
       display: 'phrase',
-      fontFamily: HEAVY,
-      fontWeight: 900,
+      fontFamily: STAATLICHES,
+      fontWeight: 400,
       textTransform: 'uppercase',
-      fontScale: 1.2,
+      letterSpacing: 0.02,
+      fontScale: 1.55,
+      lineHeight: 0.95,
       textColor: WHITE,
-      highlight: { enabled: true, color: GOLD, animation: 'color' },
+      outlineColor: INK,
+      outlineWidth: MEDIUM,
+      highlight: { enabled: true, color: YELLOW, animation: 'color' },
       animation: { in: { type: 'slide-up', duration: 0.15 } },
+    },
+  },
+  {
+    id: 'neon',
+    label: 'Neon',
+    category: 'aesthetic',
+    suggestedWordsPerLine: 3,
+    style: {
+      display: 'phrase',
+      fontFamily: RIGHTEOUS,
+      fontWeight: 400,
+      textTransform: 'uppercase',
+      letterSpacing: 0.03,
+      fontScale: 1.15,
+      textColor: '#ffd9ee',
+      outlineColor: INK,
+      outlineWidth: THIN,
+      shadow: { color: '#ff4fa3cc', blur: 0.5, offsetX: 0, offsetY: 0 },
+      highlight: { enabled: true, color: PINK, animation: 'glow' },
+      animation: { in: { type: 'fade', duration: 0.18 } },
+    },
+  },
+  {
+    id: 'pixel',
+    label: 'Pixel',
+    category: 'aesthetic',
+    suggestedWordsPerLine: 3,
+    style: {
+      display: 'cumulative',
+      fontFamily: PRESS_START,
+      fontWeight: 400,
+      textTransform: 'uppercase',
+      fontScale: 0.75,
+      lineHeight: 1.4,
+      textColor: WHITE,
+      shadow: { color: '#000000', blur: 0, offsetX: 0.12, offsetY: 0.12 },
+      highlight: { enabled: true, color: CYAN, animation: 'color' },
+      animation: { perWord: true, in: { type: 'typewriter', duration: 0.12 } },
     },
   },
   // ------------------------------------------------------------- cinematic
@@ -645,11 +962,11 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 6,
     style: {
       display: 'phrase',
-      fontFamily: SANS,
-      fontWeight: 400,
+      fontFamily: MANROPE,
+      fontWeight: 500,
       textTransform: 'lowercase',
-      textColor: '#ffffffd9',
-      shadow: { color: '#ffffff99', blur: 0.3, offsetX: 0, offsetY: 0 },
+      textColor: SOFT_WHITE,
+      shadow: { color: '#000000cc', blur: 0.34, offsetX: 0, offsetY: 0.03 },
       animation: { in: { type: 'fade', duration: 0.4 } },
     },
   },
@@ -660,11 +977,12 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 6,
     style: {
       display: 'phrase',
-      fontFamily: SERIF,
+      fontFamily: DM_SERIF,
       fontWeight: 400,
       textTransform: 'lowercase',
-      textColor: '#ffffffcc',
-      shadow: { color: '#ffffff80', blur: 0.25, offsetX: 0, offsetY: 0 },
+      fontScale: 1.05,
+      textColor: SOFT_WHITE,
+      shadow: HALO,
       animation: { in: { type: 'fade', duration: 0.4 } },
     },
   },
@@ -675,12 +993,13 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 6,
     style: {
       display: 'phrase',
-      fontFamily: SANS,
-      fontWeight: 300,
+      fontFamily: URBANIST,
+      fontWeight: 500,
       textTransform: 'lowercase',
-      fontScale: 0.9,
-      letterSpacing: 0.08,
-      textColor: '#ffffffcc',
+      fontScale: 0.92,
+      letterSpacing: 0.06,
+      textColor: SOFT_WHITE,
+      shadow: HALO,
       animation: { in: { type: 'fade', duration: 0.5 } },
     },
   },
@@ -688,16 +1007,16 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     id: 'soft-4',
     label: 'Soft 4.0',
     category: 'cinematic',
-    suggestedWordsPerLine: 6,
+    suggestedWordsPerLine: 5,
     style: {
       display: 'phrase',
-      fontFamily: SANS,
-      fontWeight: 400,
+      fontFamily: JOSEFIN,
+      fontWeight: 500,
       textTransform: 'uppercase',
       fontScale: 0.85,
-      letterSpacing: 0.15,
-      textColor: '#ffffffcc',
-      shadow: { color: '#ffffff66', blur: 0.2, offsetX: 0, offsetY: 0 },
+      letterSpacing: 0.16,
+      textColor: SOFT_WHITE,
+      shadow: HALO,
       animation: { in: { type: 'fade', duration: 0.4 } },
     },
   },
@@ -708,17 +1027,12 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 5,
     style: {
       display: 'phrase',
-      fontFamily: SANS,
-      fontWeight: 600,
+      fontFamily: DM_SANS,
+      fontWeight: 700,
       textTransform: 'lowercase',
       textColor: WHITE,
-      accent: {
-        mode: 'last-word',
-        fontFamily: BRUSH,
-        fontScale: 1.5,
-        color: YELLOW,
-        fontStyle: 'italic',
-      },
+      shadow: SOFT_DROP,
+      accent: { mode: 'last-word', fontFamily: YELLOWTAIL, fontScale: 1.6, color: YELLOW },
       animation: { in: { type: 'fade', duration: 0.2 } },
     },
   },
@@ -729,11 +1043,12 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 5,
     style: {
       display: 'phrase',
-      fontFamily: CLASSIC,
+      fontFamily: BODONI,
       fontWeight: 500,
       textTransform: 'lowercase',
       textColor: WHITE,
-      accent: { mode: 'last-word', fontFamily: POSTER, fontScale: 1.8, color: WHITE },
+      shadow: HALO,
+      accent: { mode: 'last-word', fontFamily: ANTON, fontScale: 1.75, color: WHITE },
       animation: { in: { type: 'fade', duration: 0.25 } },
     },
   },
@@ -745,11 +1060,12 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     style: {
       display: 'phrase',
       position: 'top',
-      fontFamily: READABLE_SERIF,
+      fontFamily: MERRIWEATHER,
       fontWeight: 400,
       textTransform: 'lowercase',
       textColor: WHITE,
-      accent: { mode: 'last-word', fontStyle: 'italic', color: GOLD },
+      shadow: HALO,
+      accent: { mode: 'last-word', fontFamily: PLAYFAIR, fontStyle: 'italic', color: GOLD },
       animation: { in: { type: 'fade', duration: 0.3 } },
     },
   },
@@ -760,11 +1076,12 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 4,
     style: {
       display: 'phrase',
-      fontFamily: SANS,
+      fontFamily: JAKARTA,
       fontWeight: 600,
       textTransform: 'lowercase',
       textColor: WHITE,
-      accent: { mode: 'last-word', fontFamily: BRUSH, fontScale: 1.9, color: YELLOW },
+      shadow: SOFT_DROP,
+      accent: { mode: 'last-word', fontFamily: GREAT_VIBES, fontScale: 2, color: GOLD },
       animation: { in: { type: 'fade', duration: 0.2 } },
     },
   },
@@ -775,12 +1092,31 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 4,
     style: {
       display: 'phrase',
-      fontFamily: SANS,
+      fontFamily: POPPINS,
       fontWeight: 700,
       textTransform: 'lowercase',
       textColor: WHITE,
-      accent: { mode: 'last-word', fontScale: 2, color: GREEN },
+      outlineColor: INK,
+      outlineWidth: THIN,
+      shadow: SOFT_DROP,
+      accent: { mode: 'last-word', fontFamily: LILITA, fontScale: 1.9, color: LIME },
       animation: { in: { type: 'slide-up', duration: 0.15 } },
+    },
+  },
+  {
+    id: 'signature',
+    label: 'Signature',
+    category: 'cinematic',
+    suggestedWordsPerLine: 5,
+    style: {
+      display: 'phrase',
+      fontFamily: LORA,
+      fontWeight: 500,
+      textTransform: 'lowercase',
+      textColor: OFF_WHITE,
+      shadow: HALO,
+      accent: { mode: 'last-word', fontFamily: MR_DAFOE, fontScale: 1.9, color: WHITE },
+      animation: { in: { type: 'fade', duration: 0.3 } },
     },
   },
   // ----------------------------------------------- creator reference set (2026)
@@ -791,13 +1127,14 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 5,
     style: {
       display: 'phrase',
-      fontFamily: CREATOR,
+      fontFamily: POPPINS,
       fontWeight: 700,
       fontScale: 1.05,
       textColor: WHITE,
       textAlign: 'center',
       lineHeight: 0.96,
-      accent: { mode: 'longest-word', fontFamily: POSTER, fontScale: 1.85, color: WHITE },
+      shadow: SOFT_DROP,
+      accent: { mode: 'longest-word', fontFamily: ANTON, fontScale: 1.85, color: WHITE },
       animation: { in: { type: 'slide-up', duration: 0.14 } },
     },
   },
@@ -808,14 +1145,15 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 5,
     style: {
       display: 'phrase',
-      fontFamily: WARM,
+      fontFamily: DM_SANS,
       fontWeight: 400,
       fontScale: 0.95,
       textColor: WHITE,
+      shadow: HALO,
       accent: {
         mode: 'longest-word',
-        fontFamily: CLASSIC,
-        fontScale: 1.55,
+        fontFamily: PLAYFAIR,
+        fontScale: 1.6,
         color: WHITE,
         fontStyle: 'italic',
       },
@@ -829,14 +1167,15 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 6,
     style: {
       display: 'phrase',
-      fontFamily: SANS,
+      fontFamily: INTER,
       fontWeight: 650,
       fontScale: 0.92,
       textColor: WHITE,
       outlineColor: INK,
-      outlineWidth: 1,
+      outlineWidth: THIN,
+      shadow: SOFT_DROP,
       lineHeight: 0.98,
-      accent: { mode: 'longest-word', fontFamily: HEAVY, fontScale: 1.45, color: WHITE },
+      accent: { mode: 'longest-word', fontFamily: ARCHIVO_BLACK, fontScale: 1.45, color: WHITE },
       animation: { in: { type: 'zoom', duration: 0.1 } },
     },
   },
@@ -847,14 +1186,16 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 4,
     style: {
       display: 'cumulative',
-      fontFamily: HEAVY,
+      fontFamily: SPARTAN,
       fontWeight: 900,
-      fontScale: 1.2,
+      fontScale: 1.25,
       textTransform: 'lowercase',
       textColor: WHITE,
       textAlign: 'left',
-      lineHeight: 0.86,
+      lineHeight: 0.9,
       maxWidthPercent: 72,
+      outlineColor: INK,
+      outlineWidth: MEDIUM,
       animation: { perWord: true, in: { type: 'slide-up', duration: 0.09 } },
     },
   },
@@ -862,16 +1203,15 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     id: 'handwritten-zone',
     label: 'Handwritten Zone',
     category: 'aesthetic',
-    suggestedWordsPerLine: 6,
+    suggestedWordsPerLine: 5,
     style: {
       display: 'phrase',
-      fontFamily: SCRIPT,
-      fontWeight: 500,
-      fontScale: 1.15,
-      textTransform: 'uppercase',
-      letterSpacing: 0.03,
-      textColor: OFF_WHITE,
-      lineHeight: 1.12,
+      fontFamily: PERMANENT_MARKER,
+      fontWeight: 400,
+      fontScale: 1.05,
+      textColor: WHITE,
+      lineHeight: 1.1,
+      shadow: SOFT_DROP,
       animation: { in: { type: 'typewriter', duration: 0.3 } },
     },
   },
@@ -882,15 +1222,16 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
     suggestedWordsPerLine: 5,
     style: {
       display: 'phrase',
-      fontFamily: SERIF,
+      fontFamily: DM_SERIF,
       fontWeight: 400,
       fontStyle: 'italic',
       fontScale: 0.9,
       textColor: WHITE,
       lineHeight: 0.92,
+      shadow: HALO,
       accent: {
         mode: 'longest-word',
-        fontFamily: HEAVY,
+        fontFamily: ARCHIVO_BLACK,
         fontScale: 2.05,
         color: ORANGE,
         fontStyle: 'normal',

@@ -9,10 +9,19 @@
       "style": {
         "display": "active-word",
         "fontFamily": "Anton",
-        "fontWeight": 900,
+        "fontWeight": 400,
         "textTransform": "uppercase",
-        "fontScale": 1.5,
+        "letterSpacing": 0.01,
+        "fontScale": 1.55,
         "textColor": "#ffffff",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 2,
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "animation": {
           "in": {
             "type": "zoom",
@@ -28,17 +37,23 @@
       "suggestedWordsPerLine": 1,
       "style": {
         "display": "active-word",
-        "fontFamily": "Bangers",
-        "fontWeight": 700,
+        "fontFamily": "Luckiest Guy",
+        "fontWeight": 400,
         "textTransform": "uppercase",
-        "fontScale": 1.7,
+        "fontScale": 1.4,
         "textColor": "#ffffff",
-        "outlineColor": "#111111",
-        "outlineWidth": 2,
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 2.5,
+        "shadow": {
+          "color": "#000000",
+          "blur": 0,
+          "offsetX": 0.05,
+          "offsetY": 0.07
+        },
         "animation": {
           "in": {
             "type": "bounce",
-            "duration": 0.18
+            "duration": 0.22
           }
         }
       }
@@ -53,8 +68,16 @@
         "fontFamily": "Archivo Black",
         "fontWeight": 900,
         "textTransform": "uppercase",
-        "fontScale": 1.5,
+        "fontScale": 1.45,
         "textColor": "#ffd60a",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 2,
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "animation": {
           "in": {
             "type": "zoom",
@@ -71,20 +94,79 @@
       "style": {
         "display": "active-word",
         "fontFamily": "Bebas Neue",
-        "fontWeight": 900,
+        "fontWeight": 400,
         "textTransform": "uppercase",
-        "fontScale": 1.3,
+        "letterSpacing": 0.04,
+        "fontScale": 1.35,
         "textColor": "#ffffff",
         "background": {
-          "color": "#e63946",
-          "radius": 0.2,
-          "paddingX": 0.4,
-          "paddingY": 0.25
+          "color": "#ff2e4d",
+          "radius": 0.12,
+          "paddingX": 0.38,
+          "paddingY": 0.14
         },
         "animation": {
           "in": {
             "type": "zoom",
             "duration": 0.1
+          }
+        }
+      }
+    },
+    {
+      "id": "comic",
+      "label": "Comic",
+      "category": "one-word",
+      "suggestedWordsPerLine": 1,
+      "style": {
+        "display": "active-word",
+        "fontFamily": "Bangers",
+        "fontWeight": 400,
+        "textTransform": "uppercase",
+        "letterSpacing": 0.03,
+        "fontScale": 1.55,
+        "textColor": "#ffd60a",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 2.5,
+        "shadow": {
+          "color": "#000000",
+          "blur": 0,
+          "offsetX": 0.05,
+          "offsetY": 0.07
+        },
+        "rotation": -4,
+        "animation": {
+          "in": {
+            "type": "bounce",
+            "duration": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "shout",
+      "label": "Shout",
+      "category": "one-word",
+      "suggestedWordsPerLine": 1,
+      "style": {
+        "display": "active-word",
+        "fontFamily": "Unbounded",
+        "fontWeight": 900,
+        "textTransform": "uppercase",
+        "fontScale": 1.05,
+        "textColor": "#ffffff",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 2,
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
+        "animation": {
+          "in": {
+            "type": "zoom",
+            "duration": 0.09
           }
         }
       }
@@ -96,10 +178,17 @@
       "suggestedWordsPerLine": 3,
       "style": {
         "display": "phrase",
-        "fontFamily": "Poppins",
-        "fontWeight": 600,
+        "fontFamily": "Plus Jakarta Sans",
+        "fontWeight": 700,
         "textTransform": "lowercase",
+        "fontScale": 1.1,
         "textColor": "#ffffff",
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "animation": {
           "in": {
             "type": "fade",
@@ -115,11 +204,20 @@
       "suggestedWordsPerLine": 2,
       "style": {
         "display": "phrase",
-        "fontFamily": "Montserrat",
+        "fontFamily": "Outfit",
         "fontWeight": 800,
         "textTransform": "uppercase",
-        "fontScale": 1.2,
+        "letterSpacing": 0.01,
+        "fontScale": 1.3,
         "textColor": "#ffffff",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1.5,
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "animation": {
           "in": {
             "type": "fade",
@@ -135,15 +233,18 @@
       "suggestedWordsPerLine": 3,
       "style": {
         "display": "phrase",
-        "fontFamily": "Figtree",
+        "fontFamily": "Rubik",
         "fontWeight": 800,
         "textTransform": "uppercase",
+        "fontScale": 1.1,
         "textColor": "#ffffff",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1.5,
         "highlight": {
           "enabled": true,
           "color": "#ffd60a",
           "animation": "pop",
-          "scale": 1.15
+          "scale": 1.18
         }
       }
     },
@@ -154,14 +255,27 @@
       "suggestedWordsPerLine": 2,
       "style": {
         "display": "phrase",
-        "fontFamily": "Raleway",
-        "fontWeight": 600,
+        "fontFamily": "Josefin Sans",
+        "fontWeight": 700,
         "textTransform": "lowercase",
+        "fontScale": 1.2,
         "textColor": "#ffffff",
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "highlight": {
           "enabled": true,
-          "color": "#e6b800",
+          "color": "#f2c14e",
           "animation": "color"
+        },
+        "animation": {
+          "in": {
+            "type": "fade",
+            "duration": 0.15
+          }
         }
       }
     },
@@ -172,15 +286,23 @@
       "suggestedWordsPerLine": 3,
       "style": {
         "display": "phrase",
-        "fontFamily": "Manrope",
+        "fontFamily": "Sora",
         "fontWeight": 800,
         "textTransform": "uppercase",
         "textColor": "#ffffff",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1,
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "highlight": {
           "enabled": true,
           "color": "#ffffff",
           "animation": "background",
-          "background": "#e63946"
+          "background": "#ff2e4d"
         }
       }
     },
@@ -191,15 +313,87 @@
       "suggestedWordsPerLine": 3,
       "style": {
         "display": "phrase",
-        "fontFamily": "Shadows Into Light",
-        "fontWeight": 600,
+        "fontFamily": "Patrick Hand",
+        "fontWeight": 400,
         "textTransform": "lowercase",
+        "fontScale": 1.25,
         "textColor": "#ffffff",
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "highlight": {
           "enabled": true,
-          "color": "#111111",
+          "color": "#0b0b0f",
           "animation": "background",
           "background": "#ffd60a"
+        }
+      }
+    },
+    {
+      "id": "bubble",
+      "label": "Bubble",
+      "category": "phrase",
+      "suggestedWordsPerLine": 3,
+      "style": {
+        "display": "phrase",
+        "fontFamily": "Titan One",
+        "fontWeight": 400,
+        "textTransform": "lowercase",
+        "fontScale": 1.15,
+        "textColor": "#ffffff",
+        "outlineColor": "#ff4fa3",
+        "outlineWidth": 1.5,
+        "shadow": {
+          "color": "#000000",
+          "blur": 0,
+          "offsetX": 0.05,
+          "offsetY": 0.07
+        },
+        "highlight": {
+          "enabled": true,
+          "color": "#ffd60a",
+          "animation": "pop",
+          "scale": 1.15
+        },
+        "animation": {
+          "in": {
+            "type": "bounce",
+            "duration": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "vlog",
+      "label": "Vlog",
+      "category": "phrase",
+      "suggestedWordsPerLine": 4,
+      "style": {
+        "display": "phrase",
+        "fontFamily": "Fredoka",
+        "fontWeight": 600,
+        "textTransform": "lowercase",
+        "fontScale": 1.05,
+        "textColor": "#0b0b0f",
+        "background": {
+          "color": "#fffffff0",
+          "radius": 0.45,
+          "paddingX": 0.5,
+          "paddingY": 0.22
+        },
+        "highlight": {
+          "enabled": true,
+          "color": "#ff4fa3",
+          "animation": "color"
+        },
+        "animation": {
+          "in": {
+            "type": "slide-up",
+            "duration": 0.14
+          }
         }
       }
     },
@@ -210,12 +404,20 @@
       "suggestedWordsPerLine": 5,
       "style": {
         "display": "phrase",
-        "fontFamily": "Roboto",
-        "fontWeight": 700,
+        "fontFamily": "Montserrat",
+        "fontWeight": 800,
         "textColor": "#ffffff",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1.5,
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "highlight": {
           "enabled": true,
-          "color": "#e63946",
+          "color": "#ffd60a",
           "animation": "karaoke-fill"
         }
       }
@@ -224,17 +426,19 @@
       "id": "broadcast",
       "label": "Broadcast",
       "category": "karaoke",
-      "suggestedWordsPerLine": 5,
+      "suggestedWordsPerLine": 6,
       "style": {
         "display": "phrase",
-        "fontFamily": "Open Sans",
+        "fontFamily": "Barlow",
         "fontWeight": 700,
         "textColor": "#ffffff",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1,
         "shadow": {
-          "color": "#000000cc",
-          "blur": 0.12,
+          "color": "#000000e6",
+          "blur": 0.14,
           "offsetX": 0,
-          "offsetY": 0.06
+          "offsetY": 0.05
         },
         "highlight": {
           "enabled": true,
@@ -247,18 +451,19 @@
       "id": "outline",
       "label": "Outline",
       "category": "karaoke",
-      "suggestedWordsPerLine": 5,
+      "suggestedWordsPerLine": 4,
       "style": {
         "display": "phrase",
-        "fontFamily": "Lato",
+        "fontFamily": "Kanit",
         "fontWeight": 800,
         "textTransform": "uppercase",
+        "fontScale": 1.1,
         "textColor": "#ffffff",
-        "outlineColor": "#111111",
-        "outlineWidth": 2,
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 2.5,
         "highlight": {
           "enabled": true,
-          "color": "#e63946",
+          "color": "#ff2e4d",
           "animation": "karaoke-fill"
         }
       }
@@ -270,19 +475,21 @@
       "suggestedWordsPerLine": 5,
       "style": {
         "display": "phrase",
-        "fontFamily": "Inter",
+        "fontFamily": "Sora",
         "fontWeight": 600,
         "textTransform": "lowercase",
         "textColor": "#ffffff",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1,
         "shadow": {
-          "color": "#a8e05f",
-          "blur": 0.35,
+          "color": "#8cff5a8c",
+          "blur": 0.45,
           "offsetX": 0,
           "offsetY": 0
         },
         "highlight": {
           "enabled": true,
-          "color": "#a8e05f",
+          "color": "#8cff5a",
           "animation": "glow"
         }
       }
@@ -294,12 +501,44 @@
       "suggestedWordsPerLine": 5,
       "style": {
         "display": "phrase",
-        "fontFamily": "Inter",
-        "fontWeight": 500,
+        "fontFamily": "Geist",
+        "fontWeight": 600,
         "textColor": "#ffffff",
+        "shadow": {
+          "color": "#000000d9",
+          "blur": 0.26,
+          "offsetX": 0,
+          "offsetY": 0.02
+        },
         "highlight": {
           "enabled": true,
           "color": "#ffffff",
+          "animation": "karaoke-fill"
+        }
+      }
+    },
+    {
+      "id": "podcast",
+      "label": "Podcast",
+      "category": "karaoke",
+      "suggestedWordsPerLine": 6,
+      "style": {
+        "display": "phrase",
+        "fontFamily": "Lexend",
+        "fontWeight": 700,
+        "textColor": "#ffffff",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1.5,
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
+        "lineHeight": 1.15,
+        "highlight": {
+          "enabled": true,
+          "color": "#3de0ff",
           "animation": "karaoke-fill"
         }
       }
@@ -311,17 +550,24 @@
       "suggestedWordsPerLine": 3,
       "style": {
         "display": "cumulative",
-        "fontFamily": "Archivo Black",
+        "fontFamily": "Montserrat",
         "fontWeight": 900,
         "textTransform": "uppercase",
+        "fontScale": 1.15,
         "textColor": "#ffffff",
-        "outlineColor": "#111111",
-        "outlineWidth": 2,
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 2.5,
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "highlight": {
           "enabled": true,
           "color": "#ffd60a",
           "animation": "pop",
-          "scale": 1.15
+          "scale": 1.12
         },
         "animation": {
           "perWord": true,
@@ -339,20 +585,27 @@
       "suggestedWordsPerLine": 3,
       "style": {
         "display": "cumulative",
-        "fontFamily": "Inter",
-        "fontWeight": 600,
+        "fontFamily": "Outfit",
+        "fontWeight": 700,
         "textTransform": "lowercase",
+        "fontScale": 1.1,
         "textColor": "#ffffff",
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "highlight": {
           "enabled": true,
-          "color": "#e6b800",
+          "color": "#ffd60a",
           "animation": "color"
         },
         "animation": {
           "perWord": true,
           "in": {
             "type": "slide-up",
-            "duration": 0.15
+            "duration": 0.14
           }
         }
       }
@@ -364,20 +617,23 @@
       "suggestedWordsPerLine": 3,
       "style": {
         "display": "cumulative",
-        "fontFamily": "Inter",
+        "fontFamily": "Fredoka",
         "fontWeight": 700,
         "textTransform": "lowercase",
+        "fontScale": 1.15,
         "textColor": "#ffffff",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1.5,
         "highlight": {
           "enabled": true,
-          "color": "#e6b800",
+          "color": "#ffd60a",
           "animation": "color"
         },
         "animation": {
           "perWord": true,
           "in": {
             "type": "bounce",
-            "duration": 0.2
+            "duration": 0.22
           }
         }
       }
@@ -389,14 +645,22 @@
       "suggestedWordsPerLine": 4,
       "style": {
         "display": "cumulative",
-        "fontFamily": "Space Mono",
+        "fontFamily": "Courier Prime",
         "fontWeight": 700,
         "textTransform": "lowercase",
-        "letterSpacing": 0.05,
+        "letterSpacing": 0.02,
         "textColor": "#ffffff",
+        "shadow": {
+          "color": "#000000d9",
+          "blur": 0.26,
+          "offsetX": 0,
+          "offsetY": 0.02
+        },
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1,
         "highlight": {
           "enabled": true,
-          "color": "#e6b800",
+          "color": "#ffd60a",
           "animation": "color"
         },
         "animation": {
@@ -415,15 +679,57 @@
       "suggestedWordsPerLine": 4,
       "style": {
         "display": "cumulative",
-        "fontFamily": "Space Mono",
-        "fontWeight": 700,
+        "fontFamily": "JetBrains Mono",
+        "fontWeight": 800,
         "textTransform": "uppercase",
-        "letterSpacing": 0.08,
+        "letterSpacing": 0.04,
+        "fontScale": 0.9,
         "textColor": "#ffffff",
+        "background": {
+          "color": "#0b0b0fd9",
+          "radius": 0.08,
+          "paddingX": 0.45,
+          "paddingY": 0.22
+        },
         "highlight": {
           "enabled": true,
-          "color": "#e6b800",
+          "color": "#3de0ff",
           "animation": "color"
+        }
+      }
+    },
+    {
+      "id": "gamer",
+      "label": "Gamer",
+      "category": "build",
+      "suggestedWordsPerLine": 3,
+      "style": {
+        "display": "cumulative",
+        "fontFamily": "Russo One",
+        "fontWeight": 400,
+        "textTransform": "uppercase",
+        "fontScale": 1.1,
+        "textColor": "#ffffff",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 2,
+        "shadow": {
+          "color": "#000000",
+          "blur": 0,
+          "offsetX": 0.05,
+          "offsetY": 0.07
+        },
+        "highlight": {
+          "enabled": true,
+          "color": "#3de0ff",
+          "animation": "pop",
+          "scale": 1.15
+        },
+        "animation": {
+          "perWord": true,
+          "in": {
+            "type": "zoom",
+            "duration": 0.08
+          }
         }
       }
     },
@@ -431,24 +737,24 @@
       "id": "boxed",
       "label": "Boxed",
       "category": "boxed",
-      "suggestedWordsPerLine": 5,
+      "suggestedWordsPerLine": 4,
       "style": {
         "display": "phrase",
-        "fontFamily": "Inter",
+        "fontFamily": "Geist",
         "fontWeight": 800,
         "textTransform": "uppercase",
         "textColor": "#ffffff",
         "background": {
-          "color": "#000000b3",
-          "radius": 0.15,
-          "paddingX": 0.4,
-          "paddingY": 0.3
+          "color": "#0b0b0fcc",
+          "radius": 0.18,
+          "paddingX": 0.45,
+          "paddingY": 0.26
         },
         "highlight": {
           "enabled": true,
           "color": "#ffffff",
           "animation": "background",
-          "background": "#e63946"
+          "background": "#ff2e4d"
         }
       }
     },
@@ -459,20 +765,48 @@
       "suggestedWordsPerLine": 1,
       "style": {
         "display": "active-word",
-        "fontFamily": "Nunito",
-        "fontWeight": 800,
+        "fontFamily": "Quicksand",
+        "fontWeight": 700,
         "textTransform": "lowercase",
-        "textColor": "#111111",
+        "fontScale": 1.15,
+        "textColor": "#0b0b0f",
         "background": {
           "color": "#ffffff",
-          "radius": 0.35,
-          "paddingX": 0.45,
-          "paddingY": 0.3
+          "radius": 0.5,
+          "paddingX": 0.5,
+          "paddingY": 0.2
         },
         "animation": {
           "in": {
             "type": "zoom",
             "duration": 0.12
+          }
+        }
+      }
+    },
+    {
+      "id": "sticker",
+      "label": "Sticker",
+      "category": "boxed",
+      "suggestedWordsPerLine": 1,
+      "style": {
+        "display": "active-word",
+        "fontFamily": "Lilita One",
+        "fontWeight": 400,
+        "textTransform": "lowercase",
+        "fontScale": 1.35,
+        "textColor": "#0b0b0f",
+        "background": {
+          "color": "#ffd60a",
+          "radius": 0.28,
+          "paddingX": 0.42,
+          "paddingY": 0.14
+        },
+        "rotation": -3,
+        "animation": {
+          "in": {
+            "type": "bounce",
+            "duration": 0.2
           }
         }
       }
@@ -484,10 +818,17 @@
       "suggestedWordsPerLine": 6,
       "style": {
         "display": "phrase",
-        "fontFamily": "Playfair Display",
+        "fontFamily": "Instrument Serif",
         "fontWeight": 400,
         "textTransform": "lowercase",
-        "textColor": "#e8e8ee",
+        "fontScale": 1.2,
+        "textColor": "#f4f1ea",
+        "shadow": {
+          "color": "#000000d9",
+          "blur": 0.26,
+          "offsetX": 0,
+          "offsetY": 0.02
+        },
         "highlight": {
           "enabled": true,
           "color": "#ffffff",
@@ -508,15 +849,21 @@
       "suggestedWordsPerLine": 3,
       "style": {
         "display": "phrase",
-        "fontFamily": "Merriweather",
-        "fontWeight": 400,
+        "fontFamily": "Lora",
+        "fontWeight": 600,
         "textTransform": "lowercase",
         "fontScale": 1.2,
         "textColor": "#ffffff",
+        "shadow": {
+          "color": "#000000d9",
+          "blur": 0.26,
+          "offsetX": 0,
+          "offsetY": 0.02
+        },
         "accent": {
           "mode": "last-word",
           "fontStyle": "italic",
-          "color": "#e6b800"
+          "color": "#f2c14e"
         },
         "animation": {
           "in": {
@@ -533,15 +880,54 @@
       "suggestedWordsPerLine": 6,
       "style": {
         "display": "phrase",
-        "fontFamily": "DM Serif Display",
+        "fontFamily": "Libre Baskerville",
         "fontWeight": 400,
+        "fontStyle": "italic",
         "textTransform": "lowercase",
-        "fontScale": 0.85,
-        "textColor": "#e8e8ee",
+        "fontScale": 0.95,
+        "textColor": "#f4f1ea",
+        "shadow": {
+          "color": "#000000d9",
+          "blur": 0.26,
+          "offsetX": 0,
+          "offsetY": 0.02
+        },
         "animation": {
           "in": {
             "type": "fade",
-            "duration": 0.3
+            "duration": 0.35
+          }
+        }
+      }
+    },
+    {
+      "id": "luxe",
+      "label": "Luxe",
+      "category": "editorial",
+      "suggestedWordsPerLine": 4,
+      "style": {
+        "display": "phrase",
+        "fontFamily": "Cinzel",
+        "fontWeight": 600,
+        "textTransform": "uppercase",
+        "letterSpacing": 0.08,
+        "fontScale": 0.95,
+        "textColor": "#f4f1ea",
+        "shadow": {
+          "color": "#000000d9",
+          "blur": 0.26,
+          "offsetX": 0,
+          "offsetY": 0.02
+        },
+        "highlight": {
+          "enabled": true,
+          "color": "#f2c14e",
+          "animation": "color"
+        },
+        "animation": {
+          "in": {
+            "type": "fade",
+            "duration": 0.4
           }
         }
       }
@@ -553,13 +939,20 @@
       "suggestedWordsPerLine": 5,
       "style": {
         "display": "phrase",
-        "fontFamily": "Inter",
-        "fontWeight": 700,
+        "fontFamily": "Urbanist",
+        "fontWeight": 800,
         "textTransform": "lowercase",
+        "fontScale": 1.05,
         "textColor": "#ffffff",
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "highlight": {
           "enabled": true,
-          "color": "#111111",
+          "color": "#0b0b0f",
           "animation": "background",
           "background": "#ffd60a"
         }
@@ -573,14 +966,15 @@
       "style": {
         "display": "active-word",
         "fontFamily": "Nunito",
-        "fontWeight": 700,
+        "fontWeight": 800,
         "textTransform": "lowercase",
+        "fontScale": 1.1,
         "textColor": "#ffffff",
         "background": {
-          "color": "#ffffff33",
+          "color": "#0b0b0f8c",
           "radius": 0.6,
-          "paddingX": 0.5,
-          "paddingY": 0.3
+          "paddingX": 0.55,
+          "paddingY": 0.2
         },
         "animation": {
           "in": {
@@ -597,14 +991,16 @@
       "suggestedWordsPerLine": 1,
       "style": {
         "display": "active-word",
-        "fontFamily": "Archivo Black",
-        "fontWeight": 900,
+        "fontFamily": "Bungee",
+        "fontWeight": 400,
         "textTransform": "uppercase",
-        "fontScale": 1.4,
+        "fontScale": 1.25,
         "textColor": "#ff6b1a",
+        "outlineColor": "#2a0800",
+        "outlineWidth": 1,
         "shadow": {
-          "color": "#ff6b1a",
-          "blur": 0.4,
+          "color": "#ff6b1acc",
+          "blur": 0.45,
           "offsetX": 0,
           "offsetY": 0
         },
@@ -624,17 +1020,26 @@
       "id": "retro",
       "label": "Retro",
       "category": "aesthetic",
-      "suggestedWordsPerLine": 6,
+      "suggestedWordsPerLine": 5,
       "style": {
         "display": "phrase",
-        "fontFamily": "Space Mono",
-        "fontWeight": 700,
+        "fontFamily": "VT323",
+        "fontWeight": 400,
         "textTransform": "uppercase",
-        "letterSpacing": 0.1,
-        "textColor": "#ffffff",
+        "letterSpacing": 0.03,
+        "fontScale": 1.45,
+        "textColor": "#7dff9b",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1,
+        "shadow": {
+          "color": "#7dff9b80",
+          "blur": 0.35,
+          "offsetX": 0,
+          "offsetY": 0
+        },
         "highlight": {
           "enabled": true,
-          "color": "#e63946",
+          "color": "#ffffff",
           "animation": "color"
         }
       }
@@ -646,19 +1051,18 @@
       "suggestedWordsPerLine": 6,
       "style": {
         "display": "phrase",
-        "fontFamily": "Inter",
+        "fontFamily": "Lexend",
         "fontWeight": 500,
-        "textTransform": "lowercase",
         "textColor": "#ffffff",
         "background": {
-          "color": "#00000080",
-          "radius": 0,
+          "color": "#000000b3",
+          "radius": 0.12,
           "paddingX": 0.6,
-          "paddingY": 0.35
+          "paddingY": 0.3
         },
         "highlight": {
           "enabled": true,
-          "color": "#e6b800",
+          "color": "#ffd60a",
           "animation": "color"
         }
       }
@@ -670,14 +1074,16 @@
       "suggestedWordsPerLine": 1,
       "style": {
         "display": "active-word",
-        "fontFamily": "Inter",
-        "fontWeight": 800,
+        "fontFamily": "Orbitron",
+        "fontWeight": 900,
         "textTransform": "uppercase",
-        "fontScale": 1.4,
-        "textColor": "#a8e05f",
+        "fontScale": 1.2,
+        "textColor": "#8cff5a",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1,
         "shadow": {
-          "color": "#a8e05f",
-          "blur": 0.35,
+          "color": "#8cff5a99",
+          "blur": 0.4,
           "offsetX": 0,
           "offsetY": 0
         },
@@ -700,20 +1106,20 @@
       "suggestedWordsPerLine": 1,
       "style": {
         "display": "active-word",
-        "fontFamily": "Archivo Black",
-        "fontWeight": 900,
+        "fontFamily": "Rubik Mono One",
+        "fontWeight": 400,
         "textTransform": "uppercase",
-        "fontScale": 1.3,
-        "textColor": "#111111",
+        "fontScale": 1.05,
+        "textColor": "#0b0b0f",
         "background": {
           "color": "#ffffff",
           "radius": 0,
-          "paddingX": 0.4,
-          "paddingY": 0.25
+          "paddingX": 0.35,
+          "paddingY": 0.2
         },
         "animation": {
           "in": {
-            "type": "fade",
+            "type": "zoom",
             "duration": 0.08
           }
         }
@@ -726,14 +1132,23 @@
       "suggestedWordsPerLine": 2,
       "style": {
         "display": "phrase",
-        "fontFamily": "Oswald",
-        "fontWeight": 700,
+        "fontFamily": "Big Shoulders",
+        "fontWeight": 900,
         "textTransform": "uppercase",
-        "fontScale": 1.4,
+        "letterSpacing": 0.01,
+        "fontScale": 1.55,
         "textColor": "#ffffff",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1.5,
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "highlight": {
           "enabled": true,
-          "color": "#e63946",
+          "color": "#ff2e4d",
           "animation": "color"
         }
       }
@@ -745,14 +1160,16 @@
       "suggestedWordsPerLine": 2,
       "style": {
         "display": "phrase",
-        "fontFamily": "Oswald",
-        "fontWeight": 700,
+        "fontFamily": "Barlow Condensed",
+        "fontWeight": 800,
         "textTransform": "uppercase",
-        "fontScale": 1.3,
+        "fontScale": 1.45,
         "textColor": "#ffffff",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1.5,
         "highlight": {
           "enabled": true,
-          "color": "#e63946",
+          "color": "#ff2e4d",
           "animation": "pop",
           "scale": 1.2
         },
@@ -769,13 +1186,22 @@
       "id": "cascade",
       "label": "Cascade",
       "category": "aesthetic",
-      "suggestedWordsPerLine": 2,
+      "suggestedWordsPerLine": 3,
       "style": {
         "display": "phrase",
-        "fontFamily": "Inter",
-        "fontWeight": 600,
+        "fontFamily": "Syne",
+        "fontWeight": 700,
         "textTransform": "lowercase",
-        "textColor": "#a8e05f",
+        "fontScale": 1.1,
+        "textColor": "#8cff5a",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1,
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "animation": {
           "perWord": true,
           "in": {
@@ -792,14 +1218,18 @@
       "suggestedWordsPerLine": 2,
       "style": {
         "display": "phrase",
-        "fontFamily": "Archivo Black",
-        "fontWeight": 900,
+        "fontFamily": "Staatliches",
+        "fontWeight": 400,
         "textTransform": "uppercase",
-        "fontScale": 1.2,
+        "letterSpacing": 0.02,
+        "fontScale": 1.55,
+        "lineHeight": 0.95,
         "textColor": "#ffffff",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1.5,
         "highlight": {
           "enabled": true,
-          "color": "#e6b800",
+          "color": "#ffd60a",
           "animation": "color"
         },
         "animation": {
@@ -811,21 +1241,88 @@
       }
     },
     {
+      "id": "neon",
+      "label": "Neon",
+      "category": "aesthetic",
+      "suggestedWordsPerLine": 3,
+      "style": {
+        "display": "phrase",
+        "fontFamily": "Righteous",
+        "fontWeight": 400,
+        "textTransform": "uppercase",
+        "letterSpacing": 0.03,
+        "fontScale": 1.15,
+        "textColor": "#ffd9ee",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1,
+        "shadow": {
+          "color": "#ff4fa3cc",
+          "blur": 0.5,
+          "offsetX": 0,
+          "offsetY": 0
+        },
+        "highlight": {
+          "enabled": true,
+          "color": "#ff4fa3",
+          "animation": "glow"
+        },
+        "animation": {
+          "in": {
+            "type": "fade",
+            "duration": 0.18
+          }
+        }
+      }
+    },
+    {
+      "id": "pixel",
+      "label": "Pixel",
+      "category": "aesthetic",
+      "suggestedWordsPerLine": 3,
+      "style": {
+        "display": "cumulative",
+        "fontFamily": "Press Start 2P",
+        "fontWeight": 400,
+        "textTransform": "uppercase",
+        "fontScale": 0.75,
+        "lineHeight": 1.4,
+        "textColor": "#ffffff",
+        "shadow": {
+          "color": "#000000",
+          "blur": 0,
+          "offsetX": 0.12,
+          "offsetY": 0.12
+        },
+        "highlight": {
+          "enabled": true,
+          "color": "#3de0ff",
+          "animation": "color"
+        },
+        "animation": {
+          "perWord": true,
+          "in": {
+            "type": "typewriter",
+            "duration": 0.12
+          }
+        }
+      }
+    },
+    {
       "id": "soft-focus",
       "label": "Soft Focus",
       "category": "cinematic",
       "suggestedWordsPerLine": 6,
       "style": {
         "display": "phrase",
-        "fontFamily": "Inter",
-        "fontWeight": 400,
+        "fontFamily": "Manrope",
+        "fontWeight": 500,
         "textTransform": "lowercase",
-        "textColor": "#ffffffd9",
+        "textColor": "#fffffff2",
         "shadow": {
-          "color": "#ffffff99",
-          "blur": 0.3,
+          "color": "#000000cc",
+          "blur": 0.34,
           "offsetX": 0,
-          "offsetY": 0
+          "offsetY": 0.03
         },
         "animation": {
           "in": {
@@ -845,12 +1342,13 @@
         "fontFamily": "DM Serif Display",
         "fontWeight": 400,
         "textTransform": "lowercase",
-        "textColor": "#ffffffcc",
+        "fontScale": 1.05,
+        "textColor": "#fffffff2",
         "shadow": {
-          "color": "#ffffff80",
-          "blur": 0.25,
+          "color": "#000000d9",
+          "blur": 0.26,
           "offsetX": 0,
-          "offsetY": 0
+          "offsetY": 0.02
         },
         "animation": {
           "in": {
@@ -867,12 +1365,18 @@
       "suggestedWordsPerLine": 6,
       "style": {
         "display": "phrase",
-        "fontFamily": "Inter",
-        "fontWeight": 300,
+        "fontFamily": "Urbanist",
+        "fontWeight": 500,
         "textTransform": "lowercase",
-        "fontScale": 0.9,
-        "letterSpacing": 0.08,
-        "textColor": "#ffffffcc",
+        "fontScale": 0.92,
+        "letterSpacing": 0.06,
+        "textColor": "#fffffff2",
+        "shadow": {
+          "color": "#000000d9",
+          "blur": 0.26,
+          "offsetX": 0,
+          "offsetY": 0.02
+        },
         "animation": {
           "in": {
             "type": "fade",
@@ -885,20 +1389,20 @@
       "id": "soft-4",
       "label": "Soft 4.0",
       "category": "cinematic",
-      "suggestedWordsPerLine": 6,
+      "suggestedWordsPerLine": 5,
       "style": {
         "display": "phrase",
-        "fontFamily": "Inter",
-        "fontWeight": 400,
+        "fontFamily": "Josefin Sans",
+        "fontWeight": 500,
         "textTransform": "uppercase",
         "fontScale": 0.85,
-        "letterSpacing": 0.15,
-        "textColor": "#ffffffcc",
+        "letterSpacing": 0.16,
+        "textColor": "#fffffff2",
         "shadow": {
-          "color": "#ffffff66",
-          "blur": 0.2,
+          "color": "#000000d9",
+          "blur": 0.26,
           "offsetX": 0,
-          "offsetY": 0
+          "offsetY": 0.02
         },
         "animation": {
           "in": {
@@ -915,16 +1419,21 @@
       "suggestedWordsPerLine": 5,
       "style": {
         "display": "phrase",
-        "fontFamily": "Inter",
-        "fontWeight": 600,
+        "fontFamily": "DM Sans",
+        "fontWeight": 700,
         "textTransform": "lowercase",
         "textColor": "#ffffff",
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "accent": {
           "mode": "last-word",
-          "fontFamily": "Pacifico",
-          "fontScale": 1.5,
-          "color": "#ffd60a",
-          "fontStyle": "italic"
+          "fontFamily": "Yellowtail",
+          "fontScale": 1.6,
+          "color": "#ffd60a"
         },
         "animation": {
           "in": {
@@ -941,14 +1450,20 @@
       "suggestedWordsPerLine": 5,
       "style": {
         "display": "phrase",
-        "fontFamily": "Playfair Display",
+        "fontFamily": "Bodoni Moda",
         "fontWeight": 500,
         "textTransform": "lowercase",
         "textColor": "#ffffff",
+        "shadow": {
+          "color": "#000000d9",
+          "blur": 0.26,
+          "offsetX": 0,
+          "offsetY": 0.02
+        },
         "accent": {
           "mode": "last-word",
           "fontFamily": "Anton",
-          "fontScale": 1.8,
+          "fontScale": 1.75,
           "color": "#ffffff"
         },
         "animation": {
@@ -971,10 +1486,17 @@
         "fontWeight": 400,
         "textTransform": "lowercase",
         "textColor": "#ffffff",
+        "shadow": {
+          "color": "#000000d9",
+          "blur": 0.26,
+          "offsetX": 0,
+          "offsetY": 0.02
+        },
         "accent": {
           "mode": "last-word",
+          "fontFamily": "Playfair Display",
           "fontStyle": "italic",
-          "color": "#e6b800"
+          "color": "#f2c14e"
         },
         "animation": {
           "in": {
@@ -991,15 +1513,21 @@
       "suggestedWordsPerLine": 4,
       "style": {
         "display": "phrase",
-        "fontFamily": "Inter",
+        "fontFamily": "Plus Jakarta Sans",
         "fontWeight": 600,
         "textTransform": "lowercase",
         "textColor": "#ffffff",
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "accent": {
           "mode": "last-word",
-          "fontFamily": "Pacifico",
-          "fontScale": 1.9,
-          "color": "#ffd60a"
+          "fontFamily": "Great Vibes",
+          "fontScale": 2,
+          "color": "#f2c14e"
         },
         "animation": {
           "in": {
@@ -1016,19 +1544,59 @@
       "suggestedWordsPerLine": 4,
       "style": {
         "display": "phrase",
-        "fontFamily": "Inter",
+        "fontFamily": "Poppins",
         "fontWeight": 700,
         "textTransform": "lowercase",
         "textColor": "#ffffff",
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1,
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "accent": {
           "mode": "last-word",
-          "fontScale": 2,
-          "color": "#a8e05f"
+          "fontFamily": "Lilita One",
+          "fontScale": 1.9,
+          "color": "#8cff5a"
         },
         "animation": {
           "in": {
             "type": "slide-up",
             "duration": 0.15
+          }
+        }
+      }
+    },
+    {
+      "id": "signature",
+      "label": "Signature",
+      "category": "cinematic",
+      "suggestedWordsPerLine": 5,
+      "style": {
+        "display": "phrase",
+        "fontFamily": "Lora",
+        "fontWeight": 500,
+        "textTransform": "lowercase",
+        "textColor": "#f4f1ea",
+        "shadow": {
+          "color": "#000000d9",
+          "blur": 0.26,
+          "offsetX": 0,
+          "offsetY": 0.02
+        },
+        "accent": {
+          "mode": "last-word",
+          "fontFamily": "Mr Dafoe",
+          "fontScale": 1.9,
+          "color": "#ffffff"
+        },
+        "animation": {
+          "in": {
+            "type": "fade",
+            "duration": 0.3
           }
         }
       }
@@ -1046,6 +1614,12 @@
         "textColor": "#ffffff",
         "textAlign": "center",
         "lineHeight": 0.96,
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "accent": {
           "mode": "longest-word",
           "fontFamily": "Anton",
@@ -1067,14 +1641,20 @@
       "suggestedWordsPerLine": 5,
       "style": {
         "display": "phrase",
-        "fontFamily": "Lato",
+        "fontFamily": "DM Sans",
         "fontWeight": 400,
         "fontScale": 0.95,
         "textColor": "#ffffff",
+        "shadow": {
+          "color": "#000000d9",
+          "blur": 0.26,
+          "offsetX": 0,
+          "offsetY": 0.02
+        },
         "accent": {
           "mode": "longest-word",
           "fontFamily": "Playfair Display",
-          "fontScale": 1.55,
+          "fontScale": 1.6,
           "color": "#ffffff",
           "fontStyle": "italic"
         },
@@ -1097,8 +1677,14 @@
         "fontWeight": 650,
         "fontScale": 0.92,
         "textColor": "#ffffff",
-        "outlineColor": "#111111",
+        "outlineColor": "#0b0b0f",
         "outlineWidth": 1,
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "lineHeight": 0.98,
         "accent": {
           "mode": "longest-word",
@@ -1121,14 +1707,16 @@
       "suggestedWordsPerLine": 4,
       "style": {
         "display": "cumulative",
-        "fontFamily": "Archivo Black",
+        "fontFamily": "League Spartan",
         "fontWeight": 900,
-        "fontScale": 1.2,
+        "fontScale": 1.25,
         "textTransform": "lowercase",
         "textColor": "#ffffff",
         "textAlign": "left",
-        "lineHeight": 0.86,
+        "lineHeight": 0.9,
         "maxWidthPercent": 72,
+        "outlineColor": "#0b0b0f",
+        "outlineWidth": 1.5,
         "animation": {
           "perWord": true,
           "in": {
@@ -1142,16 +1730,20 @@
       "id": "handwritten-zone",
       "label": "Handwritten Zone",
       "category": "aesthetic",
-      "suggestedWordsPerLine": 6,
+      "suggestedWordsPerLine": 5,
       "style": {
         "display": "phrase",
-        "fontFamily": "Caveat",
-        "fontWeight": 500,
-        "fontScale": 1.15,
-        "textTransform": "uppercase",
-        "letterSpacing": 0.03,
-        "textColor": "#e8e8ee",
-        "lineHeight": 1.12,
+        "fontFamily": "Permanent Marker",
+        "fontWeight": 400,
+        "fontScale": 1.05,
+        "textColor": "#ffffff",
+        "lineHeight": 1.1,
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
         "animation": {
           "in": {
             "type": "typewriter",
@@ -1173,6 +1765,12 @@
         "fontScale": 0.9,
         "textColor": "#ffffff",
         "lineHeight": 0.92,
+        "shadow": {
+          "color": "#000000d9",
+          "blur": 0.26,
+          "offsetX": 0,
+          "offsetY": 0.02
+        },
         "accent": {
           "mode": "longest-word",
           "fontFamily": "Archivo Black",

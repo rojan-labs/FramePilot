@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Clip, Project, Track } from '@framepilot/timeline-schema';
+import { getCaptionTemplate } from '@framepilot/timeline-schema/caption-templates';
 import {
   CAPTION_FONT_HEIGHT_FRACTION,
   MAX_CAPTION_EM_VALUE,
@@ -67,7 +68,7 @@ describe('resolveCaptionStyle layers cue over track over template', () => {
   it('takes the template’s chip when neither the track nor the cue sets one', () => {
     const track = { id: 'c', type: 'caption', clips: [], captionStyle: { templateId: 'tag' } } as unknown as Track;
     const resolved = resolveCaptionStyle(cue('x', ['hi']), track);
-    expect(resolved?.background).toEqual({ color: '#ffffff', radius: 0.35, paddingX: 0.45, paddingY: 0.3 });
+    expect(resolved?.background).toEqual(getCaptionTemplate('tag')?.style.background);
   });
 
   it('lets an authored chip replace the template’s whole', () => {
