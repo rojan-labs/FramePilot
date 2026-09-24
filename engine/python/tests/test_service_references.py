@@ -171,3 +171,14 @@ def test_still_refuses_outside_the_sandbox_missing_files_and_non_images(tmp_path
     corrupt.write_bytes(b"\x89PNG not really")
     unreadable = client.post("/references/still", json={"input_path": str(corrupt)})
     assert unreadable.status_code == 422
+
+
+def test_still_sends_an_opaque_rgba_screenshot_as_jpeg(tmp_path: Path) -> None:
+    """An alpha CHANNEL is not transparency: a fully opaque RGBA screenshot is a photo."""
+    shot = tmp_path / "media" / "p" / "screenshot.png"
+    shot.parent.mkdir(parents=True)
+    Image.new("RGBA", (300, 200), (30, 60, 90, 255)).save(shot)
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    body = client.post("/references/still", json={"input_path": str(shot)}).json()
+    assert body["media_type"] == "image/jpeg"
+    assert _decode(body).mode == "RGB"

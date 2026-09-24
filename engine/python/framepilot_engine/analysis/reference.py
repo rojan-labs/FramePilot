@@ -251,6 +251,7 @@ REFERENCE_STILL_MAX_DIMENSION = 1024
 #: Hard ceiling a caller cannot ask past (same bound as the frame grab's).
 REFERENCE_STILL_MAX_ALLOWED = 1280
 _STILL_JPEG_QUALITY = 85
+_OPAQUE = 255
 
 
 class ReferenceStill(BaseModel):
@@ -273,13 +274,20 @@ def reference_still(
     of the bytes for a photo. EXIF orientation is applied first: a phone photo stored
     sideways must not reach the model sideways.
 
+    "Has any" means a pixel that is actually see-through, not an alpha CHANNEL: a screenshot
+    is usually RGBA and fully opaque, and treating it as transparent sent a 380 KB PNG where
+    a JPEG of the same picture is a sixth of that.
+
     :raises OSError: The file is not an image Pillow can decode.
     """
     bound = min(max(1, int(max_dimension)), REFERENCE_STILL_MAX_ALLOWED)
     with Image.open(path) as opened:
         oriented = ImageOps.exif_transpose(opened) or opened
-        has_alpha = oriented.mode in {"RGBA", "LA", "PA"} or "transparency" in oriented.info
-        image = oriented.convert("RGBA" if has_alpha else "RGB")
+        rgba = oriented.convert("RGBA")
+    # A single band's extrema is a (min, max) pair of ints; Pillow types it wider.
+    alpha_min = rgba.getchannel("A").getextrema()[0]
+    has_alpha = isinstance(alpha_min, int) and alpha_min < _OPAQUE
+    image = rgba if has_alpha else rgba.convert("RGB")
     image.thumbnail((bound, bound), Image.Resampling.LANCZOS)
     buffer = io.BytesIO()
     if has_alpha:
