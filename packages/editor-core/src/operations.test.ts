@@ -797,6 +797,66 @@ describe('ripple_delete', () => {
 
 // --- move_clip -------------------------------------------------------------
 
+describe('caption cues stay on caption tracks', () => {
+  // A cue anywhere else is drawn by no renderer: the captured 2026-09-23 run moved two cues
+  // onto a cut-out's overlay text track to put them "behind" the speaker, and neither line
+  // appeared in the preview or the export.
+  const withCue = (): Timeline => {
+    const timeline = baseTimeline();
+    return applyOperation(timeline, {
+      type: 'add_caption_layer',
+      trackId: 'caption_1',
+      start: 1,
+      end: 2,
+      clipId: 'cue_1',
+    });
+  };
+
+  it('refuses to move a cue onto an overlay track, and names the tool that does the job', () => {
+    expect(() =>
+      applyOperation(withCue(), {
+        type: 'move_clip',
+        clipId: 'cue_1',
+        toTrackId: 'overlay_1',
+        toStart: 1,
+      }),
+    ).toThrow(/only renders on a caption track.*put_text_behind_subject/);
+  });
+
+  it('refuses to add a cue on a track that is not a caption track', () => {
+    const error = (() => {
+      try {
+        applyOperation(baseTimeline(), {
+          type: 'add_caption_layer',
+          trackId: 'overlay_1',
+          start: 1,
+          end: 2,
+        });
+      } catch (caught) {
+        return caught;
+      }
+      return undefined;
+    })();
+    expect(error).toBeInstanceOf(OperationError);
+    expect((error as OperationError).code).toBe('invalid_track');
+  });
+
+  it('still moves a cue between caption tracks, and moves ordinary clips anywhere', () => {
+    const timeline = withCue();
+    const twoCaptionTracks: Timeline = {
+      tracks: [...timeline.tracks, { id: 'caption_2', type: 'caption', clips: [] }],
+    };
+    const moved = applyOperation(twoCaptionTracks, {
+      type: 'move_clip',
+      clipId: 'cue_1',
+      toTrackId: 'caption_2',
+      toStart: 3,
+    });
+    expect(findClipById(moved, 'cue_1')?.trackId).toBe('caption_2');
+    expect(CAPTION_ASSET_ID).toBe(findClipById(moved, 'cue_1')?.assetId);
+  });
+});
+
 describe('move_clip', () => {
   it('moves within the same track, reversibly', () => {
     const before = baseTimeline();
@@ -2899,7 +2959,7 @@ describe('set_clip_speed_ramp', () => {
     ],
   });
 
-  it('L5: split_clip past an EASED control point still partitions the source exactly and conserves each piece\'s own area', () => {
+  it("L5: split_clip past an EASED control point still partitions the source exactly and conserves each piece's own area", () => {
     // Before the fix, the piece straddling the cut carried a synthetic point at the
     // HELD rate (the naive `rateAt` value) — the right VALUE but not the right AREA,
     // because an `ease-in-out` restricted to part of its span sweeps a different area
@@ -2922,7 +2982,7 @@ describe('set_clip_speed_ramp', () => {
     expect(clipTimelineDuration(right!)).toBeCloseTo(right!.end - right!.start, 6);
 
     // (c) the pieces still sum to the original clip's duration.
-    expect((left!.end - left!.start) + (right!.end - right!.start)).toBeCloseTo(
+    expect(left!.end - left!.start + (right!.end - right!.start)).toBeCloseTo(
       before.end - before.start,
       9,
     );
@@ -2942,7 +3002,7 @@ describe('set_clip_speed_ramp', () => {
     expectRoundTrip(easedRamped(), { type: 'split_clip', clipId: 'a', at });
   });
 
-  it('L5: delete_range through the middle of an EASED segment conserves each remainder\'s own area', () => {
+  it("L5: delete_range through the middle of an EASED segment conserves each remainder's own area", () => {
     // Same defect as the split case, but `delete_range` produces TWO remainders
     // around a gap, and (unlike split) each one loses a real chunk of footage, not
     // just a re-partition — so both a head cut (right remainder) and a tail cut
@@ -2969,15 +3029,13 @@ describe('set_clip_speed_ramp', () => {
     expect(clipTimelineDuration(right!)).toBeCloseTo(right!.end - right!.start, 6);
 
     // (c) the remainders' timeline durations sum to the original minus the deleted gap.
-    expect((left!.end - left!.start) + (right!.end - right!.start)).toBeCloseTo(
+    expect(left!.end - left!.start + (right!.end - right!.start)).toBeCloseTo(
       before.end - before.start - (gapEnd - gapStart),
       9,
     );
 
     const result = validatePatch(easedRamped(), {
-      operations: [
-        { type: 'delete_range', trackId: 'v1', start: gapStart, end: gapEnd },
-      ],
+      operations: [{ type: 'delete_range', trackId: 'v1', start: gapStart, end: gapEnd }],
     });
     expect(result.issues.map((i) => i.code)).not.toContain('speed_duration_mismatch');
     expect(result.valid).toBe(true);

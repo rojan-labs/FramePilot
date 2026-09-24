@@ -39,6 +39,7 @@ const timeline = (): Timeline => ({
       clips: [clip({ id: 'a' }), clip({ id: 'b', start: 10, end: 20, sourceEnd: 10 })],
     },
     { id: 'overlay_1', type: 'overlay', clips: [] },
+    { id: 'caption_1', type: 'caption', clips: [] },
   ],
 });
 
@@ -107,7 +108,7 @@ describe('invertPatch / revertPatch', () => {
     const p = patch([
       { type: 'split_clip', clipId: 'a', at: 4 },
       { type: 'ripple_delete', trackId: 'video_1', start: 0, end: 2 },
-      { type: 'add_caption_layer', trackId: 'overlay_1', start: 1, end: 3, clipId: 'c' },
+      { type: 'add_caption_layer', trackId: 'caption_1', start: 1, end: 3, clipId: 'c' },
     ]);
     const after = applyPatch(before, p);
     const inverse = invertPatch(before, p);

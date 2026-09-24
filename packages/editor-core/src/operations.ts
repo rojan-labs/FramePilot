@@ -2007,7 +2007,8 @@ function truncateClip(
 function applyMove(timeline: Timeline, op: MoveClipOp): Timeline {
   const loc = findClip(timeline, op.clipId);
   // Resolve the target track up front so a missing destination fails cleanly.
-  const { index: destIndex } = findTrack(timeline, op.toTrackId);
+  const { track: destTrack, index: destIndex } = findTrack(timeline, op.toTrackId);
+  assertCaptionTrack(loc.clip.assetId, destTrack, 'move_clip');
   const duration = loc.clip.end - loc.clip.start;
   const moved: Clip = {
     ...clone(loc.clip),
@@ -2137,8 +2138,31 @@ function applyAddTextOverlay(timeline: Timeline, op: AddTextOverlayOp): Timeline
   return insertClip(timeline, op.trackId, clip);
 }
 
+/**
+ * Refuse a caption cue on a track that is not a caption track.
+ *
+ * Every renderer — the export compiler (`render/frame_plan.py#caption_tracks`), the TS frame
+ * plan and the monitor — burns in cues from CAPTION tracks only, and draws them over the
+ * picture. A cue moved onto an overlay track is therefore drawn by nothing: in the captured
+ * 2026-09-23 run the agent moved two cues onto a cut-out's text track to put them "behind"
+ * the speaker, told the editor so, and neither line appeared anywhere. Refusing here, with
+ * the tool that does the job named, turns that silent loss into a correction the caller
+ * can act on. Existing projects are not re-validated, so a file already in that state
+ * still opens.
+ */
+function assertCaptionTrack(assetId: string, track: Track, operation: string): void {
+  if (assetId !== CAPTION_ASSET_ID || track.type === 'caption') return;
+  throw new OperationError(
+    'invalid_track',
+    `${operation}: '${track.id}' is a ${track.type} track, and a caption cue only renders on a ` +
+      'caption track. Keep the cue on a caption track. To put words behind the subject, use ' +
+      'put_text_behind_subject with the phrase and its start/end.',
+  );
+}
+
 function applyAddCaptionLayer(timeline: Timeline, op: AddCaptionLayerOp): Timeline {
   assertPositiveRange(op.start, op.end, 'add_caption_layer');
+  assertCaptionTrack(CAPTION_ASSET_ID, findTrack(timeline, op.trackId).track, 'add_caption_layer');
   const id = op.clipId ?? deriveClipId('caption', op.trackId, op.start);
   const clip: Clip = {
     id,
