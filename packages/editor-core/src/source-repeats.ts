@@ -46,6 +46,11 @@ export function repeatedSourcePairs(project: Project): readonly (readonly [Clip,
       const earlier = clips[i]!;
       const later = clips[j]!;
       if (earlier.assetId !== later.assetId) continue;
+      // Played AT THE SAME TIME is a composite, not a take seen twice: a cut-out's front copy
+      // over its own background (`add_text_behind_subject`) shares every source second with
+      // the clip beneath it. Naming that pair a repeat told the agent the A-roll under a
+      // cut-out — the clip carrying the speech — was a duplicate to drop.
+      if (earlier.start < later.end && later.start < earlier.end) continue;
       if (sharedSourceSeconds(earlier, later) > REPEATED_SOURCE_OVERLAP_SECONDS) {
         pairs.push([earlier, later]);
       }

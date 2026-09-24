@@ -15,7 +15,10 @@ interface ClipSpec {
   readonly trackId?: string;
 }
 
-function project(clips: readonly ClipSpec[], extraTracks: Project['timeline']['tracks'] = []): Project {
+function project(
+  clips: readonly ClipSpec[],
+  extraTracks: Project['timeline']['tracks'] = [],
+): Project {
   return parseProject({
     id: 'repeats',
     name: 'Repeats',
@@ -81,7 +84,13 @@ describe('repeatedSourceOf', () => {
   it('ignores an overlap at or under the threshold', () => {
     const grazing = project([
       { id: 'x', assetId: 'a', start: 0, sourceStart: 0, length: 4 },
-      { id: 'y', assetId: 'a', start: 4, sourceStart: 4 - REPEATED_SOURCE_OVERLAP_SECONDS, length: 4 },
+      {
+        id: 'y',
+        assetId: 'a',
+        start: 4,
+        sourceStart: 4 - REPEATED_SOURCE_OVERLAP_SECONDS,
+        length: 4,
+      },
     ]);
     expect(repeatedSourceOf(grazing).size).toBe(0);
   });
@@ -110,5 +119,38 @@ describe('repeatedSourceOf', () => {
       ],
     );
     expect(repeatedSourceOf(withAudio).size).toBe(0);
+  });
+});
+
+describe('a cut-out copy over its own background is not a repeated take', () => {
+  it('ignores two clips of one asset that play the same moment at the same time', () => {
+    // The shape `add_text_behind_subject` builds: a front copy of the talking head over
+    // the original, sharing every source second. Naming that a repeat told the agent the
+    // A-roll carrying the speech was a duplicate to drop (captured run, 2026-09-23).
+    const layered = project(
+      [{ id: 'talk', assetId: 'a', start: 0, sourceStart: 0, length: 20 }],
+      [
+        {
+          id: 'talk__subject_track',
+          type: 'video',
+          muted: true,
+          clips: [
+            {
+              id: 'talk__subject',
+              assetId: 'a',
+              trackId: 'talk__subject_track',
+              start: 0,
+              end: 20,
+              sourceStart: 0,
+              sourceEnd: 20,
+              effects: [],
+              keyframes: [],
+            },
+          ],
+        },
+      ],
+    );
+    expect(repeatedSourcePairs(layered)).toEqual([]);
+    expect(repeatedSourceOf(layered).size).toBe(0);
   });
 });
