@@ -336,8 +336,8 @@ def solve_text_behind(
     and both ENDS of the word must stay clear. Among the heights whose occlusion falls in
     ``[BEHIND_MIN_OCCLUSION, BEHIND_MAX_OCCLUSION]`` with visible ends, the one nearest
     :data:`BEHIND_TARGET_OCCLUSION` wins, ties going higher in the frame (titles live in the
-    upper part of a talking-head shot). When no height qualifies the least-occluded height
-    with visible ends is returned, and the note says what to change.
+    upper part of a talking-head shot). When no height qualifies, the readable height nearest
+    that band is returned — whichever side it misses on — and the note says what to change.
 
     :param grids: Per-sample coverage grids over the output frame.
     :param text_width: Title box width, fraction of the frame width.
@@ -383,18 +383,20 @@ def solve_text_behind(
         )
     readable = [c for c in candidates if c[2]]
     if readable:
-        best = min(readable, key=lambda c: (-c[1], c[0]))
+        best = min(readable, key=lambda c: (_distance_from_behind(c[1]), c[0]))
         why = (
             "the subject barely overlaps the title anywhere it stays readable, so it will read "
-            "as floating in front of the background rather than behind them"
+            "as floating in front of the background rather than behind them. Try a shorter "
+            "word or a smaller size, so the subject covers more of it"
             if best[1] < BEHIND_MIN_OCCLUSION
-            else "the subject covers too much of the title everywhere"
+            else "the subject covers too much of the title everywhere its ends stay clear. "
+            "Try a wider word or a larger size, so more of it shows beside them"
         )
         return TextBehindPlacement(
             y_percent=round(best[0] * 100, 1),
             occluded=round(best[1], 3),
             ends_visible=True,
-            note=f"No height reads cleanly as behind: {why}. Try a wider word or a larger size.",
+            note=f"No height reads cleanly as behind: {why}.",
         )
     best = min(candidates, key=lambda c: (c[1], c[0]))
     return TextBehindPlacement(
@@ -408,6 +410,13 @@ def solve_text_behind(
             "the head, or put the title in front of them instead."
         ),
     )
+
+
+def _distance_from_behind(occluded: float) -> float:
+    """How far an occlusion falls outside the band that reads as behind (0 inside it)."""
+    if occluded < BEHIND_MIN_OCCLUSION:
+        return BEHIND_MIN_OCCLUSION - occluded
+    return max(0.0, occluded - BEHIND_MAX_OCCLUSION)
 
 
 def measure_subject_layout(

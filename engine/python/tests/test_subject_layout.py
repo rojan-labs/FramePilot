@@ -102,6 +102,32 @@ def test_a_head_filling_the_width_leaves_no_readable_height_and_says_so() -> Non
     assert "Zoom the picture out" in placement.note
 
 
+def test_an_over_covered_title_is_placed_where_it_is_covered_least() -> None:
+    # Every readable height hides more than reads as "behind": a broad subject that widens
+    # down the frame. The fallback must pick the height nearest the band (the top), not the
+    # one that hides the most of the word.
+    grid = np.zeros((sl.GRID_ROWS, 100), dtype=np.float32)
+    half = sl.GRID_ROWS // 2
+    grid[:half, 25:75] = 1.0
+    grid[half:, 19:81] = 1.0
+    placement = sl.solve_text_behind([grid], text_width=1.0, text_height=0.1)
+    assert placement.ends_visible
+    assert placement.occluded == pytest.approx(0.5, abs=0.02)
+    assert placement.y_percent < 50
+    assert "covers too much" in placement.note
+    assert "wider word" in placement.note
+
+
+def test_an_under_covered_title_asks_for_a_shorter_word() -> None:
+    # A small subject in a wide shot: the title floats in front of the background.
+    grid = np.zeros((sl.GRID_ROWS, 100), dtype=np.float32)
+    grid[:, 47:53] = 1.0
+    placement = sl.solve_text_behind([grid], text_width=0.9, text_height=0.1)
+    assert placement.ends_visible
+    assert placement.occluded < sl.BEHIND_MIN_OCCLUSION
+    assert "shorter word" in placement.note
+
+
 class _FakeReader:
     """Stands in for the export's ``MatteReader`` over a synthetic matte (no ffmpeg)."""
 
