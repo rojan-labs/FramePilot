@@ -39,7 +39,11 @@ import type {
   AudioDynamicsSettings,
   AudioEqBand,
 } from './edit-value-contracts.js';
-import { transitionEligibility } from './edit-boundaries.js';
+import {
+  layerTransitionEligibility,
+  transitionEligibility,
+  type CutawayEdgeSide,
+} from './edit-boundaries.js';
 import { frameToSeconds, secondsToFrame } from './frame-grid.js';
 import { evaluateKeyframes } from './keyframes.js';
 import {
@@ -361,6 +365,27 @@ export interface AddTransitionOp {
    * engine did before alignment existed. See `transitions.ts`.
    */
   readonly alignment?: TransitionAlignment;
+}
+
+/**
+ * A transition at one END of a shot laid over other picture — a b-roll insert over the
+ * A-roll — carrying the change from the picture beneath to the insert (`in`) or back
+ * (`out`).
+ *
+ * A cutaway's entrance and exit are not cuts on any one track, so {@link AddTransitionOp}
+ * (which treats a cut between two clips on one track) can never reach them. The renderer
+ * has always drawn a ramp on such a clip over the layers beneath it; this is the operation
+ * that asks for one. Stored as the same effects a cut's transition uses — `transition`
+ * without `fromClipId`, `transition_out` end-aligned without `toClipId` — so preview,
+ * export and the frame plan need no new code path. See `layerTransitionEligibility`.
+ */
+export interface AddLayerTransitionOp {
+  readonly type: 'add_layer_transition';
+  readonly clipId: string;
+  readonly edge: CutawayEdgeSide;
+  /** A transition catalog id; an exit accepts only opacity and wipe kinds. */
+  readonly kind: string;
+  readonly durationSeconds: Seconds;
 }
 
 /**
@@ -754,6 +779,7 @@ export type Operation =
   | SetEffectParamsOp
   | AdjustAudioOp
   | AddTransitionOp
+  | AddLayerTransitionOp
   | MaskOperation
   | TrackObjectOp
   | SetTrackFlagsOp
@@ -1122,6 +1148,8 @@ function applyOperationInner(
       return applyAdjustAudio(timeline, op);
     case 'add_transition':
       return applyAddTransition(timeline, op);
+    case 'add_layer_transition':
+      return applyAddLayerTransition(timeline, op);
     case 'add_mask':
     case 'add_effect_layer_mask':
     case 'remove_mask':
@@ -2441,6 +2469,38 @@ function applyAddTransition(timeline: Timeline, op: AddTransitionOp): Timeline {
   return replaceClipAt(withIn, outLoc, { ...outLoc.clip, effects: outEffects });
 }
 
+function applyAddLayerTransition(timeline: Timeline, op: AddLayerTransitionOp): Timeline {
+  const eligibility = layerTransitionEligibility(timeline, op);
+  if (!eligibility.ok) {
+    throw new OperationError('invalid_transition', `add_layer_transition: ${eligibility.detail}`);
+  }
+  const loc = findClip(timeline, op.clipId);
+  // The exit is end-aligned so its whole ramp sits before the shot's out-point: the
+  // renderer's outgoing half is only live for the part of a window before the cut.
+  const effect: Effect =
+    op.edge === 'in'
+      ? {
+          id: transitionEffectId(op.clipId),
+          type: TRANSITION_EFFECT_TYPE,
+          params: { kind: op.kind, durationSeconds: eligibility.durationSeconds },
+          keyframes: [],
+        }
+      : {
+          id: transitionOutEffectId(op.clipId),
+          type: TRANSITION_OUT_EFFECT_TYPE,
+          params: {
+            kind: op.kind,
+            durationSeconds: eligibility.durationSeconds,
+            alignment: 'end',
+          },
+          keyframes: [],
+        };
+  return replaceClipAt(timeline, loc, {
+    ...loc.clip,
+    effects: [...loc.clip.effects.filter((existing) => existing.id !== effect.id), effect],
+  });
+}
+
 function applyTrackObject(timeline: Timeline, op: TrackObjectOp): Timeline {
   const loc = findClip(timeline, op.clipId);
   const params: Record<string, unknown> = { target: op.target };
@@ -3211,6 +3271,8 @@ export function invertOperation(
       return invertMaskOperation(timelineBefore, op) as Operation[];
     case 'add_transition':
       return [restoreFor(findClip(timelineBefore, op.toClipId).track)];
+    case 'add_layer_transition':
+      return [restoreFor(findClip(timelineBefore, op.clipId).track)];
     case 'add_layer':
       // Undo an insert by removing the layer it created.
       return [{ type: 'remove_layer', layerId: op.layerId }];

@@ -210,7 +210,8 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
           ? {}
           : { fadeOutSeconds: snapSecondsToFrame(op.fadeOutSeconds, fps) }),
       };
-    case 'add_transition': {
+    case 'add_transition':
+    case 'add_layer_transition': {
       // A positive request shorter than one frame is intentionally promoted to one
       // frame. A zero/negative/non-finite request is different: changing its sign or
       // finiteness would turn invalid intent into a valid edit before validation.

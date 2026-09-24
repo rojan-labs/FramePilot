@@ -56,6 +56,8 @@ export function postValidationScope(
       return scope([op.trackId], TIMING_CHECKS);
     case 'add_transition':
       return scope([op.trackId], TRANSITION_CHECK);
+    case 'add_layer_transition':
+      return scope([clipTrackById.get(op.clipId)], TRANSITION_CHECK);
     case 'set_effect_params':
       // This generic operation can edit the params of a transition effect. It cannot
       // change clip geometry, but the transition pair/duration must be revalidated.

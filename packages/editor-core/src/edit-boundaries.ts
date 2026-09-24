@@ -397,3 +397,233 @@ export function readTransitionAt(
     fromClipId: typeof fromClipId === 'string' ? fromClipId : '',
   };
 }
+
+// ---------------------------------------------------------------------------
+// Cutaway edges — where an inserted shot enters and leaves over the picture beneath it
+// ---------------------------------------------------------------------------
+
+/**
+ * Render kinds whose ramp is a true opacity or wipe mask, so they also work as an EXIT.
+ *
+ * On an exit the renderer keeps only the kind's reveal mask and fades the clip by it
+ * (`compiler.py#_apply_catalog_transition`, role `out`). For a geometric kind (slide, zoom,
+ * spin) that mask is the whole frame from the first instant, so the cutaway would vanish
+ * at once instead of leaving. Entrances animate the incoming picture itself and accept
+ * every kind.
+ */
+const EXIT_RENDER_KINDS: ReadonlySet<string> = new Set([
+  'dissolve',
+  'blur-dissolve',
+  'noise-dissolve',
+  'luma-fade',
+  'wipe-linear',
+  'wipe-radial',
+  'wipe-split',
+  'wipe-shape',
+  'wipe-clock',
+  'wipe-bars',
+]);
+
+/** Which end of an inserted shot a layer transition treats. */
+export type CutawayEdgeSide = 'in' | 'out';
+
+/**
+ * One end of a shot laid over other picture — a b-roll insert over the A-roll — where a
+ * transition can carry the change from the picture beneath to the insert, or back.
+ *
+ * ## WHY this is not an {@link EditBoundary}
+ *
+ * An edit boundary is two clips meeting on ONE track. A cutaway is one clip on an upper
+ * layer, with the talking head continuing underneath, so its entrance and exit are not cuts
+ * on any track and {@link listEditBoundaries} rightly never lists them. That left the agent
+ * answering "the edit has only one real cut, so there is nowhere to put a transition" to an
+ * editor who had asked for transitions three times over a b-roll-heavy short (captured
+ * runs, 2026-09-21…23) — while the renderer already draws a ramp on such a clip over the
+ * layers beneath it.
+ */
+export interface CutawayEdge {
+  readonly trackId: string;
+  readonly clipId: string;
+  readonly edge: CutawayEdgeSide;
+  /** Sequence second of the change: the insert's start (`in`) or end (`out`). */
+  readonly at: number;
+  /** The clip showing beneath at that moment, when one does. */
+  readonly beneathClipId?: string;
+  /** Half the insert: both of its ends may carry a transition. */
+  readonly maxTransitionSeconds: number;
+  /** The transition already on this edge, when there is one. */
+  readonly existingKind?: string;
+}
+
+/** The effect a layer transition is stored as, and the params that mark it as one. */
+function edgeEffect(
+  clip: { readonly effects: readonly { type: string; params: Record<string, unknown> }[] },
+  edge: CutawayEdgeSide,
+): { type: string; params: Record<string, unknown> } | undefined {
+  const wanted = edge === 'in' ? 'transition' : 'transition_out';
+  return clip.effects.find((effect) => effect.type === wanted);
+}
+
+/** The picture clip on a track BEHIND `trackIndex` that is on screen at `time`, if any. */
+function pictureBeneath(
+  timeline: Timeline,
+  trackIndex: number,
+  time: number,
+): { readonly clipId: string } | undefined {
+  // `tracks[0]` is the visual front, so everything behind a track has a larger index.
+  for (let index = trackIndex + 1; index < timeline.tracks.length; index += 1) {
+    const track = timeline.tracks[index]!;
+    if (track.type !== 'video' || track.hidden === true) continue;
+    const clip = track.clips.find(
+      (candidate) => candidate.start <= time + TIME_EPSILON && candidate.end > time + TIME_EPSILON,
+    );
+    if (clip !== undefined) return { clipId: clip.id };
+  }
+  return undefined;
+}
+
+/**
+ * Every entrance and exit of a shot inserted over other picture, in sequence order.
+ *
+ * Listed: a clip on a video layer with picture beneath it at that moment, whose edge is NOT
+ * also a cut on its own layer (a butt-joined neighbour makes it an {@link EditBoundary},
+ * treated by `add_transition`). A cutaway's in and out both qualify when the talking head
+ * runs under the whole insert.
+ *
+ * @param timeline - The timeline to read.
+ */
+export function listCutawayEdges(timeline: Timeline): readonly CutawayEdge[] {
+  const edges: CutawayEdge[] = [];
+  timeline.tracks.forEach((track, trackIndex) => {
+    if (track.type !== 'video') return;
+    const ordered = [...track.clips].sort((a, b) => a.start - b.start);
+    ordered.forEach((clip, position) => {
+      const duration = clip.end - clip.start;
+      if (duration <= TIME_EPSILON) return;
+      const previous = ordered[position - 1];
+      const next = ordered[position + 1];
+      const sides: [CutawayEdgeSide, number, boolean][] = [
+        [
+          'in',
+          clip.start,
+          previous !== undefined && Math.abs(previous.end - clip.start) <= TIME_EPSILON,
+        ],
+        ['out', clip.end, next !== undefined && Math.abs(next.start - clip.end) <= TIME_EPSILON],
+      ];
+      for (const [edge, at, isCut] of sides) {
+        if (isCut) continue;
+        // The instant the change is seen: the first frame of the insert, or the last.
+        const probe = edge === 'in' ? at : at - TIME_EPSILON * 2;
+        const beneath = pictureBeneath(timeline, trackIndex, probe);
+        if (beneath === undefined) continue;
+        const existing = edgeEffect(clip, edge);
+        const kind = existing?.params.kind;
+        edges.push({
+          trackId: track.id,
+          clipId: clip.id,
+          edge,
+          at,
+          beneathClipId: beneath.clipId,
+          maxTransitionSeconds: duration / 2,
+          ...(typeof kind === 'string' ? { existingKind: kind } : {}),
+        });
+      }
+    });
+  });
+  return edges.sort((a, b) => a.at - b.at || a.trackId.localeCompare(b.trackId));
+}
+
+/** A request for a transition at one end of an inserted shot. */
+export interface LayerTransitionRequest {
+  readonly clipId: string;
+  readonly edge: CutawayEdgeSide;
+  readonly kind: string;
+  readonly durationSeconds: number;
+}
+
+/** The verdict on a layer transition, with the duration that will really be applied. */
+export type LayerTransitionEligibility =
+  | { readonly ok: true; readonly durationSeconds: number; readonly clampedFrom?: number }
+  | {
+      readonly ok: false;
+      readonly reason: TransitionRejection | 'is_a_cut' | 'kind_cannot_exit';
+      readonly detail: string;
+    };
+
+/**
+ * Can this end of this clip carry a transition over what plays beneath it?
+ *
+ * Refused, each with the move that works instead: an unknown kind, a non-positive duration,
+ * a clip that is not picture on a video layer, an edge that is really a cut on its own layer
+ * (use `add_transition`), and an exit kind that only animates the incoming side. A request
+ * longer than half the clip is clamped, like a cut's.
+ *
+ * @param timeline - The timeline the transition would be applied to.
+ * @param request - Which clip, which end, what kind, how long.
+ */
+export function layerTransitionEligibility(
+  timeline: Timeline,
+  request: LayerTransitionRequest,
+): LayerTransitionEligibility {
+  const entry = getTransition(request.kind);
+  if (entry === undefined) {
+    return {
+      ok: false,
+      reason: 'unknown_kind',
+      detail: `"${request.kind}" is not a transition this build knows. Call discover_transitions for real ids.`,
+    };
+  }
+  if (!Number.isFinite(request.durationSeconds) || request.durationSeconds <= 0) {
+    return {
+      ok: false,
+      reason: 'invalid_duration',
+      detail: `Transition duration must be a positive finite number, got ${String(request.durationSeconds)}.`,
+    };
+  }
+  const trackIndex = timeline.tracks.findIndex((track) =>
+    track.clips.some((clip) => clip.id === request.clipId),
+  );
+  const track = timeline.tracks[trackIndex];
+  const clip = track?.clips.find((candidate) => candidate.id === request.clipId);
+  if (track === undefined || clip === undefined || track.type !== 'video') {
+    return {
+      ok: false,
+      reason: 'no_such_clip',
+      detail: `No picture clip "${request.clipId}" on a video layer. A layer transition treats the start or end of a shot laid over other picture.`,
+    };
+  }
+  const at = request.edge === 'in' ? clip.start : clip.end;
+  const neighbour = track.clips.find((other) =>
+    request.edge === 'in'
+      ? other.id !== clip.id && Math.abs(other.end - at) <= TIME_EPSILON
+      : other.id !== clip.id && Math.abs(other.start - at) <= TIME_EPSILON,
+  );
+  if (neighbour !== undefined) {
+    const [fromClipId, toClipId] =
+      request.edge === 'in' ? [neighbour.id, clip.id] : [clip.id, neighbour.id];
+    return {
+      ok: false,
+      reason: 'is_a_cut',
+      detail: `The ${request.edge === 'in' ? 'start' : 'end'} of "${clip.id}" is a cut on its own layer (${secs(at)}). Use add_transition with fromClipId "${fromClipId}" and toClipId "${toClipId}".`,
+    };
+  }
+  if (request.edge === 'out' && !EXIT_RENDER_KINDS.has(entry.renderKind)) {
+    return {
+      ok: false,
+      reason: 'kind_cannot_exit',
+      detail: `"${request.kind}" only animates the shot coming IN; as an exit the insert would vanish at once. Leave with a dissolve or a wipe (e.g. cross-dissolve).`,
+    };
+  }
+  const limit = (clip.end - clip.start) / 2;
+  if (limit <= TIME_EPSILON) {
+    return {
+      ok: false,
+      reason: 'clip_too_short',
+      detail: `"${clip.id}" is too short to carry a transition.`,
+    };
+  }
+  const durationSeconds = Math.min(request.durationSeconds, limit);
+  return durationSeconds < request.durationSeconds - TIME_EPSILON
+    ? { ok: true, durationSeconds, clampedFrom: request.durationSeconds }
+    : { ok: true, durationSeconds };
+}

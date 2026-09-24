@@ -158,6 +158,7 @@ const SUPPORTED_OPERATIONS: ReadonlySet<OperationType> = new Set<OperationType>(
   'set_effect_params',
   'adjust_audio',
   'add_transition',
+  'add_layer_transition',
   'add_mask',
   'track_object',
   'set_track_flags',
@@ -470,6 +471,20 @@ function transitionOverlapChecks(tracks: readonly Track[], index: number): Valid
       }
       const fromClipId = effect.params.fromClipId;
       const previous = i > 0 ? ordered[i - 1] : undefined;
+      // A cutaway's ENTRANCE (`add_layer_transition`, edge `in`) names no clip: it ramps in
+      // over the layers beneath it. Only where its start is NOT a cut on this track — a
+      // butt-joined predecessor makes it a cut, which must name that clip. It must still
+      // leave room for the shot itself.
+      const startsOnCut =
+        previous !== undefined && Math.abs(previous.end - toClip.start) <= EPSILON;
+      if (fromClipId === undefined && !startsOnCut) {
+        if (durationSeconds > duration(toClip) / 2 + EPSILON) {
+          issue(
+            `The entrance transition on clip '${toClip.id}' is ${durationSeconds}s but cannot exceed ${duration(toClip) / 2}s (half the clip).`,
+          );
+        }
+        return;
+      }
       if (typeof fromClipId !== 'string' || !previous || previous.id !== fromClipId) {
         issue(
           `Transition on clip '${toClip.id}' must reference the adjacent earlier clip on track '${track.id}' as fromClipId.`,
@@ -490,6 +505,22 @@ function transitionOverlapChecks(tracks: readonly Track[], index: number): Valid
       );
       if (!outgoing) return;
       const next = ordered[i + 1];
+      // A cutaway's EXIT (`add_layer_transition`, edge `out`) names no partner: it ramps out
+      // over the layers beneath it — again only where its end is not a cut on this track.
+      const endsOnCut = next !== undefined && Math.abs(next.start - fromClip.end) <= EPSILON;
+      if (outgoing.params.toClipId === undefined && !endsOnCut) {
+        const seconds = outgoing.params.durationSeconds;
+        if (typeof seconds !== 'number' || !(seconds > 0)) {
+          issue(
+            `The exit transition on clip '${fromClip.id}' must have a positive durationSeconds.`,
+          );
+        } else if (seconds > duration(fromClip) / 2 + EPSILON) {
+          issue(
+            `The exit transition on clip '${fromClip.id}' is ${seconds}s but cannot exceed ${duration(fromClip) / 2}s (half the clip).`,
+          );
+        }
+        return;
+      }
       const partner = next?.effects.find((effect) => effect.type === 'transition');
       if (!next || !partner || partner.params.fromClipId !== fromClip.id) {
         issue(
@@ -601,7 +632,10 @@ function projectChecks(
     case 'relink_asset':
       if (!assetExists(op.assetId)) issue('missing_asset', `Unknown asset '${op.assetId}'.`);
       if (!isValidAssetPath(op.path)) {
-        issue('invalid_asset_path', 'relink_asset needs an absolute file path. Choose the file again.');
+        issue(
+          'invalid_asset_path',
+          'relink_asset needs an absolute file path. Choose the file again.',
+        );
       }
       break;
     case 'move_asset':

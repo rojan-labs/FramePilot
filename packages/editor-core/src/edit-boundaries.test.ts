@@ -10,12 +10,15 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { Asset, Clip, Timeline } from '@framepilot/timeline-schema';
-import { applyOperation, OperationError, type Operation } from './operations.js';
+import { applyOperation, invertOperation, OperationError, type Operation } from './operations.js';
 import {
+  layerTransitionEligibility,
+  listCutawayEdges,
   listEditBoundaries,
   readTransitionAt,
   transitionEligibility,
 } from './edit-boundaries.js';
+import { validatePatch } from './validator.js';
 
 const clip = (over: Partial<Clip> & Pick<Clip, 'id'>): Clip => ({
   assetId: 'asset_1',
@@ -46,11 +49,17 @@ const cutTimeline = (): Timeline => ({
 /** One continuous clip — no cut anywhere in it. */
 const continuousTimeline = (): Timeline => ({
   tracks: [
-    { id: 'video_1', type: 'video', clips: [clip({ id: 'solo', start: 0, end: 30, sourceEnd: 30 })] },
+    {
+      id: 'video_1',
+      type: 'video',
+      clips: [clip({ id: 'solo', start: 0, end: 30, sourceEnd: 30 })],
+    },
   ],
 });
 
-const assets: readonly Asset[] = [{ id: 'asset_1', path: '/a.mp4', kind: 'video', durationSeconds: 120 }];
+const assets: readonly Asset[] = [
+  { id: 'asset_1', path: '/a.mp4', kind: 'video', durationSeconds: 120 },
+];
 
 describe('listEditBoundaries', () => {
   it('finds the cut where two clips meet', () => {
@@ -183,7 +192,11 @@ describe('transitionEligibility', () => {
     const twoTracks: Timeline = {
       tracks: [
         { id: 'video_1', type: 'video', clips: [clip({ id: 'a' })] },
-        { id: 'video_2', type: 'video', clips: [clip({ id: 'b', trackId: 'video_2', start: 10, end: 20 })] },
+        {
+          id: 'video_2',
+          type: 'video',
+          clips: [clip({ id: 'b', trackId: 'video_2', start: 10, end: 20 })],
+        },
       ],
     };
     const verdict = transitionEligibility(
@@ -339,9 +352,7 @@ describe('add_transition enforcement', () => {
   });
 
   it('throws for a clip that does not exist', () => {
-    expect(() => applyOperation(cutTimeline(), op({ toClipId: 'ghost' }))).toThrow(
-      /No media clip/,
-    );
+    expect(() => applyOperation(cutTimeline(), op({ toClipId: 'ghost' }))).toThrow(/No media clip/);
   });
 
   it('does not bump the timeline revision — a transition moves no footage', () => {
@@ -401,5 +412,169 @@ describe('readTransitionAt', () => {
       durationSeconds: 0,
       fromClipId: '',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cutaways — a b-roll insert over the A-roll (EQ10)
+// ---------------------------------------------------------------------------
+
+/**
+ * The shape of every talking-head short: the A-roll runs the whole length on the bottom
+ * layer and two inserts sit above it, the second butt-joined to a third.
+ */
+const cutawayTimeline = (): Timeline => ({
+  tracks: [
+    {
+      id: 'broll',
+      type: 'video',
+      clips: [
+        clip({ id: 'phone', trackId: 'broll', start: 5, end: 7, assetId: 'b1', sourceEnd: 2 }),
+        clip({ id: 'code', trackId: 'broll', start: 12, end: 15, assetId: 'b2', sourceEnd: 3 }),
+        clip({ id: 'city', trackId: 'broll', start: 15, end: 17, assetId: 'b3', sourceEnd: 2 }),
+      ],
+    },
+    {
+      id: 'aroll',
+      type: 'video',
+      clips: [clip({ id: 'talk', trackId: 'aroll', start: 0, end: 30, sourceEnd: 30 })],
+    },
+  ],
+});
+
+describe('listCutawayEdges', () => {
+  it('lists where each insert enters and leaves over the A-roll, but not its own cuts', () => {
+    const edges = listCutawayEdges(cutawayTimeline());
+    expect(edges.map((edge) => [edge.clipId, edge.edge, edge.at, edge.beneathClipId])).toEqual([
+      ['phone', 'in', 5, 'talk'],
+      ['phone', 'out', 7, 'talk'],
+      ['code', 'in', 12, 'talk'],
+      // code→city at 15 is a cut on the b-roll layer: add_transition's job, not listed here.
+      ['city', 'out', 17, 'talk'],
+    ]);
+    expect(edges[0]?.maxTransitionSeconds).toBe(1);
+  });
+
+  it('lists nothing for a single layer, where every change is a cut', () => {
+    expect(listCutawayEdges(cutTimeline())).toEqual([]);
+  });
+});
+
+describe('layerTransitionEligibility', () => {
+  it('accepts an entrance over the A-roll and clamps it to half the insert', () => {
+    const verdict = layerTransitionEligibility(cutawayTimeline(), {
+      clipId: 'phone',
+      edge: 'in',
+      kind: 'zoom',
+      durationSeconds: 1.5,
+    });
+    expect(verdict).toEqual({ ok: true, durationSeconds: 1, clampedFrom: 1.5 });
+  });
+
+  it('sends an edge that is really a cut to add_transition, naming both clips', () => {
+    const verdict = layerTransitionEligibility(cutawayTimeline(), {
+      clipId: 'city',
+      edge: 'in',
+      kind: 'cross-dissolve',
+      durationSeconds: 0.4,
+    });
+    expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    expect(verdict.reason).toBe('is_a_cut');
+    expect(verdict.detail).toContain('fromClipId "code" and toClipId "city"');
+  });
+
+  it('refuses a geometric kind as an exit, where the insert would vanish at once', () => {
+    const verdict = layerTransitionEligibility(cutawayTimeline(), {
+      clipId: 'phone',
+      edge: 'out',
+      kind: 'zoom',
+      durationSeconds: 0.4,
+    });
+    expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    expect(verdict.reason).toBe('kind_cannot_exit');
+    expect(
+      layerTransitionEligibility(cutawayTimeline(), {
+        clipId: 'phone',
+        edge: 'out',
+        kind: 'cross-dissolve',
+        durationSeconds: 0.4,
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('refuses an unknown kind and a clip that is not picture on a video layer', () => {
+    expect(
+      layerTransitionEligibility(cutawayTimeline(), {
+        clipId: 'phone',
+        edge: 'in',
+        kind: 'sparkle-magic',
+        durationSeconds: 0.4,
+      }),
+    ).toMatchObject({ ok: false, reason: 'unknown_kind' });
+    expect(
+      layerTransitionEligibility(cutawayTimeline(), {
+        clipId: 'ghost',
+        edge: 'in',
+        kind: 'cross-dissolve',
+        durationSeconds: 0.4,
+      }),
+    ).toMatchObject({ ok: false, reason: 'no_such_clip' });
+  });
+});
+
+describe('add_layer_transition', () => {
+  it('writes an entrance and an end-aligned exit the validator accepts, and undoes exactly', () => {
+    const before = cutawayTimeline();
+    const entrance: Operation = {
+      type: 'add_layer_transition',
+      clipId: 'phone',
+      edge: 'in',
+      kind: 'zoom',
+      durationSeconds: 0.3,
+    };
+    const exit: Operation = {
+      type: 'add_layer_transition',
+      clipId: 'phone',
+      edge: 'out',
+      kind: 'cross-dissolve',
+      durationSeconds: 0.3,
+    };
+    const result = validatePatch(before, { operations: [entrance, exit] });
+    expect(result.issues).toEqual([]);
+    const after = applyOperation(applyOperation(before, entrance), exit);
+    const phone = after.tracks[0]!.clips.find((c) => c.id === 'phone')!;
+    expect(phone.effects).toEqual([
+      {
+        id: 'phone__transition',
+        type: 'transition',
+        params: { kind: 'zoom', durationSeconds: 0.3 },
+        keyframes: [],
+      },
+      {
+        id: 'phone__transition_out',
+        type: 'transition_out',
+        params: { kind: 'cross-dissolve', durationSeconds: 0.3, alignment: 'end' },
+        keyframes: [],
+      },
+    ]);
+    const undone = invertOperation(before, entrance).reduce(
+      (current, step) => applyOperation(current, step),
+      applyOperation(before, entrance),
+    );
+    expect(undone.tracks).toEqual(before.tracks);
+  });
+
+  it('is refused with the eligibility sentence when the edge is a cut', () => {
+    expect(() =>
+      applyOperation(cutawayTimeline(), {
+        type: 'add_layer_transition',
+        clipId: 'city',
+        edge: 'in',
+        kind: 'cross-dissolve',
+        durationSeconds: 0.4,
+      }),
+    ).toThrow(OperationError);
   });
 });

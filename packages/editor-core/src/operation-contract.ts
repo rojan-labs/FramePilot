@@ -360,6 +360,13 @@ export function assertOperationContract(timeline: Timeline, op: Operation): void
       }
       return;
     }
+    case 'add_layer_transition':
+      assertClipUnlocked(timeline, op.clipId, op.type);
+      finite(op.durationSeconds, 'add_layer_transition.durationSeconds');
+      if (op.durationSeconds <= 0) {
+        throw new OperationContractError('add_layer_transition.durationSeconds must be positive.');
+      }
+      return;
     case 'add_transition':
       assertUnlocked(findTrack(timeline, op.trackId), op.type);
       finite(op.durationSeconds, 'add_transition.durationSeconds');
