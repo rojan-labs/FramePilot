@@ -761,6 +761,82 @@ def test_compile_burns_styled_caption_with_word_highlight(
         close_clip_tree(burned)
 
 
+@pytest.mark.usefixtures("require_ffprobe")
+def test_burned_captions_sit_above_the_effect_layers(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """A look restyles the picture, never the captions burned over it.
+
+    The captured 2026-09-24 short had a radial blur over its first half-second and a
+    vignette over all of it on the top lane; the export blurred and darkened every caption
+    while the monitor (a DOM overlay) showed them crisp.
+    """
+    src = media_factory("v.mp4", seconds=2.0, with_audio=False)
+    (tmp_project_dir / "v.mp4").write_bytes(src.read_bytes())
+
+    def project(with_effect: bool) -> Project:
+        tracks: list[dict[str, Any]] = [
+            {"id": "v", "type": "video", "clips": [_clip("c1", "v", 0, 2, asset="a1")]},
+            {
+                "id": "cap",
+                "type": "caption",
+                "clips": [
+                    {
+                        **_clip("cap1", "cap", 0.0, 2.0, asset="__caption__"),
+                        "captionStyle": {"textColor": "#ffffff", "fontScale": 2.0},
+                    }
+                ],
+            },
+        ]
+        if with_effect:
+            tracks.insert(
+                0,
+                {
+                    "id": "fx",
+                    "type": "effect",
+                    "clips": [],
+                    "effectLayers": [
+                        {
+                            "id": "blur",
+                            "effectId": "soft-veil",
+                            "kind": "blur-gaussian",
+                            "start": 0,
+                            "end": 2,
+                            "params": {"radius": 12},
+                        }
+                    ],
+                },
+            )
+        return Project.model_validate(
+            {
+                "id": "p1",
+                "name": "T",
+                "fps": 30,
+                "assets": [{"id": "a1", "path": "v.mp4", "kind": "video"}],
+                "transcript": [{"word": "HELLO", "start": 0.0, "end": 2.0}],
+                "timeline": {"tracks": tracks},
+            }
+        )
+
+    plain, blurred = project(False), project(True)
+    index = _index(plain, tmp_project_dir)
+    soft = compile_timeline(plain, index, REELS, burn_captions=False)
+    burned = compile_timeline(plain, index, REELS, burn_captions=True)
+    looked = compile_timeline(blurred, index, REELS, burn_captions=True)
+    try:
+        without, crisp, over_look = (c.get_frame(1.0) for c in (soft, burned, looked))
+        drawn = np.abs(crisp.astype(np.int16) - without.astype(np.int16)).max(axis=2) > 60
+        fill = drawn & (crisp == 255).all(axis=2)
+        assert int(fill.sum()) > 50
+        # The letters are the same pixels over the blurred picture as over the plain one.
+        assert np.array_equal(over_look[fill], crisp[fill])
+        # And the look really did change the picture around them.
+        assert not np.array_equal(over_look[~drawn], crisp[~drawn])
+    finally:
+        for composite in (soft, burned, looked):
+            close_clip_tree(composite)
+
+
 # --- Phase 5: animated transform + audio gain --------------------------------
 
 

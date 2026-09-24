@@ -1586,9 +1586,6 @@ def compile_timeline(
                 "Timeline has no renderable video clips; rendering requires at least "
                 "one video clip (caption/overlay-only timelines come later)."
             )
-        if burn_captions:
-            video_layers.extend(_caption_layers(project, target))
-
         has_blend_mode = any(mode is not None and mode != "normal" for _, mode in video_layers)
         if has_blend_mode:
             composite = _composite_with_blend_modes(video_layers, target, fps)
@@ -1597,6 +1594,19 @@ def compile_timeline(
                 [layer for layer, _ in video_layers], size=target, bg_color=(0, 0, 0)
             ).with_fps(fps)
         composite = apply_effect_layers(composite, project.timeline, fps=fps)
+        # Burned captions go on AFTER the effect layers. A look restyles the picture; the
+        # captions are delivery text with a design of their own, and the preview draws them as
+        # a DOM overlay the effect stage never reaches. Composited before it, the captured
+        # short's opening caption was radial-blurred and every cue vignetted in the export
+        # while the monitor showed them crisp.
+        if burn_captions:
+            captions = _caption_layers(project, target)
+            if any(mode is not None and mode != "normal" for _, mode in captions):
+                composite = _composite_with_blend_modes([(composite, None), *captions], target, fps)
+            elif captions:
+                composite = CompositeVideoClip(
+                    [composite, *(layer for layer, _ in captions)], size=target, bg_color=(0, 0, 0)
+                ).with_fps(fps)
         if audio_layers:
             composite = composite.with_audio(CompositeAudioClip(audio_layers))
         return composite
