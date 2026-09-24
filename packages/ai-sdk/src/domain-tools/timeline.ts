@@ -19,6 +19,7 @@ import type { CropRect, Project, Timeline, Track } from '@framepilot/timeline-sc
 import {
   buildTimelineMap,
   coverCropFor,
+  listCutawayEdges,
   listEditBoundaries,
   mapSequenceTime,
   mapSourceTime,
@@ -1044,7 +1045,9 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'minus from) and `flags` (jump_cut, exposure_jump, wb_jump, size_jump, black_in, ' +
         'soft_in). A transition can only go at one of these. A narrative pivot INSIDE a ' +
         'continuous clip is not a boundary: split the clip there first, or the ' +
-        'transition has nothing to happen at.',
+        'transition has nothing to happen at. Records with `cutaway: "in"|"out"` are where ' +
+        'a shot laid over other picture (b-roll over the A-roll) enters or leaves: ' +
+        'add_transitions with includeCutaways treats those.',
     },
     noArgs,
     (_args, ctx) => {
@@ -1058,16 +1061,37 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       // read as "no difference". This is the input `add_transitions` reads, so a model
       // that wants to explain a choice can read exactly what the policy read.
       const cuts = cutIndexOf(pictureOf(ctx));
-      return listEditBoundaries(ctx.project.timeline, ctx.project.assets).map((boundary) => {
-        const cut = cuts.get(cutKey(boundary.fromClipId, boundary.toClipId));
-        return {
-          ...boundary,
-          frame: secondsToFrame(boundary.at, fps),
-          maxTransitionFrames: secondsToFrame(boundary.maxTransitionSeconds, fps),
-          fps,
-          ...(cut === undefined || !cutHasFacts(cut) ? {} : { delta: cut.delta, flags: cut.flags }),
-        };
-      });
+      const onTracks = listEditBoundaries(ctx.project.timeline, ctx.project.assets).map(
+        (boundary) => {
+          const cut = cuts.get(cutKey(boundary.fromClipId, boundary.toClipId));
+          return {
+            ...boundary,
+            frame: secondsToFrame(boundary.at, fps),
+            maxTransitionFrames: secondsToFrame(boundary.maxTransitionSeconds, fps),
+            fps,
+            ...(cut === undefined || !cutHasFacts(cut)
+              ? {}
+              : { delta: cut.delta, flags: cut.flags }),
+          };
+        },
+      );
+      // A cutaway's entrance and exit are not cuts on any track, and until they were listed
+      // here the agent told an editor who asked for transitions three times that "the edit
+      // has only one real cut" (captured runs, 2026-09-21..23). Listed after the cuts and
+      // marked, so a reader that only knows cuts still reads the cuts exactly as before.
+      const cutaways = listCutawayEdges(ctx.project.timeline).map((edge) => ({
+        cutaway: edge.edge,
+        trackId: edge.trackId,
+        clipId: edge.clipId,
+        at: edge.at,
+        frame: secondsToFrame(edge.at, fps),
+        ...(edge.beneathClipId === undefined ? {} : { beneathClipId: edge.beneathClipId }),
+        maxTransitionSeconds: edge.maxTransitionSeconds,
+        maxTransitionFrames: secondsToFrame(edge.maxTransitionSeconds, fps),
+        fps,
+        ...(edge.existingKind === undefined ? {} : { transition: edge.existingKind }),
+      }));
+      return [...onTracks, ...cutaways];
     },
   ),
   readTool(

@@ -18,7 +18,11 @@
  * So {@link describeTransitionPlan} names **every** cut left hard and why, and that
  * sentence is the tool's result. It is not decoration.
  */
-import { listEditBoundaries } from '@framepilot/editor-core';
+import {
+  layerTransitionEligibility,
+  listCutawayEdges,
+  listEditBoundaries,
+} from '@framepilot/editor-core';
 import type { EditBoundary, MeasuredCut, TransitionChoice } from '@framepilot/editor-core';
 import { TRANSITION_REASONS, chooseTransition } from '@framepilot/editor-core';
 import type { TransitionReason } from '@framepilot/editor-core';
@@ -252,6 +256,144 @@ export function planTransitions(
   return decisions;
 }
 
+/** One end of a shot laid over other picture, and what the pass decided for it. */
+export interface CutawayTransitionDecision {
+  readonly trackId: string;
+  readonly clipId: string;
+  readonly edge: 'in' | 'out';
+  /** TIMELINE seconds. */
+  readonly at: number;
+  readonly reason: TransitionReason;
+  /** `null` means the edge stays a hard cut. */
+  readonly choice: TransitionChoice | null;
+  readonly why: string;
+  /** The transition already on this edge, when there is one. */
+  readonly existingKind?: string;
+}
+
+/** The exit a cutaway takes when the reason's kind only animates the incoming side. */
+const CUTAWAY_EXIT_FALLBACK = 'cross-dissolve';
+/** How long that fallback exit is at most: a quick dissolve back to the speaker. */
+const CUTAWAY_EXIT_SECONDS = 0.25;
+
+/**
+ * Decide what each cutaway's entrance and exit gets.
+ *
+ * `'auto'` keeps them as hard cuts: an insert over continuous narration that cuts in and
+ * out on the word is the talking-head convention, and a pass must be allowed to decide
+ * that. A named reason treats every edge in scope: the entrance takes what the policy
+ * chooses for that reason; the exit takes the same kind when it can leave (a dissolve or a
+ * wipe), otherwise a short cross-dissolve back to the picture beneath — a slide or zoom as
+ * an exit would make the insert vanish at once (`layerTransitionEligibility`).
+ */
+export function planCutawayTransitions(
+  ctx: ToolContext,
+  request: { readonly trackId?: string | undefined; readonly reason: 'auto' | TransitionReason },
+): readonly CutawayTransitionDecision[] {
+  const slice = pictureOf(ctx);
+  const edges = listCutawayEdges(ctx.project.timeline).filter(
+    (edge) => request.trackId === undefined || edge.trackId === request.trackId,
+  );
+  return edges.map((edge, index): CutawayTransitionDecision => {
+    const base = { trackId: edge.trackId, clipId: edge.clipId, edge: edge.edge, at: edge.at };
+    if (edge.existingKind !== undefined) {
+      return {
+        ...base,
+        reason: 'continuity',
+        choice: null,
+        why: `it already carries a ${edge.existingKind}, so it was left as it is`,
+        existingKind: edge.existingKind,
+      };
+    }
+    if (request.reason === 'auto') {
+      return {
+        ...base,
+        reason: 'continuity',
+        choice: null,
+        why: 'a cutaway over continuous narration cuts in and out on the word',
+      };
+    }
+    let choice = chooseTransition(
+      request.reason,
+      { jumpCut: false, isFirstCut: false, index },
+      pacingOf(slice, edge.trackId),
+    );
+    if (choice !== null && edge.edge === 'out') {
+      const exit = layerTransitionEligibility(ctx.project.timeline, {
+        clipId: edge.clipId,
+        edge: 'out',
+        kind: choice.kind,
+        durationSeconds: choice.durationSeconds,
+      });
+      if (!exit.ok && exit.reason === 'kind_cannot_exit') {
+        choice = {
+          kind: CUTAWAY_EXIT_FALLBACK,
+          durationSeconds: Math.min(choice.durationSeconds, CUTAWAY_EXIT_SECONDS),
+        };
+      }
+    }
+    if (choice !== null) {
+      choice = {
+        ...choice,
+        durationSeconds: Math.min(choice.durationSeconds, edge.maxTransitionSeconds),
+      };
+    }
+    return {
+      ...base,
+      reason: request.reason,
+      choice,
+      why:
+        choice === null
+          ? `"${request.reason}" is a hard cut by policy`
+          : `you asked for "${request.reason}" here`,
+    };
+  });
+}
+
+/**
+ * The cutaway half of the result sentence: what each edge got, or — when the pass was not
+ * asked to treat them — that they exist and how to treat them. The second case is the one
+ * that matters: "the edit has only one real cut" is what a run said, three times, to an
+ * editor asking for transitions over a b-roll-heavy short.
+ */
+export function describeCutawayPlan(
+  decisions: readonly CutawayTransitionDecision[],
+  treated: boolean,
+): string {
+  if (decisions.length === 0) return '';
+  if (!treated) {
+    return (
+      ` ${String(decisions.length)} cutaway edge(s) — b-roll entering or leaving over the ` +
+      'picture beneath — were not in this pass; add includeCutaways with a reason (soften for ' +
+      'quick dissolves, energy for punchier entrances) to treat them.'
+    );
+  }
+  const added = decisions.filter((decision) => decision.choice !== null);
+  const hard = decisions.filter(
+    (decision) => decision.choice === null && decision.existingKind === undefined,
+  );
+  const parts: string[] = [];
+  if (added.length > 0) {
+    parts.push(
+      `${String(added.length)} cutaway transition(s): ` +
+        added
+          .map(
+            (decision) =>
+              `${at(decision.at)} ${decision.edge === 'in' ? 'into' : 'out of'} ${decision.clipId} ` +
+              `${decision.choice?.kind ?? ''} ${String(decision.choice?.durationSeconds ?? 0)}s`,
+          )
+          .join(', '),
+    );
+  }
+  if (hard.length > 0) {
+    parts.push(
+      `${String(hard.length)} cutaway edge(s) left as hard cuts: ` +
+        hard.map((decision) => `${at(decision.at)} — ${decision.why}`).join('; '),
+    );
+  }
+  return parts.length === 0 ? '' : ` ${parts.join('. ')}.`;
+}
+
 /** Seconds, printed the way an editor reads a timecode field. */
 function at(seconds: number): string {
   return `${(Math.round(seconds * 10) / 10).toFixed(1)}s`;
@@ -315,13 +457,19 @@ export function transitionsNote(toolName: string, ctx: ToolContext, rawArgs: unk
   const args = (rawArgs ?? {}) as Record<string, unknown>;
   if (toolName === 'add_transitions') {
     try {
-      return describeTransitionPlan(
-        planTransitions(ctx, {
-          ...(typeof args.trackId === 'string' ? { trackId: args.trackId } : {}),
-          reason: readReason(args.reason) ?? 'auto',
-          ...(Array.isArray(args.cuts) ? { cuts: args.cuts as TransitionPassRequest['cuts'] } : {}),
-        }),
-      );
+      const reason = readReason(args.reason) ?? 'auto';
+      const trackId = typeof args.trackId === 'string' ? args.trackId : undefined;
+      const cutaways = planCutawayTransitions(ctx, { trackId, reason });
+      const onCuts = planTransitions(ctx, {
+        ...(trackId === undefined ? {} : { trackId }),
+        reason,
+        ...(Array.isArray(args.cuts) ? { cuts: args.cuts as TransitionPassRequest['cuts'] } : {}),
+      });
+      // A pass over a talking head with inserts often has no same-layer cut at all; saying
+      // "no cuts in scope" there and then listing what the inserts got reads as a contradiction.
+      const cutsText =
+        onCuts.length === 0 && cutaways.length > 0 ? ' —' : describeTransitionPlan(onCuts);
+      return cutsText + describeCutawayPlan(cutaways, args.includeCutaways === true);
     } catch {
       // The patch is already applied and reported; a note that cannot be built is not a
       // reason to fail the call.

@@ -1901,6 +1901,43 @@ describe('summarizeReadResult carries a verification report the run can act on',
     expect(note).toContain('max transition 8 frames / 0.25s');
   });
 
+  it('lists where inserts enter and leave in their own section, not as "no cuts"', () => {
+    // A talking head with b-roll laid over it has no same-layer cut at all. Reading "no
+    // cuts" there is what told the captured runs there was nowhere to put a transition.
+    const cutaways = [
+      {
+        cutaway: 'in',
+        trackId: 'broll',
+        clipId: 'phone_1',
+        at: 4,
+        frame: 120,
+        beneathClipId: 'talk_1',
+        maxTransitionSeconds: 1,
+      },
+      {
+        cutaway: 'out',
+        trackId: 'broll',
+        clipId: 'phone_1',
+        at: 6,
+        frame: 180,
+        beneathClipId: 'talk_1',
+        maxTransitionSeconds: 1,
+        transition: 'cross-dissolve',
+      },
+    ];
+    const note = summarizeReadResult('list_edit_boundaries', cutaways);
+    expect(note).not.toContain('one continuous clip');
+    expect(note).toContain('2 cutaway edges');
+    expect(note).toContain('frame 120 (4s) broll phone_1 enters over talk_1 (max 1s)');
+    expect(note).toContain('phone_1 leaves over talk_1 (max 1s) — has cross-dissolve');
+    expect(note).toContain('includeCutaways');
+  });
+
+  it('hands the subject reading through whole — the band list and the title answer', () => {
+    const reading = 'Subject on talk_1…\n- top of the head at 2%\n- title at size 11%';
+    expect(summarizeReadResult('measure_subject', { clipId: 'talk_1', reading })).toBe(reading);
+  });
+
   it('lists every effect id, grouped, because the ids ARE the deliverable', () => {
     const note = summarizeReadResult('discover_effects', {
       matched: 78,

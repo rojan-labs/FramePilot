@@ -3060,8 +3060,32 @@ export function summarizeReadResult(
       // digest, so a 45-cut sequence (~12.8 KB) reached the run as four escaped records
       // and a bare `…`, and its durable fact was the first 180 characters of that.
       if (!Array.isArray(value)) return previewJson(value, ANALYSIS_PREVIEW_MAX);
-      const boundaries = value as Record<string, unknown>[];
-      if (boundaries.length === 0) return 'no cuts — the sequence is one continuous clip per track';
+      const records = value as Record<string, unknown>[];
+      const boundaries = records.filter((record) => record.cutaway === undefined);
+      const cutaways = records.filter((record) => record.cutaway !== undefined);
+      // A cutaway's entrance and exit, listed in their own section: they are where b-roll
+      // meets the A-roll, and reading "no cuts" over a b-roll-heavy short is what told the
+      // agent there was nowhere to put a transition.
+      const cutawaySection =
+        cutaways.length === 0
+          ? ''
+          : `\n${cutaways.length} cutaway edge${cutaways.length === 1 ? '' : 's'} (a shot over ` +
+            `other picture entering or leaving — add_transitions includeCutaways treats them):\n` +
+            boundedRecords(
+              cutaways,
+              (c) =>
+                `frame ${String(c.frame ?? '?')} (${round3(Number(c.at))}s) ${String(c.trackId)} ` +
+                `${String(c.clipId)} ${c.cutaway === 'in' ? 'enters' : 'leaves'} over ` +
+                `${String(c.beneathClipId ?? 'the picture beneath')} (max ${round2(
+                  Number(c.maxTransitionSeconds),
+                )}s)${typeof c.transition === 'string' ? ` — has ${c.transition}` : ''}`,
+              'cutaway edges',
+            );
+      if (boundaries.length === 0) {
+        return cutaways.length === 0
+          ? 'no cuts — the sequence is one continuous clip per track'
+          : `no cuts where two clips touch on one track${cutawaySection}`;
+      }
       return `${boundaries.length} cut${boundaries.length === 1 ? '' : 's'}:\n${boundedRecords(
         boundaries,
         // P3.2: the frame leads, because that is the unit the cut actually has. A
@@ -3072,7 +3096,7 @@ export function summarizeReadResult(
             b.maxTransitionFrames ?? '?',
           )} frames / ${round2(Number(b.maxTransitionSeconds))}s)`,
         'cuts',
-      )}`;
+      )}${cutawaySection}`;
     }
     case 'analyze_silence': {
       // An empty `ranges` really does mean "ran and found nothing"; an ABSENT one means

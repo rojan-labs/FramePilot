@@ -22,6 +22,7 @@
  */
 import {
   buildTimelineMap,
+  layerTransitionEligibility,
   listEditBoundaries,
   mapTranscript,
   speechAssetIdsFor,
@@ -533,6 +534,13 @@ export function verifyTransitions(project: Project): TransitionVerificationRepor
       transitionCount += 1;
 
       const boundary = boundaries.find((b) => b.toClipId === clip.id);
+      // A cutaway's ENTRANCE (`add_layer_transition`) names no outgoing clip: it ramps in
+      // over the picture beneath it and renders there. It is checked against its own edge,
+      // not reported as "no cut, will not be visible" — which was true of neither.
+      if (boundary === undefined && applied.fromClipId === '') {
+        issues.push(...layerEdgeIssues(project, clip, 'in', applied));
+        continue;
+      }
       if (boundary === undefined) {
         issues.push({
           code: 'transition_without_cut',
@@ -571,10 +579,56 @@ export function verifyTransitions(project: Project): TransitionVerificationRepor
     }
   }
 
+  // A cutaway's EXIT is stored on the insert as an end-aligned `transition_out` naming no
+  // incoming clip; a cut's outgoing half names one and is checked with its partner above.
+  for (const track of project.timeline.tracks) {
+    for (const clip of track.clips) {
+      const exit = clip.effects.find(
+        (effect) => effect.type === 'transition_out' && effect.params.toClipId === undefined,
+      );
+      if (exit === undefined) continue;
+      transitionCount += 1;
+      issues.push(
+        ...layerEdgeIssues(project, clip, 'out', {
+          kind: typeof exit.params.kind === 'string' ? exit.params.kind : 'unknown',
+          durationSeconds:
+            typeof exit.params.durationSeconds === 'number' ? exit.params.durationSeconds : 0,
+        }),
+      );
+    }
+  }
+
   return {
     ok: issues.length === 0,
     issues,
     transitionCount,
     boundaryCount: boundaries.length,
   };
+}
+
+/** What is wrong with a transition at one end of an inserted shot, if anything. */
+function layerEdgeIssues(
+  project: Project,
+  clip: { readonly id: string; readonly start: number; readonly end: number },
+  edge: 'in' | 'out',
+  applied: { readonly kind: string; readonly durationSeconds: number },
+): VerificationIssue[] {
+  const at = edge === 'in' ? clip.start : clip.end;
+  const verdict = layerTransitionEligibility(project.timeline, {
+    clipId: clip.id,
+    edge,
+    kind: applied.kind,
+    durationSeconds: applied.durationSeconds,
+  });
+  if (verdict.ok && verdict.clampedFrom === undefined) return [];
+  return [
+    {
+      code: verdict.ok ? 'transition_too_long' : 'transition_without_cut',
+      clipId: clip.id,
+      at,
+      detail: verdict.ok
+        ? `The ${applied.kind} ${edge === 'in' ? 'entering' : 'leaving'} "${clip.id}" is ${applied.durationSeconds}s but the shot can only carry ${verdict.durationSeconds}s.`
+        : verdict.detail,
+    },
+  ];
 }

@@ -669,6 +669,11 @@ export function hiddenPictureClips(project: Project): readonly HiddenPictureClip
       if (uncoveredSeconds({ start: clip.start, end: clip.end }, inFront) > COVERAGE_EPSILON) {
         continue;
       }
+      // Covered by a frame-for-frame copy of itself is not buried: its picture IS on screen,
+      // through the copy. That is a cut-out sandwich (`add_text_behind_subject` puts a copy
+      // of the clip in front, matte and all), and the clip underneath carries the sound —
+      // the check's "Remove them" pointed the agent at the one clip with the speech on it.
+      if (hasSynchronizedCopyInFront(project, depth, clip)) continue;
       hidden.push({
         clipId: clip.id,
         trackId: track.id,
@@ -679,6 +684,26 @@ export function hiddenPictureClips(project: Project): readonly HiddenPictureClip
     }
   });
   return hidden;
+}
+
+/** Seconds within which two clips count as the same placement of the same material. */
+const SYNC_EPSILON = 1e-3;
+
+/** Whether a track in front of `depth` plays exactly this clip's frames at exactly its times. */
+function hasSynchronizedCopyInFront(project: Project, depth: number, clip: Clip): boolean {
+  return project.timeline.tracks
+    .slice(0, depth)
+    .some((track) =>
+      track.clips.some(
+        (other) =>
+          other.id !== clip.id &&
+          other.assetId === clip.assetId &&
+          Math.abs(other.start - clip.start) <= SYNC_EPSILON &&
+          Math.abs(other.end - clip.end) <= SYNC_EPSILON &&
+          Math.abs(other.sourceStart - clip.sourceStart) <= SYNC_EPSILON &&
+          (other.speed ?? 1) === (clip.speed ?? 1),
+      ),
+    );
 }
 
 /**

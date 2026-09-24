@@ -446,6 +446,8 @@ class AddTransitionsArgs(BaseModel):
     track_id: str | None = Field(default=None, alias="trackId")
     reason: TransitionReason | Literal["auto"] | None = None
     cuts: list[TransitionCut] | None = None
+    #: Also treat where a shot laid over other picture enters and leaves (ADR 0183).
+    include_cutaways: bool | None = Field(default=None, alias="includeCutaways")
 
 
 class MatchColorArgs(BaseModel):

@@ -41,11 +41,13 @@ import type { ToolContext } from '../tool-context.js';
 import { largestFittingSizePercent, overflowingWords } from '../overlay-fit.js';
 import {
   TRANSITION_REASONS,
+  type CutawayTransitionDecision,
   type TransitionDecision,
   type TransitionReason,
+  planCutawayTransitions,
   planTransitions,
 } from './transition-planning.js';
-import { filterString, filterStringList, id, numeric, seconds } from './tool-args.js';
+import { boolean, filterString, filterStringList, id, numeric, seconds } from './tool-args.js';
 
 /**
  * The widest a text box may be widened to in order to keep the size the editor asked for.
@@ -171,7 +173,10 @@ function resolveSingleTransition(
   return {
     kind: args.kind ?? (decision.choice?.kind as string),
     durationSeconds:
-      args.durationSeconds ?? decision.choice?.durationSeconds ?? catalogDefault?.defaultDuration ?? 0.5,
+      args.durationSeconds ??
+      decision.choice?.durationSeconds ??
+      catalogDefault?.defaultDuration ??
+      0.5,
   };
 }
 
@@ -499,11 +504,7 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
               ctx.project.resolution,
             ).length > 0
           ) {
-            const fits = largestFittingSizePercent(
-              a.text,
-              boxWidthPercent,
-              ctx.project.resolution,
-            );
+            const fits = largestFittingSizePercent(a.text, boxWidthPercent, ctx.project.resolution);
             if (fits === undefined || fits <= 0) {
               // Not arithmetic this can solve — the text has no measurable width, or the
               // frame has none. That is still worth saying out loud.
@@ -615,9 +616,11 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         '`reason: "auto"` (the default) reads each cut: a jump cut is softened, a change ' +
         'of setting gets a location transition, and every other cut is deliberately left ' +
         'as a hard cut. Name one reason instead to apply it to every cut in scope, or ' +
-        'list `cuts` with a reason each. Optionally limit to one trackId. The result ' +
-        'names every cut it left hard and why — those are decisions, not omissions, so do ' +
-        'not go back and fill them in.',
+        'list `cuts` with a reason each. Optionally limit to one trackId. includeCutaways ' +
+        'also treats where b-roll laid over the A-roll enters and leaves (auto keeps those ' +
+        'hard; soften gives quick dissolves, energy punchier entrances). The result names ' +
+        'every cut it left hard and why — those are decisions, not omissions, so do not go ' +
+        'back and fill them in.',
     },
     z
       .object({
@@ -635,15 +638,22 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
           )
           .min(1)
           .optional(),
+        includeCutaways: boolean().optional(),
       })
       .strict(),
-    (a, ctx) =>
-      planTransitions(ctx, {
+    (a, ctx) => [
+      ...planTransitions(ctx, {
         ...(a.trackId === undefined ? {} : { trackId: a.trackId }),
         reason: a.reason ?? 'auto',
         ...(a.cuts === undefined ? {} : { cuts: a.cuts }),
       })
-        .filter((decision): decision is TransitionDecision & { choice: { kind: string; durationSeconds: number } } => decision.choice !== null)
+        .filter(
+          (
+            decision,
+          ): decision is TransitionDecision & {
+            choice: { kind: string; durationSeconds: number };
+          } => decision.choice !== null,
+        )
         .map((decision) => ({
           type: 'add_transition' as const,
           trackId: decision.trackId,
@@ -652,6 +662,24 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
           kind: decision.choice.kind,
           durationSeconds: decision.choice.durationSeconds,
         })),
+      ...(a.includeCutaways === true
+        ? planCutawayTransitions(ctx, { trackId: a.trackId, reason: a.reason ?? 'auto' })
+            .filter(
+              (
+                decision,
+              ): decision is CutawayTransitionDecision & {
+                choice: { kind: string; durationSeconds: number };
+              } => decision.choice !== null,
+            )
+            .map((decision) => ({
+              type: 'add_layer_transition' as const,
+              clipId: decision.clipId,
+              edge: decision.edge,
+              kind: decision.choice.kind,
+              durationSeconds: decision.choice.durationSeconds,
+            }))
+        : []),
+    ],
   ),
   mutateTool(
     {

@@ -106,6 +106,7 @@ function opIcon(type: string): JSX.Element {
     case 'adjust_audio':
       return <Volume2 size={size} aria-hidden="true" />;
     case 'add_transition':
+    case 'add_layer_transition':
       return <ArrowLeftRight size={size} aria-hidden="true" />;
     case 'add_mask':
     case 'track_object':

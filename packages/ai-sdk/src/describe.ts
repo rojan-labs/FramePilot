@@ -26,6 +26,7 @@ const ACTION_LABELS: Record<string, string> = {
   apply_color_grade: 'Applied color grade',
   adjust_audio: 'Adjusted audio',
   add_transition: 'Added transition',
+  add_layer_transition: 'Added cutaway transition',
   add_mask: 'Added mask',
   track_object: 'Attached tracker (no motion yet)',
   add_asset: 'Added asset',
