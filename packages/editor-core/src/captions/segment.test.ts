@@ -11,8 +11,10 @@ import type { TranscriptWord } from '@framepilot/timeline-schema';
 import {
   CAPTION_SEGMENT_PRESETS,
   DEFAULT_CAPTION_SEGMENT_PRESET,
+  MAX_CUE_SHIFT_SECONDS,
   MIN_CAPTION_CUE_SECONDS,
   absorbUnreadableCues,
+  borrowHoldTime,
   breakQuality,
   captionSegmentConfig,
   enforceReadingSpeed,
@@ -808,16 +810,20 @@ const TIGHT = captionSegmentConfig('short-form', { maxWordsPerCue: 4 });
 const TIGHTER = captionSegmentConfig('short-form', { maxWordsPerCue: 3 });
 
 /** Each cue's on-screen window: up to the next cue's first word; the last is open. */
+/**
+ * Each cue's on-screen window as the timeline will hold it: from its own start to the next
+ * cue's, on the frame grid. A cue's start is its first word's unless `borrowHoldTime` moved
+ * the boundary to hold a neighbour, so the words alone no longer describe the window.
+ */
 function windows(
-  cues: readonly { readonly words: readonly TranscriptWord[] }[],
+  cues: readonly { readonly words: readonly TranscriptWord[]; readonly start?: number }[],
   fps?: number,
 ): number[] {
   const onGrid = (t: number): number => (fps === undefined ? t : snapSecondsToFrame(t, fps));
+  const startOf = (cue: (typeof cues)[number]): number => cue.start ?? cue.words[0]!.start;
   return cues.map((cue, index) => {
     const next = cues[index + 1];
-    return next === undefined
-      ? Infinity
-      : onGrid(next.words[0]!.start) - onGrid(cue.words[0]!.start);
+    return next === undefined ? Infinity : onGrid(startOf(next)) - onGrid(startOf(cue));
   });
 }
 
@@ -1086,6 +1092,57 @@ describe('segmentCaptions — the readable floor', () => {
     expect(segmentCaptions(words, captionSegmentConfig('one-word'), 30).map((c) => c.text)).toEqual(
       ['every', 'word', 'stands', 'alone', 'here'],
     );
+  });
+
+  it('holds a 0.2 s word as its own one-word cue by moving a boundary, not merging it', () => {
+    // The demo transcript the e2e drives: "to", "the" and "for" are 0.2 s each. Merging
+    // them made eight one-word cues five two-word ones; each now starts a frame or two
+    // early, taken from the longer word before it, and stays inside the sync tolerance.
+    const words: TranscriptWord[] = [
+      { word: 'Welcome', start: 0.0, end: 0.6 },
+      { word: 'to', start: 0.6, end: 0.8 },
+      { word: 'FramePilot', start: 0.8, end: 1.8 },
+      { word: 'the', start: 2.0, end: 2.2 },
+      { word: 'cursor', start: 2.2, end: 2.8 },
+      { word: 'for', start: 2.8, end: 3.0 },
+      { word: 'video', start: 3.0, end: 3.6 },
+      { word: 'editing', start: 3.6, end: 4.4 },
+    ];
+    for (const fps of [undefined, 24, 25, 29.97, 30, 60]) {
+      const cues = segmentCaptions(words, captionSegmentConfig('one-word'), fps);
+      expect(
+        cues.map((cue) => cue.text),
+        String(fps),
+      ).toEqual(words.map((w) => w.word));
+      for (const window of windows(cues, fps)) {
+        expect(window, String(fps)).toBeGreaterThanOrEqual(MIN_CAPTION_CUE_SECONDS - 1e-6);
+      }
+      // No cue runs into the next one: a moved boundary moves both sides of it.
+      cues.slice(1).forEach((cue, index) => {
+        expect(cues[index]!.end, String(fps)).toBeLessThanOrEqual(cue.start + 1e-9);
+      });
+      // The start the TIMELINE will hold (frame-exact) stays inside verify_captions' 0.084 s.
+      const onGrid = (t: number): number => (fps === undefined ? t : snapSecondsToFrame(t, fps));
+      for (const cue of cues) {
+        expect(Math.abs(onGrid(cue.start) - cue.words[0]!.start), String(fps)).toBeLessThanOrEqual(
+          MAX_CUE_SHIFT_SECONDS + 1e-9,
+        );
+      }
+    }
+  });
+
+  it('merges past one word only where no boundary can hold it', () => {
+    // Three 0.1 s words in a row leave no neighbour anything to give.
+    const words = speak('a b c d', { wordSeconds: 0.1 });
+    const { stillShort } = borrowHoldTime(
+      words.map((word) => [word]),
+      30,
+    );
+    expect(stillShort.length).toBeGreaterThan(0);
+    const cues = segmentCaptions(words, captionSegmentConfig('one-word'), 30);
+    for (const window of windows(cues, 30)) {
+      expect(window).toBeGreaterThanOrEqual(MIN_CAPTION_CUE_SECONDS - 1e-6);
+    }
   });
 
   it('shares its floor with the one-word preset, the lowest hold of every preset', () => {

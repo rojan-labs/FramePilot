@@ -158,13 +158,23 @@ describe('generateCaptionsPatch', () => {
     expect(patch!.operations[0]).toMatchObject({
       captionStyle: { templateId: 'punchline' },
     });
-    // One-word template ⇒ one cue per word, wherever a word can be held for the
-    // readable floor. "to", "the" and "for" are each 0.2 s before the next word — a
-    // flash verify_captions rejects — so each rides with the word it leads into.
+    // One-word template ⇒ one cue per word. "to", "the" and "for" are each 0.2 s before
+    // the next word — under the readable floor — so each starts a frame or two early,
+    // taken from the longer word before it (`borrowHoldTime`), instead of being merged
+    // into a two-word cue the template does not allow.
     const texts = patch!.operations.flatMap((op) =>
       op.type === 'set_caption_cue' ? [op.captionCue?.text] : [],
     );
-    expect(texts).toEqual(['Welcome', 'to FramePilot', 'the cursor', 'for video', 'editing']);
+    expect(texts).toEqual([
+      'Welcome',
+      'to',
+      'FramePilot',
+      'the',
+      'cursor',
+      'for',
+      'video',
+      'editing',
+    ]);
   });
 
   it('persists keywords on the track style so emphasis reaches the render', () => {

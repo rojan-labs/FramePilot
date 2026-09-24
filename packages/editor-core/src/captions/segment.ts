@@ -993,11 +993,14 @@ export function enforceTiming(
   cues: readonly (readonly TranscriptWord[])[],
   config: CaptionSegmentConfig,
   fps?: number,
+  starts?: readonly number[],
 ): readonly { readonly words: readonly TranscriptWord[]; start: number; end: number }[] {
   return cues.map((words, index) => {
-    const start = words[0]!.start;
+    // A cue's on-screen start is its first word's, unless `borrowHoldTime` moved the boundary
+    // a few frames to give a neighbour the readable floor.
+    const start = starts?.[index] ?? words[0]!.start;
     const spokenEnd = words[words.length - 1]!.end;
-    const nextStart = cues[index + 1]?.[0]?.start;
+    const nextStart = starts?.[index + 1] ?? cues[index + 1]?.[0]?.start;
 
     // The latest this cue may end: butting against the next cue, or unbounded
     // for the last cue.
@@ -1010,9 +1013,13 @@ export function enforceTiming(
         ? ceiling
         : Math.max(spokenEnd, heldUntil(start, config.minCueSeconds, fps));
 
-    // Never overlap the next cue, and never end before the words finish. Finite
-    // even for the last cue: an unbounded `ceiling` only ever widens the `min`.
-    return { words, start, end: Math.max(spokenEnd, Math.min(wanted, ceiling)) };
+    // End when the words finish or the hold runs out — but never past the next cue's
+    // start. The next start wins over the spoken end: where `borrowHoldTime` started the next
+    // cue a frame or two early, running on to the spoken end would overlap it, and the
+    // overlap resolution downstream would push that cue back under the floor it was moved
+    // to reach. Every window is at least the floor by then, so this cannot make a cue too
+    // short. Finite even for the last cue: an unbounded `ceiling` only widens the `min`.
+    return { words, start, end: Math.min(ceiling, Math.max(spokenEnd, Math.min(wanted, ceiling))) };
   });
 }
 
@@ -1132,6 +1139,7 @@ export function absorbUnreadableCues(
   cues: readonly (readonly TranscriptWord[])[],
   config: CaptionSegmentConfig,
   fps?: number,
+  options: { readonly withinMaxWords?: boolean } = {},
 ): readonly (readonly TranscriptWord[])[] {
   const onGrid = (seconds: number): number =>
     fps === undefined ? seconds : snapSecondsToFrame(seconds, fps);
@@ -1152,6 +1160,13 @@ export function absorbUnreadableCues(
     const last = cue[cue.length - 1]!;
     const sameSentence =
       !isSentenceEnd(last.word) && next[0]!.start - last.end < config.pauseSeconds;
+    // A merge that breaks the preset (two words in a one-word cue) is left for
+    // `borrowHoldTime` to hold instead; `segmentCaptions` merges only what that cannot.
+    const partner = sameSentence || index === 0 ? next : result[index - 1]!;
+    if (options.withinMaxWords === true && cue.length + partner.length > config.maxWordsPerCue) {
+      index += 1;
+      continue;
+    }
     if (sameSentence || index === 0) {
       // Re-examine the merged cue at the same index: its window now reaches the
       // cue after `next`, which may still be too close.
@@ -1163,6 +1178,114 @@ export function absorbUnreadableCues(
     result.splice(index - 1, 2, [...result[index - 1]!, ...cue]);
   }
   return result;
+}
+
+/**
+ * Merge each cue in `short` into a neighbour, by {@link absorbUnreadableCues}' rule: forward
+ * within a sentence (or for the first cue), otherwise into the cue before it. A cue next to
+ * one already merged this pass waits for the next pass, so every index stays valid.
+ */
+function mergeShortCues(
+  cues: readonly (readonly TranscriptWord[])[],
+  short: readonly number[],
+  config: CaptionSegmentConfig,
+): readonly (readonly TranscriptWord[])[] {
+  const result = cues.map((cue) => [...cue]);
+  let lastTouched = Infinity;
+  for (const index of [...short].sort((a, b) => b - a)) {
+    if (index + 1 >= lastTouched) continue;
+    const cue = result[index]!;
+    const next = result[index + 1];
+    const last = cue[cue.length - 1]!;
+    const forward =
+      next !== undefined &&
+      (index === 0 ||
+        (!isSentenceEnd(last.word) && next[0]!.start - last.end < config.pauseSeconds));
+    if (forward) {
+      result.splice(index, 2, [...cue, ...next]);
+      lastTouched = index;
+    } else if (index > 0) {
+      result.splice(index - 1, 2, [...result[index - 1]!, ...cue]);
+      lastTouched = index - 1;
+    }
+  }
+  return result;
+}
+
+/**
+ * The furthest a cue's on-screen start may move off its first word, either way, to give a
+ * neighbour the readable floor: under `verify_captions`' 0.084 s sync tolerance, so a cue
+ * held this way still verifies.
+ */
+export const MAX_CUE_SHIFT_SECONDS = 0.08;
+
+/**
+ * On-screen starts that give short cues the readable floor WITHOUT merging them.
+ *
+ * WHY. {@link absorbUnreadableCues} holds a too-short cue by merging it into a neighbour,
+ * which is right for phrases ("Hi," joins "my name is Shamra") and wrong for the one-word
+ * templates: "to", "the" and "for" last 0.2 s each in the demo transcript, and merging turned
+ * eight one-word cues into five two-word ones. Here the boundary between a short cue and a
+ * neighbour with time to spare moves instead — the short cue starts a frame or two early
+ * (taking from the previous cue's surplus), then the next cue starts a frame or two late —
+ * never by more than {@link MAX_CUE_SHIFT_SECONDS} on any cue, and never leaving a
+ * neighbour below the floor itself.
+ *
+ * @param cues - Cues in time order.
+ * @param fps - Project frame rate; supplied, every start lands on the frame grid.
+ * @returns A start per cue, and the indices of cues still under the floor.
+ */
+export function borrowHoldTime(
+  cues: readonly (readonly TranscriptWord[])[],
+  fps?: number,
+): { readonly starts: readonly number[]; readonly stillShort: readonly number[] } {
+  // Work in frames when there is a grid (integer arithmetic, no drift), else in seconds.
+  const toUnit = (seconds: number): number =>
+    fps === undefined ? seconds : Math.round(seconds * fps);
+  const fromUnit = (units: number): number => (fps === undefined ? units : units / fps);
+  // Off the grid, aim at the floor itself: aiming at the epsilon below it lands a float
+  // hair under what `verify_captions` accepts.
+  const floor =
+    fps === undefined
+      ? MIN_CAPTION_CUE_SECONDS
+      : Math.ceil((MIN_CAPTION_CUE_SECONDS - FLOOR_EPSILON_SECONDS) * fps - 1e-9);
+  // How far each start may move is bounded against the EXACT word time, not its snapped
+  // frame: the verifier compares the cue's frame-exact start with the word, so a bound on the
+  // snapped value would let half a frame of rounding through (0.10 s at 25 fps).
+  const earliest = cues.map((cue) =>
+    fps === undefined
+      ? cue[0]!.start - MAX_CUE_SHIFT_SECONDS
+      : Math.ceil((cue[0]!.start - MAX_CUE_SHIFT_SECONDS) * fps - 1e-9),
+  );
+  const latest = cues.map((cue) =>
+    fps === undefined
+      ? cue[0]!.start + MAX_CUE_SHIFT_SECONDS
+      : Math.floor((cue[0]!.start + MAX_CUE_SHIFT_SECONDS) * fps + 1e-9),
+  );
+  const tiny = fps === undefined ? 1e-9 : 0;
+  const starts = cues.map((cue) => toUnit(cue[0]!.start));
+  const stillShort: number[] = [];
+  for (let index = 0; index < cues.length - 1; index += 1) {
+    let deficit = floor - (starts[index + 1]! - starts[index]!);
+    if (deficit <= tiny) continue;
+    if (index > 0) {
+      const spare = starts[index]! - starts[index - 1]! - floor;
+      const room = starts[index]! - earliest[index]!;
+      const take = Math.max(0, Math.min(deficit, spare, room));
+      starts[index] = starts[index]! - take;
+      deficit -= take;
+    }
+    if (deficit > tiny) {
+      const after = starts[index + 2];
+      const spare = after === undefined ? deficit : after - starts[index + 1]! - floor;
+      const room = latest[index + 1]! - starts[index + 1]!;
+      const take = Math.max(0, Math.min(deficit, spare, room));
+      starts[index + 1] = starts[index + 1]! + take;
+      deficit -= take;
+    }
+    if (deficit > tiny) stillShort.push(index);
+  }
+  return { starts: starts.map(fromUnit), stillShort };
 }
 
 // ---------------------------------------------------------------------------
@@ -1199,8 +1322,17 @@ export function segmentCaptions(
   const packed = runs.flatMap((run) => packSegment(run, config));
   const readable = enforceReadingSpeed(packed, config);
   const gridded = fps === undefined ? readable : coalesceSubFrameCues(readable, fps);
-  const holdable = absorbUnreadableCues(gridded, config, fps);
-  return enforceTiming(holdable, config, fps).map(({ words: cueWords, start, end }) => ({
+  // Merge what the preset allows, hold the rest by moving a boundary a frame or two, and
+  // merge past the preset only the cues no boundary can hold (fast speech where every
+  // neighbour is itself short) — one at a time, so the rest keep their own cue.
+  let holdable = absorbUnreadableCues(gridded, config, fps, { withinMaxWords: true });
+  let borrowed = borrowHoldTime(holdable, fps);
+  while (borrowed.stillShort.length > 0) {
+    holdable = mergeShortCues(holdable, borrowed.stillShort, config);
+    borrowed = borrowHoldTime(holdable, fps);
+  }
+  const { starts } = borrowed;
+  return enforceTiming(holdable, config, fps, starts).map(({ words: cueWords, start, end }) => ({
     text: layoutLines(cueWords, config),
     words: cueWords,
     start,
