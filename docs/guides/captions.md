@@ -85,6 +85,20 @@ Every template also carries something that separates it from the picture: an out
 shadow or a background chip. That keeps captions readable on a bright sky or a white wall as well
 as on dark footage. See [ADR 0184](../adr/0184-caption-templates-read-on-any-footage.md).
 
+**Transparency and glass** (schema v24, [ADR 0185](../adr/0185-see-through-captions-and-frosted-glass.md)):
+
+| Control        | What it does                                                                                                          |
+| -------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Letter opacity | Below 100% the picture shows through the letters. Their outline and shadow stay solid and stay outside them.          |
+| Box            | No box, Solid, or Frosted glass. Frosted glass blurs the picture behind the box, in the preview and in the export.    |
+| Tint / opacity | The box's colour and how much of it shows. Glass usually wants a faint tint: white for dark footage, dark for bright. |
+| Frost          | How strongly the picture behind a frosted box is blurred.                                                             |
+| Corners, Rim   | Corner rounding, and a thin edge drawn inside the box (the glass rim).                                                |
+
+At 0% letter opacity only the outline is drawn (hollow letters), so give the caption an outline to
+read by. The **Glass**, **Frosted Bar**, **Glass Pill**, **Ghost**, **Hollow** and **Veil**
+templates are ready-made versions of these looks.
+
 ### 3. Generate
 
 **Generate captions** first runs AI emphasis when Auto emphasis is enabled, then lays the cues onto

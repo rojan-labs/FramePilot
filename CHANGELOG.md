@@ -15,6 +15,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (Permanent Marker, Mr Dafoe, Great Vibes, Yellowtail). All are free to ship and use in exported
   video (Open Font License / Apache 2.0). The font picker draws each name in its own face and
   groups them by style.
+- **See-through and frosted-glass captions.** Captions can now have see-through letters, where the
+  picture shows through them and the outline and shadow stay crisp around them (down to hollow,
+  outline-only letters). They can also sit on a frosted-glass box that blurs the video behind it,
+  with a glass rim. Set them by hand under Captions → Transparency and glass, pick one of six new
+  templates (Glass, Frosted Bar, Glass Pill, Ghost, Hollow, Veil), or ask the assistant for them.
+  The export matches the preview.
 - **Every caption template revised, plus eleven new ones.** Each template now has an outline,
   shadow or background, so it reads on a bright sky or a white wall as well as on dark footage,
   and each uses a face that suits it. New: Comic, Shout, Bubble, Vlog, Podcast, Gamer, Sticker,

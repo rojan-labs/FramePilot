@@ -10163,6 +10163,22 @@ Commercial faces cannot be bundled, so all 70 additions are OFL 1.1 / Apache 2.0
 - [ ] CT6 — refresh the macOS `E2E visual regression` baselines that show caption tiles (needs a
   macOS runner snapshot update, not a code change)
 
+Translucent captions (maintainer, same day: "see-through text" + "frosted glass box", reachable
+from AI, panel and templates; [ADR 0185](../docs/adr/0185-see-through-captions-and-frosted-glass.md)):
+
+- [x] CT7 — schema v24: `textOpacity`, `background.blur/borderColor/borderWidth`; migration,
+  Pydantic, strict AI contract, tool-registry fixture (`3deaccf3`)
+- [x] CT8 — export: glyph-coverage split (ring vs translucent fill), shadow knockout, glass rim,
+  backdrop mask + caption compositor that frosts the delivered picture; word opacity dims the
+  outline too; chips/glow on their own layers (`d6ad80e4`, `6d46a52d`)
+- [x] CT9 — preview: three-copy see-through with an SVG separation filter, `backdrop-filter`
+  frost, inset rim; checked side by side with the export in Chromium (`44abb0d7`); karaoke wipe
+  rebuilt as an overlay copy so outlined karaoke words show their wipe (`b7d19ab9`)
+- [x] CT10 — six glass/see-through templates (`d5e5f04d`)
+- [x] CT11 — caption panel "Transparency and glass" controls (`6f76c23c`)
+- [x] CT12 — AI: tool descriptions, units, discover payload, skill; legibility key draws solid
+  letters (`e9739d26`)
+
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
 - [ ] Keep `CHANGELOG.md` current (Keep a Changelog format)
