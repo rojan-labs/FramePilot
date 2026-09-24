@@ -8,6 +8,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The assistant sees the images you attach.** An image dropped into the AI sidebar now goes to
+  the model as the picture itself, not just its size and colours, so it can read the words on a
+  logo, recognise the person you want kept in frame, or follow a design's layout. Models that
+  cannot read images still get the measured summary. Reference videos work as before.
+- **See what the assistant looked at.** Expanding a "Looking at the frame" step now shows the
+  frame the assistant was given, instead of a block of numbers about it.
 - **92 caption and title fonts, up from 22.** Seventy new families: rounded creator sans
   (Fredoka, Quicksand, Rubik), comic and poster display (Luckiest Guy, Lilita One, Titan One,
   Bungee, Big Shoulders), modern editorial serif (Instrument Serif, Fraunces, Bodoni Moda, Lora),

@@ -339,6 +339,20 @@ A vision-capable run can receive `get_frame`. The tool renders a composited fram
 current working project through the Python export compiler and attaches the image to a later
 provider request using the provider's native image format.
 
+A vision-capable run also sees the **images the editor attaches** in the AI sidebar as
+pictures, not only as their measured profile (size, palette, tone). The desktop host loads each
+image reference through the engine's `POST /references/still` (1024 px longest edge; PNG only
+when a pixel is actually transparent, JPEG otherwise) and the SDK attaches it, labelled with its
+reference id, to the message carrying the request. In agent mode it rides in its own message
+below the cache boundary, because the Claude Agent SDK provider turns everything above the
+boundary into a text-only system prompt. A text-only model gets the measured lines alone; the
+orchestrator withholds the pictures (`Orchestrator#budgeted`), and the host does not load them.
+Reference **videos** stay measured profiles. See ADR 0186.
+
+A `get_frame` card shows the frame the model was given when it is expanded. The desktop host
+writes it into `media/<project>/attachments/frame-<hash>.<ext>` and the event carries the path,
+so no image bytes cross IPC, the durable run log, or the saved conversation.
+
 A provider being listed here does not mean every model on that provider supports images. A
 text-only or unrecognized model must not receive a visual-inspection path that would let it
 claim to have seen the edit.
