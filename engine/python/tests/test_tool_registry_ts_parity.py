@@ -108,6 +108,10 @@ def test_host_ui_only_tools_are_detected_and_excluded() -> None:
     assert host_ui_only == {
         "ask_user",
         "measure_color",
+        # Where the cut-out subject sits: routed by the desktop's sidecar executor with the
+        # working project inline, like `measure_color`; the standalone MCP surface has no
+        # route for it.
+        "measure_subject",
         # Where a caption cue breaks is a linguistic decision and `segmentCaptions`
         # is deliberately its single authority (ADR 0071). Mirroring it here would
         # mean a second segmenter disagreeing with the first word by word — so this

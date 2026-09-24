@@ -219,6 +219,16 @@ export const TOOL_CONTRACT_DECLARATIONS: Readonly<Record<string, ToolContract>> 
     stateDependency: 'project_revision',
     cacheScope: 'none',
   },
+  // Where the subject sits depends on the clip's crop and keyframed scale at THIS revision:
+  // a punch-in moves the head. Never served from a cache for the same reason as the two above.
+  measure_subject: {
+    executionPlane: 'host',
+    effectClass: 'pure_read',
+    permissions: ['analysis'],
+    concurrency: 'parallel',
+    stateDependency: 'project_revision',
+    cacheScope: 'none',
+  },
   // `search_media` is the same defect as `get_frame` above, arrived at from the other
   // side: it reads the BIN, and `Timeline.revision` is not a bin counter either.
   //

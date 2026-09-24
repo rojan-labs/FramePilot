@@ -23,6 +23,7 @@ import {
   unsourcedMaskGeometry,
 } from '../masking/geometry-provenance.js';
 import type { ToolContext } from '../tool-context.js';
+import { overflowingWords } from '../overlay-fit.js';
 
 const SHA = (seed: string): string => seed.repeat(64).slice(0, 64);
 
@@ -574,9 +575,7 @@ describe('in-process masking tools', () => {
       { clipId: 'shot', maskId: 'm1', space: 'frame' },
       ctxOf(p),
     ) as Operation[];
-    expect(ops).toEqual([
-      { type: 'set_mask_space', clipId: 'shot', maskId: 'm1', space: 'frame' },
-    ]);
+    expect(ops).toEqual([{ type: 'set_mask_space', clipId: 'shot', maskId: 'm1', space: 'frame' }]);
     expect(masksOf(clipOf(land(p, ops)))[0]!.space).toBe('frame');
     // Already there: nothing to change.
     expect(() =>
@@ -647,10 +646,62 @@ describe('in-process masking tools', () => {
         type: 'add_text_behind_subject',
         text: 'HELLO',
         maskId: 'mt',
-        style: { fontSizePercent: 20 },
+        // Fits as asked; the box is widened to the title-safe width so it wraps as it measured.
+        style: { fontSizePercent: 20, boxWidthPercent: 92 },
       }),
     ]);
     land(p, ops);
+  });
+
+  it('fits a title that would run out of the frame instead of letting it', () => {
+    // The 2026-09-23 run: a title at a size wider than the frame ran off both sides.
+    const p = project([matte]);
+    const ops = tool('put_text_behind_subject').buildOps!(
+      { clipId: 'shot', text: 'SUPERCALIFRAGILISTIC', style: { sizePercent: 40 } },
+      ctxOf(p),
+    ) as Operation[];
+    const style = (ops[0] as { style: Record<string, unknown> }).style;
+    expect(style.boxWidthPercent).toBe(92);
+    expect(style.fontSizePercent).toBeLessThan(40);
+    expect(overflowingWords({ text: 'SUPERCALIFRAGILISTIC', ...style }, p.resolution)).toEqual([]);
+    land(p, ops);
+  });
+
+  it('draws a title in a bundled family, and refuses one the export cannot draw', () => {
+    const p = project([matte]);
+    const ops = tool('put_text_behind_subject').buildOps!(
+      {
+        clipId: 'shot',
+        text: 'MOTION',
+        style: { sizePercent: 18, fontFamily: 'Anton', fontWeight: 400 },
+      },
+      ctxOf(p),
+    ) as Operation[];
+    expect((ops[0] as { style: Record<string, unknown> }).style).toMatchObject({
+      fontFamily: 'Anton',
+      fontWeight: 400,
+    });
+    land(p, ops);
+    expect(() =>
+      tool('put_text_behind_subject').buildOps!(
+        { clipId: 'shot', text: 'MOTION', style: { fontFamily: 'Comic Sans MS' } },
+        ctxOf(p),
+      ),
+    ).toThrow(ZodError);
+  });
+
+  it('holds the title for a moment of the shot, not all of it', () => {
+    const p = project([matte]);
+    const ops = tool('put_text_behind_subject').buildOps!(
+      { clipId: 'shot', text: 'MOTION', start: 1, end: 2.5 },
+      ctxOf(p),
+    ) as Operation[];
+    expect(ops[0]).toMatchObject({ type: 'add_text_behind_subject', start: 1, end: 2.5 });
+    const landed = land(p, ops);
+    const title = landed.timeline.tracks
+      .flatMap((t) => t.clips)
+      .find((clip) => clip.effects.some((effect) => effect.type === 'text'));
+    expect(title).toMatchObject({ start: 1, end: 2.5 });
   });
 });
 

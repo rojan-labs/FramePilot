@@ -282,6 +282,10 @@ export const VERIFICATION_LOOK_TOOL_NAMES: ReadonlySet<string> = new Set([
   // re-measuring the SAME clip scores as nothing learned while measuring a different clip is
   // genuinely new. Not the memo — `cacheScope: 'none'` means there is none, deliberately.
   'measure_color',
+  // `measure_subject` is a look at the picture in numbers too — where the subject's head and
+  // body sit on the frame — taken right before a title or caption is placed, which is always
+  // after the first patch. Bounded like `measure_color` (`FFMPEG_BACKED_TOOLS`).
+  'measure_subject',
 ]);
 
 /**

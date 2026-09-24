@@ -152,11 +152,77 @@ const UNKNOWN_ADVANCE_EM = 0.5;
  */
 const NARROW_FONT_ALLOWANCE = 0.9;
 
+/**
+ * The widest a title's box may be, as a percent of the frame width: a 4 % margin each side.
+ * Shared by every title tool so a fitted title sits inside the same safe width.
+ */
+export const MAX_TITLE_BOX_WIDTH_PERCENT = 92;
+
+/**
+ * How much wider than the default face each bundled family draws, at weights 400/700/900.
+ *
+ * Titles honour `fontFamily`/`fontWeight` in the export since 2026-09-24
+ * (`render/text_overlay.py`), so the default face's advances alone no longer describe the
+ * pixels. Measured from the bundled font files against `ImageFont.load_default` over
+ * printable ASCII, taking the widest of the all-glyph, upper-case and lower-case means so
+ * the factor never under-states a word of either case (`scripts` in the 2026-09-24 audit;
+ * `engine/python/tests/test_title_font_widths.py` re-measures and fails on drift). A family
+ * not listed here falls back to the unknown-family allowance below.
+ */
+const FAMILY_WIDTH_FACTOR: Readonly<Record<string, readonly [number, number, number]>> = {
+  Inter: [1.105, 1.166, 1.219],
+  Montserrat: [1.127, 1.194, 1.252],
+  Roboto: [0.992, 1.02, 1.032],
+  'Open Sans': [1.035, 1.136, 1.188],
+  Lato: [1.02, 1.04, 1.04],
+  Raleway: [1.031, 1.089, 1.136],
+  Figtree: [1.03, 1.078, 1.125],
+  Manrope: [1.078, 1.148, 1.171],
+  Poppins: [1.097, 1.196, 1.196],
+  Nunito: [1.032, 1.074, 1.125],
+  'Archivo Black': [1.227, 1.227, 1.227],
+  Oswald: [0.827, 0.925, 0.925],
+  'Bebas Neue': [0.814, 0.814, 0.814],
+  Anton: [0.911, 0.911, 0.911],
+  Bangers: [0.865, 0.865, 0.865],
+  'DM Serif Display': [1.032, 1.032, 1.032],
+  'Playfair Display': [1.02, 1.065, 1.098],
+  Merriweather: [1.163, 1.194, 1.214],
+  'Space Mono': [1.354, 1.354, 1.354],
+  Caveat: [0.819, 0.826, 0.826],
+  Pacifico: [1.164, 1.164, 1.164],
+  'Shadows Into Light': [0.803, 0.803, 0.803],
+};
+
+/**
+ * Headroom on a measured family factor: the per-glyph spread inside a family (a wide `M`,
+ * a narrow `i`) means a mean can under-state one particular word by a few percent.
+ */
+const KNOWN_FAMILY_MARGIN = 1.04;
+
+/** The font a title is drawn in, when its style names one. */
+export interface TitleFont {
+  readonly fontFamily?: string;
+  readonly fontWeight?: number;
+}
+
+/**
+ * The multiplier from the default face's widths to `font`'s, or `undefined` when the family
+ * is not one this build bundles (the export then falls back to the default face).
+ */
+export function familyWidthFactor(font: TitleFont | undefined): number | undefined {
+  const factors = font?.fontFamily === undefined ? undefined : FAMILY_WIDTH_FACTOR[font.fontFamily];
+  if (factors === undefined) return undefined;
+  const weight = font?.fontWeight ?? 700;
+  const index = weight < 550 ? 0 : weight < 800 ? 1 : 2;
+  return factors[index]! * KNOWN_FAMILY_MARGIN;
+}
+
 /** The width of `word` in em, in the font the export draws with. */
-export function wordWidthEm(word: string): number {
+export function wordWidthEm(word: string, font?: TitleFont): number {
   let total = 0;
   for (const ch of word) total += ADVANCE_EM[ch] ?? UNKNOWN_ADVANCE_EM;
-  return total;
+  return total * (familyWidthFactor(font) ?? 1);
 }
 
 /** The style values this check needs; anything missing means it has no opinion. */
@@ -164,6 +230,17 @@ export interface OverlayFitInput {
   readonly text?: unknown;
   readonly fontSizePercent?: unknown;
   readonly boxWidthPercent?: unknown;
+  readonly fontFamily?: unknown;
+  readonly fontWeight?: unknown;
+}
+
+/** The named font on a fit input, when it names a string family. */
+function fontOf(input: OverlayFitInput): TitleFont | undefined {
+  if (typeof input.fontFamily !== 'string') return undefined;
+  return {
+    fontFamily: input.fontFamily,
+    ...(typeof input.fontWeight === 'number' ? { fontWeight: input.fontWeight } : {}),
+  };
 }
 
 /** A word that cannot be wrapped into its box, and the box width that would hold it. */
@@ -205,16 +282,20 @@ export function largestFittingSizePercent(
   text: string,
   boxWidthPercent: number,
   resolution: { readonly width: number; readonly height: number },
+  font?: TitleFont,
 ): number | undefined {
   const width = positive(resolution.width);
   const height = positive(resolution.height);
   const box = positive(boxWidthPercent);
   if (width === undefined || height === undefined || box === undefined) return undefined;
   let widest = 0;
-  for (const word of text.split(/\s+/)) widest = Math.max(widest, wordWidthEm(word));
+  for (const word of text.split(/\s+/)) widest = Math.max(widest, wordWidthEm(word, font));
   if (widest === 0) return undefined;
+  // A bundled family is measured, so its width is not discounted; the allowance exists for
+  // a family the check cannot know.
+  const allowance = familyWidthFactor(font) === undefined ? NARROW_FONT_ALLOWANCE : 1;
   // fits ⇔ widest·allowance ≤ box·W / (size·H)  ⇒  size ≤ box·W / (widest·allowance·H)
-  const size = (box * width) / (widest * NARROW_FONT_ALLOWANCE * height);
+  const size = (box * width) / (widest * allowance * height);
   return Math.floor(size * 10) / 10;
 }
 
@@ -232,13 +313,15 @@ export function overflowingWords(
 
   // The box, expressed in em of the current font size — the unit the word widths are in.
   const boxEm = (boxWidthPercent * width) / (fontSizePercent * height);
+  const font = fontOf(input);
+  const allowance = familyWidthFactor(font) === undefined ? NARROW_FONT_ALLOWANCE : 1;
   const seen = new Set<string>();
   const over: OverflowingWord[] = [];
   for (const word of text.split(/\s+/)) {
     if (word.length === 0 || seen.has(word)) continue;
     seen.add(word);
-    const measuredEm = wordWidthEm(word);
-    if (measuredEm * NARROW_FONT_ALLOWANCE <= boxEm) continue;
+    const measuredEm = wordWidthEm(word, font);
+    if (measuredEm * allowance <= boxEm) continue;
     over.push({
       word,
       // DETECTED against the discounted width, RECOMMENDED from the measured one. The

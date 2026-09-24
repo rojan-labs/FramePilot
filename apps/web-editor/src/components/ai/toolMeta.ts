@@ -140,6 +140,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   create_mask: { label: 'Create mask', Icon: Wand2 },
   remove_background: { label: 'Remove background', Icon: Wand2 },
   put_text_behind_subject: { label: 'Put text behind subject', Icon: Type },
+  measure_subject: { label: 'Find where the subject sits', Icon: Scan },
   track_mask: { label: 'Track mask', Icon: Scan },
   refine_mask: { label: 'Refine mask', Icon: SlidersHorizontal },
   get_masks: { label: 'Read masks', Icon: Square },

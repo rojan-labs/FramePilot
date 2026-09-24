@@ -3263,6 +3263,14 @@ export function summarizeReadResult(
         'the project now — read them with get_transcript (the full list is not repeated here)'
       );
     }
+    case 'measure_subject': {
+      // Geometry the model places text by: the host already wrote it as lines (head, face
+      // band, width per band, the title answer). A JSON slice would cut the band list and
+      // the title answer — the two parts the call is made for.
+      return typeof obj.reading === 'string'
+        ? obj.reading
+        : previewJson(value, ANALYSIS_PREVIEW_MAX);
+    }
     case 'get_frame': {
       // The picture rides as an image part on this turn; the digest is the FACTS about it,
       // because that is what the text-only action log keeps once the image is gone.

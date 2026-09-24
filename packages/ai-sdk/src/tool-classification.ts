@@ -123,6 +123,7 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   get_masks: { role: 'inspection', scope: 'timeline_dependent' },
   professional_audio: { role: 'mutation', scope: 'timeline_dependent' },
   measure_color: { role: 'analysis', scope: 'timeline_dependent' },
+  measure_subject: { role: 'analysis', scope: 'timeline_dependent' },
   // --- analysisTool: sidecar/ffmpeg-backed reads of the SOURCE MEDIA -------------------
   // These analyze assets, not the arrangement, so a cut cannot invalidate them. This is
   // the group whose absence caused the re-analysis loop.
@@ -286,7 +287,6 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   export_video: { role: 'other', scope: 'timeline_dependent' },
   render_preview: { role: 'other', scope: 'timeline_dependent' },
   ask_user: { role: 'other', scope: 'revision_independent' },
-
 });
 
 /**

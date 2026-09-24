@@ -72,8 +72,7 @@ export interface AnalysisCharge {
 
 /** The outcome of checking one charge against a running budget. */
 export type CapDecision =
-  | { readonly allowed: true }
-  | { readonly allowed: false; readonly reason: string };
+  { readonly allowed: true } | { readonly allowed: false; readonly reason: string };
 
 /** Static metadata mapping each resource onto its caps/spend field + a display unit. */
 const RESOURCE_META: Readonly<
@@ -155,6 +154,7 @@ const FFMPEG_BACKED_TOOLS: ReadonlySet<string> = new Set([
   'detect_beats',
   'get_frame',
   'measure_color',
+  'measure_subject',
 ]);
 
 /** Which capped resource this call spends, or `null` when it spends neither. */

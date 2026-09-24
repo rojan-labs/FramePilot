@@ -69,6 +69,7 @@ describe('analysis tools whose answer ages with the timeline', () => {
   const KNOWN: ReadonlySet<string> = new Set([
     // Exempted by name in `VERIFICATION_LOOK_TOOL_NAMES` — reachable in every stage.
     'get_frame',
+    'measure_subject',
     // Genuinely expensive sidecar work whose result the run is expected to gather
     // before it starts cutting. Each remains a candidate for the same exemption if
     // a run is ever observed needing it mid-apply.

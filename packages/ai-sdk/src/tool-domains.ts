@@ -148,6 +148,11 @@ const CORE: readonly string[] = [
   // actually on screen", called this twice in `apply`, and was refused both times as an
   // analysis tool. A colour self-check the model cannot see is an opt-in.
   'measure_color',
+  // Where the cut-out subject sits (head, face band, width per band) and where a title reads
+  // behind it: the measurement every text placement needs, including the second title after
+  // the first patch put the run in `apply`. Exempt from stage narrowing like `measure_color`,
+  // so it lives in core for the same reason (see the note above).
+  'measure_subject',
   // Talking to the editor, and to the run's own memory.
   'ask_user',
   'remember_preference',
@@ -322,13 +327,15 @@ export function domainsForSkill(
  * {@link DOMAIN_SUMMARY} is written in, read back the other way.
  */
 const DOMAIN_REQUEST_WORDS: Readonly<Record<Exclude<ToolDomain, 'core'>, RegExp>> = {
-  sourcing: /\b(stock(?: footages?| clips?| plates?| videos?)?|b-?roll|cutaways?|music|soundtrack|score|sound ?bed)\b/gi,
+  sourcing:
+    /\b(stock(?: footages?| clips?| plates?| videos?)?|b-?roll|cutaways?|music|soundtrack|score|sound ?bed)\b/gi,
   color: /\b(colou?r(?: grade| pass| correct\w*)?|grade|graded|grading|look|exposure|lut)\b/gi,
   captions: /\b(captions?|subtitles?)\b/gi,
   audio: /\b(silences?|dead air|fillers?|filler words|duck\w*|loudness|beats?)\b/gi,
   motion: /\b(punch[- ]?ins?|keyframes?|zooms?|speed ramps?|reframe\w*|crops?)\b/gi,
   effects: /\b(transitions?|effects?|titles?|text layers?|graphics?|callouts?)\b/gi,
-  footage: /\b(index(?:ed|ing)?|index_media|map_footage|describe_footage|search_visual|detect_scenes|footage map|scene detection|shot list)\b/gi,
+  footage:
+    /\b(index(?:ed|ing)?|index_media|map_footage|describe_footage|search_visual|detect_scenes|footage map|scene detection|shot list)\b/gi,
   tracking: /\b(who is on screen|detect (?:the )?(?:faces?|people|subjects?)|tracker)\b/gi,
   masking:
     /\b(masks?|rotoscop\w*|track(?:ing)? (?:the )?subject|backgrounds?|cut-?outs?|isolate\w*|blur (?:the |their |every(?:one's)? )?(?:faces?|plates?)|behind (?:the |her|him|them)\w*|green ?screen)\b/gi,

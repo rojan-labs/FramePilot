@@ -385,7 +385,13 @@ describe('verification looks in execution stages (plan/system-mission P1.1b)', (
   });
 
   it('keeps the set minimal — the picture look, in pixels and in numbers', () => {
-    expect([...VERIFICATION_LOOK_TOOL_NAMES]).toEqual(['get_frame', 'measure_color']);
+    // `measure_subject` is the third look: where the subject sits, measured right before a
+    // title is placed — always after the first patch, so always in `apply`.
+    expect([...VERIFICATION_LOOK_TOOL_NAMES]).toEqual([
+      'get_frame',
+      'measure_color',
+      'measure_subject',
+    ]);
   });
 });
 

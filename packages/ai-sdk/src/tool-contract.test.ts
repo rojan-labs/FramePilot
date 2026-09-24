@@ -154,6 +154,7 @@ describe('analysis-kind tools are exhaustively classified by project-state effec
     'get_frame',
     'map_footage',
     'measure_color',
+    'measure_subject',
     'search_media',
     'search_music',
     'search_stock',

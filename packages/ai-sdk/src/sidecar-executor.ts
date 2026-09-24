@@ -56,6 +56,8 @@ const UNIFIED_KIND: Record<string, string> = {
   detect_beats: 'beats',
 };
 const UNIFIED_ROUTE = '/analyze';
+/** Where a cut-out subject sits on the frame (`masking/subject_layout.py`). */
+const SUBJECT_LAYOUT_ROUTE = '/analyze/subject-layout';
 
 /** Brain-backed searches (plan B2.2/B3.3) — reads, but the index lives sidecar-side.
  *  Both take `{ query, limit? }` and return the same hit shape; `find_similar`
@@ -830,6 +832,87 @@ export function footageMapBody(
  * `available:true` with chapters is the map, handed back verbatim so the model reads
  * chapters/highlights and cites their spans.
  */
+/**
+ * Request body for `POST /analyze/subject-layout`. The title style arrives in tool
+ * vocabulary (`sizePercent`) and goes out as the `text` effect params the engine rasterizes
+ * (`fontSizePercent`), so the box it measures is the box the title will render as.
+ */
+export function subjectLayoutBody(
+  project: Project,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = { project, clipId: args.clipId };
+  if (typeof args.start === 'number') body.start = args.start;
+  if (typeof args.end === 'number') body.end = args.end;
+  if (typeof args.text === 'string') body.text = args.text;
+  if (args.style !== null && typeof args.style === 'object') {
+    const { sizePercent, ...rest } = args.style as Record<string, unknown>;
+    body.textStyle = {
+      ...rest,
+      ...(typeof sizePercent === 'number' ? { fontSizePercent: sizePercent } : {}),
+    };
+  }
+  return body;
+}
+
+/** A frame fraction as a whole percent. */
+const pct = (value: unknown): string =>
+  typeof value === 'number' && Number.isFinite(value) ? `${String(Math.round(value * 100))}%` : '?';
+
+/**
+ * Turn a subject layout into what the model reads: geometry in words and percents, the
+ * face band called out as such, and the title answer first-class — because "where does the
+ * head sit?" is the question every placement decision in the captured runs lacked.
+ */
+export function unwrapSubjectLayout(data: unknown): HostToolOutcome {
+  const record = (data ?? {}) as Record<string, unknown>;
+  const bands = Array.isArray(record.bands) ? (record.bands as Record<string, unknown>[]) : [];
+  if (typeof record.clipId !== 'string' || bands.length === 0) {
+    return {
+      status: 'failed',
+      summary: unreadableEngineAnswer('the subject layout came back without its bands'),
+    };
+  }
+  const box = Array.isArray(record.reach) ? (record.reach as number[]) : undefined;
+  const lines = [
+    `Subject on ${record.clipId}, ${String(record.start)}–${String(record.end)}s ` +
+      `(${String(record.samples)} samples), in frame fractions from the top-left:`,
+    box === undefined
+      ? '- the subject is not in frame over this range'
+      : `- reaches x ${pct(box[0])}–${pct(box[2])}, y ${pct(box[1])}–${pct(box[3])}`,
+    `- top of the head at ${pct(record.headTop)}` +
+      (typeof record.shoulders === 'number'
+        ? `; shoulders at ${pct(record.shoulders)} — between the two is the face, keep text off it`
+        : '; no shoulder line measured (the subject is as wide as the frame near the top)'),
+    `- width covered per tenth of the height: ${bands
+      .map((band) => `${pct(band.top)}–${pct(band.bottom)} ${pct(band.widthCovered)}`)
+      .join(' · ')}`,
+  ];
+  const title = record.textBehind as Record<string, unknown> | null | undefined;
+  if (title !== null && title !== undefined) {
+    const size =
+      typeof title.shrunkFrom === 'number'
+        ? `${String(title.sizePercent)}% (fitted from ${String(title.shrunkFrom)}%, which ran out of the frame)`
+        : `${String(title.sizePercent)}%`;
+    lines.push(
+      `- title at size ${size}, ${pct(title.width)} × ${pct(title.height)} of the frame: ` +
+        (title.endsVisible === true
+          ? `yPercent ${String(title.yPercent)} reads behind the subject (${pct(title.occluded)} covered). `
+          : '') +
+        String(title.note ?? ''),
+    );
+  }
+  const reading = lines.join('\n');
+  return {
+    status: 'completed',
+    summary:
+      title === null || title === undefined
+        ? `Measured where the subject sits on ${record.clipId}`
+        : `Measured where the subject sits on ${record.clipId} and where the title reads behind them`,
+    data: { ...record, reading },
+  };
+}
+
 /** Request body for `POST /render/frame` — the working document plus what to grab. */
 export function frameBody(
   project: Project,
@@ -1334,6 +1417,13 @@ export function planSidecarCall(
       route: VISUAL_FOOTAGE_MAP_ROUTE,
       body: footageMapBody(project, args, credentials),
       interpret: unwrapFootageMap,
+    };
+  }
+  if (name === 'measure_subject') {
+    return {
+      route: SUBJECT_LAYOUT_ROUTE,
+      body: subjectLayoutBody(project, args),
+      interpret: unwrapSubjectLayout,
     };
   }
   if (name === 'get_frame') {

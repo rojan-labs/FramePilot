@@ -14,6 +14,7 @@
  * desktop executor routes on them, exactly as it does for `track_subject_automatically`.
  */
 import { z } from 'zod/v4';
+import { CAPTION_FONT_CATALOG } from '@framepilot/timeline-schema/caption-fonts';
 import {
   EDGE_STYLE_CATALOG,
   EDGE_STYLE_EFFECT_TYPE,
@@ -68,7 +69,12 @@ import {
   type CreateShapeMaskIntent,
 } from '../masking/shape-presets.js';
 import { boolean, numeric, seconds } from './tool-args.js';
-import { jsonSchema, mutateTool, readTool } from './tool-factories.js';
+import { analysisTool, jsonSchema, mutateTool, readTool } from './tool-factories.js';
+import {
+  MAX_TITLE_BOX_WIDTH_PERCENT,
+  largestFittingSizePercent,
+  overflowingWords,
+} from '../overlay-fit.js';
 
 const unit = numeric(z.number().min(0).max(1));
 
@@ -622,6 +628,12 @@ function refineMaskOps(args: z.infer<typeof RefineMaskArgsSchema>, ctx: ToolCont
   return chain.operations;
 }
 
+/** The bundled families a title can be drawn in — the caption font catalog, `render/fonts`. */
+const TITLE_FONT_FAMILIES = CAPTION_FONT_CATALOG.map((font) => font.family) as [
+  string,
+  ...string[],
+];
+
 const TextStyleSchema = z
   .object({
     sizePercent: numeric(z.number().positive().max(100)).optional(),
@@ -629,6 +641,8 @@ const TextStyleSchema = z
     align: z.enum(['left', 'center', 'right']).optional(),
     xPercent: numeric(z.number().min(0).max(100)).optional(),
     yPercent: numeric(z.number().min(0).max(100)).optional(),
+    fontFamily: z.enum(TITLE_FONT_FAMILIES).optional(),
+    fontWeight: numeric(z.number().int().min(100).max(900)).optional(),
   })
   .strict();
 
@@ -640,6 +654,57 @@ function textStyleParams(style: z.infer<typeof TextStyleSchema>): Record<string,
     ...Object.fromEntries(Object.entries(rest).filter(([, value]) => value !== undefined)),
   };
 }
+
+/**
+ * The title's style, fitted so no word runs out of the frame.
+ *
+ * The captured 2026-09-23 run set "MOTION" at 20 % of the frame height behind the speaker:
+ * wider than a 9:16 frame, so it ran off both sides. `add_text_layer` already fits its titles
+ * rather than refusing them (refusing cost whole titles in earlier runs); a title behind a
+ * subject is the same text effect and gets the same rule: widen the box to the safe width
+ * first, then bring the size down to the largest that fits. `measure_subject` measures the
+ * exact size with the real font; this is the arithmetic safety net for a call that skipped it.
+ */
+function fitTitleStyle(
+  text: string,
+  params: Record<string, unknown>,
+  resolution: { readonly width: number; readonly height: number },
+): Record<string, unknown> {
+  const size = typeof params.fontSizePercent === 'number' ? params.fontSizePercent : undefined;
+  if (size === undefined) return params;
+  const family = typeof params.fontFamily === 'string' ? params.fontFamily : undefined;
+  const weight = typeof params.fontWeight === 'number' ? params.fontWeight : undefined;
+  const font = {
+    ...(family === undefined ? {} : { fontFamily: family }),
+    ...(weight === undefined ? {} : { fontWeight: weight }),
+  };
+  const input = {
+    text,
+    fontSizePercent: size,
+    boxWidthPercent: MAX_TITLE_BOX_WIDTH_PERCENT,
+    ...font,
+  };
+  if (overflowingWords(input, resolution).length === 0) {
+    return { ...params, boxWidthPercent: MAX_TITLE_BOX_WIDTH_PERCENT };
+  }
+  const fits = largestFittingSizePercent(text, MAX_TITLE_BOX_WIDTH_PERCENT, resolution, font);
+  if (fits === undefined || fits <= 0) return params;
+  return {
+    ...params,
+    fontSizePercent: Math.min(size, fits),
+    boxWidthPercent: MAX_TITLE_BOX_WIDTH_PERCENT,
+  };
+}
+
+const MeasureSubjectArgsSchema = z
+  .object({
+    clipId: z.string().min(1),
+    start: numeric(z.number().nonnegative()).optional(),
+    end: numeric(z.number().positive()).optional(),
+    text: z.string().min(1).optional(),
+    style: TextStyleSchema.optional(),
+  })
+  .strict();
 
 const FollowSubjectArgsSchema = z
   .object({
@@ -839,8 +904,11 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
     {
       name: 'put_text_behind_subject',
       description:
-        'Put a title between the subject and the background of ONE clip. The clip needs its ' +
-        'background removed first (remove_background).',
+        'Put a title between the subject and the background of ONE clip, for start–end seconds ' +
+        '(a moment, not the whole shot). The clip needs its background removed first ' +
+        '(remove_background); a second title on the same shot goes on the same layer. Call ' +
+        'measure_subject with the same text and style first and use its yPercent and ' +
+        'sizePercent: it knows where the head is. A word too wide for the frame is fitted.',
       capabilities: ['masking', 'text'],
       hostUiOnly: true,
     },
@@ -848,19 +916,42 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
       .object({
         clipId: z.string().min(1),
         text: z.string().min(1),
+        start: numeric(z.number().nonnegative()).optional(),
+        end: numeric(z.number().positive()).optional(),
         style: TextStyleSchema.optional(),
       })
       .strict(),
     (args, ctx) => {
       const chain = new MaskCommandChain(ctx.project);
+      const style =
+        args.style === undefined
+          ? undefined
+          : fitTitleStyle(args.text, textStyleParams(args.style), ctx.project.resolution);
       chain.run({
         type: 'text_behind_subject',
         clipId: args.clipId,
         text: args.text,
-        ...(args.style === undefined ? {} : { style: textStyleParams(args.style) }),
+        ...(style === undefined ? {} : { style }),
+        ...(args.start === undefined ? {} : { start: args.start }),
+        ...(args.end === undefined ? {} : { end: args.end }),
       });
       return chain.operations;
     },
+  ),
+  analysisTool(
+    {
+      name: 'measure_subject',
+      description:
+        'Measure where the cut-out subject of ONE clip (background removed) sits on the frame ' +
+        'over start–end: its box, the top of the head, the shoulder line, and how much of the ' +
+        "frame's width it covers in each tenth of the height. Give the title text and style you " +
+        'plan for put_text_behind_subject and it returns the yPercent where the title reads as ' +
+        'behind them, the size that fits the frame, or why no height works. Also use it to keep ' +
+        'captions and titles off the face. Measures; never edits.',
+      capabilities: ['masking'],
+      hostUiOnly: true,
+    },
+    MeasureSubjectArgsSchema,
   ),
   readTool(
     {
