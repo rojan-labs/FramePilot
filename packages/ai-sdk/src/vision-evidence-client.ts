@@ -2,7 +2,7 @@
 import { createLogger } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import { z } from 'zod/v4';
-import { toModelProject } from './model-view.js';
+import { toEngineProject } from './engine-view.js';
 import type { VisionFrame, VisionReviewRequest } from './vision-review.js';
 
 const log = createLogger('ai-sdk:vision-evidence-client');
@@ -79,7 +79,7 @@ export function createVisionFrameAcquirer(
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            project: toModelProject(project),
+            project: toEngineProject(project),
             time_seconds: requestedSeconds,
             max_dimension: maxDimension,
             image_format: 'jpeg',

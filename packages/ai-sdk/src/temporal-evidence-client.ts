@@ -1,7 +1,7 @@
 /** Typed client for deterministic temporal evidence acquisition in the engine sidecar. */
 import { createLogger } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
-import { toModelProject } from './model-view.js';
+import { toEngineProject } from './engine-view.js';
 import {
   TemporalEvidenceBatchSchema,
   type TemporalEvidenceBatch,
@@ -153,7 +153,7 @@ export function createTemporalEvidenceAcquirer(
       const response = await fetchFn(`${options.baseUrl}/review/temporal-evidence`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ project: toModelProject(project), requests }),
+        body: JSON.stringify({ project: toEngineProject(project), requests }),
         signal: controller.signal,
       });
       if (!response.ok) {

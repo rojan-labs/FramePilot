@@ -1245,16 +1245,22 @@ describe('visual grounding (MI6.1)', () => {
       expect(outcome.summary).toMatch(/no timed words/);
     });
 
-    it('never puts per-asset render data on the wire', async () => {
-      // The engine re-derives proxies/thumbnails/waveforms from `asset.path` and never
-      // reads `asset.media`, while `peaks` is one float per waveform bucket. Sending it
-      // cost every call megabytes AND gave a rejected request something catastrophic to
-      // quote back: FastAPI validation errors echo the entire body they refused.
+    it('sends the measured size but never the waveform or thumbnails', async () => {
+      // `peaks` is one float per waveform bucket: sending it cost every call megabytes AND
+      // gave a rejected request something catastrophic to quote back (FastAPI validation
+      // errors echo the entire body they refused). The SIZE must travel, though: a cut-out
+      // is a matte in source pixels, and without `media.width/height` every engine route
+      // over a masked clip refused to compile (engine-view.ts).
       const withMedia = {
         ...project,
         assets: project.assets.map((a) => ({
           ...a,
-          media: { proxyPath: 'p.mp4', peaks: [0.1, 0.2, 0.3], thumbnailPaths: ['t.png'] },
+          media: {
+            width: 1920,
+            height: 1080,
+            peaks: [0.1, 0.2, 0.3],
+            thumbnailPaths: ['t.png'],
+          },
         })),
       };
       let sent = '';
@@ -1266,7 +1272,8 @@ describe('visual grounding (MI6.1)', () => {
       });
       await executor.run(call('detect_scenes', {}), { project: withMedia });
       expect(sent).not.toContain('peaks');
-      expect(sent).not.toContain('proxyPath');
+      expect(sent).not.toContain('thumbnailPaths');
+      expect(sent).toContain('"width":1920');
       // The rest of the document still travels — this is a strip, not a summary.
       expect(sent).toContain(project.assets[0]!.id);
     });

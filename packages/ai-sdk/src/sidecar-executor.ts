@@ -15,7 +15,7 @@
  */
 import { createLogger } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
-import { toModelProject } from './model-view.js';
+import { toEngineProject } from './engine-view.js';
 import { compactFootageChapters, footageMapSchema } from './footage-map.js';
 import { indexFor } from './project-index.js';
 import type { LedgerSnapshot } from './ledger.js';
@@ -1206,13 +1206,13 @@ export function planSidecarCall(
   credentials?: VisualQueryCredentials,
 ): SidecarPlan | null {
   const { name, arguments: args } = call;
-  // Every route below inlines the working document. It goes over the wire WITHOUT the
-  // per-asset render block: the engine re-derives proxies, thumbnails and waveforms from
-  // `asset.path` and never reads `asset.media` (`timeline/models.py` keeps it optional and
-  // unused), while `peaks` alone is one float per waveform bucket — megabytes for a real
-  // bin, on every analysis call. Keeping it off the request also means a rejected request
-  // cannot echo it back: FastAPI's validation errors quote the whole body they refused.
-  const project = toModelProject(ctx.project);
+  // Every route below inlines the working document, in the ENGINE's projection
+  // (`engine-view.ts`): `asset.media` keeps the measured size a source-pixel mask is
+  // resolved against — without it every `get_frame` and colour measurement over a cut-out
+  // failed to compile — while waveform `peaks` (one float per bucket, megabytes for a real
+  // bin) and the thumbnail list stay off the wire. Keeping them off also means a rejected
+  // request cannot echo them back: FastAPI's validation errors quote the whole body.
+  const project = toEngineProject(ctx.project);
   if (name === 'measure_color') {
     const clipId = typeof args.clipId === 'string' ? args.clipId : '';
     const target = project.timeline.tracks
