@@ -888,85 +888,102 @@ def _wrap_plans(
 
 def _draw_karaoke_word(
     image: Image.Image,
-    xy: tuple[float, float],
-    word_text: str,
-    font: _Font,
+    x: float,
+    baseline: float,
+    plan: _TokenPlan,
+    token: str,
     base_color: _RGBA,
     fill_color: _RGBA,
     fraction: float,
     stroke_width: int,
     stroke_color: _RGBA | None,
+    letter_spacing_px: float,
 ) -> None:
-    """Draw ``word_text`` with a horizontal karaoke wipe.
+    """Draw ``token`` on its baseline with a horizontal karaoke wipe.
 
-    ``fraction`` (0..1, the elapsed portion of the word's own time span) of
-    the word's width is drawn in ``fill_color``; the remainder stays
-    ``base_color`` — a progressive left-to-right fill as the word is spoken.
-    ``xy`` is the tight glyph top-left (as produced by ``textbbox``).
+    ``fraction`` (0..1, the elapsed portion of the word's own time span) of the
+    word's advance is drawn in ``fill_color``; the remainder stays
+    ``base_color`` — the preview's ``linear-gradient`` over the word's box.
+
+    Drawn from the BASELINE like every other word. It used to take the line
+    box's top and treat it as the glyph's tight top, which lifted every
+    karaoke word by the gap between its ascender line and its tallest glyph.
     """
-    x, y = xy
     canvas = ImageDraw.Draw(image)
-    bbox = canvas.textbbox((0, 0), word_text, font=font, stroke_width=stroke_width)
-    width = int(bbox[2] - bbox[0])
-    height = int(bbox[3] - bbox[1])
-    canvas.text(
-        (x - bbox[0], y - bbox[1]),
-        word_text,
-        font=font,
-        fill=base_color,
-        stroke_width=stroke_width,
-        stroke_fill=stroke_color,
+    _draw_token_text(
+        canvas,
+        (x, baseline),
+        token,
+        plan.font,
+        base_color,
+        stroke_width,
+        stroke_color,
+        letter_spacing_px,
     )
-    if fraction <= 0.0 or width <= 0 or height <= 0:
+    if fraction <= 0.0:
         return
-    margin = stroke_width + 1
-    tile = Image.new("RGBA", (width + 2 * margin, height + 2 * margin), (0, 0, 0, 0))
-    tile_draw = ImageDraw.Draw(tile)
-    tile_draw.text(
-        (margin - bbox[0], margin - bbox[1]),
-        word_text,
-        font=font,
-        fill=fill_color,
-        stroke_width=stroke_width,
-        stroke_fill=stroke_color,
+    width = _token_width(token, plan.font, letter_spacing_px)
+    # Room for the stroke and for glyphs that overhang their advance (italics,
+    # scripts), so the filled copy is never clipped at the tile edge.
+    margin = stroke_width + int(0.3 * (plan.ascent + plan.descent)) + 1
+    left, top = math.floor(x) - margin, math.floor(baseline) - plan.ascent - margin
+    tile = Image.new(
+        "RGBA",
+        (int(width) + 2 * margin + 1, plan.ascent + plan.descent + 2 * margin + 1),
+        (0, 0, 0, 0),
     )
-    fill_width = max(1, int(width * min(1.0, fraction))) + margin
-    strip = tile.crop((0, 0, fill_width, tile.height))
-    image.alpha_composite(strip, (int(x) - margin, int(y) - margin))
+    _draw_token_text(
+        ImageDraw.Draw(tile),
+        (x - left, baseline - top),
+        token,
+        plan.font,
+        fill_color,
+        stroke_width,
+        stroke_color,
+        letter_spacing_px,
+    )
+    fill_width = tile.width if fraction >= 1.0 else margin + max(1, int(width * fraction))
+    image.alpha_composite(tile.crop((0, 0, fill_width, tile.height)), (left, top))
 
 
 def _draw_scaled_word(
     image: Image.Image,
-    xy: tuple[float, float],
-    word_text: str,
-    base_font: _Font,
+    x: float,
+    baseline: float,
+    plan: _TokenPlan,
+    token: str,
     scaled_font: _Font,
+    scale: float,
     color: _RGBA,
     stroke_width: int,
     stroke_color: _RGBA | None,
+    letter_spacing_px: float,
 ) -> None:
-    """Draw ``word_text`` in ``scaled_font``, centered on its normal-size slot.
+    """Draw ``token`` in ``scaled_font``, scaled about the centre of its slot.
 
     Used for the ``pop``/``pulse`` emphasis and the ``zoom``/``bounce``
-    per-word entrances: the word renders at a different size but stays
-    centered on the position the normal-size word would occupy at ``xy``
-    (tight glyph top-left). It may slightly overlap neighbors mid-animation —
-    acceptable for short-lived motion.
+    per-word entrances. The slot is the word's advance by its line box
+    (ascent + descent) — what the preview's CSS ``scale()`` transforms about —
+    so a popped word grows evenly around where it sits instead of jumping up.
+    It may overlap its neighbours mid-animation, as in the preview.
     """
-    canvas = ImageDraw.Draw(image)
-    base_bbox = canvas.textbbox((0, 0), word_text, font=base_font, stroke_width=stroke_width)
-    scaled_bbox = canvas.textbbox((0, 0), word_text, font=scaled_font, stroke_width=stroke_width)
-    base_cx = xy[0] - base_bbox[0] + (base_bbox[2] - base_bbox[0]) / 2
-    base_cy = xy[1] - base_bbox[1] + (base_bbox[3] - base_bbox[1]) / 2
-    scaled_w = scaled_bbox[2] - scaled_bbox[0]
-    scaled_h = scaled_bbox[3] - scaled_bbox[1]
-    canvas.text(
-        (base_cx - scaled_w / 2 - scaled_bbox[0], base_cy - scaled_h / 2 - scaled_bbox[1]),
-        word_text,
-        font=scaled_font,
-        fill=color,
-        stroke_width=stroke_width,
-        stroke_fill=stroke_color,
+    scaled_spacing = letter_spacing_px * scale
+    scaled_width = _token_width(token, scaled_font, scaled_spacing)
+    scaled_ascent, scaled_descent = _font_ascent_descent(scaled_font)
+    centre_x = x + _token_width(token, plan.font, letter_spacing_px) / 2
+    centre_y = baseline - plan.ascent + (plan.ascent + plan.descent) / 2
+    _draw_token_text(
+        ImageDraw.Draw(image),
+        (
+            centre_x - scaled_width / 2,
+            centre_y - (scaled_ascent + scaled_descent) / 2 + scaled_ascent,
+        ),
+        token,
+        scaled_font,
+        color,
+        stroke_width,
+        stroke_color,
+        scaled_spacing,
     )
 
 
@@ -1164,20 +1181,41 @@ def _render_styled_caption_image(
         font_size,
         int(frame_width * min(1.0, max(0.05, resolved.max_width_percent / 100.0))) - 2 * pad_x,
     )
-    lines = _wrap_plans(plans, max_text_width, space_width, _author_line_breaks(text))
-
-    line_dims: list[tuple[float, int, int]] = []  # (width, ascent, descent) per line
-    for line in lines:
-        width = sum(p.width for p in line) + space_width * (len(line) - 1)
-        ascent = max(p.ascent for p in line) + stroke
-        descent = max(p.descent for p in line) + stroke
-        line_dims.append((width, ascent, descent))
+    visible = _visible_indices(plans, display, frame_time)
+    text_align = resolved.text_align
     line_gap = (
         max(0, int(font_size * (resolved.line_height - 1.0)))
         if resolved.line_height is not None
         else max(1, font_size // 6)
     )
-    block_w = int(max(w for w, _, _ in line_dims))
+    line_dims: list[tuple[float, int, int]] = []  # (width, ascent, descent) per line
+    if display == "active-word" and plans:
+        # One word on screen at a time, centred, its chip hugging it — as the
+        # preview draws it. Laying the whole phrase out and drawing only the
+        # spoken word left that word wherever it sat in the phrase (sliding
+        # across the frame) inside a chip sized for the whole phrase. The
+        # canvas is sized for the widest word so it stays constant over time.
+        shown = next((p for p in plans if p.index in visible), plans[0])
+        lines = [[shown]]
+        line_dims.append(
+            (
+                shown.width,
+                max(p.ascent for p in plans) + stroke,
+                max(p.descent for p in plans) + stroke,
+            )
+        )
+        block_w = int(max(p.width for p in plans))
+        chip_w = int(shown.width)
+        text_align = "center"
+    else:
+        lines = _wrap_plans(plans, max_text_width, space_width, _author_line_breaks(text))
+        for line in lines:
+            width = sum(p.width for p in line) + space_width * (len(line) - 1)
+            ascent = max(p.ascent for p in line) + stroke
+            descent = max(p.descent for p in line) + stroke
+            line_dims.append((width, ascent, descent))
+        block_w = int(max(w for w, _, _ in line_dims))
+        chip_w = block_w
     block_h = sum(a + d for _, a, d in line_dims) + line_gap * (len(lines) - 1)
 
     # Outer margin: room for scaled emphasis/entrances, wave bob, slide
@@ -1207,22 +1245,22 @@ def _render_styled_caption_image(
 
     image = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
     if resolved.box_fill[3] > 0:
+        chip_x = margin + (block_w - chip_w) // 2
         ImageDraw.Draw(image).rounded_rectangle(
-            (margin, margin, margin + block_w + 2 * pad_x - 1, margin + block_h + 2 * pad_y - 1),
+            (chip_x, margin, chip_x + chip_w + 2 * pad_x - 1, margin + block_h + 2 * pad_y - 1),
             radius=int(resolved.box_radius * font_size),
             fill=resolved.box_fill,
         )
 
-    visible = _visible_indices(plans, display, frame_time)
     block_start = min((p.word.start for p in plans if p.word is not None), default=None)
 
     text_layer = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
     y_cursor = float(margin + pad_y)
     for line, (line_width, line_ascent, line_descent) in zip(lines, line_dims, strict=True):
         baseline = y_cursor + line_ascent
-        if resolved.text_align == "left":
+        if text_align == "left":
             x_cursor = float(margin + pad_x)
-        elif resolved.text_align == "right":
+        elif text_align == "right":
             x_cursor = margin + pad_x + block_w - line_width
         else:
             x_cursor = margin + pad_x + (block_w - line_width) / 2
@@ -1337,18 +1375,24 @@ def _draw_planned_word(
             scale = 1.0 + (resolved.highlight_scale - 1.0) * 0.5 * (
                 1.0 + math.sin(2.0 * math.pi * pulse_phase)
             )
+        # A per-word zoom/bounce entrance compounds with the emphasis, as the
+        # preview multiplies the two into one CSS scale.
+        scale *= motion.scale
         scaled_font = _load_font(
             plan.font_family, max(1, int(plan.size_px * scale)), resolved.font_weight, plan.italic
         )
         _draw_scaled_word(
             layer,
-            (x, baseline - plan.ascent),
+            x,
+            baseline,
+            plan,
             token,
-            plan.font,
             scaled_font,
+            scale,
             resolved.highlight_color,
             stroke,
             resolved.outline_color,
+            spacing_px,
         )
         return
     if emphasis == "karaoke-fill":
@@ -1357,14 +1401,16 @@ def _draw_planned_word(
         fraction = (frame_time - plan.word.start) / span if span > 0 else 1.0
         _draw_karaoke_word(
             layer,
-            (x, baseline - plan.ascent),
+            x,
+            baseline,
+            plan,
             token,
-            plan.font,
             fill,
             resolved.highlight_color,
             fraction,
             stroke,
             resolved.outline_color,
+            spacing_px,
         )
         return
     if emphasis == "background":
@@ -1441,13 +1487,16 @@ def _draw_planned_word(
         )
         _draw_scaled_word(
             layer,
-            (x, baseline - plan.ascent),
+            x,
+            baseline,
+            plan,
             token,
-            plan.font,
             scaled_font,
+            motion.scale,
             fill,
             stroke,
             resolved.outline_color,
+            spacing_px,
         )
         return
     _draw_token_text(

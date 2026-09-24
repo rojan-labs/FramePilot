@@ -398,6 +398,81 @@ def test_shadow_blur_is_a_css_blur_radius(monkeypatch: pytest.MonkeyPatch) -> No
     assert radii == [pytest.approx(0.2 * font_size / 2)]
 
 
+_FLAT = [
+    TranscriptWord(word="HELLO", start=0.0, end=1.0),
+    TranscriptWord(word="WORLD", start=1.0, end=2.0),
+    TranscriptWord(word="NOW", start=2.0, end=3.0),
+]
+
+
+def _rows_of(image: np.ndarray, rgb: tuple[int, int, int]) -> np.ndarray:
+    r, g, b = rgb
+    mask = (image[:, :, 0] == r) & (image[:, :, 1] == g) & (image[:, :, 2] == b)
+    return np.nonzero((mask & (image[:, :, 3] > 0)).any(axis=1))[0]
+
+
+def test_karaoke_word_sits_on_the_line() -> None:
+    # The wiped word used to be lifted by the gap between its ascender line and
+    # its tallest glyph. Capitals have a flat baseline: the filled word and its
+    # neighbours must end on the same row.
+    style = _style(
+        textColor="#ffffff",
+        highlight={"enabled": True, "color": "#ff0000", "animation": "karaoke-fill"},
+    )
+    image = render_caption_image(
+        "HELLO WORLD NOW", 960, 960, style=style, words=_FLAT, frame_time=1.99
+    )
+    red, white = _rows_of(image, (255, 0, 0)), _rows_of(image, (255, 255, 255))
+    assert abs(int(red.max()) - int(white.max())) <= 1
+    assert abs(int(red.min()) - int(white.min())) <= 1
+
+
+def test_pop_scales_the_word_about_its_own_centre() -> None:
+    style = _style(
+        textColor="#ffffff",
+        highlight={"enabled": True, "color": "#ff0000", "animation": "pop", "scale": 1.5},
+    )
+    image = render_caption_image(
+        "HELLO WORLD NOW", 960, 960, style=style, words=_FLAT, frame_time=1.5
+    )
+    red, white = _rows_of(image, (255, 0, 0)), _rows_of(image, (255, 255, 255))
+    red_centre = (int(red.min()) + int(red.max())) / 2
+    white_centre = (int(white.min()) + int(white.max())) / 2
+    assert abs(red_centre - white_centre) <= 2
+    assert red.max() - red.min() > (white.max() - white.min()) * 1.3  # it did grow
+
+
+def test_active_word_is_centred_with_a_chip_that_hugs_it() -> None:
+    # The whole phrase used to be laid out and only the spoken word drawn: the
+    # word slid across the frame inside a chip sized for the phrase.
+    style = _style(
+        display="active-word",
+        textColor="#ffffff",
+        background={"color": "#0000ff", "radius": 0, "paddingX": 0.2, "paddingY": 0.2},
+    )
+    words = [
+        TranscriptWord(word="A", start=0.0, end=1.0),
+        TranscriptWord(word="EXTRAORDINARILY", start=1.0, end=2.0),
+    ]
+    first = render_caption_image(
+        "A EXTRAORDINARILY", 960, 960, style=style, words=words, frame_time=0.5
+    )
+    second = render_caption_image(
+        "A EXTRAORDINARILY", 960, 960, style=style, words=words, frame_time=1.5
+    )
+    assert first.shape == second.shape  # the canvas-size invariant still holds
+
+    def chip_columns(image: np.ndarray) -> np.ndarray:
+        mask = (image[:, :, 2] == 255) & (image[:, :, 0] == 0) & (image[:, :, 3] == 255)
+        return np.nonzero(mask.any(axis=0))[0]
+
+    short, long = chip_columns(first), chip_columns(second)
+    width = first.shape[1]
+    assert abs((short.min() + short.max()) / 2 - width / 2) <= 2
+    assert abs((long.min() + long.max()) / 2 - width / 2) <= 2
+    assert short.max() - short.min() < (long.max() - long.min()) / 3
+
+
 # --- catalog-wide determinism smoke -----------------------------------------
 
 

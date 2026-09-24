@@ -52,6 +52,9 @@ export interface CaptionOverlayProps {
   readonly fontSize?: string;
 }
 
+/** Takes its space in the line without being seen (or read by assistive tech). */
+const HIDDEN_WORD: CSSProperties = { visibility: 'hidden' };
+
 /** Vertical anchor → flex placement, mirroring the compiler's safe areas. */
 const POSITION_CSS: Record<string, CSSProperties> = {
   top: { alignItems: 'flex-start', paddingTop: '8%' },
@@ -109,6 +112,8 @@ export function CaptionOverlay({
     ...(transforms.length > 0 ? { transform: transforms.join(' ') } : {}),
   };
 
+  const oneWord = (resolved.display ?? 'phrase') === 'active-word';
+
   // Walk the flat index alongside the line grouping so visibility/accent/motion
   // stay keyed to the cue's word order, not to a position within its line.
   let flatIndex = 0;
@@ -118,15 +123,34 @@ export function CaptionOverlay({
     line.forEach((word) => {
       const index = flatIndex;
       flatIndex += 1;
-      if (!visible.has(index)) return;
       const motion = captionWordMotion(resolved, word, index, time, blockStart);
-      if (motion.opacity <= 0 || motion.reveal <= 0) return;
+      const shown = visible.has(index) && motion.opacity > 0 && motion.reveal > 0;
+      if (!shown) {
+        // One word at a time is a single centred word: nothing else takes space.
+        if (oneWord) return;
+        // Every other mode keeps a word's place before it appears, as the
+        // export lays out the full phrase once: a build or cascade line must
+        // not re-centre and jump sideways each time a word arrives.
+        if (spans.length > 0) spans.push(<span key={`gap-${index}`}> </span>);
+        spans.push(
+          <span
+            key={index}
+            data-word-state="hidden"
+            // The word's own typography (an accent word is larger) so the
+            // reserved space is the space it will take.
+            style={{
+              ...captionWordCss(resolved, 'upcoming', motion, accented.has(index), time, word),
+              ...HIDDEN_WORD,
+            }}
+          >
+            {word.word}
+          </span>,
+        );
+        return;
+      }
       const state = wordState(word, time);
-      const text =
-        motion.reveal < 1
-          ? word.word.slice(0, Math.ceil(word.word.length * motion.reveal))
-          : word.word;
-      if (text.length === 0) return;
+      const revealed =
+        motion.reveal < 1 ? Math.ceil(word.word.length * motion.reveal) : word.word.length;
       if (spans.length > 0) spans.push(<span key={`gap-${index}`}> </span>);
       spans.push(
         <span
@@ -134,7 +158,11 @@ export function CaptionOverlay({
           data-word-state={state}
           style={captionWordCss(resolved, state, motion, accented.has(index), time, word)}
         >
-          {text}
+          {word.word.slice(0, revealed)}
+          {revealed < word.word.length && (
+            // The untyped rest of a typewriter word still holds its width.
+            <span style={HIDDEN_WORD}>{word.word.slice(revealed)}</span>
+          )}
         </span>,
       );
     });
