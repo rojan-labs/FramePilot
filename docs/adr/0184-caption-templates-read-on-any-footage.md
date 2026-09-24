@@ -63,4 +63,4 @@ the fact. A third of the catalog was set in Inter.
   the two runtime folders (the preview's `public/fonts`, the engine's `render/fonts`).
 - The title tool lists every family, which adds about 227 tokens of tool schema to each agent
   request.
-- The `E2E visual regression` snapshots that show caption tiles need a macOS baseline refresh.
+- The macOS `E2E visual regression` caption snapshots passed unchanged (CI on `c60c2a49`).

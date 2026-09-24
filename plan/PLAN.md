@@ -10160,8 +10160,8 @@ Commercial faces cannot be bundled, so all 70 additions are OFL 1.1 / Apache 2.0
   background (`46c0910d`)
 - [x] CT5 — font picker: each family drawn in its own face, grouped by category, keyboard
   navigation scrolls the long list; guide, changelog, ADR
-- [ ] CT6 — refresh the macOS `E2E visual regression` baselines that show caption tiles (needs a
-  macOS runner snapshot update, not a code change)
+- [x] CT6 — macOS `E2E visual regression` checked on `c60c2a49`: every caption snapshot passes, no
+  baseline refresh needed (the one red is the pre-existing AI-sidebar diff from `deeb6da7`)
 
 Translucent captions (maintainer, same day: "see-through text" + "frosted glass box", reachable
 from AI, panel and templates; [ADR 0185](../docs/adr/0185-see-through-captions-and-frosted-glass.md)):
