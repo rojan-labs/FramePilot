@@ -123,7 +123,7 @@ def test_still_keeps_a_logos_transparency_as_png(tmp_path: Path) -> None:
     assert (body["width"], body["height"]) == (200, 80)
     decoded = _decode(body)
     assert decoded.mode == "RGBA"
-    assert decoded.getpixel((0, 0))[3] == 0
+    assert decoded.getpixel((0, 0)) == (0, 0, 0, 0)
     assert decoded.getpixel((100, 40)) == (200, 40, 40, 255)
 
 
