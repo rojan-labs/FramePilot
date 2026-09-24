@@ -8,9 +8,12 @@ bundled family, weights inside each bucket, and words chosen for their overhangs
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 
 import pytest
+from PIL import features
 
 from framepilot_engine.render import title_metrics as tm
 from framepilot_engine.render.text_overlay import rasterize_text_overlay
@@ -20,6 +23,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 #: rounded to 1/1000 em and ink edges to whole pixels. The fit keeps a 4 % margin each side
 #: of the 92 % safe width, so an under-read this small cannot put a title off the frame.
 MAX_UNDER_READ = 0.025
+#: The most the formula may read WIDER than the raster: rounding on basic layout; kerning and
+#: ligatures ("fl") on shaped layout, where a short word can draw a quarter narrower.
+OVER_READ = 1.03 if not features.check("raqm") else 1.3
 
 
 @pytest.fixture(scope="module")
@@ -27,13 +33,46 @@ def metrics() -> dict[str, object]:
     return tm.build_title_metrics()
 
 
+#: How far a committed glyph metric may sit from a fresh measurement, in 1/1000 em: FreeType
+#: builds can round a glyph edge differently, and 0.2 % of an em never changes a fitted size.
+TABLE_TOLERANCE = 2
+
+
+def _committed_rows(text: str) -> dict[tuple[str, int], list[list[int]]]:
+    """``(family, bucket) -> glyph row`` parsed from the committed TypeScript module."""
+    tables_block = text.split("export const TITLE_GLYPH_TABLES")[1].split("\n];")[0]
+    tables = [
+        json.loads(line.strip().rstrip(","))
+        for line in tables_block.splitlines()
+        if line.strip().startswith("[[")
+    ]
+    faces_block = text.split("export const TITLE_FACES")[1].split("\n};")[0]
+    rows: dict[tuple[str, int], list[list[int]]] = {}
+    for family, *indices in re.findall(
+        r'^\s*("[^"]*"): \[(\d+), (\d+), (\d+)\]', faces_block, re.M
+    ):
+        for bucket, index in enumerate(indices):
+            rows[(json.loads(family), bucket)] = tables[int(index)]
+    return rows
+
+
 def test_the_committed_table_is_what_the_fonts_measure(metrics: dict[str, object]) -> None:
-    committed = (REPO_ROOT / tm.OUTPUT).read_text()
-    expected = tm.render_title_metrics_ts(metrics, tm.reference_widths())
-    assert committed == expected, (
-        "packages/ai-sdk/src/title-metrics.generated.ts is stale: run "
-        "`uv run python -m framepilot_engine.render.title_metrics` from engine/python."
-    )
+    # Row by row, within rounding: dedup indices may differ between builds, and the reference
+    # widths below the marker are the generating machine's (see the module's PLATFORM note).
+    committed = _committed_rows((REPO_ROOT / tm.OUTPUT).read_text())
+    tables = metrics["tables"]
+    faces = metrics["faces"]
+    assert isinstance(tables, list) and isinstance(faces, dict)
+    stale = "run `uv run python -m framepilot_engine.render.title_metrics` from engine/python"
+    assert set(committed) == {(f, b) for f in faces for b in range(len(tm.WEIGHT_BUCKETS))}, stale
+    for (family, bucket), row in committed.items():
+        fresh = tables[faces[family][bucket]]
+        worst = max(
+            abs(a - b)
+            for got, want in zip(row, fresh, strict=True)
+            for a, b in zip(got, want, strict=True)
+        )
+        assert worst <= TABLE_TOLERANCE, (family, bucket, worst, stale)
 
 
 def _predict(
@@ -70,9 +109,10 @@ def test_the_formula_predicts_the_drawn_width(metrics: dict[str, object], weight
                 drawn = rasterize_text_overlay(word, style, *tm.REFERENCE_FRAME).shape[1]
                 predicted = _predict(metrics, family, weight, word, size)
                 worst = min(worst, (predicted - drawn) / drawn)
-                # Exact weights read within rounding in BOTH directions: a gross over-read
-                # would shrink titles for nothing, which is the other bug this replaced.
-                assert predicted <= drawn * 1.03 + 2, (family, weight, word, size)
+                # Within rounding in BOTH directions on basic layout: a gross over-read would
+                # shrink titles for nothing, the other bug this replaced. Shaped layout (libraqm,
+                # the Linux wheels) kerns and ligates narrower than the summed advances.
+                assert predicted <= drawn * OVER_READ + 2, (family, weight, word, size, drawn)
     assert worst >= -MAX_UNDER_READ
 
 

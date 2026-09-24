@@ -86,7 +86,7 @@ export const TITLE_FACES: Readonly<Record<string, readonly [number, number, numb
   "Space Mono": [46, 46, 46]
 };
 
-/** Widths the export's rasterizer drew, for the TS arithmetic to be checked against. */
+/** Widths the export's rasterizer drew on the machine that generated this file (the desktop), for the TS arithmetic to be checked against. */
 export const TITLE_REFERENCE_FRAME = { width: 1080, height: 1920 };
 export const TITLE_REFERENCE_WIDTHS: readonly {
   readonly family: string;

@@ -21,6 +21,13 @@ Pillow's basic layout does not apply)::
 ``python -m framepilot_engine.render.title_metrics`` writes the table to
 ``packages/ai-sdk/src/title-metrics.generated.ts``; ``tests/test_title_metrics.py`` fails when
 the committed table no longer matches the fonts, and checks the formula against the rasterizer.
+
+PLATFORM. Glyphs are measured with Pillow's BASIC layout on every machine, so the table is the
+same wherever it is generated. The rasterizer uses whatever layout Pillow was built with: the
+macOS wheels the desktop ships draw with basic layout (the formula is exact to rounding there);
+Linux wheels carry libraqm, whose kerning and ligatures ("fl") draw a little NARROWER than the
+summed advances — the direction a fit can afford. The reference widths are the desktop's own,
+written by whoever regenerates the file; they are data for the TS test, not drift-checked.
 """
 
 from __future__ import annotations
@@ -32,7 +39,11 @@ from typing import Any
 
 from PIL import ImageFont
 
-from framepilot_engine.render.captions import _font_manifest, _load_font
+from framepilot_engine.render.captions import (
+    _bundled_font_path,
+    _font_manifest,
+    _set_weight_axis,
+)
 from framepilot_engine.render.text_overlay import rasterize_text_overlay
 
 #: The glyphs measured: printable ASCII. Anything else is charged a full em by the fit.
@@ -47,15 +58,33 @@ DEFAULT_FACE = ""
 OUTPUT = Path("packages/ai-sdk/src/title-metrics.generated.ts")
 #: Words whose drawn widths ride along for the TS side to check its arithmetic against.
 REFERENCE_WORDS = ("MOTION", "WAIT", "jig", "Behind", "SUBSCRIBE", "100%")
+#: Opens the reference-widths section of the generated file. Everything above it is the table,
+#: which the drift test compares on any platform; the widths below are the generating machine's.
+REFERENCE_MARKER = (
+    "/** Widths the export's rasterizer drew on the machine that generated this file (the "
+    "desktop), for the TS arithmetic to be checked against. */"
+)
 #: The frame the reference widths are drawn in, and the sizes, as percents of its height.
 REFERENCE_FRAME = (1080, 1920)
 REFERENCE_SIZES = (6.0, 15.0)
 
 
 def _face(family: str, weight: int) -> Any:
+    """The face the export draws ``family`` with, opened with BASIC layout (see PLATFORM)."""
+    basic = ImageFont.Layout.BASIC
     if family == DEFAULT_FACE:
-        return ImageFont.load_default(size=REFERENCE_SIZE)
-    return _load_font(family, REFERENCE_SIZE, weight)
+        default = ImageFont.load_default(size=REFERENCE_SIZE)
+        if not isinstance(default, ImageFont.FreeTypeFont):  # pragma: no cover - Pillow < 10.1
+            raise TypeError("Pillow's default face must be a TrueType font to be measured.")
+        return default.font_variant(layout_engine=basic)
+    bundled = _bundled_font_path(family, weight, False)
+    if bundled is None:  # pragma: no cover - the manifest lists only bundled families
+        raise ValueError(f"{family!r} is in the font manifest but not bundled.")
+    path, is_variable = bundled
+    font = ImageFont.truetype(path, REFERENCE_SIZE, layout_engine=basic)
+    if is_variable:
+        _set_weight_axis(font, weight)
+    return font
 
 
 def _glyph_row(font: Any) -> list[list[int]]:
@@ -150,7 +179,7 @@ def render_title_metrics_ts(metrics: dict[str, Any], cases: list[dict[str, Any]]
         f"{faces}\n"
         "};\n"
         "\n"
-        "/** Widths the export's rasterizer drew, for the TS arithmetic to be checked against. */\n"
+        f"{REFERENCE_MARKER}\n"
         "export const TITLE_REFERENCE_FRAME = "
         f"{{ width: {frame_width}, height: {frame_height} }};\n"
         "export const TITLE_REFERENCE_WIDTHS: readonly {\n"
