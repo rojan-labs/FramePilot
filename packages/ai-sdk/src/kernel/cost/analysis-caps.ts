@@ -155,6 +155,8 @@ const FFMPEG_BACKED_TOOLS: ReadonlySet<string> = new Set([
   'get_frame',
   'measure_color',
   'measure_subject',
+  // Two composited frames per sampled cue, through the same compositor as get_frame.
+  'check_caption_legibility',
 ]);
 
 /** Which capped resource this call spends, or `null` when it spends neither. */

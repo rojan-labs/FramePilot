@@ -3287,6 +3287,7 @@ export function summarizeReadResult(
         'the project now — read them with get_transcript (the full list is not repeated here)'
       );
     }
+    case 'check_caption_legibility':
     case 'measure_subject': {
       // Geometry the model places text by: the host already wrote it as lines (head, face
       // band, width per band, the title answer). A JSON slice would cut the band list and

@@ -1,7 +1,7 @@
 ---
 name: caption-design
 description: Create synchronized, readable, consistent captions from mapped transcript evidence, then choose an appropriate template and verify committed cue timing.
-tools: [get_mapped_transcript, get_timeline, discover_caption_styles, caption_the_edit, add_caption_layer, auto_emphasize_captions, set_track_caption_style, set_caption_style, verify_captions, get_frame, measure_subject]
+tools: [get_mapped_transcript, get_timeline, discover_caption_styles, caption_the_edit, add_caption_layer, auto_emphasize_captions, set_track_caption_style, set_caption_style, verify_captions, check_caption_legibility, get_frame, measure_subject]
 ---
 
 # Caption design
@@ -42,7 +42,8 @@ Synchronization and legibility outrank novelty. Style supports comprehension; it
   the platform UI zone. When the speaker's clip has its background removed,
   `measure_subject` gives the top of the head and the shoulder line; otherwise `get_frame` on
   the tightest shot and read where the face is before choosing the track's y placement.
-- Use strong contrast and an outline on uncontrolled footage.
+- Use strong contrast and an outline on uncontrolled footage. A light, un-outlined caption
+  over a light shirt, wall or sky does not read, however well it is timed.
 - Choose energetic one-word/build families for punchy shorts, karaoke/phrase families for readable emphasis, and restrained editorial/broadcast looks for long-form.
 - Choose one entrance/emphasis motion language. Do not stack per-word animation, cue entrance/exit, a continuous loop, thick outline, background box, and multiple accent colours unless the editor explicitly asks for that maximal style.
 - Custom colours, placement, outline/background strength, and scale require representative preview evidence. `get_frame` is how you obtain it: render a cue over the real footage and LOOK at it. Without that evidence, use a restrained catalog template and report the look as visually unreviewed.
@@ -50,7 +51,7 @@ Synchronization and legibility outrank novelty. Style supports comprehension; it
 
 ## Decision framework
 
-Confirm current mapping → choose the `caption_the_edit` preset (short-form, subtitle, one-word) → write the cues → discover the design catalog → select semantic anchors and compose the track → add intentional cue overrides → `verify_captions` for timing → `get_frame` for legibility → fix what the frame shows.
+Confirm current mapping → choose the `caption_the_edit` preset (short-form, subtitle, one-word) → write the cues → discover the design catalog → select semantic anchors and compose the track → add intentional cue overrides → `verify_captions` for timing → `check_caption_legibility` for contrast against the footage → `get_frame` for placement → fix what they show.
 
 ## Common mistakes
 
@@ -63,6 +64,8 @@ reads committed state and can only prove the cues are where the words are; it ca
 that they are unreadable, off the bottom of the frame, or sitting on someone's face.
 
 - Run `verify_captions` after all caption changes.
+- Run `check_caption_legibility`. Every cue under 3:1 needs the track fixed once for all cues
+  (an outline, a background box, or a text colour far from the picture), then a re-check.
 - Cue count and density are plausible for the transcript; no paragraph-sized or full-duration fallback block remains.
 - No cue is stale, outside the sequence, or spans an edit discontinuity.
 - Then LOOK. Call `get_frame` on at least two cues over DIFFERENT backgrounds — the busiest shot and a typical one — and confirm from the image itself:

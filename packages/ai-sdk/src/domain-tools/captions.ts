@@ -31,7 +31,7 @@ import {
 } from '@framepilot/editor-core';
 import type { ToolSpec } from '../tool-registry.js';
 import { DEFAULT_CAPTION_TOLERANCE_SECONDS, verifyCaptions } from '../verify.js';
-import { mutateTool, readTool } from './tool-factories.js';
+import { analysisTool, mutateTool, readTool } from './tool-factories.js';
 import { ToolRefusalError } from '../tool-refusal.js';
 import {
   CAPTION_STYLE_UNITS,
@@ -323,7 +323,32 @@ const autoEmphasizeCaptionsSchema = z
  * long transcript can be re-opened around a phrase instead of wholesale.
  */
 
+/** The most cues one legibility check samples: each is two composited frames. */
+const MAX_LEGIBILITY_SAMPLES = 8;
+
+const CheckCaptionLegibilityArgsSchema = z
+  .object({
+    /** Timeline seconds to check; omit to sample cues spread over the edit. */
+    times: z.array(seconds).min(1).max(MAX_LEGIBILITY_SAMPLES).optional(),
+    samples: numeric(z.number().int().min(1).max(MAX_LEGIBILITY_SAMPLES)).optional(),
+  })
+  .strict();
+
 export const CAPTION_TOOLS: readonly ToolSpec[] = [
+  analysisTool(
+    {
+      name: 'check_caption_legibility',
+      description:
+        'Measure whether the captions READ against the footage they are burned over: for ' +
+        'cues spread over the edit (or the times you give), the contrast of the letters ' +
+        'against what immediately surrounds them — outline, box, shadow or bare picture — ' +
+        'in the delivered frame. Under 3:1 does not read at a glance. Run it after styling ' +
+        'captions and again after fixing; takes up to a minute. Measures; never edits.',
+      capabilities: ['captions'],
+      hostUiOnly: true,
+    },
+    CheckCaptionLegibilityArgsSchema,
+  ),
   readTool(
     {
       name: 'verify_captions',
@@ -340,9 +365,9 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         're-derives every cue from the current timeline in one call — do not delete and ' +
         're-add cues one at a time. It checks timing, plus two things about the LOOK it ' +
         'can compute: a chip or shadow whose numbers are in the wrong unit ' +
-        '(caption_chip_oversize) and a cue too short to read (caption_too_short). It ' +
-        'cannot see whether a cue is legible against the footage, clipped by the frame ' +
-        'edge, or sitting on a face.',
+        '(caption_chip_oversize) and a cue too short to read (caption_too_short). Whether a ' +
+        'cue reads against the footage is check_caption_legibility; clipped by the frame ' +
+        'edge or sitting on a face is a look with get_frame.',
       capabilities: ['captions'],
     },
     z.object({ toleranceSeconds: seconds.optional() }).strict(),
@@ -402,8 +427,12 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
           suggestedWordsPerLine: template.suggestedWordsPerLine,
           fontFamily: template.style.fontFamily,
           display: template.style.display,
-          ...(template.style.fontScale !== undefined ? { fontScale: template.style.fontScale } : {}),
-          ...(template.style.textColor !== undefined ? { textColor: template.style.textColor } : {}),
+          ...(template.style.fontScale !== undefined
+            ? { fontScale: template.style.fontScale }
+            : {}),
+          ...(template.style.textColor !== undefined
+            ? { textColor: template.style.textColor }
+            : {}),
           ...(template.style.background !== undefined
             ? { background: template.style.background }
             : {}),

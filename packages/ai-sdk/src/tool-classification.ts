@@ -124,6 +124,9 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   professional_audio: { role: 'mutation', scope: 'timeline_dependent' },
   measure_color: { role: 'analysis', scope: 'timeline_dependent' },
   measure_subject: { role: 'analysis', scope: 'timeline_dependent' },
+  // A look at the run's OWN captions, like `verify_captions`: an inspection, reachable in
+  // every stage, because it is only ever useful after the captions exist.
+  check_caption_legibility: { role: 'inspection', scope: 'timeline_dependent' },
   // --- analysisTool: sidecar/ffmpeg-backed reads of the SOURCE MEDIA -------------------
   // These analyze assets, not the arrangement, so a cut cannot invalidate them. This is
   // the group whose absence caused the re-analysis loop.

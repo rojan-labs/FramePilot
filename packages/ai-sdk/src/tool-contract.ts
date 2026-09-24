@@ -229,6 +229,15 @@ export const TOOL_CONTRACT_DECLARATIONS: Readonly<Record<string, ToolContract>> 
     stateDependency: 'project_revision',
     cacheScope: 'none',
   },
+  // Renders the captioned edit at THIS revision; a restyle or a recaption changes the answer.
+  check_caption_legibility: {
+    executionPlane: 'host',
+    effectClass: 'pure_read',
+    permissions: ['analysis'],
+    concurrency: 'parallel',
+    stateDependency: 'project_revision',
+    cacheScope: 'none',
+  },
   // `search_media` is the same defect as `get_frame` above, arrived at from the other
   // side: it reads the BIN, and `Timeline.revision` is not a bin counter either.
   //

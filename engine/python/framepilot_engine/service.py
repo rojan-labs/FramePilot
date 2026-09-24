@@ -264,6 +264,19 @@ from framepilot_engine.media.derive import PROXY_ENCODE_VERSION, generate_proxy,
 from framepilot_engine.media.ffmpeg import FFmpegError, NoAudioStreamError
 from framepilot_engine.media.probe import MediaInfo, inspect_media
 from framepilot_engine.media.waveform import extract_waveform
+from framepilot_engine.render.caption_legibility import (
+    DEFAULT_SAMPLES as CAPTION_LEGIBILITY_DEFAULT_SAMPLES,
+)
+from framepilot_engine.render.caption_legibility import (
+    LEGIBLE_CONTRAST as CAPTION_LEGIBLE_CONTRAST,
+)
+from framepilot_engine.render.caption_legibility import (
+    MAX_SAMPLES as CAPTION_LEGIBILITY_MAX_SAMPLES,
+)
+from framepilot_engine.render.caption_legibility import (
+    CaptionLegibilityError,
+    check_caption_legibility,
+)
 from framepilot_engine.render.export_settings import ExportSettings
 from framepilot_engine.render.frame_grab import (
     DEFAULT_MAX_DIMENSION,
@@ -1039,6 +1052,52 @@ class SubjectLayoutRequest(AnalysisProjectSource):
         alias="textStyle",
         description="The title's `text` effect params (fontSizePercent, boxWidthPercent, ...).",
     )
+
+    model_config = {"populate_by_name": True}
+
+
+class CaptionLegibilityRequest(AnalysisProjectSource):
+    """Request body for ``POST /review/caption-legibility`` — do the captions read?
+
+    Inline project like ``/render/frame``: the working copy the agent has been captioning.
+    """
+
+    times: list[float] | None = Field(
+        default=None,
+        max_length=CAPTION_LEGIBILITY_MAX_SAMPLES,
+        description="Timeline seconds to check; default: cues spread over the edit.",
+    )
+    samples: int = Field(
+        default=CAPTION_LEGIBILITY_DEFAULT_SAMPLES,
+        ge=1,
+        le=CAPTION_LEGIBILITY_MAX_SAMPLES,
+        description="Cues to sample when no times are given.",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class CaptionCueLegibilityPayload(BaseModel):
+    """One sampled cue: how far its letters stand off what is behind them."""
+
+    time: float
+    clip_id: str = Field(alias="clipId")
+    text: str
+    #: WCAG contrast ratio of the letters' fill to their surround; ``None`` = nothing drawn.
+    contrast: float | None
+    fill_luminance: float | None = Field(alias="fillLuminance")
+    surround_luminance: float | None = Field(alias="surroundLuminance")
+    box: tuple[float, float, float, float] | None
+    legible: bool
+
+    model_config = {"populate_by_name": True}
+
+
+class CaptionLegibilityResponse(BaseModel):
+    """Every sampled cue, and the contrast a cue needs to read at a glance."""
+
+    threshold: float
+    cues: list[CaptionCueLegibilityPayload]
 
     model_config = {"populate_by_name": True}
 
@@ -6587,6 +6646,41 @@ def create_app(
                     resized_from=resized_from,
                 )
             ),
+        )
+
+    @app.post("/review/caption-legibility", response_model=CaptionLegibilityResponse)
+    def caption_legibility_route(req: CaptionLegibilityRequest) -> CaptionLegibilityResponse:
+        """How well each sampled caption reads against the picture it is burned over.
+
+        Renders each cue with and without captions through the export's compositor and
+        measures the contrast of the letters against what immediately surrounds them —
+        outline, box, shadow or bare picture. Measures; never edits.
+        """
+        project, media_base, label = resolve_project_source(req)
+        try:
+            checked = check_caption_legibility(
+                project, media_base, times=req.times, samples=req.samples
+            )
+        except CaptionLegibilityError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        except FrameGrabError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        _log.info("ACT caption legibility served: cues=%d source=%s", len(checked), label)
+        return CaptionLegibilityResponse(
+            threshold=CAPTION_LEGIBLE_CONTRAST,
+            cues=[
+                CaptionCueLegibilityPayload(
+                    time=cue.time,
+                    clip_id=cue.clip_id,
+                    text=cue.text,
+                    contrast=cue.contrast,
+                    fill_luminance=cue.fill_luminance,
+                    surround_luminance=cue.surround_luminance,
+                    box=cue.box,
+                    legible=cue.legible,
+                )
+                for cue in checked
+            ],
         )
 
     @app.post("/preview/text-raster", response_model=PreviewTextRasterResponse)

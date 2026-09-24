@@ -12,7 +12,12 @@ import { applyOperation, type Operation } from '@framepilot/editor-core';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import { getTool } from './tool-registry.js';
 import type { ToolContext } from './tool-context.js';
-import { subjectLayoutBody, unwrapSubjectLayout } from './sidecar-executor.js';
+import {
+  planSidecarCall,
+  subjectLayoutBody,
+  unwrapCaptionLegibility,
+  unwrapSubjectLayout,
+} from './sidecar-executor.js';
 import { isMeasuredFont, largestFittingSizePercent, titleDrawnWidthPx } from './overlay-fit.js';
 import { TITLE_REFERENCE_FRAME, TITLE_REFERENCE_WIDTHS } from './title-metrics.generated.js';
 import { verifyTransitions } from './verify.js';
@@ -349,5 +354,91 @@ describe('the buried-picture check and a cut-out sandwich', () => {
       },
     };
     expect(hiddenPictureClips(sandwich).map((clip) => clip.clipId)).not.toContain('talk_1');
+  });
+});
+
+describe('check_caption_legibility — captions that do not read are named, with the fix', () => {
+  it('asks the engine about the working copy, and only for the times given', () => {
+    const plan = planSidecarCall(
+      { id: 'c1', name: 'check_caption_legibility', arguments: { times: [2, 11] } },
+      { project: talkingHead() },
+    );
+    expect(plan?.route).toBe('/review/caption-legibility');
+    expect(plan?.body).toMatchObject({ times: [2, 11] });
+    expect((plan?.body as { project: unknown }).project).toBeDefined();
+  });
+
+  it('puts the cues that do not read first and says how to fix them on the track', () => {
+    // The captured short: off-white letters on a cream shirt, then fine over the b-roll.
+    const outcome = unwrapCaptionLegibility({
+      threshold: 3,
+      cues: [
+        {
+          time: 10.7,
+          clipId: 'cue_b',
+          text: 'Hi, my name is Shamra',
+          contrast: 4.8,
+          fillLuminance: 0.88,
+          surroundLuminance: 0.11,
+          legible: true,
+        },
+        {
+          time: 0.5,
+          clipId: 'cue_a',
+          text: 'Today we are\ntalking',
+          contrast: 1.31,
+          fillLuminance: 0.7,
+          surroundLuminance: 0.52,
+          legible: false,
+        },
+        {
+          time: 30,
+          clipId: '',
+          text: '',
+          contrast: null,
+          fillLuminance: null,
+          surroundLuminance: null,
+          legible: false,
+        },
+      ],
+    });
+    expect(outcome.status).toBe('completed');
+    expect(outcome.summary).toBe('1 of 2 sampled caption(s) do not read against the picture');
+    const reading = (outcome.data as { reading: string }).reading;
+    const lines = reading.split('\n');
+    expect(lines[1]).toContain('cue_a "Today we are talking": 1.3:1');
+    expect(lines[1]).toContain('does NOT read');
+    expect(reading).toContain('30s: no caption was drawn there');
+    expect(reading).toContain('outlineColor');
+    expect(reading).toContain('background');
+  });
+
+  it('says plainly when every sampled cue reads', () => {
+    const outcome = unwrapCaptionLegibility({
+      threshold: 3,
+      cues: [
+        {
+          time: 1,
+          clipId: 'c',
+          text: 'ok',
+          contrast: 9,
+          fillLuminance: 0.9,
+          surroundLuminance: 0.05,
+          legible: true,
+        },
+      ],
+    });
+    expect(outcome.summary).toBe('All 1 sampled caption(s) read against the picture');
+    // Just under the bar never prints as the bar.
+    const edge = unwrapCaptionLegibility({
+      threshold: 3,
+      cues: [{ time: 1, clipId: 'c', text: 'x', contrast: 2.996, legible: false }],
+    });
+    expect((edge.data as { reading: string }).reading).toContain('2.9:1');
+    expect((outcome.data as { reading: string }).reading).not.toContain('Fix it');
+  });
+
+  it('refuses an answer without its cues', () => {
+    expect(unwrapCaptionLegibility({ threshold: 3 }).status).toBe('failed');
   });
 });

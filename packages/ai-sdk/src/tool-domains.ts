@@ -172,6 +172,7 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'set_track_caption_style',
     'auto_emphasize_captions',
     'verify_captions',
+    'check_caption_legibility',
     'discover_caption_styles',
   ],
   audio: [

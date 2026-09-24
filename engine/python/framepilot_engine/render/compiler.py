@@ -1717,6 +1717,34 @@ def baseline_caption_position(
     )
 
 
+def caption_overlay_frames(
+    project: Project, target: tuple[int, int], times: Sequence[float]
+) -> list[np.ndarray]:
+    """The burned-in captions ALONE, over black, at each of ``times``.
+
+    The same layers :func:`compile_timeline` composites when ``burn_captions`` is on, at the
+    same frame size, with no picture beneath them — so a caller can tell which pixels of a
+    delivered frame are caption without compiling the picture a second time
+    (``render/caption_legibility.py``). Blend modes are not applied: this answers WHERE the
+    captions are drawn, not how they mix with a picture that is not there.
+
+    :param project: The project whose caption tracks are drawn.
+    :param target: ``(width, height)`` of the delivered frame.
+    :param times: Timeline seconds to draw.
+    :returns: One ``(height, width, 3)`` ``uint8`` frame per time.
+    """
+    from moviepy import ColorClip, CompositeVideoClip
+
+    layers = [layer for layer, _mode in _caption_layers(project, target)]
+    duration = max([timeline_duration(project.timeline), *(t + 1.0 for t in times)])
+    base = ColorClip(size=target, color=(0, 0, 0), duration=duration)
+    composite = CompositeVideoClip([base, *layers], size=target, bg_color=(0, 0, 0))
+    try:
+        return [np.asarray(composite.get_frame(float(t)), dtype=np.uint8)[..., :3] for t in times]
+    finally:
+        close_clip_tree(composite)
+
+
 def _caption_layers(project: Project, target: tuple[int, int]) -> list[tuple[Any, str | None]]:
     target_w, target_h = target
     margin = int(target_h * _CAPTION_BOTTOM_MARGIN_FRACTION)

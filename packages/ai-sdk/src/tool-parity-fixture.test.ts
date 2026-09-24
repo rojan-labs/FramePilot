@@ -54,6 +54,7 @@ describe('tool-parity fixture', () => {
         // Need live editor interaction state (selection, playhead, source monitor).
         'measure_color',
         'measure_subject',
+        'check_caption_legibility',
         'professional_color',
         'professional_audio',
         'professional_edit',

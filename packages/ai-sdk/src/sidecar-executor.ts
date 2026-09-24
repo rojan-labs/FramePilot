@@ -58,6 +58,7 @@ const UNIFIED_KIND: Record<string, string> = {
 const UNIFIED_ROUTE = '/analyze';
 /** Where a cut-out subject sits on the frame (`masking/subject_layout.py`). */
 const SUBJECT_LAYOUT_ROUTE = '/analyze/subject-layout';
+const CAPTION_LEGIBILITY_ROUTE = '/review/caption-legibility';
 
 /** Brain-backed searches (plan B2.2/B3.3) — reads, but the index lives sidecar-side.
  *  Both take `{ query, limit? }` and return the same hit shape; `find_similar`
@@ -161,6 +162,9 @@ const TOOL_TIMEOUT_MS: Record<string, number> = {
   search_visual: 300_000,
   // Whole-file speech recognition; an hour of audio is a legitimate wait.
   transcribe: 900_000,
+  // Two compositions (with and without captions) compiled cold on a long edit, then two
+  // frames per sampled cue. ~20 s warm and ~60 s cold on the captured 50 s short.
+  check_caption_legibility: 240_000,
 };
 
 /** The abort ceiling for one call: the tool's own budget, else the default. */
@@ -931,6 +935,61 @@ export function unwrapSubjectLayout(data: unknown): HostToolOutcome {
   };
 }
 
+/**
+ * A contrast ratio the way a designer reads one: `2.3:1`. Rounded DOWN, so a cue just under
+ * the threshold never prints as the threshold ("3.0:1 — does NOT read").
+ */
+const ratio = (value: number): string => `${(Math.floor(value * 10) / 10).toFixed(1)}:1`;
+
+/**
+ * Turn a caption legibility answer into what the model reads: each sampled cue's contrast
+ * against what surrounds its letters, the ones that do not read named first, and the fix in
+ * the style tool's own vocabulary — because "the captions look fine" was the captured run's
+ * claim over off-white letters on a cream shirt.
+ */
+export function unwrapCaptionLegibility(data: unknown): HostToolOutcome {
+  const record = (data ?? {}) as Record<string, unknown>;
+  const cues = Array.isArray(record.cues) ? (record.cues as Record<string, unknown>[]) : undefined;
+  const threshold = typeof record.threshold === 'number' ? record.threshold : undefined;
+  if (cues === undefined || threshold === undefined) {
+    return {
+      status: 'failed',
+      summary: unreadableEngineAnswer('the caption legibility answer came back without its cues'),
+    };
+  }
+  const measured = cues.filter((cue) => typeof cue.contrast === 'number');
+  const low = measured.filter((cue) => cue.legible !== true);
+  const line = (cue: Record<string, unknown>): string =>
+    `- ${String(cue.time)}s ${String(cue.clipId)} "${String(cue.text ?? '').replace(/\n/g, ' ')}": ` +
+    `${ratio(cue.contrast as number)} (letters ${pct(cue.fillLuminance)} bright against ` +
+    `${pct(cue.surroundLuminance)} around them)`;
+  const lines = [
+    `Checked ${String(cues.length)} cue(s) against the picture behind them; ${ratio(threshold)} ` +
+      'or more reads at a glance.',
+    ...low.map((cue) => `${line(cue)} — does NOT read`),
+    ...measured.filter((cue) => cue.legible === true).map(line),
+    ...cues
+      .filter((cue) => typeof cue.contrast !== 'number')
+      .map((cue) => `- ${String(cue.time)}s: no caption was drawn there`),
+  ];
+  if (low.length > 0) {
+    lines.push(
+      'Fix it on the track, once, for every cue: an outline (set_track_caption_style ' +
+        'outlineColor dark and outlineWidth like the outlined templates, 2) or a background ' +
+        'box (background.color), or a text colour far from the picture behind it. Then check ' +
+        'again.',
+    );
+  }
+  return {
+    status: 'completed',
+    summary:
+      low.length === 0
+        ? `All ${String(measured.length)} sampled caption(s) read against the picture`
+        : `${String(low.length)} of ${String(measured.length)} sampled caption(s) do not read against the picture`,
+    data: { ...record, reading: lines.join('\n') },
+  };
+}
+
 /** Request body for `POST /render/frame` — the working document plus what to grab. */
 export function frameBody(
   project: Project,
@@ -1435,6 +1494,17 @@ export function planSidecarCall(
       route: VISUAL_FOOTAGE_MAP_ROUTE,
       body: footageMapBody(project, args, credentials),
       interpret: unwrapFootageMap,
+    };
+  }
+  if (name === 'check_caption_legibility') {
+    return {
+      route: CAPTION_LEGIBILITY_ROUTE,
+      body: {
+        project,
+        ...(Array.isArray(args.times) ? { times: args.times } : {}),
+        ...(typeof args.samples === 'number' ? { samples: args.samples } : {}),
+      },
+      interpret: unwrapCaptionLegibility,
     };
   }
   if (name === 'measure_subject') {
