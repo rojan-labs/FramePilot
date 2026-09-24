@@ -24,6 +24,17 @@ resolves them for the render, so what the preview shows is what exports:
 * ``xPercent`` / ``yPercent`` — the box CENTRE, as a percentage of each axis with
   the origin top-left (the preview anchors with ``translate(-50%, -50%)``).
 * ``background`` — an optional filled box behind the text.
+* ``fontFamily`` / ``fontWeight`` — a bundled caption family (``render/fonts``) and its weight.
+  Absent, the title keeps Pillow's bundled default font, so a project that never chose a
+  family renders exactly as it always did.
+
+WHY THE FONT IS HONOURED (2026-09-24). The Inspector and the browser preview have always drawn
+a title in its ``fontFamily``/``fontWeight`` (``overlay-painter.ts``: ``ctx.font``), and the
+web editor stores ``Inter`` 700 on every new title — while this module ignored both and drew
+Pillow's default face. The export and the desktop monitor (which rasterizes through this same
+function) therefore showed a different, plainer typeface than the one chosen: the "MOTION"
+title of the captured 2026-09-23 runs was an unstyled default font on a short that had
+designed caption fonts everywhere else.
 
 Position is applied by the compiler (it owns placement); everything else is
 resolved and drawn here.
@@ -49,7 +60,7 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from framepilot_engine.render.captions import wrap_lines
+from framepilot_engine.render.captions import _load_font, wrap_lines
 
 # Text overlay occupies at most this fraction of the frame width (safe area).
 _MAX_WIDTH_FRACTION = 0.85
@@ -61,6 +72,11 @@ _MIN_FONT_SIZE = 16
 _DEFAULT_BOX_WIDTH_PERCENT = 80.0
 _ALIGNMENTS = frozenset({"left", "center", "right"})
 _DEFAULT_COLOR: tuple[int, int, int, int] = (255, 255, 255, 255)
+#: A title's weight when a family is named without one — the web editor's default
+#: (``DEFAULT_TEXT_PARAMS.fontWeight``), so a family chosen in the Inspector exports as shown.
+_DEFAULT_TITLE_WEIGHT = 700
+_MIN_WEIGHT = 100
+_MAX_WEIGHT = 900
 _OUTLINE_COLOR: tuple[int, int, int, int] = (0, 0, 0, 255)
 
 _Font = ImageFont.FreeTypeFont | ImageFont.ImageFont
@@ -131,6 +147,9 @@ class TextOverlayLayout:
     centre_x: float
     centre_y: float
     background: tuple[int, int, int, int] | None
+    #: A bundled family name, or ``None`` for Pillow's default face.
+    font_family: str | None = None
+    font_weight: int = _DEFAULT_TITLE_WEIGHT
 
 
 def _percent(value: Any, fallback: float) -> float:
@@ -157,6 +176,13 @@ def text_overlay_layout(
     box_percent = _percent(params.get("boxWidthPercent"), _DEFAULT_BOX_WIDTH_PERCENT)
     box_width = max(1, int(frame_width * min(max(box_percent, 1.0), 100.0) / 100.0))
     background = params.get("background")
+    family = params.get("fontFamily")
+    weight = params.get("fontWeight")
+    font_weight = (
+        int(min(max(float(weight), _MIN_WEIGHT), _MAX_WEIGHT))
+        if isinstance(weight, int | float) and not isinstance(weight, bool)
+        else _DEFAULT_TITLE_WEIGHT
+    )
     return TextOverlayLayout(
         font_size=font_size,
         color=color,
@@ -165,6 +191,8 @@ def text_overlay_layout(
         centre_x=frame_width * _percent(params.get("xPercent"), 50.0) / 100.0,
         centre_y=frame_height * _percent(params.get("yPercent"), 50.0) / 100.0,
         background=_color_from_param(background) if isinstance(background, str) else None,
+        font_family=family.strip() if isinstance(family, str) and family.strip() else None,
+        font_weight=font_weight,
     )
 
 
@@ -178,6 +206,8 @@ def render_text_overlay_image(
     max_width: int | None = None,
     align: str = "center",
     background: tuple[int, int, int, int] | None = None,
+    font_family: str | None = None,
+    font_weight: int = _DEFAULT_TITLE_WEIGHT,
 ) -> np.ndarray:
     """Rasterize ``text`` into a tight RGBA overlay image (transparent background).
 
@@ -194,6 +224,9 @@ def render_text_overlay_image(
     :param max_width: Wrap width in pixels; defaults to the frame's safe-area fraction.
     :param align: ``left`` / ``center`` / ``right`` within the wrapped block.
     :param background: RGBA fill for a box behind the text, or ``None`` for no box.
+    :param font_family: A bundled family (``render/fonts``); ``None`` draws Pillow's default
+        face. An unknown family falls back to that default with a warning, never a failure.
+    :param font_weight: The weight a variable family is set to (100-900).
     :returns: An ``(H, W, 4)`` ``uint8`` RGBA array sized to the wrapped text.
     :raises ValueError: If ``text`` is empty/whitespace.
     """
@@ -201,7 +234,11 @@ def render_text_overlay_image(
         raise ValueError("Cannot render an empty text overlay.")
 
     size = font_size if font_size is not None else _font_size_for(frame_height)
-    font = ImageFont.load_default(size=size)
+    font = (
+        _load_font(font_family, size, font_weight)
+        if font_family is not None
+        else ImageFont.load_default(size=size)
+    )
     max_text_width = (
         max(1, max_width) if max_width is not None else int(frame_width * _MAX_WIDTH_FRACTION)
     )
@@ -267,4 +304,6 @@ def rasterize_text_overlay(
         max_width=layout.box_width,
         align=layout.align,
         background=layout.background,
+        font_family=layout.font_family,
+        font_weight=layout.font_weight,
     )
