@@ -318,14 +318,30 @@ export function supportsVision(
   model: string | undefined,
 ): boolean {
   if (provider === 'mock') return true;
-  // The model can see; the transport cannot carry a picture. The Claude Agent SDK takes a
-  // string prompt, which has nowhere to put an image block, so every frame this SDK
-  // attached would be dropped on the floor — and the model would then describe footage it
-  // never saw, which is exactly the hallucination VISION_MODEL_PREFIXES exists to prevent.
-  // Gating on the transport rather than the id is the whole point: `claude-opus-5` is a
-  // sighted model reached through a blind pipe.
-  if (provider === 'claude-agent-sdk') return false;
   const id = normalizeModelId(model ?? '');
+  // The Claude Agent SDK serves Claude and nothing else, and it carries pictures as image
+  // blocks in its one `SDKUserMessage` (`claude-agent-sdk.ts#renderMessages`). It was gated
+  // off here until 2026-09-24 on the belief that its prompt could only be a string — which
+  // left the desktop's default provider unable to look at a single frame of the footage it
+  // was editing. Its short aliases (`opus`, `sonnet`, …) and an unset model (the adapter's
+  // catalog default) are Claude too.
+  if (provider === 'claude-agent-sdk') {
+    return (
+      id === '' ||
+      AGENT_SDK_MODEL_ALIASES.has(id) ||
+      VISION_MODEL_PREFIXES.some((prefix) => id.startsWith(prefix))
+    );
+  }
   if (!id) return false;
   return VISION_MODEL_PREFIXES.some((prefix) => id.startsWith(prefix));
 }
+
+/** The Agent SDK's short model names; every one resolves to a Claude model that reads images. */
+const AGENT_SDK_MODEL_ALIASES: ReadonlySet<string> = new Set([
+  'opus',
+  'sonnet',
+  'haiku',
+  'fable',
+  'opusplan',
+  'default',
+]);

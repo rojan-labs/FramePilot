@@ -181,6 +181,94 @@ describe('renderMessages', () => {
     ]);
     expect(prompt).toBe('[user]\ncut it\n\n[assistant]\ncutting\n\n[tool result]\nok');
   });
+
+  it('keeps a text-only transcript a plain string, so nothing changes for it', () => {
+    const { prompt, content } = renderMessages([{ role: 'user', content: 'cut it' }]);
+    expect(content).toBe(prompt);
+  });
+
+  it('carries a frame as an image block right after the turn that asked for it', () => {
+    // `get_frame` attaches the picture to the turn after its result. Blind until
+    // 2026-09-24: the string transcript had nowhere to put it and it was dropped.
+    const frame = { mediaType: 'image/jpeg', base64: 'AAECAw==', label: 'the timeline at 2s' };
+    const { prompt, content } = renderMessages([
+      { role: 'system', content: 'You are FramePilot.' },
+      { role: 'user', content: 'caption it' },
+      { role: 'tool', content: 'frame at 2.00s attached', images: [frame] },
+      { role: 'user', content: 'continue' },
+    ]);
+    expect(prompt).toBe(
+      '[user]\ncaption it\n\n[tool result]\nframe at 2.00s attached\n\n[user]\ncontinue',
+    );
+    expect(content).toEqual([
+      { type: 'text', text: '[user]\ncaption it\n\n[tool result]\nframe at 2.00s attached' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAECAw==' } },
+      { type: 'text', text: '[user]\ncontinue' },
+    ]);
+  });
+
+  it('never puts an image into the system prompt, which is text', () => {
+    const frame = { mediaType: 'image/png', base64: 'AA==' };
+    const { systemPrompt, content } = renderMessages([
+      { role: 'user', content: 'stable prefix', cacheBoundary: true, images: [frame] },
+      { role: 'user', content: 'now' },
+    ]);
+    expect(systemPrompt).toBe('stable prefix');
+    expect(content).toBe('[user]\nnow');
+  });
+});
+
+describe('pictures reach the model', () => {
+  const frame = { mediaType: 'image/jpeg', base64: 'AAECAw==' };
+
+  it('sends a call with a frame as one user message whose content holds the image', async () => {
+    const received: unknown[] = [];
+    const module = {
+      query(params: { prompt: unknown; options: Record<string, unknown> }) {
+        return (async function* () {
+          if (typeof params.prompt !== 'string') {
+            for await (const message of params.prompt as AsyncIterable<unknown>) {
+              received.push(message);
+            }
+          }
+          for (const f of textFrames) yield f as never;
+        })();
+      },
+    } as unknown as AgentSdkModule;
+    const provider = new ConcreteClaudeAgentSdkProvider(
+      { name: 'claude-agent-sdk' },
+      async () => Promise.resolve(module),
+      undefined,
+      false,
+    );
+    await provider.complete({
+      messages: [{ role: 'user', content: 'does the title read?', images: [frame] }],
+    });
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      type: 'user',
+      parent_tool_use_id: null,
+      message: {
+        role: 'user',
+        content: [
+          { type: 'text', text: '[user]\ndoes the title read?' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAECAw==' } },
+        ],
+      },
+    });
+  });
+
+  it('still sends a text-only call as the plain string it always was', async () => {
+    const { module, calls } = fakeSdk(textFrames);
+    const provider = new ConcreteClaudeAgentSdkProvider(
+      { name: 'claude-agent-sdk' },
+      async () => Promise.resolve(module),
+      undefined,
+      false,
+    );
+    await provider.complete({ messages: [{ role: 'user', content: 'trim it' }] });
+    expect(calls[0]?.prompt).toBe('[user]\ntrim it');
+  });
 });
 
 describe('tool calls', () => {
@@ -692,6 +780,48 @@ describe('warm process', () => {
     expect(warmController.signal.aborted).toBe(true); // released after the turn, like any process
     p.dispose();
     expect((calls[2]?.options['abortController'] as AbortController).signal.aborted).toBe(true);
+  });
+
+  it('feeds a waiting process the image blocks, not a string that lost them', async () => {
+    const received: unknown[] = [];
+    const module = {
+      query(params: { prompt: unknown; options: Record<string, unknown> }) {
+        return (async function* () {
+          if (typeof params.prompt !== 'string') {
+            for await (const m of params.prompt as AsyncIterable<{
+              message: { content: unknown };
+            }>) {
+              received.push(m.message.content);
+              break;
+            }
+          }
+          for (const frame of textFrames) yield frame as never;
+        })();
+      },
+    } as unknown as AgentSdkModule;
+    const p = provider(module);
+    const messages: AiMessage[] = [{ role: 'system', content: 'contract' }];
+    await p.complete({ messages: [...messages, { role: 'user', content: 'step 1' }], tools });
+    await settle();
+    await p.complete({
+      messages: [
+        ...messages,
+        {
+          role: 'tool',
+          content: 'frame attached',
+          images: [{ mediaType: 'image/jpeg', base64: 'AAECAw==' }],
+        },
+      ],
+      tools,
+    });
+    await settle();
+    expect(received).toEqual([
+      [
+        { type: 'text', text: '[tool result]\nframe attached' },
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAECAw==' } },
+      ],
+    ]);
+    p.dispose();
   });
 
   it('abandons the waiting process and spawns cold when the tool set changed', async () => {

@@ -68,6 +68,17 @@ describe('supportsVision — who gets offered the tool', () => {
     expect(supportsVision('ollama', 'some-model-nobody-has-heard-of')).toBe(false);
     expect(supportsVision('anthropic', undefined)).toBe(false);
   });
+
+  it('offers it to the Claude Agent SDK, which now carries pictures as image blocks', () => {
+    // The desktop's default provider: blind until 2026-09-24, so Opus edited footage it
+    // had never seen. Its aliases and an unset model (the catalog default) are Claude too.
+    expect(supportsVision('claude-agent-sdk', 'claude-opus-5-5')).toBe(true);
+    expect(supportsVision('claude-agent-sdk', 'claude-sonnet-5')).toBe(true);
+    expect(supportsVision('claude-agent-sdk', 'opus')).toBe(true);
+    expect(supportsVision('claude-agent-sdk', undefined)).toBe(true);
+    // Something that is not a Claude id is still not assumed to see.
+    expect(supportsVision('claude-agent-sdk', 'deepseek-chat')).toBe(false);
+  });
 });
 
 describe('frameBody — what goes to the engine', () => {

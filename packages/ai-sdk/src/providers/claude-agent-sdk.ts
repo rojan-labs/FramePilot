@@ -68,9 +68,13 @@
  *   call of a run to the last. Everything up to and including the last `cacheBoundary`
  *   message is therefore rendered into the system prompt (see {@link renderMessages}),
  *   where the SDK caches it; only what follows is the transcript.
- * - **No images.** A string prompt cannot carry image blocks, so `get_frame` frames would
- *   be silently dropped. {@link supportsVision} must therefore report `false` for this
- *   provider rather than inferring `true` from the `claude-*` model id.
+ * - **Images ride as content blocks, not in the string.** A string prompt cannot carry an
+ *   image, so a call whose transcript has pictures (a `get_frame` look, a vision review)
+ *   is sent as one `SDKUserMessage` whose `MessageParam` content interleaves text and
+ *   image blocks (see {@link renderMessages}). This provider was declared blind until
+ *   2026-09-24 on the belief that only a string could be sent; the prompt has accepted an
+ *   `AsyncIterable<SDKUserMessage>` all along (the warm path below already used it), and
+ *   the blindness is what left Opus editing a talking head it had never seen.
  *
  * ## Why the next process is spawned before its prompt exists
  *
@@ -193,7 +197,7 @@ interface WarmProcess {
   readonly controller: AbortController;
   readonly messages: AsyncIterable<AgentSdkMessage>;
   /** Resolve the prompt the process is waiting for. */
-  readonly feed: (prompt: string) => void;
+  readonly feed: (content: AgentSdkPromptContent) => void;
   readonly idleTimer: ReturnType<typeof setTimeout>;
 }
 
@@ -201,6 +205,21 @@ interface WarmProcess {
 export function stripToolPrefix(name: string): string {
   return name.startsWith(TOOL_PREFIX) ? name.slice(TOOL_PREFIX.length) : name;
 }
+
+/** A Messages-API user content block: the text or image parts of the one prompt message. */
+export type AgentSdkContentBlock =
+  | { readonly type: 'text'; readonly text: string }
+  | {
+      readonly type: 'image';
+      readonly source: {
+        readonly type: 'base64';
+        readonly media_type: string;
+        readonly data: string;
+      };
+    };
+
+/** What the one user message carries: plain text, or text and images in transcript order. */
+export type AgentSdkPromptContent = string | readonly AgentSdkContentBlock[];
 
 /**
  * Render FramePilot's message array into the one prompt the SDK accepts.
@@ -215,14 +234,28 @@ export function stripToolPrefix(name: string): string {
  * into a single labelled transcript. The model sees the same content in the same order;
  * what is lost is native role separation, which the SDK gives no way to supply.
  *
- * @returns The system prompt (joined system messages) and the transcript to send.
+ * IMAGES. The one user message is a Messages-API `MessageParam`, so it can carry image
+ * blocks (`SDKUserMessage.message.content`). When a transcript turn has images — a
+ * `get_frame` look, a vision review — `content` interleaves them right after that turn's
+ * text, so each picture sits where the model asked for it. Without images `content` is the
+ * same string as `prompt`, which keeps every text-only call byte-identical to before.
+ * Images on a message rendered into the SYSTEM prompt (at or before the cache boundary)
+ * cannot travel: a system prompt is text. The orchestrator never puts them there.
+ *
+ * @returns The system prompt (joined system messages), the text transcript, and the
+ *   content to send (the transcript, or blocks when images ride along).
  */
 export function renderMessages(messages: readonly AiMessage[]): {
   systemPrompt: string;
   prompt: string;
+  content: AgentSdkPromptContent;
 } {
   const system: string[] = [];
   const turns: string[] = [];
+  const blocks: AgentSdkContentBlock[] = [];
+  /** Turns rendered since the last image, not yet flushed into a text block. */
+  let pending: string[] = [];
+  let sawImage = false;
   // The LAST boundary wins, as it does for the LangChain adapters: everything at or
   // before it is the run-stable prefix the orchestrator promises will not change between
   // calls, which is exactly what a system prompt is to the SDK's cache. A request with no
@@ -241,9 +274,25 @@ export function renderMessages(messages: readonly AiMessage[]): {
     // message and the model re-answers turns it already answered.
     const label =
       message.role === 'assistant' ? 'assistant' : message.role === 'tool' ? 'tool result' : 'user';
-    turns.push(`[${label}]\n${message.content}`);
+    const turn = `[${label}]\n${message.content}`;
+    turns.push(turn);
+    pending.push(turn);
+    const images = message.images ?? [];
+    if (images.length === 0) continue;
+    sawImage = true;
+    blocks.push({ type: 'text', text: pending.join('\n\n') });
+    pending = [];
+    for (const image of images) {
+      blocks.push({
+        type: 'image',
+        source: { type: 'base64', media_type: image.mediaType, data: image.base64 },
+      });
+    }
   }
-  return { systemPrompt: system.join('\n\n'), prompt: turns.join('\n\n') };
+  const prompt = turns.join('\n\n');
+  if (!sawImage) return { systemPrompt: system.join('\n\n'), prompt, content: prompt };
+  if (pending.length > 0) blocks.push({ type: 'text', text: pending.join('\n\n') });
+  return { systemPrompt: system.join('\n\n'), prompt, content: blocks };
 }
 
 /**
@@ -443,18 +492,12 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
   ): void {
     this.dispose();
     const controller = new AbortController();
-    let feed: (prompt: string) => void = () => {};
-    const pending = new Promise<string>((resolve) => {
+    let feed: (content: AgentSdkPromptContent) => void = () => {};
+    const pending = new Promise<AgentSdkPromptContent>((resolve) => {
       feed = resolve;
     });
     async function* input(): AsyncGenerator<AgentSdkUserMessage> {
-      const content = await pending;
-      yield {
-        type: 'user',
-        message: { role: 'user', content },
-        parent_tool_use_id: null,
-        session_id: '',
-      };
+      yield userMessage(await pending);
     }
     void buildOptions(controller).then(
       (options) => {
@@ -562,7 +605,7 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
     request: AiCompletionRequest,
     signal?: AbortSignal,
   ): AsyncIterable<ProviderChunk> {
-    const { systemPrompt, prompt } = renderMessages(request.messages);
+    const { systemPrompt, content } = renderMessages(request.messages);
     const tools = request.tools ?? [];
     const effort = request.reasoningEffort ?? CLAUDE_AGENT_SDK_DEFAULT_EFFORT;
     const key = warmProcessKey(this.modelId, systemPrompt, tools, effort);
@@ -611,11 +654,17 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
       const { query } = await this.loadAgentSdk();
       let messages: AsyncIterable<AgentSdkMessage>;
       if (warm) {
-        warm.feed(prompt);
+        warm.feed(content);
         messages = warm.messages;
         log.debug('claude agent sdk call taken by a warm process');
       } else {
-        messages = query({ prompt, options: await buildOptions(controller) });
+        // A text-only call keeps the plain string prompt it has always sent. A call with
+        // pictures goes as ONE `SDKUserMessage` whose content carries the image blocks —
+        // the only shape of `prompt` that can (see `renderMessages`).
+        messages = query({
+          prompt: typeof content === 'string' ? content : singleMessage(content),
+          options: await buildOptions(controller),
+        });
       }
 
       for await (const message of messages) {
@@ -750,9 +799,24 @@ export interface AgentSdkModule {
 /** The one user message a warm process is fed (the SDK's `SDKUserMessage`). */
 export interface AgentSdkUserMessage {
   type: 'user';
-  message: { role: 'user'; content: string };
+  message: { role: 'user'; content: AgentSdkPromptContent };
   parent_tool_use_id: null;
   session_id: string;
+}
+
+/** The SDK's user message around one prompt's content. */
+function userMessage(content: AgentSdkPromptContent): AgentSdkUserMessage {
+  return {
+    type: 'user',
+    message: { role: 'user', content },
+    parent_tool_use_id: null,
+    session_id: '',
+  };
+}
+
+/** A prompt of exactly one user message, for content a plain string cannot carry. */
+async function* singleMessage(content: AgentSdkPromptContent): AsyncGenerator<AgentSdkUserMessage> {
+  yield userMessage(content);
 }
 
 interface AgentSdkMessage {
