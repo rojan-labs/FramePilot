@@ -193,7 +193,7 @@ footage for the words to sit on.
 
 `segmentCaptions` in `@framepilot/editor-core` is the single segmenter, shared by
 the Captions panel and the AI `add_captions` recipe so the two cannot disagree.
-It runs five pure stages:
+It runs these pure stages:
 
 1. **Split into utterances** at hard boundaries: a real silence, or a sentence
    end. One sentence per cue is a rule, not a preference — as a preference, two
@@ -203,11 +203,24 @@ It runs five pure stages:
    or auxiliary is penalised. Auto-emphasized anchors contribute their expected visual width and
    prefer a balanced phrase ending, but never overrule a genuine sentence seam. Cue fullness is
    only a tie-breaker, which is why a cue may come out shorter than the limits allow.
+   Breaking inside a proper name ("Shamra | Dotto") or between a number and its noun
+   ("1,50,000 | subscribers") is heavily penalised. Two rules outrank the score: a break
+   inside a `keepTogether` phrase is never taken while another legal break exists, and a
+   break that leaves the cue unholdable (the next word starts less than the minimum hold
+   after its first word) is never taken while a holdable one exists — that is what
+   produced a 0.13 s "Hi,".
 3. **Enforce reading speed** — split anything arriving faster than the
-   characters-per-second ceiling.
-4. **Lay out lines** — place the `\n`, preferring a syntactic seam and a shorter
+   characters-per-second ceiling, but only at a holdable break outside any
+   `keepTogether` phrase, name, or number-and-noun; otherwise the dense cue stays whole.
+4. **Absorb unreadable cues** — any cue whose window (up to the next cue's first word)
+   is below `MIN_CAPTION_CUE_SECONDS` (0.25 s, the same floor `verify_captions` enforces)
+   merges into the next cue when the sentence carries on, otherwise into the previous one.
+   The merged cue may run a word over the limits; no cue is left below the floor unless it
+   is the only one. With a frame rate the window is measured on the frame grid.
+5. **Lay out lines** — place the `\n`, preferring a syntactic seam and a shorter
    first line.
-5. **Enforce timing** — hold short cues for a minimum, and absorb gaps too small
+6. **Enforce timing** — hold short cues for a minimum (on the frame grid, when one is
+   given, so snapping cannot shave a hold under the floor), and absorb gaps too small
    to be worth blinking for.
 
 Everything is deterministic: the same words and config always give the same cues.
@@ -242,7 +255,10 @@ use a second styling representation:
    [ADR 0128](../adr/0128-retrieval-the-run-can-actually-use.md)). `get_timeline` reports the
    style a caption track already carries, so "use a different style" is answerable without
    guessing at what the current one is.
-3. The AI selects a sparse set of exact spoken anchors and calls `auto_emphasize_captions`. The
+3. The AI selects a sparse set of exact spoken anchors and calls `auto_emphasize_captions`. An
+   anchor phrase only accents if it sits on one cue, so the AI first passes its multi-word
+   anchors to `caption_the_edit` as `keepTogether`; if a phrase still lands on no cue, the
+   emphasis result names that re-run. The
    tool rejects invented words and may set the track's template, font, x/y position, size,
    rotation, width, alignment, spacing, background, animation and safe-area behavior in the same
    reversible operation.

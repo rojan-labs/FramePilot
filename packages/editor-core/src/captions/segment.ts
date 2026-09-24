@@ -26,6 +26,8 @@
  *   1. {@link splitIntoUtterances} — hard-split at silences and sentence ends
  *   2. {@link packSegment}        — choose the best break inside each run
  *   3. {@link enforceReadingSpeed} — re-split cues denser than the eye can read
+ *   3b. {@link coalesceSubFrameCues} — merge cues that start on one frame
+ *   3c. {@link absorbUnreadableCues} — merge cues too brief to ever read
  *   4. {@link layoutLines}        — place explicit `\n` breaks within a cue
  *   5. {@link enforceTiming}      — floor short cues, bridge flicker-gaps
  *
@@ -34,7 +36,7 @@
  * what lets a caption golden be a golden.
  */
 import type { TranscriptWord } from '@framepilot/timeline-schema';
-import { secondsToFrame } from '../frame-grid.js';
+import { frameToSeconds, secondsToFrame, snapSecondsToFrame } from '../frame-grid.js';
 
 /**
  * How a transcript should be cut into cues. Every field is a hard limit except
@@ -66,6 +68,18 @@ export interface CaptionSegmentConfig {
   readonly bridgeGapSeconds: number;
   /** Semantic anchors that should receive extra visual room and balanced breaks. */
   readonly emphasisWords: readonly string[];
+  /**
+   * Phrases that must land on ONE cue, stored as bare lowercase words joined by a
+   * single space (see {@link captionSegmentConfig}). A cue break strictly inside an
+   * occurrence is never taken while any other legal break exists.
+   *
+   * WHY a caller-supplied list and not just better heuristics: the accent renderer
+   * matches an emphasis phrase within a single cue, so "stop | scrolling" split across
+   * two cues is a phrase nothing on screen can accent. Which phrases matter is a
+   * semantic choice the emphasis pass has already made — the segmenter cannot infer
+   * it from word shapes, so the caller who is about to emphasise says so here.
+   */
+  readonly keepTogether: readonly string[];
 }
 
 /** A cue produced by segmentation, ready to become a caption clip. */
@@ -99,6 +113,21 @@ export interface CaptionCueDraft {
  */
 export const MAX_CAPTION_CUE_WORDS = 14;
 
+/**
+ * The shortest on-screen window any caption cue may have — the `one-word` preset's
+ * `minCueSeconds`, the lowest hold of every preset. Nothing shorter is a caption; it is
+ * a flicker.
+ *
+ * ONE number for the segmenter and for `verify_captions` (which re-exports it through
+ * `ai-sdk/src/caption-style-facts.ts`). They used to hold it separately, and the
+ * segmenter never applied it at all: on a real 50 s talking head `caption_the_edit` wrote
+ * "Hi," for 0.13 s, verification then reported that cue below this floor, and the agent
+ * spent whole turns hand-merging cues, re-ran the segmenter, got the same flash back, and
+ * looped. {@link absorbUnreadableCues} now guarantees the segmenter's own output clears
+ * the floor its verifier checks.
+ */
+export const MIN_CAPTION_CUE_SECONDS = 0.25;
+
 export const CAPTION_SEGMENT_PRESETS = {
   'short-form': {
     maxCharsPerLine: 24,
@@ -110,6 +139,7 @@ export const CAPTION_SEGMENT_PRESETS = {
     pauseSeconds: 0.55,
     bridgeGapSeconds: 0.3,
     emphasisWords: [],
+    keepTogether: [],
   },
   subtitle: {
     maxCharsPerLine: 42,
@@ -121,17 +151,19 @@ export const CAPTION_SEGMENT_PRESETS = {
     pauseSeconds: 0.7,
     bridgeGapSeconds: 0.24,
     emphasisWords: [],
+    keepTogether: [],
   },
   'one-word': {
     maxCharsPerLine: 20,
     maxLines: 1,
     maxWordsPerCue: 1,
-    minCueSeconds: 0.25,
+    minCueSeconds: MIN_CAPTION_CUE_SECONDS,
     maxCueSeconds: 2,
     maxCharsPerSecond: 60,
     pauseSeconds: 0.55,
     bridgeGapSeconds: 0.12,
     emphasisWords: [],
+    keepTogether: [],
   },
 } as const satisfies Record<string, CaptionSegmentConfig>;
 
@@ -165,6 +197,15 @@ export function captionSegmentConfig(
     pauseSeconds: Math.max(0, merged.pauseSeconds),
     bridgeGapSeconds: Math.max(0, merged.bridgeGapSeconds),
     emphasisWords: [...new Set(merged.emphasisWords.map(bareWord).filter(Boolean))],
+    // A one-word phrase has no break inside it to protect, so only runs of two or
+    // more bare words are kept; de-duplicated so a repeated phrase costs nothing.
+    keepTogether: [
+      ...new Set(
+        merged.keepTogether
+          .map((phrase) => phraseWords(phrase).join(' '))
+          .filter((phrase) => phrase.includes(' ')),
+      ),
+    ],
   };
 }
 
@@ -340,6 +381,97 @@ export function isClauseEnd(token: string): boolean {
   return !isSentenceEnd(token) && CLAUSE_END.test(token);
 }
 
+/** A phrase as the bare words it is matched on — the unit `keepTogether` compares. */
+const phraseWords = (phrase: string): string[] => phrase.split(/\s+/).map(bareWord).filter(Boolean);
+
+/** Closing quotes/brackets that may trail a token without changing what it is. */
+const TRAILING_CLOSERS = /["'”’)\]]+$/;
+
+/**
+ * A spoken quantity as ASR writes it: digits with thousands/decimal separators in any
+ * grouping ("557,000", and the Indian lakh grouping "1,50,000"), an optional currency
+ * sign, an optional percent. Spelled-out numbers are ordinary words and need no rule.
+ */
+const NUMERIC_TOKEN = /^[$€£¥₹]?\d[\d,.]*%?$/u;
+
+/** True when `token` is a written number (see {@link NUMERIC_TOKEN}). */
+const isNumericToken = (token: string): boolean =>
+  NUMERIC_TOKEN.test(token.replace(TRAILING_CLOSERS, ''));
+
+/** True when `token` begins with a capital letter. */
+const startsCapitalised = (token: string): boolean => /^["'“‘(]*\p{Lu}/u.test(token);
+
+/**
+ * The pronoun "I" and its contractions. Capitalised by spelling, not because it is a
+ * name, so "Dotto | I am" must not read as one proper name.
+ */
+const isFirstPersonI = (token: string): boolean => /^i(?:'|$)/.test(bareWord(token));
+
+/**
+ * True when a break between `words[index]` and `words[index + 1]` would tear apart a
+ * unit a reader takes in as ONE thing: a multi-word proper name, or a number and the
+ * noun it counts.
+ *
+ * Both come from the same real talking head, where `caption_the_edit` put "Shamra" and
+ * "Dotto" on separate cues (the surname alone for 0.39 s) and ended a cue on "1,50,000"
+ * with "subscribers" arriving on the next — the count with nothing counted.
+ *
+ * Proper names are read off capitalisation: two capitalised words in a row, where the
+ * first is not capitalised merely because it opens a sentence (it follows a sentence
+ * end, or is the first word we can see) and the second is not the pronoun "I". A comma
+ * or clause mark on the first word is a real seam ("Hi, Sam"), so it exempts the break.
+ *
+ * A number is exempt when it closes a clause or sentence by punctuation ("…grew to
+ * 8,") or the next word opens a new clause ("we had 8 and they had 10"): only then is
+ * the number not attached to what follows it.
+ */
+function splitsUnit(words: readonly TranscriptWord[], index: number): boolean {
+  const current = words[index];
+  const next = words[index + 1];
+  // The last word ends the cue whatever it is; with nothing after it there is
+  // no unit to tear apart.
+  if (!current || !next) return false;
+  if (isSentenceEnd(current.word) || isClauseEnd(current.word)) return false;
+
+  if (isNumericToken(current.word)) return !CLAUSE_STARTERS.has(bareWord(next.word));
+
+  const previous = words[index - 1];
+  const sentenceInitial = previous === undefined || isSentenceEnd(previous.word);
+  return (
+    !sentenceInitial &&
+    startsCapitalised(current.word) &&
+    startsCapitalised(next.word) &&
+    !isFirstPersonI(next.word)
+  );
+}
+
+/**
+ * The break indices that fall strictly inside an occurrence of a `keepTogether` phrase.
+ * Index `i` means "between `words[i]` and `words[i + 1]`"; a break at either edge of an
+ * occurrence keeps the phrase whole, so only the interior is returned.
+ *
+ * Every occurrence counts, overlapping ones included — the caller asked for the phrase
+ * to stay whole wherever it is spoken, and it cannot know how many times that is.
+ */
+function keepTogetherBreaks(
+  words: readonly TranscriptWord[],
+  phrases: readonly string[],
+): ReadonlySet<number> {
+  const protectedBreaks = new Set<number>();
+  if (phrases.length === 0) return protectedBreaks;
+  const bare = words.map((word) => bareWord(word.word));
+  for (const phrase of phrases) {
+    const parts = phrase.split(' ');
+    for (let start = 0; start + parts.length <= bare.length; start += 1) {
+      if (!parts.every((part, offset) => bare[start + offset] === part)) continue;
+      for (let inside = start; inside < start + parts.length - 1; inside += 1) {
+        protectedBreaks.add(inside);
+      }
+    }
+  }
+  return protectedBreaks;
+}
+
 // ---------------------------------------------------------------------------
 // Break scoring
 // ---------------------------------------------------------------------------
@@ -369,6 +501,17 @@ const DANGLING_WORD_PENALTY = 40;
  * the tie-break toward fuller cues then swallowed all three sentences into one.
  */
 const PACK_FILL_WEIGHT = 30;
+/**
+ * Penalty for a break inside a proper name or between a number and its noun (see
+ * `splitsUnit`).
+ *
+ * Sized as the most a break can otherwise earn without punctuation — a saturated pause
+ * plus a completely full cue — so neither fullness nor a breath between "Shamra" and
+ * "Dotto" can buy a break through the name. Finite on purpose: a name or quantity
+ * longer than a whole cue still has to break somewhere, and this only makes that the
+ * last resort rather than forbidding it.
+ */
+const UNIT_SPLIT_PENALTY = PAUSE_MAX_SCORE + PACK_FILL_WEIGHT;
 /**
  * How much an evenly-balanced pair of lines is worth in {@link layoutLines}.
  * Below {@link DANGLING_WORD_PENALTY} on purpose: a line break after "the" is
@@ -419,6 +562,7 @@ export function breakQuality(words: readonly TranscriptWord[], index: number): n
   if (next && TRAILING_FUNCTION_WORDS.has(bareWord(current.word))) {
     score -= DANGLING_WORD_PENALTY;
   }
+  if (splitsUnit(words, index)) score -= UNIT_SPLIT_PENALTY;
   return score;
 }
 
@@ -501,14 +645,41 @@ const emphasisBreakScore = (
 };
 
 /**
+ * Rank weights for a candidate cue end in {@link packSegment}. Powers of two, so
+ * keeping a phrase whole always outranks holdability however the lower bit falls.
+ */
+const KEEPS_PHRASES_RANK = 2;
+const HOLDABLE_RANK = 1;
+
+/**
  * Cut one pause-free run into cues, taking the best-scoring legal break each
  * time. Returns index ranges rather than cues so the caller owns cue shape.
+ *
+ * Linguistic score is the LAST of three ranks, not the only one. Among the legal
+ * ends of a cue, the break taken is:
+ *
+ *   1. one that keeps every {@link CaptionSegmentConfig.keepTogether} phrase whole,
+ *      if any does — the caller asked for it by name, for an accent that can only
+ *      land on a phrase sitting on one cue;
+ *   2. then one that leaves the cue HOLDABLE, if any does: the next word starts at
+ *      least `minCueSeconds` after this cue's first word. That next word is the
+ *      ceiling `enforceTiming` can never extend past, so a cue that fails this can
+ *      never be shown long enough to read, whatever happens downstream. It is the rule
+ *      {@link enforceReadingSpeed} already applies to its own splits, and packing
+ *      lacked it: a run opening "Hi, my name is…" broke after the comma — the best
+ *      linguistic seam — and "Hi," went on screen for 0.13 s. The run's last word is
+ *      exempt; its ceiling is the next run, which packing cannot see;
+ *   3. then the best {@link breakQuality} plus fullness, as before.
+ *
+ * When no candidate satisfies a rank it simply does not discriminate, so the loop
+ * still always takes a break and always advances.
  */
 export function packSegment(
   words: readonly TranscriptWord[],
   config: CaptionSegmentConfig,
 ): readonly (readonly TranscriptWord[])[] {
   const capacity = config.maxCharsPerLine * config.maxLines;
+  const protectedBreaks = keepTogetherBreaks(words, config.keepTogether);
   const cues: (readonly TranscriptWord[])[] = [];
   let from = 0;
 
@@ -527,12 +698,22 @@ export function packSegment(
       furthest = to;
     }
 
-    // Among every legal end position, take the best break. Fullness is a
-    // tie-breaker, never the primary signal (see FILL_WEIGHT).
+    // Among every legal end position, take the best break by rank, then score
+    // (see the WHY above). Fullness is a tie-breaker, never the primary signal
+    // (see FILL_WEIGHT).
     const options = furthest - from;
     let bestIndex = furthest;
+    let bestRank = -Infinity;
     let bestScore = -Infinity;
     for (let to = from; to <= furthest; to += 1) {
+      const keepsPhrases = !protectedBreaks.has(to);
+      const holdable =
+        to === words.length - 1 ||
+        words[to + 1]!.start - words[from]!.start >= config.minCueSeconds;
+      // Phrase integrity outranks holdability, which outranks score. Encoded as
+      // one integer so "better rank, or same rank and at least as good a score"
+      // stays a single comparison.
+      const rank = (keepsPhrases ? KEEPS_PHRASES_RANK : 0) + (holdable ? HOLDABLE_RANK : 0);
       const fill = options === 0 ? 1 : (to - from) / options;
       const score =
         breakQuality(words, to) +
@@ -540,7 +721,8 @@ export function packSegment(
         PACK_FILL_WEIGHT * fill;
       // `>=` keeps the LATER of two equal breaks, so cues stay as full as the
       // linguistics allow and the loop always advances.
-      if (score >= bestScore) {
+      if (rank > bestRank || (rank === bestRank && score >= bestScore)) {
+        bestRank = rank;
         bestScore = score;
         bestIndex = to;
       }
@@ -617,9 +799,18 @@ export function enforceReadingSpeed(
     // ceiling and stays extensible, so it needs no bound.) Scoring holdable
     // breaks only — rather than picking on linguistics and then vetoing — keeps
     // a good-but-unholdable seam from suppressing a viable one further along.
+    //
+    // Nor is a split inside a `keepTogether` phrase, a proper name or a number
+    // and its noun. This stage only ever pursues a soft density target, and
+    // keeping the dense cue whole is always a legal outcome, so tearing a unit is
+    // never the only way forward. As a mere penalty it was: on the real talking
+    // head, "So, welcome to Indian School" had exactly one holdable split — after
+    // "Indian" — and took it, leaving "School" alone on screen.
+    const protectedBreaks = keepTogetherBreaks(cue, config.keepTogether);
     let bestIndex = -1;
     let bestScore = -Infinity;
     for (let index = 0; index < cue.length - 1; index += 1) {
+      if (protectedBreaks.has(index) || splitsUnit(cue, index)) continue;
       if (cue[index + 1]!.start - cue[0]!.start < config.minCueSeconds) continue;
       const balance = 1 - Math.abs((index + 1) / cue.length - 0.5) * 2;
       const score = breakQuality(cue, index) + PACK_FILL_WEIGHT * balance;
@@ -711,10 +902,14 @@ export function layoutLines(
  * between every phrase — the single most obvious tell that captions were
  * generated rather than authored. Extension never crosses into the next cue, so
  * cues stay non-overlapping and the timeline stays valid.
+ *
+ * @param fps - Supplied, the minimum hold is measured on the frame grid the patch
+ *   boundary snaps to (see {@link heldUntil}); omitted, in plain seconds.
  */
 export function enforceTiming(
   cues: readonly (readonly TranscriptWord[])[],
   config: CaptionSegmentConfig,
+  fps?: number,
 ): readonly { readonly words: readonly TranscriptWord[]; start: number; end: number }[] {
   return cues.map((words, index) => {
     const start = words[0]!.start;
@@ -728,12 +923,32 @@ export function enforceTiming(
 
     // Bridge a small gap entirely (no blink); otherwise hold for the minimum.
     const wanted =
-      gap <= config.bridgeGapSeconds ? ceiling : Math.max(spokenEnd, start + config.minCueSeconds);
+      gap <= config.bridgeGapSeconds
+        ? ceiling
+        : Math.max(spokenEnd, heldUntil(start, config.minCueSeconds, fps));
 
     // Never overlap the next cue, and never end before the words finish. Finite
     // even for the last cue: an unbounded `ceiling` only ever widens the `min`.
     return { words, start, end: Math.max(spokenEnd, Math.min(wanted, ceiling)) };
   });
+}
+
+/**
+ * When a cue starting at `start` has been up for `hold` seconds — as the timeline will
+ * measure it once the patch boundary has snapped both edges to the NEAREST frame.
+ *
+ * Plain `start + hold` loses up to a frame to that rounding: the `one-word` preset holds
+ * for exactly the {@link MIN_CAPTION_CUE_SECONDS} floor, and at 25 fps a cue at 34.74 s
+ * snapped to 34.76–35.00 — 0.24 s, which `verify_captions` then reported as below the
+ * floor the segmenter was built to respect. So the hold is counted from the snapped
+ * start and ends on the first frame at or after it; the ceiling (the next cue's start)
+ * still caps it, and {@link absorbUnreadableCues} has already made that window wide
+ * enough on the same grid.
+ */
+function heldUntil(start: number, hold: number, fps: number | undefined): number {
+  if (fps === undefined) return start + hold;
+  const heldOnGrid = snapSecondsToFrame(start, fps) + hold - FLOOR_EPSILON_SECONDS;
+  return frameToSeconds(secondsToFrame(heldOnGrid, fps, 'ceil'), fps);
 }
 
 // ---------------------------------------------------------------------------
@@ -790,6 +1005,84 @@ export function coalesceSubFrameCues(
 }
 
 // ---------------------------------------------------------------------------
+// Stage 3c — the readable floor
+// ---------------------------------------------------------------------------
+
+/**
+ * Float slack on the floor comparison — the same `1e-6` `verify_captions` subtracts
+ * before calling a cue too short, so the two never disagree about a cue sitting on
+ * the floor exactly.
+ */
+const FLOOR_EPSILON_SECONDS = 1e-6;
+
+/**
+ * Merge every cue that can never be on screen for {@link MIN_CAPTION_CUE_SECONDS}
+ * into a neighbour.
+ *
+ * A cue's window is fixed before timing runs: it may be held from its first word up
+ * to the NEXT cue's first word and no further (`enforceTiming` never overlaps), and
+ * the last cue is unbounded. {@link packSegment} and {@link enforceReadingSpeed} keep
+ * their own breaks holdable, but neither sees across a run boundary — a clipped
+ * "So," at 47.80 s followed by "welcome" at 47.86 s is a run of its own after a
+ * sentence end, and becomes a 0.06 s flash whatever packing does. This stage is the
+ * one place that looks at the finished cue list, so it is where the guarantee lives:
+ * **no emitted cue has a window below the floor, unless it is the only cue.**
+ *
+ * Which neighbour: the FOLLOWING cue when the fragment is the start of the same
+ * sentence (its last word ends no sentence and speech carries on within
+ * `pauseSeconds`) — "So, | welcome to…" reads as one thought. Otherwise the
+ * PREVIOUS cue, which the fragment finishes. The first cue has no previous, so it
+ * always merges forward.
+ *
+ * The merged cue may exceed `maxWordsPerCue`/`maxCharsPerLine` by the fragment.
+ * Deliberate, and bounded the same way {@link coalesceSubFrameCues} is: a fragment
+ * only merges when it is too brief to read, which is a word or two. Re-packing would
+ * move the break the linguistics chose, and a cue a word over its line reads; a
+ * 0.13 s flash does not — and `verify_captions` rejects it, which is what sent a real
+ * run into a hand-merge loop.
+ *
+ * @param fps - Supplied, windows are measured on the frame grid the patch boundary
+ *   will snap to, so a window that is just over the floor in seconds but under it in
+ *   frames is still merged — `verify_captions` reads the snapped clip.
+ */
+export function absorbUnreadableCues(
+  cues: readonly (readonly TranscriptWord[])[],
+  config: CaptionSegmentConfig,
+  fps?: number,
+): readonly (readonly TranscriptWord[])[] {
+  const onGrid = (seconds: number): number =>
+    fps === undefined ? seconds : snapSecondsToFrame(seconds, fps);
+  const result = cues.map((cue) => [...cue]);
+  let index = 0;
+  // Each merge removes a cue, so this terminates; `index` only advances past a cue
+  // whose window is known to clear the floor.
+  while (index < result.length - 1) {
+    const cue = result[index]!;
+    const next = result[index + 1]!;
+    const window = onGrid(next[0]!.start) - onGrid(cue[0]!.start);
+    // Same epsilon verify_captions allows, so a window that clears its check here
+    // is not merged away over float noise.
+    if (window >= MIN_CAPTION_CUE_SECONDS - FLOOR_EPSILON_SECONDS) {
+      index += 1;
+      continue;
+    }
+    const last = cue[cue.length - 1]!;
+    const sameSentence =
+      !isSentenceEnd(last.word) && next[0]!.start - last.end < config.pauseSeconds;
+    if (sameSentence || index === 0) {
+      // Re-examine the merged cue at the same index: its window now reaches the
+      // cue after `next`, which may still be too close.
+      result.splice(index, 2, [...cue, ...next]);
+      continue;
+    }
+    // The previous cue already cleared the floor, and absorbing this one only
+    // pushes its ceiling later, so it still does; examine what is now `index`.
+    result.splice(index - 1, 2, [...result[index - 1]!, ...cue]);
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // The pipeline
 // ---------------------------------------------------------------------------
 
@@ -804,8 +1097,9 @@ export function coalesceSubFrameCues(
  * @param config - Limits and readability targets; see {@link captionSegmentConfig}.
  * @param fps - Project frame rate. Supplied, cues that would start on the same
  *   frame are merged so none can be quantised out of existence at the patch
- *   boundary; omitted, segmentation is unquantised (the Captions panel preview
- *   and unit tests, which never build operations).
+ *   boundary, and the readable floor and minimum hold are measured on that grid;
+ *   omitted, segmentation is unquantised (the Captions panel preview and unit
+ *   tests, which never build operations).
  * @returns Cues in time order, each with display text, its words, and its range.
  */
 export function segmentCaptions(
@@ -822,7 +1116,8 @@ export function segmentCaptions(
   const packed = runs.flatMap((run) => packSegment(run, config));
   const readable = enforceReadingSpeed(packed, config);
   const gridded = fps === undefined ? readable : coalesceSubFrameCues(readable, fps);
-  return enforceTiming(gridded, config).map(({ words: cueWords, start, end }) => ({
+  const holdable = absorbUnreadableCues(gridded, config, fps);
+  return enforceTiming(holdable, config, fps).map(({ words: cueWords, start, end }) => ({
     text: layoutLines(cueWords, config),
     words: cueWords,
     start,

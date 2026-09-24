@@ -11,6 +11,8 @@ import type { TranscriptWord } from '@framepilot/timeline-schema';
 import {
   CAPTION_SEGMENT_PRESETS,
   DEFAULT_CAPTION_SEGMENT_PRESET,
+  MIN_CAPTION_CUE_SECONDS,
+  absorbUnreadableCues,
   breakQuality,
   captionSegmentConfig,
   enforceReadingSpeed,
@@ -23,7 +25,7 @@ import {
   segmentCaptions,
   splitIntoUtterances,
 } from './segment.js';
-import { secondsToFrame } from '../frame-grid.js';
+import { secondsToFrame, snapSecondsToFrame } from '../frame-grid.js';
 
 /**
  * Build words from a sentence at a fixed cadence. `gapAfter` injects a real
@@ -43,6 +45,9 @@ function speak(
     return entry;
   });
 }
+
+/** A pace at which every break is holdable under every preset's minimum hold. */
+const SLOW = { wordSeconds: 1 } as const;
 
 /** The words of a cue as a plain string, ignoring layout line breaks. */
 const flat = (text: string): string => text.replace(/\n/g, ' ');
@@ -85,6 +90,7 @@ describe('captionSegmentConfig', () => {
       pauseSeconds: 0,
       bridgeGapSeconds: 0,
       emphasisWords: [],
+      keepTogether: [],
     });
   });
 
@@ -93,6 +99,22 @@ describe('captionSegmentConfig', () => {
       captionSegmentConfig('short-form', { emphasisWords: ['Viral!', 'viral', 'RESULTS'] })
         .emphasisWords,
     ).toEqual(['viral', 'results']);
+  });
+
+  it('normalizes keep-together phrases to bare words and drops the ones with no inner break', () => {
+    // Matched case-insensitively on bare words, so the caller can pass the phrase
+    // exactly as the transcript spells it ("scrolling," with its comma) or not.
+    expect(
+      captionSegmentConfig('short-form', {
+        keepTogether: [
+          'Stop  Scrolling,',
+          'stop scrolling',
+          'billion',
+          '  ',
+          '1,50,000 subscribers',
+        ],
+      }).keepTogether,
+    ).toEqual(['stop scrolling', '150000 subscribers']);
   });
 
   it('rounds fractional integer limits', () => {
@@ -294,21 +316,26 @@ describe('packSegment', () => {
     expect(cues.map((cue) => cue.map((w) => w.word))).toEqual([['extraordinarily'], ['long']]);
   });
 
+  // The three linguistic-preference cases below speak one word a second (`SLOW`), so
+  // every candidate break is holdable for the subtitle preset's 0.8 s and only the
+  // linguistics decide. At 0.3 s a word, "stop." would be on screen 0.3 s before
+  // "keep" arrived — an unholdable cue packing now refuses; see the holdable-break
+  // cases further down.
   it('breaks at a sentence end in preference to filling the cue', () => {
     const config = captionSegmentConfig('subtitle', { maxWordsPerCue: 6, maxCharsPerLine: 200 });
-    const cues = packSegment(speak('stop. keep going for now'), config);
+    const cues = packSegment(speak('stop. keep going for now', SLOW), config);
     expect(cues[0]!.map((w) => w.word)).toEqual(['stop.']);
   });
 
   it('breaks at a comma in preference to filling the cue', () => {
     const config = captionSegmentConfig('subtitle', { maxWordsPerCue: 6, maxCharsPerLine: 200 });
-    const cues = packSegment(speak('it broke, then we fixed'), config);
+    const cues = packSegment(speak('it broke, then we fixed', SLOW), config);
     expect(cues[0]!.map((w) => w.word)).toEqual(['it', 'broke,']);
   });
 
   it('avoids ending a cue on an article', () => {
     const config = captionSegmentConfig('subtitle', { maxWordsPerCue: 3, maxCharsPerLine: 200 });
-    const cues = packSegment(speak('I went to the store today'), config);
+    const cues = packSegment(speak('I went to the store today', SLOW), config);
     for (const cue of cues) {
       expect(cue[cue.length - 1]!.word).not.toBe('the');
       expect(cue[cue.length - 1]!.word).not.toBe('to');
@@ -696,5 +723,395 @@ describe('segmentCaptions', () => {
     const config = captionSegmentConfig('short-form', { minCueSeconds: 1.2 });
     const cues = segmentCaptions([{ word: 'go', start: 0, end: 0.15 }], config);
     expect(cues[0]!.end - cues[0]!.start).toBeCloseTo(1.2, 5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Real talking-head regressions (desktop runs 2026-09-19…23)
+// ---------------------------------------------------------------------------
+
+/**
+ * Word timings copied verbatim from a real 50 s talking head, in timeline seconds.
+ * Each fixture is the SHORT stretch that reproduced one defect `caption_the_edit`
+ * shipped — kept inline so the regression is readable next to its assertion.
+ */
+type Timed = readonly [word: string, start: number, end: number];
+const real = (timed: readonly Timed[]): TranscriptWord[] =>
+  timed.map(([word, start, end]) => ({ word, start, end }));
+
+/** "…archetype. Hi, my name is Shamra Dotto and I am building" */
+const HI_MY_NAME = real([
+  ['archetype.', 9.37, 10.08],
+  ['Hi,', 10.2, 10.34],
+  ['my', 10.34, 10.46],
+  ['name', 10.46, 10.74],
+  ['is', 10.74, 10.87],
+  ['Shamra', 10.87, 11.27],
+  ['Dotto', 11.27, 11.66],
+  ['and', 11.66, 11.84],
+  ['I', 11.84, 11.9],
+  ['am', 11.9, 12.02],
+  ['building', 12.02, 12.38],
+]);
+
+/** "I've scaled my own YouTube channel to over 1,50,000 subscribers and worked with…" */
+const SUBSCRIBERS = real([
+  ["I've", 21.28, 21.29],
+  ['scaled', 21.34, 21.59],
+  ['my', 21.59, 21.69],
+  ['own', 21.69, 21.84],
+  ['YouTube', 21.84, 22.18],
+  ['channel', 22.18, 22.5],
+  ['to', 22.58, 22.62],
+  ['over', 22.62, 22.82],
+  ['1,50,000', 22.82, 23.88],
+  ['subscribers', 23.98, 24.5],
+  ['and', 24.56, 24.67],
+  ['worked', 24.67, 24.98],
+  ['with', 25.05, 25.25],
+]);
+
+/** "If you want to craft videos that make founders stop scrolling," */
+const STOP_SCROLLING = real([
+  ['If', 2.48, 2.49],
+  ['you', 2.54, 2.6],
+  ['want', 2.6, 2.9],
+  ['to', 2.9, 3.05],
+  ['craft', 3.05, 3.43],
+  ['videos', 3.43, 3.92],
+  ['that', 3.92, 4.2],
+  ['make', 4.2, 4.48],
+  ['founders', 4.48, 5.04],
+  ['stop', 5.04, 5.32],
+  ['scrolling,', 5.32, 5.96],
+]);
+
+/** "…blank canvas. So, welcome to Indian School of Motion." */
+const SO_WELCOME = real([
+  ['blank', 46.27, 46.65],
+  ['canvas.', 46.65, 47.38],
+  ['So,', 47.8, 47.81],
+  ['welcome', 47.86, 48],
+  ['to', 48, 48.1],
+  ['Indian', 48.1, 48.43],
+  ['School', 48.44, 48.79],
+  ['of', 48.79, 48.89],
+  ['Motion.', 48.9, 49.48],
+]);
+
+/**
+ * The words-per-cue cap the real runs captioned at. The short-form default (6) hides
+ * most of these defects behind larger cues; a tighter cap is what exposed them, and
+ * the model is free to pass one.
+ */
+const TIGHT = captionSegmentConfig('short-form', { maxWordsPerCue: 4 });
+const TIGHTER = captionSegmentConfig('short-form', { maxWordsPerCue: 3 });
+
+/** Each cue's on-screen window: up to the next cue's first word; the last is open. */
+function windows(
+  cues: readonly { readonly words: readonly TranscriptWord[] }[],
+  fps?: number,
+): number[] {
+  const onGrid = (t: number): number => (fps === undefined ? t : snapSecondsToFrame(t, fps));
+  return cues.map((cue, index) => {
+    const next = cues[index + 1];
+    return next === undefined
+      ? Infinity
+      : onGrid(next.words[0]!.start) - onGrid(cue.words[0]!.start);
+  });
+}
+
+const cueTexts = (cues: readonly { readonly text: string }[]): string[] =>
+  cues.map((cue) => flat(cue.text));
+
+describe('breakQuality — units a reader takes in as one thing', () => {
+  it('penalises a break inside a proper name', () => {
+    // Same words, same timing, only the capitalisation differs — so the whole
+    // difference is the proper-name signal.
+    const named = speak('my name is Shamra Dotto today');
+    const plain = speak('my name is shamra dotto today');
+    expect(breakQuality(named, 3)).toBeLessThan(breakQuality(plain, 3));
+  });
+
+  it('does not read a sentence-opening capital as part of a name', () => {
+    const words = speak('all done. Then Sarah left');
+    expect(breakQuality(words, 2)).toBe(breakQuality(speak('all done. then sarah left'), 2));
+  });
+
+  it('does not join a name to the pronoun I', () => {
+    const words = speak('ask Shamra Dotto I said');
+    expect(breakQuality(words, 2)).toBe(breakQuality(speak('ask shamra dotto i said'), 2));
+  });
+
+  it('treats a comma after the first capital as a real seam', () => {
+    const words = speak('say Hi, Sam today');
+    expect(breakQuality(words, 1)).toBe(breakQuality(speak('say hi, sam today'), 1));
+  });
+
+  it('penalises a break between a number and the noun it counts', () => {
+    // "8", Indian lakh grouping, thousands grouping, and a percent all read as numbers.
+    for (const number of ['8', '1,50,000', '557,000', '1%', '$20']) {
+      const counted = speak(`there are ${number} principles here`);
+      const plain = speak('there are many principles here');
+      expect(breakQuality(counted, 2), number).toBeLessThan(breakQuality(plain, 2));
+    }
+  });
+
+  it('lets a number end a clause or sentence', () => {
+    const plain = (text: string): number => breakQuality(speak(text), 2);
+    expect(breakQuality(speak('we had 8, then more'), 2)).toBe(plain('we had many, then more'));
+    expect(breakQuality(speak('we had 8. then more'), 2)).toBe(plain('we had many. then more'));
+    // The next word opens a new clause, so the number is not attached to it.
+    expect(breakQuality(speak('we had 8 and they'), 2)).toBe(plain('we had many and they'));
+  });
+});
+
+describe('packSegment — holdable breaks', () => {
+  it('does not end a cue on a word the next one follows too closely to be read', () => {
+    // "Hi," ends 0.14 s before "my" — the best linguistic seam in the run, and a
+    // cue that could only ever be on screen for 0.13 s. Holdable breaks exist
+    // further along, so one of them is taken.
+    const run = HI_MY_NAME.slice(1);
+    const cues = packSegment(run, TIGHT);
+    expect(cues[0]!.map((w) => w.word)).not.toEqual(['Hi,']);
+    for (const cue of cues.slice(0, -1)) {
+      const next = run[run.indexOf(cue[cue.length - 1]!) + 1]!;
+      expect(next.start - cue[0]!.start).toBeGreaterThanOrEqual(TIGHT.minCueSeconds);
+    }
+  });
+
+  it('still takes the best break when no break in reach is holdable', () => {
+    // Every word 0.05 s apart and at most two per cue: no candidate clears 0.5 s,
+    // so holdability cannot discriminate and packing must still advance.
+    const config = captionSegmentConfig('short-form', { maxWordsPerCue: 2 });
+    const words = speak('one two three four', { wordSeconds: 0.05 });
+    expect(packSegment(words, config).flatMap((cue) => [...cue])).toEqual(words);
+  });
+
+  it('keeps a proper name on one cue', () => {
+    const cues = segmentCaptions(HI_MY_NAME, TIGHT, 30);
+    expect(cueTexts(cues).some((text) => text.includes('Shamra Dotto'))).toBe(true);
+    expect(cueTexts(cues)).not.toContain('Dotto');
+  });
+
+  it('keeps a number with the noun it counts', () => {
+    const cues = segmentCaptions(SUBSCRIBERS, TIGHTER, 30);
+    expect(cueTexts(cues).some((text) => text.includes('1,50,000 subscribers'))).toBe(true);
+  });
+
+  it('does not strand "Hi," as a cue of its own', () => {
+    for (const config of [TIGHT, TIGHTER, captionSegmentConfig('short-form')]) {
+      expect(cueTexts(segmentCaptions(HI_MY_NAME, config, 30))).not.toContain('Hi,');
+    }
+  });
+});
+
+describe('keepTogether', () => {
+  it('keeps a requested phrase on one cue that would otherwise be split', () => {
+    // Pinned both ways: without the phrase this fixture really does tear
+    // "stop | scrolling," — which is exactly why the accent could not land on it.
+    const split = cueTexts(segmentCaptions(STOP_SCROLLING, TIGHT, 30));
+    expect(split.some((text) => text.includes('stop scrolling'))).toBe(false);
+
+    const kept = cueTexts(
+      segmentCaptions(
+        STOP_SCROLLING,
+        captionSegmentConfig('short-form', { maxWordsPerCue: 4, keepTogether: ['stop scrolling'] }),
+        30,
+      ),
+    );
+    expect(kept.some((text) => text.includes('stop scrolling,'))).toBe(true);
+    expect(kept.join(' ')).toBe(STOP_SCROLLING.map((w) => w.word).join(' '));
+  });
+
+  it('matches a phrase case-insensitively, ignoring punctuation', () => {
+    const config = captionSegmentConfig('short-form', {
+      maxWordsPerCue: 4,
+      keepTogether: ['STOP SCROLLING!'],
+    });
+    const texts = cueTexts(segmentCaptions(STOP_SCROLLING, config, 30));
+    expect(texts.some((text) => text.includes('stop scrolling,'))).toBe(true);
+  });
+
+  it('still breaks inside a phrase longer than a whole cue, rather than stalling', () => {
+    const config = captionSegmentConfig('short-form', {
+      maxWordsPerCue: 2,
+      keepTogether: ['one two three four'],
+    });
+    const words = speak('one two three four');
+    expect(packSegment(words, config).flatMap((cue) => [...cue])).toEqual(words);
+  });
+
+  it('never splits a phrase to meet the reading-speed target', () => {
+    // Dense enough to trip the ceiling, slow enough that splits are holdable.
+    // Unprotected, this stage re-splits the second half as "arrive | far too fast";
+    // with the phrase it takes only the split outside it and holds the rest whole.
+    const cue = speak('these words arrive far too fast', { wordSeconds: 0.4 });
+    const split = (keepTogether: string[]): string[] =>
+      enforceReadingSpeed(
+        [cue],
+        captionSegmentConfig('subtitle', { maxCharsPerSecond: 10, keepTogether }),
+      ).map((piece) => piece.map((w) => w.word).join(' '));
+    expect(split([])).toEqual(['these words', 'arrive', 'far too fast']);
+    expect(split(['arrive far too fast'])).toEqual(['these words', 'arrive far too fast']);
+  });
+});
+
+describe('absorbUnreadableCues', () => {
+  const config = captionSegmentConfig('short-form');
+  const words = (cues: readonly (readonly TranscriptWord[])[]): string[][] =>
+    cues.map((cue) => cue.map((w) => w.word));
+
+  it('merges a fragment into the FOLLOWING cue when the sentence carries on', () => {
+    const cues = [
+      real([['canvas.', 46.65, 47.38]]),
+      real([['So,', 47.8, 47.81]]),
+      real([
+        ['welcome', 47.86, 48],
+        ['to', 48, 48.1],
+      ]),
+    ];
+    expect(words(absorbUnreadableCues(cues, config))).toEqual([
+      ['canvas.'],
+      ['So,', 'welcome', 'to'],
+    ]);
+  });
+
+  it('merges a fragment that ends a sentence into the PREVIOUS cue it finishes', () => {
+    const cues = [
+      real([
+        ['we', 0, 0.4],
+        ['won', 0.4, 0.8],
+      ]),
+      real([['again.', 0.9, 0.95]]),
+      real([
+        ['Next', 1.0, 1.4],
+        ['up', 1.4, 1.8],
+      ]),
+    ];
+    expect(words(absorbUnreadableCues(cues, config))).toEqual([
+      ['we', 'won', 'again.'],
+      ['Next', 'up'],
+    ]);
+  });
+
+  it('merges the first cue forward, since it has no previous', () => {
+    const cues = [
+      real([['Yes.', 0, 0.05]]),
+      real([
+        ['Next', 0.1, 0.5],
+        ['up', 0.5, 0.9],
+      ]),
+    ];
+    expect(words(absorbUnreadableCues(cues, config))).toEqual([['Yes.', 'Next', 'up']]);
+  });
+
+  it('keeps merging until the window clears the floor', () => {
+    const cues = [
+      real([['a', 0, 0.05]]),
+      real([['b', 0.1, 0.15]]),
+      real([['c', 0.2, 0.25]]),
+      real([['d', 0.6, 0.9]]),
+    ];
+    const merged = absorbUnreadableCues(cues, config);
+    expect(words(merged)).toEqual([['a', 'b', 'c'], ['d']]);
+    expect(windows(merged.map((cue) => ({ words: cue })))[0]).toBeGreaterThanOrEqual(
+      MIN_CAPTION_CUE_SECONDS,
+    );
+  });
+
+  it('leaves the only cue alone, however brief', () => {
+    const cues = [real([['go', 0, 0.05]])];
+    expect(absorbUnreadableCues(cues, config)).toEqual(cues);
+  });
+
+  it('measures the window on the frame grid when given a frame rate', () => {
+    // 0.26 s apart in seconds — over the floor — but 0.02 → frame 1 and 0.28 →
+    // frame 8 at 30 fps: 7 frames, 0.233 s once snapped, which is what
+    // verify_captions will read. Merged with the grid, kept without it.
+    const cues = [real([['over', 0.02, 0.05]]), real([['there', 0.28, 0.9]])];
+    expect(absorbUnreadableCues(cues, config)).toHaveLength(2);
+    expect(absorbUnreadableCues(cues, config, 30)).toHaveLength(1);
+  });
+
+  it('merges the clipped "So," of the real run into the sentence it opens', () => {
+    const texts = cueTexts(segmentCaptions(SO_WELCOME, captionSegmentConfig('short-form'), 30));
+    expect(texts).not.toContain('So,');
+    expect(texts.some((text) => text.startsWith('So, welcome'))).toBe(true);
+  });
+});
+
+describe('segmentCaptions — the readable floor', () => {
+  it('emits no cue whose window is below the floor, on real speech, at every preset and rate', () => {
+    const excerpts = [HI_MY_NAME, SUBSCRIBERS, STOP_SCROLLING, SO_WELCOME];
+    for (const excerpt of excerpts) {
+      for (const preset of ['short-form', 'subtitle', 'one-word'] as const) {
+        for (const maxWordsPerCue of [undefined, 1, 2, 3, 4]) {
+          const config = captionSegmentConfig(
+            preset,
+            maxWordsPerCue === undefined ? {} : { maxWordsPerCue },
+          );
+          for (const fps of [undefined, 24, 25, 29.97, 30, 60]) {
+            const cues = segmentCaptions(excerpt, config, fps);
+            const where = `${excerpt[0]!.word}… ${preset}/${String(maxWordsPerCue)}@${String(fps)}`;
+            if (cues.length < 2) continue;
+            for (const window of windows(cues, fps)) {
+              expect(window, where).toBeGreaterThanOrEqual(MIN_CAPTION_CUE_SECONDS - 1e-6);
+            }
+            expect(
+              cues.flatMap((cue) => [...cue.words]),
+              where,
+            ).toEqual(excerpt);
+          }
+        }
+      }
+    }
+  });
+
+  it('holds the floor even when every word is a sub-frame flash', () => {
+    const words = speak('a b c. d e f. g h i. j k l.', { wordSeconds: 0.03 });
+    for (const preset of ['short-form', 'subtitle', 'one-word'] as const) {
+      const cues = segmentCaptions(words, captionSegmentConfig(preset), 30);
+      if (cues.length < 2) continue;
+      for (const window of windows(cues, 30)) {
+        expect(window).toBeGreaterThanOrEqual(MIN_CAPTION_CUE_SECONDS - 1e-6);
+      }
+    }
+  });
+
+  it('keeps the one-word preset one word per cue wherever the words can be read', () => {
+    // The merge only ever touches a cue too brief to read, so a normally-paced
+    // one-word caption is untouched.
+    const words = speak('every word stands alone here', { wordSeconds: 0.3 });
+    expect(segmentCaptions(words, captionSegmentConfig('one-word'), 30).map((c) => c.text)).toEqual(
+      ['every', 'word', 'stands', 'alone', 'here'],
+    );
+  });
+
+  it('shares its floor with the one-word preset, the lowest hold of every preset', () => {
+    const holds = Object.values(CAPTION_SEGMENT_PRESETS).map((preset) => preset.minCueSeconds);
+    expect(Math.min(...holds)).toBe(MIN_CAPTION_CUE_SECONDS);
+  });
+});
+
+describe('enforceTiming on the frame grid', () => {
+  it('holds the minimum as the snapped timeline will measure it', () => {
+    // The real case: the one-word preset holds for exactly the 0.25 s floor, and
+    // "were" at 34.74 s held to 34.99 s snapped to 34.76–35.00 at 25 fps — 0.24 s,
+    // which verify_captions reported as below the floor.
+    const words = real([
+      ['were', 34.74, 34.92],
+      ['built', 35.14, 35.46],
+    ]);
+    const config = captionSegmentConfig('one-word');
+    const [held] = enforceTiming([words.slice(0, 1), words.slice(1)], config, 25);
+    const snapped = snapSecondsToFrame(held!.end, 25) - snapSecondsToFrame(held!.start, 25);
+    expect(snapped).toBeGreaterThanOrEqual(MIN_CAPTION_CUE_SECONDS - 1e-6);
+    // Still never past the next cue.
+    expect(held!.end).toBeLessThanOrEqual(35.14);
+
+    // Unquantised, the hold is the plain arithmetic it always was.
+    const [plain] = enforceTiming([words.slice(0, 1), words.slice(1)], config);
+    expect(plain!.end).toBeCloseTo(34.74 + MIN_CAPTION_CUE_SECONDS, 9);
   });
 });
