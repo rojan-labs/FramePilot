@@ -10,10 +10,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import pytest
+
+from framepilot_engine.brain.fts import segment_utterances
 from framepilot_engine.brain.models import (
     SearchHit,
     SearchHitType,
-    TranscriptUtterance,
     VisualCaptionRow,
     VisualSpanRow,
 )
@@ -24,6 +26,7 @@ from framepilot_engine.brain.visual_search import (
     SOURCE_SEMANTIC,
     SOURCE_TRANSCRIPT,
     SOURCE_VISUAL,
+    WORD_EDGE_TOLERANCE_SECONDS,
     EvidencePacket,
     RankedList,
     build_evidence_packets,
@@ -184,31 +187,84 @@ def test_projection_no_clips() -> None:
 # --- transcript_overlap ---------------------------------------------------------
 
 
-def _utt(start: float, end: float, text: str) -> TranscriptUtterance:
-    return TranscriptUtterance(start=start, end=end, text=text)
+@dataclass(frozen=True)
+class _Word:
+    """Shaped like ``timeline.models.TranscriptWord`` (the ``SupportsWord`` protocol)."""
+
+    word: str
+    start: float
+    end: float
+
+
+def _w(start: float, end: float, text: str) -> _Word:
+    return _Word(word=text, start=start, end=end)
+
+
+#: A fast talker: a 0.22 s word every 0.3 s for 50 s, never pausing the 0.6 s that
+#: `segment_utterances` needs to start a new utterance — the captured run's narration.
+_WORD_STRIDE = 0.3
+_WORD_LENGTH = 0.22
+_MONOLOGUE = [
+    _w(i * _WORD_STRIDE, i * _WORD_STRIDE + _WORD_LENGTH, f"w{i}")
+    for i in range(int(50.0 / _WORD_STRIDE))
+]
 
 
 def test_overlap_empty_ranges() -> None:
-    assert transcript_overlap([], [_utt(0.0, 1.0, "hi")]) == ""
+    assert transcript_overlap([], [_w(0.0, 1.0, "hi")]) == ""
 
 
-def test_overlap_empty_utterances() -> None:
+def test_overlap_empty_words() -> None:
     assert transcript_overlap([(0.0, 1.0)], []) == ""
 
 
-def test_overlap_joins_in_time_order() -> None:
-    utts = [_utt(5.0, 6.0, "world"), _utt(0.0, 1.0, "hello")]
-    assert transcript_overlap([(0.0, 6.0)], utts) == "hello world"
+def test_overlap_joins_in_transcript_order() -> None:
+    words = [_w(0.0, 1.0, "hello"), _w(5.0, 6.0, "world")]
+    assert transcript_overlap([(0.0, 6.0)], words) == "hello world"
 
 
 def test_overlap_excludes_non_overlapping() -> None:
-    utts = [_utt(0.0, 1.0, "hello"), _utt(50.0, 51.0, "later")]
-    assert transcript_overlap([(0.0, 2.0)], utts) == "hello"
+    words = [_w(0.0, 1.0, "hello"), _w(50.0, 51.0, "later")]
+    assert transcript_overlap([(0.0, 2.0)], words) == "hello"
 
 
-def test_overlap_counts_utterance_once_across_ranges() -> None:
-    utts = [_utt(0.0, 10.0, "spanning")]
-    assert transcript_overlap([(1.0, 2.0), (8.0, 9.0)], utts) == "spanning"
+def test_overlap_counts_word_once_across_ranges() -> None:
+    words = [_w(0.0, 10.0, "spanning")]
+    assert transcript_overlap([(1.0, 2.0), (8.0, 9.0)], words) == "spanning"
+
+
+def test_overlap_is_the_words_under_a_short_placement_not_the_whole_utterance() -> None:
+    """THE DEFECT: a 1.1 s stock placement over a monologue got all 50 seconds of it.
+
+    The narration is ONE utterance (the precondition that made the old
+    utterance-level overlap return everything). A clip placed for 1.1 s must read
+    back only the words spoken in that 1.1 s, plus the two that straddle its edges.
+    """
+    assert len(segment_utterances(_MONOLOGUE)) == 1
+    clip = _Clip("stock", start=20.0, end=21.1, source_start=0.5, source_end=1.6)
+    ranges = project_span_to_timeline(0.0, 8.0, [clip])
+    assert ranges == [pytest.approx((20.0, 21.1))]
+    # w66 [19.8, 20.02] and w70 [21.0, 21.22] straddle the edges and are kept; w65 ends
+    # 0.28 s before the cut and w71 starts 0.2 s after it — both past the tolerance.
+    assert transcript_overlap(ranges, _MONOLOGUE) == "w66 w67 w68 w69 w70"
+
+
+def test_overlap_keeps_an_edge_word_within_the_tolerance() -> None:
+    near = _w(19.9 - WORD_EDGE_TOLERANCE_SECONDS, 19.95, "near")  # ends 0.05 s early
+    far = _w(19.0, 20.0 - WORD_EDGE_TOLERANCE_SECONDS - 0.05, "far")  # ends 0.2 s early
+    inside = _w(20.2, 20.5, "inside")
+    assert transcript_overlap([(20.0, 21.0)], [far, near, inside]) == "near inside"
+
+
+def test_overlap_marks_a_gap_between_disjoint_runs() -> None:
+    # The same footage placed twice: the two moments must not read as one sentence.
+    words = [_w(0.0, 0.4, "first"), _w(5.0, 5.4, "between"), _w(10.0, 10.4, "second")]
+    assert transcript_overlap([(0.0, 1.0), (10.0, 11.0)], words) == "first … second"
+
+
+def test_overlap_trims_and_skips_blank_words() -> None:
+    words = [_w(0.0, 0.2, " hello"), _w(0.3, 0.4, "  "), _w(0.5, 0.7, "world ")]
+    assert transcript_overlap([(0.0, 1.0)], words) == "hello world"
 
 
 # --- build_evidence_packets -----------------------------------------------------
@@ -223,7 +279,7 @@ def _packets(**kwargs: Any) -> list[EvidencePacket]:
         "spans": [],
         "captions": [],
         "clips": [],
-        "utterances": [],
+        "words": [],
         "k": 8,
     }
     base.update(kwargs)
@@ -279,12 +335,12 @@ def test_packets_caption_fts_ignores_other_assets_and_non_overlapping_spans() ->
 def test_packets_transcript_lane_needs_clips_for_projection() -> None:
     spans = [_span("a", 1.0, 2.0, scene=0)]
     clips = [_Clip("a", start=0.0, end=5.0)]  # identity → span [1,2) at timeline [1,2)
-    utts = [_utt(1.0, 2.0, "spoken here")]
+    words = [_w(1.0, 1.4, "spoken"), _w(1.5, 2.0, "here")]
     packets = _packets(
         transcript_fts_hits=[_transcript_hit(1.0, 2.0, 2.0)],
         spans=spans,
         clips=clips,
-        utterances=utts,
+        words=words,
     )
     assert len(packets) == 1
     assert packets[0].sources == [SOURCE_TRANSCRIPT]
@@ -309,7 +365,7 @@ def test_packets_semantic_lane_caption_and_transcript_types() -> None:
         SearchHit(type=SearchHitType.ASSET, asset_id="a", snippet="a.mp4", score=0.1),
     ]
     packets = _packets(
-        semantic_hits=semantic, spans=spans, clips=clips, utterances=[_utt(0.0, 1.0, "hey")]
+        semantic_hits=semantic, spans=spans, clips=clips, words=[_w(0.0, 1.0, "hey")]
     )
     assert len(packets) == 1
     assert packets[0].sources == [SOURCE_SEMANTIC]

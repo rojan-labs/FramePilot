@@ -10,6 +10,7 @@ set.
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -19,8 +20,10 @@ from fastapi.testclient import TestClient
 import framepilot_engine.service as service_module
 from framepilot_engine.analysis.visual_sampler import SAMPLER_VERSION
 from framepilot_engine.audio.asr import WhisperCliNotFoundError
+from framepilot_engine.brain.described import described_from_summary
+from framepilot_engine.brain.ledger_models import ShotRecord
 from framepilot_engine.brain.models import VisualCaptionRow, VisualSpanRow
-from framepilot_engine.brain.store import open_brain
+from framepilot_engine.brain.store import BrainStore, open_brain
 from framepilot_engine.brain.twelvelabs import (
     TaskStatus,
     TLChapter,
@@ -32,7 +35,11 @@ from framepilot_engine.brain.twelvelabs import (
     TwelveLabsClientResolution,
     TwelveLabsPegasusUnavailableError,
 )
-from framepilot_engine.brain.twelvelabs_index import store_index_id, store_video_mapping
+from framepilot_engine.brain.twelvelabs_index import (
+    TL_DESCRIBED_MODEL,
+    store_index_id,
+    store_video_mapping,
+)
 from framepilot_engine.brain.visual_embed import MODEL_ID
 from framepilot_engine.config import Settings
 from framepilot_engine.media.probe import MediaInfo, StreamInfo
@@ -385,6 +392,154 @@ def test_describe_walks_pegasus_chapters(tmp_path: Path, monkeypatch: pytest.Mon
     assert body["available"] is True and body["backend"] == "twelvelabs"
     assert [p["t0"] for p in body["packets"]] == [0.0, 1.5]
     assert "Intro" in body["packets"][0]["caption"]
+
+
+def _seed_tl_describe(root: Path, shots: list[ShotRecord]) -> None:
+    """An indexed asset with a tier-0 shot list: what describe reads and writes."""
+    _seed_asset(root, root)
+    with open_brain(root, "p1") as store:
+        store_index_id(store, "idx-1")
+        store_video_mapping(
+            store,
+            "vid",
+            content_hash="sha-vid",
+            status="ready",
+            video_id="video-xyz",
+            source_asset_id="upload-video-xyz",
+        )
+        by_hash: dict[str, list[ShotRecord]] = {}
+        for shot in shots:
+            by_hash.setdefault(shot.content_hash, []).append(shot)
+        for content_hash, rows in by_hash.items():
+            # Geometry-only tier-0 rows ("not measured yet"): enough of a shot list for
+            # tier 2, with no decode.
+            store.upsert_shots("vid", content_hash, "measured", rows)
+
+
+def _ledger_shot(index: int, t0: float, t1: float, content_hash: str = "sha-vid") -> ShotRecord:
+    return ShotRecord(
+        asset_id="vid",
+        content_hash=content_hash,
+        shot_index=index,
+        t0=t0,
+        t1=t1,
+        keyframe_t=(t0 + t1) / 2.0,
+    )
+
+
+_TWO_CHAPTERS = [
+    TLChapter(start=0.0, end=1.5, title="Intro", summary="setup"),
+    TLChapter(start=1.5, end=3.0, title="Reveal", summary="payoff"),
+]
+
+
+def test_describe_writes_the_chapters_into_the_shot_ledger(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A paid describe is remembered: the next run reads it off the ledger (VU6.3).
+
+    THE DEFECT. Pegasus answered `describe_footage` in 25-38 s per asset and the answer
+    reached one turn and no ledger row, so every later run's clip rows still read
+    `described: null` and the agent asked — and paid — again.
+    """
+    _seed_tl_describe(tmp_path, [_ledger_shot(0, 0.0, 1.5), _ledger_shot(1, 1.5, 3.0)])
+    client = _client(tmp_path, monkeypatch, _FakeTL(chapters=_TWO_CHAPTERS))
+    body = client.post("/brain/visual/describe", json={"projectId": "p1", "assetId": "vid"}).json()
+    assert body["available"] is True and len(body["packets"]) == 2
+
+    # Read back through the route the run itself reads, not the store.
+    ledger = client.get("/brain/shots", params={"projectId": "p1", "assetIds": "vid"}).json()
+    assert ledger["available"] is True
+    described = [shot["described"] for shot in ledger["shots"]]
+    assert [d["summary"] for d in described] == ["Intro — setup", "Reveal — payoff"]
+    assert {d["model"] for d in described} == {TL_DESCRIBED_MODEL}
+    assert ledger["coverage"]["described"] == 2
+    # The digest is rebuilt too (duration from the probe), so its coverage agrees.
+    assert ledger["digests"][0]["coverage"]["described"] == 2
+    assert ledger["digests"][0]["durationS"] == 3.0
+    with open_brain(tmp_path, "p1") as store:
+        # And the summaries are searchable, keyed by shot like every tier-2 producer's.
+        captions = store.list_visual_captions("vid")
+        assert [(c.scene_index, c.text) for c in captions] == [
+            (0, "Intro — setup"),
+            (1, "Reveal — payoff"),
+        ]
+
+
+def test_describe_never_overwrites_a_real_tier2_description(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_tl_describe(tmp_path, [_ledger_shot(0, 0.0, 1.5), _ledger_shot(1, 1.5, 3.0)])
+    real = described_from_summary("A host speaks to camera.", model="local-pack")
+    with open_brain(tmp_path, "p1") as store:
+        store.upsert_shots(
+            "vid",
+            "sha-vid",
+            "described",
+            [_ledger_shot(0, 0.0, 1.5).model_copy(update={"described": real})],
+        )
+    client = _client(tmp_path, monkeypatch, _FakeTL(chapters=_TWO_CHAPTERS))
+    client.post("/brain/visual/describe", json={"projectId": "p1", "assetId": "vid"})
+    with open_brain(tmp_path, "p1") as store:
+        shots = store.list_shots(["vid"])
+    assert [(s.described.model, s.described.summary) for s in shots if s.described] == [
+        ("local-pack", "A host speaks to camera."),
+        (TL_DESCRIBED_MODEL, "Reveal — payoff"),
+    ]
+
+
+def test_a_failed_ledger_write_does_not_fail_the_describe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The packets are already paid for and in hand; a locked brain costs the ledger its
+    # copy, not the editor their answer.
+    _seed_tl_describe(tmp_path, [_ledger_shot(0, 0.0, 3.0)])
+
+    def locked(*_args: Any, **_kwargs: Any) -> int:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(BrainStore, "upsert_shots", locked)
+    client = _client(tmp_path, monkeypatch, _FakeTL(chapters=_TWO_CHAPTERS))
+    body = client.post("/brain/visual/describe", json={"projectId": "p1", "assetId": "vid"}).json()
+    assert body["available"] is True and len(body["packets"]) == 2
+
+
+def test_describe_leaves_shots_of_other_bytes_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The chapter map describes the bytes TwelveLabs indexed ("sha-vid"). Shots measured
+    # from different bytes are different footage, and must not borrow its words.
+    _seed_tl_describe(tmp_path, [_ledger_shot(0, 0.0, 3.0, content_hash="sha-reencoded")])
+    client = _client(tmp_path, monkeypatch, _FakeTL(chapters=_TWO_CHAPTERS))
+    body = client.post("/brain/visual/describe", json={"projectId": "p1", "assetId": "vid"}).json()
+    assert len(body["packets"]) == 2  # the describe answer itself is unaffected
+    with open_brain(tmp_path, "p1") as store:
+        assert store.list_shots(["vid"])[0].described is None
+
+
+def test_describe_overlap_is_only_the_words_under_a_short_placement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE DEFECT: a stock clip on screen for 1.1 s got the whole 50 s narration.
+
+    The host talks fast and never pauses the 0.6 s the utterance segmenter needs, so the
+    whole monologue is one utterance — and the old overlap returned every utterance
+    touching the placement. It must be the words spoken while the clip is on screen.
+    """
+    _seed_tl_describe(tmp_path, [])
+    project = _project_doc()
+    project["timeline"]["tracks"][0]["clips"][0].update(
+        {"start": 20.0, "end": 21.1, "sourceStart": 0.5, "sourceEnd": 1.6}
+    )
+    project["transcript"] = [
+        {"word": f"w{i}", "start": i * 0.3, "end": i * 0.3 + 0.22} for i in range(166)
+    ]
+    fake = _FakeTL(chapters=[TLChapter(start=0.0, end=3.0, title="Skyline")])
+    client = _client(tmp_path, monkeypatch, fake)
+    body = client.post(
+        "/brain/visual/describe", json={"projectId": "p1", "assetId": "vid", "project": project}
+    ).json()
+    assert body["packets"][0]["transcriptOverlap"] == "w66 w67 w68 w69 w70"
 
 
 def test_describe_reports_not_indexed_without_mapping(

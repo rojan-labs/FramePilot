@@ -25,8 +25,7 @@ Two responsibilities, kept separate:
   **timeline** seconds, so a hit only resolves against dialogue after its
   ``[t0, t1)`` is projected back onto the timeline through the project's clips
   (plan MI5.2). The projection is deterministic and the packet carries the
-  transcript text overlapping the span so the model reads evidence, not a
-  timestamp.
+  words spoken over the span so the model reads evidence, not a timestamp.
 
 The brain package must not depend on the timeline package (mirrors
 ``brain/fts.py``), so clips are consumed through the :class:`SupportsClip`
@@ -41,10 +40,10 @@ from typing import Protocol
 
 from pydantic import BaseModel, Field
 
+from framepilot_engine.brain.fts import SupportsWord
 from framepilot_engine.brain.models import (
     SearchHit,
     SearchHitType,
-    TranscriptUtterance,
     VisualCaptionRow,
     VisualSpanRow,
 )
@@ -56,6 +55,7 @@ __all__ = [
     "SOURCE_SEMANTIC",
     "SOURCE_TRANSCRIPT",
     "SOURCE_VISUAL",
+    "WORD_EDGE_TOLERANCE_SECONDS",
     "EvidencePacket",
     "RankedList",
     "SupportsClip",
@@ -80,6 +80,18 @@ SOURCE_VISUAL = "visual"
 SOURCE_CAPTION_FTS = "caption-fts"
 SOURCE_TRANSCRIPT = "transcript"
 SOURCE_SEMANTIC = "semantic"
+
+#: How far past a projected range's edge a word may sit and still count as spoken over it.
+#: ASR word timestamps drift by a tenth of a second or two, and a cut lands mid-word as
+#: often as between words — so a word straddling the edge is kept (any overlap counts),
+#: and one whose timestamps stop just short of the edge is kept too. Small on purpose:
+#: a fast speaker says three to four words a second, and a wider margin would pad a
+#: one-second placement with the neighbouring sentence it was cut away from.
+WORD_EDGE_TOLERANCE_SECONDS = 0.15
+
+#: Placed between two runs of words that are not adjacent in the transcript (the same
+#: footage placed twice, say), so two separate moments never read as one sentence.
+_DISJOINT_RUN_SEPARATOR = "…"
 
 #: A visual span's fusion identity: ``(asset_id, t0)``. Model/sampler_version are
 #: omitted — a project embeds under one model at a time, and both the durable
@@ -138,10 +150,9 @@ class EvidencePacket(BaseModel):
     ``t0``/``t1``/``sceneId`` come from the hit's ``visual_spans`` row and are
     **asset** seconds; ``score`` is the fused RRF score (higher = stronger
     agreement across retrievers, not a probability). ``caption`` is the scene's
-    VLM caption when one exists; ``transcriptOverlap`` is the transcript text
-    overlapping the span's timeline projection (empty when the span is off the
-    timeline or nothing was said over it). ``sources`` names every retriever
-    that surfaced the span.
+    VLM caption when one exists; ``transcriptOverlap`` is the words spoken while
+    the span is on the timeline (empty when the span is off the timeline or nothing
+    was said over it). ``sources`` names every retriever that surfaced the span.
     """
 
     asset_id: str = Field(alias="assetId")
@@ -153,7 +164,7 @@ class EvidencePacket(BaseModel):
     transcript_overlap: str = Field(
         default="",
         alias="transcriptOverlap",
-        description="Transcript text overlapping the span's timeline projection.",
+        description="Words spoken while the span is on the timeline.",
     )
     sources: list[str] = Field(
         default_factory=list, description="Retrievers that hit this span (e.g. ['visual'])."
@@ -162,9 +173,7 @@ class EvidencePacket(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-def reciprocal_rank_fusion(
-    rankings: Iterable[RankedList], *, k_rrf: int = RRF_K
-) -> list[_Fused]:
+def reciprocal_rank_fusion(rankings: Iterable[RankedList], *, k_rrf: int = RRF_K) -> list[_Fused]:
     """Fuse labelled ranked lists into one score per span (plan §3.4d).
 
     Each list contributes ``1 / (k_rrf + rank)`` to every span it ranks, with
@@ -254,22 +263,47 @@ def project_span_to_timeline(
 
 def transcript_overlap(
     timeline_ranges: Sequence[tuple[float, float]],
-    utterances: Sequence[TranscriptUtterance],
+    words: Sequence[SupportsWord],
 ) -> str:
-    """Transcript text spoken over any of ``timeline_ranges`` (plan §3.4e).
+    """The words spoken over any of ``timeline_ranges`` (plan §3.4e).
 
-    Utterances (timeline seconds) overlapping a range are joined in time order;
-    each utterance appears once even if it spans several ranges. Empty when the
-    span is off the timeline or silent.
+    WORDS, not utterances. This used to return every whole utterance touching a
+    range, and an utterance is whatever ``segment_utterances`` groups between
+    0.6 s pauses — for a fast talker who never pauses that long, the entire
+    monologue. A captured run described seven silent stock clips, each on screen
+    for 1-5 s over a talking head, and every one came back with the whole
+    50-second narration as its "overlap": no evidence about any of them.
+
+    A word counts when its ``[start, end]`` meets a range widened by
+    :data:`WORD_EDGE_TOLERANCE_SECONDS` on each side. ``words`` are the project's
+    transcript in timeline seconds and in time order (the same assumption
+    ``segment_utterances`` makes); each word appears once however many ranges it
+    meets, and runs that are not adjacent in the transcript are separated by an
+    ellipsis. Empty when the span is off the timeline or nothing was said over it.
     """
-    if not timeline_ranges or not utterances:
+    if not timeline_ranges or not words:
         return ""
-    hits: list[TranscriptUtterance] = []
-    for utt in utterances:
-        if any(_closed_overlap(utt.start, utt.end, r0, r1) for r0, r1 in timeline_ranges):
-            hits.append(utt)
-    hits.sort(key=lambda u: (u.start, u.end))
-    return " ".join(u.text for u in hits)
+    widened = [
+        (r0 - WORD_EDGE_TOLERANCE_SECONDS, r1 + WORD_EDGE_TOLERANCE_SECONDS)
+        for r0, r1 in timeline_ranges
+    ]
+    pieces: list[str] = []
+    # Positions count spoken words only, so a blank token between two kept words does
+    # not read as a gap between two separate moments.
+    position = -1
+    previous: int | None = None
+    for word in words:
+        text = word.word.strip()
+        if not text:
+            continue
+        position += 1
+        if not any(_closed_overlap(word.start, word.end, lo, hi) for lo, hi in widened):
+            continue
+        if previous is not None and position != previous + 1:
+            pieces.append(_DISJOINT_RUN_SEPARATOR)
+        pieces.append(text)
+        previous = position
+    return " ".join(pieces)
 
 
 def _hit_span_keys(
@@ -328,7 +362,7 @@ def build_evidence_packets(
     spans: Sequence[VisualSpanRow],
     captions: Sequence[VisualCaptionRow],
     clips: Sequence[SupportsClip],
-    utterances: Sequence[TranscriptUtterance],
+    words: Sequence[SupportsWord],
     k: int,
     asset_ids: Sequence[str] | None = None,
     time_range: tuple[float, float] | None = None,
@@ -341,7 +375,7 @@ def build_evidence_packets(
     universe is the passed ``spans`` (plus any span a visual hit names), filtered
     by ``asset_ids``/``time_range`` identically to the vector store — a retriever
     can never smuggle in a span the caller excluded. Each surviving span is
-    enriched with its scene caption and the transcript spoken over it.
+    enriched with its scene caption and the transcript ``words`` spoken over it.
 
     :param k: Max packets; ``<= 0`` returns ``[]``.
     """
@@ -381,9 +415,7 @@ def build_evidence_packets(
         RankedList(
             SOURCE_TRANSCRIPT, _hit_span_keys(transcript_fts_hits, candidate_spans, clips_by_asset)
         ),
-        RankedList(
-            SOURCE_SEMANTIC, _hit_span_keys(semantic_hits, candidate_spans, clips_by_asset)
-        ),
+        RankedList(SOURCE_SEMANTIC, _hit_span_keys(semantic_hits, candidate_spans, clips_by_asset)),
     ]
 
     caption_by_scene: dict[tuple[str, int], str] = {}
@@ -406,7 +438,7 @@ def build_evidence_packets(
                 scene_index=scene_index,
                 score=fused.score,
                 caption=caption_by_scene.get((asset_id, scene_index)),
-                transcript_overlap=transcript_overlap(tl_ranges, utterances),
+                transcript_overlap=transcript_overlap(tl_ranges, words),
                 sources=fused.sources,
             )
         )

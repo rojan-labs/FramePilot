@@ -26,6 +26,7 @@ import logging
 import os
 import re
 import signal
+import sqlite3
 import subprocess
 import threading
 import time
@@ -200,6 +201,7 @@ from framepilot_engine.brain.store import (
 )
 from framepilot_engine.brain.twelvelabs import (
     PEGASUS_UNAVAILABLE_REASON,
+    TLChapter,
     TwelveLabsAuthError,
     TwelveLabsClient,
     TwelveLabsError,
@@ -210,6 +212,8 @@ from framepilot_engine.brain.twelvelabs import (
 from framepilot_engine.brain.twelvelabs_index import (
     chapters_to_packets,
     clips_to_packets,
+    describe_shots_from_chapters,
+    is_twelvelabs_description,
     map_pegasus_chapters,
     map_pegasus_highlights,
     poll_index_asset,
@@ -3480,7 +3484,14 @@ def create_app(
             done = store.existing_shot_tier_keys(asset_id, content_hash, "described", TIER2_VERSION)
         except BrainError as exc:
             return _TierOutcome("failed", str(exc))
-        pending = [shot for shot in shots if shot.shot_index not in done]
+        # A Pegasus chapter summary (`_ledger_tl_chapters`) counts as a description for
+        # reading, never as a reason to skip: it fills one field of nine, and this pass is
+        # what fills the rest.
+        pending = [
+            shot
+            for shot in shots
+            if shot.shot_index not in done or is_twelvelabs_description(shot.described)
+        ]
         if not pending:
             return _TierOutcome("ok")
         duration = info.duration_seconds or (1.0 if info.is_image else 0.0)
@@ -3518,36 +3529,124 @@ def create_app(
             for index, facts in sorted(described.items())
         ]
         try:
-            store.upsert_shots(asset_id, content_hash, "described", rows)
-            store.upsert_visual_captions(
-                [
-                    VisualCaptionRow(
-                        asset_id=asset_id,
-                        # The SHOT is the caption's key now. `visual_captions.text` keeps
-                        # the summary for FTS (plan VU6.3); the structured document lives
-                        # in `shots.described` and is the thing a filter or a solver reads.
-                        scene_index=by_index[index].shot_index,
-                        t0=by_index[index].t0,
-                        t1=by_index[index].t1,
-                        text=facts.summary,
-                        model=facts.model,
-                    )
-                    for index, facts in sorted(described.items())
-                ]
-            )
-            store.reindex_captions(store.list_visual_captions(asset_id), asset_id=asset_id)
-            store.upsert_asset_digest(
-                digest_from_shots(
-                    asset_id,
-                    content_hash,
-                    _asset_shots(store, asset_id),
-                    duration_s=duration,
-                    has_speech=bool(store.list_analysis(asset_id, kind=AnalysisKind.TRANSCRIPTION)),
-                )
-            )
+            _persist_tier2(store, asset_id, content_hash, rows, duration_s=duration)
         except BrainError as exc:
             return _TierOutcome("failed", str(exc))
         return _TierOutcome("ok", shots=len(rows), complete=complete)
+
+    def _persist_tier2(
+        store: BrainStore,
+        asset_id: str,
+        content_hash: str,
+        rows: Sequence[ShotRecord],
+        *,
+        duration_s: float | None,
+    ) -> None:
+        """Write tier-2 rows the way every producer must: ledger, caption FTS, digest.
+
+        One writer for every tier-2 producer — the local pack, the hosted captioner, and a
+        TwelveLabs chapter map — so a description reads back identically whoever made it:
+
+        - ``shots.described`` — the structured document, under its own tier-2 version;
+        - ``visual_captions`` + its FTS index — the ``summary`` only, keyed by the SHOT
+          (``scene_index`` is the shot index, ``t0`` the shot's own start), the same
+          geometry the local tier-1 arm writes its spans under;
+        - the asset digest, rebuilt from the whole ledger so its coverage counts the rows
+          just written. Skipped when ``duration_s`` is unknown, because the digest's
+          duration comes from the probe and a guessed one would be stored as measured.
+
+        :param rows: Shots of ``asset_id``/``content_hash``, each with ``described`` set.
+        :raises BrainError: If the store refuses a write.
+        """
+        if not rows:
+            return
+        store.upsert_shots(asset_id, content_hash, "described", rows)
+        store.upsert_visual_captions(
+            [
+                VisualCaptionRow(
+                    asset_id=asset_id,
+                    # The SHOT is the caption's key now. `visual_captions.text` keeps the
+                    # summary for FTS (plan VU6.3); the structured document lives in
+                    # `shots.described` and is the thing a filter or a solver reads.
+                    scene_index=row.shot_index,
+                    t0=row.t0,
+                    t1=row.t1,
+                    text=row.described.summary,
+                    model=row.described.model,
+                )
+                for row in rows
+                if row.described is not None
+            ]
+        )
+        store.reindex_captions(store.list_visual_captions(asset_id), asset_id=asset_id)
+        if duration_s is None:
+            return
+        store.upsert_asset_digest(
+            digest_from_shots(
+                asset_id,
+                content_hash,
+                _asset_shots(store, asset_id),
+                duration_s=duration_s,
+                has_speech=bool(store.list_analysis(asset_id, kind=AnalysisKind.TRANSCRIPTION)),
+            )
+        )
+
+    def _ledger_duration(store: BrainStore, asset_id: str, content_hash: str) -> float | None:
+        """The asset duration a digest rebuild may use, or ``None`` when none is known.
+
+        The stored probe first, as tier 2 reads it; failing that, the duration tier 0
+        already put in this asset's digest for the SAME bytes. Never the shot spans — they
+        stop at the last detected cut — and never a decode: this runs inside a request.
+        """
+        asset = store.get_asset(asset_id)
+        if asset is not None and asset.probe is not None:
+            try:
+                probed = MediaInfo.model_validate(asset.probe).duration_seconds
+            except PydanticValidationError:
+                probed = None
+            if probed:
+                return probed
+        for digest in store.get_asset_digests([asset_id]):
+            if digest.content_hash == content_hash:
+                return digest.duration_s
+        return None
+
+    def _ledger_tl_chapters(
+        store: BrainStore, asset_id: str, content_hash: str, chapters: Sequence[TLChapter]
+    ) -> int:
+        """Record a Pegasus chapter map as tier-2 descriptions of the asset's shots.
+
+        ``/brain/visual/describe`` on TwelveLabs costs 25-38 s of Pegasus per asset, and its
+        answer used to reach one turn and no ledger row: every later run read the same
+        clips as ``described: null`` and asked — and paid — again. Only shots of the bytes
+        the map was computed from, and only shots with no description yet
+        (:func:`describe_shots_from_chapters`), so a real tier-2 record is never replaced.
+
+        Best-effort: the describe answer is already in hand, and a ledger write that fails
+        must not turn it into an error. Logged and dropped instead.
+
+        :returns: The number of shots described.
+        """
+        try:
+            shots = [
+                shot for shot in _asset_shots(store, asset_id) if shot.content_hash == content_hash
+            ]
+            rows = describe_shots_from_chapters(chapters, shots)
+            duration = _ledger_duration(store, asset_id, content_hash)
+            _persist_tier2(store, asset_id, content_hash, rows, duration_s=duration)
+        except (BrainError, sqlite3.Error) as exc:
+            _log.warning(
+                "twelvelabs describe: ledger write failed: asset=%s reason=%s", asset_id, exc
+            )
+            return 0
+        if rows:
+            _log.info(
+                "ACT twelvelabs describe → ledger: asset=%s shots=%d/%d",
+                asset_id,
+                len(rows),
+                len(shots),
+            )
+        return len(rows)
 
     def _describe_local(
         client: LocalVisualDescribeClient,
@@ -5198,17 +5297,17 @@ def create_app(
             return VisualSearchResponse(available=False, reason=str(exc))
 
         clips_by_asset: dict[str, list[Any]] = {}
-        utterances: list[Any] = []
+        words: list[Any] = []
         if project_doc is not None:
             for track in project_doc.timeline.tracks:
                 for clip in track.clips:
                     clips_by_asset.setdefault(clip.asset_id, []).append(clip)
-            utterances = segment_utterances(list(project_doc.transcript))
+            words = list(project_doc.transcript)
         packets = clips_to_packets(
             clips,
             video_to_asset=video_to_asset,
             clips_by_asset=clips_by_asset,
-            utterances=utterances,
+            words=words,
             k=req.k,
             asset_ids=req.asset_ids,
         )
@@ -5850,9 +5949,7 @@ def create_app(
             if project_doc is not None
             else []
         )
-        utterances = (
-            segment_utterances(list(project_doc.transcript)) if project_doc is not None else []
-        )
+        words = list(project_doc.transcript) if project_doc is not None else []
         packets = build_evidence_packets(
             visual_hits=visual_hits,
             caption_fts_hits=caption_fts,
@@ -5861,7 +5958,7 @@ def create_app(
             spans=spans,
             captions=captions,
             clips=clips,
-            utterances=utterances,
+            words=words,
             k=req.k,
             asset_ids=req.asset_ids,
             time_range=req.time_range,
@@ -5917,14 +6014,16 @@ def create_app(
         order into evidence packets — the describe contract, now backed by real
         comprehension instead of a "not supported" stub. Honest-unavailable:
         unindexed → ``not_indexed``; no entitlement → ``pegasus_unavailable``.
+
+        The chapters are also written into the shot ledger as tier-2 descriptions
+        (:func:`_ledger_tl_chapters`), so what this paid for reaches every later
+        run's clip rows instead of dying with the turn that asked.
         """
         project_doc: Project | None = None
         if req.project_path is not None or req.project is not None:
             project_doc = load_project_document(req.project_path, req.project)
         clips_by_asset = _clips_by_asset(project_doc)
-        utterances = (
-            segment_utterances(list(project_doc.transcript)) if project_doc is not None else []
-        )
+        words = list(project_doc.transcript) if project_doc is not None else []
         try:
             with open_brain(resolved_root, req.project_id) as store:
                 index_id = read_index_id(store)
@@ -5957,6 +6056,9 @@ def create_app(
                         available=True, backend="twelvelabs", reason="not_indexed"
                     )
                 chapters, _highlights, _gist = pegasus
+                # The WHOLE map, not the `time_range` slice below: it is already paid
+                # for, and every shot it describes is one no later run has to ask about.
+                _ledger_tl_chapters(store, req.asset_id, mapping.content_hash, chapters)
         except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
             return VisualSearchResponse(available=False, reason=str(exc))
         except TwelveLabsPegasusUnavailableError:
@@ -5977,7 +6079,7 @@ def create_app(
             chapters,
             asset_id=req.asset_id,
             clips_by_asset=clips_by_asset,
-            utterances=utterances,
+            words=words,
         )
         _log.info(
             "ACT twelvelabs describe: project=%s asset=%s chapters=%d",
@@ -6061,9 +6163,7 @@ def create_app(
             if project_doc is not None
             else []
         )
-        utterances = (
-            segment_utterances(list(project_doc.transcript)) if project_doc is not None else []
-        )
+        words = list(project_doc.transcript) if project_doc is not None else []
         described_spans = {
             span.t0: text
             for span in spans
@@ -6080,7 +6180,7 @@ def create_app(
                 score=1.0,
                 caption=described_spans.get(span.t0),
                 transcript_overlap=transcript_overlap(
-                    project_span_to_timeline(span.t0, span.t1, clips), utterances
+                    project_span_to_timeline(span.t0, span.t1, clips), words
                 ),
                 sources=["visual-index"],
             )

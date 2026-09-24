@@ -234,6 +234,28 @@ def test_describe_enumerates_every_span_in_time_order_without_embedding_key(tmp_
     assert body["packets"][0]["sources"] == ["visual-index"]
 
 
+def test_describe_overlap_is_only_the_words_under_a_short_placement(tmp_path: Any) -> None:
+    """THE DEFECT: each span of a 1.1 s stock placement got the whole 50 s narration.
+
+    A fast talker never pauses the 0.6 s the utterance segmenter needs, so the monologue
+    is ONE utterance, and the old overlap returned every utterance touching a span. Each
+    span must read back only the words spoken while IT is on screen.
+    """
+    _seed(tmp_path)  # spans [0, 1) and [1, 2) of "vid"
+    project = _project_doc()
+    project["timeline"]["tracks"][0]["clips"][0].update(
+        {"start": 20.0, "end": 21.1, "sourceStart": 0.5, "sourceEnd": 1.6}
+    )
+    # A 0.22 s word every 0.3 s for 50 s.
+    project["transcript"] = [
+        {"word": f"w{i}", "start": i * 0.3, "end": i * 0.3 + 0.22} for i in range(166)
+    ]
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    packets = _describe(client, project=project).json()["packets"]
+    # Span [0, 1) shows on the timeline over [20.0, 20.5]; span [1, 2) over [20.5, 21.1].
+    assert [p["transcriptOverlap"] for p in packets] == ["w66 w67 w68", "w68 w69 w70"]
+
+
 def test_describe_filters_the_enumerated_asset_time_range(tmp_path: Any) -> None:
     _seed(tmp_path)
     client = TestClient(create_app(Settings(projects_root=tmp_path)))

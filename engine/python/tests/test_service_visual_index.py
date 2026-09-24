@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 
 import framepilot_engine.service as service_module
 from framepilot_engine.analysis.visual_sampler import VisualSpan
-from framepilot_engine.brain.described import parse_described
+from framepilot_engine.brain.described import described_from_summary, parse_described
 from framepilot_engine.brain.keyring import KeyRingExhaustedError
 from framepilot_engine.brain.ledger_models import (
     TIER0_VERSION,
@@ -33,6 +33,7 @@ from framepilot_engine.brain.ledger_models import (
 )
 from framepilot_engine.brain.sidecars import export_all_sidecars, import_sidecars
 from framepilot_engine.brain.store import open_brain
+from framepilot_engine.brain.twelvelabs_index import TL_DESCRIBED_MODEL
 from framepilot_engine.brain.visual_embed import (
     MODEL_ID,
     EmbedResult,
@@ -321,6 +322,40 @@ def test_index_describes_shots_when_provider_supplied(
         assert shots[0].described.subject == "person"
         assert shots[0].described.camera.shot_size is not None
         assert shots[0].described.p == 0.7
+
+
+def test_a_twelvelabs_chapter_summary_does_not_stop_tier2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Pegasus chapter summary is one field of nine; a real producer fills the rest.
+
+    `/brain/visual/describe` on TwelveLabs writes chapter prose into `shots.described`
+    so later runs can read it. Counted as "already described", that summary would
+    block every structured description of the same shot for good.
+    """
+    describer = _FakeDescriber()
+    client = _client(tmp_path, monkeypatch, describer=describer)
+    _seed_asset(tmp_path, "p1", "vid", "clip.mp4", _video_probe())
+    _seed_measured_shots(tmp_path, "p1", "vid", [(0.0, 3.0)])
+    with open_brain(tmp_path, "p1") as store:
+        shot = store.list_shots(["vid"])[0]
+        summary_only = described_from_summary("Skyline — a city", model=TL_DESCRIBED_MODEL)
+        store.upsert_shots(
+            "vid",
+            shot.content_hash,
+            "described",
+            [shot.model_copy(update={"described": summary_only})],
+        )
+    body = _index(
+        client,
+        assetIds=["vid"],
+        captionProvider={"kind": "anthropic", "model": "claude-x", "apiKey": "sk"},
+    ).json()
+    assert body["items"][0]["tiers"]["described"] == "ok"
+    with open_brain(tmp_path, "p1") as store:
+        described = store.list_shots(["vid"])[0].described
+    assert described is not None
+    assert (described.model, described.subject) == ("claude-x", "person")
 
 
 def test_index_without_provider_reports_captions_skipped(

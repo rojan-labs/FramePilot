@@ -9,10 +9,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from framepilot_engine.brain.described import described_from_summary
+from framepilot_engine.brain.ledger_models import ShotRecord
 from framepilot_engine.brain.store import open_brain
-from framepilot_engine.brain.twelvelabs import TaskStatus, TLClip
+from framepilot_engine.brain.twelvelabs import TaskStatus, TLChapter, TLClip
 from framepilot_engine.brain.twelvelabs_index import (
+    TL_DESCRIBED_MODEL,
+    chapters_to_packets,
     clips_to_packets,
+    describe_shots_from_chapters,
+    is_twelvelabs_description,
     poll_index_asset,
     read_index_id,
     read_video_mapping,
@@ -225,9 +231,11 @@ class _Clip:
         self.speed = 1.0
 
 
-class _Utt:
-    def __init__(self, text: str, start: float, end: float) -> None:
-        self.text = text
+class _Word:
+    """Shaped like ``timeline.models.TranscriptWord`` (the ``SupportsWord`` protocol)."""
+
+    def __init__(self, word: str, start: float, end: float) -> None:
+        self.word = word
         self.start = start
         self.end = end
 
@@ -238,7 +246,7 @@ def test_clips_map_to_packets_with_transcript_overlap() -> None:
         clips,
         video_to_asset={"v1": "vid"},
         clips_by_asset={"vid": [_Clip("vid")]},
-        utterances=[_Utt("app", 0.6, 0.9)],  # type: ignore[list-item]
+        words=[_Word("app", 0.6, 0.9)],
         k=8,
     )
     assert len(packets) == 1
@@ -251,7 +259,7 @@ def test_clips_map_to_packets_with_transcript_overlap() -> None:
 def test_clips_fall_back_to_clip_transcription_without_project() -> None:
     clips = [TLClip("v1", 0.5, 1.5, 10.0, None, "hello there")]
     packets = clips_to_packets(
-        clips, video_to_asset={"v1": "vid"}, clips_by_asset={}, utterances=[], k=8
+        clips, video_to_asset={"v1": "vid"}, clips_by_asset={}, words=[], k=8
     )
     assert packets[0].transcript_overlap == "hello there"
 
@@ -264,10 +272,113 @@ def test_clips_skip_unknown_video_and_respect_filters() -> None:
     ]
     v2a = {"v1": "vid1", "v2": "vid2"}
     # k caps output
-    capped = clips_to_packets(clips, video_to_asset=v2a, clips_by_asset={}, utterances=[], k=1)
+    capped = clips_to_packets(clips, video_to_asset=v2a, clips_by_asset={}, words=[], k=1)
     assert len(capped) == 1
     # asset_ids restricts to vid2
     packets = clips_to_packets(
-        clips, video_to_asset=v2a, clips_by_asset={}, utterances=[], k=8, asset_ids=["vid2"]
+        clips, video_to_asset=v2a, clips_by_asset={}, words=[], k=8, asset_ids=["vid2"]
     )
     assert [p.asset_id for p in packets] == ["vid2"]
+
+
+def test_chapter_packets_carry_only_the_words_under_the_placement() -> None:
+    """A chapter of a stock clip on screen for 1.1 s reads back 1.1 s of narration.
+
+    The captured run: every silent stock clip described over a talking head came back
+    with the whole 50-second monologue as its transcript overlap.
+    """
+    words = [_Word(f"w{i}", i * 0.3, i * 0.3 + 0.22) for i in range(166)]
+    stock = _Clip("vid")
+    stock.start, stock.end, stock.source_start, stock.source_end = 20.0, 21.1, 0.5, 1.6
+    packets = chapters_to_packets(
+        [TLChapter(start=0.0, end=3.0, title="Skyline", summary="a city at dusk")],
+        asset_id="vid",
+        clips_by_asset={"vid": [stock]},
+        words=words,
+    )
+    assert packets[0].caption == "Skyline — a city at dusk"
+    assert packets[0].transcript_overlap == "w66 w67 w68 w69 w70"
+
+
+# -- Pegasus chapters → shot ledger -----------------------------------------------
+
+
+def _shot(index: int, t0: float, t1: float, *, keyframe: float | None = None) -> ShotRecord:
+    return ShotRecord(
+        asset_id="vid",
+        content_hash="sha-vid",
+        shot_index=index,
+        t0=t0,
+        t1=t1,
+        keyframe_t=(t0 + t1) / 2.0 if keyframe is None else keyframe,
+    )
+
+
+def _summaries(rows: list[ShotRecord]) -> dict[int, str]:
+    return {row.shot_index: row.described.summary for row in rows if row.described is not None}
+
+
+def test_chapters_describe_the_shots_they_cover() -> None:
+    chapters = [
+        TLChapter(start=0.0, end=4.0, title="Intro", summary="a host at a desk"),
+        TLChapter(start=4.0, end=10.0, title="Demo"),
+    ]
+    shots = [_shot(0, 0.0, 3.0), _shot(1, 3.0, 9.0), _shot(2, 9.0, 20.0)]
+    rows = describe_shots_from_chapters(chapters, shots)
+    # Shot 2 ([9, 20), keyframe 14.5) is 1/11 covered by "Demo" and its keyframe lies past
+    # every chapter: no chapter honestly describes it, so it stays undescribed.
+    assert _summaries(rows) == {0: "Intro — a host at a desk", 1: "Demo"}
+    facts = rows[0].described
+    assert facts is not None
+    assert facts.model == TL_DESCRIBED_MODEL
+    # Prose only: TwelveLabs said a sentence, not a shot size.
+    assert facts.subject == "" and facts.camera.shot_size is None and facts.on_screen_text == []
+    # Geometry is the measured shot's, untouched.
+    assert (rows[1].t0, rows[1].t1, rows[1].keyframe_t) == (3.0, 9.0, 6.0)
+
+
+def test_chapters_never_overwrite_an_existing_description() -> None:
+    real = described_from_summary("A structured description.", model="local-pack")
+    shots = [_shot(0, 0.0, 2.0).model_copy(update={"described": real}), _shot(1, 2.0, 4.0)]
+    rows = describe_shots_from_chapters([TLChapter(start=0.0, end=4.0, title="All")], shots)
+    assert [row.shot_index for row in rows] == [1]
+
+
+def test_a_chapter_holding_the_keyframe_describes_a_shot_it_barely_covers() -> None:
+    # "Wide" covers 40% of the shot but misses its keyframe; "Close" covers 3% and holds
+    # it. The keyframe is the frame the row stands for, so "Close" is the honest answer.
+    chapters = [
+        TLChapter(start=0.0, end=4.0, title="Wide"),
+        TLChapter(start=4.9, end=5.2, title="Close"),
+    ]
+    rows = describe_shots_from_chapters(chapters, [_shot(0, 0.0, 10.0, keyframe=5.0)])
+    assert _summaries(rows) == {0: "Close"}
+
+
+def test_most_coverage_wins_among_qualifying_chapters() -> None:
+    chapters = [
+        TLChapter(start=0.0, end=3.0, title="Early"),
+        TLChapter(start=3.0, end=10.0, title="Late"),
+    ]
+    # Keyframe at 1.0 is held by "Early", but "Late" covers 70% of the shot.
+    rows = describe_shots_from_chapters(chapters, [_shot(0, 0.0, 10.0, keyframe=1.0)])
+    assert _summaries(rows) == {0: "Late"}
+
+
+def test_a_zero_length_shot_is_matched_by_its_keyframe_alone() -> None:
+    chapters = [TLChapter(start=0.0, end=2.0, title="Still")]
+    assert _summaries(describe_shots_from_chapters(chapters, [_shot(0, 1.0, 1.0)])) == {0: "Still"}
+    assert describe_shots_from_chapters(chapters, [_shot(0, 3.0, 3.0)]) == []
+
+
+def test_a_chapter_with_no_words_describes_nothing() -> None:
+    rows = describe_shots_from_chapters(
+        [TLChapter(start=0.0, end=4.0, title="  ")], [_shot(0, 0.0, 4.0)]
+    )
+    assert rows == []
+
+
+def test_is_twelvelabs_description_names_only_summary_only_rows() -> None:
+    assert is_twelvelabs_description(described_from_summary("x", model=TL_DESCRIBED_MODEL))
+    assert not is_twelvelabs_description(described_from_summary("x", model="local-pack"))
+    assert not is_twelvelabs_description(None)

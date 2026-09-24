@@ -18,6 +18,10 @@ Storage (migration-free, decision: reuse what exists):
   keyed by the asset. A fixed ``params_hash`` means a re-index of changed bytes
   overwrites the single row (the source ``content_hash`` lives in the result), so
   the mapping never accumulates stale duplicates.
+- **Chapter prose → shot ledger**: :func:`describe_shots_from_chapters` maps a
+  Pegasus chapter map onto the asset's measured shots as tier-2 ``described``
+  facts (summary only — :func:`described_from_summary`), so a paid describe is
+  read back as words on every later run instead of being asked for again.
 """
 
 from __future__ import annotations
@@ -28,9 +32,18 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from framepilot_engine.brain.models import Provenance, TranscriptUtterance
+from framepilot_engine.brain.described import DescribedParseError, described_from_summary
+from framepilot_engine.brain.fts import SupportsWord
+from framepilot_engine.brain.ledger_models import DescribedFacts, ShotRecord
+from framepilot_engine.brain.models import Provenance
 from framepilot_engine.brain.store import BrainStore
-from framepilot_engine.brain.twelvelabs import TaskStatus, TLChapter, TLClip, TLHighlight
+from framepilot_engine.brain.twelvelabs import (
+    DEFAULT_PEGASUS_MODEL_NAME,
+    TaskStatus,
+    TLChapter,
+    TLClip,
+    TLHighlight,
+)
 from framepilot_engine.brain.visual_search import (
     EvidencePacket,
     SupportsClip,
@@ -50,6 +63,8 @@ class SupportsGetTask(Protocol):
 
 
 __all__ = [
+    "MIN_CHAPTER_SHOT_COVERAGE",
+    "TL_DESCRIBED_MODEL",
     "TL_MAP_KIND",
     "TL_TOOL",
     "TL_VIDEO_KIND",
@@ -57,8 +72,11 @@ __all__ = [
     "MappedHighlight",
     "TLIndexOutcome",
     "VideoMapping",
+    "chapter_caption",
     "chapters_to_packets",
     "clips_to_packets",
+    "describe_shots_from_chapters",
+    "is_twelvelabs_description",
     "map_pegasus_chapters",
     "map_pegasus_highlights",
     "poll_index_asset",
@@ -80,6 +98,14 @@ TL_MAP_KIND = "tl:map"
 _TL_VIDEO_PARAMS = "v1"
 #: Tool/actor label recorded on every TwelveLabs-derived row.
 TL_TOOL = "twelvelabs"
+#: ``DescribedFacts.model`` for a shot described from a Pegasus chapter. Distinct from
+#: every structured producer's id, which is what lets tier 2 recognise these rows as
+#: summary-only (:func:`is_twelvelabs_description`) and replace them with a full record.
+TL_DESCRIBED_MODEL = f"{TL_TOOL}/{DEFAULT_PEGASUS_MODEL_NAME}"
+#: The share of a shot a chapter must cover to describe it when the chapter misses the
+#: shot's keyframe. Below half, most of the shot shows something the chapter did not talk
+#: about, and writing its prose onto the row would label the shot with its neighbour.
+MIN_CHAPTER_SHOT_COVERAGE = 0.5
 
 #: ``fields`` entity for the project-level index id.
 _TL_INDEX_ENTITY = "twelvelabs"
@@ -409,15 +435,15 @@ def clips_to_packets(
     *,
     video_to_asset: dict[str, str],
     clips_by_asset: dict[str, list[SupportsClip]],
-    utterances: Sequence[TranscriptUtterance],
+    words: Sequence[SupportsWord],
     k: int,
     asset_ids: Sequence[str] | None = None,
 ) -> list[EvidencePacket]:
     """Map ranked TwelveLabs clips onto the evidence-packet contract (MI5.1).
 
     ``start``/``end`` are asset seconds and become ``t0``/``t1`` directly. When a
-    project doc supplied the clips + transcript, the span is projected onto
-    timeline time and any overlapping dialogue fills ``transcriptOverlap``;
+    project doc supplied the clips + transcript ``words``, the span is projected onto
+    timeline time and the words spoken over it fill ``transcriptOverlap``;
     otherwise the clip's own spoken words (from the audio modality) are used, so
     the field is never fabricated. A clip whose ``video_id`` is not one of THIS
     project's indexed assets is skipped — never mapped to a wrong asset.
@@ -435,7 +461,7 @@ def clips_to_packets(
         timeline_ranges = project_span_to_timeline(
             clip.start, clip.end, clips_by_asset.get(asset_id, [])
         )
-        overlap = transcript_overlap(timeline_ranges, utterances)
+        overlap = transcript_overlap(timeline_ranges, words)
         if not overlap and clip.transcription:
             overlap = clip.transcription
         packets.append(
@@ -544,24 +570,21 @@ def chapters_to_packets(
     *,
     asset_id: str,
     clips_by_asset: dict[str, list[SupportsClip]],
-    utterances: Sequence[TranscriptUtterance],
+    words: Sequence[SupportsWord],
 ) -> list[EvidencePacket]:
     """Walk Pegasus chapters into evidence packets for the describe path (plan FI2.2).
 
     Each chapter becomes one packet in time order: ``t0``/``t1`` are the chapter's
     **asset** seconds (matching the built-in describe contract), ``caption`` is the
-    chapter title+summary, and ``transcriptOverlap`` is the dialogue over the
-    chapter's timeline projection. ``score`` is a constant (enumeration has no
-    ranking, mirroring the built-in describe route).
+    chapter title+summary, and ``transcriptOverlap`` is the transcript ``words``
+    spoken over the chapter's timeline projection. ``score`` is a constant
+    (enumeration has no ranking, mirroring the built-in describe route).
     """
     packets: list[EvidencePacket] = []
     for index, chapter in enumerate(chapters):
         timeline_ranges = project_span_to_timeline(
             chapter.start, chapter.end, clips_by_asset.get(asset_id, [])
         )
-        caption = chapter.title
-        if chapter.summary:
-            caption = f"{chapter.title} — {chapter.summary}"
         packets.append(
             EvidencePacket(
                 asset_id=asset_id,
@@ -569,12 +592,93 @@ def chapters_to_packets(
                 t1=chapter.end,
                 scene_index=index,
                 score=1.0,
-                caption=caption,
-                transcript_overlap=transcript_overlap(timeline_ranges, utterances),
+                caption=chapter_caption(chapter),
+                transcript_overlap=transcript_overlap(timeline_ranges, words),
                 sources=[TL_TOOL],
             )
         )
     return packets
+
+
+def chapter_caption(chapter: TLChapter) -> str:
+    """One chapter as a line of prose: ``"Title — summary"``, or the title alone."""
+    if chapter.summary:
+        return f"{chapter.title} — {chapter.summary}"
+    return chapter.title
+
+
+# -- Pegasus map → shot ledger (tier 2, summary only) ------------------------------
+
+
+def is_twelvelabs_description(facts: DescribedFacts | None) -> bool:
+    """Whether a shot's tier-2 record is a Pegasus chapter summary rather than a full one.
+
+    Tier 2 asks this before skipping a shot as already described: a summary-only row must
+    never stop a structured producer (the local pack, the hosted captioner) from filling
+    subject, camera and on-screen text for the same shot.
+    """
+    return facts is not None and facts.model == TL_DESCRIBED_MODEL
+
+
+def _chapter_for_shot(shot: ShotRecord, chapters: Sequence[TLChapter]) -> TLChapter | None:
+    """The chapter that describes ``shot``, or ``None`` when none honestly does.
+
+    A chapter qualifies when it holds the shot's keyframe (the frame the ledger row stands
+    for) or covers :data:`MIN_CHAPTER_SHOT_COVERAGE` of the shot; a zero-length shot can
+    only qualify by its keyframe. Of those, the one covering most of the shot wins, ties
+    going to the keyframe holder, then to the earlier chapter. Pegasus chapters need not
+    tile the video, so "no chapter" is a real answer and the shot stays undescribed rather
+    than borrowing a neighbour's words.
+    """
+    duration = shot.t1 - shot.t0
+    best: TLChapter | None = None
+    best_rank: tuple[float, bool] = (0.0, False)
+    for chapter in chapters:
+        covered = max(0.0, min(shot.t1, chapter.end) - max(shot.t0, chapter.start))
+        holds_keyframe = chapter.start <= shot.keyframe_t <= chapter.end
+        mostly_covered = duration > 0.0 and covered >= MIN_CHAPTER_SHOT_COVERAGE * duration
+        if not (holds_keyframe or mostly_covered):
+            continue
+        rank = (covered, holds_keyframe)
+        if best is None or rank > best_rank:
+            best, best_rank = chapter, rank
+    return best
+
+
+def describe_shots_from_chapters(
+    chapters: Sequence[TLChapter], shots: Sequence[ShotRecord]
+) -> list[ShotRecord]:
+    """Tier-2 rows for the shots a Pegasus chapter map describes (plan VU6.3).
+
+    ``/brain/visual/describe`` on TwelveLabs pays 25-38 s of Pegasus per asset and used to
+    hand the result to one turn and forget it: the ledger kept ``described: null``, so every
+    later run's clip rows read as undescribed and the agent asked — and paid — again. This
+    turns that answer into the ledger's own tier-2 record.
+
+    Only shots with NO description are returned: a record from a real tier-2 producer is
+    richer than a chapter summary and is never overwritten, and a shot this already filled
+    is left alone. Each chapter's prose goes into ``summary`` via
+    :func:`described_from_summary` and every structured field stays empty — TwelveLabs said
+    a sentence, not a shot size. Both arguments must describe the SAME bytes; the caller
+    filters ``shots`` to the content hash the chapter map was computed from.
+
+    :param chapters: The asset's Pegasus chapters, asset seconds.
+    :param shots: The asset's measured shots for the chapter map's content hash.
+    :returns: Copies of the matched, undescribed shots with ``described`` set.
+    """
+    rows: list[ShotRecord] = []
+    for shot in shots:
+        if shot.described is not None:
+            continue
+        chapter = _chapter_for_shot(shot, chapters)
+        if chapter is None:
+            continue
+        try:
+            facts = described_from_summary(chapter_caption(chapter), model=TL_DESCRIBED_MODEL)
+        except DescribedParseError:
+            continue  # a chapter with no title and no summary says nothing to store
+        rows.append(shot.model_copy(update={"described": facts}))
+    return rows
 
 
 def _str_or_none(value: object) -> str | None:
