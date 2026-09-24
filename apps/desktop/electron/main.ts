@@ -65,6 +65,7 @@ const readProjectFile = (projectPath: string): Promise<Project> =>
   readProjectFileFromDisk(projectPath, { backupBeforeMigration: true });
 import {
   createReferenceAnalyzer,
+  createReferenceStillLoader,
   ReferenceProfileSchema,
   Orchestrator,
   MockProvider,
@@ -233,6 +234,7 @@ import {
   importMediaFile,
   sweepUnreferencedAttachments,
   sweepUnreferencedAttachmentsOnce,
+  writeToolImageAttachment,
 } from './projects/media-import.js';
 import { activePointerPath } from '@framepilot/shared-types/projects-root';
 import { sandboxProjectPath } from './ipc/sandbox.js';
@@ -3142,9 +3144,30 @@ function registerIpcHandlers(): void {
   // hub mints an unguessable requestId, scopes events + aborts to the owning sender,
   // re-validates the request, bounds the run with a timeout, and aborts on a destroyed
   // window. No secret crosses the bridge; only AiEvents do. (security review, M3 gate)
+  const loadReferenceStill = createReferenceStillLoader({
+    baseUrl: engineBaseUrl,
+    fetchFn: electronFetch,
+  });
   const aiStreamHub = new AiStreamHub(getOrchestrator, {
     eventChannel: IpcChannels.aiStreamEvent,
     temporalEvidence,
+    // What the model SEES of what the editor attached and of what it looked at (EQ18). An
+    // attached image is loaded by the engine from the imported copy — resolved inside the
+    // projects root here, and sandboxed again by the engine — and a tool's picture is
+    // written into the project's attachments so its card can show it by path.
+    media: {
+      referenceStill: async (file, signal) =>
+        loadReferenceStill(
+          {
+            referenceId: file.referenceId,
+            inputPath: resolveWithin(await ensureProjectsDir(), file.path),
+            fileName: file.fileName,
+          },
+          signal,
+        ),
+      saveToolImage: async (projectId, mediaType, bytes) =>
+        writeToolImageAttachment(await ensureProjectsDir(), projectId, mediaType, bytes),
+    },
     // Tell every run what it can SEE. The SDK has had a context block for this since the
     // visual index landed, and nothing ever filled it — so runs asked about on-screen
     // content while carrying no idea whether the footage was indexed, and reasoned from

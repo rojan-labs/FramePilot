@@ -14,6 +14,7 @@ import {
   safeFileName,
   sweepUnreferencedAttachments,
   sweepUnreferencedAttachmentsOnce,
+  writeToolImageAttachment,
 } from './media-import.js';
 
 const BYTES = new Uint8Array([1, 2, 3, 4]);
@@ -438,5 +439,49 @@ describe('reference attachments', () => {
 
   it('names the attachments directory relative to the projects root', () => {
     expect(attachmentsRelativeDir('Project Demo')).toBe('media/project_demo/attachments');
+  });
+});
+
+describe('writeToolImageAttachment (EQ18)', () => {
+  let root: string;
+  let projectId: string;
+  let sequence = 0;
+
+  beforeEach(async () => {
+    root = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'fp-frame-')));
+    sequence += 1;
+    projectId = `frame_project_${String(sequence)}`;
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('stores a frame under the attachments folder by content, via a .part rename', async () => {
+    const io = fakeIO();
+    const stored = await writeToolImageAttachment(root, projectId, 'image/jpeg', BYTES, io);
+    expect(stored).toMatch(new RegExp(`^media/${projectId}/attachments/frame-[0-9a-f]{24}\\.jpg$`));
+    const absolute = path.join(root, ...stored.split('/'));
+    expect(io.renamed).toHaveLength(1);
+    expect(io.renamed[0]![0]).toMatch(/\.part$/);
+    expect(io.renamed[0]![1]).toBe(absolute);
+
+    // The same picture again is the same file, and nothing is rewritten.
+    const again = await writeToolImageAttachment(root, projectId, 'image/jpeg', BYTES, io);
+    expect(again).toBe(stored);
+    expect(io.renamed).toHaveLength(1);
+  });
+
+  it('survives the sweep before any conversation names it', async () => {
+    const stored = await writeToolImageAttachment(root, projectId, 'image/png', BYTES);
+    await sweepUnreferencedAttachments(root, projectId, []);
+    const io = nodeMediaImportIO;
+    expect(await io.exists(path.join(root, ...stored.split('/')))).toBe(true);
+  });
+
+  it('refuses a media type no provider accepts', async () => {
+    await expect(
+      writeToolImageAttachment(root, projectId, 'image/gif', BYTES, fakeIO()),
+    ).rejects.toThrow(/JPEG, PNG or WebP/);
   });
 });

@@ -757,6 +757,14 @@ export interface AiStreamUserMemory {
  */
 export const MAX_REFERENCES_PER_TURN = 8;
 
+/** One reference attachment's file on disk (see `AiStreamRequest.referenceFiles`). */
+export interface AiStreamReferenceFile {
+  /** The {@link AiStreamReferenceProfile.id} this file belongs to. */
+  readonly id: string;
+  /** The imported copy, projects-root-relative (as the media import returned it). */
+  readonly path: string;
+}
+
 export interface AiStreamReferenceProfile {
   readonly id: string;
   readonly role:
@@ -862,6 +870,13 @@ export interface AiStreamRequest {
   /** Agent-mode tuning (plan/caps/auto-repair/duration). Ignored for non-agent modes. */
   /** Analyzed reference attachments for this turn (Phase 3). */
   readonly references?: readonly AiStreamReferenceProfile[];
+  /**
+   * Where each reference's file is (EQ18), so main can show an IMAGE reference to a model
+   * that reads images. Kept apart from the profiles on purpose: a profile is what the model
+   * reads and what the SDK validates, and a path is neither. Main honours an entry only
+   * for a reference also listed in `references`, and only inside the projects root.
+   */
+  readonly referenceFiles?: readonly AiStreamReferenceFile[];
   /** Clips/assets the user pinned via the composer's "@" picker (P8.7); desktop parity P2.4. */
   readonly pinned?: readonly AiStreamPinnedEntity[];
   /** `edit` mode only: propose candidate takes instead of one edit (P13.1). */

@@ -133,6 +133,24 @@ describe('ConversationStore.referencedAttachmentPaths', () => {
     );
   });
 
+  it('keeps the frames a tool result showed, so its card can still open them (EQ18)', async () => {
+    const store = new ConversationStore(fakeIO());
+    await store.save(
+      withAttachments('a', 'project-1', {
+        events: [
+          {
+            type: 'tool_result',
+            toolCallId: 'c1',
+            images: [{ mediaType: 'image/jpeg', path: 'media/p/attachments/frame-abc.jpg' }],
+          },
+        ],
+      }),
+    );
+    expect(await store.referencedAttachmentPaths('project-1')).toEqual(
+      new Set(['media/p/attachments/frame-abc.jpg']),
+    );
+  });
+
   it('ignores other projects, so one cannot free another project\u2019s files', async () => {
     const store = new ConversationStore(fakeIO());
     await store.save(

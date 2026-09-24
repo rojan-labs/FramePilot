@@ -47,14 +47,23 @@ function attachmentPathOf(value: unknown): string | null {
   return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
 }
 
-/** Collect `path` from an `attachments` array wherever one appears. */
+/**
+ * The arrays whose entries' `path` names a file in the attachments folder: a message's
+ * `attachments`, and a tool result's `images` — the pictures a tool showed the model,
+ * which the host stores there too (`writeToolImageAttachment`, EQ18).
+ */
+const ATTACHMENT_PATH_ARRAYS = ['attachments', 'images'] as const;
+
+/** Collect `path` from an `attachments` or `images` array wherever one appears. */
 function collectAttachmentPaths(container: unknown, into: Set<string>): void {
   if (typeof container !== 'object' || container === null) return;
-  const attachments = (container as Record<string, unknown>)['attachments'];
-  if (!Array.isArray(attachments)) return;
-  for (const attachment of attachments) {
-    const attachmentPath = attachmentPathOf(attachment);
-    if (attachmentPath !== null) into.add(attachmentPath);
+  for (const key of ATTACHMENT_PATH_ARRAYS) {
+    const entries = (container as Record<string, unknown>)[key];
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      const attachmentPath = attachmentPathOf(entry);
+      if (attachmentPath !== null) into.add(attachmentPath);
+    }
   }
 }
 

@@ -107,6 +107,37 @@ describe('parseAiStreamRequest', () => {
     ).toThrow('at most 8');
   });
 
+  it('keeps reference files only for listed references and refuses malformed ones (EQ18)', () => {
+    const profile = {
+      id: 'ref_1',
+      role: 'brand-logo',
+      kind: 'image',
+      fileName: 'logo.png',
+      contentHash: 'abcdef0123456789',
+      analyzedAt: '2026-09-24T00:00:00Z',
+      constraints: ['Image: 400×160'],
+    };
+    const parsed = parseAiStreamRequest({
+      ...request('agent'),
+      references: [profile],
+      referenceFiles: [
+        { id: 'ref_1', path: 'media/p/attachments/logo.png' },
+        // A reference the editor removed: its picture must not reach the model.
+        { id: 'ref_gone', path: 'media/p/attachments/old.png' },
+      ],
+    });
+    expect(parsed.referenceFiles).toEqual([{ id: 'ref_1', path: 'media/p/attachments/logo.png' }]);
+    expect(
+      parseAiStreamRequest({ ...request('agent'), referenceFiles: [] }).referenceFiles,
+    ).toBeUndefined();
+    expect(() =>
+      parseAiStreamRequest({ ...request('agent'), referenceFiles: [{ id: 'ref_1' }] }),
+    ).toThrow('referenceFiles');
+    expect(() =>
+      parseAiStreamRequest({ ...request('agent'), referenceFiles: 'media/p/logo.png' }),
+    ).toThrow('referenceFiles');
+  });
+
   it('forwards pinned entities and the variations flag, refusing malformed pins (P2.4 host parity)', () => {
     const pin = { kind: 'clip', id: 'clip_1', label: 'Interview A' };
     const parsed = parseAiStreamRequest({ ...request('edit'), pinned: [pin], variations: true });
@@ -714,7 +745,146 @@ class FakeSender implements StreamSender {
   }
 }
 
+describe('the run\u2019s pictures (EQ18)', () => {
+  const logoProfile = {
+    id: 'ref_logo',
+    role: 'brand-logo' as const,
+    kind: 'image' as const,
+    fileName: 'logo.png',
+    contentHash: 'abcdef0123456789',
+    analyzedAt: '2026-09-24T00:00:00Z',
+    constraints: ['Image: 400×160'],
+  };
+
+  it('loads an attached image and puts the picture in front of a sighted model', async () => {
+    const images: string[] = [];
+    const capturing: AiProvider = {
+      name: 'mock',
+      modelId: 'mock',
+      complete: async () => ({ text: 'ok' }),
+      async *stream(req: AiCompletionRequest): AsyncIterable<ProviderChunk> {
+        for (const message of req.messages) {
+          for (const image of message.images ?? []) images.push(image.base64);
+        }
+        yield { type: 'done', text: 'ok' };
+      },
+    };
+    const loads: unknown[] = [];
+    await runAiStream(
+      new Orchestrator(capturing),
+      {
+        ...request('chat'),
+        references: [logoProfile],
+        referenceFiles: [{ id: 'ref_logo', path: 'media/proj_1/attachments/logo.png' }],
+      },
+      () => undefined,
+      new AbortController().signal,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        referenceStill: async (file) => {
+          loads.push(file);
+          return {
+            referenceId: file.referenceId,
+            image: { mediaType: 'image/png', base64: 'TE9HTw==', width: 400, height: 160 },
+          };
+        },
+      },
+    );
+    expect(loads).toEqual([
+      { referenceId: 'ref_logo', path: 'media/proj_1/attachments/logo.png', fileName: 'logo.png' },
+    ]);
+    expect(images).toEqual(['TE9HTw==']);
+  });
+
+  it('turns a tool picture into a stored path before the event leaves the run', async () => {
+    const events: AiEvent[] = [];
+    const saved: { projectId: string; mediaType: string; bytes: string }[] = [];
+    const orchestrator = new Orchestrator(new MockProvider());
+    const toolResult: AiEvent = {
+      id: 'r1',
+      conversationId: 'conv_1',
+      turnId: 'turn_1',
+      ts: 1,
+      type: 'tool_result',
+      toolCallId: 'c1',
+      summary: 'Looked at the timeline at 2.00s',
+      images: [{ mediaType: 'image/jpeg', base64: 'RlJBTUU=', label: 'the timeline at 2.00s' }],
+    };
+    vi.spyOn(orchestrator, 'streamChat').mockImplementation(async function* () {
+      yield toolResult;
+    });
+    await runAiStream(
+      orchestrator,
+      request('chat'),
+      (event) => events.push(event),
+      new AbortController().signal,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        saveToolImage: async (projectId, mediaType, bytes) => {
+          saved.push({ projectId, mediaType, bytes: Buffer.from(bytes).toString('base64') });
+          return 'media/proj_1/attachments/frame-abc.jpg';
+        },
+      },
+    );
+    expect(saved).toEqual([{ projectId: 'proj_1', mediaType: 'image/jpeg', bytes: 'RlJBTUU=' }]);
+    expect(events).toEqual([
+      {
+        ...toolResult,
+        images: [
+          {
+            mediaType: 'image/jpeg',
+            label: 'the timeline at 2.00s',
+            path: 'media/proj_1/attachments/frame-abc.jpg',
+          },
+        ],
+      },
+    ]);
+  });
+});
+
 describe('prepareAiEventForTransport', () => {
+  it('never lets image bytes cross the bridge (EQ18)', () => {
+    const base = {
+      id: 'result-1',
+      conversationId: 'conversation',
+      turnId: 'turn',
+      ts: 1,
+      type: 'tool_result' as const,
+      toolCallId: 'call-1',
+    };
+    // Stored: the path goes, the bytes do not.
+    expect(
+      prepareAiEventForTransport({
+        ...base,
+        images: [{ mediaType: 'image/jpeg', base64: 'QUJD', path: 'media/p/attachments/f.jpg' }],
+      }),
+    ).toEqual({
+      ...base,
+      images: [{ mediaType: 'image/jpeg', path: 'media/p/attachments/f.jpg' }],
+    });
+    // Never stored: dropped rather than sent inline.
+    expect(
+      prepareAiEventForTransport({
+        ...base,
+        images: [{ mediaType: 'image/jpeg', base64: 'QUJD' }],
+      }),
+    ).toEqual(base);
+  });
+
   it('keeps a tool lifecycle but omits project-sized expandable details', () => {
     const event: AiEvent = {
       id: 'result-1',

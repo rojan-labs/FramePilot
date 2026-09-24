@@ -19,7 +19,11 @@
  *   so a closed window never leaks a running fetch.
  * - Only `AiEvent`s cross the bridge; the API key stays in main.
  */
-import type { AiStreamPinnedEntity, AiStreamReferenceProfile } from '@framepilot/shared-types';
+import type {
+  AiStreamPinnedEntity,
+  AiStreamReferenceFile,
+  AiStreamReferenceProfile,
+} from '@framepilot/shared-types';
 import { randomUUID } from 'node:crypto';
 import {
   assertEditorInteractionReferences,
@@ -58,6 +62,12 @@ import type {
   AiStreamUserMemory,
 } from '../ipc/contract.js';
 import { prepareAiEventForTransport } from './ai-event-transport.js';
+import {
+  loadReferenceImages,
+  storeToolImages,
+  type ReferenceStillLoader,
+  type ToolImageSaver,
+} from './run-media.js';
 
 export {
   MAX_TOOL_RESULT_TRANSPORT_CHARS,
@@ -381,6 +391,48 @@ function parseReferences(value: unknown): readonly AiStreamReferenceProfile[] | 
   return parsed.data as readonly AiStreamReferenceProfile[];
 }
 
+/** Bounds on a reference file entry — an id is a short token, a path a relative path. */
+const MAX_REFERENCE_ID_LENGTH = 128;
+const MAX_REFERENCE_PATH_LENGTH = 1024;
+
+/**
+ * Where each reference's file is (EQ18). Malformed ⇒ the request is refused, like a
+ * malformed profile. An entry for a reference the request does not list is dropped: the
+ * picture of a reference the editor removed must not reach the model. The path itself is
+ * NOT trusted here — the loader resolves it inside the projects root, and the engine
+ * sandboxes it again.
+ */
+function parseReferenceFiles(
+  value: unknown,
+  references: readonly AiStreamReferenceProfile[] | undefined,
+): readonly AiStreamReferenceFile[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > MAX_REFERENCES_PER_TURN) {
+    throw new Error('Invalid AI stream "referenceFiles".');
+  }
+  const listed = new Set((references ?? []).map((reference) => reference.id));
+  const files: AiStreamReferenceFile[] = [];
+  for (const entry of value) {
+    const record = (typeof entry === 'object' && entry !== null ? entry : {}) as Record<
+      string,
+      unknown
+    >;
+    const { id, path } = record;
+    if (
+      typeof id !== 'string' ||
+      id === '' ||
+      id.length > MAX_REFERENCE_ID_LENGTH ||
+      typeof path !== 'string' ||
+      path === '' ||
+      path.length > MAX_REFERENCE_PATH_LENGTH
+    ) {
+      throw new Error('Invalid AI stream "referenceFiles".');
+    }
+    if (listed.has(id)) files.push({ id, path });
+  }
+  return files;
+}
+
 /** The wire profiles, re-validated into the SDK type at the context boundary. */
 function toReferenceProfiles(
   value: readonly AiStreamReferenceProfile[],
@@ -502,6 +554,7 @@ export function parseAiStreamRequest(value: unknown): AiStreamRequest {
   const interaction = parseInteraction(record['interaction']);
   const userMemory = parseUserMemory(record['userMemory']);
   const references = parseReferences(record['references']);
+  const referenceFiles = parseReferenceFiles(record['referenceFiles'], references);
   const pinned = parsePinned(record['pinned']);
   const variations = parseVariations(record['variations']);
   const agentOptions = parseAgentOptions(record['agentOptions']);
@@ -541,6 +594,7 @@ export function parseAiStreamRequest(value: unknown): AiStreamRequest {
     ...(interaction !== undefined ? { interaction } : {}),
     ...(userMemory !== undefined ? { userMemory } : {}),
     ...(references !== undefined ? { references } : {}),
+    ...(referenceFiles !== undefined && referenceFiles.length > 0 ? { referenceFiles } : {}),
     ...(pinned !== undefined ? { pinned } : {}),
     ...(variations !== undefined ? { variations } : {}),
     ...(agentOptions !== undefined ? { agentOptions } : {}),
@@ -745,6 +799,8 @@ export async function runAiStream(
    * costs the run its inherited facts, never its correctness.
    */
   carriedForwardFor?: (conversationId: string, projectId: string) => Promise<unknown>,
+  /** The run's pictures in and out (EQ18) — see {@link RunMediaHooks}. */
+  media: RunMediaHooks = {},
 ): Promise<void> {
   const project = parseProject(request.project);
   if (request.interaction) assertEditorInteractionReferences(project, request.interaction);
@@ -779,22 +835,33 @@ export async function runAiStream(
   // pure projection of one snapshot, so one read per run keeps the prompt prefix stable
   // and cacheable. Best-effort exactly like its neighbours: no sidecar, no brain or an
   // unmeasured project costs the run its picture facts and nothing else.
-  const [visualStatus, footageMap, shotLedger, sessionContext, carriedForward] = await Promise.all([
-    readOptionalContext(readVisualStatus, project.id, 'visual status'),
-    readContextFor(footageMapFor, project, 'footage map'),
-    readContextFor(shotLedgerFor, project, 'shot ledger'),
-    readOptionalContext(sessionContextFor, project.id, 'session context'),
-    readCarriedForward(carriedForwardFor, request.conversationId, project.id),
-  ]);
+  // The sixth is what the editor ATTACHED, as pictures (EQ18) — only for a model that reads
+  // them, and best-effort per reference like every read above.
+  const references =
+    request.references === undefined ? undefined : toReferenceProfiles(request.references);
+  const [visualStatus, footageMap, shotLedger, sessionContext, carriedForward, referenceImages] =
+    await Promise.all([
+      readOptionalContext(readVisualStatus, project.id, 'visual status'),
+      readContextFor(footageMapFor, project, 'footage map'),
+      readContextFor(shotLedgerFor, project, 'shot ledger'),
+      readOptionalContext(sessionContextFor, project.id, 'session context'),
+      readCarriedForward(carriedForwardFor, request.conversationId, project.id),
+      loadReferenceImages(
+        media.referenceStill,
+        references,
+        request.referenceFiles,
+        canSeeFrames,
+        signal,
+      ),
+    ]);
   const input: ContextInput = {
     project,
     ...(visualStatus === undefined ? {} : { visualStatus }),
     ...(footageMap === undefined ? {} : { footageMap }),
     ...(shotLedger === undefined ? {} : { ledger: shotLedger }),
     ...(sessionContext === undefined ? {} : { sessionContext }),
-    ...(request.references === undefined
-      ? {}
-      : { references: toReferenceProfiles(request.references) }),
+    ...(references === undefined ? {} : { references }),
+    ...(referenceImages.length > 0 ? { referenceImages } : {}),
     ...(request.pinned === undefined || request.pinned.length === 0
       ? {}
       : { pinned: request.pinned }),
@@ -875,9 +942,21 @@ export async function runAiStream(
     if (event.type === 'status' || event.type === 'error' || event.type === 'timeline_action') {
       log.debug(`event: ${event.type}`, event);
     }
-    await onEvent(event);
+    // A tool's picture leaves main as a file path, never as bytes (EQ18).
+    await onEvent(await storeToolImages(event, project.id, media.saveToolImage));
   }
   log.action('runAiStream finished', { mode: request.mode, events: eventCount });
+}
+
+/**
+ * The run's pictures (EQ18): how an attached image is loaded for a model that reads images,
+ * and where a tool's picture is stored so its card can show it. Both absent ⇒ attached
+ * images reach the model as their measurements only, and tool pictures are stripped from
+ * the events by the transport (the model still receives them either way).
+ */
+export interface RunMediaHooks {
+  readonly referenceStill?: ReferenceStillLoader;
+  readonly saveToolImage?: ToolImageSaver;
 }
 
 /** The minimal `WebContents` surface the hub needs (so it is testable without Electron). */
@@ -932,6 +1011,8 @@ export function timeoutMessage(timeoutMs: number): string {
 interface HubOptions {
   /** The push channel name (`framepilot:ai:stream-event`). */
   readonly eventChannel: string;
+  /** The run's pictures in and out (EQ18); see {@link RunMediaHooks}. */
+  readonly media?: RunMediaHooks;
   /** Id generator (injectable for tests); defaults to `randomUUID`. */
   readonly newId?: () => string;
   /** Max run duration before the run is aborted. */
@@ -1223,6 +1304,7 @@ export class AiStreamHub {
           this.options.sessionContextFor,
           hooks.commitLedger,
           this.options.carriedForwardFor,
+          this.options.media,
         );
         if (timedOut) {
           settlement = {

@@ -4,6 +4,7 @@
  * Production desktop imports use the explicit typed chunk contract. Historical framed
  * and raw requests remain accepted through `importMediaFile` for bridge compatibility.
  */
+import { createHash, randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -107,6 +108,59 @@ export function attachmentsRelativeDir(projectId: string): string {
  * garbage by then.
  */
 const liveAttachmentPaths = new Set<string>();
+
+/** File extensions a tool picture is stored under, by media type. */
+const TOOL_IMAGE_EXTENSIONS: Readonly<Record<string, string>> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
+
+/**
+ * Store a picture a tool showed the model — a `get_frame` look — as an attachment (EQ18),
+ * and return its project-relative path for the result card to show.
+ *
+ * WHY here and not inline in the event: a run can look at dozens of frames, and inline
+ * bytes would ride every IPC message, the run's WAL and the saved conversation, which
+ * `ai-event-transport.ts` exists to keep bounded. In the attachments folder the picture
+ * has the lifecycle it needs for free: it is kept while a conversation still names it
+ * (`ConversationStore#referencedAttachmentPaths` reads `images[].path` too) and reclaimed
+ * by the sweep once none does.
+ *
+ * Named by content hash, so looking at the same unchanged frame twice writes one file.
+ * Written to a `.part` and renamed, so a crash mid-write never leaves a truncated picture
+ * under the final name for the next identical look to trust; the sweep leaves `.part`
+ * alone. Registered as live for the session, because the conversation that names it is
+ * saved AFTER the event arrives, and a sweep in that window must not reclaim it.
+ *
+ * @returns The projects-root-relative path of the stored picture.
+ * @throws When the media type is not one a provider accepts, or the write fails.
+ */
+export async function writeToolImageAttachment(
+  projectsRoot: string,
+  projectId: string,
+  mediaType: string,
+  bytes: Uint8Array,
+  io: MediaImportIO = nodeMediaImportIO,
+): Promise<string> {
+  const extension = TOOL_IMAGE_EXTENSIONS[mediaType];
+  if (extension === undefined) {
+    throw new Error(`A tool image must be JPEG, PNG or WebP, not ${mediaType}.`);
+  }
+  const digest = createHash('sha256').update(bytes).digest('hex').slice(0, 24);
+  const relativePath = path.posix.join(
+    attachmentsRelativeDir(projectId),
+    `frame-${digest}.${extension}`,
+  );
+  liveAttachmentPaths.add(relativePath);
+  const absolutePath = resolveWithin(projectsRoot, relativePath);
+  if (await io.exists(absolutePath)) return relativePath;
+  await io.mkdirp(path.dirname(absolutePath));
+  const tempPath = `${absolutePath}.${randomUUID()}${PART_SUFFIX}`;
+  await io.writeFile(tempPath, bytes);
+  await io.rename(tempPath, absolutePath);
+  return relativePath;
+}
 
 export interface MediaImportIO {
   mkdirp(dir: string): Promise<void>;

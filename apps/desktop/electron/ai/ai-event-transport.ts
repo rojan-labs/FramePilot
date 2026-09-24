@@ -34,8 +34,30 @@ export function exceedsTransportBudget(value: unknown, maxChars: number): boolea
   return false;
 }
 
+/**
+ * A tool result's pictures as they may cross the bridge: by file path only (EQ18).
+ *
+ * `runAiStream` moves the bytes to disk before an event gets here; this is the backstop
+ * for any event that did not go through it (no image store configured, a store that
+ * failed). A picture with no path is dropped rather than sent inline — a single frame is
+ * tens of kilobytes, and it would otherwise ride the IPC channel, the durable run WAL and
+ * the saved conversation, which is the growth this module exists to bound.
+ */
+function withoutImageBytes(event: AiEvent): AiEvent {
+  if (event.type !== 'tool_result' || event.images === undefined) return event;
+  if (event.images.every((image) => image.base64 === undefined)) return event;
+  const byPath = event.images.flatMap((image) => {
+    if (image.path === undefined) return [];
+    const { base64: _bytes, ...rest } = image;
+    return [rest];
+  });
+  const { images: _images, ...rest } = event;
+  return byPath.length > 0 ? { ...rest, images: byPath } : rest;
+}
+
 /** Preserve lifecycle metadata while replacing only oversized expandable details. */
-export function prepareAiEventForTransport(event: AiEvent): AiEvent {
+export function prepareAiEventForTransport(original: AiEvent): AiEvent {
+  const event = withoutImageBytes(original);
   if (
     event.type !== 'tool_result' ||
     !exceedsTransportBudget(
