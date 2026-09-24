@@ -54,7 +54,9 @@ import {
   MASK_ANIMATABLE_PROPERTIES,
   MIN_MASK_PATH_VERTICES,
   clampMaskScalar,
+  cutoutHidesSubject,
   existingTextSandwich,
+  sandwichCutout,
   type MaskOperation,
 } from './mask-operations.js';
 import { applyPatch, invertPatch, type Patch, type PatchAuthor } from './patch.js';
@@ -651,6 +653,7 @@ export type MaskCommandRejectionCode =
   | 'not_editable'
   | 'too_few_vertices'
   | 'nothing_to_change'
+  | 'cutout_draws_nothing'
   | 'invalid_patch';
 
 export type MaskCommandCompileResult =
@@ -674,6 +677,21 @@ export interface CompileMaskCommandInput {
 }
 
 /** A command refused before any patch was built. */
+/**
+ * Refuse a title behind a subject whose cut-out would not draw the subject in front of it:
+ * the title would sit on top of the person while the edit claims it is behind them.
+ */
+function refuseCutoutThatDrawsNothing(clipId: string, mask: MaskLayer): void {
+  const why = cutoutHidesSubject(mask);
+  if (why === undefined) return;
+  throw new Rejection(
+    'cutout_draws_nothing',
+    `The cut-out on "${clipId}" ${why}, so nothing of the subject is drawn in front of the ` +
+      'title and it would sit on top of them. Set the cut-out back to add, not inverted ' +
+      '(refine_mask with mode "add" and invert false), then put the text behind the subject.',
+  );
+}
+
 class Rejection extends Error {
   public constructor(
     public readonly code: MaskCommandRejectionCode,
@@ -1636,7 +1654,10 @@ function build(input: CompileMaskCommandInput): Built {
       // A shot that already has its subject in front and a text layer behind takes another
       // title on that layer: the matte has MOVED to the front copy, so requiring it on this
       // clip refused every second title and pushed callers into nesting a copy of a copy.
-      if (existingTextSandwich(input.timeline, clip.id) !== undefined) {
+      const sandwich = existingTextSandwich(input.timeline, clip.id);
+      if (sandwich !== undefined) {
+        const front = sandwichCutout(input.timeline, sandwich);
+        if (front !== undefined) refuseCutoutThatDrawsNothing(front.clip.id, front.mask);
         return {
           operations: [
             {
@@ -1665,6 +1686,7 @@ function build(input: CompileMaskCommandInput): Built {
           'Remove the background on this clip first, then put text behind the subject.',
         );
       }
+      refuseCutoutThatDrawsNothing(clip.id, matte);
       return {
         operations: [
           {

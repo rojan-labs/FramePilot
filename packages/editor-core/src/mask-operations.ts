@@ -1307,6 +1307,52 @@ export function existingTextSandwich(timeline: Timeline, clipId: string): TextSa
   return undefined;
 }
 
+/**
+ * Combine modes that, as the only mask on a clip, draw what the mask keeps. A stack starts
+ * empty (ADR 0178), so `subtract`, `intersect` and `darken` from nothing are nothing.
+ */
+const MODES_THAT_DRAW_ALONE: ReadonlySet<string> = new Set(['add', 'difference', 'lighten']);
+
+/**
+ * Why `mask`, as a clip's cut-out, would not draw the subject — or `undefined` when it does.
+ *
+ * WHY THIS EXISTS. The front copy of a text-behind sandwich is ONLY its cut-out: the title
+ * reads as behind the person because that copy draws the person over it. A cut-out switched
+ * to Subtract in the Inspector draws nothing, so the title sits on the face while every tool
+ * reports it "behind the subject" — the captured 2026-09-23 export. An inverted cut-out draws
+ * the background instead, which hides the title everywhere except on the person.
+ *
+ * @param mask - The matte the sandwich's front copy draws through.
+ * @returns A phrase completing "the cut-out …", or `undefined` when the subject is drawn.
+ */
+export function cutoutHidesSubject(mask: MaskLayer): string | undefined {
+  if (!mask.enabled) return 'is switched off';
+  if (!MODES_THAT_DRAW_ALONE.has(mask.mode)) return `is set to ${mask.mode}`;
+  if (mask.invert) return 'is inverted';
+  if (mask.opacity <= 0) return 'has no opacity';
+  return undefined;
+}
+
+/**
+ * The cut-out a sandwich's front copy draws through, or `undefined` when the copy has none.
+ *
+ * @param timeline - The timeline the sandwich is on.
+ * @param sandwich - Where the sandwich's layers are, from {@link existingTextSandwich}.
+ */
+export function sandwichCutout(
+  timeline: Timeline,
+  sandwich: TextSandwich,
+): { readonly clip: Clip; readonly mask: MaskLayer } | undefined {
+  const track = timeline.tracks.find((candidate) => candidate.id === sandwich.subjectTrackId);
+  for (const clip of track?.clips ?? []) {
+    const mask = masksOf(clip).find(
+      (candidate) => candidate.kind === 'matte' && candidate.target.kind === 'alpha',
+    );
+    if (mask !== undefined) return { clip, mask };
+  }
+  return undefined;
+}
+
 /** Whether the op leaves its layer ids to this module (and so may reuse a sandwich). */
 function derivesItsIds(op: AddTextBehindSubjectOp): boolean {
   return (

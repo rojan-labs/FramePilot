@@ -1315,6 +1315,56 @@ describe('text_behind_subject', () => {
       end: 3,
     });
   });
+
+  it('refuses a cut-out that would draw nothing in front of the title', () => {
+    for (const [over, why] of [
+      [{ mode: 'subtract' }, 'is set to subtract'],
+      [{ invert: true }, 'is inverted'],
+      [{ opacity: 0 }, 'has no opacity'],
+    ] as const) {
+      const rejected = compile(timeline([matteMask(over)]), {
+        type: 'text_behind_subject',
+        text: 'HI',
+      });
+      expect(rejected.status, why).toBe('rejected');
+      if (rejected.status !== 'rejected') continue;
+      expect(rejected.code).toBe('cutout_draws_nothing');
+      expect(rejected.detail).toContain(why);
+      expect(rejected.detail).toContain('refine_mask with mode "add"');
+    }
+  });
+
+  it('refuses another title on a sandwich whose front cut-out was switched to subtract', () => {
+    // The captured project: the front copy's cut-out was set to Subtract in the Inspector,
+    // so the copy drew nothing and the "behind" title sat on the speaker's face.
+    const first = compile(timeline([matteMask()]), { type: 'text_behind_subject', text: 'ONE' });
+    expect(first.status).toBe('compiled');
+    if (first.status !== 'compiled') return;
+    const built = applyPatch(timeline([matteMask()]), first.patch);
+    const broken: Timeline = {
+      ...built,
+      tracks: built.tracks.map((track) =>
+        track.id !== 'c1__subject_track'
+          ? track
+          : {
+              ...track,
+              clips: track.clips.map((clip) => ({
+                ...clip,
+                masks: masksOf(clip).map((mask) => ({ ...mask, mode: 'subtract' as const })),
+              })),
+            },
+      ),
+    };
+    const rejected = compile(broken, {
+      type: 'text_behind_subject',
+      timelineRevision: broken.revision,
+      text: 'TWO',
+    });
+    expect(rejected.status).toBe('rejected');
+    if (rejected.status !== 'rejected') return;
+    expect(rejected.code).toBe('cutout_draws_nothing');
+    expect(rejected.detail).toContain('"c1__subject"');
+  });
 });
 
 describe('adjustment-lane stacks (MK9.1, owner: effect_layer)', () => {
