@@ -426,6 +426,71 @@ describe('ExportDialog', () => {
     expect(onReveal).toHaveBeenCalledWith('/out/final.mp4');
   });
 
+  it('burns the captions the timeline carries unless the editor says otherwise', async () => {
+    // The 2026-09-23 export shipped 0 of 45 caption cues: the box started unticked on every
+    // open while the monitor burned them in, so the editor never knew to tick it.
+    const { exportVideoStart } = installBridge();
+    const captioned = {
+      tracks: [
+        {
+          id: 'captions',
+          type: 'caption',
+          clips: [
+            {
+              id: 'cue_1',
+              assetId: '__caption__',
+              trackId: 'captions',
+              start: 0,
+              end: 1,
+              sourceStart: 0,
+              sourceEnd: 1,
+              effects: [],
+            },
+          ],
+        },
+      ],
+    } as unknown as Timeline;
+    const view = render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
+        ensureSaved={vi.fn(async () => '/p/project.fp.json')}
+        onReveal={vi.fn()}
+        projectId="p_burn_default"
+        timeline={captioned}
+      />,
+    );
+    openExportMenu();
+    const box = screen.getByLabelText('Burn captions into the video') as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    await waitFor(() =>
+      expect(exportVideoStart).toHaveBeenCalledWith(
+        expect.objectContaining({ burnCaptions: true }),
+      ),
+    );
+
+    // An explicit untick is the editor's decision and survives the next open.
+    fireEvent.click(box);
+    view.unmount();
+    render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
+        ensureSaved={vi.fn()}
+        onReveal={vi.fn()}
+        projectId="p_burn_default"
+        timeline={captioned}
+      />,
+    );
+    openExportMenu();
+    expect(
+      (screen.getByLabelText('Burn captions into the video') as HTMLInputElement).checked,
+    ).toBe(false);
+  });
+
   it('shows a time-left estimate from measured progress and remembers the export (P7.6)', async () => {
     const { emit } = installBridge();
     const ensureSaved = vi.fn(async () => '/p/project.fp.json');

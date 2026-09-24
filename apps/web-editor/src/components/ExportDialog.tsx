@@ -303,6 +303,26 @@ export function coerceExportHistory(raw: unknown): ExportHistoryEntry[] | undefi
 }
 
 /**
+ * Whether the timeline carries caption cues a viewer would see: a visible caption track with at
+ * least one cue. What the burn-in checkbox starts at until the editor sets it.
+ *
+ * @param timeline - The project timeline, when the host passed it.
+ * @returns `true` when there is something to burn in.
+ */
+export function timelineHasCaptions(timeline: Timeline | undefined): boolean {
+  return (
+    timeline?.tracks.some(
+      (track) => track.type === 'caption' && track.hidden !== true && track.clips.length > 0,
+    ) ?? false
+  );
+}
+
+/** A remembered burn-in choice, or `undefined` for anything else in storage. */
+export function coerceBurnPreference(raw: unknown): boolean | null | undefined {
+  return typeof raw === 'boolean' || raw === null ? raw : undefined;
+}
+
+/**
  * Time left, from the progress the engine actually reported — never a fabricated bar
  * (this project's no-fake-progress invariant). Measured from the first sample after
  * the run settled in (the preparing stage is not representative), and only once enough
@@ -423,7 +443,21 @@ export function ExportDialog({
   );
   const patchSettings = (patch: Partial<DialogExportSettings>): void =>
     setSettings((current) => ({ ...current, ...patch }));
-  const [burnCaptions, setBurnCaptions] = useState(false);
+  // Burn-in FOLLOWS THE TIMELINE until the editor chooses. It used to start unticked on every
+  // open and forget the choice, while the monitor burns captions by default — so the editor
+  // watched captions in the preview and exported a video with none (the 2026-09-23 export
+  // carried 0 of its 45 cues). A timeline with caption cues exports them; an explicit tick
+  // or untick is remembered for the project.
+  const [burnPreference, setBurnPreference] = useViewPreference<boolean | null>(
+    `export.burnCaptions.${projectId ?? 'default'}`,
+    null,
+    coerceBurnPreference,
+  );
+  const burnCaptions = burnPreference ?? timelineHasCaptions(timeline);
+  const setBurnCaptions = useCallback(
+    (value: boolean) => setBurnPreference(value),
+    [setBurnPreference],
+  );
   const [loudness, setLoudness] = useState<string>('');
   const [denoise, setDenoise] = useState(false);
   const [limiter, setLimiter] = useState(false);
