@@ -23,6 +23,8 @@ import { assembleEdit } from '../assemble.js';
 import { getTool } from '../tool-registry.js';
 import { applyProjectPatch } from '@framepilot/editor-core';
 import { AGENT_MAX_OPS_PER_TURN } from '../kernel/conductor.js';
+import { verifyCaptions } from '../verify.js';
+import { MIN_CAPTION_CUE_SECONDS } from '../caption-style-facts.js';
 
 const ASSET = 'asset_isom_batch1_assignment1';
 /** The clip the run placed: the whole recording, 0 → 49.767s. */
@@ -331,5 +333,89 @@ describe('caption_the_edit fits the blast-radius bound the agent enforces', () =
     // it costs roughly 3 per cue where a first pass costs 2. This is what tipped the
     // captured run over the cap the streaming path enforces but never reports.
     expect(again.patch.operations.length).toBeLessThanOrEqual(AGENT_MAX_OPS_PER_TURN);
+  });
+});
+
+/**
+ * The desktop runs of 2026-09-19…23 on this same transcript: `caption_the_edit` wrote
+ * cues too brief to hold ("Hi," for 0.13 s, "I call", "top", "And"), `verify_captions`
+ * then called them below the floor of every preset, and the agent looped hand-merging
+ * cues and re-running the tool, which gave the same flashes back. And it tore phrases
+ * the agent wanted to accent ("stop | scrolling", "billion | dollar"), so
+ * `auto_emphasize_captions` reported them "on no cue".
+ */
+describe('caption_the_edit meets its own verifier on the real talking head', () => {
+  /** Caption the project with `args`, apply the patch, and return the applied project. */
+  function captioned(fps: number, args: Record<string, unknown>): Project {
+    const project = talkingHeadProject(fps);
+    const assembled = captionTheEdit(project, args);
+    expect(assembled.validation.issues.filter((i) => i.severity === 'error')).toEqual([]);
+    return applyProjectPatch(project, assembled.patch);
+  }
+
+  /** Every cue's words, as the renderer and the accent matcher will see them. */
+  function cueTexts(project: Project): string[] {
+    const track = project.timeline.tracks.find((candidate) => candidate.id === 'captions_main');
+    return (track?.clips ?? []).map(
+      (clip) => clip.captionCue?.words.map((word) => word.word).join(' ') ?? '',
+    );
+  }
+
+  it('writes no cue verify_captions calls too short, whatever the preset, cap or rate', () => {
+    for (const fps of [24, 25, 29.97, 30, 60]) {
+      for (const preset of ['short-form', 'subtitle', 'one-word'] as const) {
+        for (const maxWordsPerCue of [undefined, 3, 4]) {
+          const where = `${preset}/${String(maxWordsPerCue)} @ ${String(fps)}fps`;
+          const project = captioned(fps, {
+            preset,
+            ...(maxWordsPerCue === undefined ? {} : { maxWordsPerCue }),
+          });
+          const tooShort = verifyCaptions(project).issues.filter(
+            (issue) => issue.code === 'caption_too_short',
+          );
+          expect(tooShort, where).toEqual([]);
+          const track = project.timeline.tracks.find((t) => t.id === 'captions_main');
+          for (const clip of track?.clips ?? []) {
+            expect(clip.end - clip.start, where).toBeGreaterThanOrEqual(
+              MIN_CAPTION_CUE_SECONDS - 1e-6,
+            );
+          }
+        }
+      }
+    }
+  });
+
+  it('never puts "Hi," on screen alone, and keeps names and counts whole', () => {
+    const texts = cueTexts(captioned(30, { preset: 'short-form', maxWordsPerCue: 4 }));
+    expect(texts).not.toContain('Hi,');
+    expect(texts.some((text) => text.includes('Shamra Dotto'))).toBe(true);
+    expect(texts.some((text) => text.includes('1,50,000 subscribers'))).toBe(true);
+  });
+
+  it('keeps the keepTogether phrases on one cue, so the accent can land on them', () => {
+    const args = { preset: 'short-form', maxWordsPerCue: 4 };
+    const phrases = ['stop scrolling', 'billion dollar'];
+    const joined = (texts: string[]): boolean[] =>
+      phrases.map((phrase) => texts.some((text) => text.toLowerCase().includes(phrase)));
+
+    // Pinned both ways: at this cap the real transcript splits both phrases.
+    expect(joined(cueTexts(captioned(30, args)))).toEqual([false, false]);
+    expect(joined(cueTexts(captioned(30, { ...args, keepTogether: phrases })))).toEqual([
+      true,
+      true,
+    ]);
+  });
+
+  it('bounds keepTogether: at most 30 phrases of at most 6 words, blanks dropped', () => {
+    const tool = getTool('caption_the_edit');
+    if (!tool || tool.kind !== 'mutate') throw new Error('caption_the_edit is not a mutate tool');
+    const parse = (keepTogether: unknown): unknown =>
+      tool.parse({ trackId: 'captions_main', keepTogether });
+    expect(() => parse(['one two three four five six seven'])).toThrow(/at most 6 words/);
+    expect(() =>
+      parse(Array.from({ length: 31 }, (_, index) => `phrase ${String(index)}`)),
+    ).toThrow();
+    expect(parse(['', '  ', 'stop scrolling'])).toMatchObject({ keepTogether: ['stop scrolling'] });
+    expect(parse(['', ' '])).toMatchObject({ keepTogether: undefined });
   });
 });

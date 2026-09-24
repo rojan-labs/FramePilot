@@ -35,7 +35,7 @@ Synchronization and legibility outrank novelty. Style supports comprehension; it
 - Use the mapped transcript after structural edits; regenerate if cuts or speed change.
 - `caption_the_edit` captions the whole edit in one call: it reads the mapped transcript, segments the retained speech into readable phrase cues (3–7 words, never more than 12) at linguistic breaks, and replaces whatever cues are there — use it for a recording and to repair after any cut. `add_caption_layer` creates ONE cue and is only for patching a specific gap by hand; never build a whole track from it, and never one full-duration block.
 - Call `discover_caption_styles`, start from a returned template/font, and override only the fields the format or brand requires.
-- For automatic emphasis, reason over the mapped transcript and pass sparse exact spoken anchors to `auto_emphasize_captions`; never invent or rewrite words.
+- For automatic emphasis, reason over the mapped transcript and pass sparse exact spoken anchors to `auto_emphasize_captions`; never invent or rewrite words. Pass the multi-word emphasis phrases as `keepTogether` to `caption_the_edit` before `auto_emphasize_captions`, so no phrase is split across two cues.
 - Put the shared composition—including font, x/y placement, scale, width, rotation, alignment, spacing, background and safe area—on the track. Use per-cue style only for deliberate exceptions.
 - Use strong contrast and an outline on uncontrolled footage.
 - Choose energetic one-word/build families for punchy shorts, karaoke/phrase families for readable emphasis, and restrained editorial/broadcast looks for long-form.

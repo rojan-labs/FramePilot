@@ -41,7 +41,7 @@ import {
   containsRun,
   normalizeCaptionWord,
 } from '../caption-style-facts.js';
-import { filterString, id, numeric, seconds } from './tool-args.js';
+import { blankEntriesToUndefined, filterString, id, numeric, seconds } from './tool-args.js';
 /**
  * CSS font-weight keywords, in the numeric vocabulary the schema and the font files use.
  *
@@ -275,6 +275,36 @@ const captionKeywordsSchema = z
     }
   });
 
+/** Most phrases one `caption_the_edit` call may ask to keep whole — the emphasis cap, with room. */
+const MAX_KEEP_TOGETHER_PHRASES = 30;
+/** Longest phrase `keepTogether` accepts, in words — a short-form cue's own word budget. */
+const MAX_KEEP_TOGETHER_WORDS = 6;
+
+/**
+ * `caption_the_edit`'s `keepTogether`: phrases the segmenter must not break a cue inside.
+ *
+ * WHY the tool takes it: the accent renderer matches an emphasis phrase within one cue,
+ * and a real run's "stop scrolling" and "billion dollar" were each split across two cues,
+ * so `auto_emphasize_captions` could not accent them and the agent looped hand-merging
+ * cues. The model knows which phrases it is about to emphasise; the segmenter does not.
+ * Capped at a cue's word budget, since a longer phrase could never sit on one cue anyway.
+ * Blank entries are dropped rather than refused (see `blankEntriesToUndefined`).
+ */
+const keepTogetherSchema = z.preprocess(
+  blankEntriesToUndefined,
+  z
+    .array(
+      z
+        .string()
+        .refine(
+          (phrase) => phrase.split(/\s+/).filter(Boolean).length <= MAX_KEEP_TOGETHER_WORDS,
+          `Each keepTogether phrase is at most ${String(MAX_KEEP_TOGETHER_WORDS)} words.`,
+        ),
+    )
+    .max(MAX_KEEP_TOGETHER_PHRASES)
+    .optional(),
+);
+
 const autoEmphasizeCaptionsSchema = z
   .object({
     trackId: z.string(),
@@ -417,7 +447,9 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'register: short-form (default, punchy 1-2 lines), subtitle (broadcast, longer ' +
         'reading lines), one-word (one word per cue, for the one-word template family). ' +
         'Style the finished track with set_track_caption_style and emphasise with ' +
-        'auto_emphasize_captions. Requires a transcript — run transcribe first.',
+        'auto_emphasize_captions. keepTogether: phrases that must stay on one cue — pass ' +
+        'the words you are going to emphasise so the accent can land on them. ' +
+        'Requires a transcript — run transcribe first.',
       capabilities: ['edit', 'captions'],
       // Not mirrored into the Python sidecar registry. Where a caption cue breaks
       // is a linguistic decision and `segmentCaptions` is deliberately its single
@@ -440,6 +472,7 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         trackId: z.string(),
         preset: z.enum(['short-form', 'subtitle', 'one-word']).optional(),
         maxWordsPerCue: numeric(z.number().int().min(1).max(MAX_CAPTION_CUE_WORDS)).optional(),
+        keepTogether: keepTogetherSchema,
       })
       .strict(),
     (a, ctx) => {
@@ -458,10 +491,10 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         );
       }
 
-      const config = captionSegmentConfig(
-        (a.preset ?? 'short-form') as CaptionSegmentPresetName,
-        a.maxWordsPerCue === undefined ? {} : { maxWordsPerCue: a.maxWordsPerCue },
-      );
+      const config = captionSegmentConfig((a.preset ?? 'short-form') as CaptionSegmentPresetName, {
+        ...(a.maxWordsPerCue === undefined ? {} : { maxWordsPerCue: a.maxWordsPerCue }),
+        ...(a.keepTogether === undefined ? {} : { keepTogether: a.keepTogether }),
+      });
       const cues = deriveCaptionCues(
         buildTimelineMap(ctx.project.timeline),
         ctx.project.transcript,

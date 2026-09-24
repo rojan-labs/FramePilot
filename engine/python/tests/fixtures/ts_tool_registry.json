@@ -1007,6 +1007,16 @@
           "trackId"
         ],
         "properties": {
+          "keepTogether": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ]
+            }
+          },
           "maxWordsPerCue": {
             "type": [
               "integer"

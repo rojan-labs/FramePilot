@@ -62,6 +62,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Captions no longer flash a word for a split second, or split names and phrases.**
+  Generated captions could put "Hi," on screen for an eighth of a second, show a surname on
+  its own ("Shamra" then "Dotto"), or end a caption on "1,50,000" with "subscribers" on the
+  next — and then the AI's own caption check rejected those flashes, so it kept re-captioning
+  and fixing cues by hand in a loop. Every caption is now on screen long enough to read (at
+  least a quarter second, the same bar the check uses), names and numbers stay with the words
+  they belong to, and when the AI highlights a phrase such as "stop scrolling" it keeps that
+  phrase on one caption so the highlight can land on it.
 - **The Jobs panel tells the truth about a long job.** It used to draw a full bar beside the word
   "prepare" and a time left that was off by hours, because it showed one step's counter as the
   whole job's. Each job now shows the step it is on by name ("Finding the subject · 71 of 300")

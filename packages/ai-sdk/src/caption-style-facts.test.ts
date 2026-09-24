@@ -110,6 +110,34 @@ describe('emphasisCoverageNote says how many cues an accent reached', () => {
     expect(note).toMatch(/"top 1" is in the transcript but on no cue/);
   });
 
+  it('names the keepTogether re-run for a phrase split across cues, and only for phrases', () => {
+    // The real run: "billion | dollar" and "stop | scrolling" each fell across a cue
+    // break. Told only "split across two cues", the agent hand-merged cues and looped.
+    const note = emphasisCoverageNote(
+      project(
+        ['billion dollar', 'stop scrolling', 'founders', 'missing'],
+        [
+          cue('a', ['with', 'billion']),
+          cue('b', ['dollar', 'companies.']),
+          cue('c', ['founders', 'stop']),
+          cue('d', ['scrolling,']),
+        ],
+      ),
+      'c',
+    );
+    expect(note).toContain(
+      'If split, re-run caption_the_edit with keepTogether ["billion dollar", "stop scrolling"]',
+    );
+    // A single word cannot be split across cues, so it is never offered the re-run.
+    expect(note).not.toContain('"missing"]');
+  });
+
+  it('offers no re-run when every missing keyword is a single word', () => {
+    const note = emphasisCoverageNote(project(['gone'], [cue('a', ['here'])]), 'c');
+    expect(note).toContain('"gone" is in the transcript but on no cue');
+    expect(note).not.toContain('keepTogether');
+  });
+
   it('says so when the track has no cues to accent', () => {
     expect(emphasisCoverageNote(project(['x'], []), 'c')).toContain('no cues yet');
   });

@@ -32,11 +32,13 @@ export const CAPTION_FONT_HEIGHT_FRACTION = 1 / 22;
 export const MAX_CAPTION_EM_VALUE = 3;
 
 /**
- * The shortest cue a viewer can read. The `one-word` segmenter preset floors at 0.25 s
- * (`editor-core/src/captions/segment.ts`); nothing shorter is a caption, it is a flicker.
- * Run `df81d58e` hand-placed a 0.10 s cue ("And you"), deleted it, and placed it again.
+ * The shortest cue a viewer can read — re-exported from the segmenter, which owns it, so
+ * the floor `verify_captions` enforces is the floor `caption_the_edit` guarantees. Held
+ * here separately, the segmenter never applied it and its own output failed its own
+ * verifier (a 0.13 s "Hi,"), looping the agent. Run `df81d58e` hand-placed a 0.10 s cue
+ * ("And you"), deleted it, and placed it again.
  */
-export const MIN_CAPTION_CUE_SECONDS = 0.25;
+export { MIN_CAPTION_CUE_SECONDS } from '@framepilot/editor-core';
 
 /** The sentence every caption-style surface hands the model about units. */
 export const CAPTION_STYLE_UNITS =
@@ -195,7 +197,25 @@ export function emphasisCoverageNote(project: Project, trackId: unknown): string
     ` — emphasis lands on ${String(reached.size)} of ${String(cueTokens.length)} cues: ` +
     counts.map((c) => `"${c.keyword}" ×${String(c.hits)}`).join(', ') +
     (missing.length > 0
-      ? `. ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} in the transcript but on no cue — spoken in a stretch that was cut, or split across two cues; nothing on screen will accent ${missing.length === 1 ? 'it' : 'them'}.`
+      ? `. ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} in the transcript but on no cue — spoken in a stretch that was cut, or split across two cues; nothing on screen will accent ${missing.length === 1 ? 'it' : 'them'}.` +
+        splitPhraseRemedy(counts)
       : '.')
   );
+}
+
+/**
+ * The fix for an emphasis phrase that fell across a cue break, named as a call.
+ *
+ * Only a multi-word phrase can be split, so only those are listed. Without the remedy
+ * spelled out, a real run read "split across two cues", hand-merged the cues itself —
+ * which made them stale — re-ran `caption_the_edit`, got the same split back, and looped.
+ * `keepTogether` makes the segmenter keep the phrase on one cue, and the accent lives on
+ * the track, so the re-run cues pick it up with no second emphasis pass.
+ */
+function splitPhraseRemedy(counts: readonly { keyword: string; hits: number }[]): string {
+  const phrases = counts
+    .filter((c) => c.hits === 0 && c.keyword.trim().includes(' '))
+    .map((c) => JSON.stringify(c.keyword));
+  if (phrases.length === 0) return '';
+  return ` If split, re-run caption_the_edit with keepTogether [${phrases.join(', ')}]; the track's accent then reaches ${phrases.length === 1 ? 'it' : 'them'}.`;
 }
