@@ -196,19 +196,20 @@ def text_overlay_layout(
     )
 
 
-def _no_ligatures(font: Any) -> list[str] | None:
-    """The OpenType features that turn ligatures off, for a font laid out by libraqm.
+def _basic_features(font: Any) -> list[str] | None:
+    """The OpenType features that make libraqm draw what basic layout draws.
 
     WHY: the desktop's Pillow lays text out with BASIC layout, which never ligates, and the
     AI's title fit (``title_metrics``) measures glyph by glyph on that basis. Pillow builds
     with libraqm (the Linux wheels) join "fi"/"fl" into one glyph — in a monospaced face such
     as Press Start 2P that removes a whole cell, so "fly" drew a third narrower than every
-    other runtime and than the fit. Turning ligatures off keeps shaping and kerning but draws
-    the letters the desktop draws. ``None`` for a basic-layout font, which takes no features.
+    other runtime and than the fit. Kerning is off for the same reason: Shrikhand's "fly"
+    kerned 4.5 % wider than the desktop draws it, past the frame margin the fit keeps.
+    ``None`` for a basic-layout font, which takes no features.
     """
     if getattr(font, "layout_engine", None) != ImageFont.Layout.RAQM:
         return None
-    return ["-liga", "-clig"]
+    return ["-liga", "-clig", "-kern"]
 
 
 def render_text_overlay_image(
@@ -257,7 +258,7 @@ def render_text_overlay_image(
     max_text_width = (
         max(1, max_width) if max_width is not None else int(frame_width * _MAX_WIDTH_FRACTION)
     )
-    features = _no_ligatures(font)
+    features = _basic_features(font)
     lines = wrap_lines(text.split(), font, max_text_width, features)
 
     stroke_width = max(1, size // 12)

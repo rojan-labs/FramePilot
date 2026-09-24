@@ -25,10 +25,10 @@ the committed table no longer matches the fonts, and checks the formula against 
 PLATFORM. Glyphs are measured with Pillow's BASIC layout on every machine, so the table is the
 same wherever it is generated. The rasterizer uses whatever layout Pillow was built with: the
 macOS wheels the desktop ships draw with basic layout (the formula is exact to rounding there);
-Linux wheels carry libraqm, whose kerning can draw a pair up to ~3 % wider (CI, 2026-09-24) —
-inside the 4 % margin the fit keeps on each side of the frame. Its ligatures are switched off
-(``text_overlay._no_ligatures``): a monospaced face that joins "fl" into one cell drew "fly" a
-third narrower than the desktop and than this table. The reference widths are the desktop's own,
+Linux wheels carry libraqm; its ligatures and kerning are switched off for titles
+(``text_overlay._basic_features``) so it draws what basic layout draws — a monospaced face that
+joins "fl" into one cell drew "fly" a third narrower, and Shrikhand's kerning drew it 4.5 % wider,
+past the 4 % margin the fit keeps on each side of the frame. The reference widths are the desktop's own,
 written by whoever regenerates the file; they are data for the TS test, not drift-checked.
 """
 

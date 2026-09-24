@@ -31,8 +31,9 @@ PIXEL_SLACK = 2
 MAX_UNDER_READ = 0.025 if not features.check("raqm") else 0.04
 #: The most the formula may read WIDER than the raster: rounding on basic layout; kerning on
 #: shaped layout, where a short word can draw a quarter narrower. Ligatures are off in the
-#: title rasterizer on every layout (``text_overlay._no_ligatures``): Press Start 2P's "fl"
-#: joined into one monospaced cell and drew "fly" at two-thirds of the formula on CI.
+#: title rasterizer on every layout, and so is kerning (``text_overlay._basic_features``):
+#: Press Start 2P's "fl" joined into one monospaced cell and drew "fly" at two-thirds of the
+#: formula on CI, and Shrikhand kerned "fly" 4.5 % wide.
 OVER_READ = 1.03 if not features.check("raqm") else 1.3
 
 
