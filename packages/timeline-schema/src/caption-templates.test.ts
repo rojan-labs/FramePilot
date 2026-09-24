@@ -85,6 +85,22 @@ describe('CAPTION_TEMPLATE_CATALOG', () => {
     }
   });
 
+  it('ships see-through and frosted-glass looks (schema v24)', () => {
+    const seeThrough = CAPTION_TEMPLATE_CATALOG.filter(
+      (t) => t.style.textOpacity !== undefined && t.style.textOpacity < 1,
+    );
+    const frosted = CAPTION_TEMPLATE_CATALOG.filter((t) => (t.style.background?.blur ?? 0) > 0);
+    expect(seeThrough.map((t) => t.id)).toEqual(expect.arrayContaining(['hollow', 'ghost']));
+    expect(frosted.map((t) => t.id)).toEqual(expect.arrayContaining(['glass', 'frosted-bar']));
+    // A see-through letter needs something that stays solid to be read by: its rim or a shadow.
+    for (const template of seeThrough) {
+      const s = template.style;
+      expect((s.outlineWidth ?? 0) > 0 || s.shadow !== undefined, `template ${template.id}`).toBe(
+        true,
+      );
+    }
+  });
+
   it('uses hex-only colors (the engine rasterizer cannot parse CSS color functions)', () => {
     const HEX = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
     for (const template of CAPTION_TEMPLATE_CATALOG) {
@@ -97,6 +113,7 @@ describe('CAPTION_TEMPLATE_CATALOG', () => {
         s.highlight?.color,
         s.highlight?.background,
         s.accent?.color,
+        s.background?.borderColor,
       ];
       for (const color of colors) {
         if (color !== undefined) expect(color, `template ${template.id}`).toMatch(HEX);

@@ -172,6 +172,36 @@
       }
     },
     {
+      "id": "hollow",
+      "label": "Hollow",
+      "category": "one-word",
+      "suggestedWordsPerLine": 1,
+      "style": {
+        "display": "active-word",
+        "fontFamily": "Anton",
+        "fontWeight": 400,
+        "textTransform": "uppercase",
+        "fontScale": 1.6,
+        "letterSpacing": 0.02,
+        "textColor": "#ffffff",
+        "textOpacity": 0,
+        "outlineColor": "#ffffff",
+        "outlineWidth": 2,
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
+        "animation": {
+          "in": {
+            "type": "zoom",
+            "duration": 0.12
+          }
+        }
+      }
+    },
+    {
       "id": "trio",
       "label": "Trio",
       "category": "phrase",
@@ -544,6 +574,38 @@
       }
     },
     {
+      "id": "frosted-bar",
+      "label": "Frosted Bar",
+      "category": "karaoke",
+      "suggestedWordsPerLine": 6,
+      "style": {
+        "display": "phrase",
+        "fontFamily": "Lexend",
+        "fontWeight": 600,
+        "textColor": "#ffffff",
+        "shadow": {
+          "color": "#00000059",
+          "blur": 0.12,
+          "offsetX": 0,
+          "offsetY": 0.03
+        },
+        "background": {
+          "color": "#0b0b0f4d",
+          "radius": 0.22,
+          "paddingX": 0.6,
+          "paddingY": 0.3,
+          "blur": 0.4,
+          "borderColor": "#ffffff2e",
+          "borderWidth": 1
+        },
+        "highlight": {
+          "enabled": true,
+          "color": "#ffd60a",
+          "animation": "karaoke-fill"
+        }
+      }
+    },
+    {
       "id": "hormozi",
       "label": "Hormozi",
       "category": "build",
@@ -807,6 +869,44 @@
           "in": {
             "type": "bounce",
             "duration": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "glass",
+      "label": "Glass",
+      "category": "boxed",
+      "suggestedWordsPerLine": 5,
+      "style": {
+        "display": "phrase",
+        "fontFamily": "Plus Jakarta Sans",
+        "fontWeight": 700,
+        "textColor": "#ffffff",
+        "shadow": {
+          "color": "#00000066",
+          "blur": 0.15,
+          "offsetX": 0,
+          "offsetY": 0.03
+        },
+        "background": {
+          "color": "#ffffff29",
+          "radius": 0.45,
+          "paddingX": 0.55,
+          "paddingY": 0.26,
+          "blur": 0.35,
+          "borderColor": "#ffffff73",
+          "borderWidth": 1
+        },
+        "highlight": {
+          "enabled": true,
+          "color": "#ffd60a",
+          "animation": "color"
+        },
+        "animation": {
+          "in": {
+            "type": "fade",
+            "duration": 0.15
           }
         }
       }
@@ -1308,6 +1408,70 @@
       }
     },
     {
+      "id": "glass-pill",
+      "label": "Glass Pill",
+      "category": "aesthetic",
+      "suggestedWordsPerLine": 1,
+      "style": {
+        "display": "active-word",
+        "fontFamily": "Nunito",
+        "fontWeight": 800,
+        "textTransform": "lowercase",
+        "fontScale": 1.15,
+        "textColor": "#ffffff",
+        "shadow": {
+          "color": "#00000059",
+          "blur": 0.12,
+          "offsetX": 0,
+          "offsetY": 0.03
+        },
+        "background": {
+          "color": "#ffffff29",
+          "radius": 0.6,
+          "paddingX": 0.55,
+          "paddingY": 0.2,
+          "blur": 0.35,
+          "borderColor": "#ffffff73",
+          "borderWidth": 1
+        },
+        "animation": {
+          "in": {
+            "type": "zoom",
+            "duration": 0.12
+          }
+        }
+      }
+    },
+    {
+      "id": "ghost",
+      "label": "Ghost",
+      "category": "aesthetic",
+      "suggestedWordsPerLine": 3,
+      "style": {
+        "display": "phrase",
+        "fontFamily": "Montserrat",
+        "fontWeight": 900,
+        "textTransform": "uppercase",
+        "fontScale": 1.25,
+        "textColor": "#ffffff",
+        "textOpacity": 0.35,
+        "outlineColor": "#ffffff",
+        "outlineWidth": 1.5,
+        "shadow": {
+          "color": "#000000b3",
+          "blur": 0.2,
+          "offsetX": 0,
+          "offsetY": 0.06
+        },
+        "animation": {
+          "in": {
+            "type": "slide-up",
+            "duration": 0.14
+          }
+        }
+      }
+    },
+    {
       "id": "soft-focus",
       "label": "Soft Focus",
       "category": "cinematic",
@@ -1597,6 +1761,33 @@
           "in": {
             "type": "fade",
             "duration": 0.3
+          }
+        }
+      }
+    },
+    {
+      "id": "veil",
+      "label": "Veil",
+      "category": "cinematic",
+      "suggestedWordsPerLine": 5,
+      "style": {
+        "display": "phrase",
+        "fontFamily": "Bodoni Moda",
+        "fontWeight": 600,
+        "textTransform": "lowercase",
+        "fontScale": 1.1,
+        "textColor": "#ffffff",
+        "textOpacity": 0.6,
+        "shadow": {
+          "color": "#000000d9",
+          "blur": 0.26,
+          "offsetX": 0,
+          "offsetY": 0.02
+        },
+        "animation": {
+          "in": {
+            "type": "fade",
+            "duration": 0.4
           }
         }
       }

@@ -73,6 +73,30 @@ const SOFT_DROP = { color: '#000000b3', blur: 0.2, offsetX: 0, offsetY: 0.06 } a
 const HALO = { color: '#000000d9', blur: 0.26, offsetX: 0, offsetY: 0.02 } as const;
 /** A hard offset shadow: the sticker/comic look, reads at a glance on anything. */
 const HARD_DROP = { color: '#000000', blur: 0, offsetX: 0.05, offsetY: 0.07 } as const;
+/**
+ * Frosted glass (schema v24): the chip blurs the picture behind it (`blur` is the
+ * blur's standard deviation, a fraction of the font size), a faint tint gives it
+ * a body, and an inset rim catches the light. Light glass for dark or busy
+ * footage, smoked glass for bright footage.
+ */
+const LIGHT_GLASS = {
+  color: '#ffffff29',
+  radius: 0.45,
+  paddingX: 0.55,
+  paddingY: 0.26,
+  blur: 0.35,
+  borderColor: '#ffffff73',
+  borderWidth: 1,
+} as const;
+const SMOKED_GLASS = {
+  color: '#0b0b0f4d',
+  radius: 0.22,
+  paddingX: 0.6,
+  paddingY: 0.3,
+  blur: 0.4,
+  borderColor: '#ffffff2e',
+  borderWidth: 1,
+} as const;
 /** Outline widths (sixteenths of the font size). */
 const THIN = 1;
 const MEDIUM = 1.5;
@@ -253,6 +277,27 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
       outlineWidth: BOLD,
       shadow: SOFT_DROP,
       animation: { in: { type: 'zoom', duration: 0.09 } },
+    },
+  },
+  {
+    id: 'hollow',
+    label: 'Hollow',
+    category: 'one-word',
+    suggestedWordsPerLine: 1,
+    style: {
+      display: 'active-word',
+      fontFamily: ANTON,
+      fontWeight: 400,
+      textTransform: 'uppercase',
+      fontScale: 1.6,
+      letterSpacing: 0.02,
+      textColor: WHITE,
+      // See-through at 0: the picture fills the letters, only the rim is drawn.
+      textOpacity: 0,
+      outlineColor: WHITE,
+      outlineWidth: BOLD,
+      shadow: SOFT_DROP,
+      animation: { in: { type: 'zoom', duration: 0.12 } },
     },
   },
   // ---------------------------------------------------------------- phrase
@@ -492,6 +537,21 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
       highlight: { enabled: true, color: CYAN, animation: 'karaoke-fill' },
     },
   },
+  {
+    id: 'frosted-bar',
+    label: 'Frosted Bar',
+    category: 'karaoke',
+    suggestedWordsPerLine: 6,
+    style: {
+      display: 'phrase',
+      fontFamily: LEXEND,
+      fontWeight: 600,
+      textColor: WHITE,
+      shadow: { color: '#00000059', blur: 0.12, offsetX: 0, offsetY: 0.03 },
+      background: SMOKED_GLASS,
+      highlight: { enabled: true, color: YELLOW, animation: 'karaoke-fill' },
+    },
+  },
   // ----------------------------------------------------------------- build
   {
     id: 'hormozi',
@@ -649,6 +709,22 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
       background: { color: YELLOW, radius: 0.28, paddingX: 0.42, paddingY: 0.14 },
       rotation: -3,
       animation: { in: { type: 'bounce', duration: 0.2 } },
+    },
+  },
+  {
+    id: 'glass',
+    label: 'Glass',
+    category: 'boxed',
+    suggestedWordsPerLine: 5,
+    style: {
+      display: 'phrase',
+      fontFamily: JAKARTA,
+      fontWeight: 700,
+      textColor: WHITE,
+      shadow: { color: '#00000066', blur: 0.15, offsetX: 0, offsetY: 0.03 },
+      background: LIGHT_GLASS,
+      highlight: { enabled: true, color: YELLOW, animation: 'color' },
+      animation: { in: { type: 'fade', duration: 0.15 } },
     },
   },
   // ------------------------------------------------------------- editorial
@@ -954,6 +1030,46 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
       animation: { perWord: true, in: { type: 'typewriter', duration: 0.12 } },
     },
   },
+  {
+    id: 'glass-pill',
+    label: 'Glass Pill',
+    category: 'aesthetic',
+    suggestedWordsPerLine: 1,
+    style: {
+      display: 'active-word',
+      fontFamily: NUNITO,
+      fontWeight: 800,
+      textTransform: 'lowercase',
+      fontScale: 1.15,
+      textColor: WHITE,
+      shadow: { color: '#00000059', blur: 0.12, offsetX: 0, offsetY: 0.03 },
+      background: { ...LIGHT_GLASS, radius: 0.6, paddingX: 0.55, paddingY: 0.2 },
+      animation: { in: { type: 'zoom', duration: 0.12 } },
+    },
+  },
+  {
+    id: 'ghost',
+    label: 'Ghost',
+    category: 'aesthetic',
+    suggestedWordsPerLine: 3,
+    style: {
+      display: 'phrase',
+      fontFamily: MONTSERRAT,
+      fontWeight: 900,
+      textTransform: 'uppercase',
+      fontScale: 1.25,
+      textColor: WHITE,
+      // The picture shows through the letters; a crisp rim and a soft drop keep
+      // them readable, and neither is ever drawn inside a letter.
+      textOpacity: 0.35,
+      outlineColor: WHITE,
+      outlineWidth: MEDIUM,
+      shadow: SOFT_DROP,
+      // No colour highlight: a highlight colour is see-through too, and a
+      // translucent yellow over dark picture reads as olive.
+      animation: { in: { type: 'slide-up', duration: 0.14 } },
+    },
+  },
   // ------------------------------------------------------------- cinematic
   {
     id: 'soft-focus',
@@ -1117,6 +1233,23 @@ export const CAPTION_TEMPLATE_CATALOG: readonly CaptionTemplate[] = [
       shadow: HALO,
       accent: { mode: 'last-word', fontFamily: MR_DAFOE, fontScale: 1.9, color: WHITE },
       animation: { in: { type: 'fade', duration: 0.3 } },
+    },
+  },
+  {
+    id: 'veil',
+    label: 'Veil',
+    category: 'cinematic',
+    suggestedWordsPerLine: 5,
+    style: {
+      display: 'phrase',
+      fontFamily: BODONI,
+      fontWeight: 600,
+      textTransform: 'lowercase',
+      fontScale: 1.1,
+      textColor: WHITE,
+      textOpacity: 0.6,
+      shadow: HALO,
+      animation: { in: { type: 'fade', duration: 0.4 } },
     },
   },
   // ----------------------------------------------- creator reference set (2026)
