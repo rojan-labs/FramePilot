@@ -47,6 +47,17 @@ import {
   resolveCaptionStyle,
 } from '../editor/captionPreview.js';
 import {
+  DEFAULT_FROSTED_BOX,
+  DEFAULT_SOLID_BOX,
+  boxForKind,
+  boxKind,
+  hexAlpha,
+  hexRgb,
+  withHexAlpha,
+  type CaptionBackground,
+  type CaptionBoxKind,
+} from '../editor/captionGlass.js';
+import {
   generateCaptionsPatch,
   highlightKeywords,
   keywordAccentStyle,
@@ -122,6 +133,18 @@ const TEMPLATE_CATEGORIES: readonly { id: CaptionTemplateFilter; label: string }
   { id: 'aesthetic', label: 'Aesthetic' },
   { id: 'cinematic', label: 'Cinematic' },
 ];
+
+const BOX_KINDS: readonly { id: CaptionBoxKind; label: string }[] = [
+  { id: 'none', label: 'No box' },
+  { id: 'solid', label: 'Solid' },
+  { id: 'frosted', label: 'Frosted glass' },
+];
+
+/** Box tints (rgb only; the box keeps its own opacity). Hex: the export reads hex. */
+const BOX_TINTS = ['#ffffff', '#0b0b0f', '#ffd60a', '#ff2e4d', '#3de0ff'] as const;
+
+/** The glass rim colour a rim slider starts from when the box has none yet. */
+const DEFAULT_RIM_COLOR = '#ffffff73';
 
 const SEGMENT_CHOICES: readonly { id: 'auto' | CaptionSegmentPresetName; label: string }[] = [
   { id: 'auto', label: 'Match the template' },
@@ -1326,6 +1349,19 @@ export function CaptionWorkspace({
     );
   };
 
+  // Transparency and glass (schema v24). The box is one object in the schema
+  // (an explicit `background` replaces the template's wholesale), so every
+  // control writes the complete current box with its one field changed.
+  const currentBox = overrides.background ?? resolvedCurrent.background;
+  const currentBoxKind = boxKind(currentBox);
+  const textOpacity = overrides.textOpacity ?? resolvedCurrent.textOpacity ?? 1;
+  const boxWith = (patch: Partial<CaptionBackground>): CaptionBackground => ({
+    ...(currentBox ?? DEFAULT_SOLID_BOX),
+    ...patch,
+  });
+  const boxColor = currentBox?.color ?? DEFAULT_SOLID_BOX.color;
+  const transparencyDisabled = styleScope === 'selection' && !hasCaptionSelection;
+
   const scrollTo = (ref: RefObject<HTMLDivElement | null>): void => {
     ref.current?.scrollIntoView({ block: 'start' });
   };
@@ -1692,6 +1728,145 @@ export function CaptionWorkspace({
               Drag a selected caption in the preview to place it. Preview changes remain
               synchronized with the timeline.
             </p>
+          </fieldset>
+        </details>
+        <details className="caption-options">
+          <summary>Transparency and glass</summary>
+          <fieldset
+            className="caption-style-controls"
+            disabled={transparencyDisabled}
+            aria-label="caption transparency"
+          >
+            <label>
+              <span>Letter opacity</span>
+              <Slider
+                ariaLabel="caption letter opacity"
+                min={0}
+                max={100}
+                step={5}
+                value={Math.round(textOpacity * 100)}
+                onChange={(percent) => previewOverride({ textOpacity: percent / 100 })}
+                onCommit={(percent) => commitStyleChange({ textOpacity: percent / 100 })}
+              />
+            </label>
+            <p className="caption-hint">
+              Below 100% the picture shows through the letters while their outline and shadow stay
+              solid around them. At 0% only the outline is drawn, so give it one to read by.
+            </p>
+            <div className="caption-positions" role="group" aria-label="caption box">
+              {BOX_KINDS.map((kind) => (
+                <button
+                  key={kind.id}
+                  type="button"
+                  className={`caption-pos${currentBoxKind === kind.id ? ' is-active' : ''}`}
+                  aria-pressed={currentBoxKind === kind.id}
+                  disabled={transparencyDisabled}
+                  onClick={() => commitStyleChange({ background: boxForKind(kind.id, currentBox) })}
+                >
+                  {kind.label}
+                </button>
+              ))}
+            </div>
+            {currentBoxKind !== 'none' && (
+              <>
+                <div className="caption-colors" role="group" aria-label="caption box tint">
+                  {BOX_TINTS.map((tint) => (
+                    <button
+                      key={tint}
+                      type="button"
+                      className={`caption-color${hexRgb(boxColor) === tint ? ' is-active' : ''}`}
+                      style={{ background: tint }}
+                      aria-label={`box tint ${tint}`}
+                      aria-pressed={hexRgb(boxColor) === tint}
+                      disabled={transparencyDisabled}
+                      onClick={() =>
+                        commitStyleChange({
+                          // Keep the box's own opacity; a fully clear box takes a visible 30%.
+                          background: boxWith({
+                            color: withHexAlpha(tint, hexAlpha(boxColor) || 0.3),
+                          }),
+                        })
+                      }
+                    />
+                  ))}
+                </div>
+                <label>
+                  <span>Box opacity</span>
+                  <Slider
+                    ariaLabel="caption box opacity"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={Math.round(hexAlpha(boxColor) * 100)}
+                    onChange={(percent) =>
+                      previewOverride({
+                        background: boxWith({ color: withHexAlpha(boxColor, percent / 100) }),
+                      })
+                    }
+                    onCommit={(percent) =>
+                      commitStyleChange({
+                        background: boxWith({ color: withHexAlpha(boxColor, percent / 100) }),
+                      })
+                    }
+                  />
+                </label>
+                {currentBoxKind === 'frosted' && (
+                  <label>
+                    <span>Frost</span>
+                    <Slider
+                      ariaLabel="caption box frost"
+                      min={0.05}
+                      max={0.8}
+                      step={0.05}
+                      value={currentBox?.blur ?? DEFAULT_FROSTED_BOX.blur ?? 0.35}
+                      onChange={(blur) => previewOverride({ background: boxWith({ blur }) })}
+                      onCommit={(blur) => commitStyleChange({ background: boxWith({ blur }) })}
+                    />
+                  </label>
+                )}
+                <label>
+                  <span>Corners</span>
+                  <Slider
+                    ariaLabel="caption box corner radius"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={currentBox?.radius ?? 0.35}
+                    onChange={(radius) => previewOverride({ background: boxWith({ radius }) })}
+                    onCommit={(radius) => commitStyleChange({ background: boxWith({ radius }) })}
+                  />
+                </label>
+                <label>
+                  <span>Rim</span>
+                  <Slider
+                    ariaLabel="caption box rim"
+                    min={0}
+                    max={3}
+                    step={0.5}
+                    value={currentBox?.borderWidth ?? 0}
+                    onChange={(borderWidth) =>
+                      previewOverride({
+                        background: boxWith({
+                          borderWidth,
+                          borderColor: currentBox?.borderColor ?? DEFAULT_RIM_COLOR,
+                        }),
+                      })
+                    }
+                    onCommit={(borderWidth) =>
+                      commitStyleChange({
+                        background: boxWith({
+                          borderWidth,
+                          borderColor: currentBox?.borderColor ?? DEFAULT_RIM_COLOR,
+                        }),
+                      })
+                    }
+                  />
+                </label>
+                <p className="caption-hint">
+                  Frosted glass blurs the picture behind the box, in the preview and in the export.
+                </p>
+              </>
+            )}
           </fieldset>
         </details>
       </div>

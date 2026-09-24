@@ -378,6 +378,35 @@ describe('CaptionEditor — styling scope', () => {
     expect(screen.getByTestId('clip-style').textContent).toContain('"fontScale":1.6');
   });
 
+  it('makes letters see-through and the box frosted glass from the panel', () => {
+    render(<Host />);
+    fireEvent.click(screen.getByText('Transparency and glass'));
+    fireEvent.click(cueButton('hello world'));
+    fireEvent.blur(screen.getByRole('textbox', { name: /Caption text at/ }));
+
+    const opacity = screen.getByRole('slider', { name: 'caption letter opacity' });
+    fireEvent.change(opacity, { target: { value: '40' } });
+    fireEvent.pointerUp(opacity);
+    expect(screen.getByTestId('clip-style').textContent).toContain('"textOpacity":0.4');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Frosted glass' }));
+    expect(screen.getByTestId('clip-style').textContent).toContain('"blur":0.35');
+    const frost = screen.getByRole('slider', { name: 'caption box frost' });
+    fireEvent.change(frost, { target: { value: '0.5' } });
+    fireEvent.pointerUp(frost);
+    expect(screen.getByTestId('clip-style').textContent).toContain('"blur":0.5');
+
+    const rim = screen.getByRole('slider', { name: 'caption box rim' });
+    fireEvent.change(rim, { target: { value: '2' } });
+    fireEvent.pointerUp(rim);
+    expect(screen.getByTestId('clip-style').textContent).toContain('"borderWidth":2');
+
+    fireEvent.click(screen.getByRole('button', { name: 'No box' }));
+    expect(screen.getByTestId('clip-style').textContent).toContain('"color":"#00000000"');
+    // The letters keep the opacity chosen above.
+    expect(screen.getByTestId('clip-style').textContent).toContain('"textOpacity":0.4');
+  });
+
   it('offers 20+ bundled creative fonts and persists the selected face', () => {
     render(<Host />);
     fireEvent.click(screen.getByText('Typography'));
