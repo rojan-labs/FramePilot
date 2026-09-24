@@ -13,6 +13,8 @@ RGB output for colour statistics (numpy is already a dependency for beats).
 
 from __future__ import annotations
 
+import base64
+import io
 import logging
 import statistics
 from itertools import pairwise
@@ -20,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 
 from framepilot_engine.analysis.beats import detect_beats
@@ -238,6 +240,59 @@ def analyze_reference_image(path: Path, *, palette_size: int = 4) -> ReferenceIm
         has_alpha=has_alpha,
         dominant_colors=dominant,
         color=color_stats_from_rgb(opaque) if opaque.size else None,
+    )
+
+
+#: Longest edge of the still a vision model is shown. Larger than a `get_frame` look (512)
+#: on purpose: a reference is studied for its detail — a logo's lettering, a design's type,
+#: a face — where a timeline frame only has to show what is on screen. 1024 stays under
+#: every provider's own downscale threshold, so what we send is what the model reads.
+REFERENCE_STILL_MAX_DIMENSION = 1024
+#: Hard ceiling a caller cannot ask past (same bound as the frame grab's).
+REFERENCE_STILL_MAX_ALLOWED = 1280
+_STILL_JPEG_QUALITY = 85
+
+
+class ReferenceStill(BaseModel):
+    """A reference image re-encoded at a size a vision model reads."""
+
+    media_type: str
+    base64: str
+    width: int
+    height: int
+
+
+def reference_still(
+    path: Path, *, max_dimension: int = REFERENCE_STILL_MAX_DIMENSION
+) -> ReferenceStill:
+    """Encode a reference image for a model to LOOK at, not measure.
+
+    Transparency is kept (PNG) when the image has any, because "a logo on a transparent
+    background" is part of what the editor attached — flattening it onto black or white
+    would show the model a different picture. Everything else is JPEG, which is a fraction
+    of the bytes for a photo. EXIF orientation is applied first: a phone photo stored
+    sideways must not reach the model sideways.
+
+    :raises OSError: The file is not an image Pillow can decode.
+    """
+    bound = min(max(1, int(max_dimension)), REFERENCE_STILL_MAX_ALLOWED)
+    with Image.open(path) as opened:
+        oriented = ImageOps.exif_transpose(opened) or opened
+        has_alpha = oriented.mode in {"RGBA", "LA", "PA"} or "transparency" in oriented.info
+        image = oriented.convert("RGBA" if has_alpha else "RGB")
+    image.thumbnail((bound, bound), Image.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    if has_alpha:
+        image.save(buffer, format="PNG", optimize=True)
+        media_type = "image/png"
+    else:
+        image.save(buffer, format="JPEG", quality=_STILL_JPEG_QUALITY, optimize=True)
+        media_type = "image/jpeg"
+    return ReferenceStill(
+        media_type=media_type,
+        base64=base64.b64encode(buffer.getvalue()).decode("ascii"),
+        width=image.width,
+        height=image.height,
     )
 
 

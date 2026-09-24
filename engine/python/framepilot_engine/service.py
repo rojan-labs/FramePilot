@@ -63,8 +63,10 @@ from framepilot_engine.analysis.freeze import (
 )
 from framepilot_engine.analysis.loudness import measure_loudness, measure_shot_loudness
 from framepilot_engine.analysis.reference import (
+    REFERENCE_STILL_MAX_DIMENSION,
     analysis_to_dict,
     analyze_reference_video,
+    reference_still,
 )
 from framepilot_engine.analysis.reference import (
     analyze_reference_image as analyze_reference_image,
@@ -668,6 +670,26 @@ class ReferenceAnalysisResponse(BaseModel):
 
 
 _IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"})
+
+
+class ReferenceStillRequest(BaseModel):
+    """Request body for ``POST /references/still``: an attached image, sized for a model."""
+
+    input_path: str = Field(description="Path to the reference image inside the projects sandbox.")
+    max_dimension: int = Field(
+        default=REFERENCE_STILL_MAX_DIMENSION,
+        ge=1,
+        description="Longest edge of the returned still, in pixels (clamped to 1280).",
+    )
+
+
+class ReferenceStillResponse(BaseModel):
+    """The reference image, inline, as base64 bytes a provider accepts as an image part."""
+
+    media_type: str = Field(description="'image/png' when the image has alpha, else 'image/jpeg'.")
+    base64: str = Field(description="The image bytes, base64-encoded, with no data: prefix.")
+    width: int
+    height: int
 
 
 class AssetMediaRequest(BaseModel):
@@ -6985,6 +7007,41 @@ def create_app(
                 for colour in measured
             ]
         )
+
+    @app.post("/references/still", response_model=ReferenceStillResponse)
+    def references_still_route(req: ReferenceStillRequest) -> ReferenceStillResponse:
+        """An attached reference IMAGE, re-encoded for a vision model to look at.
+
+        The measured profile (``/references/analyze``) is what the planner cites; this is
+        the picture itself, so a model that reads images sees the logo's lettering or the
+        face it was asked to keep in frame rather than a palette and a size. Same sandbox
+        as the analysis — the host copied the attachment under the project's media dir.
+        """
+        media_path = sandbox(req.input_path)
+        # codeql[py/path-injection]
+        if not media_path.is_file():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Reference not found: {req.input_path}")
+        if media_path.suffix.lower() not in _IMAGE_SUFFIXES:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"Only image references have a still; {media_path.name} is not an image.",
+            )
+        try:
+            # codeql[py/path-injection]
+            still = reference_still(media_path, max_dimension=req.max_dimension)
+        except (OSError, ValueError) as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"Could not read {media_path.name} as an image: {exc}",
+            ) from exc
+        _log.info(
+            "ACT references/still: %s %dx%d %s",
+            media_path.name,
+            still.width,
+            still.height,
+            still.media_type,
+        )
+        return ReferenceStillResponse(**still.model_dump())
 
     @app.post("/references/analyze", response_model=ReferenceAnalysisResponse)
     def references_analyze_route(req: ReferenceAnalysisRequest) -> ReferenceAnalysisResponse:

@@ -73,6 +73,12 @@ craft tools. No new subsystem; every fix reuses an existing seam.
   No migration (schema-neutral data the editor owns); the tools now refuse to build on it and name
   the fix.
 - [x] **EQ12** Docs, ADR 0183, changelog; rebuild the packages the desktop consumes.
+- [~] **EQ18** The model SEES what it is given. (a) An image attached in the AI sidebar reached the
+  model only as measurements (size, palette, tone) — a logo's text, a character's face, a design's
+  layout were invisible; it now rides as a real image part on every route when the model reads
+  images, the measured profile staying as the text fallback. (b) The `get_frame` card's expander
+  showed the result JSON; it now shows the frame the model was given, spilled by the desktop host
+  into the project's attachments folder so no image bytes cross IPC or the run WAL.
 
 **Status snapshot (2026-09-21, BACKGROUND-REMOVAL speed — `plan/background-removal-ai/13-SPEED-AND-PRODUCTION-READINESS.md`):**
 a maintainer's 52 s 1080p clip ran _Remove background_ for 5+ hours without finishing a step. Not a

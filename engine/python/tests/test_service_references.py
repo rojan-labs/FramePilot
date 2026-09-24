@@ -103,3 +103,71 @@ def test_a_changed_file_at_the_same_path_is_measured_again(tmp_path: Path) -> No
     assert second["cached"] is False
     assert second["contentHash"] != first["contentHash"]
     assert second["image"]["width"] == 64
+
+
+def _decode(body: dict[str, object]) -> Image.Image:
+    import base64
+    import io
+
+    return Image.open(io.BytesIO(base64.b64decode(str(body["base64"]))))
+
+
+def test_still_keeps_a_logos_transparency_as_png(tmp_path: Path) -> None:
+    """A logo on a transparent background must not reach the model flattened."""
+    logo = _logo(tmp_path)
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    response = client.post("/references/still", json={"input_path": str(logo)})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["media_type"] == "image/png"
+    assert (body["width"], body["height"]) == (200, 80)
+    decoded = _decode(body)
+    assert decoded.mode == "RGBA"
+    assert decoded.getpixel((0, 0))[3] == 0
+    assert decoded.getpixel((100, 40)) == (200, 40, 40, 255)
+
+
+def test_still_downscales_a_large_photo_to_jpeg_within_the_bound(tmp_path: Path) -> None:
+    photo = tmp_path / "media" / "p" / "photo.jpg"
+    photo.parent.mkdir(parents=True)
+    Image.new("RGB", (4000, 2000), (10, 120, 200)).save(photo)
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    body = client.post("/references/still", json={"input_path": str(photo)}).json()
+    assert body["media_type"] == "image/jpeg"
+    assert (body["width"], body["height"]) == (1024, 512)
+    assert _decode(body).size == (1024, 512)
+
+    capped = client.post(
+        "/references/still", json={"input_path": str(photo), "max_dimension": 99999}
+    ).json()
+    assert max(capped["width"], capped["height"]) == 1280
+
+
+def test_still_applies_exif_orientation(tmp_path: Path) -> None:
+    """A phone photo stored sideways must be shown upright."""
+    photo = tmp_path / "media" / "p" / "portrait.jpg"
+    photo.parent.mkdir(parents=True)
+    exif = Image.Exif()
+    exif[0x0112] = 6  # rotate 90° clockwise to display
+    Image.new("RGB", (300, 100), (0, 0, 0)).save(photo, exif=exif)
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    body = client.post("/references/still", json={"input_path": str(photo)}).json()
+    assert (body["width"], body["height"]) == (100, 300)
+
+
+def test_still_refuses_outside_the_sandbox_missing_files_and_non_images(tmp_path: Path) -> None:
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    outside = client.post("/references/still", json={"input_path": "/etc/hosts"})
+    assert outside.status_code in {400, 403, 422}
+    missing = client.post("/references/still", json={"input_path": str(tmp_path / "nope.png")})
+    assert missing.status_code == 404
+    clip = tmp_path / "media" / "p" / "clip.mp4"
+    clip.parent.mkdir(parents=True)
+    clip.write_bytes(b"not really a video")
+    not_image = client.post("/references/still", json={"input_path": str(clip)})
+    assert not_image.status_code == 422
+    assert "not an image" in not_image.json()["detail"]
+    corrupt = tmp_path / "media" / "p" / "broken.png"
+    corrupt.write_bytes(b"\x89PNG not really")
+    unreadable = client.post("/references/still", json={"input_path": str(corrupt)})
+    assert unreadable.status_code == 422
