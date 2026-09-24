@@ -196,6 +196,21 @@ def text_overlay_layout(
     )
 
 
+def _no_ligatures(font: Any) -> list[str] | None:
+    """The OpenType features that turn ligatures off, for a font laid out by libraqm.
+
+    WHY: the desktop's Pillow lays text out with BASIC layout, which never ligates, and the
+    AI's title fit (``title_metrics``) measures glyph by glyph on that basis. Pillow builds
+    with libraqm (the Linux wheels) join "fi"/"fl" into one glyph — in a monospaced face such
+    as Press Start 2P that removes a whole cell, so "fly" drew a third narrower than every
+    other runtime and than the fit. Turning ligatures off keeps shaping and kerning but draws
+    the letters the desktop draws. ``None`` for a basic-layout font, which takes no features.
+    """
+    if getattr(font, "layout_engine", None) != ImageFont.Layout.RAQM:
+        return None
+    return ["-liga", "-clig"]
+
+
 def render_text_overlay_image(
     text: str,
     frame_width: int,
@@ -242,13 +257,15 @@ def render_text_overlay_image(
     max_text_width = (
         max(1, max_width) if max_width is not None else int(frame_width * _MAX_WIDTH_FRACTION)
     )
-    lines = wrap_lines(text.split(), font, max_text_width)
+    features = _no_ligatures(font)
+    lines = wrap_lines(text.split(), font, max_text_width, features)
 
     stroke_width = max(1, size // 12)
     probe = Image.new("RGBA", (1, 1))
     draw = ImageDraw.Draw(probe)
     line_metrics = [
-        draw.textbbox((0, 0), line, font=font, stroke_width=stroke_width) for line in lines
+        draw.textbbox((0, 0), line, font=font, stroke_width=stroke_width, features=features)
+        for line in lines
     ]
     line_widths = [int(bbox[2] - bbox[0]) for bbox in line_metrics]
     line_height = int(max(bbox[3] - bbox[1] for bbox in line_metrics))
@@ -280,6 +297,7 @@ def render_text_overlay_image(
             fill=color,
             stroke_width=stroke_width,
             stroke_fill=_OUTLINE_COLOR,
+            features=features,
         )
         y += line_height + line_gap
 

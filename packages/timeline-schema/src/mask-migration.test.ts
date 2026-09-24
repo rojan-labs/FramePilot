@@ -64,7 +64,7 @@ const maskEffect = (params: Raw, keyframes: Raw[] = [], id = 'c1__mask'): Raw =>
 /** Migrate through the registered chain and validate against the v22 schema. */
 function migrated(raw: RawProject): { clip: Raw; masks: MaskLayer[] } {
   const result = migrateToCurrent(raw);
-  expect(result.appliedTo).toEqual([22, 23]);
+  expect(result.appliedTo).toEqual([22, 23, 24]);
   const project = parseProject(result.raw);
   const rawClip = (((result.raw.timeline as Raw).tracks as Raw[])[0]!.clips as Raw[])[0]!;
   return { clip: rawClip, masks: [...(project.timeline.tracks[0]!.clips[0]!.masks ?? [])] };

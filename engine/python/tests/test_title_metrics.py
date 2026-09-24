@@ -29,8 +29,10 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 #: read 116 px against 119 drawn when the catalog grew to 92 families).
 PIXEL_SLACK = 2
 MAX_UNDER_READ = 0.025 if not features.check("raqm") else 0.04
-#: The most the formula may read WIDER than the raster: rounding on basic layout; kerning and
-#: ligatures ("fl") on shaped layout, where a short word can draw a quarter narrower.
+#: The most the formula may read WIDER than the raster: rounding on basic layout; kerning on
+#: shaped layout, where a short word can draw a quarter narrower. Ligatures are off in the
+#: title rasterizer on every layout (``text_overlay._no_ligatures``): Press Start 2P's "fl"
+#: joined into one monospaced cell and drew "fly" at two-thirds of the formula on CI.
 OVER_READ = 1.03 if not features.check("raqm") else 1.3
 
 

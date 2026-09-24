@@ -156,6 +156,12 @@ test.describe('transcript + captions', () => {
     await captionTab(page, 'Style');
 
     await expect(page.getByRole('button', { name: /^All/, pressed: true })).toBeVisible();
+    // "All" opens on the first templates of the catalog; a category shows its own.
+    await expect(page.getByRole('button', { name: /^Punchline\./ })).toBeVisible();
+    await page
+      .getByRole('group', { name: 'caption style categories' })
+      .getByRole('button', { name: /^Karaoke/ })
+      .click();
     await expect(page.getByRole('button', { name: /^Broadcast\./ })).toBeVisible();
     // Hover runs the real CaptionOverlay interpreter for only that preview.
     await page.getByRole('button', { name: /^Broadcast\./ }).hover();

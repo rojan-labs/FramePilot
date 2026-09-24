@@ -150,6 +150,7 @@ def wrap_lines(
     words: Iterable[str],
     font: _Font,
     max_text_width: int,
+    features: Sequence[str] | None = None,
 ) -> list[str]:
     """Greedily wrap ``words`` into lines no wider than ``max_text_width``.
 
@@ -162,7 +163,12 @@ def wrap_lines(
     current = ""
     for word in words:
         candidate = f"{current} {word}".strip()
-        if current and font.getlength(candidate) > max_text_width:
+        measured = (
+            font.getlength(candidate)
+            if features is None
+            else font.getlength(candidate, features=list(features))
+        )
+        if current and measured > max_text_width:
             lines.append(current)
             current = word
         else:

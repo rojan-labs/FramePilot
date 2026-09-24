@@ -425,7 +425,12 @@ describe('Editor workspace', () => {
     expect(container.querySelector('.kw')?.textContent?.trim()).toBe('FramePilot');
 
     // Switching template restyles the whole caption set without error.
-    // 'Broadcast' sits in the default Karaoke tab.
+    // 'Broadcast' sits in the Karaoke tab ("All" opens on the catalog's first templates).
+    fireEvent.click(
+      within(screen.getByRole('group', { name: 'caption style categories' })).getByRole('button', {
+        name: /^Karaoke/,
+      }),
+    );
     fireEvent.click(screen.getByRole('button', { name: /Broadcast/ }));
     expect(screen.getByRole('button', { name: /Broadcast/ }).getAttribute('aria-pressed')).toBe(
       'true',
