@@ -855,6 +855,9 @@ export function subjectLayoutBody(
   return body;
 }
 
+/** The `xPercent` of a title centred on the frame. */
+const CENTRED_PERCENT = 50;
+
 /** A frame fraction as a whole percent. */
 const pct = (value: unknown): string =>
   typeof value === 'number' && Number.isFinite(value) ? `${String(Math.round(value * 100))}%` : '?';
@@ -883,22 +886,37 @@ export function unwrapSubjectLayout(data: unknown): HostToolOutcome {
     `- top of the head at ${pct(record.headTop)}` +
       (typeof record.shoulders === 'number'
         ? `; shoulders at ${pct(record.shoulders)} — between the two is the face, keep text off it`
-        : '; no shoulder line measured (the subject is as wide as the frame near the top)'),
+        : '; no clear shoulder line (the subject does not widen much below the head)'),
     `- width covered per tenth of the height: ${bands
       .map((band) => `${pct(band.top)}–${pct(band.bottom)} ${pct(band.widthCovered)}`)
       .join(' · ')}`,
   ];
   const title = record.textBehind as Record<string, unknown> | null | undefined;
   if (title !== null && title !== undefined) {
-    const size =
+    const changes = [
       typeof title.shrunkFrom === 'number'
-        ? `${String(title.sizePercent)}% (fitted from ${String(title.shrunkFrom)}%, which ran out of the frame)`
-        : `${String(title.sizePercent)}%`;
+        ? `fitted from ${String(title.shrunkFrom)}%, which ran out of the frame`
+        : undefined,
+      typeof title.resizedFrom === 'number'
+        ? `changed from ${String(title.resizedFrom)}%, where no position read as behind`
+        : undefined,
+    ].filter((change): change is string => change !== undefined);
+    const size = `${String(title.sizePercent)}%${changes.length > 0 ? ` (${changes.join('; ')})` : ''}`;
+    // xPercent only when it is off the frame centre: a centred title is the default look.
+    const position =
+      typeof title.xPercent === 'number' && title.xPercent !== CENTRED_PERCENT
+        ? `xPercent ${String(title.xPercent)}, yPercent ${String(title.yPercent)}`
+        : `yPercent ${String(title.yPercent)}`;
+    // Only the engine's own verdict may say "behind": a fallback keeps its ends visible too.
+    const verdict =
+      title.readsBehind === true
+        ? `${position} reads behind the subject (${pct(title.occluded)} covered). `
+        : title.endsVisible === true
+          ? `the closest is ${position} (${pct(title.occluded)} covered). `
+          : '';
     lines.push(
       `- title at size ${size}, ${pct(title.width)} × ${pct(title.height)} of the frame: ` +
-        (title.endsVisible === true
-          ? `yPercent ${String(title.yPercent)} reads behind the subject (${pct(title.occluded)} covered). `
-          : '') +
+        verdict +
         String(title.note ?? ''),
     );
   }

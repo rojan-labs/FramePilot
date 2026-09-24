@@ -140,6 +140,53 @@ describe('measure_subject — the request and the reading', () => {
     expect(reading).toContain('Zoom the picture out');
   });
 
+  it('says "behind" only when the engine found a placement that reads as behind', () => {
+    const layout = (textBehind: Record<string, unknown>) =>
+      (
+        unwrapSubjectLayout({
+          clipId: 'talk_1',
+          start: 0,
+          end: 1.5,
+          samples: 6,
+          reach: [0.05, 0.15, 0.85, 1],
+          headTop: 0.15,
+          bands: [{ top: 0, bottom: 0.1, widthCovered: 0 }],
+          textBehind: { width: 0.6, height: 0.1, sizePercent: 9, occluded: 0.25, ...textBehind },
+        }).data as { reading: string }
+      ).reading;
+    // The zoomed-out close-up: the word centred on the speaker, who sits left of centre.
+    const behind = layout({
+      readsBehind: true,
+      endsVisible: true,
+      xPercent: 38,
+      yPercent: 21,
+      note: 'Centred 38% across (on the subject, not the frame)…',
+    });
+    expect(behind).toContain('xPercent 38, yPercent 21 reads behind the subject (25% covered)');
+    // A size the route changed to find a placement is named with the size it was.
+    expect(
+      layout({
+        readsBehind: true,
+        endsVisible: true,
+        yPercent: 22,
+        sizePercent: 14.5,
+        resizedFrom: 12,
+        note: '…',
+      }),
+    ).toContain('size 14.5% (changed from 12%, where no position read as behind)');
+    // A fallback keeps its ends visible too; it must not be reported as behind.
+    const fallback = layout({
+      readsBehind: false,
+      endsVisible: true,
+      xPercent: 50,
+      yPercent: 8.2,
+      occluded: 0.03,
+      note: 'No position reads cleanly as behind: …',
+    });
+    expect(fallback).not.toContain('reads behind the subject');
+    expect(fallback).toContain('the closest is yPercent 8.2 (3% covered)');
+  });
+
   it('refuses to invent a reading from an answer without bands', () => {
     expect(unwrapSubjectLayout({ clipId: 'talk_1' }).status).toBe('failed');
   });

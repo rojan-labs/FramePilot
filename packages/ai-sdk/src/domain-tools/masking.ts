@@ -895,7 +895,7 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
         'Put a title between the subject and the background of ONE clip, for start–end seconds ' +
         '(a moment, not the whole shot). The clip needs its background removed first ' +
         '(remove_background); a second title on the same shot goes on the same layer. Call ' +
-        'measure_subject with the same text and style first and use its yPercent and ' +
+        'measure_subject with the same text and style first and use its xPercent, yPercent and ' +
         'sizePercent: it knows where the head is. A word too wide for the frame is fitted.',
       capabilities: ['masking', 'text'],
       hostUiOnly: true,
@@ -933,8 +933,8 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
         'Measure where the cut-out subject of ONE clip (background removed) sits on the frame ' +
         'over start–end: its box, the top of the head, the shoulder line, and how much of the ' +
         "frame's width it covers in each tenth of the height. Give the title text and style you " +
-        'plan for put_text_behind_subject and it returns the yPercent where the title reads as ' +
-        'behind them, the size that fits the frame, or why no height works. Also use it to keep ' +
+        'plan for put_text_behind_subject and it returns the xPercent/yPercent where the title ' +
+        'reads as behind them, the size that fits the frame, or why nothing works. Also use it to keep ' +
         'captions and titles off the face. Measures; never edits.',
       capabilities: ['masking'],
       hostUiOnly: true,

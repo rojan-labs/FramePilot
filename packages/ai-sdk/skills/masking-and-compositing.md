@@ -65,7 +65,7 @@ coordinates. Every mask comes from a detection, a pack measurement, or numbers t
   drop shadow around a cut-out; `color` only when the editor named one; `remove: true` undoes it.
 - `measure_subject` (clipId, start, end, text, style): where the cut-out subject sits — top of
   the head, shoulder line (the face is between), width covered per band — and, given your
-  title, the `yPercent` and `sizePercent` where it reads as behind them. Never edits.
+  title, the `xPercent`/`yPercent` and `sizePercent` where it reads as behind. Never edits.
 - `put_text_behind_subject` (clipId, text, start, end, style): needs the cut-out first;
   `start`–`end` is the moment, not the shot. A heavy condensed `fontFamily` (Anton, Bebas Neue)
   is the look. A second title on the shot shares its layer.
@@ -77,7 +77,7 @@ coordinates. Every mask comes from a detection, a pack measurement, or numbers t
 - **Remove the background:** `remove_background`. A long clip offers the editor a **Start**
   button instead; say it is waiting. For an approximate edge, `precision: "shape"` is immediate.
 - **Title behind a subject:** cut-out first → `measure_subject` with the exact text, style and
-  moment → `put_text_behind_subject` with its `yPercent` and `sizePercent` → `get_frame` mid-moment:
+  moment → `put_text_behind_subject` with its `xPercent`, `yPercent`, `sizePercent` → `get_frame`:
   the word reads, both ends show beside the subject, its edge is clean. If no height works,
   follow the note (another word or size; zoom out when the head fills the width) — never place
   it anyway. A cut-out still waiting for the editor: say so and stop.
