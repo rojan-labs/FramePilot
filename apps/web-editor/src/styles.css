@@ -7891,6 +7891,22 @@ details.inspector-panel[open] > .inspector-section-head::before {
   box-shadow: var(--focus-ring);
 }
 
+/* The karaoke wipe (captionPreview.ts#captionKaraokeWipeVars): a copy of the active word in
+   the highlight colour, laid over the word and clipped to the spoken fraction — the export's
+   own construction. As the word's ::after it inherits its outline and typography and adds no
+   text to the page. The clip reaches past the top, bottom and left so neither the outline
+   nor an overhanging glyph is cut; only the right edge moves. */
+.caption-karaoke-word::after {
+  content: attr(data-wipe);
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  pointer-events: none;
+  color: var(--caption-wipe-color);
+  clip-path: inset(-1em var(--caption-wipe-hidden) -1em -1em);
+}
+
 /* Tiles center their caption regardless of the template's frame position —
    there is no footage context at tile size. */
 .caption-template-tile .caption-overlay {

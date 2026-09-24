@@ -22,6 +22,8 @@ import type { CSSProperties, JSX } from 'react';
 import {
   accentWordIndices,
   captionBoxCss,
+  captionKaraokeFraction,
+  captionKaraokeWipeVars,
   captionLineCss,
   captionLineScale,
   captionWordCss,
@@ -171,6 +173,8 @@ export function CaptionOverlay({
           return;
         }
         const state = wordState(word, time);
+        const wipe = captionKaraokeFraction(resolved, state, time, word);
+        const wiped = wipe !== null && (layer === undefined || layer === 'fill');
         const revealed =
           motion.reveal < 1 ? Math.ceil(word.word.length * motion.reveal) : word.word.length;
         if (spans.length > 0) spans.push(<span key={`gap-${index}`}> </span>);
@@ -178,7 +182,13 @@ export function CaptionOverlay({
           <span
             key={index}
             data-word-state={readable ? state : undefined}
-            style={captionWordCss(resolved, state, motion, accented.has(index), time, word, layer)}
+            // The karaoke wipe is this span's `::after`, reading the revealed text.
+            className={wiped ? 'caption-karaoke-word' : undefined}
+            data-wipe={wiped ? word.word.slice(0, revealed) : undefined}
+            style={{
+              ...captionWordCss(resolved, state, motion, accented.has(index), time, word, layer),
+              ...(wiped ? captionKaraokeWipeVars(resolved, wipe ?? 0, layer) : {}),
+            }}
           >
             {word.word.slice(0, revealed)}
             {revealed < word.word.length && (

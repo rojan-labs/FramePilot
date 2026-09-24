@@ -8,6 +8,8 @@ import type { TranscriptWord } from '@framepilot/timeline-schema';
 import {
   accentWordIndices,
   captionBoxCss,
+  captionKaraokeFraction,
+  captionKaraokeWipeVars,
   captionLineCss,
   captionLineScale,
   captionWordCss,
@@ -355,18 +357,21 @@ describe('captionWordCss', () => {
     expect(css.transform).toContain('scale(1.500)');
   });
 
-  it('karaoke-fill maps to a background-clip text gradient at the word fraction', () => {
-    const css = captionWordCss(
-      emphasisStyle('karaoke-fill'),
-      'active',
-      arrived,
-      false,
-      0.5,
-      WORDS[0]!,
-    );
-    expect(css.color).toBe('transparent');
-    expect(css.backgroundImage).toContain('linear-gradient');
-    expect(css.backgroundImage).toContain('50.0%');
+  it('karaoke-fill draws the word in its colour and wipes a highlight copy over it', () => {
+    const style = emphasisStyle('karaoke-fill');
+    const css = captionWordCss(style, 'active', arrived, false, 0.5, WORDS[0]!);
+    expect(css.color).toBe('#ffffff');
+    expect(css.position).toBe('relative');
+    expect(css.backgroundImage).toBeUndefined();
+    const fraction = captionKaraokeFraction(style, 'active', 0.5, WORDS[0]!);
+    expect(fraction).toBeCloseTo(0.5);
+    expect(captionKaraokeWipeVars(style, fraction ?? 0)).toEqual({
+      '--caption-wipe-color': '#ff0000',
+      '--caption-wipe-hidden': '50.0%',
+    });
+    // Only the active word of a karaoke style is wiped.
+    expect(captionKaraokeFraction(style, 'upcoming', 0.5, WORDS[0]!)).toBeNull();
+    expect(captionKaraokeFraction(emphasisStyle('color'), 'active', 0.5, WORDS[0]!)).toBeNull();
   });
 
   it('background emphasis draws a chip behind the active word', () => {

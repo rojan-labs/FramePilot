@@ -333,6 +333,46 @@ export function captionLineCss(resolved: ResolvedCaptionStyle): CSSProperties {
 }
 
 /**
+ * How far the karaoke wipe has crossed an active word, 0–1, or `null` when the
+ * word is not being wiped (no karaoke highlight, or not the active word).
+ */
+export function captionKaraokeFraction(
+  resolved: ResolvedCaptionStyle,
+  state: CaptionWordState,
+  time: number,
+  word: TranscriptWord,
+): number | null {
+  const highlight = resolved.highlight;
+  if (state !== 'active' || highlight?.enabled !== true) return null;
+  if (highlight.animation !== 'karaoke-fill') return null;
+  const span = word.end - word.start;
+  return clamp01(span > 0 ? (time - word.start) / span : 1);
+}
+
+/**
+ * The karaoke wipe: a copy of the active word in the highlight colour, laid
+ * exactly over it and clipped to the spoken `fraction` — the export's own
+ * construction (`render/captions.py#_draw_karaoke_word` draws the word, then a
+ * highlight-coloured copy cropped to the fraction). The copy is the word's
+ * `::after` (`.caption-karaoke-word` in `styles.css`, reading `data-wipe`), so
+ * it inherits the word's outline and typography and adds no text to the page:
+ * the word still reads once. These are the custom properties it reads — the
+ * colour, and how much of the word's right side is still unspoken.
+ */
+export function captionKaraokeWipeVars(
+  resolved: ResolvedCaptionStyle,
+  fraction: number,
+  layer?: CaptionPaintLayer,
+): Record<'--caption-wipe-color' | '--caption-wipe-hidden', string> {
+  const opacity = layer === 'fill' ? captionTextOpacity(resolved) : 1;
+  const color = resolved.highlight?.color ?? DEFAULT_HIGHLIGHT_COLOR;
+  return {
+    '--caption-wipe-color': seeThroughColor(color, opacity),
+    '--caption-wipe-hidden': `${((1 - clamp01(fraction)) * 100).toFixed(1)}%`,
+  };
+}
+
+/**
  * The frosted-glass and glass-edge CSS of the caption's chip (schema v24), for
  * the on-video overlay only — a list row styled like a caption must not blur
  * the panel behind it.
@@ -421,18 +461,12 @@ export function captionWordCss(
     const phase = (2 * Math.PI * (time - word.start)) / EMPHASIS_PULSE_PERIOD;
     scale *= 1 + ((highlightScale - 1) / 2) * (1 + Math.sin(phase));
   } else if (emphasis === 'karaoke-fill') {
-    if (layer === 'glyphs' || layer === 'chips') {
-      css.color = ink(highlightColor);
-    } else {
-      const span = word.end - word.start;
-      const fraction = clamp01(span > 0 ? (time - word.start) / span : 1);
-      const base = ink(resolved.textColor ?? '#ffffff');
-      const pct = (fraction * 100).toFixed(1);
-      css.backgroundImage = `linear-gradient(90deg, ${ink(highlightColor)} ${pct}%, ${base} ${pct}%)`;
-      css.backgroundClip = 'text';
-      css.WebkitBackgroundClip = 'text';
-      css.color = 'transparent';
-    }
+    // The word in its own colour; the wipe is a second copy on top, clipped to
+    // the spoken fraction (`captionKaraokeWipeVars`). A gradient clipped to the
+    // text sat UNDER the letters' outline, whose inner half then covered it —
+    // an outlined karaoke word showed as a solid block of outline colour.
+    css.color = ink(resolved.textColor ?? '#ffffff');
+    css.position = 'relative';
   } else if (emphasis === 'background') {
     css.color = ink(highlightColor);
     // Only the chips copy paints the chip; every copy keeps its padding and

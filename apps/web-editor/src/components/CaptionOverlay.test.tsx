@@ -99,4 +99,25 @@ describe('CaptionOverlay', () => {
     const block = container.querySelector<HTMLElement>('.caption-overlay-block');
     expect(block?.style.backdropFilter).toBe('blur(0.3em)');
   });
+
+  it('wipes an outlined karaoke word with a copy that adds no text to the page', () => {
+    const { container } = render(
+      <CaptionOverlay
+        style={{
+          display: 'phrase',
+          outlineColor: '#000000',
+          outlineWidth: 2,
+          highlight: { enabled: true, color: '#ffd60a', animation: 'karaoke-fill' },
+        }}
+        lines={[WORDS]}
+        time={1.5}
+      />,
+    );
+    const active = container.querySelector<HTMLElement>('[data-word-state="active"]');
+    expect(active?.textContent).toBe('goes');
+    expect(active?.className).toBe('caption-karaoke-word');
+    expect(active?.dataset.wipe).toBe('goes');
+    expect(active?.style.getPropertyValue('--caption-wipe-hidden')).toBe('50.0%');
+    expect(active?.style.backgroundImage).toBe('');
+  });
 });
