@@ -103,3 +103,34 @@ def test_a_clip_with_no_cut_out_is_a_422_with_the_remedy(
     )
     assert response.status_code == 422
     assert "Remove its background" in response.json()["detail"]
+
+
+def test_a_title_too_wide_for_the_frame_is_fitted_before_it_is_placed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The captured run's first attempt: "MOTION" at 20 % of the frame height is wider than
+    # a 9:16 frame. The route must solve the placement at a size that fits, and say so.
+    seen: dict[str, Any] = {}
+
+    def fake_measure(project: Any, base: Path, clip_id: str, **kwargs: Any) -> SubjectLayout:
+        seen.update(kwargs)
+        return _layout(
+            TextBehindPlacement(y_percent=20.0, occluded=0.3, ends_visible=True, note="reads")
+        )
+
+    monkeypatch.setattr(service, "measure_subject_layout", fake_measure)
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    body = client.post(
+        "/analyze/subject-layout",
+        json={
+            "project": _project(),
+            "clipId": "talk",
+            "text": "MOTION",
+            "textStyle": {"fontSizePercent": 20},
+        },
+    ).json()
+    placed = body["textBehind"]
+    assert placed["shrunkFrom"] == 20.0
+    assert placed["sizePercent"] < 20.0
+    assert placed["width"] <= service.TITLE_SAFE_WIDTH_FRACTION + 0.001
+    assert seen["text_box"][0] <= service.TITLE_SAFE_WIDTH_FRACTION + 0.001

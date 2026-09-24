@@ -23,6 +23,7 @@ import contextlib
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import signal
@@ -969,6 +970,49 @@ class RenderFrameRequest(AnalysisProjectSource):
     )
 
 
+#: The share of the frame's width a title may take: 4 % margin each side, the same
+#: ``MAX_BOX_WIDTH_PERCENT`` the AI title tools fit to.
+TITLE_SAFE_WIDTH_FRACTION = 0.92
+#: A title never shrinks below this (percent of frame height) to fit; smaller is not a title.
+TITLE_MIN_SIZE_PERCENT = 3.0
+#: The size a title has when its style names none (``text_overlay._FONT_HEIGHT_FRACTION``).
+TITLE_DEFAULT_SIZE_PERCENT = 100.0 / 14.0
+
+
+def _fit_title_size(
+    text: str, style: dict[str, Any], width: int, height: int
+) -> tuple[float, float | None]:
+    """The size a title renders at inside the frame's safe width: ``(size, shrunk_from)``.
+
+    Measured with the export's own rasterizer (font-aware), so "fits" means the pixels fit,
+    not an estimate of them. A title that already fits keeps its size (``shrunk_from`` is
+    ``None``); one that would run out of the frame — the 20 % "MOTION" of the captured runs —
+    comes back at the largest size, to a tenth of a percent, that does not.
+    """
+    requested = style.get("fontSizePercent")
+    size = (
+        float(requested)
+        if isinstance(requested, int | float) and not isinstance(requested, bool) and requested > 0
+        else TITLE_DEFAULT_SIZE_PERCENT
+    )
+    limit = TITLE_SAFE_WIDTH_FRACTION * width
+
+    def rendered_width(percent: float) -> int:
+        probe = {**style, "fontSizePercent": percent, "boxWidthPercent": 100}
+        return int(rasterize_text_overlay(text, probe, width, height).shape[1])
+
+    if rendered_width(size) <= limit:
+        return (round(size, 1), None)
+    lo, hi = TITLE_MIN_SIZE_PERCENT, size
+    for _ in range(12):
+        mid = (lo + hi) / 2
+        if rendered_width(mid) <= limit:
+            lo = mid
+        else:
+            hi = mid
+    return (math.floor(lo * 10) / 10, round(size, 1))
+
+
 class SubjectLayoutRequest(AnalysisProjectSource):
     """Request body for ``POST /analyze/subject-layout`` — where a cut-out subject sits.
 
@@ -1019,6 +1063,10 @@ class TextBehindPayload(BaseModel):
     #: The title's rendered box as frame fractions, so the caller can see what was placed.
     width: float
     height: float
+    #: The size the placement was solved at: the requested one, or the largest that fits.
+    size_percent: float = Field(alias="sizePercent")
+    #: The requested size when it would have run out of the frame and was reduced.
+    shrunk_from: float | None = Field(default=None, alias="shrunkFrom")
 
     model_config = {"populate_by_name": True}
 
@@ -6441,8 +6489,12 @@ def create_app(
         width = int(project.resolution.width)
         height = int(project.resolution.height)
         text_box: tuple[float, float] | None = None
+        fitted: tuple[float, float | None] | None = None
         if req.text is not None and req.text.strip():
-            raster = rasterize_text_overlay(req.text, req.text_style or {}, width, height)
+            style = dict(req.text_style or {})
+            fitted = _fit_title_size(req.text, style, width, height)
+            style["fontSizePercent"] = fitted[0]
+            raster = rasterize_text_overlay(req.text, style, width, height)
             text_box = (raster.shape[1] / width, raster.shape[0] / height)
         try:
             layout = measure_subject_layout(
@@ -6492,6 +6544,8 @@ def create_app(
                     note=placement.note,
                     width=round(text_box[0], 3),
                     height=round(text_box[1], 3),
+                    size_percent=fitted[0] if fitted is not None else 0.0,
+                    shrunk_from=fitted[1] if fitted is not None else None,
                 )
             ),
         )
