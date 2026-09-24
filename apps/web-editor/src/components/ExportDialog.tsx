@@ -29,6 +29,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useModalFocusTrap } from './ai/useModalFocusTrap.js';
 import { useViewPreference } from '../editor/useViewPreference.js';
 import type { Asset, Timeline } from '@framepilot/timeline-schema';
+import { timelineHasCaptions } from '@framepilot/editor-core';
 import { createLogger, type MatteValidationIssueWire } from '@framepilot/shared-types';
 import { Button } from '@framepilot/ui';
 import {
@@ -300,21 +301,6 @@ export function coerceExportHistory(raw: unknown): ExportHistoryEntry[] | undefi
       typeof (e as ExportHistoryEntry).label === 'string',
   );
   return entries.slice(0, EXPORT_HISTORY_LIMIT);
-}
-
-/**
- * Whether the timeline carries caption cues a viewer would see: a visible caption track with at
- * least one cue. What the burn-in checkbox starts at until the editor sets it.
- *
- * @param timeline - The project timeline, when the host passed it.
- * @returns `true` when there is something to burn in.
- */
-export function timelineHasCaptions(timeline: Timeline | undefined): boolean {
-  return (
-    timeline?.tracks.some(
-      (track) => track.type === 'caption' && track.hidden !== true && track.clips.length > 0,
-    ) ?? false
-  );
 }
 
 /** A remembered burn-in choice, or `undefined` for anything else in storage. */

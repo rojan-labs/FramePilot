@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { writeFile } from 'node:fs/promises';
 import { EditorSession } from './session.js';
 import { activePointerPath } from '@framepilot/shared-types/projects-root';
-import { RenderClient, RenderError } from './render-client.js';
+import { RenderClient, RenderError, type RenderRequest } from './render-client.js';
 import { AnalysisClient, AnalysisError } from './analysis-client.js';
 import { callTool, type CallToolResult } from './dispatch.js';
-import { makeSandboxProject } from './__fixtures__/project.js';
+import { makeProject, makeSandboxProject } from './__fixtures__/project.js';
 
 const parse = (result: CallToolResult): unknown => JSON.parse(result.content[0]!.text);
 
@@ -201,6 +201,46 @@ describe('callTool — action tools (render delegation)', () => {
     expect(result.isError).toBeUndefined();
     expect(render).toHaveBeenCalledOnce();
     expect((parse(result) as { action: string }).action).toBe('render_preview');
+  });
+
+  it('burns in the captions the timeline carries, and only then', async () => {
+    const captioned = makeProject();
+    const { root } = await makeSandboxProject({
+      timeline: {
+        ...captioned.timeline,
+        tracks: [
+          ...captioned.timeline.tracks,
+          {
+            id: 'captions',
+            type: 'caption',
+            clips: [
+              {
+                id: 'cue_1',
+                assetId: '__caption__',
+                trackId: 'captions',
+                start: 0,
+                end: 1,
+                sourceStart: 0,
+                sourceEnd: 1,
+                effects: [],
+                keyframes: [],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const withCaptions = new EditorSession(root);
+    await callTool(withCaptions, null, 'open_project', { path: 'project.fp.json' });
+    const render = vi.fn(async (_req: RenderRequest) => ({ jobId: 'job_c' }));
+    await callTool(withCaptions, stubRenderClient(render), 'export_video', {});
+    expect(render.mock.calls[0]![0]).toMatchObject({ burnCaptions: true, preview: false });
+
+    const { session } = await setup();
+    await callTool(session, null, 'open_project', { path: 'project.fp.json' });
+    const plain = vi.fn(async (_req: RenderRequest) => ({ jobId: 'job_p' }));
+    await callTool(session, stubRenderClient(plain), 'export_video', {});
+    expect(plain.mock.calls[0]![0]).toMatchObject({ burnCaptions: false });
   });
 
   it('maps a RenderError from the sidecar to an error result', async () => {

@@ -23,7 +23,7 @@
  * *i* of the text is word *i* of the timing array by identity; they need an
  * explicit alignment, which is what turns a cue into drawable, timed lines.
  */
-import type { Clip, TranscriptWord } from '@framepilot/timeline-schema';
+import type { Clip, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
 
 /**
  * A caption ready to draw: its text, its timings, and its text laid out as timed
@@ -152,4 +152,21 @@ export function resolveCaptionCue(
   const words = transcriptWordsInRange(transcript, clip.start, clip.end);
   const text = words.map((word) => word.word).join(' ');
   return { text, words, lines: words.length > 0 ? [words] : [], authored: false };
+}
+
+/**
+ * Whether `timeline` has captions an export would burn in: a visible caption track with at
+ * least one cue. Every export surface defaults to this (the Export dialog, MCP
+ * `export_video`): a timeline that carries captions and exports without them is a silent
+ * loss — the 2026-09-23 export shipped none of its 45 cues.
+ *
+ * @param timeline - The timeline about to be exported, if one is loaded.
+ * @returns `true` when there is at least one cue on a caption track that is not hidden.
+ */
+export function timelineHasCaptions(timeline: Timeline | undefined): boolean {
+  return (
+    timeline?.tracks.some(
+      (track) => track.type === 'caption' && track.hidden !== true && track.clips.length > 0,
+    ) ?? false
+  );
 }

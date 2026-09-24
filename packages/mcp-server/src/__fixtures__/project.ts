@@ -86,10 +86,12 @@ function removeWhenTheTestEnds(root: string): void {
 }
 
 /** Create a temp sandbox root containing `project.fp.json`; returns both paths. */
-export async function makeSandboxProject(): Promise<{ root: string; projectPath: string }> {
+export async function makeSandboxProject(
+  overrides: Partial<Project> = {},
+): Promise<{ root: string; projectPath: string }> {
   const root = mkdtempSync(join(tmpdir(), 'framepilot-mcp-'));
   removeWhenTheTestEnds(root);
   const projectPath = join(root, 'project.fp.json');
-  await writeProjectFile(projectPath, makeProject());
+  await writeProjectFile(projectPath, makeProject(overrides));
   return { root, projectPath };
 }

@@ -6,8 +6,13 @@
  * test pinning it against the start-containment semantics `CaptionEditor` used.
  */
 import { describe, expect, it } from 'vitest';
-import type { TranscriptWord } from '@framepilot/timeline-schema';
-import { alignCueWords, resolveCaptionCue, transcriptWordsInRange } from './cue.js';
+import type { Timeline, TranscriptWord } from '@framepilot/timeline-schema';
+import {
+  alignCueWords,
+  resolveCaptionCue,
+  timelineHasCaptions,
+  transcriptWordsInRange,
+} from './cue.js';
 
 const word = (w: string, start: number, end: number): TranscriptWord => ({ word: w, start, end });
 
@@ -162,5 +167,39 @@ describe('resolveCaptionCue', () => {
     // Transcript replaced wholesale (a different ASR provider, say).
     const after = resolveCaptionCue(clip, [word('totally', 0, 1), word('different', 1, 2)]);
     expect(after).toEqual(before);
+  });
+});
+
+describe('timelineHasCaptions — what every export burns in by default', () => {
+  const cue = {
+    id: 'cue_1',
+    assetId: '__caption__',
+    trackId: 'captions',
+    start: 0,
+    end: 1,
+    sourceStart: 0,
+    sourceEnd: 1,
+    effects: [],
+    keyframes: [],
+  };
+  const timeline = (track: Record<string, unknown>): Timeline =>
+    ({ tracks: [{ id: 'v', type: 'video', clips: [] }, track] }) as unknown as Timeline;
+
+  it('is true for a visible caption track with a cue', () => {
+    expect(timelineHasCaptions(timeline({ id: 'captions', type: 'caption', clips: [cue] }))).toBe(
+      true,
+    );
+  });
+
+  it('is false for an empty or hidden caption track, and for no timeline', () => {
+    expect(timelineHasCaptions(timeline({ id: 'captions', type: 'caption', clips: [] }))).toBe(
+      false,
+    );
+    expect(
+      timelineHasCaptions(
+        timeline({ id: 'captions', type: 'caption', hidden: true, clips: [cue] }),
+      ),
+    ).toBe(false);
+    expect(timelineHasCaptions(undefined)).toBe(false);
   });
 });

@@ -14,6 +14,7 @@ import { RenderClient, RenderError } from './render-client.js';
 import { AnalysisClient, AnalysisError, type AnalysisToolName } from './analysis-client.js';
 import { getSessionTool } from './tools.js';
 import { createLogger } from '@framepilot/shared-types';
+import { timelineHasCaptions } from '@framepilot/editor-core';
 
 const log = createLogger('mcp-server:dispatch');
 
@@ -159,6 +160,9 @@ async function callRegistryTool(
   const job = await renderClient.render({
     projectPath: state.path,
     preview: name === 'render_preview',
+    // What the Export dialog defaults to: burn in the captions the timeline carries. Left
+    // unset, an agent that captioned the edit exported a video with none of them.
+    burnCaptions: timelineHasCaptions(state.project.timeline),
   });
   return ok({ action: name, job });
 }
