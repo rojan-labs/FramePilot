@@ -240,6 +240,15 @@ export interface AddTextBehindSubjectOp {
   readonly textTrackId?: string;
   readonly subjectClipId?: string;
   readonly textClipId?: string;
+  /**
+   * When the title is on screen, in timeline seconds; each defaults to the clip's own edge.
+   *
+   * A title behind someone is a moment — the hook, a key line — not a watermark: the
+   * captured 2026-09-23 run put "MOTION" behind the speaker for all 49.8 s and then had to
+   * trim it in a second step.
+   */
+  readonly start?: number;
+  readonly end?: number;
 }
 
 /** Save masks as a project preset (schema v23, MK4.3). Refuses an id already in use. */
@@ -1260,7 +1269,134 @@ export function textBehindSubjectIds(
   };
 }
 
+/** Where an earlier `add_text_behind_subject` left its layers, for the clip it was made on. */
+export interface TextSandwich {
+  /** The clip the sandwich was first built on (its background copy keeps this id). */
+  readonly baseClipId: string;
+  readonly subjectTrackId: string;
+  readonly textTrackId: string;
+}
+
+const SUBJECT_COPY_SUFFIX = '__subject';
+
+/**
+ * The sandwich `clipId` already belongs to — built on it, or on the clip it is the front
+ * (subject) copy of — or `undefined` when there is none.
+ *
+ * WHY THIS EXISTS. The operation MOVES the matte onto a new front copy, so a second title on
+ * the same shot found no matte on the original and was refused ("Remove the background on
+ * this clip first"); the agent then called it on the front copy, which built a sandwich INSIDE
+ * the sandwich — `…__subject__subject`, a third full copy of the talking head, and an orphaned
+ * empty text track (captured run, 2026-09-23). One shot has one subject and one background:
+ * every further title goes on the text track that is already between them.
+ *
+ * Only the ids this module derives are recognised; a caller that named its own track ids
+ * owns its layout.
+ */
+export function existingTextSandwich(timeline: Timeline, clipId: string): TextSandwich | undefined {
+  const trackIds = new Set(timeline.tracks.map((track) => track.id));
+  const bases = clipId.endsWith(SUBJECT_COPY_SUFFIX)
+    ? [clipId, clipId.slice(0, -SUBJECT_COPY_SUFFIX.length)]
+    : [clipId];
+  for (const baseClipId of bases) {
+    const ids = textBehindSubjectIds({ clipId: baseClipId });
+    if (trackIds.has(ids.subjectTrackId) && trackIds.has(ids.textTrackId)) {
+      return { baseClipId, subjectTrackId: ids.subjectTrackId, textTrackId: ids.textTrackId };
+    }
+  }
+  return undefined;
+}
+
+/** Whether the op leaves its layer ids to this module (and so may reuse a sandwich). */
+function derivesItsIds(op: AddTextBehindSubjectOp): boolean {
+  return (
+    op.subjectTrackId === undefined &&
+    op.textTrackId === undefined &&
+    op.subjectClipId === undefined &&
+    op.textClipId === undefined
+  );
+}
+
+/** The title's on-screen range inside `clip`, refusing one that leaves nothing to show. */
+function titleRange(clip: Clip, op: AddTextBehindSubjectOp): { start: number; end: number } {
+  const start = Math.max(clip.start, op.start ?? clip.start);
+  const end = Math.min(clip.end, op.end ?? clip.end);
+  if (!(end > start)) {
+    throw new MaskOperationError(
+      'invalid_mask',
+      `The title range ${String(op.start ?? clip.start)}–${String(op.end ?? clip.end)}s is ` +
+        `outside clip '${clip.id}' (${String(clip.start)}–${String(clip.end)}s). Give a start ` +
+        'and end inside the shot the subject is in.',
+    );
+  }
+  return { start, end };
+}
+
+/** A text clip for a title behind a subject. */
+function titleClip(
+  id: string,
+  trackId: string,
+  range: { readonly start: number; readonly end: number },
+  op: AddTextBehindSubjectOp,
+): Clip {
+  return {
+    id,
+    assetId: '__text__',
+    trackId,
+    start: range.start,
+    end: range.end,
+    sourceStart: 0,
+    sourceEnd: range.end - range.start,
+    effects: [
+      {
+        id: `${id}__text`,
+        type: 'text',
+        params: { ...(op.style ?? {}), text: op.text },
+        keyframes: [],
+      },
+    ],
+    keyframes: [],
+  };
+}
+
+/** Add one more title onto a sandwich that already exists. */
+function addTitleToSandwich(
+  timeline: Timeline,
+  op: AddTextBehindSubjectOp,
+  sandwich: TextSandwich,
+): Timeline {
+  const clip = locateClip(timeline, op.clipId).clip!;
+  const range = titleRange(clip, op);
+  const trackIndex = timeline.tracks.findIndex((track) => track.id === sandwich.textTrackId);
+  const track = timeline.tracks[trackIndex]!;
+  const clash = track.clips.find((other) => other.start < range.end && other.end > range.start);
+  if (clash !== undefined) {
+    throw new MaskOperationError(
+      'duplicate_layer',
+      `A title is already behind the subject from ${String(clash.start)}s to ` +
+        `${String(clash.end)}s ('${clash.id}'). Give this one a range that does not overlap it, ` +
+        'or change that title instead.',
+    );
+  }
+  const taken = new Set(timeline.tracks.flatMap((candidate) => candidate.clips.map((c) => c.id)));
+  const base = textBehindSubjectIds({ clipId: sandwich.baseClipId }).textClipId;
+  let id = taken.has(base) ? `${base}_${String(Math.round(range.start * 1000))}` : base;
+  for (let n = 2; taken.has(id); n += 1)
+    id = `${base}_${String(Math.round(range.start * 1000))}_${String(n)}`;
+  const tracks = timeline.tracks.slice();
+  tracks[trackIndex] = {
+    ...track,
+    clips: [...track.clips, titleClip(id, track.id, range, op)].sort((a, b) => a.start - b.start),
+  };
+  return { ...timeline, tracks };
+}
+
 function applyTextBehindSubject(timeline: Timeline, op: AddTextBehindSubjectOp): Timeline {
+  if (op.text.trim().length === 0) {
+    throw new MaskOperationError('invalid_mask', 'add_text_behind_subject needs non-empty text.');
+  }
+  const sandwich = derivesItsIds(op) ? existingTextSandwich(timeline, op.clipId) : undefined;
+  if (sandwich !== undefined) return addTitleToSandwich(timeline, op, sandwich);
   const owner = locateClip(timeline, op.clipId);
   const clip = owner.clip!;
   const trackIndex = timeline.tracks.findIndex((track) => track.clips.includes(clip));
@@ -1270,9 +1406,6 @@ function applyTextBehindSubject(timeline: Timeline, op: AddTextBehindSubjectOp):
       'invalid_mask',
       `Clip '${clip.id}' is not a picture clip. Put text behind the subject of a video or image clip.`,
     );
-  }
-  if (op.text.trim().length === 0) {
-    throw new MaskOperationError('invalid_mask', 'add_text_behind_subject needs non-empty text.');
   }
   const matte = op.maskId
     ? owner.masks[maskIndex(owner, op.maskId)]!
@@ -1317,24 +1450,7 @@ function applyTextBehindSubject(timeline: Timeline, op: AddTextBehindSubjectOp):
     },
     [subjectMatte],
   );
-  const textClip: Clip = {
-    id: ids.textClipId,
-    assetId: '__text__',
-    trackId: ids.textTrackId,
-    start: clip.start,
-    end: clip.end,
-    sourceStart: 0,
-    sourceEnd: clip.end - clip.start,
-    effects: [
-      {
-        id: `${ids.textClipId}__text`,
-        type: 'text',
-        params: { ...(op.style ?? {}), text: op.text },
-        keyframes: [],
-      },
-    ],
-    keyframes: [],
-  };
+  const textClip = titleClip(ids.textClipId, ids.textTrackId, titleRange(clip, op), op);
   const backgroundMasks = owner.masks.filter((mask) => mask.id !== matte.id);
   const tracks = timeline.tracks.slice();
   tracks[trackIndex] = {
@@ -1580,6 +1696,18 @@ export function invertMaskOperation(
     case 'paste_masks':
       return [restore(locateClip(timelineBefore, op.clipId))];
     case 'add_text_behind_subject': {
+      const sandwich = derivesItsIds(op)
+        ? existingTextSandwich(timelineBefore, op.clipId)
+        : undefined;
+      if (sandwich !== undefined) {
+        // Only a title was added: put the text track's clips back as they were.
+        const textTrack = timelineBefore.tracks.find(
+          (candidate) => candidate.id === sandwich.textTrackId,
+        )!;
+        return [
+          { type: 'restore_clips', trackId: textTrack.id, clips: textTrack.clips.map(clone) },
+        ];
+      }
       const owner = locateClip(timelineBefore, op.clipId);
       const track = timelineBefore.tracks.find((candidate) =>
         candidate.clips.includes(owner.clip!),

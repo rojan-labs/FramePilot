@@ -238,6 +238,14 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
       };
     case 'add_marker':
       return { ...op, time: snapSecondsToFrame(op.time, fps) };
+    case 'add_text_behind_subject':
+      // A title's range is sequence time like any other clip's; the matte it uses keeps
+      // the media's source clock and is not touched here.
+      return {
+        ...op,
+        ...(op.start === undefined ? {} : { start: snapSecondsToFrame(op.start, fps) }),
+        ...(op.end === undefined ? {} : { end: snapSecondsToFrame(op.end, fps) }),
+      };
     case 'add_clip':
       return snapAddClip(op, fps);
     case 'add_asset':
@@ -267,7 +275,6 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
     case 'set_mask_space':
     case 'review_mask':
     case 'paste_masks':
-    case 'add_text_behind_subject':
     case 'save_mask_preset':
     case 'remove_mask_preset':
     case 'restore_mask_presets':

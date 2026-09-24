@@ -1285,6 +1285,36 @@ describe('text_behind_subject', () => {
     });
     expect(rejected.status).toBe('rejected');
   });
+
+  it('takes a second title on a shot whose matte already moved to its front copy', () => {
+    // The refusal the captured run hit: "Remove the background on this clip first" on a shot
+    // whose background WAS removed — by the first title, which moved the matte forward.
+    const first = compile(timeline([matteMask()]), {
+      type: 'text_behind_subject',
+      text: 'ONE',
+      start: 0,
+      end: 1,
+    });
+    expect(first.status).toBe('compiled');
+    if (first.status !== 'compiled') return;
+    const withSandwich = applyPatch(timeline([matteMask()]), first.patch);
+    const second = compile(withSandwich, {
+      type: 'text_behind_subject',
+      timelineRevision: withSandwich.revision,
+      text: 'TWO',
+      start: 2,
+      end: 3,
+    });
+    expect(second.status).toBe('compiled');
+    if (second.status !== 'compiled') return;
+    expect(second.patch.operations[0]).toMatchObject({
+      type: 'add_text_behind_subject',
+      clipId: 'c1',
+      text: 'TWO',
+      start: 2,
+      end: 3,
+    });
+  });
 });
 
 describe('adjustment-lane stacks (MK9.1, owner: effect_layer)', () => {

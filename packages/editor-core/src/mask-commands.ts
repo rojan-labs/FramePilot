@@ -54,6 +54,7 @@ import {
   MASK_ANIMATABLE_PROPERTIES,
   MIN_MASK_PATH_VERTICES,
   clampMaskScalar,
+  existingTextSandwich,
   type MaskOperation,
 } from './mask-operations.js';
 import { applyPatch, invertPatch, type Patch, type PatchAuthor } from './patch.js';
@@ -607,6 +608,9 @@ export interface TextBehindSubjectCommand extends MaskCommandBase {
   readonly maskId?: string;
   /** Extra `text` effect params (font, size, colour, position). */
   readonly style?: Readonly<Record<string, unknown>>;
+  /** When the title is on screen, timeline seconds; each defaults to the clip's own edge. */
+  readonly start?: number;
+  readonly end?: number;
 }
 
 export type MaskCommand =
@@ -1622,6 +1626,30 @@ function build(input: CompileMaskCommandInput): Built {
     }
     case 'text_behind_subject': {
       const clip = findClip(input.timeline, command.clipId);
+      if (command.text.trim() === '') {
+        throw new Rejection('nothing_to_change', 'Type the text to put behind the subject.');
+      }
+      const range = {
+        ...(command.start === undefined ? {} : { start: command.start }),
+        ...(command.end === undefined ? {} : { end: command.end }),
+      };
+      // A shot that already has its subject in front and a text layer behind takes another
+      // title on that layer: the matte has MOVED to the front copy, so requiring it on this
+      // clip refused every second title and pushed callers into nesting a copy of a copy.
+      if (existingTextSandwich(input.timeline, clip.id) !== undefined) {
+        return {
+          operations: [
+            {
+              type: 'add_text_behind_subject',
+              clipId: clip.id,
+              text: command.text,
+              ...(command.style === undefined ? {} : { style: command.style }),
+              ...range,
+            },
+          ],
+          reason: `Put text behind the subject on "${clip.id}"`,
+        };
+      }
       const matte =
         command.maskId === undefined
           ? masksOf(clip).find(
@@ -1637,9 +1665,6 @@ function build(input: CompileMaskCommandInput): Built {
           'Remove the background on this clip first, then put text behind the subject.',
         );
       }
-      if (command.text.trim() === '') {
-        throw new Rejection('nothing_to_change', 'Type the text to put behind the subject.');
-      }
       return {
         operations: [
           {
@@ -1648,6 +1673,7 @@ function build(input: CompileMaskCommandInput): Built {
             text: command.text,
             maskId: matte.id,
             ...(command.style === undefined ? {} : { style: command.style }),
+            ...range,
           },
         ],
         reason: `Put text behind the subject on "${clip.id}"`,

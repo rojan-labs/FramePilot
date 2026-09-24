@@ -978,6 +978,80 @@ describe('add_text_behind_subject', () => {
     expect(original!.id).toBe('v1');
   });
 
+  it('puts the title on screen only for the range it is given', () => {
+    const after = roundTrip(timeline([matte('subject')]), {
+      type: 'add_text_behind_subject',
+      clipId: 'c1',
+      text: 'HOOK',
+      start: 0.5,
+      end: 2,
+    });
+    const title = after.tracks.find((track) => track.id === 'c1__text_track')!.clips[0]!;
+    expect([title.start, title.end, title.sourceEnd]).toEqual([0.5, 2, 1.5]);
+  });
+
+  it('adds a second title to the same sandwich instead of nesting a copy of the copy', () => {
+    // Captured run 2026-09-23: the second title was refused on the original (its matte had
+    // moved to the front copy), so it was built on the front copy — `c1__subject__subject`,
+    // a third copy of the talking head, and an orphaned empty text track.
+    const first = applyOperation(timeline([matte('subject')]), {
+      type: 'add_text_behind_subject',
+      clipId: 'c1',
+      text: 'ONE',
+      start: 0,
+      end: 1,
+    });
+    for (const clipId of ['c1', 'c1__subject']) {
+      const second = roundTrip(first, {
+        type: 'add_text_behind_subject',
+        clipId,
+        text: 'TWO',
+        start: 2,
+        end: 3,
+      });
+      expect(second.tracks.map((track) => track.id)).toEqual(first.tracks.map((t) => t.id));
+      const titles = second.tracks.find((track) => track.id === 'c1__text_track')!.clips;
+      expect(titles.map((clip) => [clip.id, clip.start])).toEqual([
+        ['c1__behind_text', 0],
+        ['c1__behind_text_2000', 2],
+      ]);
+    }
+  });
+
+  it('refuses a second title over one already there, and a range outside the shot', () => {
+    const first = applyOperation(timeline([matte('subject')]), {
+      type: 'add_text_behind_subject',
+      clipId: 'c1',
+      text: 'ONE',
+      start: 0,
+      end: 2,
+    });
+    expectMaskError(
+      () =>
+        applyOperation(first, {
+          type: 'add_text_behind_subject',
+          clipId: 'c1',
+          text: 'TWO',
+          start: 1,
+          end: 3,
+        }),
+      'duplicate_layer',
+      /already behind the subject from 0s to 2s/,
+    );
+    expectMaskError(
+      () =>
+        applyOperation(timeline([matte('subject')]), {
+          type: 'add_text_behind_subject',
+          clipId: 'c1',
+          text: 'LATE',
+          start: 10,
+          end: 12,
+        }),
+      'invalid_mask',
+      /outside clip 'c1'/,
+    );
+  });
+
   it('refuses a clip without a matte, empty text, and ids that already exist', () => {
     expectMaskError(
       () =>
