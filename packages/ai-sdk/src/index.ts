@@ -122,4 +122,5 @@ export * from './references/role.js';
 export * from './references/profile.js';
 export * from './references/directives.js';
 export * from './references/analyze-client.js';
+export * from './references/images.js';
 export * from './silence-cut.js';

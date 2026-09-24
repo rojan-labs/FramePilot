@@ -1023,7 +1023,13 @@ describe('visual grounding (MI6.1)', () => {
       expect(seen.body).toMatchObject({ time_seconds: 2 });
       expect(outcome.status).toBe('completed');
       expect(outcome.images).toEqual([
-        { mediaType: 'image/jpeg', base64: 'AAECAw==', label: 'the timeline at 2.00s' },
+        {
+          mediaType: 'image/jpeg',
+          base64: 'AAECAw==',
+          label: 'the timeline at 2.00s',
+          width: 288,
+          height: 512,
+        },
       ]);
     });
 

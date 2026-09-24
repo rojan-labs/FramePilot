@@ -7,10 +7,16 @@
  * project + prompt always produce the same context (testable, cacheable).
  */
 import { summarizeReferences, type ReferenceProfile } from './references/profile.js';
+import {
+  estimateImageTokens,
+  referenceImagesBlock,
+  referenceImagesFor,
+  type ReferenceImage,
+} from './references/images.js';
 import { createLogger, type Seconds } from '@framepilot/shared-types';
 import type { Clip, Project, Timeline } from '@framepilot/timeline-schema';
 import { repeatedSourceOf } from '@framepilot/editor-core';
-import type { AiMessage } from './providers/types.js';
+import type { AiImage, AiMessage } from './providers/types.js';
 import type { ContextBudget, ContextTier } from './reliability/types.js';
 import { readMemory } from './memory-store.js';
 import { SYSTEM_PROMPT } from './prompts.js';
@@ -116,6 +122,18 @@ export interface ContextInput {
    * constraints, never re-analyzes.
    */
   readonly references?: readonly ReferenceProfile[];
+  /**
+   * The PICTURES of the image references above, for a model that reads images (EQ18).
+   *
+   * Attached as real image parts to the message that carries the request, and only for a
+   * reference still listed in `references` — see `referenceImagesFor`. They ride with the
+   * references block: priced into its budget, and dropped with it when the budget cannot
+   * hold it, so the model never sees a picture it has no line of text about.
+   *
+   * The ORCHESTRATOR strips these for a model that cannot see (`Orchestrator#budgeted`), so
+   * a host may pass them unconditionally; the desktop host also skips loading them then.
+   */
+  readonly referenceImages?: readonly ReferenceImage[];
   /**
    * The one-line visual-index status (plan MI6.2): coverage, vector count, and backend,
    * or the honest reason the model cannot see the footage (no key, not indexed, no
@@ -761,6 +779,13 @@ interface TieredBlock {
   readonly tier: ContextTier;
   readonly label: string;
   readonly text: string;
+  /** What the block costs beyond its text — the images that travel with it. */
+  readonly extraTokens?: number;
+}
+
+/** A block's whole cost: its text plus anything that rides with it. */
+function blockTokens(block: TieredBlock): number {
+  return estimateTokens(block.text) + (block.extraTokens ?? 0);
 }
 
 /**
@@ -824,6 +849,13 @@ export interface AssembledContext {
    * every non-agent route keeps exactly the prompt it had.
    */
   readonly split: ContextSplit;
+  /**
+   * The reference pictures that went in, already labelled (EQ18) — empty when none were
+   * given or the references block was dropped. `messages` carries them on its last
+   * message; a route that rebuilds its own messages from `split` (the agent loop) reads
+   * them here and attaches them itself.
+   */
+  readonly referenceImages: readonly AiImage[];
 }
 
 /** The run-stable and per-turn halves of the assembled user content (P1.3). */
@@ -1094,9 +1126,22 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // The narrative memory tier (B6.3) rides alongside the typed preferences above,
   // under the same `memory` tier — they are one concern to the budgeter, and both
   // yield together when the request's own material needs the room.
+  const offeredReferenceImages = referenceImagesFor(input.references ?? [], input.referenceImages);
   const referencesBlock = summarizeReferences(input.references ?? []);
   if (referencesBlock !== '') {
-    fixed.push({ tier: 'pinned', label: 'references', text: referencesBlock });
+    fixed.push({
+      tier: 'pinned',
+      label: 'references',
+      text: referencesBlock,
+      ...(offeredReferenceImages.length > 0
+        ? {
+            extraTokens: offeredReferenceImages.reduce(
+              (sum, image) => sum + estimateImageTokens(image),
+              estimateTokens(referenceImagesBlock(offeredReferenceImages)),
+            ),
+          }
+        : {}),
+    });
   }
   if (input.sessionContext && input.sessionContext.trim() !== '') {
     fixed.push({
@@ -1228,9 +1273,12 @@ export function assembleContext(input: ContextInput): AssembledContext {
     const historyCost = dropped.has('history')
       ? 0
       : history.reduce((sum, m) => sum + estimateTokens(m.content), 0);
-    const blockCost = [...mandatory, ...kept.map((b) => b.text), promptBlock].reduce(
-      (sum, t) => sum + estimateTokens(t),
-      estimateTokens(SYSTEM_PROMPT),
+    const blockCost = kept.reduce(
+      (sum, b) => sum + blockTokens(b),
+      [...mandatory, promptBlock].reduce(
+        (sum, t) => sum + estimateTokens(t),
+        estimateTokens(SYSTEM_PROMPT),
+      ),
     );
     return blockCost + historyCost;
   };
@@ -1325,7 +1373,7 @@ export function assembleContext(input: ContextInput): AssembledContext {
     ...tiered.map((block) => ({
       tier: block.tier,
       label: block.label,
-      tokenEstimate: estimateTokens(block.text),
+      tokenEstimate: blockTokens(block),
       included: !dropped.has(block.tier),
     })),
     {
@@ -1357,16 +1405,23 @@ export function assembleContext(input: ContextInput): AssembledContext {
     log.debug('context.assembly.completed', { tiers: tiered.map((b) => b.tier) });
   }
 
+  // The pictures go only where their text went: a dropped references block takes its
+  // images with it (see `ContextInput.referenceImages`).
+  const referenceImages = dropped.has('pinned') ? [] : offeredReferenceImages;
+  const imagesText = referenceImagesBlock(referenceImages);
   return {
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       ...keptHistory,
-      { role: 'user', content: userContent },
+      referenceImages.length > 0
+        ? { role: 'user', content: `${userContent}\n\n${imagesText}`, images: referenceImages }
+        : { role: 'user', content: userContent },
     ],
     trimmed: [...dropped],
     sections,
     droppedTokenEstimate,
     split,
+    referenceImages,
   };
 }
 

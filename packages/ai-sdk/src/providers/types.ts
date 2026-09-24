@@ -79,6 +79,12 @@ export interface AiImage {
    * looking at when several frames arrive at once.
    */
   readonly label?: string;
+  /**
+   * Pixel size, when the producer knows it. Not sent to any provider (none takes it): it
+   * is what the context budgeter prices the image by, and what a host shows the image at.
+   */
+  readonly width?: number;
+  readonly height?: number;
 }
 
 export interface AiMessage {

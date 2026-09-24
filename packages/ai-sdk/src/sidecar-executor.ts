@@ -1057,7 +1057,14 @@ export function unwrapFrame(args: Record<string, unknown>, data: unknown): HostT
         typeof record.duration_seconds === 'number' ? record.duration_seconds : undefined,
       note: 'The frame itself is attached to this turn as an image.',
     },
-    images: [{ mediaType: mediaType as AiImage['mediaType'], base64, label }],
+    images: [
+      {
+        mediaType: mediaType as AiImage['mediaType'],
+        base64,
+        label,
+        ...(width > 0 && height > 0 ? { width, height } : {}),
+      },
+    ],
   };
 }
 

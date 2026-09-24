@@ -64,6 +64,7 @@ import {
   explicitCutawayCount,
 } from './acceptance.js';
 import { referenceDirectives, shotLengthTolerance } from './references/directives.js';
+import { referenceImagesBlock } from './references/images.js';
 import { type EditResult, assembleEdit, describeValidationIssue } from './assemble.js';
 import {
   TOOL_CONCURRENCY_ENV,
@@ -94,6 +95,7 @@ import {
   type AskOption,
   type PlanStep,
   type RunStatus,
+  type ToolResultImage,
   type ToolStatus,
   type TurnEmitter,
   type TurnRef,
@@ -567,6 +569,17 @@ const USER_WAIT_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 /** The default when no executor declares anything unroutable: nothing is withheld. */
 const EMPTY_TOOL_NAMES: ReadonlySet<string> = new Set();
 const AGENT_LOG_RECENT = 6;
+
+/** A tool's picture as its card carries it: the bytes and what they show, nothing else. */
+function toolResultImage(image: AiImage): ToolResultImage {
+  return {
+    mediaType: image.mediaType,
+    base64: image.base64,
+    ...(image.label === undefined ? {} : { label: image.label }),
+    ...(image.width === undefined ? {} : { width: image.width }),
+    ...(image.height === undefined ? {} : { height: image.height }),
+  };
+}
 
 /**
  * The refusal for a call that names a tool this host does not offer (unroutable here, or
@@ -4189,8 +4202,24 @@ export class Orchestrator {
    *   schemas, its mode instruction, its pinned playbooks. Zero is honest for a route
    *   that attaches none of them.
    */
+  /**
+   * The input every route assembles its context from: the budget resolved for THIS
+   * provider, and the reference pictures withheld from a model that cannot read them.
+   *
+   * The withholding lives here because every route assembles through this method, so no
+   * route can be the one that bills a text-only model for an image it will answer about
+   * blind — the same rule that keeps `get_frame` off its tool list (`agentTools`). The
+   * measured reference lines still go: they are the text-only model's whole reference.
+   */
   private budgeted(input: ContextInput, reservedPromptTokens: number): ContextInput {
-    return { ...input, budget: resolveContextBudget(input, this.provider, reservedPromptTokens) };
+    const { referenceImages, ...rest } = input;
+    const sighted =
+      referenceImages !== undefined && referenceImages.length > 0 && this.canSeeFrames();
+    return {
+      ...rest,
+      ...(sighted ? { referenceImages } : {}),
+      budget: resolveContextBudget(input, this.provider, reservedPromptTokens),
+    };
   }
 
   /**
@@ -4477,11 +4506,29 @@ export class Orchestrator {
       // image attached here can never invalidate the cached prefix above it.
       ...(frames && frames.length > 0 ? { images: frames } : {}),
     };
+    // The editor's reference pictures (EQ18) ride BELOW the cache boundary, in a message of
+    // their own. Below, because the Agent SDK provider renders everything at or above the
+    // boundary into its system prompt, and a system prompt is text — an image there is
+    // silently dropped (`claude-agent-sdk.ts#renderMessages`). Their own message, not the
+    // turn's, because they are the same bytes every turn: kept ahead of the one message
+    // that varies, a provider that caches prefixes automatically can still reuse them.
+    const referenceImages = assembled.referenceImages;
+    const referenceMessages: AiMessage[] =
+      referenceImages.length > 0
+        ? [
+            {
+              role: 'user',
+              content: referenceImagesBlock(referenceImages),
+              images: referenceImages,
+            },
+          ]
+        : [];
     return {
       messages: [
         ...stablePrefix,
         { role: 'user', content: stableContext },
         { role: 'user', content: stableHead, cacheBoundary: true },
+        ...referenceMessages,
         turnMessage,
       ],
       assembled: {
@@ -7293,10 +7340,15 @@ export class Orchestrator {
           runtimeMs,
           ...cardExtra,
         });
-        // Card gets the SHORT summary; the popup gets the FULL result (`data`).
+        // Card gets the SHORT summary; the popup gets the FULL result (`data`), and a
+        // picture the model is about to be shown goes with it, so the editor can open the
+        // card and see exactly what the model judged (EQ18).
         yield emit.toolResult(call.id, {
           summary: outcome.summary,
           ...(outcome.data !== undefined ? { result: outcome.data } : {}),
+          ...(outcome.images && outcome.images.length > 0
+            ? { images: outcome.images.map(toolResultImage) }
+            : {}),
         });
         // NOTE: `timeline_action` cards are emitted only AFTER the turn's ops pass
         // the validator and are applied (by the caller) — not here. Emitting them
@@ -7648,15 +7700,13 @@ export class Orchestrator {
     // inclusive of what this route attaches afterwards: the question-scope tool schemas
     // and the route contract. Assembling first and budgeting second is how the trimmer
     // came to decide against a fraction of the prompt.
-    const assembled = assembleContext({
-      ...input,
-      budget: resolveContextBudget(
+    const assembled = assembleContext(
+      this.budgeted(
         input,
-        this.provider,
         toolSchemaCost(tools) +
           estimateTokens(questionModeInstruction({ canSeeFrames: this.canSeeFrames() })),
       ),
-    });
+    );
     yield* trimNotices(emit, assembled.trimmed);
     const inScopeNames = new Set(tools.map((t) => t.name));
     // The rolling conversation this route owns: context + the route contract (what makes
@@ -7843,10 +7893,7 @@ export class Orchestrator {
     yield emit.reasoning(['Drafting an edit plan'], false);
     // No tools on a plan turn (see below), so the only unassembled cost is the mode
     // instruction — a real number, and the honest one to reserve.
-    const assembled = assembleContext({
-      ...input,
-      budget: resolveContextBudget(input, this.provider, estimateTokens(PLAN_MODE_INSTRUCTION)),
-    });
+    const assembled = assembleContext(this.budgeted(input, estimateTokens(PLAN_MODE_INSTRUCTION)));
     yield* trimNotices(emit, assembled.trimmed);
     const messages = [
       ...assembled.messages,
@@ -8440,10 +8487,7 @@ export class Orchestrator {
     const emit = createTurnEmitter(options);
     yield emit.status('editing');
     const editTools = this.mutatingToolsOnOffer();
-    const assembled = assembleContext({
-      ...input,
-      budget: resolveContextBudget(input, this.provider, toolSchemaCost(editTools)),
-    });
+    const assembled = assembleContext(this.budgeted(input, toolSchemaCost(editTools)));
     yield* trimNotices(emit, assembled.trimmed);
     const result = yield* this.streamAssistant(
       emit,
@@ -8515,14 +8559,9 @@ export class Orchestrator {
   ): AsyncGenerator<AiEvent> {
     const emit = createTurnEmitter(options);
     yield emit.status('editing');
-    const assembled = assembleContext({
-      ...input,
-      budget: resolveContextBudget(
-        input,
-        this.provider,
-        toolSchemaCost(this.mutatingToolsOnOffer()),
-      ),
-    });
+    const assembled = assembleContext(
+      this.budgeted(input, toolSchemaCost(this.mutatingToolsOnOffer())),
+    );
     yield* trimNotices(emit, assembled.trimmed);
     const { variants, cost } = await this.editVariations(input, options.signal);
     if (options.signal?.aborted) {

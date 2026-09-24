@@ -103,7 +103,13 @@ describe('unwrapFrame — how the picture reaches the model', () => {
     const outcome = unwrapFrame({ timeSeconds: 12.4 }, engineResponse);
     expect(outcome.status).toBe('completed');
     expect(outcome.images).toEqual([
-      { mediaType: 'image/jpeg', base64: 'AAECAw==', label: 'the timeline at 12.40s' },
+      {
+        mediaType: 'image/jpeg',
+        base64: 'AAECAw==',
+        label: 'the timeline at 12.40s',
+        width: 288,
+        height: 512,
+      },
     ]);
     // The blob must NEVER end up in `data` — `data` is rendered into the run's text
     // action log, where a base64 image is unreadable and enormous.

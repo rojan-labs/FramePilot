@@ -191,6 +191,28 @@ export interface ToolCallEvent extends AiEventBase {
   readonly argsSummary?: string;
 }
 
+/**
+ * A picture a tool produced and the model was shown with its result — a `get_frame` look
+ * (EQ18). Carried so the card can show the editor the SAME picture the model judged,
+ * rather than the facts about it.
+ *
+ * Exactly one of `base64`/`path` is set. The SDK emits the bytes inline; a desktop host
+ * writes them to a file under the project's attachments and replaces them with `path`
+ * before the event leaves the main process, so no image bytes cross IPC, the run's WAL or
+ * the saved conversation. The browser build keeps them inline (it has no such store).
+ */
+export interface ToolResultImage {
+  readonly mediaType: string;
+  /** What the picture is of, as the model was told — e.g. "the timeline at 12.40s". */
+  readonly label?: string;
+  readonly width?: number;
+  readonly height?: number;
+  /** The image bytes, base64-encoded, WITHOUT a `data:` prefix. */
+  readonly base64?: string;
+  /** Where a host stored the bytes: a projects-root-relative path the media scheme serves. */
+  readonly path?: string;
+}
+
 /** The expandable detail attached to a {@link ToolCallEvent} by `toolCallId`. */
 export interface ToolResultEvent extends AiEventBase {
   readonly type: 'tool_result';
@@ -204,6 +226,8 @@ export interface ToolResultEvent extends AiEventBase {
   readonly tracks?: readonly string[];
   readonly logs?: readonly string[];
   readonly warnings?: readonly string[];
+  /** Pictures the model was shown with this result (see {@link ToolResultImage}). */
+  readonly images?: readonly ToolResultImage[];
 }
 
 /** One choice offered by an {@link AskEvent} — the model's own words. */
