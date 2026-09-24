@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -86,6 +86,14 @@ TITLE_END_FRACTION = 0.18
 SOLVER_TOP = 0.05
 SOLVER_BOTTOM = 0.7
 SOLVER_STEP = 0.005
+#: Horizontal steps for the title centre. A behind-the-subject word is centred on the PERSON:
+#: a speaker left of centre in a 9:16 crop covers one end of any frame-centred word.
+SOLVER_X_STEP = 0.01
+#: A picture larger than the frame by this factor on both axes is punched in: easing that zoom
+#: shows more of the shot rather than bars.
+PUNCH_IN_SCALE = 1.02
+#: Space kept clear at each side of the frame, matching the 92 % title-safe width.
+TITLE_SIDE_MARGIN = 0.04
 
 
 class SubjectLayoutError(ValueError):
@@ -127,6 +135,15 @@ class TextBehindPlacement:
     ends_visible: bool
     #: One sentence for the model: why this height, or why no height works.
     note: str
+    #: Title box centre, percent of the frame width (the ``xPercent`` a text clip takes).
+    x_percent: float = 50.0
+    #: Whether this placement reads as behind the subject. ``False`` is the best fallback,
+    #: returned with a note saying what to change.
+    reads_behind: bool = False
+    #: Which way the title's width would have to go for a placement to exist: ``"wider"``
+    #: (its ends meet the subject, or it is buried) or ``"narrower"`` (the subject is too
+    #: small to cover enough of it). ``None`` when it already reads as behind.
+    wants: str | None = None
 
 
 @dataclass(frozen=True)
@@ -153,6 +170,9 @@ class SubjectLayout:
     grid: npt.NDArray[np.float32] = field(
         repr=False, compare=False, default_factory=lambda: np.zeros((0, 0), np.float32)
     )
+    #: Every sample's own coverage grid, so a caller can re-solve for another title size
+    #: without decoding the matte again. Not serialized.
+    grids: tuple[npt.NDArray[np.float32], ...] = field(repr=False, compare=False, default=())
 
 
 def _matte_mask(clip: Clip, mask_id: str | None) -> Any:
@@ -168,6 +188,67 @@ def _matte_mask(clip: Clip, mask_id: str | None) -> Any:
         f"Clip {clip.id!r} has no cut-out to measure. Remove its background first "
         "(remove_background), or look at a frame with get_frame."
     )
+
+
+#: Combine modes that, as the only mask, draw what the matte keeps: a stack starts empty
+#: (ADR 0178), so subtract/intersect/darken from nothing are nothing. Mirrors
+#: ``cutoutHidesSubject`` in ``editor-core/mask-operations.ts``.
+MODES_THAT_DRAW_ALONE = frozenset({"add", "difference", "lighten"})
+
+
+#: Step, in percent of the frame height, between the title sizes a resize search tries.
+RESIZE_STEP_PERCENT = 0.5
+#: The most sizes a resize search tries in one direction: each is a raster and a solve.
+MAX_RESIZE_STEPS = 24
+
+
+def search_behind_size(
+    grids: Sequence[npt.NDArray[np.float32]],
+    box_at: Callable[[float], tuple[float, float]],
+    size: float,
+    *,
+    wants: str,
+    smallest: float,
+    largest: float,
+) -> tuple[float, TextBehindPlacement, tuple[float, float]] | None:
+    """The size nearest ``size``, in the direction ``wants``, at which the title reads behind.
+
+    :param grids: The per-sample coverage grids of a measured layout.
+    :param box_at: The title's rendered ``(width, height)`` as frame fractions at a size.
+    :param size: The size the title was measured at, percent of the frame height.
+    :param wants: ``"wider"`` searches larger sizes, ``"narrower"`` smaller ones.
+    :param smallest: The smallest size worth trying.
+    :param largest: The largest size that still fits the frame.
+    :returns: ``(size, placement, box)``, or ``None`` when no size in reach works.
+    """
+    step = RESIZE_STEP_PERCENT if wants == "wider" else -RESIZE_STEP_PERCENT
+    candidate = size
+    for _ in range(MAX_RESIZE_STEPS):
+        candidate = round(candidate + step, 1)
+        if candidate > largest + 1e-9 or candidate < smallest - 1e-9:
+            return None
+        box = box_at(candidate)
+        placement = solve_text_behind(grids, box[0], box[1])
+        if placement.reads_behind:
+            return candidate, placement, box
+    return None
+
+
+def _cutout_hides_subject(mask: Any) -> str | None:
+    """Why ``mask`` would not draw its subject, or ``None`` when it does.
+
+    The geometry below reads the raw matte; a cut-out switched to Subtract or inverted in the
+    Inspector draws nothing (or the background) on the delivered frame, so measuring the raw
+    matte would describe a subject the export never shows.
+    """
+    mode = str(getattr(mask.mode, "value", mask.mode))
+    if mode not in MODES_THAT_DRAW_ALONE:
+        return f"is set to {mode}"
+    if mask.invert:
+        return "is inverted"
+    if mask.opacity <= 0:
+        return "has no opacity"
+    return None
 
 
 def _find_clip(project: Project, clip_id: str) -> Clip:
@@ -323,91 +404,163 @@ def _shoulders(grid: npt.NDArray[np.float32]) -> float | None:
     return None
 
 
+def _integral(grid: npt.NDArray[np.float32]) -> npt.NDArray[np.float64]:
+    """Summed-area table of ``grid`` with a zero first row and column."""
+    table = np.zeros((grid.shape[0] + 1, grid.shape[1] + 1), dtype=np.float64)
+    table[1:, 1:] = grid.astype(np.float64).cumsum(axis=0).cumsum(axis=1)
+    return table
+
+
+def _block_sum(table: npt.NDArray[np.float64], y0: int, y1: int, x0: int, x1: int) -> float:
+    """Covered cells in rows ``[y0, y1)`` and columns ``[x0, x1)``."""
+    return float(table[y1, x1] - table[y0, x1] - table[y1, x0] + table[y0, x0])
+
+
+def _x_centres(text_width: float) -> list[float]:
+    """Title centres that keep the box inside the title-safe width, frame centre included."""
+    low = text_width / 2 + TITLE_SIDE_MARGIN
+    high = 1.0 - text_width / 2 - TITLE_SIDE_MARGIN
+    if high <= low:
+        return [0.5]
+    count = math.floor((high - low) / SOLVER_X_STEP + 1e-9)
+    return sorted({0.5, *(round(low + i * SOLVER_X_STEP, 4) for i in range(count + 1))})
+
+
 def solve_text_behind(
     grids: Sequence[npt.NDArray[np.float32]],
     text_width: float,
     text_height: float,
     *,
-    x_centre: float = 0.5,
+    punched_in: bool = True,
 ) -> TextBehindPlacement:
-    """The title height at which a ``text_width`` x ``text_height`` box reads as BEHIND.
+    """Where a ``text_width`` x ``text_height`` title box reads as BEHIND the subject.
 
-    For each candidate centre height, the worst sample's occlusion of the box is measured,
-    and both ENDS of the word must stay clear. Among the heights whose occlusion falls in
-    ``[BEHIND_MIN_OCCLUSION, BEHIND_MAX_OCCLUSION]`` with visible ends, the one nearest
-    :data:`BEHIND_TARGET_OCCLUSION` wins, ties going higher in the frame (titles live in the
-    upper part of a talking-head shot). When no height qualifies, the readable height nearest
-    that band is returned — whichever side it misses on — and the note says what to change.
+    Every candidate centre (height in the upper frame, horizontal position inside the
+    title-safe width) is scored by the worst sample's occlusion of the box, and both ENDS of the
+    word must stay clear. Among the positions whose occlusion falls in
+    ``[BEHIND_MIN_OCCLUSION, BEHIND_MAX_OCCLUSION]`` with visible ends, the one nearest the frame
+    centre wins, then the occlusion nearest :data:`BEHIND_TARGET_OCCLUSION`, then the higher one
+    (titles live in the upper part of a talking-head shot). A word moves off-centre only as far
+    as the subject makes it. When nothing qualifies, the readable position nearest that band
+    is returned — whichever side it misses on — and the note says what to change.
 
     :param grids: Per-sample coverage grids over the output frame.
     :param text_width: Title box width, fraction of the frame width.
     :param text_height: Title box height, fraction of the frame height.
-    :param x_centre: Title box centre, fraction of the frame width.
+    :param punched_in: Whether the picture is scaled past filling the frame on this stretch,
+        so easing the zoom would make room beside the head. At its widest, zooming out only
+        adds bars, and the note says to put the title in front instead.
     """
     if not grids:
         raise SubjectLayoutError("No samples to place the title against.")
     rows, cols = grids[0].shape
-    x0 = max(0, math.floor((x_centre - text_width / 2) * cols))
-    x1 = min(cols, math.ceil((x_centre + text_width / 2) * cols))
-    end_cols = max(1, round(TITLE_END_FRACTION * (x1 - x0)))
+    tables = [_integral(grid) for grid in grids]
     half = text_height / 2
-    candidates: list[tuple[float, float, bool]] = []
+    heights: list[float] = []
     centre = max(SOLVER_TOP, half)
     while centre <= min(SOLVER_BOTTOM, 1.0 - half) + 1e-9:
-        y0 = max(0, math.floor((centre - half) * rows))
-        y1 = min(rows, max(y0 + 1, math.ceil((centre + half) * rows)))
-        worst = 0.0
-        ends_clear = True
-        for grid in grids:
-            block = grid[y0:y1, x0:x1]
-            if block.size == 0:
-                continue
-            worst = max(worst, float(block.mean()))
-            if block[:, :end_cols].any() or block[:, -end_cols:].any():
-                ends_clear = False
-        candidates.append((centre, worst, ends_clear))
+        heights.append(centre)
         centre += SOLVER_STEP
+    # (x centre, y centre, worst occlusion, ends clear)
+    candidates: list[tuple[float, float, float, bool]] = []
+    for x_centre in _x_centres(text_width):
+        x0 = max(0, math.floor((x_centre - text_width / 2) * cols))
+        x1 = min(cols, math.ceil((x_centre + text_width / 2) * cols))
+        if x1 <= x0:
+            continue
+        end_cols = max(1, round(TITLE_END_FRACTION * (x1 - x0)))
+        for y_centre in heights:
+            y0 = max(0, math.floor((y_centre - half) * rows))
+            y1 = min(rows, max(y0 + 1, math.ceil((y_centre + half) * rows)))
+            area = float((y1 - y0) * (x1 - x0))
+            worst = 0.0
+            ends_clear = True
+            for table in tables:
+                worst = max(worst, _block_sum(table, y0, y1, x0, x1) / area)
+                if (
+                    _block_sum(table, y0, y1, x0, x0 + end_cols) > 0
+                    or _block_sum(table, y0, y1, x1 - end_cols, x1) > 0
+                ):
+                    ends_clear = False
+            candidates.append((x_centre, y_centre, worst, ends_clear))
+
+    def off_centre(candidate: tuple[float, float, float, bool]) -> int:
+        return round(abs(candidate[0] - 0.5) / SOLVER_X_STEP)
+
     behind = [
-        c for c in candidates if c[2] and BEHIND_MIN_OCCLUSION <= c[1] <= BEHIND_MAX_OCCLUSION
+        c for c in candidates if c[3] and BEHIND_MIN_OCCLUSION <= c[2] <= BEHIND_MAX_OCCLUSION
     ]
     if behind:
-        best = min(behind, key=lambda c: (abs(c[1] - BEHIND_TARGET_OCCLUSION), c[0]))
+        best = min(behind, key=lambda c: (off_centre(c), abs(c[2] - BEHIND_TARGET_OCCLUSION), c[1]))
+        where = (
+            f"At {best[1] * 100:.0f}% down"
+            if off_centre(best) == 0
+            else f"Centred {best[0] * 100:.0f}% across (on the subject, not the frame) and "
+            f"{best[1] * 100:.0f}% down"
+        )
         return TextBehindPlacement(
-            y_percent=round(best[0] * 100, 1),
-            occluded=round(best[1], 3),
+            y_percent=round(best[1] * 100, 1),
+            x_percent=round(best[0] * 100, 1),
+            occluded=round(best[2], 3),
             ends_visible=True,
+            reads_behind=True,
             note=(
-                f"At {best[0] * 100:.0f}% the subject covers about {best[1] * 100:.0f}% of the "
-                "title and both ends stay visible, so it reads as behind them."
+                f"{where}, the subject covers about {best[2] * 100:.0f}% of the title and both "
+                "ends stay visible, so it reads as behind them."
             ),
         )
-    readable = [c for c in candidates if c[2]]
+    readable = [c for c in candidates if c[3]]
     if readable:
-        best = min(readable, key=lambda c: (_distance_from_behind(c[1]), c[0]))
-        why = (
-            "the subject barely overlaps the title anywhere it stays readable, so it will read "
-            "as floating in front of the background rather than behind them. Try a shorter "
-            "word or a smaller size, so the subject covers more of it"
-            if best[1] < BEHIND_MIN_OCCLUSION
-            else "the subject covers too much of the title everywhere its ends stay clear. "
-            "Try a wider word or a larger size, so more of it shows beside them"
-        )
+        best = min(readable, key=lambda c: (_distance_from_behind(c[2]), off_centre(c), c[1]))
+        # Where the subject covers enough of the word but always reaches an end, the word is
+        # narrower than the subject is wide there: it needs to be WIDER, not smaller.
+        ends_block = any(c[2] >= BEHIND_MIN_OCCLUSION and not c[3] for c in candidates)
+        if best[2] > BEHIND_MAX_OCCLUSION:
+            wants = "wider"
+            why = (
+                "the subject covers too much of the title everywhere its ends stay clear. "
+                "Try a wider word or a larger size, so more of it shows beside them"
+            )
+        elif ends_block:
+            wants = "wider"
+            why = (
+                "wherever the word overlaps the subject enough, the subject reaches one of its "
+                "ends: the word is narrower than they are wide there. A larger size or a longer "
+                "word clears them"
+            )
+        else:
+            wants = "narrower"
+            why = (
+                "the subject barely overlaps the title anywhere it stays readable, so it will "
+                "read as floating in front of the background rather than behind them. Try a "
+                "shorter word or a smaller size, so the subject covers more of it"
+            )
         return TextBehindPlacement(
-            y_percent=round(best[0] * 100, 1),
-            occluded=round(best[1], 3),
+            y_percent=round(best[1] * 100, 1),
+            x_percent=round(best[0] * 100, 1),
+            occluded=round(best[2], 3),
             ends_visible=True,
-            note=f"No height reads cleanly as behind: {why}.",
+            note=f"No position reads cleanly as behind: {why}.",
+            wants=wants,
         )
-    best = min(candidates, key=lambda c: (c[1], c[0]))
+    best = min(candidates, key=lambda c: (c[2], off_centre(c), c[1]))
     return TextBehindPlacement(
-        y_percent=round(best[0] * 100, 1),
-        occluded=round(best[1], 3),
+        y_percent=round(best[1] * 100, 1),
+        x_percent=round(best[0] * 100, 1),
+        occluded=round(best[2], 3),
         ends_visible=False,
+        wants="wider",
         note=(
-            "The subject covers an end of the title at every height: the person fills too much "
-            "of the frame's width for a word to read behind them. Zoom the picture out on this "
-            "stretch (scale the cut-out and its background together) so there is room beside "
-            "the head, or put the title in front of them instead."
+            "The subject covers an end of the title wherever it is placed: the person fills too "
+            "much of the frame's width for a word to read behind them. "
+            + (
+                "Ease the punch-in on this stretch (scale the cut-out and its background "
+                "together) so there is room beside the head, or put the title in front of them."
+                if punched_in
+                else "The shot is already at its widest — zooming out would only add bars — so "
+                "put the title in front of them (above the head or in the lower third), or use "
+                "a wider shot."
+            )
         ),
     )
 
@@ -446,6 +599,13 @@ def measure_subject_layout(
     """
     clip = _find_clip(project, clip_id)
     mask = _matte_mask(clip, mask_id)
+    hidden = _cutout_hides_subject(mask)
+    if hidden is not None:
+        raise SubjectLayoutError(
+            f"The cut-out on clip {clip_id!r} {hidden}, so the subject is not drawn on the "
+            'frame. Set it back to add, not inverted (refine_mask with mode "add" and invert '
+            "false), then measure again."
+        )
     asset = next((a for a in project.assets if a.id == clip.asset_id), None)
     media = asset.media if asset is not None else None
     if media is None or media.display_size() is None:
@@ -479,6 +639,7 @@ def measure_subject_layout(
     count = max(1, min(MAX_SAMPLES, int(samples)))
     reader = MatteReader(prepared, want_foreground=False)
     grids: list[npt.NDArray[np.float32]] = []
+    punched_in = False
     measured: list[SubjectSample] = []
     try:
         for time in _sample_times(lo, hi, count):
@@ -487,6 +648,10 @@ def measure_subject_layout(
             frame = reader.frame(_nearest_matte_index(reader, source_seconds))
             alpha = frame.alpha.astype(np.float32) / float(frame.maximum)
             placement = picture_placement_at(clip, local, picture_size, target, None)
+            punched_in = punched_in or (
+                placement.width > target[0] * PUNCH_IN_SCALE
+                and placement.height > target[1] * PUNCH_IN_SCALE
+            )
             grid = _coverage_on_frame(alpha, crop, placement, target)
             grids.append(grid)
             measured.append(
@@ -498,7 +663,9 @@ def measure_subject_layout(
     boxes = [s.box for s in measured if s.box is not None]
     reach = _union_box(boxes)
     text_placement = (
-        solve_text_behind(grids, text_box[0], text_box[1]) if text_box is not None else None
+        solve_text_behind(grids, text_box[0], text_box[1], punched_in=punched_in)
+        if text_box is not None
+        else None
     )
     _log.info(
         "ACT subject layout measured: clip=%s samples=%d reach=%s",
@@ -518,5 +685,6 @@ def measure_subject_layout(
         shoulders=_shoulders(union),
         bands=_bands(union),
         text_behind=text_placement,
+        grids=tuple(grids),
         grid=union,
     )

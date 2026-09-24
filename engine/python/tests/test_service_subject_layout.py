@@ -134,3 +134,41 @@ def test_a_title_too_wide_for_the_frame_is_fitted_before_it_is_placed(
     assert placed["sizePercent"] < 20.0
     assert placed["width"] <= service.TITLE_SAFE_WIDTH_FRACTION + 0.001
     assert seen["text_box"][0] <= service.TITLE_SAFE_WIDTH_FRACTION + 0.001
+
+
+def test_a_word_too_narrow_for_the_head_comes_back_at_a_size_that_reads_behind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The captured close-up: at the size asked for, "MOTION" is narrower than the head, so an
+    # end always lands on it. The route tries larger sizes (within the frame) and returns the
+    # first one that reads as behind, saying what it changed.
+    import numpy as np
+
+    from framepilot_engine.masking import subject_layout as sl
+
+    grid = np.zeros((sl.GRID_ROWS, 54), dtype=np.float32)
+    grid[int(0.3 * sl.GRID_ROWS) : int(0.6 * sl.GRID_ROWS), 17:37] = 1.0  # head, 31-69 %
+    grid[int(0.6 * sl.GRID_ROWS) :, 3:51] = 1.0
+
+    def fake_measure(project: Any, base: Path, clip_id: str, **kwargs: Any) -> SubjectLayout:
+        width, height = kwargs["text_box"]
+        first = sl.solve_text_behind([grid], width, height)
+        layout = _layout(first)
+        return SubjectLayout(**{**layout.__dict__, "grids": (grid,)})
+
+    monkeypatch.setattr(service, "measure_subject_layout", fake_measure)
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    body = client.post(
+        "/analyze/subject-layout",
+        json={
+            "project": _project(),
+            "clipId": "talk",
+            "text": "MOTION",
+            "textStyle": {"fontSizePercent": 6, "fontFamily": "Anton"},
+        },
+    ).json()
+    placed = body["textBehind"]
+    assert placed["readsBehind"] is True
+    assert placed["resizedFrom"] == 6.0
+    assert placed["sizePercent"] > 6.0
+    assert placed["width"] <= service.TITLE_SAFE_WIDTH_FRACTION + 0.001

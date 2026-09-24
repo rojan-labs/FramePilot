@@ -258,6 +258,7 @@ from framepilot_engine.masking.subject_layout import (
 from framepilot_engine.masking.subject_layout import (
     SubjectLayoutError,
     measure_subject_layout,
+    search_behind_size,
 )
 from framepilot_engine.media.derive import PROXY_ENCODE_VERSION, generate_proxy, generate_thumbnails
 from framepilot_engine.media.ffmpeg import FFmpegError, NoAudioStreamError
@@ -1057,8 +1058,12 @@ class TextBehindPayload(BaseModel):
     """Where the requested title reads as behind the subject."""
 
     y_percent: float = Field(alias="yPercent")
+    #: The box centre across the frame: off 50 when the subject is off-centre.
+    x_percent: float = Field(default=50.0, alias="xPercent")
     occluded: float
     ends_visible: bool = Field(alias="endsVisible")
+    #: Whether the placement reads as behind the subject; ``False`` is the best fallback.
+    reads_behind: bool = Field(default=False, alias="readsBehind")
     note: str
     #: The title's rendered box as frame fractions, so the caller can see what was placed.
     width: float
@@ -1067,6 +1072,8 @@ class TextBehindPayload(BaseModel):
     size_percent: float = Field(alias="sizePercent")
     #: The requested size when it would have run out of the frame and was reduced.
     shrunk_from: float | None = Field(default=None, alias="shrunkFrom")
+    #: The size first measured when no position read as behind at it and another size did.
+    resized_from: float | None = Field(default=None, alias="resizedFrom")
 
     model_config = {"populate_by_name": True}
 
@@ -6490,12 +6497,17 @@ def create_app(
         height = int(project.resolution.height)
         text_box: tuple[float, float] | None = None
         fitted: tuple[float, float | None] | None = None
-        if req.text is not None and req.text.strip():
-            style = dict(req.text_style or {})
-            fitted = _fit_title_size(req.text, style, width, height)
-            style["fontSizePercent"] = fitted[0]
-            raster = rasterize_text_overlay(req.text, style, width, height)
-            text_box = (raster.shape[1] / width, raster.shape[0] / height)
+        style: dict[str, Any] = dict(req.text_style or {})
+        text = req.text if req.text is not None and req.text.strip() else None
+
+        def box_at(size: float) -> tuple[float, float]:
+            assert text is not None
+            raster = rasterize_text_overlay(text, {**style, "fontSizePercent": size}, width, height)
+            return (raster.shape[1] / width, raster.shape[0] / height)
+
+        if text is not None:
+            fitted = _fit_title_size(text, style, width, height)
+            text_box = box_at(fitted[0])
         try:
             layout = measure_subject_layout(
                 project,
@@ -6515,6 +6527,30 @@ def create_app(
             label,
         )
         placement = layout.text_behind
+        resized_from: float | None = None
+        if (
+            text is not None
+            and fitted is not None
+            and placement is not None
+            and not placement.reads_behind
+            and placement.wants is not None
+        ):
+            # Where the word is the wrong width for this subject, try the direction the solver
+            # names — within the frame — rather than hand back a size known not to work.
+            largest = _fit_title_size(text, {**style, "fontSizePercent": 100.0}, width, height)[0]
+            found = search_behind_size(
+                layout.grids,
+                box_at,
+                fitted[0],
+                wants=placement.wants,
+                smallest=max(TITLE_MIN_SIZE_PERCENT, fitted[0] / 2),
+                largest=largest,
+            )
+            if found is not None:
+                resized_from = fitted[0]
+                fitted = (found[0], fitted[1])
+                placement = found[1]
+                text_box = found[2]
         return SubjectLayoutResponse(
             clip_id=layout.clip_id,
             mask_id=layout.mask_id,
@@ -6539,13 +6575,16 @@ def create_app(
                 if placement is None or text_box is None
                 else TextBehindPayload(
                     y_percent=placement.y_percent,
+                    x_percent=placement.x_percent,
                     occluded=placement.occluded,
                     ends_visible=placement.ends_visible,
+                    reads_behind=placement.reads_behind,
                     note=placement.note,
                     width=round(text_box[0], 3),
                     height=round(text_box[1], 3),
                     size_percent=fitted[0] if fitted is not None else 0.0,
                     shrunk_from=fitted[1] if fitted is not None else None,
+                    resized_from=resized_from,
                 )
             ),
         )
