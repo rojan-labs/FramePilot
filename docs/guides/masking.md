@@ -101,6 +101,23 @@ When the request is unclear it **asks**: thumbnails of the candidates, and you p
 except the host" always shows the face picker — who is who is your call. Face recognition (below)
 only changes what the picker can remember. [AI masking tools](../api/ai-masking.md).
 
+### A title behind someone
+
+"Put MOTION behind him" is built as three layers on the shot: the original (background and
+sound), the title, and a copy of the shot in front that draws only the person, through the
+cut-out. A second title on the same shot goes on the same title layer, for its own moment.
+
+The assistant **measures before it places**: `measure_subject` reads the cut-out on the delivered
+frame — top of the head, shoulder line, how much of the width the person covers at each height —
+and answers where a given word, at a given size and font, reads as behind them: partly covered,
+both ends visible. It centres the word on the person rather than the frame, fits it inside the
+title-safe width, and when no size or position works (a tight close-up where the head fills the
+frame) it says so and suggests easing a punch-in or putting the title in front instead.
+
+The front copy must actually draw the person. A cut-out switched to **Subtract** (or inverted, or
+at zero opacity) in the mask list draws nothing from an empty stack, so the title sits on the
+face; the assistant refuses to add a title behind it and says to set the cut-out back to **Add**.
+
 ## Keyboard
 
 Focus the monitor canvas (click it, or Tab to it) with the Mask tab open.
@@ -157,6 +174,7 @@ Focus the monitor canvas (click it, or Tab to it) with the Mask tab open.
 | "This is the path's only shape. Move the playhead …"                            | Animate on the only keyframe of a path                                             | Move the playhead, press Animate there, then reshape                     |
 | "Preview reduced"                                                               | The monitor dropped resolution to keep playing                                     | Nothing: the export is unaffected                                        |
 | The assistant asks "Which one did you mean?"                                    | More than one thing matches, or WHO matters                                        | Pick in the sidebar; that is by design                                   |
+| A "behind" title sits on top of the person                                      | The front copy's cut-out is set to Subtract, inverted, or switched off             | In the mask list set it back to Add, not inverted                        |
 | Masks are missing from the toolbar or the assistant                             | A kill switch is off: `VITE_FRAMEPILOT_MASK_TOOLS`, `FRAMEPILOT_AI_MASKING`        | Unset it (packaged releases keep them off until RD3)                     |
 
 Operators: the job events, failure codes and dashboards are in

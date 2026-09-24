@@ -9,15 +9,15 @@ make in CapCut, Premiere or Resolve.
 
 Topbar → **Export**.
 
-| Field              | Choices                                                 | Default     |
-| ------------------ | ------------------------------------------------------- | ----------- |
-| Resolution         | 480p · 720p · 1080p · 1440p (2K) · 2160p (4K)           | 1080p       |
-| Frame rate         | Project · 24 · 25 · 30 · 50 · 60                        | Project     |
-| Quality            | Low · Recommended · High                                | Recommended |
-| Codec              | H.264 (plays everywhere) · HEVC / H.265 (smaller files) | H.264       |
-| Format             | MP4 · MOV                                               | MP4         |
-| Audio (disclosure) | loudness, EQ, compression, de-noise, limiter            | off         |
-| Burn captions      | on/off                                                  | off         |
+| Field              | Choices                                                 | Default                           |
+| ------------------ | ------------------------------------------------------- | --------------------------------- |
+| Resolution         | 480p · 720p · 1080p · 1440p (2K) · 2160p (4K)           | 1080p                             |
+| Frame rate         | Project · 24 · 25 · 30 · 50 · 60                        | Project                           |
+| Quality            | Low · Recommended · High                                | Recommended                       |
+| Codec              | H.264 (plays everywhere) · HEVC / H.265 (smaller files) | H.264                             |
+| Format             | MP4 · MOV                                               | MP4                               |
+| Audio (disclosure) | loudness, EQ, compression, de-noise, limiter            | off                               |
+| Burn captions      | on/off                                                  | on when the timeline has captions |
 
 The line under the choices states exactly what you get — e.g.
 `1080 × 1920 · 30 fps · MP4 (H.264) · about 31 MB` — computed from the project's aspect,
@@ -28,7 +28,9 @@ built from 720p footage exported at "2160p" produces a 720p file and the dialog 
 ("Your sources are 720p, so the export is capped there instead of being upscaled"). Options
 above the cap are labelled `(upscaled — sources are 720p)`.
 
-Your last-used settings are remembered per project.
+Your last-used settings are remembered per project. **Burn captions** starts ticked whenever a
+visible caption track has cues — a short captioned in the editor used to export with none of them —
+and an explicit choice is remembered per project.
 
 ## What the engine does with them
 
@@ -81,7 +83,8 @@ uv run framepilot render project.fp.json --resolution 1080p --fps source --quali
 ## Agent
 
 The `/export` command and the `export_video` tool use the same engine path with the
-default settings; the agent never chooses a platform.
+default settings; the agent never chooses a platform. Captions are burned in when the timeline
+has them, the same rule as the dialog.
 
 ## Progress, time left and recent exports
 

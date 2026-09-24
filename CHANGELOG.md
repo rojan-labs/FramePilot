@@ -8,6 +8,21 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The assistant measures where a title goes behind someone.** Before it puts a word behind
+  a person, it now reads the cut-out on the actual frame — where the head is, where the shoulders
+  are — and places the word where the person covers part of it and both ends still show,
+  centred on the person rather than the frame, at a size that fits. When nothing can work (a
+  tight close-up where the head fills the frame) it says so and suggests easing the zoom or
+  putting the title in front, instead of placing it on the face.
+- **The assistant checks that your captions actually read.** After styling captions it can
+  measure, on the real footage, how well the letters stand out from what is behind them, name
+  the captions that don't read (light text on a light shirt, say) and fix the look once for the
+  whole track — an outline or a background — then check again.
+- **B-roll inserts can dissolve or punch in and out.** A talking head with b-roll laid over it
+  used to have "only one real cut" as far as the assistant knew. Where each insert enters and
+  leaves is now an edit point: ask to soften the b-roll or make it punchier and every insert
+  gets the same treatment. By default inserts still cut on the word, as editors do.
+
 - **Claude Opus 5.5 for the Claude Code login.** Settings → AI → Claude (your Claude Code
   login) now offers `claude-opus-5-5`, and the context meter knows its 1M window / 128K output.
   The model field is now the app's own dropdown instead of the browser's native suggestion list;
@@ -62,6 +77,36 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant is no longer blind after you remove a background.** Every frame it tried to
+  look at, and every colour measurement, failed once a clip had a cut-out, so it reviewed and
+  placed things without seeing them. It sees them again.
+- **Claude (your Claude Code login) can look at the edit.** The assistant could not show it a
+  frame, so it never checked its own work visually; it now can, like every other vision model.
+- **Exports include your captions.** "Burn captions" started unticked and forgot your choice, so
+  a captioned short exported with none of them. It now starts ticked whenever the timeline has
+  captions and remembers what you pick; exports through MCP follow the same rule.
+- **Looks no longer blur or darken the captions.** A vignette, blur or flash over the edit was
+  applied to the burned-in captions too, while the monitor showed them crisp. Captions now sit
+  above the looks in the export, as they do in the monitor.
+- **A title "behind" someone stays behind them.** A second title on the same shot built a copy of
+  a copy; a title always covered the whole shot; and a cut-out switched to Subtract in the mask
+  list drew nothing, so the title sat on the face. Titles now share the shot's layers with their
+  own start and end, and the assistant refuses to put a title behind a cut-out that draws nothing,
+  saying to set it back to Add.
+- **Titles fit the frame, in the font you chose.** A title at 20 % of the frame height ran off both
+  sides of a vertical video; the assistant's width estimate could be a third off. It now uses the
+  real widths of the bundled fonts, and the export draws titles in their chosen family and weight
+  instead of a plain default face.
+- **A caption can't be dragged onto a layer that doesn't show it.** Moving a caption onto a text
+  layer made it vanish from the export; it is now refused with the reason.
+- **Asking for "film grain" finds film grain.** Effect search matched a whole phrase at once, so the
+  assistant told you effects that exist did not. Each word is matched now, best matches first.
+- **Footage descriptions are about the right words and are remembered.** A b-roll clip was compared
+  against the whole script instead of the words under it, and a description was fetched again every
+  time; both fixed.
+- **The assistant no longer suggests deleting the clip that carries your audio.** Its "buried
+  picture" check pointed at the original shot under a title-behind cut-out, and its repeated-take
+  check flagged the cut-out copy as a duplicate.
 - **Captions no longer flash a word for a split second, or split names and phrases.**
   Generated captions could put "Hi," on screen for an eighth of a second, show a surname on
   its own ("Shamra" then "Dotto"), or end a caption on "1,50,000" with "subscribers" on the

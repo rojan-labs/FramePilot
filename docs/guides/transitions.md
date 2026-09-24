@@ -74,6 +74,21 @@ The only real limit is length: a transition cannot exceed half the shorter of th
 two clips, or it has eaten the shot it was meant to introduce. The inspector states
 that ceiling rather than just enforcing it.
 
+## Cutaways: b-roll over the A-roll
+
+A talking head with b-roll laid over it may have no cut between two clips on one
+layer at all: its edits are where each insert enters and leaves over the picture
+beneath. Those edges can carry a transition too — the insert ramps in over the
+A-roll and back out — stored on the insert itself.
+
+- The default is a hard cut on the word, the talking-head convention. Ask for a
+  reason ("soften the b-roll", "make the inserts punchier") and the assistant treats
+  every insert the same way (`add_transitions` with `includeCutaways`).
+- An exit is always a dissolve or a wipe. A slide or zoom only animates a shot coming
+  in; as an exit the insert would vanish at once, so a punchy entrance leaves on a
+  short cross-dissolve.
+- An insert can carry at most half its own length at each end.
+
 ## Audio
 
 A transition can pair an audio treatment across the same cut:

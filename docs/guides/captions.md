@@ -303,11 +303,21 @@ nested provider call.
   deleted speech, bridging a break in the speech, or stale, and refuses paragraph-sized transcript
   fallback blocks, empty caption sets over retained speech, and title/lower-third
   overlays masquerading in the cue count. What it cannot see is a cue that is
-  perfectly synchronized and still unreadable — clipped at the frame edge, sitting on
-  a face, or lost against a bright shot. That is what `get_frame` is for: it renders
-  a frame through the export compiler with captions burned in, so the AI judges the
-  look from the actual picture. A cue that verifies clean and reads badly is still a
-  broken caption.
+  perfectly synchronized and still unreadable. Two tools look at the picture:
+  `check_caption_legibility` measures, for cues spread over the edit, how far the
+  letters stand off whatever immediately surrounds them in the delivered frame —
+  outline, box, shadow or bare footage — as a contrast ratio; under 3:1 does not read
+  at a glance, and the answer names the cues and the fix (an outline or a background
+  on the track). `get_frame` renders a frame with captions burned in, for what a
+  number cannot say: clipped at the frame edge, or sitting on a face. A cue that
+  verifies clean and reads badly is still a broken caption.
+- **Looks never touch the captions.** Effect layers (a vignette, a blur, a flash)
+  restyle the picture; burned captions are composited above them, as the monitor
+  draws them. Titles are part of the picture and do sit beneath an effect lane
+  above them.
+- **Exports burn captions in when the timeline has them.** The Export dialog's
+  "Burn captions" starts ticked whenever a visible caption track has cues, and
+  remembers your choice per project; MCP `export_video` follows the same rule.
 - **Splitting a dense caption does not create reading time.** It makes each half
   shorter and lets each be held for the minimum, which is the honest best a
   segmenter can do when speech is genuinely too fast.

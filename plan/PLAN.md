@@ -13,6 +13,67 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-09-24, EDIT QUALITY + VISUAL UNDERSTANDING — the 2026-09-19…23 desktop
+runs on `project_test_new_project`):** the maintainer: "the end edit is not looking like edited by
+a video editor … detailing is very bad … visual understanding, knowing what is there on the screen,
+how things need to be placed". Evidence read: `framepilot.runs.jsonl` (22 runs), the seven desktop
+conversations behind them, the project file + its undo history, its `brain.sqlite`, and the
+exported MP4 frame by frame. Scope gate: user outcome = a finished edit that looks authored; the
+gap is mostly *platform* defects that made the agent blind or dropped its work, then a handful of
+craft tools. No new subsystem; every fix reuses an existing seam.
+- [x] **EQ1** Engine requests keep `asset.media` (`ai-sdk/engine-view.ts`). Since mask v22 a cut-out
+  resolves against the media size; `toModelProject` stripped it, so every review, `get_frame` and
+  `measure_color` after `remove_background` 422/500'd ("media size is unknown" — 7 of 7 reviews
+  lost on 09-23). Reproduced and verified on a live sidecar with the real project.
+- [x] **EQ2** The Claude Agent SDK provider carries images (`SDKUserMessage` content blocks), so the
+  desktop default (Opus 5.5) is offered `get_frame` and the look-at-your-work contract. Live check
+  through the real login read a rendered frame correctly.
+- [x] **EQ3** Export burns captions by default (the dialog defaulted to OFF and forgot the choice:
+  the 09-23 export has zero of its 45 cues) and the AI export follows the timeline. Dialog
+  (`e71c2e36`) and MCP `export_video` (`1f4ef648`, shared `timelineHasCaptions` in editor-core);
+  the in-app agent cannot export (it routes the editor to the dialog).
+- [x] **EQ4** Caption segmentation: no cue that cannot be held (`Hi,` 0.13 s → repair loops), names,
+  numbers-with-units and `keepTogether` phrases stay in one cue ("stop | scrolling", "Shamra | Dotto").
+  Real transcript: 41 cues, 0 under the floor, 0 stranded articles.
+- [x] **EQ5** Caption cues only render on caption tracks: `move_clip` of a cue onto another track is
+  refused with the remedy (the two "behind you" lines never rendered anywhere).
+- [x] **EQ6** Text behind the subject: one sandwich per clip (no `__subject__subject` nesting), a
+  time range, the text fitted to the frame, and a placement measured from the matte so the word
+  reads around the head (the "MOTION" title sat on the face and overflowed at 20 %). Root cause of
+  "on the face" found in history entry 28: the front cut-out was set to Subtract (draws nothing);
+  now refused with the remedy in editor-core and the measurement (ADR 0183).
+- [x] **EQ7** Subject position facts from the cut-out matte, for caption/text placement. **Rescoped**
+  from "facts in every clip row" to an on-demand tool, `measure_subject`: a row fact would decode
+  the matte for every snapshot and cost tokens every turn, and the question is only ever asked
+  right before a title or caption is placed. Centres the word on the person, searches sizes, and
+  gives zoom advice that fits the shot (punched-in vs already widest).
+- [x] **EQ8** `discover_effects` matches per term ("film grain", "cinematic grade" returned 0, so the
+  agent told the editor no such effects exist); strobe effects explain themselves as strobes.
+- [x] **EQ9** `describe_footage`: overlap is the words under the clip, not the whole script; its
+  descriptions persist to the shot ledger so later runs read them without re-asking TwelveLabs.
+  The desktop ledger cache is invalidated after a describe.
+- [x] **EQ10** Cutaway transitions: a b-roll insert over the A-roll can dissolve/zoom in and out
+  (the agent kept answering "only one real cut exists"). `add_layer_transition`,
+  `list_edit_boundaries` cutaway records, `add_transitions includeCutaways`, `verify_transitions`.
+- [x] **EQ11** The buried-picture self-check stops telling the agent to delete the A-roll a cut-out
+  sandwich replays (it carries the audio); the repeated-take check skips a cut-out copy over its
+  own background.
+- [x] **EQ13** Title widths from the bundled fonts (`title_metrics.py` → `title-metrics.generated.ts`,
+  drift-tested): the family-factor estimate was −24 %…+33 % off and let short words in script faces
+  overflow; TS and engine now fit "MOTION"/Anton to the same 15.6 %.
+- [x] **EQ14** Burned captions composite above effect layers (the export blurred/vignetted cues the
+  monitor showed crisp).
+- [x] **EQ15** `check_caption_legibility`: contrast of each sampled cue against the real picture
+  (keyed caption frame, WCAG 3:1). Real project: 2 of 4 cues at 1.1–2.0:1; ≥ 9.4:1 with an outline.
+  25 s cold / 11 s warm.
+- [ ] **EQ16** (follow-up) The preview's optional burn-captions mode draws captions before its
+  WebGL effect post-process; its default DOM overlay already matches the export.
+- [ ] **EQ17** (follow-up) The captured project itself still holds the damage the old tools left: a
+  nested sandwich, a Subtract front cut-out, two cues on an overlay track, un-outlined captions.
+  No migration (schema-neutral data the editor owns); the tools now refuse to build on it and name
+  the fix.
+- [x] **EQ12** Docs, ADR 0183, changelog; rebuild the packages the desktop consumes.
+
 **Status snapshot (2026-09-21, BACKGROUND-REMOVAL speed — `plan/background-removal-ai/13-SPEED-AND-PRODUCTION-READINESS.md`):**
 a maintainer's 52 s 1080p clip ran _Remove background_ for 5+ hours without finishing a step. Not a
 hang: the Smart Mask worker is CPU-only and BR0.7 already measured ≈ 520 compute-s per footage-s
