@@ -334,7 +334,7 @@ def test_frosted_caption_chip_blurs_the_exported_picture_behind_it(tmp_project_d
         check=True,
         capture_output=True,
     )
-    style = {
+    style: dict[str, object] = {
         "fontFamily": "Inter",
         "textColor": "#ffffff00",
         "position": "middle",
