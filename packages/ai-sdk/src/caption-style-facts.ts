@@ -42,10 +42,12 @@ export { MIN_CAPTION_CUE_SECONDS } from '@framepilot/editor-core';
 
 /** The sentence every caption-style surface hands the model about units. */
 export const CAPTION_STYLE_UNITS =
-  'background.radius, background.paddingX, background.paddingY and shadow.blur are ' +
-  'FRACTIONS of the font size — the catalog uses 0.25–0.6, and a chip that hugs the ' +
-  'text is paddingX 0.4–0.5, paddingY 0.25–0.35, radius 0.2–0.4. outlineWidth is in ' +
-  'SIXTEENTHS of the font size: the catalog uses 1–2.5, and 3 is already a heavy stroke. ' +
+  'background.radius, background.paddingX, background.paddingY, background.blur and ' +
+  'shadow.blur are FRACTIONS of the font size — the catalog uses 0.25–0.6, and a chip that ' +
+  'hugs the text is paddingX 0.4–0.5, paddingY 0.25–0.35, radius 0.2–0.4; a frosted-glass ' +
+  'box is background.blur 0.3–0.4 over a low-alpha tint. outlineWidth and ' +
+  'background.borderWidth are in SIXTEENTHS of the font size: the catalog uses 1–2.5, and 3 ' +
+  'is already a heavy stroke. textOpacity is the letters\' fill, 0–1 (0 = outline only). ' +
   'fontScale multiplies ' +
   'the base size (1/22 of the frame height). xPercent, yPercent and maxWidthPercent are ' +
   `percent of the frame. Font-relative values above ${String(MAX_CAPTION_EM_VALUE)} are refused.`;
@@ -61,7 +63,7 @@ function emFields(style: CaptionStyle | null | undefined): EmField[] {
   const out: EmField[] = [];
   const { background, shadow } = style;
   if (background) {
-    for (const key of ['radius', 'paddingX', 'paddingY'] as const) {
+    for (const key of ['radius', 'paddingX', 'paddingY', 'blur'] as const) {
       const value = background[key];
       if (typeof value === 'number') out.push({ path: `background.${key}`, value });
     }

@@ -1028,6 +1028,7 @@ def discover_caption_styles(args: DiscoverCaptionStylesArgs, ctx: ToolContext) -
             "fontStyle",
             "fontScale",
             "textColor",
+            "textOpacity",
             "outlineColor",
             "outlineWidth",
             "xPercent",

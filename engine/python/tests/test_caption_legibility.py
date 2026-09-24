@@ -203,3 +203,23 @@ def test_the_keyed_overlay_draws_the_cue_in_the_key_colour_and_nothing_else() ->
     near_key = np.sqrt(((during.astype(float) - key) ** 2).sum(axis=2)) < cl.FILL_DISTANCE
     assert near_key.sum() > cl.MIN_FILL_PIXELS
     assert not (np.sqrt(((before.astype(float) - key) ** 2).sum(axis=2)) < cl.FILL_DISTANCE).any()
+
+
+def test_see_through_letters_are_still_found_by_the_key() -> None:
+    # Schema v24: a see-through caption's keyed frame draws SOLID key-coloured letters.
+    # Drawn at the style's own 30 % they would sit far from the key colour and the cue
+    # would read as "nothing drawn" — a see-through caption unmeasurable by design.
+    from framepilot_engine.render.compiler import caption_overlay_frames
+
+    project = _project()
+    track = project.timeline.tracks[0]
+    assert track.caption_style is not None
+    see_through = track.model_copy(
+        update={"caption_style": track.caption_style.model_copy(update={"text_opacity": 0.3})}
+    )
+    project = project.model_copy(
+        update={"timeline": project.timeline.model_copy(update={"tracks": [see_through]})}
+    )
+    (during,) = caption_overlay_frames(cl.keyed_captions_project(project), (270, 480), [2.0])
+    near_key = np.sqrt(((during.astype(float) - np.array(KEY)) ** 2).sum(axis=2)) < cl.FILL_DISTANCE
+    assert near_key.sum() > cl.MIN_FILL_PIXELS

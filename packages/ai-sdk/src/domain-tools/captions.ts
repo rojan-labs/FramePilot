@@ -437,6 +437,9 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
             ? { background: template.style.background }
             : {}),
           ...(template.style.shadow !== undefined ? { shadow: template.style.shadow } : {}),
+          ...(template.style.textOpacity !== undefined
+            ? { textOpacity: template.style.textOpacity }
+            : {}),
         })),
         compositionFields: [
           'fontFamily',
@@ -444,6 +447,7 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
           'fontStyle',
           'fontScale',
           'textColor',
+          'textOpacity',
           'outlineColor',
           'outlineWidth',
           'xPercent',
@@ -712,7 +716,10 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'AI equivalent of the Captions panel controls: choose a discovered template/font; ' +
         'set font weight/style/scale, colors, outline, xPercent/yPercent placement, rotation, ' +
         'maximum width, alignment, line height, safe area, spacing, padding/background, ' +
-        'shadow, animation, and accent behavior. Per-cue set_caption_style overrides still ' +
+        'shadow, animation, and accent behavior — plus see-through letters (textOpacity 0–1, ' +
+        'the outline and shadow stay solid outside them) and a frosted-glass box ' +
+        '(background.blur, a low-alpha tint, borderColor/borderWidth rim). Per-cue ' +
+        'set_caption_style overrides still ' +
         'win. Pass captionStyle: null to clear the track default. Call discover_caption_styles ' +
         'first; unbundled fonts and unknown templates are rejected. background.paddingX/' +
         'paddingY/radius and shadow.blur are fractions of the font size (0.25–0.6), not pixels.',
@@ -777,7 +784,8 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'Override one caption cue after applying the track-wide design. Supports the full ' +
         'composition surface: font/template, weight/style/scale, colors/outline, xPercent/' +
         'yPercent placement, rotation, maximum width, alignment, line height, safe area, ' +
-        'letter spacing, background/padding, shadow, highlight, animation and accent. Prefer ' +
+        'letter spacing, background/padding, shadow, highlight, animation, accent, ' +
+        'see-through letters (textOpacity) and a frosted-glass box (background.blur). Prefer ' +
         'captionStyle: { templateId } naming a template from discover_caption_styles (it ' +
         'lists every template with its category); any explicit field overrides the ' +
         'template. Load the caption-design skill for selection guidance. Unbundled fonts ' +

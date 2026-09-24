@@ -151,7 +151,13 @@ def measure_caption_pixels(
 
 
 def _keyed(style: CaptionStyle | None) -> CaptionStyle:
-    return (style or CaptionStyle()).model_copy(update={"text_color": KEY_COLOR})
+    # Solid letters in the keyed frame, whatever the style's `textOpacity` (schema v24):
+    # the key finds WHERE the letters are, and a see-through letter drawn in a
+    # translucent key colour would fall outside the key's colour distance and vanish.
+    # How well a see-through letter reads is still judged on the delivered frame.
+    return (style or CaptionStyle()).model_copy(
+        update={"text_color": KEY_COLOR, "text_opacity": 1.0}
+    )
 
 
 def keyed_captions_project(project: Project) -> Project:
