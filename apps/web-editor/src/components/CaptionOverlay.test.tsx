@@ -4,7 +4,7 @@
  * caption shows only the spoken word.
  */
 import { render } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CaptionOverlay } from './CaptionOverlay.js';
 
 const WORDS = [
@@ -47,5 +47,56 @@ describe('CaptionOverlay', () => {
     );
     expect(states(container)).toEqual(['active']);
     expect(container.textContent).toBe('goes');
+  });
+
+  it('draws see-through letters as stacked copies, reading only the letters copy', () => {
+    // jsdom does not resolve an inherited font size; a browser gives the px value.
+    const computed = window.getComputedStyle.bind(window);
+    const spy = vi
+      .spyOn(window, 'getComputedStyle')
+      .mockImplementation((element) =>
+        Object.assign(computed(element), { fontSize: '20px' } as Partial<CSSStyleDeclaration>),
+      );
+    const { container } = render(
+      <CaptionOverlay
+        style={{
+          display: 'phrase',
+          textOpacity: 0.3,
+          outlineColor: '#000000',
+          outlineWidth: 2,
+          highlight: {
+            enabled: true,
+            color: '#ffd60a',
+            animation: 'background',
+            background: '#000',
+          },
+        }}
+        lines={[WORDS]}
+        time={0.5}
+        fontSize="20px"
+      />,
+    );
+    const stack = container.querySelector('.caption-see-through');
+    expect(stack).not.toBeNull();
+    // chips, the knocked-out ring/shadow copy, and the letters: one layout each.
+    expect(stack?.querySelectorAll('.caption-overlay-line')).toHaveLength(3);
+    expect(container.querySelector('[data-caption-layer="separation"]')).not.toBeNull();
+    const filter = container.querySelector('filter');
+    expect(filter?.querySelector('feMorphology')?.getAttribute('radius')).toBe('2.5');
+    // Only the letters copy carries word states, so the text reads once.
+    expect(states(container)).toEqual(['active', 'upcoming', 'upcoming']);
+    spy.mockRestore();
+  });
+
+  it('frosts the chip behind the caption with a backdrop blur', () => {
+    const { container } = render(
+      <CaptionOverlay
+        style={{ background: { color: '#ffffff26', blur: 0.3 } }}
+        lines={[WORDS]}
+        time={0.5}
+      />,
+    );
+    const block = container.querySelector<HTMLElement>('.caption-overlay-block');
+    expect(block?.style.backdropFilter).toBe('blur(0.3em)');
   });
 });

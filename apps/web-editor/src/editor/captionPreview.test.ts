@@ -7,11 +7,14 @@ import { describe, expect, it } from 'vitest';
 import type { TranscriptWord } from '@framepilot/timeline-schema';
 import {
   accentWordIndices,
+  captionBoxCss,
   captionLineCss,
   captionLineScale,
   captionWordCss,
   captionWordMotion,
+  isSeeThroughCaption,
   resolveCaptionStyle,
+  seeThroughColor,
   visibleWordIndices,
   wordState,
 } from './captionPreview.js';
@@ -251,6 +254,69 @@ describe('captionLineCss', () => {
     expect(css.color).toBe('#ffd60a');
     expect(css.fontFamily).toBe('Archivo Black');
     expect(css.textTransform).toBe('uppercase');
+  });
+});
+
+describe('see-through letters and frosted chips (schema v24)', () => {
+  it('mixes an opacity into any CSS colour and leaves solid colours untouched', () => {
+    expect(seeThroughColor('#ffffff', 1)).toBe('#ffffff');
+    expect(seeThroughColor('#ffffff', 0.35)).toBe('color-mix(in srgb, #ffffff 35%, transparent)');
+    expect(seeThroughColor('rgb(1 2 3)', 0)).toBe('color-mix(in srgb, rgb(1 2 3) 0%, transparent)');
+  });
+
+  it('draws translucent letters on the line but leaves their outline and shadow to the copies', () => {
+    const css = captionLineCss(
+      resolveCaptionStyle({
+        textColor: '#ffffff',
+        textOpacity: 0.4,
+        outlineColor: '#000000',
+        outlineWidth: 2,
+        shadow: { color: '#000000', blur: 0.2, offsetX: 0, offsetY: 0.05 },
+      }),
+    );
+    expect(css.color).toBe('color-mix(in srgb, #ffffff 40%, transparent)');
+    expect(css.WebkitTextStroke).toBeUndefined();
+    expect(css.textShadow).toBeUndefined();
+    expect(isSeeThroughCaption(resolveCaptionStyle({ textOpacity: 1 }))).toBe(false);
+    expect(isSeeThroughCaption(resolveCaptionStyle({ textOpacity: 0 }))).toBe(true);
+  });
+
+  it('frosts and edges the chip without changing its size', () => {
+    const css = captionBoxCss(
+      resolveCaptionStyle({
+        background: { color: '#ffffff26', blur: 0.3, borderColor: '#ffffff66', borderWidth: 1.6 },
+      }),
+    );
+    expect(css.backdropFilter).toBe('blur(0.3em)');
+    expect(css.WebkitBackdropFilter).toBe('blur(0.3em)');
+    expect(css.boxShadow).toBe('inset 0 0 0 0.1em #ffffff66');
+    expect(captionBoxCss(resolveCaptionStyle({ background: { color: '#000000' } }))).toEqual({});
+  });
+
+  it('paints each see-through copy its own way while keeping one geometry', () => {
+    const style = resolveCaptionStyle({
+      textColor: '#ffffff',
+      textOpacity: 0.5,
+      highlight: {
+        enabled: true,
+        color: '#ff0000',
+        animation: 'background',
+        background: '#00ff00',
+      },
+    });
+    const arrived = { opacity: 1, translateYEm: 0, scale: 1, reveal: 1 } as const;
+    const word = { word: 'go', start: 0, end: 1 };
+    const fill = captionWordCss(style, 'active', arrived, false, 0.5, word, 'fill');
+    const glyphs = captionWordCss(style, 'active', arrived, false, 0.5, word, 'glyphs');
+    const chips = captionWordCss(style, 'active', arrived, false, 0.5, word, 'chips');
+    expect(fill.color).toBe('color-mix(in srgb, #ff0000 50%, transparent)');
+    expect(fill.backgroundColor).toBeUndefined();
+    expect(glyphs.color).toBe('#000000');
+    expect(glyphs.backgroundColor).toBeUndefined();
+    expect(chips.color).toBe('transparent');
+    expect(chips.backgroundColor).toBe('#00ff00');
+    // Same padding in every copy, so the three stack exactly.
+    expect(new Set([fill.padding, glyphs.padding, chips.padding]).size).toBe(1);
   });
 });
 

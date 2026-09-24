@@ -240,6 +240,55 @@ export function captionLineScale(resolved: ResolvedCaptionStyle, time: number): 
  */
 export const OUTLINE_WIDTH_UNITS_PER_EM = 16;
 
+/**
+ * The letters' fill opacity (schema v24): below 1 the caption is drawn
+ * see-through — see {@link CaptionPaintLayer}. Absent means solid letters.
+ */
+export function captionTextOpacity(resolved: ResolvedCaptionStyle): number {
+  const value = resolved.textOpacity;
+  return value === undefined ? 1 : Math.min(1, Math.max(0, value));
+}
+
+/** Whether the letters are translucent, which needs the layered see-through paint. */
+export function isSeeThroughCaption(resolved: ResolvedCaptionStyle): boolean {
+  return captionTextOpacity(resolved) < 1;
+}
+
+/**
+ * `color` with its alpha multiplied by `opacity`, for any CSS colour string.
+ *
+ * `color-mix` with `transparent` rather than parsing: the schema allows any CSS
+ * colour on the web side, and mixing keeps an alpha the colour already has
+ * (a `#ffffffcc` at 50% is 40% white — the export's multiplication).
+ */
+export function seeThroughColor(color: string, opacity: number): string {
+  if (opacity >= 1) return color;
+  const percent = Math.round(Math.max(0, opacity) * 1000) / 10;
+  return `color-mix(in srgb, ${color} ${percent}%, transparent)`;
+}
+
+/**
+ * Which copy of a see-through caption a word is being styled for (schema v24).
+ *
+ * CSS cannot draw an outline or shadow that stops at a translucent letter's
+ * edge: `-webkit-text-stroke` is centred on the outline and `text-shadow` is
+ * painted under the letter, so both show THROUGH it — and the export
+ * (`render/captions.py#_split_letters`) shows only the picture. A see-through
+ * caption is therefore three stacked copies of the same layout, bottom to top:
+ *
+ * - `chips`  — only the active-word chips (text transparent);
+ * - `glyphs` — opaque letters that an SVG filter turns into the outline ring and
+ *   shadow, knocked out wherever a letter is (the export's paint order: chips,
+ *   shadow, ring, glow, letters);
+ * - `fill`   — the translucent letters and the word glow.
+ *
+ * `undefined` is the ordinary single copy every solid caption uses.
+ */
+export type CaptionPaintLayer = 'chips' | 'glyphs' | 'fill';
+
+/** The opaque ink the `glyphs` copy draws letters in; only its alpha is read. */
+const GLYPH_INK = '#000000';
+
 /** CSS for the caption line container (typography, chip, shadow). */
 export function captionLineCss(resolved: ResolvedCaptionStyle): CSSProperties {
   const css: CSSProperties = {
@@ -255,7 +304,7 @@ export function captionLineCss(resolved: ResolvedCaptionStyle): CSSProperties {
     // its default. Automatic optical sizing would move `opsz` with the preview's
     // on-screen size and draw different letterforms than the export.
     fontOpticalSizing: 'none',
-    color: resolved.textColor ?? '#ffffff',
+    color: seeThroughColor(resolved.textColor ?? '#ffffff', captionTextOpacity(resolved)),
     letterSpacing: resolved.letterSpacing !== undefined ? `${resolved.letterSpacing}em` : undefined,
     textTransform: resolved.textTransform === 'none' ? undefined : resolved.textTransform,
   };
@@ -264,6 +313,9 @@ export function captionLineCss(resolved: ResolvedCaptionStyle): CSSProperties {
     css.borderRadius = `${resolved.background.radius ?? 0.35}em`;
     css.padding = `${resolved.background.paddingY ?? 0.35}em ${resolved.background.paddingX ?? 0.35}em`;
   }
+  // See-through letters draw their outline and shadow in a separate knocked-out
+  // copy (CaptionOverlay); on the line itself they would show through the letters.
+  if (isSeeThroughCaption(resolved)) return css;
   if (resolved.shadow !== undefined) {
     const s = resolved.shadow;
     css.textShadow = `${s.offsetX}em ${s.offsetY}em ${s.blur}em ${s.color}`;
@@ -281,9 +333,37 @@ export function captionLineCss(resolved: ResolvedCaptionStyle): CSSProperties {
 }
 
 /**
+ * The frosted-glass and glass-edge CSS of the caption's chip (schema v24), for
+ * the on-video overlay only — a list row styled like a caption must not blur
+ * the panel behind it.
+ *
+ * `backdrop-filter: blur()` takes a standard deviation, as `background.blur`
+ * is; the border is an INSET ring so it never changes the chip's size, as the
+ * export draws it inside the chip.
+ */
+export function captionBoxCss(resolved: ResolvedCaptionStyle): CSSProperties {
+  const background = resolved.background;
+  if (background === undefined) return {};
+  const css: CSSProperties = {};
+  if ((background.blur ?? 0) > 0) {
+    css.backdropFilter = `blur(${background.blur}em)`;
+    css.WebkitBackdropFilter = `blur(${background.blur}em)`;
+  }
+  if (background.borderColor !== undefined && (background.borderWidth ?? 0) > 0) {
+    const em = (background.borderWidth ?? 0) / OUTLINE_WIDTH_UNITS_PER_EM;
+    css.boxShadow = `inset 0 0 0 ${em}em ${background.borderColor}`;
+  }
+  return css;
+}
+
+/**
  * CSS for one word span: state dimming, active-word emphasis, accent styling,
  * and entrance/loop motion. `karaokeFraction` (0..1) is the elapsed portion
  * of the active word's own span, used by the `karaoke-fill` wipe.
+ *
+ * `layer` selects a see-through caption's copy (see {@link CaptionPaintLayer});
+ * every copy keeps the same geometry (padding, size, transform, opacity) so the
+ * three stack exactly, and differs only in what it paints.
  */
 export function captionWordCss(
   resolved: ResolvedCaptionStyle,
@@ -292,9 +372,19 @@ export function captionWordCss(
   isAccent: boolean,
   time: number,
   word: TranscriptWord,
+  layer?: CaptionPaintLayer,
 ): CSSProperties {
   const css: CSSProperties = {};
   const highlight = resolved.highlight;
+  const opacity = layer === 'fill' ? captionTextOpacity(resolved) : 1;
+  // What each copy paints a letter colour as: the translucent fill, the opaque
+  // glyph the separation filter reads, or nothing (the chips copy).
+  const ink = (color: string): string =>
+    layer === 'glyphs'
+      ? GLYPH_INK
+      : layer === 'chips'
+        ? 'transparent'
+        : seeThroughColor(color, opacity);
   const emphasized = state === 'active' && highlight?.enabled === true;
   const emphasis = emphasized ? (highlight.animation ?? 'none') : 'none';
   const highlightColor = highlight?.color ?? DEFAULT_HIGHLIGHT_COLOR;
@@ -316,39 +406,49 @@ export function captionWordCss(
     const accent = resolved.accent;
     if (accent.fontFamily !== undefined) css.fontFamily = accent.fontFamily;
     if (accent.fontScale !== undefined) css.fontSize = `${accent.fontScale}em`;
-    if (accent.color !== undefined) css.color = accent.color;
+    if (accent.color !== undefined) css.color = ink(accent.color);
     if (accent.fontStyle !== undefined) css.fontStyle = accent.fontStyle;
   }
 
   let scale = motion.scale;
   if (emphasis === 'color') {
-    css.color = highlightColor;
+    css.color = ink(highlightColor);
   } else if (emphasis === 'pop') {
-    css.color = highlightColor;
+    css.color = ink(highlightColor);
     scale *= highlightScale;
   } else if (emphasis === 'pulse') {
-    css.color = highlightColor;
+    css.color = ink(highlightColor);
     const phase = (2 * Math.PI * (time - word.start)) / EMPHASIS_PULSE_PERIOD;
     scale *= 1 + ((highlightScale - 1) / 2) * (1 + Math.sin(phase));
   } else if (emphasis === 'karaoke-fill') {
-    const span = word.end - word.start;
-    const fraction = clamp01(span > 0 ? (time - word.start) / span : 1);
-    const base = resolved.textColor ?? '#ffffff';
-    const pct = (fraction * 100).toFixed(1);
-    css.backgroundImage = `linear-gradient(90deg, ${highlightColor} ${pct}%, ${base} ${pct}%)`;
-    css.backgroundClip = 'text';
-    css.WebkitBackgroundClip = 'text';
-    css.color = 'transparent';
+    if (layer === 'glyphs' || layer === 'chips') {
+      css.color = ink(highlightColor);
+    } else {
+      const span = word.end - word.start;
+      const fraction = clamp01(span > 0 ? (time - word.start) / span : 1);
+      const base = ink(resolved.textColor ?? '#ffffff');
+      const pct = (fraction * 100).toFixed(1);
+      css.backgroundImage = `linear-gradient(90deg, ${ink(highlightColor)} ${pct}%, ${base} ${pct}%)`;
+      css.backgroundClip = 'text';
+      css.WebkitBackgroundClip = 'text';
+      css.color = 'transparent';
+    }
   } else if (emphasis === 'background') {
-    css.color = highlightColor;
-    css.backgroundColor = highlight?.background ?? DEFAULT_HIGHLIGHT_COLOR;
+    css.color = ink(highlightColor);
+    // Only the chips copy paints the chip; every copy keeps its padding and
+    // radius so the three copies lay out identically.
+    if (layer === undefined || layer === 'chips') {
+      css.backgroundColor = highlight?.background ?? DEFAULT_HIGHLIGHT_COLOR;
+    }
     css.borderRadius = '0.15em';
     css.padding = '0.05em 0.18em';
   } else if (emphasis === 'glow') {
-    css.color = highlightColor;
-    css.textShadow = `0 0 0.25em ${highlightColor}, 0 0 0.5em ${highlightColor}`;
+    css.color = ink(highlightColor);
+    if (layer === undefined || layer === 'fill') {
+      css.textShadow = `0 0 0.25em ${highlightColor}, 0 0 0.5em ${highlightColor}`;
+    }
   } else if (emphasis === 'underline') {
-    css.color = highlightColor;
+    css.color = ink(highlightColor);
     css.textDecoration = 'underline';
     css.textDecorationThickness = '0.08em';
     css.textUnderlineOffset = '0.15em';
