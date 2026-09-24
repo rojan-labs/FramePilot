@@ -307,3 +307,60 @@ def test_free_positioned_caption_renders_in_authored_region(tmp_project_dir: Pat
     lower = delta[int(delta.shape[0] * 0.7) :].mean()
     assert upper_left > 1.0
     assert upper_left > lower * 2
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_frosted_caption_chip_blurs_the_exported_picture_behind_it(tmp_project_dir: Path) -> None:
+    """Schema v24: a frosted chip smooths the delivered picture under it, in the MP4."""
+    from moviepy import VideoFileClip
+
+    from framepilot_engine.media.ffmpeg import find_ffmpeg
+
+    duration = 0.8
+    source = tmp_project_dir / "src.mp4"
+    subprocess.run(
+        [
+            find_ffmpeg(),
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            # A fine checkerboard: blur turns it grey, so smoothing is unmistakable.
+            f"nullsrc=s=216x384:r=30:d={duration},geq=lum='255*mod(floor(X/4)+floor(Y/4),2)':cb=128:cr=128",
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    style = {
+        "fontFamily": "Inter",
+        "textColor": "#ffffff00",
+        "position": "middle",
+        "background": {"color": "#ffffff00", "radius": 0, "blur": 0.35},
+    }
+    flat = export_video(
+        _caption_project(duration, {**style, "background": {"color": "#ffffff00"}}),
+        base_dir=tmp_project_dir,
+        settings=ExportSettings(fps=30),
+        output_path="flat.mp4",
+        burn_captions=True,
+    )
+    frosted = export_video(
+        _caption_project(duration, style),
+        base_dir=tmp_project_dir,
+        settings=ExportSettings(fps=30),
+        output_path="frosted.mp4",
+        burn_captions=True,
+    )
+    assert flat.output_path is not None and frosted.output_path is not None
+    with VideoFileClip(flat.output_path) as a, VideoFileClip(frosted.output_path) as b:
+        fa = np.asarray(a.get_frame(0.35), dtype=np.float64).mean(axis=2)
+        fb = np.asarray(b.get_frame(0.35), dtype=np.float64).mean(axis=2)
+    h, w = fa.shape
+    centre = (slice(int(h * 0.47), int(h * 0.53)), slice(int(w * 0.4), int(w * 0.6)))
+    top = (slice(0, int(h * 0.1)), slice(0, w))
+    # Behind the middle chip the checkerboard is smoothed; far from it, untouched.
+    assert fb[centre].std() < fa[centre].std() * 0.5
+    assert abs(fb[top].std() - fa[top].std()) < fa[top].std() * 0.05

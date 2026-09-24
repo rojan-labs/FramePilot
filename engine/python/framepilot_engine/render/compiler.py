@@ -65,6 +65,7 @@ from __future__ import annotations
 import logging
 import math
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -103,8 +104,9 @@ from framepilot_engine.render import transition_passes, transitions
 from framepilot_engine.render.blend import apply_blend_mode
 from framepilot_engine.render.caption_templates import layer_caption_style
 from framepilot_engine.render.captions import (
+    CaptionRaster,
     caption_style_is_animated,
-    render_caption_image,
+    render_caption_raster,
     resolve_caption_cue,
 )
 from framepilot_engine.render.clip_blur import (
@@ -1601,11 +1603,22 @@ def compile_timeline(
         # while the monitor showed them crisp.
         if burn_captions:
             captions = _caption_layers(project, target)
-            if any(mode is not None and mode != "normal" for _, mode in captions):
-                composite = _composite_with_blend_modes([(composite, None), *captions], target, fps)
+            if any(caption.backdrop is not None for caption in captions):
+                # A frosted-glass chip blurs the DELIVERED picture behind it, which no
+                # MoviePy layer can see; the caption compositor draws each playing
+                # caption over the frame beneath it, frosting first (schema v24).
+                composite = _composite_captions(composite, captions, fps)
+            elif any(caption.blend_mode not in (None, "normal") for caption in captions):
+                composite = _composite_with_blend_modes(
+                    [(composite, None), *((c.picture, c.blend_mode) for c in captions)],
+                    target,
+                    fps,
+                )
             elif captions:
                 composite = CompositeVideoClip(
-                    [composite, *(layer for layer, _ in captions)], size=target, bg_color=(0, 0, 0)
+                    [composite, *(caption.picture for caption in captions)],
+                    size=target,
+                    bg_color=(0, 0, 0),
                 ).with_fps(fps)
         if audio_layers:
             composite = composite.with_audio(CompositeAudioClip(audio_layers))
@@ -1735,7 +1748,7 @@ def caption_overlay_frames(
     """
     from moviepy import ColorClip, CompositeVideoClip
 
-    layers = [layer for layer, _mode in _caption_layers(project, target)]
+    layers = [caption.picture for caption in _caption_layers(project, target)]
     duration = max([timeline_duration(project.timeline), *(t + 1.0 for t in times)])
     base = ColorClip(size=target, color=(0, 0, 0), duration=duration)
     composite = CompositeVideoClip([base, *layers], size=target, bg_color=(0, 0, 0))
@@ -1745,18 +1758,34 @@ def caption_overlay_frames(
         close_clip_tree(composite)
 
 
-def _caption_layers(project: Project, target: tuple[int, int]) -> list[tuple[Any, str | None]]:
+@dataclass(frozen=True)
+class _CaptionLayer:
+    """One burned caption, placed in the frame, and — for a frosted chip — its backdrop.
+
+    ``backdrop`` is placed exactly like ``picture`` (same size, rotation and position)
+    and carries the chip's coverage as its mask: where the delivered picture behind the
+    caption is replaced by a blurred copy of itself, ``backdrop_sigma_px`` wide.
+    """
+
+    picture: Any
+    blend_mode: str | None
+    backdrop: Any | None = None
+    backdrop_sigma_px: float = 0.0
+
+
+def _caption_layers(project: Project, target: tuple[int, int]) -> list[_CaptionLayer]:
     target_w, target_h = target
     margin = int(target_h * _CAPTION_BOTTOM_MARGIN_FRACTION)
-    layers: list[tuple[Any, str | None]] = []
+    layers: list[_CaptionLayer] = []
     for track in caption_tracks(project):
         for clip in track.clips:
             cue = resolve_caption_cue(clip, project.transcript)
             if not cue.text.strip():
                 continue
             style = layer_caption_style(track.caption_style, clip.caption_style)
-            layer = _caption_clip(clip, cue.text, style, cue.words, target_w, target_h, margin)
-            layers.append((layer, clip.blend_mode))
+            layers.append(
+                _caption_clip(clip, cue.text, style, cue.words, target_w, target_h, margin)
+            )
     return layers
 
 
@@ -1768,7 +1797,7 @@ def _caption_clip(
     target_w: int,
     target_h: int,
     margin: int,
-) -> Any:
+) -> _CaptionLayer:
     from moviepy import ImageClip
     from moviepy import VideoClip as _VideoClip
 
@@ -1777,6 +1806,11 @@ def _caption_clip(
     duration = clip.end - clip.start
     words = list(cue_words) if style else []
     resolved = resolve_caption_style(style) if style is not None else None
+    frosted = (
+        resolved is not None
+        and resolved.background is not None
+        and (resolved.background.blur or 0.0) > 0.0
+    )
 
     def finish(picture: Any) -> Any:
         rotation = (
@@ -1792,42 +1826,145 @@ def _caption_clip(
             x, y = _caption_position(placement_style, target_w, target_h, box_w, box_h, margin)
         return picture.with_start(clip.start).with_position((x, y))
 
-    if style is not None and caption_style_is_animated(style):
-        last_frame: tuple[float, np.ndarray] | None = None
+    def raster_at(frame_time: float) -> CaptionRaster:
+        return render_caption_raster(
+            text, target_w, target_h, style=style, words=words, frame_time=frame_time
+        )
 
-        def rgba_at(t: float) -> np.ndarray:
+    if style is not None and caption_style_is_animated(style):
+        last_frame: tuple[float, CaptionRaster] | None = None
+
+        def cached(t: float) -> CaptionRaster:
             nonlocal last_frame
             if last_frame is None or last_frame[0] != t:
-                last_frame = (
-                    t,
-                    render_caption_image(
-                        text,
-                        target_w,
-                        target_h,
-                        style=style,
-                        words=words,
-                        frame_time=clip.start + t,
-                    ),
-                )
+                last_frame = (t, raster_at(clip.start + t))
             return last_frame[1]
 
         def rgb_at(t: float) -> np.ndarray:
-            image = rgba_at(t)
-            return np.ascontiguousarray(image[:, :, :3])
+            return np.ascontiguousarray(cached(t).image[:, :, :3])
 
         def alpha_at(t: float) -> np.ndarray:
-            image = rgba_at(t)
-            return image[:, :, 3].astype(np.float64) / 255.0
+            return cached(t).image[:, :, 3].astype(np.float64) / 255.0
 
         picture = _VideoClip(frame_function=rgb_at).with_duration(duration)
         mask = _VideoClip(frame_function=alpha_at, is_mask=True).with_duration(duration)
-        picture = picture.with_mask(mask)
-        return finish(picture)
+        picture = finish(picture.with_mask(mask))
+        if not frosted:
+            return _CaptionLayer(picture, clip.blend_mode)
+        first = cached(0.0)
+        white = np.full((*first.image.shape[:2], 3), 255, dtype=np.uint8)
 
-    image = render_caption_image(
-        text, target_w, target_h, style=style, words=words, frame_time=clip.start
+        def backdrop_at(t: float) -> np.ndarray:
+            coverage = cached(t).backdrop
+            if coverage is None:  # pragma: no cover - a frosted style always has a backdrop
+                return np.zeros(first.image.shape[:2], dtype=np.float64)
+            return coverage.astype(np.float64) / 255.0
+
+        backdrop = _VideoClip(frame_function=lambda _t: white).with_duration(duration)
+        backdrop_mask = _VideoClip(frame_function=backdrop_at, is_mask=True).with_duration(duration)
+        return _CaptionLayer(
+            picture,
+            clip.blend_mode,
+            finish(backdrop.with_mask(backdrop_mask)),
+            first.backdrop_sigma_px,
+        )
+
+    raster = raster_at(clip.start)
+    picture = finish(ImageClip(raster.image, transparent=True).with_duration(duration))
+    if raster.backdrop is None:
+        return _CaptionLayer(picture, clip.blend_mode)
+    white = np.full((*raster.image.shape[:2], 3), 255, dtype=np.uint8)
+    coverage = ImageClip(raster.backdrop.astype(np.float64) / 255.0, is_mask=True).with_duration(
+        duration
     )
-    return finish(ImageClip(image, transparent=True).with_duration(duration))
+    backdrop = finish(ImageClip(white).with_duration(duration).with_mask(coverage))
+    return _CaptionLayer(picture, clip.blend_mode, backdrop, raster.backdrop_sigma_px)
+
+
+def _composite_captions(base: VideoClip, captions: Sequence[_CaptionLayer], fps: float) -> Any:
+    """Draw each caption playing at ``t`` over the frame beneath it, frosting first.
+
+    WHY a compositor of its own: a frosted chip (schema v24) replaces the picture
+    behind it with a blurred copy of that picture. A MoviePy layer only sees its own
+    pixels, and nesting one composite per cue to reach the frame below would re-blit
+    the whole frame once per caption on the track (hundreds per export). Here the
+    frame is read once, and only the captions actually playing at ``t`` touch it —
+    each placed by MoviePy's own ``compose_on``, so the geometry is the one the
+    plain composite path uses.
+    """
+    from moviepy import VideoClip as _VideoClip
+
+    base_duration = float(base.duration)
+
+    def frame_at(t: float) -> np.ndarray:
+        from PIL import Image
+
+        base_t = min(max(t, 0.0), max(base_duration - 1e-6, 0.0))
+        frame = Image.fromarray(np.asarray(base.get_frame(base_t), dtype=np.uint8)).convert("RGBA")
+        for caption in captions:
+            if not caption.picture.is_playing(t):
+                continue
+            if caption.backdrop is not None and caption.backdrop_sigma_px > 0:
+                frame = _frost_behind(frame, caption.backdrop, t, caption.backdrop_sigma_px)
+            frame = _draw_caption_on(frame, caption, t)
+        return np.asarray(frame.convert("RGB"), dtype=np.uint8)
+
+    result = _VideoClip(frame_function=frame_at).with_duration(base_duration).with_fps(fps)
+    # Only reachable from `frame_at`'s closure; `close_clip_tree` walks this list.
+    result._framepilot_children = [
+        base,
+        *(caption.picture for caption in captions),
+        *(caption.backdrop for caption in captions if caption.backdrop is not None),
+    ]
+    return result
+
+
+def _frost_behind(frame: Any, backdrop: Any, t: float, sigma_px: float) -> Any:
+    """Replace the picture under the chip's coverage with its Gaussian blur.
+
+    Only the chip's bounding box (plus the blur's reach, 3 sigma) is blurred, so a
+    caption-sized chip costs a caption-sized blur, not a full-frame one.
+    """
+    from moviepy.tools import compute_position
+    from PIL import Image, ImageFilter
+
+    local = t - backdrop.start
+    coverage = np.asarray(backdrop.mask.get_frame(local), dtype=np.float64)
+    rows, cols = np.nonzero(coverage > 0.0)
+    if rows.size == 0:
+        return frame
+    height, width = coverage.shape
+    x, y = compute_position((width, height), frame.size, backdrop.pos(local), backdrop.relative_pos)
+    x, y = int(x), int(y)
+    reach = math.ceil(3.0 * sigma_px)
+    left = max(0, x + int(cols.min()) - reach)
+    top = max(0, y + int(rows.min()) - reach)
+    right = min(frame.width, x + int(cols.max()) + 1 + reach)
+    bottom = min(frame.height, y + int(rows.max()) + 1 + reach)
+    if right <= left or bottom <= top:
+        return frame
+    blurred = frame.crop((left, top, right, bottom)).filter(ImageFilter.GaussianBlur(sigma_px))
+    placed = Image.new("L", frame.size, 0)
+    placed.paste(Image.fromarray(np.round(coverage * 255.0).astype(np.uint8), "L"), (x, y))
+    frame.paste(blurred, (left, top), placed.crop((left, top, right, bottom)))
+    return frame
+
+
+def _draw_caption_on(frame: Any, caption: _CaptionLayer, t: float) -> Any:
+    """Composite one placed caption over ``frame``, honouring its blend mode."""
+    from PIL import Image
+
+    mode = caption.blend_mode
+    if mode is None or mode == "normal":
+        return caption.picture.compose_on(frame, t)
+    layer = caption.picture.compose_on(Image.new("RGBA", frame.size, (0, 0, 0, 0)), t)
+    top = np.asarray(layer, dtype=np.float64) / 255.0
+    base = np.asarray(frame.convert("RGB"), dtype=np.float64) / 255.0
+    alpha = top[:, :, 3:4]
+    mixed = base * (1.0 - alpha) + apply_blend_mode(base, top[:, :, :3], mode) * alpha
+    return Image.fromarray(np.clip(np.round(mixed * 255.0), 0, 255).astype(np.uint8)).convert(
+        "RGBA"
+    )
 
 
 #: Extra source pixels kept beyond the exact need, so a cropped/fitted frame never upsamples.

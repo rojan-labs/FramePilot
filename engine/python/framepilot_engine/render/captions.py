@@ -206,14 +206,52 @@ def render_caption_image(
     :returns: An ``(H, W, 4)`` ``uint8`` RGBA array.
     :raises ValueError: If ``text`` is empty/whitespace.
     """
+    return render_caption_raster(
+        text, frame_width, frame_height, style=style, words=words, frame_time=frame_time
+    ).image
+
+
+@dataclass(frozen=True)
+class CaptionRaster:
+    """A caption's RGBA image and, for a frosted-glass box, where to blur behind it.
+
+    ``backdrop`` is an ``(H, W)`` ``uint8`` coverage mask the SAME size as ``image``
+    (so the compiler can rotate and place both identically): 255 where the picture
+    behind the caption is replaced by its blurred copy, following the chip's shape
+    and every whole-caption entrance/loop transform the chip itself goes through.
+    ``None`` when the style has no frosted chip — the common case, which composites
+    exactly as before.
+    """
+
+    image: np.ndarray
+    backdrop: np.ndarray | None = None
+    #: Gaussian standard deviation of the backdrop blur, in output pixels.
+    backdrop_sigma_px: float = 0.0
+
+
+def render_caption_raster(
+    text: str,
+    frame_width: int,
+    frame_height: int,
+    *,
+    style: CaptionStyle | None = None,
+    words: Sequence[TranscriptWord] | None = None,
+    frame_time: float = 0.0,
+) -> CaptionRaster:
+    """:func:`render_caption_image` plus the frosted-glass backdrop mask (schema v24).
+
+    The export's compositor calls this: a frosted chip blurs the DELIVERED picture
+    behind it, which a caption image alone cannot carry — so the image and the mask
+    of where to blur come out of one layout pass and share every transform.
+
+    :raises ValueError: If ``text`` is empty/whitespace.
+    """
     if not text.strip():
         raise ValueError("Cannot render an empty caption.")
 
     if style is None:
-        return _render_baseline_caption_image(text, frame_width, frame_height)
-    return _render_styled_caption_image(
-        text, frame_width, frame_height, style, words or [], frame_time
-    )
+        return CaptionRaster(_render_baseline_caption_image(text, frame_width, frame_height))
+    return _render_styled_caption(text, frame_width, frame_height, style, words or [], frame_time)
 
 
 def _render_baseline_caption_image(text: str, frame_width: int, frame_height: int) -> np.ndarray:
@@ -319,6 +357,8 @@ class _ResolvedStyle:
     letter_spacing: float
     font_scale: float
     text_color: _RGBA
+    #: Opacity of the letters' fill (schema v24); below 1 the see-through path runs.
+    text_opacity: float
     outline_color: _RGBA | None
     #: In sixteenths of the font size; :func:`_stroke_px` converts it for Pillow.
     outline_width: float
@@ -326,6 +366,11 @@ class _ResolvedStyle:
     box_radius: float
     box_pad_x: float
     box_pad_y: float
+    #: Backdrop blur behind the chip (sigma, fraction of font size); 0 = flat chip.
+    box_blur: float
+    box_border_color: _RGBA | None
+    #: Chip edge width, sixteenths of the font size (the `outlineWidth` unit).
+    box_border_width: float
     shadow_color: _RGBA | None
     shadow_blur: float
     shadow_offset_x: float
@@ -415,6 +460,7 @@ def _resolve_style(style: CaptionStyle) -> _ResolvedStyle:
         letter_spacing=s.letter_spacing if s.letter_spacing is not None else 0.0,
         font_scale=s.font_scale if s.font_scale is not None else 1.0,
         text_color=_hex_to_rgba(s.text_color) if s.text_color else (255, 255, 255, 255),
+        text_opacity=(min(1.0, max(0.0, s.text_opacity)) if s.text_opacity is not None else 1.0),
         outline_color=_hex_to_rgba(s.outline_color) if s.outline_color else None,
         outline_width=float(s.outline_width) if s.outline_width is not None else 0.0,
         box_fill=box_fill,
@@ -430,6 +476,19 @@ def _resolve_style(style: CaptionStyle) -> _ResolvedStyle:
             background.padding_y
             if background is not None and background.padding_y is not None
             else 0.35
+        ),
+        box_blur=(
+            background.blur if background is not None and background.blur is not None else 0.0
+        ),
+        box_border_color=(
+            _hex_to_rgba(background.border_color)
+            if background is not None and background.border_color
+            else None
+        ),
+        box_border_width=(
+            background.border_width
+            if background is not None and background.border_width is not None
+            else 0.0
         ),
         shadow_color=_hex_to_rgba(shadow.color) if shadow is not None else None,
         shadow_blur=shadow.blur if shadow is not None else 0.0,
@@ -689,6 +748,21 @@ def _token_width(token: str, font: _Font, letter_spacing_px: float) -> float:
     return sum(font.getlength(ch) for ch in token) + letter_spacing_px * (len(token) - 1)
 
 
+@dataclass(frozen=True)
+class _GlyphInk:
+    """Where a word's letter FILL is recorded for the see-through path (schema v24).
+
+    ``draw`` paints an ``L`` coverage mask; ``level`` is the word's own opacity
+    (entrance fade, upcoming dim) as 0-255, so the mask carries exactly the
+    alpha the letters were drawn with — the same thing the preview's glyph copy
+    carries. ``None`` everywhere the style is not see-through: nothing extra is
+    drawn and the render is unchanged.
+    """
+
+    draw: ImageDraw.ImageDraw
+    level: int
+
+
 def _draw_token_text(
     canvas: ImageDraw.ImageDraw,
     xy: tuple[float, float],
@@ -698,8 +772,13 @@ def _draw_token_text(
     stroke_width: int,
     stroke_color: _RGBA | None,
     letter_spacing_px: float,
+    glyphs: _GlyphInk | None = None,
 ) -> None:
-    """Draw ``token`` at baseline-left ``xy``, honoring letter spacing."""
+    """Draw ``token`` at baseline-left ``xy``, honoring letter spacing.
+
+    With ``glyphs``, the letters' fill (no stroke) is also painted into the
+    see-through coverage mask at the word's opacity.
+    """
     x, y = xy
     if letter_spacing_px <= 0 or len(token) <= 1:
         canvas.text(
@@ -711,6 +790,8 @@ def _draw_token_text(
             stroke_width=stroke_width,
             stroke_fill=stroke_color,
         )
+        if glyphs is not None:
+            glyphs.draw.text((x, y), token, font=font, fill=glyphs.level, anchor="ls")
         return
     cursor = x
     for ch in token:
@@ -723,6 +804,8 @@ def _draw_token_text(
             stroke_width=stroke_width,
             stroke_fill=stroke_color,
         )
+        if glyphs is not None:
+            glyphs.draw.text((cursor, y), ch, font=font, fill=glyphs.level, anchor="ls")
         cursor += font.getlength(ch) + letter_spacing_px
 
 
@@ -898,6 +981,7 @@ def _draw_karaoke_word(
     stroke_width: int,
     stroke_color: _RGBA | None,
     letter_spacing_px: float,
+    glyphs: _GlyphInk | None = None,
 ) -> None:
     """Draw ``token`` on its baseline with a horizontal karaoke wipe.
 
@@ -919,6 +1003,7 @@ def _draw_karaoke_word(
         stroke_width,
         stroke_color,
         letter_spacing_px,
+        glyphs,
     )
     if fraction <= 0.0:
         return
@@ -958,6 +1043,7 @@ def _draw_scaled_word(
     stroke_width: int,
     stroke_color: _RGBA | None,
     letter_spacing_px: float,
+    glyphs: _GlyphInk | None = None,
 ) -> None:
     """Draw ``token`` in ``scaled_font``, scaled about the centre of its slot.
 
@@ -984,6 +1070,7 @@ def _draw_scaled_word(
         stroke_width,
         stroke_color,
         scaled_spacing,
+        glyphs,
     )
 
 
@@ -1144,20 +1231,28 @@ def _visible_indices(plans: Sequence[_TokenPlan], display: str, frame_time: floa
     return {p.index for p in plans}
 
 
-def _render_styled_caption_image(
+def _render_styled_caption(
     text: str,
     frame_width: int,
     frame_height: int,
     style: CaptionStyle,
     words: Sequence[TranscriptWord],
     frame_time: float,
-) -> np.ndarray:
+) -> CaptionRaster:
     """Render ``text`` via the data-driven template interpreter (schema v10).
 
     Layout is computed once from the FULL phrase (canvas-size invariant, see
     module docstring); the display mode then selects which planned words are
     drawn at ``frame_time``, the emphasis interpreter styles the active word,
     and entrance/loop math perturbs per-word or whole-image geometry.
+
+    Paint order, bottom to top: the line's chip (with its glass edge), the
+    active-word chips, the shadow, the glow, the letters. With see-through
+    letters (``textOpacity`` < 1, schema v24) the letters are split from their
+    outline ring: the shadow is knocked out wherever a letter is, the ring stays
+    at full strength outside the letters, and only the letter fill is made
+    translucent — so what shows through a letter is the chip or the picture,
+    never the caption's own outline or shadow.
     """
     resolved = _resolve_style(style)
     font_size = max(_MIN_FONT_SIZE, int(frame_height * _FONT_HEIGHT_FRACTION * resolved.font_scale))
@@ -1243,18 +1338,42 @@ def _render_styled_caption_image(
     canvas_w = block_w + 2 * pad_x + 2 * margin
     canvas_h = block_h + 2 * pad_y + 2 * margin
 
-    image = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
-    if resolved.box_fill[3] > 0:
-        chip_x = margin + (block_w - chip_w) // 2
+    size = (canvas_w, canvas_h)
+    image = Image.new("RGBA", size, (0, 0, 0, 0))
+    chip_x = margin + (block_w - chip_w) // 2
+    box = (chip_x, margin, chip_x + chip_w + 2 * pad_x - 1, margin + block_h + 2 * pad_y - 1)
+    box_radius = int(resolved.box_radius * font_size)
+    border_px = (
+        _stroke_px(resolved.box_border_width, font_size)
+        if resolved.box_border_color is not None
+        else 0
+    )
+    if resolved.box_fill[3] > 0 or border_px > 0:
+        # The glass edge is drawn INSIDE the chip (Pillow's outline grows inward),
+        # matching the preview's inset ring, so a border never resizes the chip.
         ImageDraw.Draw(image).rounded_rectangle(
-            (chip_x, margin, chip_x + chip_w + 2 * pad_x - 1, margin + block_h + 2 * pad_y - 1),
-            radius=int(resolved.box_radius * font_size),
-            fill=resolved.box_fill,
+            box,
+            radius=box_radius,
+            fill=resolved.box_fill if resolved.box_fill[3] > 0 else None,
+            outline=resolved.box_border_color if border_px > 0 else None,
+            width=max(1, border_px),
+        )
+    backdrop: Image.Image | None = None
+    if resolved.box_blur > 0:
+        backdrop = Image.new("RGBA", size, (0, 0, 0, 0))
+        ImageDraw.Draw(backdrop).rounded_rectangle(
+            box, radius=box_radius, fill=(255, 255, 255, 255)
         )
 
     block_start = min((p.word.start for p in plans if p.word is not None), default=None)
 
-    text_layer = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+    see_through = resolved.text_opacity < 1.0
+    layers = _WordLayers(
+        text=Image.new("RGBA", size, (0, 0, 0, 0)),
+        chips=Image.new("RGBA", size, (0, 0, 0, 0)),
+        glow=Image.new("RGBA", size, (0, 0, 0, 0)),
+        glyphs=Image.new("L", size, 0) if see_through else None,
+    )
     y_cursor = float(margin + pad_y)
     for line, (line_width, line_ascent, line_descent) in zip(lines, line_dims, strict=True):
         baseline = y_cursor + line_ascent
@@ -1268,7 +1387,7 @@ def _render_styled_caption_image(
             if plan.index in visible:
                 motion = _word_motion(plan, resolved, frame_time, block_start, font_size)
                 _draw_planned_word(
-                    text_layer,
+                    layers,
                     plan,
                     x_cursor,
                     baseline,
@@ -1281,12 +1400,14 @@ def _render_styled_caption_image(
             x_cursor += plan.width + space_width
         y_cursor += line_ascent + line_descent + line_gap
 
+    image.alpha_composite(layers.chips)
+    glyph_mask = np.asarray(layers.glyphs, dtype=np.uint8) if layers.glyphs is not None else None
     if resolved.shadow_color is not None:
-        shadow = _tint_alpha(text_layer, resolved.shadow_color)
+        shadow = _tint_alpha(layers.text, resolved.shadow_color)
         sigma_px = resolved.shadow_blur * font_size / _CSS_BLUR_RADIUS_PER_SIGMA
         if sigma_px > 0:
             shadow = shadow.filter(ImageFilter.GaussianBlur(radius=sigma_px))
-        offset = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+        offset = Image.new("RGBA", size, (0, 0, 0, 0))
         offset.alpha_composite(
             shadow,
             (
@@ -1294,33 +1415,102 @@ def _render_styled_caption_image(
                 round(resolved.shadow_offset_y * font_size),
             ),
         )
+        if glyph_mask is not None:
+            offset = _knock_out(offset, glyph_mask)
         image.alpha_composite(offset)
-    image.alpha_composite(text_layer)
+    if glyph_mask is None:
+        image.alpha_composite(layers.glow)
+        image.alpha_composite(layers.text)
+    else:
+        ring, letters = _split_letters(layers.text, glyph_mask, resolved.text_opacity)
+        image.alpha_composite(ring)
+        image.alpha_composite(layers.glow)
+        image.alpha_composite(letters)
 
-    if resolved.entrance is not None and not resolved.per_word:
-        p = _entrance_progress(block_start, resolved.entrance_duration, frame_time)
-        if p < 1.0:
-            if resolved.entrance in ("fade", "typewriter"):
-                image = _apply_alpha(image, p)
-            elif resolved.entrance == "slide-up":
-                image = _apply_alpha(_shift(image, (1.0 - p) * _SLIDE_FRACTION * font_size), p)
-            elif resolved.entrance == "zoom":
-                image = _apply_alpha(
-                    _resize_about_center(image, _ZOOM_START + (1.0 - _ZOOM_START) * p), p
-                )
-            else:  # bounce
-                scale = max(0.01, _ZOOM_START + (1.0 - _ZOOM_START) * _ease_out_back(p))
-                image = _apply_alpha(_resize_about_center(image, scale), min(1.0, p * 2.0))
+    def whole_caption_motion(picture: Image.Image) -> Image.Image:
+        if resolved.entrance is not None and not resolved.per_word:
+            p = _entrance_progress(block_start, resolved.entrance_duration, frame_time)
+            if p < 1.0:
+                if resolved.entrance in ("fade", "typewriter"):
+                    picture = _apply_alpha(picture, p)
+                elif resolved.entrance == "slide-up":
+                    picture = _apply_alpha(
+                        _shift(picture, (1.0 - p) * _SLIDE_FRACTION * font_size), p
+                    )
+                elif resolved.entrance == "zoom":
+                    picture = _apply_alpha(
+                        _resize_about_center(picture, _ZOOM_START + (1.0 - _ZOOM_START) * p), p
+                    )
+                else:  # bounce
+                    scale = max(0.01, _ZOOM_START + (1.0 - _ZOOM_START) * _ease_out_back(p))
+                    picture = _apply_alpha(_resize_about_center(picture, scale), min(1.0, p * 2.0))
+        if resolved.loop == "pulse":
+            phase = 2.0 * math.pi * (frame_time / resolved.loop_period)
+            picture = _resize_about_center(picture, 1.0 + _PULSE_DEPTH * math.sin(phase))
+        return picture
 
-    if resolved.loop == "pulse":
-        phase = 2.0 * math.pi * (frame_time / resolved.loop_period)
-        image = _resize_about_center(image, 1.0 + _PULSE_DEPTH * math.sin(phase))
+    image = whole_caption_motion(image)
+    if backdrop is None:
+        return CaptionRaster(np.asarray(image, dtype=np.uint8))
+    # The frosted area goes through every whole-caption transform the chip does,
+    # so the blur fades, slides and zooms in with the chip it sits behind.
+    backdrop = whole_caption_motion(backdrop)
+    return CaptionRaster(
+        np.asarray(image, dtype=np.uint8),
+        np.ascontiguousarray(np.asarray(backdrop, dtype=np.uint8)[:, :, 3]),
+        resolved.box_blur * font_size,
+    )
 
-    return np.asarray(image, dtype=np.uint8)
+
+def _knock_out(layer: Image.Image, glyph_mask: np.ndarray) -> Image.Image:
+    """``layer`` with its alpha removed wherever a letter is (see-through, schema v24)."""
+    arr = np.asarray(layer, dtype=np.uint8).copy()
+    keep = 1.0 - glyph_mask.astype(np.float64) / 255.0
+    arr[:, :, 3] = np.round(arr[:, :, 3].astype(np.float64) * keep).astype(np.uint8)
+    return Image.fromarray(arr)
+
+
+def _split_letters(
+    text: Image.Image, glyph_mask: np.ndarray, opacity: float
+) -> tuple[Image.Image, Image.Image]:
+    """Split drawn words into their outline ring and their translucent letter fill.
+
+    ``glyph_mask`` carries each letter's fill coverage at the word's own opacity,
+    so inside a letter it equals the drawn alpha: the letter part is the smaller
+    of the two (made ``opacity`` translucent) and the ring is everything else —
+    the outline outside the letter, at full strength. Summed at ``opacity`` 1
+    they are exactly the drawn words.
+    """
+    arr = np.asarray(text, dtype=np.uint8)
+    alpha = arr[:, :, 3]
+    letter_alpha = np.minimum(alpha, glyph_mask)
+    ring = arr.copy()
+    ring[:, :, 3] = alpha - letter_alpha
+    letters = arr.copy()
+    letters[:, :, 3] = np.round(letter_alpha.astype(np.float64) * opacity).astype(np.uint8)
+    return Image.fromarray(ring), Image.fromarray(letters)
+
+
+@dataclass(frozen=True)
+class _WordLayers:
+    """The canvases one caption frame's words are drawn into, bottom to top.
+
+    ``chips`` holds active-word chips (``background`` emphasis) and ``glow`` the
+    ``glow`` emphasis halo, apart from ``text`` (letters with their outline) so
+    the caption's shadow is cast by the letters alone and painted over the
+    chips — CSS's order, which paints a span's background, then its text's
+    shadows, then its text. ``glyphs`` is the see-through coverage mask (schema
+    v24), present only when the letters are translucent.
+    """
+
+    text: Image.Image
+    chips: Image.Image
+    glow: Image.Image
+    glyphs: Image.Image | None
 
 
 def _draw_planned_word(
-    layer: Image.Image,
+    layers: _WordLayers,
     plan: _TokenPlan,
     x: float,
     baseline: float,
@@ -1330,7 +1520,14 @@ def _draw_planned_word(
     spacing_px: float,
     font_size: int,
 ) -> None:
-    """Draw one planned word with its state, emphasis and motion applied."""
+    """Draw one planned word with its state, emphasis and motion applied.
+
+    The word's own opacity — an entrance fade, and the dimming of a word not yet
+    spoken — applies to EVERYTHING the word draws: fill, outline, chip, glow and
+    underline, as the preview's per-word CSS ``opacity`` does. It used to dim
+    only the fill, so an outlined word still to be spoken exported as a solid
+    outline around a faint fill while the editor showed the whole word faint.
+    """
     if motion.reveal <= 0.0 or motion.alpha <= 0.0:
         return
     token = plan.text
@@ -1339,6 +1536,7 @@ def _draw_planned_word(
         # (reveal <= 0 already returned above).
         token = token[: math.ceil(len(token) * motion.reveal)]
 
+    layer = layers.text
     canvas = ImageDraw.Draw(layer)
     baseline += motion.dy
     stroke = _stroke_px(resolved.outline_width, font_size)
@@ -1348,22 +1546,25 @@ def _draw_planned_word(
         else None
     )
     emphasis = resolved.highlight_animation if state == "active" else "none"
-    fill = plan.fill
+    word_alpha = motion.alpha
     if state == "upcoming" and resolved.display == "phrase":
-        fill = _dim(fill, _UPCOMING_ALPHA_SCALE)
-    if motion.alpha < 1.0:
-        fill = _dim(fill, motion.alpha)
+        word_alpha *= _UPCOMING_ALPHA_SCALE
+
+    def fade(color: _RGBA) -> _RGBA:
+        return _dim(color, word_alpha) if word_alpha < 1.0 else color
+
+    fill = fade(plan.fill)
+    outline = fade(resolved.outline_color) if resolved.outline_color is not None else None
+    highlight = fade(resolved.highlight_color)
+    glyphs = (
+        _GlyphInk(ImageDraw.Draw(layers.glyphs), round(255 * word_alpha))
+        if layers.glyphs is not None
+        else None
+    )
 
     if emphasis == "color":
         _draw_token_text(
-            canvas,
-            (x, baseline),
-            token,
-            plan.font,
-            resolved.highlight_color,
-            stroke,
-            resolved.outline_color,
-            spacing_px,
+            canvas, (x, baseline), token, plan.font, highlight, stroke, outline, spacing_px, glyphs
         )
         return
     if emphasis in ("pop", "pulse"):
@@ -1389,10 +1590,11 @@ def _draw_planned_word(
             token,
             scaled_font,
             scale,
-            resolved.highlight_color,
+            highlight,
             stroke,
-            resolved.outline_color,
+            outline,
             spacing_px,
+            glyphs,
         )
         return
     if emphasis == "karaoke-fill":
@@ -1406,17 +1608,18 @@ def _draw_planned_word(
             plan,
             token,
             fill,
-            resolved.highlight_color,
+            highlight,
             fraction,
             stroke,
-            resolved.outline_color,
+            outline,
             spacing_px,
+            glyphs,
         )
         return
     if emphasis == "background":
         chip_pad = _WORD_CHIP_PAD * font_size
         chip_color = resolved.highlight_background or _DEFAULT_HIGHLIGHT_COLOR
-        canvas.rounded_rectangle(
+        ImageDraw.Draw(layers.chips).rounded_rectangle(
             (
                 x - chip_pad,
                 baseline - plan.ascent - chip_pad,
@@ -1424,56 +1627,36 @@ def _draw_planned_word(
                 baseline + plan.descent + chip_pad,
             ),
             radius=int(0.15 * font_size),
-            fill=chip_color,
+            fill=fade(chip_color),
         )
         _draw_token_text(
-            canvas,
-            (x, baseline),
-            token,
-            plan.font,
-            resolved.highlight_color,
-            stroke,
-            resolved.outline_color,
-            spacing_px,
+            canvas, (x, baseline), token, plan.font, highlight, stroke, outline, spacing_px, glyphs
         )
         return
     if emphasis == "glow":
         _draw_word_glow(
-            layer,
+            layers.glow,
             (x, baseline),
             plan,
-            resolved.highlight_color,
+            highlight,
             _GLOW_BLUR_FRACTION * font_size,
             spacing_px,
         )
         _draw_token_text(
-            canvas,
-            (x, baseline),
-            token,
-            plan.font,
-            resolved.highlight_color,
-            stroke,
-            resolved.outline_color,
-            spacing_px,
+            canvas, (x, baseline), token, plan.font, highlight, stroke, outline, spacing_px, glyphs
         )
         return
     if emphasis == "underline":
         _draw_token_text(
-            canvas,
-            (x, baseline),
-            token,
-            plan.font,
-            resolved.highlight_color,
-            stroke,
-            resolved.outline_color,
-            spacing_px,
+            canvas, (x, baseline), token, plan.font, highlight, stroke, outline, spacing_px, glyphs
         )
         thickness = max(2, font_size // 12)
         gap = max(2, font_size // 10)
-        canvas.rectangle(
-            (x, baseline + gap, x + plan.width, baseline + gap + thickness),
-            fill=resolved.highlight_color,
-        )
+        bar = (x, baseline + gap, x + plan.width, baseline + gap + thickness)
+        canvas.rectangle(bar, fill=highlight)
+        if glyphs is not None:
+            # The underline is text decoration: it is see-through with the letters.
+            glyphs.draw.rectangle(bar, fill=glyphs.level)
         return
 
     # No emphasis (or word not active): motion scale still applies (zoom/bounce
@@ -1495,10 +1678,11 @@ def _draw_planned_word(
             motion.scale,
             fill,
             stroke,
-            resolved.outline_color,
+            outline,
             spacing_px,
+            glyphs,
         )
         return
     _draw_token_text(
-        canvas, (x, baseline), token, plan.font, fill, stroke, resolved.outline_color, spacing_px
+        canvas, (x, baseline), token, plan.font, fill, stroke, outline, spacing_px, glyphs
     )
