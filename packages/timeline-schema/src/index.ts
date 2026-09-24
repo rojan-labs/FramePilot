@@ -21,7 +21,7 @@ import { decodeFloat64Array } from './float-array-codec.js';
  * Bump on any breaking change to the schema. A migration is required before the
  * schema can change in a way that invalidates existing `project.fp.json` files.
  */
-export const SCHEMA_VERSION = 23 as const;
+export const SCHEMA_VERSION = 24 as const;
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -971,6 +971,12 @@ export const CaptionHighlightSchema = z.object({
  * Background chip behind the whole caption line. Radius/padding are fractions
  * of the resolved font size so the chip scales with the text at any output
  * resolution. A fully transparent `color` (e.g. `#00000000`) means "no chip".
+ *
+ * A FROSTED-GLASS box (schema v24, ADR 0185) is a chip with a non-zero `blur`:
+ * the picture behind the chip is blurred (the export blurs the delivered frame
+ * beneath the chip; the preview uses `backdrop-filter`), `color` tints it (a
+ * low-alpha white or black, e.g. `#ffffff26`), and an optional border draws the
+ * glass edge. Absent `blur` is a flat chip, exactly as before v24.
  */
 export const CaptionBackgroundSchema = z.object({
   color: z.string().min(1),
@@ -980,6 +986,19 @@ export const CaptionBackgroundSchema = z.object({
   paddingX: z.number().nonnegative().optional(),
   /** Vertical padding, as a fraction of font size. */
   paddingY: z.number().nonnegative().optional(),
+  /**
+   * Backdrop blur behind the chip — the Gaussian's standard deviation, as a
+   * fraction of font size (CSS `backdrop-filter: blur()` takes a standard
+   * deviation too). 0 or absent: no frosting.
+   */
+  blur: z.number().nonnegative().optional(),
+  /** Colour of the chip's edge line (the glass rim). */
+  borderColor: z.string().min(1).optional(),
+  /**
+   * Width of the chip's edge line, in SIXTEENTHS of the font size (the unit of
+   * `outlineWidth`), drawn inside the chip so it never changes the chip's size.
+   */
+  borderWidth: z.number().nonnegative().optional(),
 });
 
 /**
@@ -1065,6 +1084,15 @@ export const CaptionStyleSchema = z.object({
   fontScale: z.number().positive().optional(),
   /** Caption text color (any CSS color string). */
   textColor: z.string().min(1).optional(),
+  /**
+   * Opacity of the LETTERS' fill, 0–1 (schema v24, ADR 0185): below 1 the picture
+   * shows through the letters. The outline and shadow keep their full strength
+   * and are drawn only OUTSIDE the letters, so what shows through is the footage
+   * (or the box behind), never the caption's own outline or shadow. 0 leaves
+   * hollow, outline-only letters. Applies to every fill colour — highlight,
+   * accent and karaoke colours too. Absent: 1 (solid letters).
+   */
+  textOpacity: z.number().min(0).max(1).optional(),
   /** Text outline/stroke color (any CSS color string). */
   outlineColor: z.string().min(1).optional(),
   /**

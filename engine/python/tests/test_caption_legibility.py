@@ -17,7 +17,7 @@ import pytest
 from PIL import Image
 
 from framepilot_engine.render import caption_legibility as cl
-from framepilot_engine.timeline.models import Project
+from framepilot_engine.timeline.models import SCHEMA_VERSION, Project
 
 CREAM = (214, 205, 188)
 OFF_WHITE = (244, 240, 235)
@@ -98,7 +98,7 @@ def _project() -> Project:
     }
     return Project.model_validate(
         {
-            "schemaVersion": 23,
+            "schemaVersion": SCHEMA_VERSION,
             "id": "p",
             "name": "p",
             "fps": 30,

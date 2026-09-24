@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AssetSourceSchema,
+  CaptionStyleSchema,
   MASK_KINDS,
   MaskLayerSchema,
   SCHEMA_VERSION,
@@ -50,7 +51,7 @@ const validProject = {
 
 describe('timeline-schema', () => {
   it('exposes a numeric SCHEMA_VERSION', () => {
-    expect(SCHEMA_VERSION).toBe(23);
+    expect(SCHEMA_VERSION).toBe(24);
   });
 
   describe('mask stack (`Clip.masks`, schema v22)', () => {
@@ -155,6 +156,39 @@ describe('timeline-schema', () => {
       expect(masksOf(project.timeline.tracks[0]!.clips[0]!)).toHaveLength(MASK_KINDS.length);
       expect(masksOf(project.timeline.tracks[1]!.effectLayers![0]!)[0]!.space).toBe('frame');
       expect(masksOf(clip)).toEqual([]);
+    });
+  });
+
+  describe('caption translucency (schema v24)', () => {
+    it('accepts see-through letters and a frosted, bordered chip', () => {
+      const parsed = CaptionStyleSchema.parse({
+        textOpacity: 0.35,
+        background: {
+          color: '#ffffff26',
+          radius: 0.3,
+          blur: 0.3,
+          borderColor: '#ffffff66',
+          borderWidth: 1,
+        },
+      });
+      expect(parsed.textOpacity).toBe(0.35);
+      expect(parsed.background?.blur).toBe(0.3);
+      expect(parsed.background?.borderWidth).toBe(1);
+    });
+
+    it('keeps hollow letters (0) and refuses an opacity outside 0–1', () => {
+      expect(CaptionStyleSchema.parse({ textOpacity: 0 }).textOpacity).toBe(0);
+      expect(CaptionStyleSchema.safeParse({ textOpacity: 1.2 }).success).toBe(false);
+      expect(CaptionStyleSchema.safeParse({ textOpacity: -0.1 }).success).toBe(false);
+    });
+
+    it('refuses a negative frost or border', () => {
+      expect(
+        CaptionStyleSchema.safeParse({ background: { color: '#000000', blur: -1 } }).success,
+      ).toBe(false);
+      expect(
+        CaptionStyleSchema.safeParse({ background: { color: '#000000', borderWidth: -1 } }).success,
+      ).toBe(false);
     });
   });
 

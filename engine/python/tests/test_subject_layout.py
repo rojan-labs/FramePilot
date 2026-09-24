@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from framepilot_engine.masking import subject_layout as sl
-from framepilot_engine.timeline.models import Project
+from framepilot_engine.timeline.models import SCHEMA_VERSION, Project
 
 TARGET = (1080, 1920)
 
@@ -249,7 +249,7 @@ def _project(crop: dict[str, float] | None, masks: list[dict[str, Any]]) -> Proj
         clip["crop"] = crop
     return Project.model_validate(
         {
-            "schemaVersion": 23,
+            "schemaVersion": SCHEMA_VERSION,
             "id": "p",
             "name": "p",
             "fps": 30,

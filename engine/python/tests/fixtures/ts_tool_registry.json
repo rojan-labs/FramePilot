@@ -1647,7 +1647,7 @@
             "type": [
               "integer"
             ],
-            "maximum": 51,
+            "maximum": 62,
             "exclusiveMinimum": 0
           },
           "query": {
@@ -2584,28 +2584,98 @@
                   "string"
                 ],
                 "enum": [
+                  "Abril Fatface",
+                  "Alfa Slab One",
+                  "Amatic SC",
                   "Anton",
                   "Archivo Black",
                   "Bangers",
+                  "Barlow",
+                  "Barlow Condensed",
                   "Bebas Neue",
+                  "Big Shoulders",
+                  "Bodoni Moda",
+                  "Bricolage Grotesque",
+                  "Bungee",
                   "Caveat",
+                  "Caveat Brush",
+                  "Chewy",
+                  "Cinzel",
+                  "Courier Prime",
+                  "DM Sans",
                   "DM Serif Display",
+                  "Dancing Script",
+                  "Exo 2",
                   "Figtree",
+                  "Fraunces",
+                  "Fredoka",
+                  "Geist",
+                  "Gloock",
+                  "Gloria Hallelujah",
+                  "Great Vibes",
+                  "Homemade Apple",
+                  "IBM Plex Mono",
+                  "Instrument Serif",
                   "Inter",
+                  "JetBrains Mono",
+                  "Josefin Sans",
+                  "Kanit",
+                  "Kaushan Script",
+                  "Knewave",
                   "Lato",
+                  "League Gothic",
+                  "League Spartan",
+                  "Lexend",
+                  "Libre Baskerville",
+                  "Lilita One",
+                  "Lobster",
+                  "Lora",
+                  "Luckiest Guy",
                   "Manrope",
                   "Merriweather",
                   "Montserrat",
+                  "Mr Dafoe",
                   "Nunito",
                   "Open Sans",
+                  "Orbitron",
                   "Oswald",
+                  "Outfit",
                   "Pacifico",
+                  "Passion One",
+                  "Patrick Hand",
+                  "Paytone One",
+                  "Permanent Marker",
                   "Playfair Display",
+                  "Plus Jakarta Sans",
                   "Poppins",
+                  "Prata",
+                  "Press Start 2P",
+                  "Quicksand",
                   "Raleway",
+                  "Righteous",
                   "Roboto",
+                  "Roboto Slab",
+                  "Rock Salt",
+                  "Rubik",
+                  "Rubik Mono One",
+                  "Russo One",
+                  "Sacramento",
+                  "Satisfy",
                   "Shadows Into Light",
-                  "Space Mono"
+                  "Shrikhand",
+                  "Silkscreen",
+                  "Sora",
+                  "Space Grotesk",
+                  "Space Mono",
+                  "Staatliches",
+                  "Syne",
+                  "Teko",
+                  "Titan One",
+                  "Unbounded",
+                  "Urbanist",
+                  "VT323",
+                  "Yellowtail",
+                  "Young Serif"
                 ]
               },
               "fontWeight": {
@@ -3468,28 +3538,98 @@
                   "string"
                 ],
                 "enum": [
+                  "Abril Fatface",
+                  "Alfa Slab One",
+                  "Amatic SC",
                   "Anton",
                   "Archivo Black",
                   "Bangers",
+                  "Barlow",
+                  "Barlow Condensed",
                   "Bebas Neue",
+                  "Big Shoulders",
+                  "Bodoni Moda",
+                  "Bricolage Grotesque",
+                  "Bungee",
                   "Caveat",
+                  "Caveat Brush",
+                  "Chewy",
+                  "Cinzel",
+                  "Courier Prime",
+                  "DM Sans",
                   "DM Serif Display",
+                  "Dancing Script",
+                  "Exo 2",
                   "Figtree",
+                  "Fraunces",
+                  "Fredoka",
+                  "Geist",
+                  "Gloock",
+                  "Gloria Hallelujah",
+                  "Great Vibes",
+                  "Homemade Apple",
+                  "IBM Plex Mono",
+                  "Instrument Serif",
                   "Inter",
+                  "JetBrains Mono",
+                  "Josefin Sans",
+                  "Kanit",
+                  "Kaushan Script",
+                  "Knewave",
                   "Lato",
+                  "League Gothic",
+                  "League Spartan",
+                  "Lexend",
+                  "Libre Baskerville",
+                  "Lilita One",
+                  "Lobster",
+                  "Lora",
+                  "Luckiest Guy",
                   "Manrope",
                   "Merriweather",
                   "Montserrat",
+                  "Mr Dafoe",
                   "Nunito",
                   "Open Sans",
+                  "Orbitron",
                   "Oswald",
+                  "Outfit",
                   "Pacifico",
+                  "Passion One",
+                  "Patrick Hand",
+                  "Paytone One",
+                  "Permanent Marker",
                   "Playfair Display",
+                  "Plus Jakarta Sans",
                   "Poppins",
+                  "Prata",
+                  "Press Start 2P",
+                  "Quicksand",
                   "Raleway",
+                  "Righteous",
                   "Roboto",
+                  "Roboto Slab",
+                  "Rock Salt",
+                  "Rubik",
+                  "Rubik Mono One",
+                  "Russo One",
+                  "Sacramento",
+                  "Satisfy",
                   "Shadows Into Light",
-                  "Space Mono"
+                  "Shrikhand",
+                  "Silkscreen",
+                  "Sora",
+                  "Space Grotesk",
+                  "Space Mono",
+                  "Staatliches",
+                  "Syne",
+                  "Teko",
+                  "Titan One",
+                  "Unbounded",
+                  "Urbanist",
+                  "VT323",
+                  "Yellowtail",
+                  "Young Serif"
                 ]
               },
               "fontWeight": {
@@ -4555,6 +4695,23 @@
                   "color"
                 ],
                 "properties": {
+                  "blur": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": 0
+                  },
+                  "borderColor": {
+                    "type": [
+                      "string"
+                    ]
+                  },
+                  "borderWidth": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": 0
+                  },
                   "color": {
                     "type": [
                       "string"
@@ -4765,6 +4922,13 @@
                 "type": [
                   "string"
                 ]
+              },
+              "textOpacity": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
               },
               "textTransform": {
                 "type": [
@@ -5220,6 +5384,23 @@
                   "color"
                 ],
                 "properties": {
+                  "blur": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": 0
+                  },
+                  "borderColor": {
+                    "type": [
+                      "string"
+                    ]
+                  },
+                  "borderWidth": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": 0
+                  },
                   "color": {
                     "type": [
                       "string"
@@ -5430,6 +5611,13 @@
                 "type": [
                   "string"
                 ]
+              },
+              "textOpacity": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
               },
               "textTransform": {
                 "type": [

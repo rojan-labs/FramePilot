@@ -303,6 +303,19 @@ export const MIGRATIONS: readonly Migration[] = [
       'app refuses a project whose presets it would otherwise drop on save (MK4.3).',
     migrate: (raw) => raw,
   },
+  {
+    from: 23,
+    to: 24,
+    describe:
+      "Caption styles gain translucency: `textOpacity` (the letters' fill opacity, with the " +
+      'outline and shadow drawn only outside the letters so the picture shows through them), ' +
+      'and the background chip gains `blur` (a frosted-glass box that blurs the picture ' +
+      'behind it), `borderColor` and `borderWidth`. Purely additive — a v23 caption has none ' +
+      'of these fields, which is exactly solid letters over a flat chip, so every v23 project ' +
+      'renders as before. The step stamps the envelope so an older app refuses a project ' +
+      'whose glass and see-through captions it would otherwise flatten on save (ADR 0185).',
+    migrate: (raw) => raw,
+  },
 ];
 
 /**

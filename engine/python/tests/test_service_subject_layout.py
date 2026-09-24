@@ -18,11 +18,12 @@ from framepilot_engine.masking.subject_layout import (
     TextBehindPlacement,
 )
 from framepilot_engine.service import create_app
+from framepilot_engine.timeline.models import SCHEMA_VERSION
 
 
 def _project() -> dict[str, Any]:
     return {
-        "schemaVersion": 23,
+        "schemaVersion": SCHEMA_VERSION,
         "id": "p",
         "name": "p",
         "fps": 30,

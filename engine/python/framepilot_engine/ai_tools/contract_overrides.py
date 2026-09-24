@@ -437,6 +437,9 @@ class _CaptionBackground(BaseModel):
     radius: float | None = Field(default=None, ge=0.0)
     padding_x: float | None = Field(default=None, alias="paddingX", ge=0.0)
     padding_y: float | None = Field(default=None, alias="paddingY", ge=0.0)
+    blur: float | None = Field(default=None, ge=0.0)
+    border_color: str | None = Field(default=None, alias="borderColor", min_length=1)
+    border_width: float | None = Field(default=None, alias="borderWidth", ge=0.0)
 
 
 class _CaptionShadow(BaseModel):
@@ -503,6 +506,7 @@ class _CaptionStyle(BaseModel):
     letter_spacing: float | None = Field(default=None, alias="letterSpacing")
     font_scale: float | None = Field(default=None, alias="fontScale", gt=0.0)
     text_color: str | None = Field(default=None, alias="textColor", min_length=1)
+    text_opacity: float | None = Field(default=None, alias="textOpacity", ge=0.0, le=1.0)
     outline_color: str | None = Field(default=None, alias="outlineColor", min_length=1)
     outline_width: float | None = Field(default=None, alias="outlineWidth", ge=0.0)
     position: Literal["top", "middle", "bottom"] | None = None

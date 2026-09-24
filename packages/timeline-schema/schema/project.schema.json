@@ -605,6 +605,11 @@
                           "type": "string",
                           "minLength": 1
                         },
+                        "textOpacity": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
                         "outlineColor": {
                           "type": "string",
                           "minLength": 1
@@ -671,6 +676,18 @@
                               "minimum": 0
                             },
                             "paddingY": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "blur": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "borderColor": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "borderWidth": {
                               "type": "number",
                               "minimum": 0
                             }
@@ -6257,6 +6274,11 @@
                     "type": "string",
                     "minLength": 1
                   },
+                  "textOpacity": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
                   "outlineColor": {
                     "type": "string",
                     "minLength": 1
@@ -6323,6 +6345,18 @@
                         "minimum": 0
                       },
                       "paddingY": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "blur": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "borderColor": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "borderWidth": {
                         "type": "number",
                         "minimum": 0
                       }

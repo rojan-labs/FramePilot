@@ -51,9 +51,11 @@ from pydantic import BaseModel, Field, field_validator
 # than silently strip the one record of a crediting obligation (ADR 0138); v21 added
 # optional probed ``AssetMedia`` width/height; v22 replaced the ``mask`` effect type
 # with the ``Clip.masks`` / ``EffectLayer.masks`` mask stack (ADR 0178); v23 added
-# optional ``Timeline.maskPresets`` (saved masks, MK4.3), round-tripped only; the
-# engine rejects any file whose envelope version exceeds this.
-SCHEMA_VERSION = 23
+# optional ``Timeline.maskPresets`` (saved masks, MK4.3), round-tripped only; v24
+# added caption translucency — ``CaptionStyle.textOpacity`` (see-through letters)
+# and a frosted ``CaptionBackground`` (``blur``, ``borderColor``, ``borderWidth``;
+# ADR 0185); the engine rejects any file whose envelope version exceeds this.
+SCHEMA_VERSION = 24
 
 
 class ProjectFileError(Exception):
@@ -869,12 +871,20 @@ class CaptionBackground(BaseModel):
 
     Mirrors the TS ``CaptionBackgroundSchema``; radius/padding are fractions of
     the resolved font size. A fully transparent color means "no chip".
+
+    Schema v24 (ADR 0185): a non-zero ``blur`` makes the chip frosted glass — the
+    delivered picture behind the chip is blurred (standard deviation, fraction of
+    font size) and ``color`` tints it; ``border_color``/``border_width`` draw the
+    glass edge inside the chip (width in sixteenths of the font size).
     """
 
     color: str
     radius: float | None = Field(default=None)
     padding_x: float | None = Field(default=None, alias="paddingX")
     padding_y: float | None = Field(default=None, alias="paddingY")
+    blur: float | None = Field(default=None, ge=0.0)
+    border_color: str | None = Field(default=None, alias="borderColor")
+    border_width: float | None = Field(default=None, alias="borderWidth", ge=0.0)
 
     model_config = {"populate_by_name": True}
 
@@ -975,6 +985,16 @@ class CaptionStyle(BaseModel):
     letter_spacing: float | None = Field(default=None, alias="letterSpacing")
     font_scale: float | None = Field(default=None, alias="fontScale")
     text_color: str | None = Field(default=None, alias="textColor")
+    text_opacity: float | None = Field(
+        default=None,
+        alias="textOpacity",
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Opacity of the letters' fill (schema v24): the outline and shadow keep full "
+            "strength and are drawn only outside the letters, so the picture shows through."
+        ),
+    )
     outline_color: str | None = Field(default=None, alias="outlineColor")
     outline_width: float | None = Field(default=None, alias="outlineWidth")
     position: str | None = Field(default=None, description="One of 'top' | 'middle' | 'bottom'.")
