@@ -13,6 +13,7 @@
 import { describe, expect, it } from 'vitest';
 import { createTurnEmitter, reduceEvents, type ReferenceProfile } from '@framepilot/ai-sdk';
 import {
+  activeReferenceFiles,
   activeReferences,
   referencesToDismissForCap,
   toMessageAttachments,
@@ -154,6 +155,34 @@ describe('a sent message owns what was attached to it', () => {
  * the second, which silently retires every reference on the turn after it was attached.
  * These pin the derivation that keeps both answers true at once.
  */
+describe('activeReferenceFiles — where the live set is on disk (EQ18)', () => {
+  const message = (turnId: string, attachments: readonly Attachment[]) =>
+    emitter(turnId).userMessage('go', toMessageAttachments(attachments));
+
+  it('follows exactly the references in force, keyed by profile id', () => {
+    const sameBytes = 'hash_shared_0000';
+    const log = [
+      message('t1', [ready('a'), ready('b')]),
+      // The same file again: one reference, so one file.
+      message('t2', [{ ...ready('dup'), profile: profile('dup', `hash_a_`.padEnd(16, '0')) }]),
+      message('t3', [{ ...ready('c'), profile: profile('c', sameBytes) }]),
+    ];
+    expect(activeReferenceFiles(log, ['b'])).toEqual([
+      { id: 'a', path: 'media/a.mp4' },
+      { id: 'c', path: 'media/c.mp4' },
+    ]);
+    expect(activeReferenceFiles(log, ['b']).map((f) => f.id)).toEqual(
+      activeReferences(log, ['b']).map((p) => p.id),
+    );
+  });
+
+  it('leaves out a reference with no imported copy', () => {
+    const { path: _path, ...noPath } = ready('a');
+    expect(activeReferenceFiles([message('t1', [noPath])])).toEqual([]);
+    expect(activeReferences([message('t1', [noPath])]).map((p) => p.id)).toEqual(['a']);
+  });
+});
+
 describe('activeReferences — the live set the run is given', () => {
   const message = (turnId: string, ids: readonly string[]) =>
     emitter(turnId).userMessage('go', toMessageAttachments(ids.map(ready)));

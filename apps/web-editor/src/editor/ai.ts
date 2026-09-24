@@ -59,6 +59,7 @@ import type {
   DurableRunEventMessage,
   DurableRunSnapshot,
   Seconds,
+  AiStreamReferenceFile,
   AiStreamReferenceProfile,
 } from '@framepilot/shared-types';
 import { type ChangedRegion, type Patch, structuredDiffTimeline } from '@framepilot/editor-core';
@@ -346,6 +347,12 @@ export interface AiSessionInput {
   readonly userMemory?: UserMemory;
   /** Analyzed reference attachments for this turn (plan/system-mission P3.4). */
   readonly references?: readonly ReferenceProfile[];
+  /**
+   * Where each reference's imported copy is (EQ18). Desktop only: main loads an image
+   * reference's picture from it for a model that reads images. The browser build has no
+   * reference analysis, so it never has any.
+   */
+  readonly referenceFiles?: readonly AiStreamReferenceFile[];
   /**
    * Agent-run tuning (agent mode only): up-front plan, blast-radius caps, bounded
    * auto-repair, duration target. Forwarded to `streamAgent` so the app runs the same
@@ -1172,6 +1179,9 @@ class DesktopAiSession implements AiSession {
         ...(input.userMemory ? { userMemory: input.userMemory as AiStreamUserMemory } : {}),
         ...(input.references && input.references.length > 0
           ? { references: input.references as unknown as readonly AiStreamReferenceProfile[] }
+          : {}),
+        ...(input.referenceFiles && input.referenceFiles.length > 0
+          ? { referenceFiles: input.referenceFiles }
           : {}),
         ...(input.agentOptions ? { agentOptions: input.agentOptions } : {}),
         // `variations` and `pinned` ride the same IPC request as the browser session's

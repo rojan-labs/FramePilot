@@ -464,6 +464,71 @@ describe('EventNode', () => {
     expect(body.textContent!.split('\n').length).toBeLessThan(220);
   });
 
+  it('shows the frame the model was given, not its JSON, when a look is expanded (EQ18)', () => {
+    const frameNode = (images: ToolResultEvent['images']): ToolNode => ({
+      kind: 'tool',
+      id: 'c1',
+      ts: 0,
+      turnId: 't',
+      toolName: 'get_frame',
+      status: 'completed',
+      title: 'Looking at the frame at 30.00s',
+      result: {
+        id: 'res',
+        conversationId: 'c',
+        ts: 0,
+        turnId: 't',
+        type: 'tool_result',
+        toolCallId: 'c1',
+        summary: 'Looked at the timeline at 30.00s',
+        result: { timeSeconds: 30, width: 288, height: 512 },
+        ...(images ? { images } : {}),
+      },
+    });
+    const { unmount } = render(
+      <EventNode
+        node={frameNode([
+          {
+            mediaType: 'image/jpeg',
+            label: 'the timeline at 30.00s',
+            width: 288,
+            height: 512,
+            path: 'media/p/attachments/frame-abc.jpg',
+          },
+        ])}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Looking at the frame/i }));
+    const img = screen.getByRole('img', { name: /What the model saw: the timeline at 30\.00s/ });
+    // Served from the stored file through the sandboxed media scheme — never inline bytes.
+    expect(img.getAttribute('src')).toBe(
+      'fp-media://local/media%2Fp%2Fattachments%2Fframe-abc.jpg',
+    );
+    expect(img.getAttribute('width')).toBe('288');
+    expect(screen.getByText('The timeline at 30.00s')).toBeTruthy();
+    expect(screen.getByText('288×512')).toBeTruthy();
+    // The facts ABOUT the frame are not what the row shows any more.
+    expect(screen.queryByText(/"timeSeconds": 30/)).toBeNull();
+
+    // A picture whose file is gone says so, in words.
+    fireEvent.error(img);
+    expect(screen.getByText('This picture is no longer on disk.')).toBeTruthy();
+    unmount();
+
+    // The browser build keeps the bytes inline; they render as a data URL.
+    render(
+      <EventNode
+        node={frameNode([
+          { mediaType: 'image/png', base64: 'QUJD', label: 'the timeline at 1.00s' },
+        ])}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Looking at the frame/i }));
+    expect(screen.getByRole('img', { name: /the timeline at 1\.00s/ }).getAttribute('src')).toBe(
+      'data:image/png;base64,QUJD',
+    );
+  });
+
   it('does not serialize a tool payload until the clipboard actually asks for it', async () => {
     // A collapsed row used to build its whole copy-text — including `JSON.stringify` of
     // the payload — on every render. During a live run that is once per streamed frame

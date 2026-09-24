@@ -583,6 +583,52 @@
   font-size: 10.5px;
 }
 
+/* The picture a tool showed the model (EQ18) — shown at its own aspect, never cropped,
+   because the point is to see exactly what the model judged. Capped in height so a
+   portrait frame cannot push the rest of the run off screen. */
+.ai-tool-images {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.ai-tool-image {
+  margin: 0;
+  min-width: 0;
+}
+
+.ai-tool-image-img {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  width: auto;
+  height: auto;
+  border-radius: 8px;
+  background: var(--ai-inset);
+  box-shadow: var(--ai-shadow-hairline);
+}
+
+.ai-tool-image-missing {
+  margin: 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--ai-inset);
+  color: var(--ai-ink-3);
+}
+
+.ai-tool-image-caption {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--ai-ink-3);
+  font-size: 10.5px;
+}
+
+.ai-tool-image-size {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Action/progress/finding rows ───────────────────────────────────────── */
 
 .ai-event--action,

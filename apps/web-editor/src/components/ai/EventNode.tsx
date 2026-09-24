@@ -52,6 +52,7 @@ import type {
 import { describeOperation } from '@framepilot/ai-sdk';
 import { Button } from '@framepilot/ui';
 import { toReviewCard } from '../../editor/ai.js';
+import { mediaSrc } from '../../editor/media.js';
 import { DiffPreviewModal } from './DiffPreviewModal.js';
 import { PackInstallInlineCard, packMissingProposal } from './PackInstallInlineCard.js';
 import { MatteStartInlineCard, matteStartProposal } from './MatteStartInlineCard.js';
@@ -623,6 +624,12 @@ function formatToolDetails(node: ToolNode, title: string): string {
   if (r?.clips?.length) parts.push(`\nClips: ${r.clips.join(', ')}`);
   if (r?.tracks?.length) parts.push(`\nTracks: ${r.tracks.join(', ')}`);
   if (r?.files?.length) parts.push(`\nFiles: ${r.files.join(', ')}`);
+  if (r?.images?.length) {
+    const shown = r.images.map(
+      (image) => `- ${image.label ?? 'an image'}${image.path ? ` (${image.path})` : ''}`,
+    );
+    parts.push(`\nShown to the model:\n${shown.join('\n')}`);
+  }
   const output = formatToolOutput(r?.result);
   if (output) parts.push(`\nOutput:\n${output}`);
   if (r?.logs?.length) parts.push(`\nLogs:\n${r.logs.join('\n')}`);
@@ -695,6 +702,76 @@ function ToolOutputBlock({ text }: { text: string }): JSX.Element {
   );
 }
 
+/** A picture a tool showed the model (see `ToolResultEvent.images`). */
+type ToolImage = NonNullable<ToolResult['images']>[number];
+
+/** Where the renderer loads a tool picture from: the host's stored file, else the bytes. */
+function toolImageSrc(image: ToolImage): string | undefined {
+  if (image.path !== undefined) return mediaSrc(image.path);
+  if (image.base64 !== undefined) return `data:${image.mediaType};base64,${image.base64}`;
+  return undefined;
+}
+
+/**
+ * The picture(s) a tool showed the model, at the size the model saw them (EQ18).
+ *
+ * WHY this replaces the output text for such a step: `get_frame`'s result is the facts
+ * ABOUT a frame — its time and size — while the thing the model judged is the frame. An
+ * editor opening "Looking at the frame at 30.00s" wants to see what the model saw, and a
+ * JSON object of dimensions answers a different question. The facts are still one click
+ * away in Details, and in the copied text.
+ *
+ * A stored picture can be gone (the conversation outlived the project folder); the tile
+ * then says so in words rather than showing a broken-image glyph.
+ */
+function ToolImages({ images }: { images: readonly ToolImage[] }): JSX.Element {
+  return (
+    <div className="ai-tool-images">
+      {images.map((image, index) => (
+        <ToolImageFigure
+          key={image.path ?? `${String(index)}-${image.label ?? ''}`}
+          image={image}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ToolImageFigure({ image }: { image: ToolImage }): JSX.Element {
+  const [broken, setBroken] = useState(false);
+  const src = toolImageSrc(image);
+  const caption = image.label
+    ? `${image.label.charAt(0).toUpperCase()}${image.label.slice(1)}`
+    : 'What the model saw';
+  const size =
+    image.width !== undefined && image.height !== undefined
+      ? `${String(image.width)}×${String(image.height)}`
+      : undefined;
+  return (
+    <figure className="ai-tool-image">
+      {src !== undefined && !broken ? (
+        <img
+          className="ai-tool-image-img"
+          src={src}
+          alt={`What the model saw: ${image.label ?? 'a frame'}`}
+          loading="lazy"
+          decoding="async"
+          {...(image.width !== undefined && image.height !== undefined
+            ? { width: image.width, height: image.height }
+            : {})}
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        <p className="ai-tool-image-missing">This picture is no longer on disk.</p>
+      )}
+      <figcaption className="ai-tool-image-caption">
+        <span>{caption}</span>
+        {size !== undefined && <span className="ai-tool-image-size">{size}</span>}
+      </figcaption>
+    </figure>
+  );
+}
+
 /**
  * A tool's real output rendered readably — what a reviewer expands the row (or opens the
  * modal) to see. A string shows verbatim with whitespace preserved; a structured value is
@@ -706,9 +783,12 @@ function ToolOutputBlock({ text }: { text: string }): JSX.Element {
 function ToolOutput({ result }: { result: ToolResult }): JSX.Element {
   const output = formatToolOutput(result.result);
   const logs = result.logs && result.logs.length > 0 ? result.logs.join('\n') : undefined;
+  const images = result.images ?? [];
   return (
     <div className="ai-tool-output">
-      {output !== undefined ? (
+      {images.length > 0 ? (
+        <ToolImages images={images} />
+      ) : output !== undefined ? (
         <ToolOutputBlock text={output} />
       ) : result.summary ? (
         <p className="ai-tool-output-summary">{result.summary}</p>
@@ -780,6 +860,14 @@ function ToolDetailsModal({
                 <>
                   <dt>What happened</dt>
                   <dd>{result.summary}</dd>
+                </>
+              )}
+              {result.images && result.images.length > 0 && (
+                <>
+                  <dt>What the model saw</dt>
+                  <dd>
+                    <ToolImages images={result.images} />
+                  </dd>
                 </>
               )}
               {outputText !== undefined && (
@@ -1067,7 +1155,8 @@ function ToolCard({
   // Expandable only when there's something worth opening for: real tool output
   // (`result.result`), or a summary too long to fit on the one-line row. A trivial
   // one-line summary with no output stays a quiet status row — no chevron (#1).
-  const hasOutput = result?.result !== undefined && result?.result !== null;
+  const hasOutput =
+    (result?.result !== undefined && result?.result !== null) || (result?.images?.length ?? 0) > 0;
   // A question is never an accordion: `AskReceipt` shows the question and the answer in
   // full, in plain words, so the only thing opening the row could add is the raw
   // `{ question, answer }` payload — which is what made an editor expand two boxes to

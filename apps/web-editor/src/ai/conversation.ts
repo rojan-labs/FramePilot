@@ -105,19 +105,7 @@ export function activeReferences(
   events: readonly AiEvent[],
   dismissedIds: readonly string[] = [],
 ): readonly ReferenceProfile[] {
-  const dismissed = new Set(dismissedIds);
-  const seen = new Set<string>();
-  const live: ReferenceProfile[] = [];
-  for (const event of events) {
-    if (event.type !== 'user_message') continue;
-    for (const attachment of event.attachments ?? []) {
-      const { profile } = attachment;
-      if (profile === undefined) continue;
-      if (dismissed.has(attachment.id) || seen.has(profile.contentHash)) continue;
-      seen.add(profile.contentHash);
-      live.push(profile);
-    }
-  }
+  const live = activeReferenceAttachments(events, dismissedIds).map(({ profile }) => profile);
   // Deliberately UNCAPPED. This set is the honest answer to "what is in force", and the
   // SDK reads it that way: an id missing from it means the editor removed that tile, so
   // the decision it was binding must stop applying (`kernel/conductor.ts`, P3.5).
@@ -130,6 +118,50 @@ export function activeReferences(
   // an explicit dismissal by {@link referencesToDismissForCap}, which leaves a record the
   // editor can see and undo.
   return live;
+}
+
+/** An attachment in force, with the profile that makes it a reference. */
+type LiveReference = MessageAttachment & { readonly profile: ReferenceProfile };
+
+/**
+ * The attachments behind {@link activeReferences}, in the same order under the same
+ * rules — one walk, so the profiles and their files can never disagree about which
+ * references are in force.
+ */
+function activeReferenceAttachments(
+  events: readonly AiEvent[],
+  dismissedIds: readonly string[],
+): readonly LiveReference[] {
+  const dismissed = new Set(dismissedIds);
+  const seen = new Set<string>();
+  const live: LiveReference[] = [];
+  for (const event of events) {
+    if (event.type !== 'user_message') continue;
+    for (const attachment of event.attachments ?? []) {
+      const { profile } = attachment;
+      if (profile === undefined) continue;
+      if (dismissed.has(attachment.id) || seen.has(profile.contentHash)) continue;
+      seen.add(profile.contentHash);
+      live.push({ ...attachment, profile });
+    }
+  }
+  return live;
+}
+
+/**
+ * Where each reference in force lives on disk, keyed by its profile id (EQ18).
+ *
+ * The desktop host reads these to show a model that reads images the attached picture
+ * itself, not only its measurements. Only references with an imported copy appear — an
+ * attachment that never reached the projects folder has nothing to show.
+ */
+export function activeReferenceFiles(
+  events: readonly AiEvent[],
+  dismissedIds: readonly string[] = [],
+): readonly { readonly id: string; readonly path: string }[] {
+  return activeReferenceAttachments(events, dismissedIds).flatMap(({ profile, path }) =>
+    path === undefined ? [] : [{ id: profile.id, path }],
+  );
 }
 
 /**

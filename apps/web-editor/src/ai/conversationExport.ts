@@ -96,6 +96,13 @@ function renderToolResult(result: ToolResultEvent): readonly string[] {
     ...(result.summary ? ['#### Summary', '', ...quote(result.summary)] : []),
     ...jsonSection('Input', result.input),
     ...jsonSection('Result', result.result),
+    // Names, never bytes: an exported transcript is text, and a base64 frame in it is noise.
+    ...listSection(
+      'Shown to the model',
+      result.images?.map(
+        (image) => `${image.label ?? 'an image'}${image.path ? ` (${image.path})` : ''}`,
+      ),
+    ),
     ...listSection('Files', result.files),
     ...listSection('Clips', result.clips),
     ...listSection('Tracks', result.tracks),

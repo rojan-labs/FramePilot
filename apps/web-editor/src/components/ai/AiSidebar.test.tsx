@@ -2748,9 +2748,11 @@ describe('a sent message owns its attachments (PROMPT.md §6)', () => {
     // is the message itself. If Retry rebuilt its references from composer state it would
     // now re-run with none at all.
     const seen: (readonly unknown[] | undefined)[] = [];
+    const seenFiles: (readonly unknown[] | undefined)[] = [];
     class FailingThenRecording implements AiSession {
       public async *run(_mode: string, input: AiSessionInput): AsyncIterable<AiEvent> {
         seen.push(input.references);
+        seenFiles.push(input.referenceFiles);
         const e = createTurnEmitter({ conversationId: input.conversationId, turnId: input.turnId });
         yield e.status('failed');
       }
@@ -2778,6 +2780,14 @@ describe('a sent message owns its attachments (PROMPT.md §6)', () => {
     await waitFor(() => expect(seen).toHaveLength(2));
     // The same two references, rebuilt from the message rather than the emptied composer.
     expect(seen[1]).toHaveLength(2);
+    // And where their files are, so the desktop host can show an image reference to the
+    // model as a picture (EQ18) — on the first send and on the replay alike.
+    const ids = (seen[0] as readonly { id: string }[]).map((profile) => profile.id);
+    for (const files of [seenFiles[0], seenFiles[1]]) {
+      expect((files as readonly { id: string; path: string }[]).map((file) => file.id)).toEqual(
+        ids,
+      );
+    }
   });
 
   it('keeps them on the message across a reload, with nothing back in the composer', async () => {

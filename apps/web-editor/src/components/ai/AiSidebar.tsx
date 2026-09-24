@@ -130,6 +130,7 @@ import {
 import { recordProviderSuccess } from '../../editor/providerHealth.js';
 import { LruCache } from '../../editor/lruCache.js';
 import {
+  activeReferenceFiles,
   activeReferences,
   isDefaultUiState,
   referencesToDismissForCap,
@@ -1425,6 +1426,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         });
       }
       const readyReferences = activeReferences(conversationLog, dismissedNow);
+      // Where those references' files are, so the desktop host can show a model that reads
+      // images the attached picture itself (EQ18). Same walk, same rules as the profiles.
+      const readyReferenceFiles = activeReferenceFiles(conversationLog, dismissedNow);
       const runInputFor = (runMode: AiSessionMode): AiSessionInput => {
         const currentEditor = editorRef.current;
         const projectSnapshot = projectSnapshotForAiRun(projectRef.current, currentEditor);
@@ -1452,6 +1456,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
           ...(history.length > 0 ? { history } : {}),
           userMemory: loadUserMemory(),
           ...(readyReferences.length > 0 ? { references: readyReferences } : {}),
+          ...(readyReferenceFiles.length > 0 ? { referenceFiles: readyReferenceFiles } : {}),
           ...(activeProviderName !== 'mock' ? { provider: activeProviderName } : {}),
           ...(sendSelection ? { selection: sendSelection } : {}),
           interaction,
