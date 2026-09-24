@@ -47,7 +47,7 @@ def _predict(
     row = tables[faces[family][bucket]]
     size = int(tm.REFERENCE_FRAME[1] * size_pct / 100)
     cells = [row[glyphs.index(ch)] for ch in word]
-    ink = sum(cell[0] for cell in cells[:-1]) + cells[-1][2] - cells[0][1]
+    ink = float(sum(cell[0] for cell in cells[:-1]) + cells[-1][2] - cells[0][1])
     return ink / 1000 * size + 6 * max(1, size // 12)
 
 
