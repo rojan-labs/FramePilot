@@ -233,12 +233,28 @@ export function captionLineScale(resolved: ResolvedCaptionStyle, time: number): 
   return 1 + PULSE_DEPTH * Math.sin(phase);
 }
 
+/**
+ * `outlineWidth` is in sixteenths of the caption's font size — the engine's
+ * `_stroke_px` reads the same unit, so the outline keeps its proportion at every
+ * output resolution.
+ */
+export const OUTLINE_WIDTH_UNITS_PER_EM = 16;
+
 /** CSS for the caption line container (typography, chip, shadow). */
 export function captionLineCss(resolved: ResolvedCaptionStyle): CSSProperties {
   const css: CSSProperties = {
     fontFamily: resolved.fontFamily,
     fontWeight: resolved.fontWeight,
     fontStyle: resolved.fontStyle,
+    // The export (Pillow) draws only the faces that are bundled. Left to itself
+    // the browser fakes a bold or italic the family does not ship — Anton "at
+    // 900", Pacifico "in italic" — so the preview promised a look the export
+    // never drew.
+    fontSynthesis: 'none',
+    // Pillow sets only a variable font's weight axis; every other axis stays at
+    // its default. Automatic optical sizing would move `opsz` with the preview's
+    // on-screen size and draw different letterforms than the export.
+    fontOpticalSizing: 'none',
     color: resolved.textColor ?? '#ffffff',
     letterSpacing: resolved.letterSpacing !== undefined ? `${resolved.letterSpacing}em` : undefined,
     textTransform: resolved.textTransform === 'none' ? undefined : resolved.textTransform,
@@ -253,8 +269,13 @@ export function captionLineCss(resolved: ResolvedCaptionStyle): CSSProperties {
     css.textShadow = `${s.offsetX}em ${s.offsetY}em ${s.blur}em ${s.color}`;
   }
   if (resolved.outlineColor !== undefined && (resolved.outlineWidth ?? 0) > 0) {
-    // CSS's closest analog of a Pillow stroke outline.
-    css.WebkitTextStroke = `${(resolved.outlineWidth ?? 0) / 16}em ${resolved.outlineColor}`;
+    // Pillow strokes OUTSIDE the glyph, at full width, under the fill. A CSS
+    // stroke is centred on the outline, so it is drawn at twice the width and
+    // painted beneath the fill: the half that would eat into the letter is
+    // covered, the half outside is the export's outline.
+    const em = (2 * (resolved.outlineWidth ?? 0)) / OUTLINE_WIDTH_UNITS_PER_EM;
+    css.WebkitTextStroke = `${em}em ${resolved.outlineColor}`;
+    css.paintOrder = 'stroke fill';
   }
   return css;
 }
@@ -279,7 +300,15 @@ export function captionWordCss(
   const highlightColor = highlight?.color ?? DEFAULT_HIGHLIGHT_COLOR;
   const highlightScale = highlight?.scale ?? DEFAULT_HIGHLIGHT_SCALE;
 
-  if (state === 'upcoming' && (resolved.display ?? 'phrase') === 'phrase') {
+  // Dimming the words still to come is part of word highlighting, exactly as in
+  // the engine's `_draw_planned_word`: a phrase template with no highlight is a
+  // plain line in the export, and previewing it as a karaoke read-along promised
+  // a look the export never drew.
+  if (
+    state === 'upcoming' &&
+    highlight?.enabled === true &&
+    (resolved.display ?? 'phrase') === 'phrase'
+  ) {
     css.opacity = UPCOMING_OPACITY;
   }
 

@@ -983,8 +983,10 @@ export const CaptionBackgroundSchema = z.object({
 });
 
 /**
- * Drop shadow / glow behind the caption text. `blur` is a fraction of font
- * size; zero offsets with a non-zero blur reads as a glow.
+ * Drop shadow / glow behind the caption text. `blur` is a CSS blur radius as a
+ * fraction of font size (the Gaussian's standard deviation is half of it);
+ * offsets are fractions of font size too. Zero offsets with a non-zero blur
+ * reads as a glow.
  */
 export const CaptionShadowSchema = z.object({
   color: z.string().min(1),
@@ -1065,7 +1067,12 @@ export const CaptionStyleSchema = z.object({
   textColor: z.string().min(1).optional(),
   /** Text outline/stroke color (any CSS color string). */
   outlineColor: z.string().min(1).optional(),
-  /** Text outline/stroke width, in the same units as font size. */
+  /**
+   * Text outline width, in SIXTEENTHS of the resolved font size (2 = 1/8 em),
+   * drawn outside the letters. Font-relative so the stroke keeps its proportion
+   * at every output resolution; both renderers read this unit
+   * (`captionPreview.ts#OUTLINE_WIDTH_UNITS_PER_EM`, `captions.py#_stroke_px`).
+   */
   outlineWidth: z.number().nonnegative().optional(),
   /** Vertical anchor for the caption block. Default: 'bottom'. */
   position: CaptionPositionSchema.optional(),

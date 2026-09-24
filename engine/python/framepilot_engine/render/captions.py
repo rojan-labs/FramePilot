@@ -292,6 +292,17 @@ _ZOOM_START = 0.5
 _WORD_CHIP_PAD = 0.18
 # Glow blur radius as a fraction of font size (word emphasis + shadow glow).
 _GLOW_BLUR_FRACTION = 0.25
+# ``outlineWidth`` is in sixteenths of the font size (the preview's
+# ``OUTLINE_WIDTH_UNITS_PER_EM``), so an outline keeps its proportion to the
+# letters at every output resolution. It used to be raw pixels here while the
+# preview read it in ems: a 2 was a hairline on a 1080x1920 export and a bold
+# stroke in the editor.
+_OUTLINE_UNITS_PER_EM = 16
+# A shadow's ``blur`` is a CSS blur radius (the preview's ``text-shadow``), and
+# CSS defines that as TWICE the Gaussian standard deviation Pillow's
+# ``GaussianBlur`` takes. Passing it straight through made every export shadow
+# twice as soft as the preview showed.
+_CSS_BLUR_RADIUS_PER_SIGMA = 2.0
 
 _RGBA = tuple[int, int, int, int]
 
@@ -309,7 +320,8 @@ class _ResolvedStyle:
     font_scale: float
     text_color: _RGBA
     outline_color: _RGBA | None
-    outline_width: int
+    #: In sixteenths of the font size; :func:`_stroke_px` converts it for Pillow.
+    outline_width: float
     box_fill: _RGBA
     box_radius: float
     box_pad_x: float
@@ -404,7 +416,7 @@ def _resolve_style(style: CaptionStyle) -> _ResolvedStyle:
         font_scale=s.font_scale if s.font_scale is not None else 1.0,
         text_color=_hex_to_rgba(s.text_color) if s.text_color else (255, 255, 255, 255),
         outline_color=_hex_to_rgba(s.outline_color) if s.outline_color else None,
-        outline_width=int(s.outline_width) if s.outline_width is not None else 0,
+        outline_width=float(s.outline_width) if s.outline_width is not None else 0.0,
         box_fill=box_fill,
         box_radius=(
             background.radius if background is not None and background.radius is not None else 0.35
@@ -450,9 +462,7 @@ def _resolve_style(style: CaptionStyle) -> _ResolvedStyle:
         loop_period=loop_period,
         per_word=bool(animation.per_word) if animation is not None else False,
         accent_mode=accent.mode if accent is not None else "none",
-        accent_keywords=(
-            tuple(accent.keywords) if accent is not None and accent.keywords else ()
-        ),
+        accent_keywords=(tuple(accent.keywords) if accent is not None and accent.keywords else ()),
         accent_font_family=accent.font_family if accent is not None else None,
         accent_font_scale=(
             accent.font_scale if accent is not None and accent.font_scale is not None else 1.0
@@ -534,6 +544,16 @@ def _load_font(
                 font_family,
             )
     return ImageFont.load_default(size=size)
+
+
+def _stroke_px(outline_width: float, font_size: int) -> int:
+    """The Pillow stroke width, in pixels, for ``outlineWidth`` at ``font_size``.
+
+    Never rounds a requested outline away: any positive width draws at least 1 px.
+    """
+    if outline_width <= 0:
+        return 0
+    return max(1, round(outline_width * font_size / _OUTLINE_UNITS_PER_EM))
 
 
 def _set_weight_axis(font: ImageFont.FreeTypeFont, weight: int) -> None:
@@ -1125,7 +1145,7 @@ def _render_styled_caption_image(
     resolved = _resolve_style(style)
     font_size = max(_MIN_FONT_SIZE, int(frame_height * _FONT_HEIGHT_FRACTION * resolved.font_scale))
     spacing_px = resolved.letter_spacing * font_size
-    stroke = resolved.outline_width
+    stroke = _stroke_px(resolved.outline_width, font_size)
     plans = _plan_tokens(text, words, resolved, font_size)
     timed = bool(plans) and plans[0].word is not None
     display = resolved.display if timed or resolved.display == "phrase" else "phrase"
@@ -1225,9 +1245,9 @@ def _render_styled_caption_image(
 
     if resolved.shadow_color is not None:
         shadow = _tint_alpha(text_layer, resolved.shadow_color)
-        blur_px = resolved.shadow_blur * font_size
-        if blur_px > 0:
-            shadow = shadow.filter(ImageFilter.GaussianBlur(radius=blur_px))
+        sigma_px = resolved.shadow_blur * font_size / _CSS_BLUR_RADIUS_PER_SIGMA
+        if sigma_px > 0:
+            shadow = shadow.filter(ImageFilter.GaussianBlur(radius=sigma_px))
         offset = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
         offset.alpha_composite(
             shadow,
@@ -1283,7 +1303,7 @@ def _draw_planned_word(
 
     canvas = ImageDraw.Draw(layer)
     baseline += motion.dy
-    stroke = resolved.outline_width
+    stroke = _stroke_px(resolved.outline_width, font_size)
     state = (
         _word_state(plan.word, frame_time)
         if plan.word is not None and resolved.highlight_enabled

@@ -232,6 +232,20 @@ describe('captionLineCss', () => {
     expect(css.WebkitTextStroke).toContain('#000000');
   });
 
+  it('draws the outline outside the glyph at the width the export strokes', () => {
+    // outlineWidth 2 = 2/16 em outside the letter (engine `_stroke_px`). A CSS
+    // stroke is centred, so it is twice that and painted under the fill.
+    const css = captionLineCss(resolveCaptionStyle({ outlineColor: '#000000', outlineWidth: 2 }));
+    expect(css.WebkitTextStroke).toBe('0.25em #000000');
+    expect(css.paintOrder).toBe('stroke fill');
+  });
+
+  it('never fakes a bold, italic or optical size the export cannot draw', () => {
+    const css = captionLineCss(resolveCaptionStyle({ fontFamily: 'Anton', fontWeight: 900 }));
+    expect(css.fontSynthesis).toBe('none');
+    expect(css.fontOpticalSizing).toBe('none');
+  });
+
   it('resolves a templateId into the template look', () => {
     const css = captionLineCss(resolveCaptionStyle({ templateId: 'impact' }));
     expect(css.color).toBe('#ffd60a');
@@ -248,6 +262,12 @@ describe('captionWordCss', () => {
       textColor: '#ffffff',
       highlight: { enabled: true, color: '#ff0000', animation: animation as never },
     });
+
+  it('keeps upcoming words at full strength when the style has no highlight (engine parity)', () => {
+    const plain = resolveCaptionStyle({ display: 'phrase' });
+    const css = captionWordCss(plain, 'upcoming', arrived, false, 0.5, WORDS[3]!);
+    expect(css.opacity).toBeUndefined();
+  });
 
   it('dims upcoming words in phrase display', () => {
     const css = captionWordCss(emphasisStyle('color'), 'upcoming', arrived, false, 0.5, WORDS[3]!);

@@ -13,9 +13,13 @@ version bumps would invalidate binary goldens for legitimate reasons).
 from __future__ import annotations
 
 import numpy as np
+import pytest
+from PIL import ImageFilter
 
+from framepilot_engine.render import captions as captions_module
 from framepilot_engine.render.caption_templates import load_catalog
 from framepilot_engine.render.captions import (
+    _stroke_px,
     caption_style_is_animated,
     render_caption_image,
 )
@@ -343,6 +347,55 @@ def test_shadow_renders_offset_tinted_pixels() -> None:
     pixels = image.reshape(-1, 4)
     # Blurred shadow pixels carry the shadow hue (magenta-dominant channels).
     assert bool(np.any((pixels[:, 0] > 0) & (pixels[:, 1] == 0) & (pixels[:, 2] > 0)))
+
+
+def test_outline_width_is_font_relative() -> None:
+    # outlineWidth is sixteenths of the font size (the preview's unit): the same
+    # style must stroke in proportion at every export resolution, not a fixed
+    # pixel count that is bold on a small frame and a hairline on a large one.
+    assert _stroke_px(2, 88) == 11
+    assert _stroke_px(2, 44) == 6
+    assert _stroke_px(0.1, 20) == 1  # a requested outline never rounds away
+    assert _stroke_px(0, 88) == 0
+
+    def ring(frame: int) -> float:
+        bare = render_caption_image("HELLO", frame, frame, style=_style(textColor="#ffffff"))
+        outlined = render_caption_image(
+            "HELLO",
+            frame,
+            frame,
+            style=_style(textColor="#ffffff", outlineColor="#00ff00", outlineWidth=2),
+        )
+        return float(outlined.shape[1] - bare.shape[1]) / frame
+
+    # The canvas grows by the stroke on both sides; as a share of the frame it
+    # is the same at 480 and 1920 (within a pixel of rounding).
+    assert abs(ring(480) - ring(1920)) < 4 / 480
+
+
+def test_shadow_blur_is_a_css_blur_radius(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `shadow.blur` is the preview's CSS `text-shadow` blur radius, which CSS
+    # defines as TWICE the Gaussian sigma Pillow takes. Passing it straight
+    # through drew every export shadow twice as soft as the preview.
+    radii: list[float] = []
+    real_blur = ImageFilter.GaussianBlur
+
+    def spy(radius: float = 2) -> object:
+        radii.append(radius)
+        return real_blur(radius=radius)
+
+    monkeypatch.setattr(ImageFilter, "GaussianBlur", spy)
+    _render(
+        _style(
+            textColor="#ffffff",
+            shadow={"color": "#ff00ff", "blur": 0.2, "offsetX": 0, "offsetY": 0},
+        ),
+        0.5,
+    )
+    font_size = max(
+        captions_module._MIN_FONT_SIZE, int(480 * captions_module._FONT_HEIGHT_FRACTION)
+    )
+    assert radii == [pytest.approx(0.2 * font_size / 2)]
 
 
 # --- catalog-wide determinism smoke -----------------------------------------

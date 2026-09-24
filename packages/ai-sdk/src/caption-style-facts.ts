@@ -44,7 +44,9 @@ export { MIN_CAPTION_CUE_SECONDS } from '@framepilot/editor-core';
 export const CAPTION_STYLE_UNITS =
   'background.radius, background.paddingX, background.paddingY and shadow.blur are ' +
   'FRACTIONS of the font size — the catalog uses 0.25–0.6, and a chip that hugs the ' +
-  'text is paddingX 0.4–0.5, paddingY 0.25–0.35, radius 0.2–0.4. fontScale multiplies ' +
+  'text is paddingX 0.4–0.5, paddingY 0.25–0.35, radius 0.2–0.4. outlineWidth is in ' +
+  'SIXTEENTHS of the font size: the catalog uses 1–2.5, and 3 is already a heavy stroke. ' +
+  'fontScale multiplies ' +
   'the base size (1/22 of the frame height). xPercent, yPercent and maxWidthPercent are ' +
   `percent of the frame. Font-relative values above ${String(MAX_CAPTION_EM_VALUE)} are refused.`;
 

@@ -122,7 +122,13 @@ def test_the_formula_predicts_the_drawn_width(metrics: dict[str, object], weight
                 # Within rounding in BOTH directions on basic layout: a gross over-read would
                 # shrink titles for nothing, the other bug this replaced. Shaped layout (libraqm,
                 # the Linux wheels) kerns and ligates narrower than the summed advances.
-                assert predicted <= drawn * OVER_READ + PIXEL_SLACK, (family, weight, word, size, drawn)
+                assert predicted <= drawn * OVER_READ + PIXEL_SLACK, (
+                    family,
+                    weight,
+                    word,
+                    size,
+                    drawn,
+                )
     assert worst >= -MAX_UNDER_READ, worst_case
 
 
