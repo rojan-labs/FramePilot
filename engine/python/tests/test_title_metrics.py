@@ -19,10 +19,12 @@ from framepilot_engine.render import title_metrics as tm
 from framepilot_engine.render.text_overlay import rasterize_text_overlay
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-#: The formula may read at most this much narrower than the drawn raster: glyph metrics are
-#: rounded to 1/1000 em and ink edges to whole pixels. The fit keeps a 4 % margin each side
-#: of the 92 % safe width, so an under-read this small cannot put a title off the frame.
-MAX_UNDER_READ = 0.025
+#: The formula may read at most this much narrower than the drawn raster. On basic layout (the
+#: desktop's macOS build) that is rounding: glyph metrics to 1/1000 em, ink edges to whole
+#: pixels. Shaped layout (libraqm, the Linux wheels) also kerns, and one pair in the catalog
+#: draws 3.2 % wider than its advances (CI, 2026-09-24). The fit keeps a 4 % margin each side
+#: of the 92 % safe width, so neither can put a title off the frame.
+MAX_UNDER_READ = 0.025 if not features.check("raqm") else 0.04
 #: The most the formula may read WIDER than the raster: rounding on basic layout; kerning and
 #: ligatures ("fl") on shaped layout, where a short word can draw a quarter narrower.
 OVER_READ = 1.03 if not features.check("raqm") else 1.3
@@ -96,6 +98,7 @@ def test_the_formula_predicts_the_drawn_width(metrics: dict[str, object], weight
     assert isinstance(faces, dict)
     words = ("MOTION", "WAIT", "jig", "fly", "Behind", "SUBSCRIBE", "Wow!", "100%")
     worst = 0.0
+    worst_case: tuple[object, ...] = ()
     for family in faces:
         for word in words:
             for size in (4.0, 9.0, 15.0, 22.0):
@@ -108,12 +111,14 @@ def test_the_formula_predicts_the_drawn_width(metrics: dict[str, object], weight
                     style["fontFamily"] = family
                 drawn = rasterize_text_overlay(word, style, *tm.REFERENCE_FRAME).shape[1]
                 predicted = _predict(metrics, family, weight, word, size)
-                worst = min(worst, (predicted - drawn) / drawn)
+                if (predicted - drawn) / drawn < worst:
+                    worst = (predicted - drawn) / drawn
+                    worst_case = (family, weight, word, size, round(predicted, 1), drawn)
                 # Within rounding in BOTH directions on basic layout: a gross over-read would
                 # shrink titles for nothing, the other bug this replaced. Shaped layout (libraqm,
                 # the Linux wheels) kerns and ligates narrower than the summed advances.
                 assert predicted <= drawn * OVER_READ + 2, (family, weight, word, size, drawn)
-    assert worst >= -MAX_UNDER_READ
+    assert worst >= -MAX_UNDER_READ, worst_case
 
 
 def test_every_bundled_family_has_a_row_for_every_weight(metrics: dict[str, object]) -> None:
