@@ -70,11 +70,7 @@ import {
 } from '../masking/shape-presets.js';
 import { boolean, numeric, seconds } from './tool-args.js';
 import { analysisTool, jsonSchema, mutateTool, readTool } from './tool-factories.js';
-import {
-  MAX_TITLE_BOX_WIDTH_PERCENT,
-  largestFittingSizePercent,
-  overflowingWords,
-} from '../overlay-fit.js';
+import { MAX_TITLE_BOX_WIDTH_PERCENT, largestFittingSizePercent } from '../overlay-fit.js';
 
 const unit = numeric(z.number().min(0).max(1));
 
@@ -662,8 +658,10 @@ function textStyleParams(style: z.infer<typeof TextStyleSchema>): Record<string,
  * wider than a 9:16 frame, so it ran off both sides. `add_text_layer` already fits its titles
  * rather than refusing them (refusing cost whole titles in earlier runs); a title behind a
  * subject is the same text effect and gets the same rule: widen the box to the safe width
- * first, then bring the size down to the largest that fits. `measure_subject` measures the
- * exact size with the real font; this is the arithmetic safety net for a call that skipped it.
+ * first, then bring the size down to the largest that fits. `measure_subject` measures that
+ * size with the export's rasterizer; this computes the same number from glyph metrics
+ * generated from the same font files (`title-metrics.generated.ts`), so a size it returned
+ * stays that size and a call that skipped it is still held inside the frame.
  */
 function fitTitleStyle(
   text: string,
@@ -678,22 +676,12 @@ function fitTitleStyle(
     ...(family === undefined ? {} : { fontFamily: family }),
     ...(weight === undefined ? {} : { fontWeight: weight }),
   };
-  const input = {
-    text,
-    fontSizePercent: size,
-    boxWidthPercent: MAX_TITLE_BOX_WIDTH_PERCENT,
-    ...font,
-  };
-  if (overflowingWords(input, resolution).length === 0) {
-    return { ...params, boxWidthPercent: MAX_TITLE_BOX_WIDTH_PERCENT };
-  }
+  const boxed = { ...params, boxWidthPercent: MAX_TITLE_BOX_WIDTH_PERCENT };
+  // Measured as the export draws it (ink, stroke and padding), the same way the engine's
+  // subject-layout route fits a title, so a size `measure_subject` returned stays that size.
   const fits = largestFittingSizePercent(text, MAX_TITLE_BOX_WIDTH_PERCENT, resolution, font);
-  if (fits === undefined || fits <= 0) return params;
-  return {
-    ...params,
-    fontSizePercent: Math.min(size, fits),
-    boxWidthPercent: MAX_TITLE_BOX_WIDTH_PERCENT,
-  };
+  if (fits === undefined || fits <= 0 || size <= fits) return boxed;
+  return { ...boxed, fontSizePercent: fits };
 }
 
 const MeasureSubjectArgsSchema = z

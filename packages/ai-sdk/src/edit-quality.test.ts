@@ -13,7 +13,8 @@ import { parseProject, type Project } from '@framepilot/timeline-schema';
 import { getTool } from './tool-registry.js';
 import type { ToolContext } from './tool-context.js';
 import { subjectLayoutBody, unwrapSubjectLayout } from './sidecar-executor.js';
-import { familyWidthFactor, largestFittingSizePercent, overflowingWords } from './overlay-fit.js';
+import { isMeasuredFont, largestFittingSizePercent, titleDrawnWidthPx } from './overlay-fit.js';
+import { TITLE_REFERENCE_FRAME, TITLE_REFERENCE_WIDTHS } from './title-metrics.generated.js';
 import { verifyTransitions } from './verify.js';
 import { hiddenPictureClips } from './domain-tools/picture-layers.js';
 import { transitionsNote } from './domain-tools/transition-planning.js';
@@ -144,24 +145,49 @@ describe('measure_subject — the request and the reading', () => {
   });
 });
 
-describe('titles are fitted to the frame and can use a designed font', () => {
-  it('knows a condensed family is narrower than the default face, and a heavy one wider', () => {
-    expect(familyWidthFactor({ fontFamily: 'Anton' })).toBeLessThan(1);
-    expect(familyWidthFactor({ fontFamily: 'Montserrat', fontWeight: 900 })).toBeGreaterThan(1.2);
-    expect(familyWidthFactor({ fontFamily: 'Not A Font' })).toBeUndefined();
+describe('titles are fitted to the frame the export draws', () => {
+  it('predicts every reference width the engine rasterized, to rounding', () => {
+    // TITLE_REFERENCE_WIDTHS are `rasterize_text_overlay` widths written by the same
+    // generator as the glyph table; tests/test_title_metrics.py pins the table to the fonts.
+    for (const { family, word, size, px } of TITLE_REFERENCE_WIDTHS) {
+      const fontPx = Math.floor((TITLE_REFERENCE_FRAME.height * size) / 100);
+      const predicted = titleDrawnWidthPx(
+        word,
+        fontPx,
+        family ? { fontFamily: family } : undefined,
+      );
+      expect(predicted, `${family || 'default'} ${word} ${size}%`).toBeGreaterThanOrEqual(
+        px * 0.975,
+      );
+      expect(predicted, `${family || 'default'} ${word} ${size}%`).toBeLessThanOrEqual(
+        px * 1.03 + 2,
+      );
+    }
+  });
+
+  it('lands on the size the engine fitted for the captured title', () => {
+    // Live, 2026-09-24: `/analyze/subject-layout` fitted "MOTION" in Anton at 15.6 % of a
+    // 1080×1920 frame; the previous family-factor estimate re-shrank it to 13.8 %.
     const frame = { width: 1080, height: 1920 };
     const anton = largestFittingSizePercent('MOTION', 92, frame, { fontFamily: 'Anton' })!;
-    const heavy = largestFittingSizePercent('MOTION', 92, frame, {
-      fontFamily: 'Montserrat',
-      fontWeight: 900,
-    })!;
-    expect(anton).toBeGreaterThan(heavy);
-    expect(
-      overflowingWords(
-        { text: 'MOTION', fontSizePercent: anton, boxWidthPercent: 92, fontFamily: 'Anton' },
-        frame,
-      ),
-    ).toEqual([]);
+    expect(anton).toBeGreaterThanOrEqual(15.4);
+    expect(anton).toBeLessThanOrEqual(15.7);
+    // And a short word in a script face — the old estimate let "WAIT" in Caveat through at
+    // 24.4 % when 18.5 % is all that fits — is held inside the frame.
+    const caveat = largestFittingSizePercent('WAIT', 92, frame, { fontFamily: 'Caveat' })!;
+    expect(caveat).toBeLessThanOrEqual(18.6);
+    const drawn = titleDrawnWidthPx('WAIT', Math.floor((1920 * caveat) / 100), {
+      fontFamily: 'Caveat',
+    });
+    expect(drawn).toBeLessThanOrEqual(0.92 * 1080);
+  });
+
+  it('never reads a heavier cut narrower than a lighter one', () => {
+    const light = titleDrawnWidthPx('MOTION', 200, { fontFamily: 'Montserrat', fontWeight: 400 });
+    const heavy = titleDrawnWidthPx('MOTION', 200, { fontFamily: 'Montserrat', fontWeight: 900 });
+    expect(heavy).toBeGreaterThan(light);
+    expect(isMeasuredFont({ fontFamily: 'Anton' })).toBe(true);
+    expect(isMeasuredFont({ fontFamily: 'Not A Font' })).toBe(false);
   });
 });
 

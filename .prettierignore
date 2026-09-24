@@ -30,3 +30,8 @@ packages/ai-sdk/skills/*.md
 tests/fixtures/mask-raster/*.json
 tests/fixtures/mask-key/*.json
 tests/fixtures/mask-render/legacy-v21.migrated.json
+
+# Per-glyph title metrics measured from the bundled fonts by
+# `python -m framepilot_engine.render.title_metrics`, which owns the formatting;
+# engine/python/tests/test_title_metrics.py asserts the file byte for byte.
+packages/ai-sdk/src/title-metrics.generated.ts
