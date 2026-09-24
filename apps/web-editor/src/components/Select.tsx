@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { Check, ChevronDown, ICON_SIZE } from './icons.js';
 
 /** Fixed-position coordinates for the portaled popover. */
@@ -67,6 +67,11 @@ export interface SelectOption<T extends string = string> {
   readonly icon?: ReactNode;
   /** Optional trailing hint (e.g. a keyboard shortcut). */
   readonly hint?: string;
+  /**
+   * Inline style for the option's label — a font picker draws each family's
+   * name in that family, so the list is a specimen rather than a list of names.
+   */
+  readonly labelStyle?: CSSProperties;
   readonly disabled?: boolean;
 }
 
@@ -234,6 +239,14 @@ export function Select<T extends string = string>({
 
   const activeId = useMemo(() => `${listId}-opt-${active}`, [listId, active]);
 
+  // Keep the highlighted option in view as the keyboard moves it: a long list
+  // (the caption font picker has ~90 families) scrolls inside the popover, and
+  // arrow keys or typeahead would otherwise highlight options nobody can see.
+  useEffect(() => {
+    if (!open) return;
+    document.getElementById(activeId)?.scrollIntoView?.({ block: 'nearest' });
+  }, [open, activeId, coords]);
+
   return (
     <div className={`select ${className ?? ''}`} ref={rootRef}>
       <button
@@ -257,7 +270,9 @@ export function Select<T extends string = string>({
               {selected.icon}
             </span>
           )}
-          <span className="select-value-label">{selected ? selected.label : placeholder}</span>
+          <span className="select-value-label" style={selected?.labelStyle}>
+            {selected ? selected.label : placeholder}
+          </span>
         </span>
         <ChevronDown size={ICON_SIZE.sm} aria-hidden="true" className="select-caret" />
       </button>
@@ -295,7 +310,9 @@ export function Select<T extends string = string>({
                     {option.icon}
                   </span>
                 )}
-                <span className="select-option-label">{option.label}</span>
+                <span className="select-option-label" style={option.labelStyle}>
+                  {option.label}
+                </span>
                 {option.hint && <span className="select-option-hint">{option.hint}</span>}
                 <span className="select-option-check" aria-hidden="true">
                   {option.value === value && <Check size={ICON_SIZE.sm} />}

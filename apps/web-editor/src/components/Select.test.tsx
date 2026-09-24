@@ -4,7 +4,7 @@
  * Escape.
  */
 import { useState } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Select, type SelectOption } from './Select.js';
 
@@ -48,5 +48,40 @@ describe('Select', () => {
     fireEvent.keyDown(trigger, { key: 'ArrowDown' }); // open again
     fireEvent.keyDown(trigger, { key: 'Escape' });
     expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('draws each option label in its own style, and the chosen one on the trigger', () => {
+    const fonts: readonly SelectOption[] = [
+      { value: 'Anton', label: 'Anton', labelStyle: { fontFamily: 'Anton' } },
+      { value: 'Lora', label: 'Lora', labelStyle: { fontFamily: 'Lora' } },
+    ];
+    render(<Select label="font" value="Lora" onChange={() => {}} options={fonts} />);
+    const trigger = screen.getByRole('combobox', { name: 'font' });
+    expect(trigger.querySelector<HTMLElement>('.select-value-label')?.style.fontFamily).toBe(
+      'Lora',
+    );
+    fireEvent.click(trigger);
+    const anton = screen.getByRole('option', { name: /Anton/ });
+    expect(anton.querySelector<HTMLElement>('.select-option-label')?.style.fontFamily).toBe(
+      'Anton',
+    );
+  });
+
+  it('scrolls the highlighted option into view as the keyboard moves it', () => {
+    // jsdom has no layout, so no scrollIntoView: install a recorder for the test.
+    const scrolled: string[] = [];
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = vi.fn(function (this: HTMLElement) {
+      scrolled.push(this.textContent ?? '');
+    });
+    try {
+      render(<Host />);
+      const trigger = screen.getByRole('combobox', { name: 'mode' });
+      fireEvent.keyDown(trigger, { key: 'ArrowDown' }); // open on Chat
+      fireEvent.keyDown(trigger, { key: 'End' }); // → Edit
+      expect(scrolled.at(-1)).toContain('Edit');
+    } finally {
+      HTMLElement.prototype.scrollIntoView = original;
+    }
   });
 });

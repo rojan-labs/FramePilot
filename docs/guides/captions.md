@@ -64,18 +64,26 @@ double-click edits its text in place.
 
 The **Typography** section applies a font to the whole caption track. **Font for selected cue** can
 override one caption when the composition needs a deliberate exception. Both pickers contain the
-same 22 bundled families, grouped by purpose:
+same 92 bundled families, grouped by purpose, and each name in the list is drawn in its own face:
 
-| Group       | Families                                                                               |
-| ----------- | -------------------------------------------------------------------------------------- |
-| Sans serif  | Inter, Montserrat, Roboto, Open Sans, Lato, Raleway, Figtree, Manrope, Poppins, Nunito |
-| Display     | Archivo Black, Oswald, Bebas Neue, Anton, Bangers                                      |
-| Serif       | DM Serif Display, Playfair Display, Merriweather                                       |
-| Monospace   | Space Mono                                                                             |
-| Handwritten | Caveat, Pacifico, Shadows Into Light                                                   |
+| Group                | Families                                                                                                                                                                                                                                                                                                                     |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sans serif           | Inter, Montserrat, Roboto, Open Sans, Lato, Raleway, Figtree, Manrope, Poppins, Nunito, Plus Jakarta Sans, Outfit, Lexend, Sora, Urbanist, DM Sans, Space Grotesk, Rubik, Kanit, Barlow, League Spartan, Geist, Bricolage Grotesque, Fredoka, Quicksand, Josefin Sans                                                        |
+| Display              | Archivo Black, Oswald, Bebas Neue, Anton, Bangers, Unbounded, Syne, Exo 2, Barlow Condensed, Luckiest Guy, Lilita One, Titan One, Bungee, Rubik Mono One, Righteous, Staatliches, Teko, Big Shoulders, League Gothic, Alfa Slab One, Russo One, Orbitron, Passion One, Paytone One, Chewy, Knewave, Shrikhand, Abril Fatface |
+| Serif                | DM Serif Display, Playfair Display, Merriweather, Fraunces, Instrument Serif, Lora, Libre Baskerville, Bodoni Moda, Cinzel, Prata, Roboto Slab, Young Serif, Gloock                                                                                                                                                          |
+| Monospace            | Space Mono, JetBrains Mono, IBM Plex Mono, Courier Prime, VT323, Press Start 2P, Silkscreen                                                                                                                                                                                                                                  |
+| Handwritten & script | Caveat, Pacifico, Shadows Into Light, Permanent Marker, Dancing Script, Satisfy, Great Vibes, Sacramento, Yellowtail, Lobster, Patrick Hand, Rock Salt, Gloria Hallelujah, Homemade Apple, Kaushan Script, Mr Dafoe, Caveat Brush, Amatic SC                                                                                 |
 
 The fonts are bundled for both live preview and final export, so a project keeps the same typography
-on another machine. Templates now draw from this wider catalog.
+on another machine. Every face is SIL Open Font License or Apache 2.0, so it can ship inside the app
+and appear in anything you export; the licence text sits next to each font file. Commercial creator
+faces (Gilroy, Proxima Nova, The Bold Font) are not bundled: their licences do not allow handing the
+file to every user. Faces are drawn exactly as they ship. A family with no bold or italic file is
+not faked bold or slanted, in the preview or the export.
+
+Every template also carries something that separates it from the picture: an outline, a soft
+shadow or a background chip. That keeps captions readable on a bright sky or a white wall as well
+as on dark footage. See [ADR 0184](../adr/0184-caption-templates-read-on-any-footage.md).
 
 ### 3. Generate
 
@@ -181,7 +189,7 @@ breath, because those words were never heard together.
 This is why **generating captions before the cuts are settled is the wrong
 order**: cues describe where speech plays, and re-cutting the audio invalidates
 them. Each cue records the timeline revision it was built against as provenance —
-but staleness is *measured*, by comparing the cue's words against the words that
+but staleness is _measured_, by comparing the cue's words against the words that
 currently play across it, not inferred from the revision number. Grading a clip
 bumps the revision and moves no word, and a caption track that is still correct
 must not be reported as broken.

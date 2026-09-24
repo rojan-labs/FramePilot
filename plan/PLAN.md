@@ -10142,6 +10142,27 @@ masking; AI masking; everything production-grade. **Parity and production audit 
 - [~] E2E.1–E2E.8 + DOC.1 (all eight E2E flows and DOC.1 done — 16/16 masking e2e locally; E2E.7 cross-OS reopen green in CI run 35437415890) — desktop end-to-end flows incl. resume, relink and cross-platform archives; docs
 - [ ] RD3 — release gate on the release build (the only definition of production ready for this phase)
 
+## Discovered (2026-09-24) — caption templates revised, 92 bundled fonts — `[x]` done
+
+Maintainer request: revise every caption template in detail and add at least 50 fonts, licensed
+ones included. Decision record: [ADR 0184](../docs/adr/0184-caption-templates-read-on-any-footage.md).
+Commercial faces cannot be bundled, so all 70 additions are OFL 1.1 / Apache 2.0.
+
+- [x] CT1 — 70 new font families (22 → 92) mirrored in both runtimes, licence text per family
+  guarded by a test, weight ranges read from the files, title metrics regenerated (`053dc62a`)
+- [x] CT2 — preview/export parity: outlineWidth in 1/16 em in both renderers, CSS blur radius =
+  2σ, no synthetic bold/italic/opsz in the preview, upcoming-word dimming only with highlight
+  (`bdb0b72a`)
+- [x] CT3 — engine word geometry: karaoke-fill and pop/zoom words baseline-anchored, one-word
+  display centred with a hugging chip; preview keeps not-yet-shown words' places (`66d0d653`)
+- [x] CT4 — all 51 templates revised (separation layer on every one, typography from the new
+  catalog) + 11 new templates → 62, judged on an export-rendered contact sheet over a hard
+  background (`46c0910d`)
+- [x] CT5 — font picker: each family drawn in its own face, grouped by category, keyboard
+  navigation scrolls the long list; guide, changelog, ADR
+- [ ] CT6 — refresh the macOS `E2E visual regression` baselines that show caption tiles (needs a
+  macOS runner snapshot update, not a code change)
+
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
 - [ ] Keep `CHANGELOG.md` current (Keep a Changelog format)

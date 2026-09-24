@@ -108,7 +108,7 @@ const FONT_CATEGORIES: readonly { id: CaptionFontCategory; label: string }[] = [
   { id: 'display', label: 'Display' },
   { id: 'serif', label: 'Serif' },
   { id: 'mono', label: 'Monospace' },
-  { id: 'handwritten', label: 'Handwritten' },
+  { id: 'handwritten', label: 'Handwritten & script' },
 ];
 
 const TEMPLATE_CATEGORIES: readonly { id: CaptionTemplateFilter; label: string }[] = [
@@ -205,6 +205,19 @@ function captionWarnings(
   return warnings;
 }
 
+/**
+ * Every bundled family, grouped by category (in {@link FONT_CATEGORIES} order)
+ * and drawn in its own face. Built once: the catalog is static.
+ */
+const FONT_OPTIONS = FONT_CATEGORIES.flatMap((category) =>
+  CAPTION_FONT_CATALOG.filter((font) => font.category === category.id).map((font) => ({
+    value: font.family,
+    label: font.family,
+    hint: category.label,
+    labelStyle: { fontFamily: `'${font.family}', var(--font-sans, sans-serif)` },
+  })),
+);
+
 function CaptionFontPicker({
   id,
   value,
@@ -224,12 +237,7 @@ function CaptionFontPicker({
       label={label}
       value={value}
       disabled={disabled}
-      options={CAPTION_FONT_CATALOG.map((font) => ({
-        value: font.family,
-        label: font.family,
-        hint:
-          FONT_CATEGORIES.find((category) => category.id === font.category)?.label ?? font.category,
-      }))}
+      options={FONT_OPTIONS}
       onChange={onChange}
     />
   );

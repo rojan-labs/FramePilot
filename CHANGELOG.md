@@ -8,6 +8,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **92 caption and title fonts, up from 22.** Seventy new families: rounded creator sans
+  (Fredoka, Quicksand, Rubik), comic and poster display (Luckiest Guy, Lilita One, Titan One,
+  Bungee, Big Shoulders), modern editorial serif (Instrument Serif, Fraunces, Bodoni Moda, Lora),
+  retro and pixel mono (VT323, Press Start 2P, Courier Prime) and marker and signature scripts
+  (Permanent Marker, Mr Dafoe, Great Vibes, Yellowtail). All are free to ship and use in exported
+  video (Open Font License / Apache 2.0). The font picker draws each name in its own face and
+  groups them by style.
+- **Every caption template revised, plus eleven new ones.** Each template now has an outline,
+  shadow or background, so it reads on a bright sky or a white wall as well as on dark footage,
+  and each uses a face that suits it. New: Comic, Shout, Bubble, Vlog, Podcast, Gamer, Sticker,
+  Luxe, Neon, Pixel and Signature.
 - **The assistant measures where a title goes behind someone.** Before it puts a word behind
   a person, it now reads the cut-out on the actual frame — where the head is, where the shoulders
   are — and places the word where the person covers part of it and both ends still show,
@@ -76,6 +87,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   MO-12), privacy and face-recognition consent.
 
 ### Fixed
+
+- **Exported captions now look like the preview.** Outlines were a hairline in the export while
+  the editor showed a bold stroke. Shadows came out twice as soft. The browser faked bold and
+  italic that the export couldn't draw. Karaoke and "pop" words sat above the line in the
+  export. One-word captions on a longer cue slid across the frame inside an oversized box.
+  Build-style captions jumped sideways in the preview as each word appeared. All of these now
+  match between preview and export.
 
 - **The assistant is no longer blind after you remove a background.** Every frame it tried to
   look at, and every colour measurement, failed once a clip had a cut-out, so it reviewed and
