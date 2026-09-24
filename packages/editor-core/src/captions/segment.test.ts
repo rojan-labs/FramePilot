@@ -1115,3 +1115,50 @@ describe('enforceTiming on the frame grid', () => {
     expect(plain!.end).toBeCloseTo(34.74 + MIN_CAPTION_CUE_SECONDS, 9);
   });
 });
+
+describe('no cue ends on a stranded function word when a clean break is in reach', () => {
+  // The real 2026-09-23 lines, at the 4-word cap the agent asked for: holdability and the
+  // cap together left only "I call this the | motion archetype." and "to think from a |
+  // blank canvas." — a dangling article on the two lines the video is about.
+  const ARCHETYPE = real([
+    ['know.', 7.89, 8.38],
+    ['I', 8.43, 8.44],
+    ['call', 8.48, 8.65],
+    ['this', 8.65, 8.87],
+    ['the', 8.87, 9.04],
+    ['motion', 9.04, 9.37],
+    ['archetype.', 9.37, 10.08],
+  ]);
+  const BLANK_CANVAS = real([
+    ['but', 44.9, 45.13],
+    ['how', 45.13, 45.3],
+    ['to', 45.51, 45.52],
+    ['think', 45.57, 45.9],
+    ['from', 45.9, 46.1],
+    ['a', 46.1, 46.27],
+    ['blank', 46.27, 46.7],
+    ['canvas.', 46.7, 47.38],
+  ]);
+
+  it('runs a word or two past the cap rather than end on "the" or "a"', () => {
+    for (const run of [ARCHETYPE, BLANK_CANVAS]) {
+      const texts = cueTexts(segmentCaptions(run, TIGHT, 30));
+      for (const text of texts.slice(0, -1)) {
+        expect(text).not.toMatch(/\b(the|a)$/);
+      }
+    }
+    expect(cueTexts(segmentCaptions(ARCHETYPE, TIGHT, 30))).toContain(
+      'I call this the motion archetype.',
+    );
+  });
+
+  it('keeps a requested phrase on one line inside its cue', () => {
+    const config = captionSegmentConfig('short-form', {
+      maxWordsPerCue: 5,
+      keepTogether: ['billion dollar'],
+    });
+    const text = layoutLines(speak('and worked with billion dollar companies.'), config);
+    expect(text).not.toMatch(/billion\ndollar/);
+    expect(text.replace('\n', ' ')).toBe('and worked with billion dollar companies.');
+  });
+});

@@ -728,10 +728,72 @@ export function packSegment(
       }
     }
 
+    bestIndex = rescueDanglingBreak(words, from, bestIndex, furthest, protectedBreaks, config);
     cues.push(words.slice(from, bestIndex + 1));
     from = bestIndex + 1;
   }
   return cues;
+}
+
+/**
+ * Words a cue may run past `maxWordsPerCue` to avoid ending on a function word.
+ *
+ * WHY. Holdability and a tight word cap together can leave only one legal break, and it
+ * strands an article or preposition: at a 4-word cap the real 50 s talking head of
+ * 2026-09-23 came out "I call this the | motion archetype.", "to think from a | blank
+ * canvas.", "If you want to | craft videos" — the most recognisable amateur subtitle
+ * mistake, on the lines the video is about. One or two more words, still inside the
+ * character budget, read as a caption; a dangling "the" reads as a broken one. Two, not
+ * more: past that the cap stops meaning anything.
+ */
+const DANGLING_OVERFLOW_WORDS = 2;
+
+/** The smallest `maxWordsPerCue` the rescue applies to (see {@link rescueDanglingBreak}). */
+const MIN_CAP_FOR_DANGLING_RESCUE = 3;
+
+/**
+ * If the chosen break strands a function word, the best clean break up to
+ * {@link DANGLING_OVERFLOW_WORDS} further on, or the chosen break when there is none.
+ *
+ * "Clean" means everything the in-cap choice had to respect: holdable, not inside a
+ * keep-together phrase, within the character capacity and the longest cue, and not itself
+ * ending on a function word. Among clean breaks the linguistically best wins, so a
+ * sentence end two words on beats a mid-phrase one a word on.
+ */
+function rescueDanglingBreak(
+  words: readonly TranscriptWord[],
+  from: number,
+  chosen: number,
+  furthest: number,
+  protectedBreaks: ReadonlySet<number>,
+  config: CaptionSegmentConfig,
+): number {
+  const last = words.length - 1;
+  // A cap of one or two is a DESIGN (the one-word and duo templates show exactly that many
+  // words), not a constraint to escape; only a reading cap earns the extra words.
+  if (config.maxWordsPerCue < MIN_CAP_FOR_DANGLING_RESCUE) return chosen;
+  if (chosen >= last || !TRAILING_FUNCTION_WORDS.has(bareWord(words[chosen]!.word))) {
+    return chosen;
+  }
+  const capacity = config.maxCharsPerLine * config.maxLines;
+  let best = chosen;
+  let bestScore = -Infinity;
+  const limit = Math.min(last, furthest + DANGLING_OVERFLOW_WORDS);
+  for (let to = chosen + 1; to <= limit; to += 1) {
+    const span = words.slice(from, to + 1);
+    if (renderedLength(span, config.emphasisWords) > capacity) break;
+    if (words[to]!.end - words[from]!.start > config.maxCueSeconds) break;
+    const endsClean = to === last || !TRAILING_FUNCTION_WORDS.has(bareWord(words[to]!.word));
+    const holdable =
+      to === last || words[to + 1]!.start - words[from]!.start >= config.minCueSeconds;
+    if (!endsClean || !holdable || protectedBreaks.has(to)) continue;
+    const score = breakQuality(words, to);
+    if (score > bestScore) {
+      bestScore = score;
+      best = to;
+    }
+  }
+  return best;
 }
 
 // ---------------------------------------------------------------------------
@@ -855,6 +917,18 @@ export function enforceReadingSpeed(
  * shorter first line (the "bottom-heavy" convention: the eye travels down to
  * more text, not less).
  */
+/**
+ * What splitting a kept-whole unit across a cue's two lines costs in {@link layoutLines}.
+ *
+ * Worth about two and a half characters of overflow ({@link OVERFLOW_PENALTY_PER_CHAR}):
+ * `maxCharsPerLine` is a proxy for the frame width, and a line a character or two over it
+ * still fits the caption box, while "billion / dollar" on two lines reads as two words
+ * that happen to be near each other. A line that would really run out of the frame (three
+ * characters over and more) is still avoided first, and no balance or bottom-heavy weight
+ * can outvote it.
+ */
+const LINE_UNIT_SPLIT_PENALTY = 250;
+
 export function layoutLines(
   words: readonly TranscriptWord[],
   config: CaptionSegmentConfig,
@@ -864,9 +938,17 @@ export function layoutLines(
   if (renderedLength(words, config.emphasisWords) <= config.maxCharsPerLine)
     return tokens.join(' ');
 
+  // The line break honours the same units the cue break does: a phrase the caller asked to
+  // keep whole, a proper name, a number and its noun. Kept whole on one line, "billion
+  // dollar" reads as the phrase the accent is on; split "billion / dollar" it reads as two
+  // words that happen to be near each other. A penalty rather than a veto, so a cue that
+  // cannot fit its lines any other way still renders.
+  const protectedBreaks = keepTogetherBreaks(words, config.keepTogether);
   let bestIndex = 0;
   let bestScore = -Infinity;
   for (let index = 0; index < words.length - 1; index += 1) {
+    const unitPenalty =
+      protectedBreaks.has(index) || splitsUnit(words, index) ? LINE_UNIT_SPLIT_PENALTY : 0;
     const first = renderedLength(words.slice(0, index + 1), config.emphasisWords);
     const second = renderedLength(words.slice(index + 1), config.emphasisWords);
     // Overlong lines are permitted but heavily discouraged, so a cue whose text
@@ -880,7 +962,8 @@ export function layoutLines(
       emphasisBreakScore(words, 0, index, config.emphasisWords) +
       LAYOUT_BALANCE_WEIGHT * balance +
       BOTTOM_HEAVY_BONUS * bottomHeavy -
-      OVERFLOW_PENALTY_PER_CHAR * overflow;
+      OVERFLOW_PENALTY_PER_CHAR * overflow -
+      unitPenalty;
     if (score >= bestScore) {
       bestScore = score;
       bestIndex = index;
