@@ -2898,7 +2898,19 @@ function registerIpcHandlers(): void {
       if (MASKING_EXECUTOR_TOOLS.has(call.name) && !aiMaskingOff().includes(call.name)) {
         return maskingExecutor.run(call, ctx, signal);
       }
-      return sidecarToolExecutor.run(call, ctx, signal);
+      const outcome = await sidecarToolExecutor.run(call, ctx, signal);
+      // `describe_footage` now writes what it described into the shot ledger. This client
+      // caches each asset for the life of the app, so without dropping the entry the next
+      // run would still read `described: null` for the asset it just paid to describe.
+      const describedAsset = (call.arguments as { readonly assetId?: unknown }).assetId;
+      if (
+        call.name === 'describe_footage' &&
+        outcome.status === 'completed' &&
+        typeof describedAsset === 'string'
+      ) {
+        shotLedgerClient.invalidate(ctx.project.id, [describedAsset]);
+      }
+      return outcome;
     },
     // Forwarded, not re-derived: the sidecar executor owns the list of tools this surface
     // cannot route, and a wrapper that swallowed it would leave the desktop advertising
