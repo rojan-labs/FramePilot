@@ -248,6 +248,16 @@ from framepilot_engine.masking.crop_colour import (
     CropColourError,
     measure_crops,
 )
+from framepilot_engine.masking.subject_layout import (
+    DEFAULT_SAMPLES as SUBJECT_LAYOUT_DEFAULT_SAMPLES,
+)
+from framepilot_engine.masking.subject_layout import (
+    MAX_SAMPLES as SUBJECT_LAYOUT_MAX_SAMPLES,
+)
+from framepilot_engine.masking.subject_layout import (
+    SubjectLayoutError,
+    measure_subject_layout,
+)
 from framepilot_engine.media.derive import PROXY_ENCODE_VERSION, generate_proxy, generate_thumbnails
 from framepilot_engine.media.ffmpeg import FFmpegError, NoAudioStreamError
 from framepilot_engine.media.probe import MediaInfo, inspect_media
@@ -284,6 +294,7 @@ from framepilot_engine.render.preview_text import (
 )
 from framepilot_engine.render.queue import JobStatus, RenderQueue, RenderTask
 from framepilot_engine.render.queue import RenderRequest as QueuedRenderRequest
+from framepilot_engine.render.text_overlay import rasterize_text_overlay
 from framepilot_engine.safety import PathTraversalError, resolve_within
 from framepilot_engine.singleflight import AsyncSingleFlight, SingleFlight
 from framepilot_engine.timeline.models import Asset, Project, ProjectFile, ProjectFileError
@@ -956,6 +967,78 @@ class RenderFrameRequest(AnalysisProjectSource):
         default=True,
         description="Draw caption text into the frame. Soft captions are invisible otherwise.",
     )
+
+
+class SubjectLayoutRequest(AnalysisProjectSource):
+    """Request body for ``POST /analyze/subject-layout`` — where a cut-out subject sits.
+
+    Inline project like ``/render/frame``: the question is asked about the working copy the
+    agent is editing, which has not been saved.
+    """
+
+    clip_id: str = Field(alias="clipId", description="A clip carrying a removed background.")
+    start: float | None = Field(default=None, description="Timeline second; default clip start.")
+    end: float | None = Field(default=None, description="Timeline second; default clip end.")
+    samples: int = Field(
+        default=SUBJECT_LAYOUT_DEFAULT_SAMPLES,
+        ge=1,
+        le=SUBJECT_LAYOUT_MAX_SAMPLES,
+        description="Instants to sample across the range.",
+    )
+    text: str | None = Field(
+        default=None,
+        description="A title to place behind the subject; its box is measured as rendered.",
+    )
+    text_style: dict[str, Any] | None = Field(
+        default=None,
+        alias="textStyle",
+        description="The title's `text` effect params (fontSizePercent, boxWidthPercent, ...).",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class SubjectBandPayload(BaseModel):
+    """One horizontal tenth of the frame and how much of its width the subject covers."""
+
+    top: float
+    bottom: float
+    width_covered: float = Field(alias="widthCovered")
+    span: tuple[float, float] | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class TextBehindPayload(BaseModel):
+    """Where the requested title reads as behind the subject."""
+
+    y_percent: float = Field(alias="yPercent")
+    occluded: float
+    ends_visible: bool = Field(alias="endsVisible")
+    note: str
+    #: The title's rendered box as frame fractions, so the caller can see what was placed.
+    width: float
+    height: float
+
+    model_config = {"populate_by_name": True}
+
+
+class SubjectLayoutResponse(BaseModel):
+    """The subject's geometry on the OUTPUT frame, in frame fractions (origin top-left)."""
+
+    clip_id: str = Field(alias="clipId")
+    mask_id: str = Field(alias="maskId")
+    start: float
+    end: float
+    samples: int
+    box: tuple[float, float, float, float] | None
+    reach: tuple[float, float, float, float] | None
+    head_top: float | None = Field(alias="headTop")
+    shoulders: float | None
+    bands: list[SubjectBandPayload]
+    text_behind: TextBehindPayload | None = Field(default=None, alias="textBehind")
+
+    model_config = {"populate_by_name": True}
 
 
 class RenderFrameResponse(BaseModel):
@@ -6344,6 +6427,73 @@ def create_app(
             height=frame.height,
             time_seconds=frame.time_seconds,
             duration_seconds=frame.duration_seconds,
+        )
+
+    @app.post("/analyze/subject-layout", response_model=SubjectLayoutResponse)
+    def subject_layout_route(req: SubjectLayoutRequest) -> SubjectLayoutResponse:
+        """Where a cut-out subject sits on the delivered frame, from its matte.
+
+        Measures; never edits. With ``text`` it also answers where that title reads as
+        BEHIND the subject — partly covered, both ends visible — measured from the title's
+        own rendered box (the export's rasterizer), not an estimate of its width.
+        """
+        project, media_base, label = resolve_project_source(req)
+        width = int(project.resolution.width)
+        height = int(project.resolution.height)
+        text_box: tuple[float, float] | None = None
+        if req.text is not None and req.text.strip():
+            raster = rasterize_text_overlay(req.text, req.text_style or {}, width, height)
+            text_box = (raster.shape[1] / width, raster.shape[0] / height)
+        try:
+            layout = measure_subject_layout(
+                project,
+                media_base,
+                req.clip_id,
+                start=req.start,
+                end=req.end,
+                samples=req.samples,
+                text_box=text_box,
+            )
+        except SubjectLayoutError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        _log.info(
+            "ACT subject layout served: clip=%s samples=%d source=%s",
+            req.clip_id,
+            len(layout.samples),
+            label,
+        )
+        placement = layout.text_behind
+        return SubjectLayoutResponse(
+            clip_id=layout.clip_id,
+            mask_id=layout.mask_id,
+            start=layout.start,
+            end=layout.end,
+            samples=len(layout.samples),
+            box=layout.box,
+            reach=layout.reach,
+            head_top=layout.head_top,
+            shoulders=layout.shoulders,
+            bands=[
+                SubjectBandPayload(
+                    top=band.top,
+                    bottom=band.bottom,
+                    width_covered=band.width_covered,
+                    span=band.span,
+                )
+                for band in layout.bands
+            ],
+            text_behind=(
+                None
+                if placement is None or text_box is None
+                else TextBehindPayload(
+                    y_percent=placement.y_percent,
+                    occluded=placement.occluded,
+                    ends_visible=placement.ends_visible,
+                    note=placement.note,
+                    width=round(text_box[0], 3),
+                    height=round(text_box[1], 3),
+                )
+            ),
         )
 
     @app.post("/preview/text-raster", response_model=PreviewTextRasterResponse)
