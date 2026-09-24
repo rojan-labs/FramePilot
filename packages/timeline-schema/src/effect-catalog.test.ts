@@ -116,7 +116,8 @@ describe('effect catalog', () => {
   it('gives every effect searchable tags', () => {
     for (const effect of EFFECT_CATALOG) {
       expect(effect.tags.length).toBeGreaterThan(0);
-      // Lower-case, because `searchEffects` lower-cases the query and compares raw.
+      // Lower-case by house style. `searchEffects` lower-cases its whole index, so this is
+      // no longer what makes a tag findable.
       for (const tag of effect.tags) expect(tag).toBe(tag.toLowerCase());
     }
   });
@@ -187,6 +188,72 @@ describe('searchEffects', () => {
 
   it('returns nothing for a miss', () => {
     expect(searchEffects('zzzznotathing')).toHaveLength(0);
+    expect(searchEffects('zzzz qqqq')).toHaveLength(0);
+  });
+
+  const ids = (query: string): string[] => searchEffects(query).map((e) => e.id);
+
+  it('matches each term anywhere in the entry, not the whole query as one substring', () => {
+    // The captured run: "cinematic grade" and "film grain" both came back empty, and the
+    // agent told the editor this build had no grain or cinematic looks. Cine Grain is
+    // tagged `grain` + `film`, Cinema Print `cinematic` + `grade` — in separate tags,
+    // which a whole-query substring test can never see.
+    expect(ids('film grain')).toContain('cine-grain');
+    expect(ids('cinematic grade')).toEqual(expect.arrayContaining(['cinema-print', 'teal-amber']));
+    expect(ids('vignette')).toContain('edge-fall');
+  });
+
+  it('requires every term when some entry carries them all', () => {
+    // Heavy Grain is grain with no `film` anywhere in it; under AND it is not a match.
+    expect(ids('film grain')).not.toContain('heavy-grain');
+    const categoryLabel = new Map(EFFECT_CATEGORIES.map((c) => [c.id, c.label]));
+    for (const effect of searchEffects('film grain')) {
+      const text = [
+        effect.label,
+        categoryLabel.get(effect.category),
+        effect.description,
+        ...effect.tags,
+      ]
+        .join(' ')
+        .toLowerCase();
+      expect(text).toContain('film');
+      expect(text).toContain('grain');
+    }
+  });
+
+  it("matches the category's label", () => {
+    // Bulb Flicker never says "strobe" itself; its family, Flash & Strobe, does.
+    expect(ids('strobe')).toContain('bulb-flicker');
+    expect(ids('flash strobe')).toContain('bulb-flicker');
+  });
+
+  it('falls back to any-term matches, most terms first, then catalog order', () => {
+    // No entry carries "zzzznotathing", so AND is empty. The padded query must still find
+    // the grain rather than report an empty catalog.
+    const found = ids('film grain zzzznotathing');
+    expect(found[0]).toBe('cine-grain'); // the only entry carrying both real terms
+    expect(found).toEqual(expect.arrayContaining(['heavy-grain', 'cinema-print']));
+    expect(found).not.toContain('kaleidoscope'); // carries neither
+    // Within one hit count, catalog order: Highlight Bleed (glow) precedes Cinema Print (film).
+    expect(found.indexOf('highlight-bleed')).toBeLessThan(found.indexOf('cinema-print'));
+    expect(found.indexOf('cine-grain')).toBeLessThan(found.indexOf('highlight-bleed'));
+  });
+
+  it('counts a repeated term once', () => {
+    expect(ids('grain grain')).toEqual(ids('grain'));
+  });
+});
+
+describe('strobe entries say they strobe', () => {
+  it('names the rate and the one-flash alternative', () => {
+    // An agent put White Flash on 0.3 s windows expecting one flash per cut. At the
+    // default 4 Hz / 0.3 duty the lit part is ~75 ms and the export shows nothing, so
+    // the description has to say it repeats, and what to use instead.
+    for (const id of ['white-flash', 'camera-pop']) {
+      const description = findEffect(id)?.description ?? '';
+      expect(description).toMatch(/per second/);
+      expect(description).toMatch(/Flash transition/);
+    }
   });
 });
 

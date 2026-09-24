@@ -914,7 +914,8 @@ export const EFFECT_CATALOG: readonly CatalogEffect[] = [
     kind: 'flash',
     defaultDuration: 0.6,
     thumbnail: { gradient: BASE.daylight, css: 'brightness(1.35)' },
-    description: 'Rhythmic white blowouts — great on a cut or a beat.',
+    description:
+      'Strobes white at frequency flashes per second. For one flash on a cut, use the Flash transition or set frequency to 1 ÷ layer length.',
     tags: ['flash', 'white', 'blowout', 'beat', 'transition'],
     popular: true,
     recommended: true,
@@ -927,7 +928,8 @@ export const EFFECT_CATALOG: readonly CatalogEffect[] = [
     params: { frequency: 11, strength: 0.85, duty: 0.12 },
     defaultDuration: 1,
     thumbnail: { gradient: BASE.mono, css: 'brightness(1.3) contrast(1.1)' },
-    description: 'Short, hard flashes like a burst of stills photography.',
+    description:
+      'A fast burst of hard flashes (frequency per second), like stills photography. For one flash on a cut, use the Flash transition.',
     tags: ['camera flash', 'paparazzi', 'burst', 'pop', 'fast'],
   },
   {
@@ -1017,20 +1019,62 @@ export const RECOMMENDED_EFFECTS: readonly CatalogEffect[] = EFFECT_CATALOG.filt
   (e) => e.recommended,
 );
 
+const CATEGORY_LABEL = new Map(EFFECT_CATEGORIES.map((c) => [c.id, c.label]));
+
+/** One catalog entry with everything a query may match, pre-joined and lower-cased. */
+interface EffectSearchEntry {
+  readonly effect: CatalogEffect;
+  readonly haystack: string;
+}
+
 /**
- * Search across label, description and tags.
+ * The search index, built once. The category label is in the haystack because it is
+ * the family name an editor reaches for first — "grain", "cinematic", "strobe" — and
+ * most entries never repeat it in their own label or tags.
+ */
+const EFFECT_SEARCH_INDEX: readonly EffectSearchEntry[] = EFFECT_CATALOG.map((effect) => ({
+  effect,
+  haystack: [
+    effect.label,
+    CATEGORY_LABEL.get(effect.category) ?? '',
+    effect.description,
+    ...effect.tags,
+  ]
+    .join(' ')
+    .toLowerCase(),
+}));
+
+/**
+ * Search across label, category, description and tags, one term at a time.
  *
  * Tags carry the synonyms an editor actually types ("teal orange", "8mm",
  * "censor") which the labels deliberately do not, so a query matches intent
  * rather than only our naming.
+ *
+ * Every whitespace-separated term must appear somewhere in the entry (AND) —
+ * the rule `searchTransitions` already uses. Matching the WHOLE query as one
+ * substring of a single field meant "film grain" found nothing, because no
+ * one field contains that phrase even though Cine Grain is tagged both
+ * `grain` and `film`; an agent then told the editor the catalog had no grain.
+ *
+ * When no entry carries every term, the entries carrying ANY of them come back,
+ * most terms matched first and catalog order within a tie. A query padded with
+ * a word the catalog never uses ("film grain effect") still finds grain rather
+ * than reporting an empty catalog. A query none of whose terms match anything
+ * still returns nothing.
  */
 export function searchEffects(query: string): readonly CatalogEffect[] {
-  const q = query.trim().toLowerCase();
-  if (q === '') return EFFECT_CATALOG;
-  return EFFECT_CATALOG.filter(
-    (effect) =>
-      effect.label.toLowerCase().includes(q) ||
-      effect.description.toLowerCase().includes(q) ||
-      effect.tags.some((tag) => tag.includes(q)),
-  );
+  const terms = [...new Set(query.trim().toLowerCase().split(/\s+/).filter(Boolean))];
+  if (terms.length === 0) return EFFECT_CATALOG;
+  const scored = EFFECT_SEARCH_INDEX.map((entry) => ({
+    effect: entry.effect,
+    hits: terms.filter((term) => entry.haystack.includes(term)).length,
+  }));
+  const everyTerm = scored.filter((entry) => entry.hits === terms.length);
+  if (everyTerm.length > 0) return everyTerm.map((entry) => entry.effect);
+  // `sort` is stable, so equal hit counts keep catalog order.
+  return scored
+    .filter((entry) => entry.hits > 0)
+    .sort((a, b) => b.hits - a.hits)
+    .map((entry) => entry.effect);
 }

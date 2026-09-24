@@ -2611,7 +2611,7 @@
         "gradient": "linear-gradient(150deg,#dff0f7 0%,#8fbfd8 55%,#2f5f76 100%)",
         "css": "brightness(1.35)"
       },
-      "description": "Rhythmic white blowouts — great on a cut or a beat.",
+      "description": "Strobes white at frequency flashes per second. For one flash on a cut, use the Flash transition or set frequency to 1 ÷ layer length.",
       "tags": [
         "flash",
         "white",
@@ -2637,7 +2637,7 @@
         "gradient": "linear-gradient(150deg,#f2f2f2 0%,#8a8a8a 50%,#1c1c1c 100%)",
         "css": "brightness(1.3) contrast(1.1)"
       },
-      "description": "Short, hard flashes like a burst of stills photography.",
+      "description": "A fast burst of hard flashes (frequency per second), like stills photography. For one flash on a cut, use the Flash transition.",
       "tags": [
         "camera flash",
         "paparazzi",

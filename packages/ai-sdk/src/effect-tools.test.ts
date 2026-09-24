@@ -131,6 +131,19 @@ describe('discover_effects', () => {
     expect(result.effects.map((e) => e.effectId)).toContain('teal-amber');
   });
 
+  it('finds a look named in words spread across its tags', () => {
+    // The captured run asked for "cinematic grade" and "film grain", got 0 matches for
+    // both, and told the editor the catalog had no grain or cinematic looks.
+    const result = read('discover_effects', {
+      queries: ['cinematic grade', 'film grain'],
+      limit: 80,
+    }) as Result & { queries: { query: string; matched: number }[] };
+    expect(result.effects.map((e) => e.effectId)).toEqual(
+      expect.arrayContaining(['cinema-print', 'cine-grain']),
+    );
+    for (const look of result.queries) expect(look.matched).toBeGreaterThan(0);
+  });
+
   it('filters by category', () => {
     const result = read('discover_effects', { category: 'glitch', limit: 80 }) as Result;
     expect(result.effects.length).toBeGreaterThan(0);
