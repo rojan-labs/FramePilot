@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 109,
+  "toolCount": 110,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -626,6 +626,11 @@
                 }
               }
             }
+          },
+          "includeCutaways": {
+            "type": [
+              "boolean"
+            ]
           },
           "reason": {
             "anyOf": [
@@ -2490,6 +2495,125 @@
         }
       }
     },
+    "measure_subject": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "end": {
+            "type": [
+              "number"
+            ],
+            "exclusiveMinimum": 0
+          },
+          "start": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "style": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "align": {
+                "type": [
+                  "string"
+                ],
+                "enum": [
+                  "center",
+                  "left",
+                  "right"
+                ]
+              },
+              "color": {
+                "type": [
+                  "string"
+                ]
+              },
+              "fontFamily": {
+                "type": [
+                  "string"
+                ],
+                "enum": [
+                  "Anton",
+                  "Archivo Black",
+                  "Bangers",
+                  "Bebas Neue",
+                  "Caveat",
+                  "DM Serif Display",
+                  "Figtree",
+                  "Inter",
+                  "Lato",
+                  "Manrope",
+                  "Merriweather",
+                  "Montserrat",
+                  "Nunito",
+                  "Open Sans",
+                  "Oswald",
+                  "Pacifico",
+                  "Playfair Display",
+                  "Poppins",
+                  "Raleway",
+                  "Roboto",
+                  "Shadows Into Light",
+                  "Space Mono"
+                ]
+              },
+              "fontWeight": {
+                "type": [
+                  "integer"
+                ],
+                "minimum": 100,
+                "maximum": 900
+              },
+              "sizePercent": {
+                "type": [
+                  "number"
+                ],
+                "maximum": 100,
+                "exclusiveMinimum": 0
+              },
+              "xPercent": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              },
+              "yPercent": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              }
+            }
+          },
+          "text": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
     "move_clip": {
       "kind": "mutate",
       "mutates": true,
@@ -3274,6 +3398,18 @@
               "string"
             ]
           },
+          "end": {
+            "type": [
+              "number"
+            ],
+            "exclusiveMinimum": 0
+          },
+          "start": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
           "style": {
             "type": [
               "object"
@@ -3294,6 +3430,42 @@
                 "type": [
                   "string"
                 ]
+              },
+              "fontFamily": {
+                "type": [
+                  "string"
+                ],
+                "enum": [
+                  "Anton",
+                  "Archivo Black",
+                  "Bangers",
+                  "Bebas Neue",
+                  "Caveat",
+                  "DM Serif Display",
+                  "Figtree",
+                  "Inter",
+                  "Lato",
+                  "Manrope",
+                  "Merriweather",
+                  "Montserrat",
+                  "Nunito",
+                  "Open Sans",
+                  "Oswald",
+                  "Pacifico",
+                  "Playfair Display",
+                  "Poppins",
+                  "Raleway",
+                  "Roboto",
+                  "Shadows Into Light",
+                  "Space Mono"
+                ]
+              },
+              "fontWeight": {
+                "type": [
+                  "integer"
+                ],
+                "minimum": 100,
+                "maximum": 900
               },
               "sizePercent": {
                 "type": [

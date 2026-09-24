@@ -1,7 +1,7 @@
 ---
 name: cut-and-transition-grammar
 description: Choose motivated cuts and a restrained transition vocabulary, place effects only on real eligible boundaries, and verify committed transition state.
-tools: [get_timeline, list_edit_boundaries, get_mapped_transcript, map_time, discover_transitions, add_transition, split_clip, trim_clip, professional_edit, verify_transitions]
+tools: [get_timeline, list_edit_boundaries, get_mapped_transcript, map_time, discover_transitions, add_transition, add_transitions, split_clip, trim_clip, professional_edit, verify_transitions]
 ---
 
 # Cut and transition grammar
@@ -57,6 +57,24 @@ and aim at it — a request in raw seconds is snapped to the nearest frame for y
   the count: "audio leads by 8 frames", not "let the audio run on". They need a live
   selection and the desktop app; without one the call is refused rather than half-done.
 
+## Cutaways: b-roll over the A-roll
+
+A talking head with b-roll laid over it may have no same-layer cut at all: its edits are
+where each insert enters and leaves over the picture beneath. `list_edit_boundaries` lists
+those as cutaway edges (`cutaway: "in"`/`"out"`, the clip beneath, `maxTransitionSeconds`),
+apart from the cuts. "No cuts" never means there is nowhere to put a transition.
+
+- The default is the hard cut, on the word: an insert over continuous narration cuts in and
+  out with the sentence it illustrates. `add_transitions` leaves cutaways alone unless you
+  pass `includeCutaways: true`.
+- Treat them only with a reason, and the same way for every insert in a piece:
+  `includeCutaways: true` with `reason: "soften"` for quick dissolves in and out, `"energy"`
+  for a punchier entrance. An exit is always a dissolve or a wipe — a slide or zoom as an
+  exit would make the insert vanish at once — so a punchy entrance leaves on a short
+  cross-dissolve.
+- An insert carries at most half its own length at each end; a 2 s insert takes a 0.2–0.3 s
+  ramp, not a second.
+
 ## Professional heuristics
 
 - First improve a rough cut point by a few frames or cut on action.
@@ -82,7 +100,8 @@ Using narrative beats as if they were cut boundaries, mixing many transition typ
 - Every cut you moved is on the frame you named — re-read `list_edit_boundaries` and
   compare `frame`, not seconds.
 - No cut lands strictly inside a word's `startFrame`–`endFrame` span.
-- Each effect sits on adjacent clips on the same track.
+- Each cut transition sits on adjacent clips on the same track; each cutaway ramp sits on
+  an insert over other picture.
 - The duration the timeline committed is the one you name to the editor — on short shots it is often shorter than the one you asked for.
 - Duration and energy fit the scene.
 - No effect obscures action or dialogue timing.

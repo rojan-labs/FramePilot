@@ -1,7 +1,7 @@
 ---
 name: caption-design
 description: Create synchronized, readable, consistent captions from mapped transcript evidence, then choose an appropriate template and verify committed cue timing.
-tools: [get_mapped_transcript, get_timeline, discover_caption_styles, caption_the_edit, add_caption_layer, auto_emphasize_captions, set_track_caption_style, set_caption_style, verify_captions, get_frame]
+tools: [get_mapped_transcript, get_timeline, discover_caption_styles, caption_the_edit, add_caption_layer, auto_emphasize_captions, set_track_caption_style, set_caption_style, verify_captions, get_frame, measure_subject]
 ---
 
 # Caption design
@@ -37,6 +37,11 @@ Synchronization and legibility outrank novelty. Style supports comprehension; it
 - Call `discover_caption_styles`, start from a returned template/font, and override only the fields the format or brand requires.
 - For automatic emphasis, reason over the mapped transcript and pass sparse exact spoken anchors to `auto_emphasize_captions`; never invent or rewrite words. Pass the multi-word emphasis phrases as `keepTogether` to `caption_the_edit` before `auto_emphasize_captions`, so no phrase is split across two cues.
 - Put the shared composition—including font, x/y placement, scale, width, rotation, alignment, spacing, background and safe area—on the track. Use per-cue style only for deliberate exceptions.
+- Keep the caption band off the face: below the shoulder line when there is room, never over
+  the eyes or mouth. On a tight 9:16 close-up that usually means low in the frame, just above
+  the platform UI zone. When the speaker's clip has its background removed,
+  `measure_subject` gives the top of the head and the shoulder line; otherwise `get_frame` on
+  the tightest shot and read where the face is before choosing the track's y placement.
 - Use strong contrast and an outline on uncontrolled footage.
 - Choose energetic one-word/build families for punchy shorts, karaoke/phrase families for readable emphasis, and restrained editorial/broadcast looks for long-form.
 - Choose one entrance/emphasis motion language. Do not stack per-word animation, cue entrance/exit, a continuous loop, thick outline, background box, and multiple accent colours unless the editor explicitly asks for that maximal style.
