@@ -32,6 +32,38 @@ describe('previewTextRasterViaSidecar', () => {
     });
   });
 
+  it('forwards a shape with its rotation flag and returns its bounds origin', async () => {
+    const fetchFn = ok({ width: 1, height: 1, rgba_base64: 'AQIDBA==', x: 463, y: 258 });
+    const params = { shape: 'rounded-rect', x: 50, y: 50, width: 48, height: 27 };
+    const result = await previewTextRasterViaSidecar(
+      'http://e',
+      { kind: 'shape', params, rotates: true, frameWidth: 1280, frameHeight: 720 },
+      fetchFn,
+    );
+    expect(result).toMatchObject({ ok: true, x: 463, y: 258 });
+    const [, init] = (fetchFn as unknown as { mock: { calls: [string, RequestInit][] } }).mock
+      .calls[0]!;
+    expect(JSON.parse(String(init.body))).toEqual({
+      kind: 'shape',
+      params,
+      rotates: true,
+      frame_width: 1280,
+      frame_height: 720,
+    });
+  });
+
+  it('refuses a shape request with bad params without calling the engine', async () => {
+    const fetchFn = ok({});
+    for (const req of [
+      { kind: 'shape', params: null, frameWidth: 10, frameHeight: 10 },
+      { kind: 'shape', params: { shape: 'x'.repeat(20_000) }, frameWidth: 10, frameHeight: 10 },
+      { kind: 'shape', params: {}, rotates: 'yes', frameWidth: 10, frameHeight: 10 },
+    ]) {
+      expect((await previewTextRasterViaSidecar('http://e', req, fetchFn)).ok).toBe(false);
+    }
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   it('refuses malformed requests without calling the engine', async () => {
     const fetchFn = ok({});
     for (const req of [

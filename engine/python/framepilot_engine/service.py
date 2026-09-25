@@ -311,6 +311,7 @@ from framepilot_engine.render.preview_text import (
 from framepilot_engine.render.preview_text import (
     PreviewTextError,
     baseline_caption_raster,
+    shape_raster,
     styled_caption_raster,
     text_overlay_raster,
 )
@@ -1213,11 +1214,18 @@ class PreviewTextRasterRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["text", "caption"] = Field(
-        description="'text': a text clip's `text` effect params; 'caption': an unstyled cue."
+    kind: Literal["text", "caption", "shape"] = Field(
+        description=(
+            "'text': a text clip's `text` effect params; 'caption': an unstyled cue; "
+            "'shape': a shape clip's `shape` effect params (schema v25)."
+        )
     )
     params: dict[str, Any] | None = Field(
-        default=None, description="The text effect's params (kind 'text')."
+        default=None, description="The text or shape effect's params (kinds 'text', 'shape')."
+    )
+    rotates: bool = Field(
+        default=False,
+        description="Kind 'shape': the clip animates rotation, so draw the rotation-safe square.",
     )
     text: str | None = Field(
         default=None, max_length=2000, description="The caption cue text (kind 'caption')."
@@ -1249,8 +1257,14 @@ class PreviewTextRasterResponse(BaseModel):
     width: int
     height: int
     rgba_base64: str = Field(description="width x height x 4 bytes, base64-encoded.")
-    x: int | None = Field(default=None, description="Caption paste x; None for a text clip.")
-    y: int | None = Field(default=None, description="Caption paste y; None for a text clip.")
+    x: int | None = Field(
+        default=None,
+        description="Caption paste x, or a shape's untransformed left; None for a text clip.",
+    )
+    y: int | None = Field(
+        default=None,
+        description="Caption paste y, or a shape's untransformed top; None for a text clip.",
+    )
     animated: bool = Field(
         default=False, description="True when the raster changes with the frame time."
     )
@@ -6779,6 +6793,10 @@ def create_app(
         try:
             if req.kind == "text":
                 raster = text_overlay_raster(req.params or {}, req.frame_width, req.frame_height)
+            elif req.kind == "shape":
+                raster = shape_raster(
+                    req.params or {}, req.frame_width, req.frame_height, rotates=req.rotates
+                )
             elif req.track_style or req.clip_style:
                 if req.clip_start is None or req.clip_end is None:
                     raise PreviewTextError("A styled caption needs its clip_start and clip_end.")

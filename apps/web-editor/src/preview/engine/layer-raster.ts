@@ -468,8 +468,9 @@ function legacyGeometryTransition(clip: Clip): boolean {
 }
 
 /**
- * A text overlay's raster placed as `_compile_text_clip` places it: `fit_to_frame=False` (base
- * scale 1) around the layout centre, the clip's own transform applied when it animates.
+ * A text overlay's (or a shape's) raster placed as `_compile_text_clip` (`_compile_shape_clip`)
+ * places it: `fit_to_frame=False` (base scale 1) around the layout centre (the shape's bounds
+ * centre), the clip's own transform applied when it animates.
  *
  * @param layer - A `text` layer of `framePlanAt` computed at `target`.
  * @param clip - The text clip.

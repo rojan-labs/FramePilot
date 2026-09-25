@@ -21,7 +21,9 @@ const REQUEST_TIMEOUT_MS = 5_000;
 
 function invalid(req: unknown): string | null {
   const r = (req ?? {}) as Partial<PreviewTextRasterRequest>;
-  if (r.kind !== 'text' && r.kind !== 'caption') return 'Unknown text raster kind.';
+  if (r.kind !== 'text' && r.kind !== 'caption' && r.kind !== 'shape') {
+    return 'Unknown text raster kind.';
+  }
   const edgeOk = (value: unknown): boolean =>
     typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= MAX_FRAME_EDGE;
   if (!edgeOk(r.frameWidth) || !edgeOk(r.frameHeight)) return 'Invalid frame size.';
@@ -29,7 +31,11 @@ function invalid(req: unknown): string | null {
     if (typeof r.text !== 'string' || r.text.length > MAX_TEXT_LENGTH) return 'Invalid caption.';
     if (r.trackStyle !== undefined || r.clipStyle !== undefined) return invalidStyled(r);
   } else if (typeof r.params !== 'object' || r.params === null || Array.isArray(r.params)) {
-    return 'Invalid text params.';
+    return r.kind === 'shape' ? 'Invalid shape params.' : 'Invalid text params.';
+  } else if (r.kind === 'shape') {
+    // The engine validates the shape itself; the host only bounds what crosses the boundary.
+    if (JSON.stringify(r.params).length > MAX_STYLE_JSON_LENGTH) return 'Invalid shape params.';
+    if (r.rotates !== undefined && typeof r.rotates !== 'boolean') return 'Invalid shape params.';
   }
   return null;
 }
@@ -62,6 +68,9 @@ function invalidStyled(r: Partial<PreviewTextRasterRequest>): string | null {
 function wireBody(r: PreviewTextRasterRequest): Record<string, unknown> {
   const frame = { frame_width: r.frameWidth, frame_height: r.frameHeight };
   if (r.kind === 'text') return { kind: 'text', params: r.params, ...frame };
+  if (r.kind === 'shape') {
+    return { kind: 'shape', params: r.params, rotates: r.rotates === true, ...frame };
+  }
   if (r.trackStyle === undefined && r.clipStyle === undefined) {
     return { kind: 'caption', text: r.text, ...frame };
   }

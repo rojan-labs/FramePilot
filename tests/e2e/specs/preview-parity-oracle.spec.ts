@@ -421,7 +421,11 @@ async function oraclePage(browser: Browser): Promise<Page> {
         // the styles, words, span and frame time the engine builds the caption layer from.
         body: JSON.stringify({
           kind: req.kind,
-          ...(req.kind === 'text' ? { params: req.params } : { text: req.text }),
+          ...(req.kind === 'text' || req.kind === 'shape'
+            ? { params: req.params }
+            : { text: req.text }),
+          // A shape on a rotating clip is drawn into the rotation-safe square (ADR 0190).
+          ...(req.kind === 'shape' ? { rotates: req.rotates === true } : {}),
           frame_width: req.frameWidth,
           frame_height: req.frameHeight,
           ...(req.trackStyle === undefined ? {} : { track_style: req.trackStyle }),

@@ -40,6 +40,7 @@ import type {
   Timeline,
   TranscriptWord,
 } from '@framepilot/timeline-schema';
+import { SHAPE_EFFECT_TYPE } from '@framepilot/timeline-schema';
 import { createLogger, type PreviewTextRasterRequest } from '@framepilot/shared-types';
 import { DecodeWorkerClient, type WorkerTraffic } from '../decode/worker-client.js';
 import type { WorkerStageReport } from '../decode/decode-worker.js';
@@ -912,6 +913,54 @@ export class LayerPreviewEngine {
     };
   }
 
+  /**
+   * A shape as the export composites it (plan/elements EL4a, ADR 0190): the engine draws the
+   * raster, the plan's bounds place it, and the title's placement step transforms it. There is no
+   * canvas fallback: without an engine the shape is not drawn and the monitor says it is
+   * approximate (the browser build's labelled approximation is EL11).
+   */
+  private shapeLayer(layer: FramePlanLayer, size: PixelSize): CompositeLayer | null | 'pending' {
+    const request = this.shapeRequest(layer, size);
+    if (request === null || layer.clipId === null || layer.shape === undefined) return null;
+    const engine = this.engineTexts.lookup(request);
+    if (engine.state === 'pending') return 'pending';
+    if (engine.state !== 'ready') return null;
+    const clip = this.clipsById.get(layer.clipId)!;
+    const raster = engine.raster;
+    const bounds = layer.shape;
+    const step = textRasterStep(layer, clip, raster, {
+      x: bounds.x + bounds.width / 2,
+      y: bounds.y + bounds.height / 2,
+    });
+    if (step === null) return null;
+    return {
+      kind: 'picture',
+      step,
+      source: {
+        kind: 'image',
+        key: `shape:${textRasterKey(request)}`,
+        image: raster.image,
+        width: raster.width,
+        height: raster.height,
+      },
+    };
+  }
+
+  /** The engine raster request for a shape layer, or `null` when it has no shape effect. */
+  private shapeRequest(layer: FramePlanLayer, size: PixelSize): PreviewTextRasterRequest | null {
+    if (layer.kind !== 'shape' || layer.clipId === null) return null;
+    const clip = this.clipsById.get(layer.clipId);
+    const effect = clip?.effects.find((candidate) => candidate.type === SHAPE_EFFECT_TYPE);
+    if (!clip || !effect) return null;
+    return {
+      kind: 'shape',
+      params: effect.params,
+      rotates: clip.keyframes.some((keyframe) => keyframe.property === 'rotation'),
+      frameWidth: size.width,
+      frameHeight: size.height,
+    };
+  }
+
   /** The engine raster request for a text layer, or `null` when it draws nothing. */
   private textRequest(layer: FramePlanLayer, size: PixelSize): PreviewTextRasterRequest | null {
     if (layer.kind !== 'text' || layer.clipId === null) return null;
@@ -967,7 +1016,9 @@ export class LayerPreviewEngine {
           ? this.textRequest(layer, size)
           : layer.kind === 'caption'
             ? this.captionRequest(layer, size)
-            : null;
+            : layer.kind === 'shape'
+              ? this.shapeRequest(layer, size)
+              : null;
       return request === null ? [] : [request];
     });
   }
@@ -992,9 +1043,13 @@ export class LayerPreviewEngine {
     this.lastMatteStates = matteStates;
     let processing = false;
     for (const layer of plan.layers) {
-      if (layer.kind === 'caption' || layer.kind === 'text') {
+      if (layer.kind === 'caption' || layer.kind === 'text' || layer.kind === 'shape') {
         const raster =
-          layer.kind === 'caption' ? this.captionLayer(layer, size) : this.textLayer(layer, size);
+          layer.kind === 'caption'
+            ? this.captionLayer(layer, size)
+            : layer.kind === 'shape'
+              ? this.shapeLayer(layer, size)
+              : this.textLayer(layer, size);
         // An engine raster still on its way: keep the previous presentation, as for a frame.
         if (raster === 'pending') return null;
         if (raster) {

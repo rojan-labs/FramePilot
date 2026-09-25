@@ -925,7 +925,10 @@ export class FakeDesktop {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         kind: req.kind,
-        ...(req.kind === 'text' ? { params: req.params } : { text: req.text }),
+        ...(req.kind === 'text' || req.kind === 'shape'
+          ? { params: req.params }
+          : { text: req.text }),
+        ...(req.kind === 'shape' ? { rotates: req.rotates === true } : {}),
         frame_width: req.frameWidth,
         frame_height: req.frameHeight,
       }),

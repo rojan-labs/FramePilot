@@ -791,9 +791,11 @@ export interface AiStreamReferenceProfile {
  * own Pillow path, so the program monitor's glyphs are the export's (PX2.3).
  */
 export interface PreviewTextRasterRequest {
-  readonly kind: 'text' | 'caption';
-  /** The text effect's params (kind `text`). */
+  readonly kind: 'text' | 'caption' | 'shape';
+  /** The text effect's params (kind `text`), or the shape effect's params (kind `shape`). */
   readonly params?: Readonly<Record<string, unknown>>;
+  /** Kind `shape`: the clip animates `rotation`, so the engine draws the rotation-safe square. */
+  readonly rotates?: boolean;
   /** The caption cue text (kind `caption`). */
   readonly text?: string;
   readonly frameWidth: number;
@@ -820,7 +822,10 @@ export type PreviewTextRasterResult =
       readonly height: number;
       /** Straight RGBA as Pillow stores it, row-major, top row first. */
       readonly rgba: Uint8Array;
-      /** A caption's paste position; `null` for a text clip (the frame plan places it). */
+      /**
+       * A caption's paste position, or a shape's untransformed top-left (the frame plan's
+       * `shape` bounds); `null` for a text clip (the frame plan places it).
+       */
       readonly x: number | null;
       readonly y: number | null;
       /** True when a styled caption's raster changes with the frame time. */

@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from framepilot_engine.config import Settings
 from framepilot_engine.render.captions import render_caption_image
 from framepilot_engine.render.compiler import baseline_caption_position
+from framepilot_engine.render.shape_raster import rasterize_shape
 from framepilot_engine.render.text_overlay import rasterize_text_overlay
 from framepilot_engine.service import create_app
 
@@ -47,6 +48,57 @@ def test_caption_raster_carries_the_exports_paste_position(tmp_path: Path) -> No
     assert np.array_equal(_pixels(body), expected)
     x, y = baseline_caption_position(1280, 720, expected.shape[1], expected.shape[0])
     assert (body["x"], body["y"]) == (x, y)
+
+
+_SHAPE = {
+    "shape": "rounded-rect",
+    "x": 40,
+    "y": 60,
+    "width": 30,
+    "height": 20,
+    "fill": "#FFD40066",
+    "stroke": "#FFD400",
+    "strokeWidth": 0.8,
+    "strokeStyle": "solid",
+    "cornerRadius": 12,
+}
+
+
+def test_shape_raster_is_the_exports_raster_and_bounds(tmp_path: Path) -> None:
+    # The monitor draws exactly what the export composites (plan/elements EL4a, ADR 0190).
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    for rotates in (False, True):
+        response = client.post(
+            "/preview/text-raster",
+            json={
+                "kind": "shape",
+                "params": _SHAPE,
+                "frame_width": 1280,
+                "frame_height": 720,
+                "rotates": rotates,
+            },
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        image, bounds = rasterize_shape(_SHAPE, 1280, 720, rotates=rotates)
+        assert np.array_equal(_pixels(body), np.asarray(image))
+        assert (body["x"], body["y"]) == (bounds.x, bounds.y)
+        assert (body["width"], body["height"]) == (bounds.width, bounds.height)
+
+
+def test_refuses_a_shape_that_cannot_be_drawn_with_the_validators_words(tmp_path: Path) -> None:
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    response = client.post(
+        "/preview/text-raster",
+        json={
+            "kind": "shape",
+            "params": {**_SHAPE, "fill": None, "stroke": None},
+            "frame_width": 1280,
+            "frame_height": 720,
+        },
+    )
+    assert response.status_code == 422
+    assert "draws nothing" in response.text
 
 
 def test_refuses_empty_text_and_bad_sizes(tmp_path: Path) -> None:

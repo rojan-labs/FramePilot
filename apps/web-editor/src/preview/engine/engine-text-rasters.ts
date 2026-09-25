@@ -87,6 +87,8 @@ export function staticTextRasterKey(req: PreviewTextRasterRequest): string {
     req.words ?? null,
     req.clipStart ?? null,
     req.clipEnd ?? null,
+    // A shape on a rotating clip is drawn into a larger, rotation-safe square.
+    req.rotates ?? false,
   ]);
 }
 

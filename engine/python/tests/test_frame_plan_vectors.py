@@ -16,7 +16,18 @@ import pytest
 
 from tests.frame_plan_vectors import FIXTURE_DIR, fixture_files, regenerate
 
-_AREAS = {"Alpha", "Colour", "Effects", "Geometry", "Layering", "Text", "Time", "Transitions"}
+_AREAS = {
+    "Alpha",
+    "Colour",
+    "Effects",
+    "Geometry",
+    "Layering",
+    # Elements' shapes (schema v25, ADR 0190).
+    "Shapes",
+    "Text",
+    "Time",
+    "Transitions",
+}
 
 
 def _stored(name: str) -> dict[str, Any]:
