@@ -98,7 +98,10 @@ a shape exists without vectors.
   triangles oriented on the end tangent.
 - Downsample with `Image.reduce(4)` (box filter — deterministic, no resampler ambiguity).
 - Output: straight RGBA + the raster's centre in frame pixels.
-- Budget: a 1080p shape raster ≤ 15 ms, 4K ≤ 50 ms (measured in EL0 spike A).
+- Budget: a 1080p shape raster ≤ 15 ms, 4K ≤ 50 ms (measured properly in EL0 spike A). A rough
+  pre-spike on 2026-09-26 (engine Pillow, Apple Silicon): a translucent, stroked rounded
+  "highlight box" 60% × 30% of frame height, 4× supersampled, took **6.9 ms at 1080p and 26.5 ms at
+  4K** — inside the budget before any optimisation.
 
 **Compile:** `_compile_shape_clip` mirrors `_compile_text_clip` (+ the EL2 pipeline):
 `ImageClip(raster, transparent=True)`, `fit_to_frame=False`, centred at the raster's centre plus the
@@ -163,7 +166,10 @@ offered (deferred).
 
 `animatedFrameIndex(clipLocalSeconds, frameDurationsMs)` → `bisect(cumulative, t mod loop)`, in
 `editor-core` and the engine, pinned by `tests/fixtures/frame-plan/animated.json` (frame
-boundaries, loop wrap, zero-duration frames treated as the WebP spec says). The frame plan's
+boundaries, loop wrap, zero-duration frames treated as the WebP spec says). Durations are not
+uniform — Noto's `1f600` holds its first frame 90 ms and the rest 30 ms — so the index is a
+lookup, never `t × fps`; Pillow only reports a frame's duration after `seek()` **and** `load()`.
+The frame plan's
 `source.frame` carries the index.
 
 ### 4.3 Decode

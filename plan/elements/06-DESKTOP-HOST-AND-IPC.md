@@ -58,8 +58,9 @@ Error union (`ElementErrorCode`, closed, each with one user sentence — 02 §8)
 | `framepilot:elements:download-cancel`   | send            | `operationId`                                                                       | EL10  |
 
 Touch: `packages/shared-types/src/ipc.ts` (wire types), `apps/desktop/electron/ipc/contract.ts`
-(`IpcChannels`), `apps/desktop/electron/preload.cts` (channel map + bridge methods — the
-preload/contract parity test covers it), `apps/web-editor/src/editor/bridge-base.ts` (helpers with
+(`IpcChannels`), `apps/desktop/electron/preload.cts` (channel map + bridge methods —
+`ipc/preload-channel-parity.test.ts` and `ipc/main-channel-registration.test.ts` fail until preload,
+contract and handler agree), `apps/web-editor/src/editor/bridge-base.ts` (helpers with
 the desktop-only answer in the browser), `main.ts` (handlers). Main validates the request with Zod:
 `projectId` through `safeProjectId`, `elementId` against `/^[a-z0-9_]{1,96}$/` **and** the
 catalogue. The EL10 downloads reuse `download-registry.ts` so progress survives a tab switch, as
@@ -114,7 +115,7 @@ the lock file's hash; the build script's size report is uploaded, and CI fails i
 | Electron hardening            | unchanged (`contextIsolation`, `sandbox`, no `nodeIntegration`, IPC only via preload)                                                                                                          |
 | Renderer DoS via shape params | params validated and bounded before apply (04 §2.4); rasters capped at 8192 px supersampled; the raster route validates with Pydantic `extra="forbid"`                                         |
 | EL10 downloads                | https only; host allowlist (the pinned mirror, MD-E3); per-file size cap 2 MB; SHA-256 pin required _before_ rename; stall timeout; cancellation aborts the socket; temp files never reachable |
-| Agent reach                   | `add_sticker` can only materialise catalogue items into the open project; `hostUiOnly` for MCP until MCP has its own materialiser (07 §6)                                                      |
+| Agent reach                   | `add_sticker` can only materialise catalogue items into the open project; `hostUiOnly` for MCP until MCP has its own materialiser (07 §7)                                                      |
 
 ---
 

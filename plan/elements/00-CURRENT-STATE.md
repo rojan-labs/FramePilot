@@ -165,11 +165,11 @@ twenty identical rows. **EL6** groups identical credit lines.
 
 ## 4. Old blockers that no longer apply
 
-| Old blocker                                                       | Status now              | Evidence                                                                                                                                                  |
-| ----------------------------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SUC-P1 "single-picture-layer preview" (why stock is cutaway-only) | **Gone** in every build | ADR 0180 amendment 2026-09-25; `compositor-flag.ts` returns `layers` unset; PX4 72/72                                                                     |
-| "Production still runs the legacy monitor"                        | **Gone**                | same                                                                                                                                                      |
-| Animated WebP needs a new decoder                                 | **Not needed**          | the engine's Pillow (libwebp 1.6.0) decodes Noto's 512 px animated WebP: RGBA, 48 frames, loop 0 (checked 2026-09-26)                                     |
-| Stickers need a new image library                                 | **Not needed**          | MoviePy `ImageClip(path)` keeps PNG/WebP alpha; the layer engine loads images with `createImageBitmap` straight alpha (`layer-preview-engine.ts:558-570`) |
+| Old blocker                                                       | Status now              | Evidence                                                                                                                                                                                                                   |
+| ----------------------------------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SUC-P1 "single-picture-layer preview" (why stock is cutaway-only) | **Gone** in every build | ADR 0180 amendment 2026-09-25; `compositor-flag.ts` returns `layers` unset; PX4 72/72                                                                                                                                      |
+| "Production still runs the legacy monitor"                        | **Gone**                | same                                                                                                                                                                                                                       |
+| Animated WebP needs a new decoder                                 | **Not needed**          | the engine's Pillow 12.3 (libwebp 1.6.0) decodes Noto's 512 px animated WebP: RGBA, 48 frames, loop 0, **variable** frame durations (90 ms then 30 ms; 2.1 s loop) readable after `seek()` + `load()` (checked 2026-09-26) |
+| Stickers need a new image library                                 | **Not needed**          | MoviePy `ImageClip(path)` keeps PNG/WebP alpha; the layer engine loads images with `createImageBitmap` straight alpha (`layer-preview-engine.ts:558-570`)                                                                  |
 
 **Last updated:** 2026-09-26
