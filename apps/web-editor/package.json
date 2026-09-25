@@ -20,7 +20,7 @@
     "@framepilot/shared-types": "workspace:*",
     "@framepilot/timeline-schema": "workspace:*",
     "@framepilot/ui": "workspace:*",
-    "@tanstack/react-virtual": "^3.14.11",
+    "@tanstack/react-virtual": "^3.14.13",
     "framer-motion": "^12.43.0",
     "lucide-react": "^0.577.0",
     "mp4box": "^2.4.1",
@@ -39,7 +39,7 @@
     "eslint": "^9.9.0",
     "jsdom": "^25.0.0",
     "typescript": "^5.5.0",
-    "typescript-eslint": "^8.70.0",
+    "typescript-eslint": "^8.70.1",
     "vite": "^6.4.3",
     "vitest": "^3.2.6"
   }
