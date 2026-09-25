@@ -5,7 +5,7 @@
  */
 import { render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { CaptionOverlay } from './CaptionOverlay.js';
+import { CAPTION_ANCHOR_CSS, CaptionOverlay } from './CaptionOverlay.js';
 
 const WORDS = [
   { word: 'this', start: 0, end: 1 },
@@ -119,5 +119,31 @@ describe('CaptionOverlay', () => {
     expect(active?.dataset.wipe).toBe('goes');
     expect(active?.style.getPropertyValue('--caption-wipe-hidden')).toBe('50.0%');
     expect(active?.style.backgroundImage).toBe('');
+  });
+
+  // jsdom lays nothing out, so these pin the two CSS rules whose layout was measured in
+  // Chromium (run fb90e58d audit): a `left: 50%` box with no width shrink-wraps at half the
+  // frame (202 px of a 404 px frame, three rows) where `max-content` + `maxWidth: 80%`
+  // wraps at 323 px (two rows) — the export's width.
+  it('sizes a placed caption to its text, capped at maxWidthPercent, as the export wraps', () => {
+    const { container } = render(
+      <CaptionOverlay
+        style={{ xPercent: 50, yPercent: 64, maxWidthPercent: 80 }}
+        lines={[WORDS]}
+        time={1.5}
+      />,
+    );
+    const block = container.querySelector<HTMLElement>('.caption-overlay-block');
+    expect(block?.style.position).toBe('absolute');
+    expect(block?.style.width).toBe('max-content');
+    expect(block?.style.maxWidth).toBe('80%');
+  });
+
+  it('keeps an anchored caption 8% of the frame HEIGHT from its edge, as the export does', () => {
+    // A percentage padding resolves against the WIDTH; `cqh` is the frame's height. Read
+    // from the table because jsdom's CSS parser drops container-query units it does not
+    // know, so an inline style reads back empty here while Chromium applies it.
+    expect(CAPTION_ANCHOR_CSS.bottom?.paddingBottom).toBe('8cqh');
+    expect(CAPTION_ANCHOR_CSS.top?.paddingTop).toBe('8cqh');
   });
 });

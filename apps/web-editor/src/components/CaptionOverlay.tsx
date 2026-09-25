@@ -62,11 +62,19 @@ export interface CaptionOverlayProps {
 /** Takes its space in the line without being seen (or read by assistive tech). */
 const HIDDEN_WORD: CSSProperties = { visibility: 'hidden' };
 
-/** Vertical anchor → flex placement, mirroring the compiler's safe areas. */
-const POSITION_CSS: Record<string, CSSProperties> = {
-  top: { alignItems: 'flex-start', paddingTop: '8%' },
+/**
+ * Vertical anchor → flex placement, mirroring the compiler's safe areas: the export keeps
+ * the caption's box 8% of the frame HEIGHT from the edge (`compiler.py`
+ * `_CAPTION_BOTTOM_MARGIN_FRACTION`). A percentage padding resolves against the WIDTH, so
+ * `8%` put a 9:16 short's captions 86 px from the bottom where the export put them 154 px
+ * up — the editor and the model's frames disagreed about where every default caption sat.
+ * `cqh` is the frame's height (the preview frame is a size container); gallery tiles zero
+ * this padding and centre their caption instead.
+ */
+export const CAPTION_ANCHOR_CSS: Readonly<Record<string, CSSProperties>> = {
+  top: { alignItems: 'flex-start', paddingTop: '8cqh' },
   middle: { alignItems: 'center' },
-  bottom: { alignItems: 'flex-end', paddingBottom: '8%' },
+  bottom: { alignItems: 'flex-end', paddingBottom: '8cqh' },
 };
 
 export function CaptionOverlay({
@@ -95,7 +103,7 @@ export function CaptionOverlay({
     justifyContent: 'center',
     pointerEvents: 'none',
     fontSize: fontSize ?? `${(CAPTION_FONT_CQH * (resolved.fontScale ?? 1)).toFixed(2)}cqh`,
-    ...(hasFreePosition ? {} : POSITION_CSS[resolved.position ?? 'bottom']),
+    ...(hasFreePosition ? {} : CAPTION_ANCHOR_CSS[resolved.position ?? 'bottom']),
   };
 
   const transforms = [
@@ -115,6 +123,14 @@ export function CaptionOverlay({
           position: 'absolute',
           left: `${clampPosition(resolved.xPercent ?? 50)}%`,
           top: `${clampPosition(resolved.yPercent ?? 50)}%`,
+          // An absolutely placed box with `left: 50%` shrink-wraps into the 50% of the frame
+          // to its right, whatever `maxWidth` says: centred captions wrapped at HALF the frame
+          // while the export wrapped at `maxWidthPercent`. Run fb90e58d's editor saw three
+          // rows where the model's frames showed two, asked for "max 2 lines" three times,
+          // and each answer was checked against a picture the editor never saw.
+          // `max-content` sizes the box to the text; `maxWidth` then caps it — the
+          // export's rule.
+          width: 'max-content',
         }
       : {}),
     ...(transforms.length > 0 ? { transform: transforms.join(' ') } : {}),
