@@ -10,6 +10,7 @@
 import type { Timeline } from '@framepilot/timeline-schema';
 import { createLaneAllocator, nextLayerId } from './lane-placement.js';
 import { shapeClipId, shapeEffectId, type Operation } from './operations.js';
+import { syntheticClipKind } from './synthetic-assets.js';
 
 /** What {@link buildAddShapeOps} decided. */
 export interface ShapePlacement {
@@ -41,11 +42,17 @@ export function buildAddShapeOps(
   const named = timeline.tracks.find(
     (track) => track.id === preferredTrackId && track.type === 'overlay' && track.locked !== true,
   );
+  const usable = (track: Timeline['tracks'][number]): boolean =>
+    track.type === 'overlay' && track.locked !== true && track.hidden !== true;
+  // Shapes join the lane that already holds shapes, so titles and callouts keep their own lanes
+  // and a person reading the timeline finds every callout in one place.
   const overlay =
     named ??
     timeline.tracks.find(
-      (track) => track.type === 'overlay' && track.locked !== true && track.hidden !== true,
-    );
+      (track) =>
+        usable(track) && track.clips.some((clip) => syntheticClipKind(clip.assetId) === 'shape'),
+    ) ??
+    timeline.tracks.find(usable);
   let trackId: string;
   let setupOps: readonly Operation[];
   if (overlay !== undefined) {

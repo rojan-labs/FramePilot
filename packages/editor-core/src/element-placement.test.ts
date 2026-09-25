@@ -86,6 +86,29 @@ describe('buildAddShapeOps', () => {
     expect(buildAddShapeOps(timeline, params, 2, 5, 'v1').trackId).toBe('o1');
   });
 
+  it('joins the overlay lane that already holds shapes, not the titles lane', () => {
+    const title = {
+      id: 't1',
+      assetId: '__text__',
+      trackId: 'o1',
+      start: 20,
+      end: 22,
+      sourceStart: 0,
+      sourceEnd: 2,
+      effects: [],
+      keyframes: [],
+    };
+    const shapeClip = { ...title, id: 's1', assetId: '__shape__', trackId: 'o2' };
+    const timeline: Timeline = {
+      tracks: [
+        { id: 'o1', type: 'overlay', clips: [title] },
+        { id: 'o2', type: 'overlay', clips: [shapeClip] },
+        video,
+      ],
+    };
+    expect(buildAddShapeOps(timeline, params, 2, 5).trackId).toBe('o2');
+  });
+
   it('skips a locked overlay lane', () => {
     const timeline: Timeline = {
       tracks: [{ id: 'o1', type: 'overlay', locked: true, clips: [] }, video],

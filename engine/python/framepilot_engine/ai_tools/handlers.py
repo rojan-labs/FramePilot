@@ -82,6 +82,7 @@ from framepilot_engine.timeline.operations import (
     text_effect_id,
     text_overlay_clip_id,
 )
+from framepilot_engine.timeline.synthetic_assets import synthetic_clip_kind
 
 _log = logging.getLogger(__name__)
 
@@ -585,9 +586,13 @@ def _shape_lane(
     named = next(
         (t for t in tracks if t.id == preferred and t.type == "overlay" and not t.locked), None
     )
-    aimed = named or next(
-        (t for t in tracks if t.type == "overlay" and not t.locked and not t.hidden), None
+    usable = [t for t in tracks if t.type == "overlay" and not t.locked and not t.hidden]
+    # Shapes join the lane that already holds shapes (TS ``buildAddShapeOps``).
+    with_shapes = next(
+        (t for t in usable if any(synthetic_clip_kind(c.asset_id) == "shape" for c in t.clips)),
+        None,
     )
+    aimed = named or with_shapes or (usable[0] if usable else None)
     if aimed is None:
         layer_id = _next_track_id(project, "overlay")
         return layer_id, [

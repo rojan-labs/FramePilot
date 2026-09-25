@@ -2266,7 +2266,7 @@ function SettingsDialogContent({
                       <div className="setting-text">
                         <span className="setting-label">Default overlay duration</span>
                         <span className="setting-hint">
-                          On-screen seconds for a new text overlay.
+                          On-screen seconds for a new text overlay or shape.
                         </span>
                       </div>
                       <input
