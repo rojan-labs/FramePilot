@@ -39,6 +39,7 @@ and exports identically, and the agent can use all four.
 | [`11-RISKS-AND-DEFERRED.md`](./11-RISKS-AND-DEFERRED.md)     | Risk register, explicitly deferred scope, open questions                                                                                                             |
 | [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md)         | **Every surface Elements touches** — schema, editor-core, web editor, desktop, engine, AI SDK kernel, MCP, CI, scripts, docs, website — with its phase and its proof |
 | [`13-PRODUCTION-READINESS.md`](./13-PRODUCTION-READINESS.md) | The per-PR production checklist, rollout/rollback, cross-platform, data safety, security, support runbook, agent quality bar, release gate                           |
+| [`AGENT-GOAL.md`](./AGENT-GOAL.md)                           | The goal prompt (< 3,500 characters) for an autonomous agent to implement this plan end to end                                                                       |
 
 ---
 
