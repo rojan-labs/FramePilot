@@ -27,16 +27,25 @@ export interface ShapePlacement {
  * @param params - Complete shape params (`presetShapeParams` builds them from a preset).
  * @param start - Timeline seconds the shape appears.
  * @param end - Timeline seconds it disappears; must be after `start`.
+ * @param preferredTrackId - An overlay lane to use when it has room (the agent may name one).
  */
 export function buildAddShapeOps(
   timeline: Timeline,
   params: Readonly<Record<string, unknown>>,
   start: number,
   end: number,
+  preferredTrackId?: string,
 ): ShapePlacement {
-  const overlay = timeline.tracks.find(
-    (track) => track.type === 'overlay' && track.locked !== true && track.hidden !== true,
+  // A named overlay lane is honoured when it can take the shape; anything else (a picture lane,
+  // an id the timeline lacks) falls back to the ordinary choice rather than stranding the shape.
+  const named = timeline.tracks.find(
+    (track) => track.id === preferredTrackId && track.type === 'overlay' && track.locked !== true,
   );
+  const overlay =
+    named ??
+    timeline.tracks.find(
+      (track) => track.type === 'overlay' && track.locked !== true && track.hidden !== true,
+    );
   let trackId: string;
   let setupOps: readonly Operation[];
   if (overlay !== undefined) {

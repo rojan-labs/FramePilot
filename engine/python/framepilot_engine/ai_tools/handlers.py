@@ -28,6 +28,7 @@ from framepilot_engine.ai_tools.registry import (
     AddClipsArgs,
     AddKeyframesArgs,
     AddMarkerArgs,
+    AddShapeArgs,
     AddTextLayerArgs,
     AddTrackArgs,
     AddTransitionArgs,
@@ -57,6 +58,7 @@ from framepilot_engine.ai_tools.registry import (
     SetClipCropArgs,
     SetClipSpeedArgs,
     SetClipSpeedRampArgs,
+    SetShapeStyleArgs,
     SetTrackCaptionStyleArgs,
     SetTrackFlagsArgs,
     SplitClipArgs,
@@ -65,13 +67,21 @@ from framepilot_engine.ai_tools.registry import (
     TrackObjectArgs,
     TranscriptWindowArgs,
     TrimClipArgs,
+    _ShapeStyleArgs,
 )
 from framepilot_engine.ai_tools.skills_generated import SKILLS
 from framepilot_engine.effects.keyframes import punch_in_keyframes
 from framepilot_engine.render.caption_templates import get_caption_template, load_catalog
 from framepilot_engine.render.captions import _font_manifest
+from framepilot_engine.render.shape_catalog import preset_shape_params, shape_params_problem
+from framepilot_engine.render.shape_geometry import shape_clip_params
 from framepilot_engine.timeline.models import Asset, CaptionStyle, Project, Track, TrackType
-from framepilot_engine.timeline.operations import text_effect_id, text_overlay_clip_id
+from framepilot_engine.timeline.operations import (
+    shape_clip_id,
+    shape_effect_id,
+    text_effect_id,
+    text_overlay_clip_id,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -493,6 +503,183 @@ def remove_track(args: RemoveTrackArgs, ctx: ToolContext) -> Operations:
 
 def move_track(args: MoveTrackArgs, ctx: ToolContext) -> Operations:
     return [{"type": "move_layer", "layerId": args.track_id, "toIndex": args.to_index}]
+
+
+# --- shapes (plan/elements EL4a) -------------------------------------------------------------
+
+#: Colour names models use, mapped to the catalogue palette (TS ``NAMED_COLOURS``).
+_NAMED_COLOURS = {
+    "white": "#FFFFFF",
+    "black": "#111111",
+    "yellow": "#FFD400",
+    "red": "#FF3B30",
+    "blue": "#0A84FF",
+    "green": "#34C759",
+    "orange": "#FF9500",
+    "purple": "#AF52DE",
+    "pink": "#FF2D55",
+}
+#: A lane counts as busy over a span only past this overlap (TS ``LANE_OVERLAP_EPSILON``).
+_LANE_OVERLAP_EPSILON = 1e-3
+_UNREADABLE_COLOUR = "must be a colour: #rrggbb, #rrggbbaa, a name like yellow or red, or none."
+
+
+def shape_colour(value: str) -> str | None:
+    """A colour argument as ``ShapeParams`` stores it (TS ``shapeColour``).
+
+    :raises ValueError: when the value is not a colour this accepts.
+    """
+    text = value.strip().lower()
+    if text in ("none", "transparent"):
+        return None
+    if text in _NAMED_COLOURS:
+        return _NAMED_COLOURS[text]
+    short = re.fullmatch(r"#([0-9a-f])([0-9a-f])([0-9a-f])", text)
+    if short:
+        return "#" + "".join(channel * 2 for channel in short.groups())
+    if re.fullmatch(r"#[0-9a-f]{6}([0-9a-f]{2})?", text):
+        return text
+    raise ValueError(_UNREADABLE_COLOUR)
+
+
+def _shape_style_changes(args: _ShapeStyleArgs) -> dict[str, Any]:
+    changes: dict[str, Any] = {}
+    if args.box is not None:
+        changes.update(args.box.model_dump())
+    if args.ends is not None:
+        changes.update(args.ends.model_dump())
+    for key in ("fill", "stroke"):
+        raw = getattr(args, key)
+        if raw is None:
+            continue
+        try:
+            changes[key] = shape_colour(raw)
+        except ValueError as exc:
+            raise ValueError(f"{key} {exc}") from exc
+    for attr, key in (
+        ("stroke_width", "strokeWidth"),
+        ("stroke_style", "strokeStyle"),
+        ("start_cap", "startCap"),
+        ("end_cap", "endCap"),
+        ("corner_radius", "cornerRadius"),
+        ("head_size", "headSize"),
+    ):
+        value = getattr(args, attr)
+        if value is not None:
+            changes[key] = value
+    return changes
+
+
+def _lane_has_room(clips: Sequence[Any], start: float, end: float) -> bool:
+    return not any(
+        clip.start < end - _LANE_OVERLAP_EPSILON and clip.end > start + _LANE_OVERLAP_EPSILON
+        for clip in clips
+    )
+
+
+def _shape_lane(
+    project: Project, start: float, end: float, preferred: str | None
+) -> tuple[str, Operations]:
+    """The overlay lane a shape lands on, and any op that opens it (TS ``buildAddShapeOps``)."""
+    tracks = project.timeline.tracks
+    named = next(
+        (t for t in tracks if t.id == preferred and t.type == "overlay" and not t.locked), None
+    )
+    aimed = named or next(
+        (t for t in tracks if t.type == "overlay" and not t.locked and not t.hidden), None
+    )
+    if aimed is None:
+        layer_id = _next_track_id(project, "overlay")
+        return layer_id, [
+            {"type": "add_layer", "layerId": layer_id, "layerType": "overlay", "atIndex": 0}
+        ]
+    if _lane_has_room(aimed.clips, start, end):
+        return aimed.id, []
+    other = next(
+        (
+            t
+            for t in tracks
+            if t.type == "overlay"
+            and not t.locked
+            and not t.hidden
+            and not t.muted
+            and _lane_has_room(t.clips, start, end)
+        ),
+        None,
+    )
+    if other is not None:
+        return other.id, []
+    layer_id = _next_track_id(project, "overlay")
+    return layer_id, [
+        {"type": "add_layer", "layerId": layer_id, "layerType": "overlay", "atIndex": 0}
+    ]
+
+
+def add_shape(args: AddShapeArgs, ctx: ToolContext) -> Operations:
+    # The same ops the TS tool builds over editor-core's `buildAddShapeOps`: a preset's params
+    # with the model's box/ends/colours, on an overlay lane with room.
+    if not args.end > args.start:
+        raise ValueError("end must be after start. Give the shape a time range.")
+    params = {**(preset_shape_params(args.shape) or {}), **_shape_style_changes(args)}
+    problem = shape_params_problem(params)
+    if problem is not None:
+        raise ValueError(problem)
+    track_id, ops = _shape_lane(ctx.project, args.start, args.end, args.track_id)
+    clip_id = shape_clip_id(track_id, args.start)
+    ops = [
+        *ops,
+        {
+            "type": "add_shape",
+            "trackId": track_id,
+            "start": args.start,
+            "end": args.end,
+            "params": params,
+            "clipId": clip_id,
+        },
+    ]
+    if args.rotation is not None and args.rotation != 0:
+        ops.append(
+            {
+                "type": "add_keyframes",
+                "clipId": clip_id,
+                "keyframes": [
+                    {
+                        "id": f"{clip_id}__rotation",
+                        "time": 0,
+                        "property": "rotation",
+                        "value": args.rotation,
+                        "easing": "linear",
+                    }
+                ],
+            }
+        )
+    return ops
+
+
+def set_shape_style(args: SetShapeStyleArgs, ctx: ToolContext) -> Operations:
+    clip = next(
+        (c for t in ctx.project.timeline.tracks for c in t.clips if c.id == args.clip_id), None
+    )
+    params = None if clip is None else shape_clip_params(clip)
+    if params is None:
+        raise ValueError(
+            f'"{args.clip_id}" is not a shape. Read the timeline with get_timeline for shape '
+            "clip ids, or add one with add_shape."
+        )
+    changes = _shape_style_changes(args)
+    if not changes:
+        raise ValueError("Nothing to change. Pass a colour, a stroke, a box or ends.")
+    problem = shape_params_problem({**params, **changes})
+    if problem is not None:
+        raise ValueError(problem)
+    return [
+        {
+            "type": "set_effect_params",
+            "clipId": args.clip_id,
+            "effectId": shape_effect_id(args.clip_id),
+            "params": changes,
+        }
+    ]
 
 
 def add_text_layer(args: AddTextLayerArgs, ctx: ToolContext) -> Operations:

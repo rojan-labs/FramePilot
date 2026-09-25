@@ -47,6 +47,7 @@ import {
   Wand2,
   Wrench,
   ZoomIn,
+  Shapes,
 } from '../icons.js';
 
 export interface ToolMeta {
@@ -167,6 +168,8 @@ const TOOL_META: Record<string, ToolMeta> = {
   remove_track: { label: 'Remove track', Icon: Trash2 },
   move_track: { label: 'Reorder track', Icon: ArrowLeftRight },
   add_text_layer: { label: 'Add text', Icon: Type },
+  add_shape: { label: 'Add a shape', Icon: Shapes },
+  set_shape_style: { label: 'Restyle a shape', Icon: Shapes },
   add_caption_layer: { label: 'Add captions', Icon: Captions },
   caption_the_edit: { label: 'Captioning the edit', Icon: Captions },
   add_keyframes: { label: 'Add keyframes', Icon: SlidersHorizontal },

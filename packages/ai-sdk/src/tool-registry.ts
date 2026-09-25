@@ -51,6 +51,7 @@ import { MOTION_TOOLS } from './domain-tools/motion.js';
 import { CAPTION_TOOLS } from './domain-tools/captions.js';
 import { TIMELINE_TOOLS } from './domain-tools/timeline.js';
 import { GRAPHICS_TOOLS } from './domain-tools/graphics.js';
+import { ELEMENT_TOOLS } from './domain-tools/elements.js';
 import { MEDIA_TOOLS } from './domain-tools/media.js';
 import { PROJECT_TOOLS } from './domain-tools/project.js';
 import { VERIFICATION_TOOLS } from './domain-tools/verification.js';
@@ -554,6 +555,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
   ...AUDIO_TOOLS,
   ...CAPTION_TOOLS,
   ...GRAPHICS_TOOLS,
+  ...ELEMENT_TOOLS,
   ...PROJECT_TOOLS,
   ...VERIFICATION_TOOLS,
   // Resolver-gated professional intent, one module per domain.

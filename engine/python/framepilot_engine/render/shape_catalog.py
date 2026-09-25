@@ -247,3 +247,67 @@ def knob_value(descriptor: ShapeDescriptor, params: Mapping[str, Any], name: str
     if isinstance(value, int | float) and _is_number(value):
         return float(value)
     return knob.default
+
+
+@cache
+def _raw_catalog() -> list[dict[str, Any]]:
+    payload = (
+        resources.files("framepilot_engine.render")
+        .joinpath("shape_catalog.json")
+        .read_text(encoding="utf-8")
+    )
+    shapes = json.loads(payload)["shapes"]
+    return list(shapes)
+
+
+def shape_preset_ids() -> tuple[str, ...]:
+    """Every preset id, in catalogue order (what the agent's ``add_shape`` accepts)."""
+    return tuple(preset["id"] for shape in _raw_catalog() for preset in shape["presets"])
+
+
+def preset_shape_params(
+    preset_id: str, at: tuple[float, float] = (50.0, 50.0)
+) -> dict[str, Any] | None:
+    """The complete params a preset is inserted with, centred on ``at`` (percent of each axis).
+
+    The twin of TypeScript's ``presetShapeParams``: knobs take the preset's value, else the
+    descriptor's default, so a fresh shape states every number the engine draws it with.
+    """
+    for shape in _raw_catalog():
+        for preset in shape["presets"]:
+            if preset["id"] != preset_id:
+                continue
+            knobs = {
+                knob["name"]: (preset.get("knobs") or {}).get(knob["name"], knob["default"])
+                for knob in shape["knobs"]
+            }
+            style = {
+                "fill": preset["fill"],
+                "stroke": preset["stroke"],
+                "strokeWidth": preset["strokeWidth"],
+                "strokeStyle": preset["strokeStyle"],
+            }
+            defaults = shape["defaults"]
+            x, y = at
+            if shape["frame"] == "box":
+                return {
+                    "shape": shape["id"],
+                    "x": x,
+                    "y": y,
+                    "width": defaults["width"],
+                    "height": defaults["height"],
+                    **style,
+                    **knobs,
+                }
+            return {
+                "shape": shape["id"],
+                "x1": x + defaults["x1"],
+                "y1": y + defaults["y1"],
+                "x2": x + defaults["x2"],
+                "y2": y + defaults["y2"],
+                **style,
+                "startCap": preset.get("startCap", "none"),
+                "endCap": preset.get("endCap", "none"),
+                **knobs,
+            }
+    return None

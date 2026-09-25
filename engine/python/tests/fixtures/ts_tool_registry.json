@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 111,
+  "toolCount": 113,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -345,6 +345,209 @@
             ]
           },
           "remoteId": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
+    "add_shape": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "end",
+          "shape",
+          "start"
+        ],
+        "properties": {
+          "box": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "height",
+              "width",
+              "x",
+              "y"
+            ],
+            "properties": {
+              "height": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0.1,
+                "maximum": 400
+              },
+              "width": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0.1,
+                "maximum": 400
+              },
+              "x": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              },
+              "y": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              }
+            }
+          },
+          "cornerRadius": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 50
+          },
+          "end": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "endCap": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "arrow",
+              "bar",
+              "dot",
+              "none"
+            ]
+          },
+          "ends": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "x1",
+              "x2",
+              "y1",
+              "y2"
+            ],
+            "properties": {
+              "x1": {
+                "type": [
+                  "number"
+                ],
+                "minimum": -50,
+                "maximum": 150
+              },
+              "x2": {
+                "type": [
+                  "number"
+                ],
+                "minimum": -50,
+                "maximum": 150
+              },
+              "y1": {
+                "type": [
+                  "number"
+                ],
+                "minimum": -50,
+                "maximum": 150
+              },
+              "y2": {
+                "type": [
+                  "number"
+                ],
+                "minimum": -50,
+                "maximum": 150
+              }
+            }
+          },
+          "fill": {
+            "type": [
+              "string"
+            ]
+          },
+          "headSize": {
+            "type": [
+              "number"
+            ],
+            "minimum": 2,
+            "maximum": 8
+          },
+          "rotation": {
+            "type": [
+              "number"
+            ],
+            "minimum": -360,
+            "maximum": 360
+          },
+          "shape": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "ellipse/outline",
+              "line-arrow/red",
+              "marker-highlight/yellow",
+              "rounded-rect/filled",
+              "rounded-rect/highlight",
+              "underline-marker/yellow"
+            ]
+          },
+          "start": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "startCap": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "arrow",
+              "bar",
+              "dot",
+              "none"
+            ]
+          },
+          "stroke": {
+            "type": [
+              "string"
+            ]
+          },
+          "strokeStyle": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "dashed",
+              "dotted",
+              "solid"
+            ]
+          },
+          "strokeWidth": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0.05,
+            "maximum": 10
+          },
+          "trackId": {
             "type": [
               "string"
             ]
@@ -2279,6 +2482,7 @@
                 "captions",
                 "color",
                 "effects",
+                "elements",
                 "footage",
                 "masking",
                 "media",
@@ -5195,6 +5399,175 @@
             "type": [
               "string"
             ]
+          }
+        }
+      }
+    },
+    "set_shape_style": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId"
+        ],
+        "properties": {
+          "box": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "height",
+              "width",
+              "x",
+              "y"
+            ],
+            "properties": {
+              "height": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0.1,
+                "maximum": 400
+              },
+              "width": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0.1,
+                "maximum": 400
+              },
+              "x": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              },
+              "y": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              }
+            }
+          },
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "cornerRadius": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 50
+          },
+          "endCap": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "arrow",
+              "bar",
+              "dot",
+              "none"
+            ]
+          },
+          "ends": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "x1",
+              "x2",
+              "y1",
+              "y2"
+            ],
+            "properties": {
+              "x1": {
+                "type": [
+                  "number"
+                ],
+                "minimum": -50,
+                "maximum": 150
+              },
+              "x2": {
+                "type": [
+                  "number"
+                ],
+                "minimum": -50,
+                "maximum": 150
+              },
+              "y1": {
+                "type": [
+                  "number"
+                ],
+                "minimum": -50,
+                "maximum": 150
+              },
+              "y2": {
+                "type": [
+                  "number"
+                ],
+                "minimum": -50,
+                "maximum": 150
+              }
+            }
+          },
+          "fill": {
+            "type": [
+              "string"
+            ]
+          },
+          "headSize": {
+            "type": [
+              "number"
+            ],
+            "minimum": 2,
+            "maximum": 8
+          },
+          "startCap": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "arrow",
+              "bar",
+              "dot",
+              "none"
+            ]
+          },
+          "stroke": {
+            "type": [
+              "string"
+            ]
+          },
+          "strokeStyle": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "dashed",
+              "dotted",
+              "solid"
+            ]
+          },
+          "strokeWidth": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0.05,
+            "maximum": 10
           }
         }
       }

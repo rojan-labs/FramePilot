@@ -20,8 +20,10 @@ import pytest
 
 from framepilot_engine.render.shape_catalog import (
     load_shape_catalog,
+    preset_shape_params,
     shape_descriptor,
     shape_params_problem,
+    shape_preset_ids,
 )
 from framepilot_engine.timeline.models import ShapeCap, ShapeParams, ShapeStrokeStyle
 
@@ -91,3 +93,27 @@ def test_the_pydantic_twin_declares_the_schema_fields_and_enums() -> None:
         if field.is_required()
     }
     assert required == set(schema["required"])
+
+
+@pytest.mark.parametrize(
+    ("name", "preset_id", "at"),
+    [
+        ("a highlight box", "rounded-rect/highlight", (50.0, 50.0)),
+        ("an arrow", "line-arrow/red", (50.0, 50.0)),
+        ("a marker", "marker-highlight/yellow", (20.0, 80.0)),
+        ("an underline", "underline-marker/yellow", (50.0, 90.0)),
+        ("an ellipse", "ellipse/outline", (10.0, 10.0)),
+    ],
+)
+def test_preset_params_are_the_typescript_ones(
+    name: str, preset_id: str, at: tuple[float, float]
+) -> None:
+    # The vector table's valid rows were written by TypeScript's presetShapeParams.
+    expected = next(row["params"] for row in VECTORS if row["name"] == name)
+    assert preset_shape_params(preset_id, at) == expected
+
+
+def test_preset_ids_list_every_preset_in_catalogue_order() -> None:
+    assert shape_preset_ids()[:2] == ("rounded-rect/highlight", "rounded-rect/filled")
+    assert len(shape_preset_ids()) == 6
+    assert preset_shape_params("nope/none") is None

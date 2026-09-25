@@ -38,6 +38,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_valida
 
 from framepilot_engine.ai_tools.tool_descriptions_generated import TOOL_DESCRIPTIONS
 from framepilot_engine.render.caption_templates import load_catalog
+from framepilot_engine.render.shape_catalog import shape_preset_ids
 from framepilot_engine.timeline.models import AudioRole, BlendMode, CaptionStyle, CropRect
 
 _log = logging.getLogger(__name__)
@@ -247,6 +248,67 @@ class AddTextLayerArgs(BaseModel):
     box_width_percent: float | None = Field(default=None, alias="boxWidthPercent", gt=0.0, le=100.0)
     x_percent: float | None = Field(default=None, alias="xPercent", ge=0.0, le=100.0)
     y_percent: float | None = Field(default=None, alias="yPercent", ge=0.0, le=100.0)
+
+
+class ShapeBoxArg(BaseModel):
+    """A box shape's centre (percent of each frame axis) and size (percent of frame height)."""
+
+    model_config = _STRICT
+    x: float = Field(ge=0.0, le=100.0)
+    y: float = Field(ge=0.0, le=100.0)
+    width: float = Field(ge=0.1, le=400.0)
+    height: float = Field(ge=0.1, le=400.0)
+
+
+class ShapeEndsArg(BaseModel):
+    """A line or arrow's ends, in percent of each frame axis (off-frame allowed)."""
+
+    model_config = _STRICT
+    x1: float = Field(ge=-50.0, le=150.0)
+    y1: float = Field(ge=-50.0, le=150.0)
+    x2: float = Field(ge=-50.0, le=150.0)
+    y2: float = Field(ge=-50.0, le=150.0)
+
+
+class _ShapeStyleArgs(BaseModel):
+    """The style keys ``add_shape`` and ``set_shape_style`` share (TS ``styleArgs``)."""
+
+    model_config = _STRICT
+    box: ShapeBoxArg | None = None
+    ends: ShapeEndsArg | None = None
+    fill: str | None = None
+    stroke: str | None = None
+    stroke_width: float | None = Field(default=None, alias="strokeWidth", ge=0.05, le=10.0)
+    stroke_style: Literal["solid", "dashed", "dotted"] | None = Field(
+        default=None, alias="strokeStyle"
+    )
+    start_cap: Literal["none", "arrow", "dot", "bar"] | None = Field(default=None, alias="startCap")
+    end_cap: Literal["none", "arrow", "dot", "bar"] | None = Field(default=None, alias="endCap")
+    corner_radius: float | None = Field(default=None, alias="cornerRadius", ge=0.0, le=50.0)
+    head_size: float | None = Field(default=None, alias="headSize", ge=2.0, le=8.0)
+
+
+class AddShapeArgs(_ShapeStyleArgs):
+    """Place a shape preset (plan/elements EL4a); mirrors the TS ``add_shape`` schema."""
+
+    shape: str = Field(json_schema_extra={"enum": list(shape_preset_ids())})
+    start: float = Field(ge=0.0)
+    end: float = Field(ge=0.0)
+    rotation: float | None = Field(default=None, ge=-360.0, le=360.0)
+    track_id: str | None = Field(default=None, alias="trackId", min_length=1)
+
+    @field_validator("shape")
+    @classmethod
+    def _known_shape(cls, value: str) -> str:
+        if value not in shape_preset_ids():
+            raise ValueError(f"Unknown shape. Use one of: {', '.join(shape_preset_ids())}.")
+        return value
+
+
+class SetShapeStyleArgs(_ShapeStyleArgs):
+    """Restyle one shape; mirrors the TS ``set_shape_style`` schema."""
+
+    clip_id: str = Field(alias="clipId", min_length=1)
 
 
 class AddCaptionLayerArgs(BaseModel):
@@ -1501,6 +1563,20 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "shows it. For motion, follow this with punch_in on the clip it creates.",
         kind="mutate",
         input_model=AddTextLayerArgs,
+        mutating=True,
+    ),
+    "add_shape": _spec(
+        "add_shape",
+        "Add a shape over the picture for a timeline range (plan/elements EL4a).",
+        kind="mutate",
+        input_model=AddShapeArgs,
+        mutating=True,
+    ),
+    "set_shape_style": _spec(
+        "set_shape_style",
+        "Restyle or move one shape added with add_shape.",
+        kind="mutate",
+        input_model=SetShapeStyleArgs,
         mutating=True,
     ),
     "add_caption_layer": _spec(

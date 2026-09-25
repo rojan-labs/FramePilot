@@ -74,6 +74,18 @@ describe('buildAddShapeOps', () => {
     roundTrip(withOne, patchOf(second.operations));
   });
 
+  it('honours a named overlay lane, and ignores a named picture lane', () => {
+    const timeline: Timeline = {
+      tracks: [
+        { id: 'o1', type: 'overlay', clips: [] },
+        { id: 'o2', type: 'overlay', clips: [] },
+        video,
+      ],
+    };
+    expect(buildAddShapeOps(timeline, params, 2, 5, 'o2').trackId).toBe('o2');
+    expect(buildAddShapeOps(timeline, params, 2, 5, 'v1').trackId).toBe('o1');
+  });
+
   it('skips a locked overlay lane', () => {
     const timeline: Timeline = {
       tracks: [{ id: 'o1', type: 'overlay', locked: true, clips: [] }, video],

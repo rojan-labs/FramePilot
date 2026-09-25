@@ -231,6 +231,9 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   remove_keyframes: { role: 'mutation', scope: 'timeline_dependent' },
   add_marker: { role: 'mutation', scope: 'timeline_dependent' },
   add_text_layer: { role: 'mutation', scope: 'timeline_dependent' },
+  // Shapes (plan/elements EL4a): pure patches over the shared placement builder.
+  add_shape: { role: 'mutation', scope: 'timeline_dependent' },
+  set_shape_style: { role: 'mutation', scope: 'timeline_dependent' },
   add_track: { role: 'mutation', scope: 'timeline_dependent' },
   add_transition: { role: 'mutation', scope: 'timeline_dependent' },
   add_transitions: { role: 'mutation', scope: 'timeline_dependent' },
