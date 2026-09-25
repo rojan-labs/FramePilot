@@ -7,12 +7,35 @@ quietly weaken that gate. Regenerate with ``pnpm audio-mix:vectors``.
 
 from __future__ import annotations
 
+import json
+import math
+from typing import Any
+
 from tests import audio_mix_vectors as vectors
+
+#: The engine's numbers go through the platform's libm (`sin`, `pow`), whose last bit differs
+#: between macOS and Linux; the TypeScript gate is 1e-9, so this is well inside it.
+NUMERIC_TOLERANCE = 1e-12
+
+
+def _assert_same(fresh: Any, stored: Any, where: str = "$") -> None:
+    if isinstance(fresh, float) or isinstance(stored, float):
+        assert math.isclose(fresh, stored, rel_tol=0.0, abs_tol=NUMERIC_TOLERANCE), where
+    elif isinstance(fresh, dict):
+        assert fresh.keys() == stored.keys(), where
+        for key in fresh:
+            _assert_same(fresh[key], stored[key], f"{where}.{key}")
+    elif isinstance(fresh, list):
+        assert len(fresh) == len(stored), where
+        for index, (a, b) in enumerate(zip(fresh, stored, strict=True)):
+            _assert_same(a, b, f"{where}[{index}]")
+    else:
+        assert fresh == stored, where
 
 
 def test_stored_vectors_match_the_engine() -> None:
-    stored = vectors.FIXTURE.read_text(encoding="utf-8")
-    assert vectors.serialize(vectors.document()) == stored
+    stored = json.loads(vectors.FIXTURE.read_text(encoding="utf-8"))
+    _assert_same(json.loads(vectors.serialize(vectors.document())), stored)
 
 
 def test_the_cases_cover_every_part_of_the_envelope() -> None:

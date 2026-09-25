@@ -17,7 +17,20 @@ import { createLogger } from '@framepilot/shared-types';
 import type { Asset, Clip, Timeline } from '@framepilot/timeline-schema';
 import type { AudioSegment } from '../clock/audio-clock.js';
 import { clipMix, sampleClipMix, AUTOMATION_GRID_SECONDS } from './mix-envelope.js';
-import { resampleAlong, soundingClips, sourceReadOf, type SoundKind } from './clip-audio.js';
+import {
+  resampleAlong,
+  soundingClips,
+  sourceReadOf,
+  type SoundKind,
+  type SourceRead,
+} from './clip-audio.js';
+import {
+  CHANNEL_STRIP_PROCESSOR,
+  normalizeGainDb,
+  stripSettingsOf,
+  type ChannelStripOptions,
+  type StripProgram,
+} from './channel-strip.js';
 
 const log = createLogger('preview:program-audio');
 
@@ -50,15 +63,33 @@ interface LoadedFile {
   readonly buffer: AudioBuffer | undefined;
 }
 
+/** Adds the channel-strip worklet to a context (`channel-strip-module.ts`). */
+export type StripModuleLoader = (ctx: BaseAudioContext) => Promise<void>;
+
+const loadStripModule: StripModuleLoader = async (ctx) => {
+  const { loadChannelStripModule } = await import('./channel-strip-module.js');
+  await loadChannelStripModule(ctx);
+};
+
+/** The clip's `audio_gain` params, where the channel strip is authored. */
+function gainParams(clip: Clip): Readonly<Record<string, unknown>> {
+  const effect = clip.effects.find((candidate) => candidate.type === 'audio_gain');
+  return (effect?.params ?? {}) as Readonly<Record<string, unknown>>;
+}
+
 export class ProgramAudio {
   private readonly files = new Map<string, LoadedFile>();
   private readonly loading = new Map<string, Promise<void>>();
   private readonly resampled = new Map<string, AudioBuffer>();
   private resampledBytes = 0;
+  private readonly normalizeGains = new Map<string, number>();
+  /** The context the strip worklet is running in; `null` once loading it has failed there. */
+  private stripContext: BaseAudioContext | null | undefined;
 
   constructor(
     private readonly context: () => BaseAudioContext | undefined,
     private readonly fetchBytes: (url: string) => Promise<ArrayBuffer> = defaultFetchBytes,
+    private readonly loadStrip: StripModuleLoader = loadStripModule,
   ) {}
 
   /**
@@ -78,7 +109,13 @@ export class ProgramAudio {
     for (const [assetId, file] of [...this.files]) {
       if (wanted.get(assetId) !== file.url) this.files.delete(assetId);
     }
-    await Promise.all([...wanted].map(([assetId, url]) => this.load(assetId, url)));
+    const needsStrip = timeline.tracks.some((track) =>
+      track.clips.some((clip) => stripSettingsOf(gainParams(clip)) !== null),
+    );
+    await Promise.all([
+      ...[...wanted].map(([assetId, url]) => this.load(assetId, url)),
+      ...(needsStrip ? [this.ensureStrip()] : []),
+    ]);
   }
 
   /**
@@ -105,19 +142,23 @@ export class ProgramAudio {
             curve: sampleClipMix(mix, local, clip.end - clip.start, AUTOMATION_GRID_SECONDS),
           }
         : mix.gainAt(local);
-      const placed = { mediaStartUs: segStart * 1_000_000, gain };
+      const buffer =
+        read.kind === 'rate'
+          ? sound.buffer
+          : this.resampledSound(clip, sound.buffer, read.sourceAt);
+      if (!buffer) continue;
+      const strip = this.stripFor(clip, buffer, read);
+      const placed = { mediaStartUs: segStart * 1_000_000, gain, ...(strip ? { strip } : {}) };
       if (read.kind === 'rate') {
         segments.push({
           ...placed,
-          buffer: sound.buffer,
+          buffer,
           offsetSec: clip.sourceStart + local * read.rate,
           durationSec: timelineSeconds * read.rate,
           ...(read.rate !== 1 ? { playbackRate: read.rate } : {}),
         });
         continue;
       }
-      const buffer = this.resampledSound(clip, sound.buffer, read.sourceAt);
-      if (!buffer) continue;
       segments.push({ ...placed, buffer, offsetSec: local, durationSec: timelineSeconds });
     }
     return segments.sort((a, b) => a.mediaStartUs - b.mediaStartUs);
@@ -128,6 +169,86 @@ export class ProgramAudio {
     this.files.clear();
     this.resampled.clear();
     this.resampledBytes = 0;
+    this.normalizeGains.clear();
+  }
+
+  /**
+   * The node factory for `clip`'s channel strip, or none when it has no strip. A strip the
+   * monitor cannot run (the worklet failed to load) plays unprocessed; the load failure says so.
+   */
+  private stripFor(
+    clip: Clip,
+    buffer: AudioBuffer,
+    read: SourceRead,
+  ): ((ctx: BaseAudioContext) => AudioNode) | undefined {
+    const settings = stripSettingsOf(gainParams(clip));
+    if (!settings || !this.stripContext) return undefined;
+    const program: StripProgram = {
+      normalizeGainDb: settings.normalize ? this.normalizeFor(clip, buffer, read) : 0,
+      bands: settings.bands,
+      dynamics: settings.dynamics,
+    };
+    const channels = buffer.numberOfChannels;
+    const processorOptions: ChannelStripOptions = { program, channels };
+    return (ctx) =>
+      new AudioWorkletNode(ctx, CHANNEL_STRIP_PROCESSOR, {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        channelCount: channels,
+        channelCountMode: 'explicit',
+        outputChannelCount: [channels],
+        processorOptions,
+      });
+  }
+
+  /**
+   * `peak_normalize_gain_db` over what the export measures: the clip's sound after its speed.
+   * A forward clip is its source range; a resampled one is the buffer already built for it.
+   */
+  private normalizeFor(clip: Clip, buffer: AudioBuffer, read: SourceRead): number {
+    const rate = buffer.sampleRate;
+    const span = clip.end - clip.start;
+    const from = read.kind === 'rate' ? Math.max(0, Math.round(clip.sourceStart * rate)) : 0;
+    const to =
+      read.kind === 'rate'
+        ? Math.min(buffer.length, Math.round((clip.sourceStart + span * read.rate) * rate))
+        : buffer.length;
+    const key = JSON.stringify([
+      clip.assetId,
+      read.kind,
+      from,
+      to,
+      rate,
+      buffer.length,
+      clip.speed ?? 1,
+      clip.speedRamp ?? null,
+    ]);
+    const cached = this.normalizeGains.get(key);
+    if (cached !== undefined) return cached;
+    const channels: Float32Array[] = [];
+    for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+      channels.push(buffer.getChannelData(channel).subarray(from, Math.max(from, to)));
+    }
+    const gain = normalizeGainDb(channels);
+    this.normalizeGains.set(key, gain);
+    return gain;
+  }
+
+  private async ensureStrip(): Promise<void> {
+    const ctx = this.context();
+    if (!ctx || this.stripContext === ctx || this.stripContext === null) return;
+    try {
+      await this.loadStrip(ctx);
+      this.stripContext = ctx;
+    } catch (err) {
+      this.stripContext = null;
+      log.warn(
+        'the channel strip cannot run in the monitor; EQ, compression and normalize are not heard',
+        {
+          message: err instanceof Error ? err.message : String(err),
+        },
+      );
+    }
   }
 
   private soundOf(
