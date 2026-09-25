@@ -52,6 +52,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [x] PX2.1 `layer-compositor.ts` (WebGL2, FBO pool, premultiplied alpha) driven by `framePlanAt`
 - [x] PX2.2 Blend-mode shaders mirroring `render/blend.py`; existing effect, transition and mask chains become per-layer passes
 - [x] PX2.3 Text and captions as layer textures at track position; delete `drawOverlays` and the DOM caption layer once parity passes
+- [x] PX2.12 (2026-09-25, EQ29) STYLED captions in the frame: PX2.3 rasterised only unstyled cues, and the DOM caption layer still drew every template caption over the canvas the oracle reads. The engine's own caption layer now comes back per frame (motion, word states, placement, rotation, frost coverage), composited above the frame effects in the clip's blend mode; seven `text/caption-*` oracle rows. The DOM layer keeps only the editing handles on the desktop
 - [x] PX2.4 Shared `VideoFrame` for same asset + same pts; decoder pool LRU + reconfigure
 - [x] PX2.5 Speed and speed ramps via plan source pts
 - [x] PX2.6 Range-read streaming demux for unproxied originals (desktop)

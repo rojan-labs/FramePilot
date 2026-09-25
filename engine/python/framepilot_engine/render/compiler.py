@@ -1678,14 +1678,29 @@ def _blend_layer_over(base: VideoClip, layer: Any, mode: str, target: tuple[int,
     return result
 
 
-def _caption_position_y(position: str, frame_height: int, box_height: int, margin: int) -> int:
+def _keep_inside(start: float, inner: int, extent: int) -> int:
+    """Where a visible box of length ``inner`` starts on an axis of length ``extent``.
+
+    Clamped so the box stays inside the frame; a box LONGER than the frame is centred, so
+    it overflows both edges evenly — what the preview's centred CSS box does — instead of
+    being pinned to the leading edge and running off the other side only.
+    """
+    if inner >= extent:
+        return round((extent - inner) / 2)
+    return round(min(max(start, 0.0), float(extent - inner)))
+
+
+def _caption_position_y(
+    position: str, frame_height: int, box_height: int, margin: int, inset: int = 0
+) -> int:
+    inner = max(0, box_height - 2 * inset)
     if position == "top":
-        y = margin
+        y = float(margin)
     elif position == "middle":
-        y = (frame_height - box_height) // 2
+        y = float((frame_height - inner) // 2)
     else:
-        y = frame_height - box_height - margin
-    return max(0, min(y, max(0, frame_height - box_height)))
+        y = float(frame_height - inner - margin)
+    return _keep_inside(y, inner, frame_height) - inset
 
 
 def _caption_position(
@@ -1695,23 +1710,54 @@ def _caption_position(
     box_w: int,
     box_h: int,
     margin: int,
+    inset: tuple[int, int] = (0, 0),
 ) -> tuple[int, int]:
+    """Top-left corner of a ``box_w`` by ``box_h`` caption canvas on the target frame.
+
+    ``inset`` is the transparent room (horizontal, vertical) between the canvas edge and the
+    caption's own box — see :attr:`CaptionRaster.margin`. Every rule here (the anchor
+    margins, the safe-area clamp, keeping the caption inside the frame) is applied to that
+    box, which is what the viewer sees and what the preview positions; the canvas origin is
+    the box origin minus the inset, and may be negative.
+    """
+    inset_x, inset_y = inset
+    inner_w = max(0, box_w - 2 * inset_x)
+    inner_h = max(0, box_h - 2 * inset_y)
     if style.x_percent is None and style.y_percent is None:
         return (
-            (target_w - box_w) // 2,
-            _caption_position_y(style.position or "bottom", target_h, box_h, margin),
+            _keep_inside((target_w - inner_w) / 2, inner_w, target_w) - inset_x,
+            _caption_position_y(style.position or "bottom", target_h, box_h, margin, inset_y),
         )
     x_percent = style.x_percent if style.x_percent is not None else 50.0
     y_percent = style.y_percent if style.y_percent is not None else 50.0
     if style.safe_area is not False:
         x_percent = min(90.0, max(10.0, x_percent))
         y_percent = min(90.0, max(10.0, y_percent))
-    x = round(target_w * x_percent / 100.0 - box_w / 2)
-    y = round(target_h * y_percent / 100.0 - box_h / 2)
     return (
-        max(0, min(x, max(0, target_w - box_w))),
-        max(0, min(y, max(0, target_h - box_h))),
+        _keep_inside(target_w * x_percent / 100.0 - inner_w / 2, inner_w, target_w) - inset_x,
+        _keep_inside(target_h * y_percent / 100.0 - inner_h / 2, inner_h, target_h) - inset_y,
     )
+
+
+def _rotated_inset(margin: int, box_w: int, box_h: int, rotation_deg: float) -> tuple[int, int]:
+    """The transparent inset of a caption canvas after it is rotated with ``expand=True``.
+
+    The caption's own box rotates with the canvas, so its axis-aligned extent grows by the
+    rotation; the inset is half of what the rotated canvas has beyond it on each axis.
+    """
+    if margin <= 0:
+        return (0, 0)
+    if rotation_deg == 0.0:
+        return (margin, margin)
+    theta = math.radians(rotation_deg)
+    cos_t, sin_t = abs(math.cos(theta)), abs(math.sin(theta))
+    inner_w = max(0, box_w - 2 * margin)
+    inner_h = max(0, box_h - 2 * margin)
+    outer_w = box_w * cos_t + box_h * sin_t
+    outer_h = box_w * sin_t + box_h * cos_t
+    rotated_w = inner_w * cos_t + inner_h * sin_t
+    rotated_h = inner_w * sin_t + inner_h * cos_t
+    return (max(0, int((outer_w - rotated_w) / 2)), max(0, int((outer_h - rotated_h) / 2)))
 
 
 def baseline_caption_position(
@@ -1774,8 +1820,6 @@ class _CaptionLayer:
 
 
 def _caption_layers(project: Project, target: tuple[int, int]) -> list[_CaptionLayer]:
-    target_w, target_h = target
-    margin = int(target_h * _CAPTION_BOTTOM_MARGIN_FRACTION)
     layers: list[_CaptionLayer] = []
     for track in caption_tracks(project):
         for clip in track.clips:
@@ -1783,10 +1827,35 @@ def _caption_layers(project: Project, target: tuple[int, int]) -> list[_CaptionL
             if not cue.text.strip():
                 continue
             style = layer_caption_style(track.caption_style, clip.caption_style)
-            layers.append(
-                _caption_clip(clip, cue.text, style, cue.words, target_w, target_h, margin)
-            )
+            layers.append(caption_layer_for(clip, cue.text, style, cue.words, target))
     return layers
+
+
+def caption_layer_for(
+    clip: Clip,
+    text: str,
+    style: Any,
+    words: Sequence[TranscriptWord],
+    target: tuple[int, int],
+) -> _CaptionLayer:
+    """One burned caption exactly as :func:`compile_timeline` builds it: raster, motion, placement.
+
+    Shared with the desktop monitor's caption raster route
+    (:mod:`framepilot_engine.render.preview_text`), which samples it at one frame, so a styled
+    caption in the monitor is the export's own caption rather than a second rendering of it.
+
+    :param clip: The caption clip (its ``start``/``end`` time the motion; ``blend_mode`` rides
+        along on the returned layer).
+    :param text: The cue's resolved text.
+    :param style: The cue's layered caption style (track default under the clip's override), or
+        ``None`` for the unstyled baseline.
+    :param words: The cue's timed words, in timeline seconds.
+    :param target: ``(width, height)`` of the delivered frame.
+    :returns: The placed picture layer (and, for a frosted chip, its backdrop).
+    """
+    target_w, target_h = target
+    margin = int(target_h * _CAPTION_BOTTOM_MARGIN_FRACTION)
+    return _caption_clip(clip, text, style, words, target_w, target_h, margin)
 
 
 def _caption_clip(
@@ -1812,10 +1881,11 @@ def _caption_clip(
         and (resolved.background.blur or 0.0) > 0.0
     )
 
-    def finish(picture: Any) -> Any:
+    def finish(picture: Any, raster_margin: int) -> Any:
         rotation = (
             resolved.rotation if resolved is not None and resolved.rotation is not None else 0.0
         )
+        unrotated_w, unrotated_h = picture.size
         if rotation != 0.0:
             picture = picture.rotated(-rotation, expand=True)
         box_w, box_h = picture.size
@@ -1823,7 +1893,10 @@ def _caption_clip(
         if placement_style is None:
             x, y = baseline_caption_position(target_w, target_h, box_w, box_h)
         else:
-            x, y = _caption_position(placement_style, target_w, target_h, box_w, box_h, margin)
+            inset = _rotated_inset(raster_margin, unrotated_w, unrotated_h, rotation)
+            x, y = _caption_position(
+                placement_style, target_w, target_h, box_w, box_h, margin, inset
+            )
         return picture.with_start(clip.start).with_position((x, y))
 
     def raster_at(frame_time: float) -> CaptionRaster:
@@ -1848,10 +1921,12 @@ def _caption_clip(
 
         picture = _VideoClip(frame_function=rgb_at).with_duration(duration)
         mask = _VideoClip(frame_function=alpha_at, is_mask=True).with_duration(duration)
-        picture = finish(picture.with_mask(mask))
+        # The inset is a property of the layout, fixed for the cue: every frame's canvas is
+        # the same size with the same room around the box (captions.py lays out once).
+        first = cached(0.0)
+        picture = finish(picture.with_mask(mask), first.margin)
         if not frosted:
             return _CaptionLayer(picture, clip.blend_mode)
-        first = cached(0.0)
         white = np.full((*first.image.shape[:2], 3), 255, dtype=np.uint8)
 
         def backdrop_at(t: float) -> np.ndarray:
@@ -1865,19 +1940,21 @@ def _caption_clip(
         return _CaptionLayer(
             picture,
             clip.blend_mode,
-            finish(backdrop.with_mask(backdrop_mask)),
+            finish(backdrop.with_mask(backdrop_mask), first.margin),
             first.backdrop_sigma_px,
         )
 
     raster = raster_at(clip.start)
-    picture = finish(ImageClip(raster.image, transparent=True).with_duration(duration))
+    picture = finish(
+        ImageClip(raster.image, transparent=True).with_duration(duration), raster.margin
+    )
     if raster.backdrop is None:
         return _CaptionLayer(picture, clip.blend_mode)
     white = np.full((*raster.image.shape[:2], 3), 255, dtype=np.uint8)
     coverage = ImageClip(raster.backdrop.astype(np.float64) / 255.0, is_mask=True).with_duration(
         duration
     )
-    backdrop = finish(ImageClip(white).with_duration(duration).with_mask(coverage))
+    backdrop = finish(ImageClip(white).with_duration(duration).with_mask(coverage), raster.margin)
     return _CaptionLayer(picture, clip.blend_mode, backdrop, raster.backdrop_sigma_px)
 
 

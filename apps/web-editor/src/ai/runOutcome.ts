@@ -29,6 +29,12 @@ export interface TurnSignals {
   /** The user clicked Stop — a cancelled run's own status explains the outcome. */
   readonly cancelled: boolean;
   /**
+   * The run reported `completed`. A Stop that lands after this (while the finished run is
+   * still reviewing its edit) ends the review, not the turn — so nothing may stamp a
+   * `cancelled` over it.
+   */
+  readonly completed: boolean;
+  /**
    * This run's real, priced cost (P7.1/P7.2), folded from the orchestrator's `usage`
    * event — `undefined` until that event lands (a run that never reaches settlement,
    * e.g. one that throws before any event, reports no cost at all rather than a
@@ -45,6 +51,7 @@ export function initialTurnSignals(editing: boolean): TurnSignals {
     analysisUnavailable: false,
     failed: false,
     cancelled: false,
+    completed: false,
   };
 }
 
@@ -88,6 +95,7 @@ export function foldTurnEvent(signals: TurnSignals, event: AiEvent): TurnSignals
         return { ...signals, cancelled: true };
       }
       if (event.status === 'failed' && !signals.failed) return { ...signals, failed: true };
+      if (event.status === 'completed' && !signals.completed) return { ...signals, completed: true };
       // An `auto` run (ADR 0055) doesn't know its editing-ness until the classifier picks a
       // route; an editing/planning status is the honest signal that this turn is attempting
       // an edit, so a run that then applies nothing still gets the "nothing changed" notice.

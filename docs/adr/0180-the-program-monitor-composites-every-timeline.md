@@ -1,8 +1,7 @@
 # ADR 0180 — The program monitor composites every timeline; preview eligibility is not a gate
 
-- **Status:** Accepted for the layer compositor (`VITE_FRAMEPILOT_PREVIEW_COMPOSITOR=layers`,
-  the default in dev and test builds). The production default flips at RD3, which also deletes
-  the legacy path.
+- **Status:** Accepted. Amended 2026-09-25: the layer compositor is now the default in every
+  build, production included (see "Amendment" below). RD3 still deletes the legacy path.
 - **Date:** 2026-09-17
 - **Supersedes:** the **gating role** of ADR 0169 (a full-frame cutaway goes in front) and
   ADR 0170 (coverage is a relation between the layers): `canvasPreviewEligible`,
@@ -67,3 +66,29 @@ pixel in CI. At CI run 35172331641, 43 of 48 cases pass the unchanged gates (PSN
   AI layer and is **not** changed here.
 - Preview correctness is now a CI measurement (PX4). A compositor change that breaks a passing
   case fails the job; one that fixes a listed case fails it too until the baseline is shrunk.
+
+## Amendment (2026-09-25): every build composites, and styled captions are in the frame
+
+The maintainer asked for "100% parity on preview/export". Two things stood between the oracle's
+result and what a user sees:
+
+1. **Release builds ran the legacy monitor.** The production default was held back "until the
+   parity work is complete" (CHANGELOG). Every oracle row passes. A packaged release on the old
+   monitor would show the flat edit list and the DOM fallback, which the inventory routes 56 of
+   80 matrix rows to and the oracle never measured. Unset, `VITE_FRAMEPILOT_PREVIEW_COMPOSITOR`
+   now means `layers` in every build; `legacy` remains an explicit kill switch until RD3 deletes
+   it.
+2. **Styled captions were drawn as HTML over the canvas**, not in the frame. The oracle reads the
+   canvas, so the path nearly every real caption takes (67 of 68 templates are styled) was never
+   compared, and two divergences shipped through it (run `fb90e58d`: EQ20 placement, EQ21 wrap
+   width). The monitor now composites the engine's own caption layer, sampled at the frame's time
+   (`POST /preview/text-raster` with the cue's styles, words and span, built by
+   `caption_layer_for`), above the frame effects, in the clip's blend mode, with a frosted chip
+   blurred through the same Pillow `GaussianBlur` port. Seven oracle rows cover placed, animated,
+   frosted, rotated, blended and overridden captions and a caption over an effect lane. All pass,
+   six pixel-identical, and the effect-lane row fails at 26 dB when captions go back under the
+   effects.
+
+The browser build keeps the HTML caption layer when no engine is reachable, and says the text is
+approximate, as decision 4 already allows for titles.
+

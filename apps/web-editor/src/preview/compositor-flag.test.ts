@@ -7,8 +7,9 @@ describe('previewCompositor (RD2.1)', () => {
     expect(previewCompositor({ DEV: false, MODE: 'test' })).toBe('layers');
   });
 
-  it('keeps production builds on the legacy path until RD3 flips the default', () => {
-    expect(previewCompositor({ DEV: false, MODE: 'production' })).toBe('legacy');
+  it('gives production builds the layer compositor too: the parity work is complete', () => {
+    // A release on the old monitor showed users a picture the export does not make.
+    expect(previewCompositor({ DEV: false, MODE: 'production' })).toBe('layers');
   });
 
   it('lets the build variable force either path (the kill switch)', () => {
@@ -30,6 +31,13 @@ describe('previewCompositor (RD2.1)', () => {
         DEV: false,
         MODE: 'production',
         VITE_FRAMEPILOT_PREVIEW_COMPOSITOR: 'on',
+      }),
+    ).toBe('layers');
+    expect(
+      previewCompositor({
+        DEV: false,
+        MODE: 'production',
+        VITE_FRAMEPILOT_PREVIEW_COMPOSITOR: 'legacy',
       }),
     ).toBe('legacy');
     expect(layerCompositorEnabled({ DEV: true, VITE_FRAMEPILOT_PREVIEW_COMPOSITOR: 'yes' })).toBe(

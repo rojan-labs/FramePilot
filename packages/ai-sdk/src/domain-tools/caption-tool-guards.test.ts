@@ -7,11 +7,14 @@
  */
 import { describe, expect, it } from 'vitest';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
-import { getCaptionTemplate } from '@framepilot/timeline-schema/caption-templates';
+import {
+  CAPTION_TEMPLATE_CATALOG,
+  getCaptionTemplate,
+} from '@framepilot/timeline-schema/caption-templates';
 import type { ToolContext } from '../tool-context.js';
 import { getTool } from '../tool-registry.js';
 import { ToolRefusalError } from '../tool-refusal.js';
-import { CAPTION_STYLE_UNITS } from '../caption-style-facts.js';
+import { CAPTION_STYLE_UNITS, captionEmViolations } from '../caption-style-facts.js';
 
 const ASSET = 'asset_talk';
 
@@ -57,12 +60,12 @@ function project(): Project {
   });
 }
 
-const ctx = (): ToolContext => ({ project: project() }) as unknown as ToolContext;
+const ctx = (doc: Project = project()): ToolContext => ({ project: doc }) as unknown as ToolContext;
 
-function mutate(name: string, args: unknown): unknown {
+function mutate(name: string, args: unknown, doc?: Project): unknown {
   const tool = getTool(name);
   if (!tool || tool.kind !== 'mutate') throw new Error(`${name} is not a mutate tool`);
-  return tool.buildOps(args, ctx());
+  return tool.buildOps(args, ctx(doc));
 }
 
 function read(name: string, args: unknown): Record<string, unknown> {
@@ -167,5 +170,166 @@ describe('add_caption_layer will not place a cue nobody can read', () => {
     expect(() =>
       mutate('add_caption_layer', { trackId: 'track_captions', start: 40.5, end: 40.75 }),
     ).not.toThrow();
+  });
+});
+
+describe('shadow offsets and letter spacing are em, not pixels (runs fb90e58d, 0d7d679f)', () => {
+  const refusal = (captionStyle: unknown): ToolRefusalError => {
+    try {
+      mutate('set_track_caption_style', { trackId: 'track_captions', captionStyle });
+    } catch (error) {
+      return error as ToolRefusalError;
+    }
+    throw new Error('expected a refusal');
+  };
+
+  it('refuses a drop shadow written in pixels and says it would draw a detached copy', () => {
+    // fb90e58d: `offsetY: 2` meant two pixels and drew a copy two font-heights below the
+    // line, on a canvas wide enough to push every cue off the frame.
+    const thrown = refusal({ shadow: { color: '#000000a6', blur: 0.3, offsetX: 0, offsetY: 2 } });
+    expect(thrown).toBeInstanceOf(ToolRefusalError);
+    expect(thrown.refusalCause).toBe('caption_style_units');
+    expect(thrown.message).toMatch(/shadow\.offsetY 2 \(≈\d+ px\)/);
+    expect(thrown.message).toContain('detached second copy');
+    expect(thrown.message).not.toContain('wider than the');
+  });
+
+  it('refuses letter spacing that runs the letters into each other', () => {
+    const thrown = refusal({ fontFamily: 'Anton', letterSpacing: -0.5 });
+    expect(thrown.message).toMatch(/letterSpacing -0\.5/);
+    expect(thrown.message).toContain('run into each other');
+  });
+
+  it('accepts tight and wide tracking inside the range, and a real drop shadow', () => {
+    expect(() =>
+      mutate('set_track_caption_style', {
+        trackId: 'track_captions',
+        captionStyle: {
+          letterSpacing: -0.05,
+          shadow: { color: '#000000b3', blur: 0.2, offsetX: 0, offsetY: 0.06 },
+        },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      mutate('set_track_caption_style', {
+        trackId: 'track_captions',
+        captionStyle: { letterSpacing: 0.4 },
+      }),
+    ).not.toThrow();
+  });
+
+  it('holds every catalog template inside the ranges it teaches', () => {
+    for (const template of CAPTION_TEMPLATE_CATALOG) {
+      expect({
+        id: template.id,
+        violations: captionEmViolations(template.style, { width: 1080, height: 1920 }),
+      }).toEqual({ id: template.id, violations: [] });
+    }
+  });
+});
+
+describe('a keywords-mode restyle keeps the words the track already accents', () => {
+  const KEYWORDS = ['stop scrolling', 'mission'];
+  const accented = (): Project => {
+    const doc = project();
+    return {
+      ...doc,
+      timeline: {
+        ...doc.timeline,
+        tracks: doc.timeline.tracks.map((track) =>
+          track.id === 'track_captions'
+            ? {
+                ...track,
+                captionStyle: {
+                  accent: { mode: 'keywords', keywords: KEYWORDS, color: '#ffd60a' },
+                },
+              }
+            : track,
+        ),
+      },
+    } as Project;
+  };
+  const writtenAccent = (ops: unknown): unknown =>
+    (ops as { captionStyle: { accent?: unknown } | null }[])[0]?.captionStyle?.accent;
+
+  it('fills an omitted keyword list from the track (run 1292449c restyled them away)', () => {
+    const ops = mutate(
+      'set_track_caption_style',
+      {
+        trackId: 'track_captions',
+        captionStyle: {
+          fontFamily: 'Anton',
+          accent: { mode: 'keywords', fontFamily: 'Mr Dafoe', color: '#e0231c' },
+        },
+      },
+      accented(),
+    );
+    expect(writtenAccent(ops)).toEqual({
+      mode: 'keywords',
+      fontFamily: 'Mr Dafoe',
+      color: '#e0231c',
+      keywords: KEYWORDS,
+    });
+  });
+
+  it('leaves an explicit list, another mode, and a cleared style exactly as written', () => {
+    const doc = accented();
+    const explicit = mutate(
+      'set_track_caption_style',
+      {
+        trackId: 'track_captions',
+        captionStyle: { accent: { mode: 'keywords', keywords: ['mission'] } },
+      },
+      doc,
+    );
+    expect(writtenAccent(explicit)).toEqual({ mode: 'keywords', keywords: ['mission'] });
+    const none = mutate(
+      'set_track_caption_style',
+      { trackId: 'track_captions', captionStyle: { accent: { mode: 'none' } } },
+      doc,
+    );
+    expect(writtenAccent(none)).toEqual({ mode: 'none' });
+    const cleared = mutate(
+      'set_track_caption_style',
+      { trackId: 'track_captions', captionStyle: null },
+      doc,
+    );
+    expect((cleared as { captionStyle: unknown }[])[0]?.captionStyle).toBeNull();
+  });
+
+  it('carries the track keywords onto a per-cue override too', () => {
+    const doc = accented();
+    const withCue = {
+      ...doc,
+      timeline: {
+        ...doc.timeline,
+        tracks: doc.timeline.tracks.map((track) =>
+          track.id === 'track_captions'
+            ? {
+                ...track,
+                clips: [
+                  {
+                    id: 'cue_1',
+                    assetId: '__caption__',
+                    trackId: 'track_captions',
+                    start: 0,
+                    end: 2,
+                    sourceStart: 0,
+                    sourceEnd: 2,
+                    effects: [],
+                    keyframes: [],
+                  },
+                ],
+              }
+            : track,
+        ),
+      },
+    } as Project;
+    const ops = mutate(
+      'set_caption_style',
+      { clipId: 'cue_1', captionStyle: { accent: { mode: 'keywords', color: '#ffffff' } } },
+      withCue,
+    );
+    expect(writtenAccent(ops)).toEqual({ mode: 'keywords', color: '#ffffff', keywords: KEYWORDS });
   });
 });

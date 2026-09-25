@@ -1829,7 +1829,11 @@ function checkCaptionVerify(project: Project): CriticCheck {
       `${String(report.cueCount)} cue(s) verify against the mapped words and the frame.`,
     );
   }
-  const LOOK_CODES = new Set(['caption_chip_oversize', 'caption_too_short']);
+  const LOOK_CODES = new Set([
+    'caption_chip_oversize',
+    'caption_style_out_of_range',
+    'caption_too_short',
+  ]);
   const look = report.issues.filter((issue) => LOOK_CODES.has(issue.code));
   const first = (look[0] ?? report.issues[0])!;
   const counts = new Map<string, number>();

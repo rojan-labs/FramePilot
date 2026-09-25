@@ -339,6 +339,36 @@ describe('audibleAudioClipsAt', () => {
     expect(volume(9)).toBeCloseTo(0.5, 6); // halfway down the fade out
   });
 
+  it('follows a gain automation lane, which supersedes the fader in the export', () => {
+    const laned: Clip['effects'] = [
+      {
+        id: 'g',
+        type: 'audio_gain',
+        params: { gainDb: 6 },
+        keyframes: [
+          { id: 'k0', time: 1, property: 'gainDb', value: -20, easing: 'linear' },
+          { id: 'k1', time: 3, property: 'gainDb', value: 0, easing: 'linear' },
+        ],
+      },
+    ];
+    const timeline: Timeline = {
+      tracks: [{ id: 'a', type: 'audio', clips: [audioClip('music', 0, 8, laned)] }],
+    };
+    const volume = (t: number): number => audibleAudioClipsAt(timeline, assets, t)[0]!.volume;
+    expect(volume(0.5)).toBeCloseTo(dbToGain(-20), 9);
+    expect(volume(2)).toBeCloseTo(dbToGain(-10), 9);
+    expect(volume(6)).toBeCloseTo(1, 9);
+  });
+
+  it('reads a sped-up clip at its speed, as the export resamples it', () => {
+    const timeline: Timeline = {
+      tracks: [{ id: 'a', type: 'audio', clips: [{ ...audioClip('music', 4, 12), speed: 1.5 }] }],
+    };
+    const [audible] = audibleAudioClipsAt(timeline, assets, 6);
+    expect(audible?.sourceTime).toBe(3); // sourceStart 0 + (6 - 4) × 1.5
+    expect(audible?.playbackRate).toBe(1.5);
+  });
+
   it('excludes muted tracks and video-clip (footage) audio', () => {
     const timeline: Timeline = {
       tracks: [

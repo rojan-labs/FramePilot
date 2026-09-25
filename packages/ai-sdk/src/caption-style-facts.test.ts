@@ -8,6 +8,7 @@ import {
   captionFontPx,
   emphasisCoverageNote,
   resolveCaptionStyle,
+  trackStyleNote,
 } from './caption-style-facts.js';
 
 const portrait = { width: 1080, height: 1920 };
@@ -147,5 +148,49 @@ describe('emphasisCoverageNote says how many cues an accent reached', () => {
     expect(emphasisCoverageNote(project([], [cue('a', ['x'])]), 'c')).toBe('');
     expect(emphasisCoverageNote(project(['x'], []), 'nope')).toBe('');
     expect(emphasisCoverageNote(project(['x'], []), 7)).toBe('');
+  });
+});
+
+describe('trackStyleNote says what a whole-track restyle reached', () => {
+  const doc = (captionStyle: unknown, cues: Clip[]): Project =>
+    ({
+      timeline: { tracks: [{ id: 'c', type: 'caption', clips: cues, captionStyle }] },
+    }) as unknown as Project;
+
+  it('says a keywords-mode accent with no keywords emphasises nothing', () => {
+    // Run 1292449c: "keywords" mode, a serif accent font, no list — and a reply claiming a
+    // serif emphasis the render never showed.
+    const note = trackStyleNote(
+      doc({ accent: { mode: 'keywords', fontFamily: 'Instrument Serif' } }, [cue('a', ['hi'])]),
+      'c',
+    );
+    expect(note).toContain('names no keywords, so no word is emphasised');
+    expect(note).toContain('auto_emphasize_captions');
+  });
+
+  it('reports the accent coverage the restyle carries', () => {
+    const note = trackStyleNote(
+      doc({ accent: { mode: 'keywords', keywords: ['hi'] } }, [cue('a', ['hi']), cue('b', ['yo'])]),
+      'c',
+    );
+    expect(note).toContain('emphasis lands on 1 of 2 cues');
+  });
+
+  it('names the cues whose own style the track style cannot change (run 0e12b96e)', () => {
+    const note = trackStyleNote(
+      doc({ fontFamily: 'Inter' }, [
+        cue('a', ['one'], { captionStyle: { background: { color: '#000' }, yPercent: 20 } }),
+        cue('b', ['two']),
+        cue('c2', ['three'], { captionStyle: { background: { color: '#000' } } }),
+      ]),
+      'c',
+    );
+    expect(note).toContain('2 of 3 cues keep their own background, yPercent');
+    expect(note).toContain('set_caption_style with captionStyle null');
+  });
+
+  it('says nothing for a plain track restyle', () => {
+    expect(trackStyleNote(doc({ fontFamily: 'Inter' }, [cue('a', ['hi'])]), 'c')).toBe('');
+    expect(trackStyleNote(doc({}, []), 'missing')).toBe('');
   });
 });

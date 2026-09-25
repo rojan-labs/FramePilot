@@ -27,11 +27,19 @@
  */
 import {
   framePlanAt,
+  resolveCaptionCue,
   type FramePlan,
   type FramePlanLayer,
   type TrackArtifact,
 } from '@framepilot/editor-core';
-import type { Asset, Clip, MaskLayer, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
+import type {
+  Asset,
+  CaptionStyle,
+  Clip,
+  MaskLayer,
+  Timeline,
+  TranscriptWord,
+} from '@framepilot/timeline-schema';
 import { createLogger, type PreviewTextRasterRequest } from '@framepilot/shared-types';
 import { DecodeWorkerClient, type WorkerTraffic } from '../decode/worker-client.js';
 import type { WorkerStageReport } from '../decode/decode-worker.js';
@@ -79,6 +87,8 @@ import {
   textRasterKey,
 } from './engine-text-rasters.js';
 import { mediaSrc } from '../../editor/media.js';
+import { clipKind, effectiveMutedTrackIds } from '../../editor/selectors.js';
+import { ProgramAudio } from '../audio/program-audio.js';
 import type {
   PresentedFrame,
   PresentedLayer,
@@ -275,7 +285,8 @@ export class LayerPreviewEngine {
   private readonly decoding = new Set<string>();
   private readonly textRasters = new Map<string, TextRaster | null>();
   private readonly captionRasters = new Map<string, CaptionRaster | null>();
-  private styledCaptionClipIds = new Set<string>();
+  /** Each caption track's default style, by track id: a styled cue is drawn by the engine. */
+  private captionTrackStyles = new Map<string, CaptionStyle | undefined>();
   private textFontReady = false;
   /** The engine's own Pillow rasters for text and captions (desktop; canvas fallback). */
   private readonly engineTexts: EngineTextRasters;
@@ -284,6 +295,10 @@ export class LayerPreviewEngine {
   private audioCtx: AudioContext | undefined;
   private audioClock: AudioMasterClock | undefined;
   private monitorGain = 1;
+  /** Every clip's sound, as the export mixes it, on the audio clock. */
+  private readonly programAudio = new ProgramAudio(() => this.audioCtx);
+  /** Tracks soloed for monitoring (session-only; the export ignores solo). */
+  private soloedTrackIds: ReadonlySet<string> = new Set();
   private playing = false;
   private starting = false;
   private pausedAtSec = 0;
@@ -429,15 +444,10 @@ export class LayerPreviewEngine {
     this.project = project;
     this.planInputs.clear();
     this.assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
-    // Styled captions (templates) are still drawn by the monitor's caption layer.
-    this.styledCaptionClipIds = new Set(
-      project.timeline.tracks.flatMap((track) =>
-        track.type === 'caption'
-          ? track.clips
-              .filter((clip) => clip.captionStyle !== undefined || track.captionStyle !== undefined)
-              .map((clip) => clip.id)
-          : [],
-      ),
+    this.captionTrackStyles = new Map(
+      project.timeline.tracks
+        .filter((track) => track.type === 'caption')
+        .map((track) => [track.id, track.captionStyle] as const),
     );
     this.durationSec = project.timeline.tracks.reduce(
       (end, track) => track.clips.reduce((clipEnd, clip) => Math.max(clipEnd, clip.end), end),
@@ -499,6 +509,7 @@ export class LayerPreviewEngine {
       ...[...wantedVideo].map(([assetId, url]) => this.loadVideo(assetId, url)),
       ...[...wantedImages].map((url) => this.loadImage(url)),
       ...[...wantedLuts].map((path) => this.loadLut(path)),
+      this.programAudio.retain(project.timeline, project.assets, project.mediaUrls),
       loadExportTextFont().then((ready) => {
         this.textFontReady = ready;
       }),
@@ -799,7 +810,12 @@ export class LayerPreviewEngine {
 
   // --- presentation --------------------------------------------------------------------------
 
-  /** A burned caption in the export's baseline style, placed in the lower safe area. */
+  /**
+   * A burned caption as the export draws it: the engine's own raster (styled cues through the
+   * compiler's caption layer, at this frame's time), composited over the frame effects in the
+   * clip's blend mode, with a frosted chip's blur. Without an engine, the baseline canvas raster
+   * stands in and the monitor says the text is approximate.
+   */
   private captionLayer(layer: FramePlanLayer, size: PixelSize): CompositeLayer | null | 'pending' {
     const request = this.captionRequest(layer, size);
     if (request === null || layer.text === null) return null;
@@ -815,6 +831,11 @@ export class LayerPreviewEngine {
         height: raster.height,
         x: raster.x ?? 0,
         y: raster.y ?? 0,
+        blendMode: layer.blendMode,
+        aboveEffects: true,
+        ...(raster.backdrop === null
+          ? {}
+          : { frost: { coverage: raster.backdrop.coverage, sigmaPx: raster.backdrop.sigmaPx } }),
       };
     }
     if (!this.textFontReady) return null;
@@ -834,6 +855,8 @@ export class LayerPreviewEngine {
       height: raster.height,
       x: raster.x,
       y: raster.y,
+      blendMode: layer.blendMode,
+      aboveEffects: true,
     };
   }
 
@@ -904,11 +927,36 @@ export class LayerPreviewEngine {
     };
   }
 
-  /** The engine raster request for an unstyled burned caption, or `null`. */
+  /**
+   * The engine raster request for a burned caption, or `null`. A styled cue carries what the
+   * compiler's caption layer is built from — the track and cue styles as stored, the cue's timed
+   * words, its span — and the time of this frame, because its entrance, per-word states and loops
+   * move with it.
+   */
   private captionRequest(layer: FramePlanLayer, size: PixelSize): PreviewTextRasterRequest | null {
     if (layer.kind !== 'caption' || layer.text === null || layer.clipId === null) return null;
-    if (this.styledCaptionClipIds.has(layer.clipId) || layer.text.trim() === '') return null;
-    return { kind: 'caption', text: layer.text, frameWidth: size.width, frameHeight: size.height };
+    if (layer.text.trim() === '') return null;
+    const baseline: PreviewTextRasterRequest = {
+      kind: 'caption',
+      text: layer.text,
+      frameWidth: size.width,
+      frameHeight: size.height,
+    };
+    const clip = this.clipsById.get(layer.clipId);
+    const trackStyle = this.captionTrackStyles.get(layer.trackId);
+    const clipStyle = clip?.captionStyle;
+    if (clip === undefined || (trackStyle === undefined && clipStyle === undefined))
+      return baseline;
+    const cue = resolveCaptionCue(clip, this.project?.transcript ?? []);
+    return {
+      ...baseline,
+      ...(trackStyle === undefined ? {} : { trackStyle }),
+      ...(clipStyle === undefined ? {} : { clipStyle }),
+      words: cue.words.map(({ word, start, end }) => ({ word, start, end })),
+      clipStart: clip.start,
+      clipEnd: clip.end,
+      frameTime: clip.start + layer.localTime,
+    };
   }
 
   private textRequestsOf(plan: FramePlan): PreviewTextRasterRequest[] {
@@ -1306,30 +1354,39 @@ export class LayerPreviewEngine {
   private audioSegmentsFrom(startSec: number): AudioSegment[] {
     const project = this.project;
     if (!project) return [];
-    const segments: AudioSegment[] = [];
-    for (const track of project.timeline.tracks) {
-      if (track.muted === true || track.hidden === true) continue;
-      for (const clip of track.clips) {
-        const asset = this.assetsById.get(clip.assetId);
-        if (asset?.kind !== 'video') continue;
-        const buffer = this.sources.get(clip.assetId)?.audioBuffer;
-        if (!buffer) continue;
-        const speed = clip.speed ?? 1;
-        // A freeze is silent in the export (`without_audio`). Ramps and reverse are not yet
-        // scheduled here; their picture still follows the plan.
-        if (speed <= 0 || (clip.speedRamp?.length ?? 0) > 0) continue;
-        const segStart = Math.max(clip.start, startSec);
-        if (segStart >= clip.end) continue;
-        segments.push({
-          mediaStartUs: segStart * 1_000_000,
-          buffer,
-          offsetSec: clip.sourceStart + (segStart - clip.start) * speed,
-          durationSec: (clip.end - segStart) * speed,
-          ...(speed !== 1 ? { playbackRate: speed } : {}),
-        });
-      }
-    }
-    return segments.sort((a, b) => a.mediaStartUs - b.mediaStartUs);
+    const tracks = project.timeline.tracks;
+    return this.programAudio.segmentsFrom(
+      {
+        timeline: project.timeline,
+        kindOf: (clip) => {
+          const kind = clipKind(clip, this.assetsById);
+          return kind === 'video' || kind === 'audio' ? kind : 'other';
+        },
+        mutedTrackIds: effectiveMutedTrackIds(tracks, this.soloedTrackIds, this.assetsById),
+        footage: (assetId) => {
+          const source = this.sources.get(assetId);
+          return source?.audioBuffer
+            ? { buffer: source.audioBuffer, frameRate: source.frameRate }
+            : undefined;
+        },
+      },
+      startSec,
+    );
+  }
+
+  /**
+   * Monitor solo (H0.4 J2): soloed tracks sound and the other sound-bearing tracks fall silent.
+   * Session-only, never the project; playing sound is rescheduled from where the clock is.
+   */
+  setSoloedTracks(trackIds: ReadonlySet<string>): void {
+    const unchanged =
+      trackIds.size === this.soloedTrackIds.size &&
+      [...trackIds].every((id) => this.soloedTrackIds.has(id));
+    if (unchanged) return;
+    this.soloedTrackIds = new Set(trackIds);
+    if (!this.playing || !this.audioClock) return;
+    const nowUs = this.audioClock.nowMediaUs();
+    this.audioClock.scheduleSegments(this.audioSegmentsFrom(nowUs / 1_000_000), nowUs);
   }
 
   async play(): Promise<void> {
@@ -1440,8 +1497,9 @@ export class LayerPreviewEngine {
       if (t >= this.durationSec) break;
       const plan = this.planAt(t, this.renderSize());
       if (!plan) break;
-      if (k === 0 || k === LOOKAHEAD_FRAMES)
-        void this.engineTexts.ensure(this.textRequestsOf(plan));
+      // Every frame of the window: an animated caption is one raster per frame. A title or a
+      // still caption resolves to one cached raster, so asking again costs a map lookup.
+      void this.engineTexts.ensure(this.textRequestsOf(plan));
       const matteNeeds = this.matteNeedsOf(plan);
       for (const need of matteNeeds) for (const key of this.matteKeysOf(need)) pinned.add(key);
       windowMattes.push(...matteNeeds);
@@ -1625,6 +1683,7 @@ export class LayerPreviewEngine {
     for (const bitmap of this.images.values()) bitmap.close();
     this.images.clear();
     this.sources.clear();
+    this.programAudio.dispose();
     this.project = null;
     void this.audioCtx?.close().catch(() => undefined);
     this.audioCtx = undefined;

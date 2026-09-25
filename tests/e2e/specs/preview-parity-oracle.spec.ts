@@ -417,11 +417,19 @@ async function oraclePage(browser: Browser): Promise<Page> {
       const response = await fetch(`${SIDECAR_URL}/preview/text-raster`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // The desktop bridge's wire body (`preview-text-client.ts`), styled captions included:
+        // the styles, words, span and frame time the engine builds the caption layer from.
         body: JSON.stringify({
           kind: req.kind,
           ...(req.kind === 'text' ? { params: req.params } : { text: req.text }),
           frame_width: req.frameWidth,
           frame_height: req.frameHeight,
+          ...(req.trackStyle === undefined ? {} : { track_style: req.trackStyle }),
+          ...(req.clipStyle === undefined ? {} : { clip_style: req.clipStyle }),
+          ...(req.words === undefined ? {} : { words: req.words }),
+          ...(req.clipStart === undefined ? {} : { clip_start: req.clipStart }),
+          ...(req.clipEnd === undefined ? {} : { clip_end: req.clipEnd }),
+          ...(req.frameTime === undefined ? {} : { frame_time: req.frameTime }),
         }),
       });
       if (!response.ok) return { ok: false, error: `sidecar ${response.status}` };
@@ -436,6 +444,9 @@ async function oraclePage(browser: Browser): Promise<Page> {
         rgba_base64: string;
         x: number | null;
         y: number | null;
+        animated?: boolean;
+        backdrop_base64?: string | null;
+        backdrop_sigma_px?: number;
       };
       const host = window as unknown as {
         __fpSidecarTextRaster: (req: unknown) => Promise<Wire>;
@@ -444,10 +455,24 @@ async function oraclePage(browser: Browser): Promise<Page> {
       host.__fpTextRasterSource = async (req) => {
         const wire = await host.__fpSidecarTextRaster(req);
         if (!wire.ok) return { ok: false, error: wire.error ?? 'refused' };
-        const binary = atob(wire.rgba_base64);
-        const rgba = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) rgba[i] = binary.charCodeAt(i);
-        return { ok: true, width: wire.width, height: wire.height, rgba, x: wire.x, y: wire.y };
+        const bytes = (base64: string): Uint8Array => {
+          const binary = atob(base64);
+          const out = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+          return out;
+        };
+        return {
+          ok: true,
+          width: wire.width,
+          height: wire.height,
+          rgba: bytes(wire.rgba_base64),
+          x: wire.x,
+          y: wire.y,
+          animated: wire.animated === true,
+          ...(typeof wire.backdrop_base64 === 'string'
+            ? { backdrop: bytes(wire.backdrop_base64), backdropSigmaPx: wire.backdrop_sigma_px ?? 0 }
+            : {}),
+        };
       };
     });
   }

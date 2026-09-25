@@ -66,8 +66,6 @@ craft tools. No new subsystem; every fix reuses an existing seam.
 - [x] **EQ15** `check_caption_legibility`: contrast of each sampled cue against the real picture
   (keyed caption frame, WCAG 3:1). Real project: 2 of 4 cues at 1.1–2.0:1; ≥ 9.4:1 with an outline.
   25 s cold / 11 s warm.
-- [ ] **EQ16** (follow-up) The preview's optional burn-captions mode draws captions before its
-  WebGL effect post-process; its default DOM overlay already matches the export.
 - [ ] **EQ17** (follow-up) The captured project itself still holds the damage the old tools left: a
   nested sandwich, a Subtract front cut-out, two cues on an overlay track, un-outlined captions.
   No migration (schema-neutral data the editor owns); the tools now refuse to build on it and name
@@ -91,6 +89,63 @@ craft tools. No new subsystem; every fix reuses an existing seam.
   `QueuedMessage`, `Composer`, `queuedTurn`; the existing AiSidebar suites stay green.
   Deferred: the queue is in memory, so a reload mid-run loses a queued message (the durable run
   itself survives); no hand check in the desktop app yet.
+
+**Run audit 2026-09-25 (PR #129, `fix/ai-run-audit-2026-09-25`):** `run.md` (conversation
+`fb90e58d`, 3 caption turns, the last stopped by the editor at 695k tokens after ten restyles) and
+the three runs before it (`0d7d679f`, `1292449c`, `0e12b96e`). Every defect was FramePilot's.
+- [x] **EQ20** Burned captions were placed by their padded canvas, not their box: a canvas made
+  wider than the frame by shadow/emphasis room was pinned to x=0, so the text ran off the right edge
+  whatever `xPercent` said — the ten-restyle loop, and `0d7d679f`'s. The box is clamped; wider than
+  the frame it overflows evenly; anchors measure from the box. Reproduced on the real project.
+- [x] **EQ21** The preview wrapped a placed caption at HALF the frame (`left: 50%` shrink-to-fit;
+  Chromium: 202 px vs the export's 323 px on a 404 px frame) and anchored at 8 % of the WIDTH: the
+  editor saw three rows where the model's frames showed two ("max of 2 lines", asked three times).
+  `width: max-content` + `maxWidth`; `8cqh`.
+- [x] **EQ22** `verify_captions` partitioned words across ALL caption tracks, so a cue on the
+  cut-out's text layer made `caption_the_edit`'s own fresh cue "stale" — unsatisfiable, three runs,
+  "needs a manual fix". Ownership is per track.
+- [x] **EQ23** Caption style guards: shadow offsets and letterSpacing are em and now bounded
+  (`offsetY: 2` and `letterSpacing: -0.5` were sent as pixels); a keywords-mode restyle keeps the
+  track's grounded keywords (`1292449c` restyled them away and claimed an accent); the restyle's
+  result names cues whose own style it cannot change (`0e12b96e` cleared 8 of 28 boxes).
+- [x] **EQ24** A finished run's perceptual review held the terminal status with no status of its
+  own: 77 s under "Generating…", Stop, a finished turn stamped `cancelled` (conversation and
+  durable run). Now `verifying` ("Checking the edit…"); Stop or a new message skips the review and
+  the turn stays completed. ADR 0187.
+- [x] **EQ25** The receipt listed cue-level operations by raw clip id and told editors that
+  "load_tools was never called" — on a b-roll retime that needed no stock. Folded per track;
+  plain words; b-roll/music count as a sourcing request only when asked for.
+- [x] **EQ26** A run restyles one caption track at most five times (`caption_restyle_budget`): no
+  progress guard fires on a loop whose every turn applies an edit and looks at a new frame.
+- [x] **EQ27** `check_caption_legibility` lays out EVERY cue (layout only, 39 cues in 0.03 s) and
+  reports rows and anything wider than the frame — the check a "max 2 lines" request needs. The
+  run's final project: 29 of 39 cues on 3–5 rows, one 133 % of the frame wide.
+- [x] **EQ28** The PX4 oracle had no STYLED-caption row, which is how EQ20/EQ21 shipped: styled
+  captions were HTML over the canvas the oracle reads. Now in the frame (EQ29), with seven rows
+  (placed, four animated templates, frosted glass, rotated, blended, per-cue override, over an
+  effect lane): all pass locally on Metal, six pixel-identical. No glyph tolerance was needed —
+  both sides draw the engine's raster.
+- [x] **EQ29** "100% parity on preview/export" (maintainer, 2026-09-25). The monitor composites the
+  engine's own caption layer at each frame (`POST /preview/text-raster` styled cues,
+  `caption_layer_for`); captions composite above the frame effects (the open EQ16); raster
+  layers honour a caption clip's blend mode; frosted chips blur the same crop with the Pillow
+  blur port. Production builds default to the layer compositor (ADR 0180 amendment; `legacy` is
+  an explicit kill switch until RD3). Still listed in the baseline: the `webgl` colour
+  REFERENCE measurement on SwiftShader Subzero — Chromium's own `<video>` → texture conversion,
+  which the monitor does not use (its `canvas2d` path passes every encoding on every renderer).
+- [x] **EQ16** Closed by EQ29 (captions above the effect stage in the layer compositor).
+- [x] **EQ30** EQ29 for sound (ADR 0188). The layered monitor, now the default everywhere, played
+  footage flat: a muted clip still spoke, fades and ducks did nothing, solo did not silence the
+  rest, reversed/ramped clips were silent; audio clips drifted on their own `<audio>` clocks and
+  ignored speed; no preview path ran normalize, EQ or compression, or automation lanes in the
+  layered path. Now every clip plays on the engine's audio clock through the export's mix
+  (`preview/audio/`): envelope and time maps held to `_apply_audio_effects`/`_apply_speed` by
+  `envelopes.json` (1e-9), the channel strip held to ffmpeg by `strips.json` (designs 1e-9,
+  signal 1e-4) in Node and, as the shipped AudioWorklet, in Chromium (`audio-strip-parity`).
+  Sources are first shaped as MoviePy reads them (two 16-bit channels through ffmpeg's matrix):
+  mono was 3 dB and 5.1 7.7 dB louder in the monitor than in the file.
+  Not mirrored: the export dialog's master-bus options (loudness, limiter, denoise, master EQ and
+  compression), which are delivery settings the monitor does not know.
 
 **Status snapshot (2026-09-21, BACKGROUND-REMOVAL speed — `plan/background-removal-ai/13-SPEED-AND-PRODUCTION-READINESS.md`):**
 a maintainer's 52 s 1080p clip ran _Remove background_ for 5+ hours without finishing a step. Not a

@@ -371,6 +371,62 @@ describe('streamEditorRun route adapters', () => {
     expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
   });
 
+  it('says it is checking while the run waits on a review, before it reports completed', async () => {
+    // Run fb90e58d: the reply was written at 07:35:09 and the terminal status held until the
+    // review drained 77 s later, under a panel still reading "Generating…".
+    const events = await collect(
+      new Orchestrator(new MockProvider()).streamEditorRun(
+        input,
+        { ...options, runId: 'slow_review' },
+        { route: 'edit' },
+        {
+          temporalEvidence: async (_project, requests) => {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            return { renderSettings, results: passingEvidence(requests) };
+          },
+        },
+      ),
+    );
+    const checking = events.findIndex(
+      (event) => event.type === 'status' && event.status === 'verifying',
+    );
+    expect(checking).toBeGreaterThan(events.findIndex((event) => event.type === 'diff'));
+    expect(checking).toBeLessThan(events.length - 1);
+    expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
+  });
+
+  it('calls a review the editor ended "skipped", and the run still completed', async () => {
+    // The editor pressed Stop during that wait. The review was cancelled by their hand, which
+    // is not a reviewer that "could not run", and the turn had already finished its work.
+    const controller = new AbortController();
+    const events: AiEvent[] = [];
+    for await (const event of new Orchestrator(new MockProvider()).streamEditorRun(
+      input,
+      { ...options, runId: 'skipped_review', signal: controller.signal },
+      { route: 'edit' },
+      {
+        temporalEvidence: (_project, _requests, signal) =>
+          new Promise((_resolve, reject) => {
+            signal?.addEventListener('abort', () =>
+              reject(new Error('Temporal evidence acquisition was cancelled.')),
+            );
+          }),
+      },
+    )) {
+      events.push(event);
+      if (event.type === 'status' && event.status === 'verifying') controller.abort();
+    }
+    expect(events.some((event) => event.type === 'diff')).toBe(true);
+    const skipped = events.filter(
+      (event) => event.type === 'notification' && /Review skipped/.test(event.text),
+    );
+    expect(skipped).toHaveLength(1);
+    expect(
+      events.some((event) => event.type === 'warning' && /could not run/i.test(event.text)),
+    ).toBe(false);
+    expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
+  });
+
   it('settles as cancelled when the run is aborted during acquisition', async () => {
     const controller = new AbortController();
     const events = await collect(

@@ -121,6 +121,7 @@ import {
   MASK_VIEW_FRAGMENT,
   CHECKERBOARD_FRAGMENT,
   COMPOSITE_FRAGMENT,
+  FROST_FRAGMENT,
   COPY_FRAGMENT,
   FILL_FRAGMENT,
   MAX_TAPS,
@@ -192,7 +193,54 @@ export type CompositeLayer =
       readonly height: number;
       readonly x: number;
       readonly y: number;
+      /** The clip's blend mode (`render/blend.py`); absent = normal. */
+      readonly blendMode?: string;
+      /**
+       * A frosted-glass chip: the frame already drawn under the caption is blurred through this
+       * coverage (red channel, `width` x `height`) before the caption is composited.
+       */
+      readonly frost?: { readonly coverage: Uint8Array; readonly sigmaPx: number };
+      /**
+       * Composited after the frame effects rather than under them. The export burns captions
+       * over its effect stage (`compile_timeline`, EQ14): an effect lane never blurs or
+       * vignettes a caption.
+       */
+      readonly aboveEffects?: boolean;
     };
+
+/** The coverage rows/columns that carry any frost, or `null` for an empty chip. */
+function coverageBounds(
+  coverage: Uint8Array,
+  width: number,
+  height: number,
+): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < height; y++) {
+    const row = y * width;
+    for (let x = 0; x < width; x++) {
+      if (coverage[row + x] === 0) continue;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  return maxX < 0 ? null : { minX, minY, maxX, maxY };
+}
+
+/** A coverage mask as RGBA texels (red = coverage), built once per mask. */
+const coverageTexelCache = new WeakMap<Uint8Array, Uint8Array>();
+function coverageTexels(coverage: Uint8Array): Uint8Array {
+  const cached = coverageTexelCache.get(coverage);
+  if (cached) return cached;
+  const texels = new Uint8Array(coverage.length * 4);
+  for (let i = 0; i < coverage.length; i++) texels[i * 4] = coverage[i]!;
+  coverageTexelCache.set(coverage, texels);
+  return texels;
+}
 
 /** Whether the export attaches the clip's alpha-target stack (`_attach_mask`). */
 function hasAlphaMask(step: PictureRasterStep): boolean {
@@ -313,7 +361,12 @@ export class LayerCompositor {
       const decodedMemo = new Map<string, RenderTarget>();
       this.frameSize = size;
       this.frameDecodes = decodedMemo;
-      for (const layer of shown.layers) {
+      // Burned captions go on after the effect stage, as the export composites them (EQ16).
+      const isAbove = (layer: CompositeLayer): boolean =>
+        layer.kind === 'raster' && layer.aboveEffects === true;
+      const below = shown.layers.filter((layer) => !isAbove(layer));
+      const above = shown.layers.filter(isAbove);
+      for (const layer of below) {
         const placed =
           layer.kind === 'picture'
             ? this.rasterPicture(
@@ -331,11 +384,7 @@ export class LayerCompositor {
                 y: layer.y,
               };
         if (placed === null) continue;
-        const mode = layer.kind === 'picture' ? (BLEND_MODE_INDEX[layer.step.blendMode] ?? 0) : 0;
-        frame =
-          mode === 0
-            ? this.composite(frame, placed.target, placed.x, placed.y, size)
-            : this.blend(frame, placed.target, placed.x, placed.y, size, mode);
+        frame = this.place(frame, layer, placed, size);
       }
 
       // A debug view shows the clip's own mask, not the adjustment lanes above it.
@@ -350,6 +399,15 @@ export class LayerCompositor {
           }
         }
         if (this.frameEffects !== null) frame = this.frameEffects.apply(frame, effects);
+      }
+      for (const layer of above) {
+        if (layer.kind !== 'raster') continue;
+        const placed = {
+          target: r.imageTarget(layer.image, layer.width, layer.height),
+          x: layer.x,
+          y: layer.y,
+        };
+        frame = this.place(frame, layer, placed, size);
       }
       if (output === 'pixels') {
         // Synchronous and exact: the frame target's rows are top-first, as ImageData's are. A
@@ -1594,6 +1652,67 @@ export class LayerCompositor {
     r.bind(program, 'u_frame', 0, frame.texture);
     r.bind(program, 'u_layer', 1, layer.texture);
     program.ivec2('u_position', x, y);
+    program.ivec2('u_size', layer.width, layer.height);
+    r.draw(out, size.width, size.height);
+    return out;
+  }
+
+  /**
+   * Put one placed layer on the frame: a frosted chip's blur first, then the layer in its blend
+   * mode (`render/blend.py` for anything but normal, Pillow's `alpha_composite` for normal).
+   */
+  private place(
+    frame: RenderTarget,
+    layer: CompositeLayer,
+    placed: { readonly target: RenderTarget; readonly x: number; readonly y: number },
+    size: PixelSize,
+  ): RenderTarget {
+    const blendMode = layer.kind === 'picture' ? layer.step.blendMode : (layer.blendMode ?? 'normal');
+    const mode = BLEND_MODE_INDEX[blendMode] ?? 0;
+    let base = frame;
+    if (layer.kind === 'raster' && layer.frost !== undefined) {
+      base = this.frost(base, layer, size);
+    }
+    return mode === 0
+      ? this.composite(base, placed.target, placed.x, placed.y, size)
+      : this.blend(base, placed.target, placed.x, placed.y, size, mode);
+  }
+
+  /**
+   * `_frost_behind` (`render/compiler.py`): blur the crop of the frame the chip's coverage
+   * reaches plus three sigma, with Pillow's `GaussianBlur` (so the crop's own edges clamp as
+   * Pillow's do), and paste it back through the coverage.
+   */
+  private frost(
+    frame: RenderTarget,
+    layer: Extract<CompositeLayer, { kind: 'raster' }>,
+    size: PixelSize,
+  ): RenderTarget {
+    const frost = layer.frost!;
+    if (!(frost.sigmaPx > 0)) return frame;
+    const bounds = coverageBounds(frost.coverage, layer.width, layer.height);
+    if (bounds === null) return frame;
+    const reach = Math.ceil(3 * frost.sigmaPx);
+    const left = Math.max(0, layer.x + bounds.minX - reach);
+    const top = Math.max(0, layer.y + bounds.minY - reach);
+    const right = Math.min(size.width, layer.x + bounds.maxX + 1 + reach);
+    const bottom = Math.min(size.height, layer.y + bounds.maxY + 1 + reach);
+    if (right <= left || bottom <= top) return frame;
+    const blurred = this.pilGaussianBlur(
+      this.copy(frame, left, top, right - left, bottom - top, null),
+      frost.sigmaPx,
+    );
+    const r = this.resources;
+    const coverage = r.bytesTarget(coverageTexels(frost.coverage), layer.width, layer.height);
+    const out = r.target(size.width, size.height, 'rgba8');
+    const program = r.program('frost', FROST_FRAGMENT);
+    this.gl.useProgram(program.handle);
+    r.bind(program, 'u_frame', 0, frame.texture);
+    r.bind(program, 'u_blurred', 1, blurred.texture);
+    r.bind(program, 'u_coverage', 2, coverage.texture);
+    program.ivec2('u_blurOrigin', left, top);
+    program.ivec2('u_blurSize', right - left, bottom - top);
+    program.ivec2('u_position', layer.x, layer.y);
     program.ivec2('u_size', layer.width, layer.height);
     r.draw(out, size.width, size.height);
     return out;

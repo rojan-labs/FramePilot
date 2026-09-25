@@ -980,14 +980,70 @@ export function unwrapCaptionLegibility(data: unknown): HostToolOutcome {
         'again.',
     );
   }
+  const layout = captionLayoutReading(record.layout);
+  if (layout.lines.length > 0) lines.push(...layout.lines);
+  const contrast =
+    low.length === 0
+      ? `All ${String(measured.length)} sampled caption(s) read against the picture`
+      : `${String(low.length)} of ${String(measured.length)} sampled caption(s) do not read against the picture`;
   return {
     status: 'completed',
-    summary:
-      low.length === 0
-        ? `All ${String(measured.length)} sampled caption(s) read against the picture`
-        : `${String(low.length)} of ${String(measured.length)} sampled caption(s) do not read against the picture`,
+    summary: layout.summary === '' ? contrast : `${contrast}; ${layout.summary}`,
     data: { ...record, reading: lines.join('\n') },
   };
+}
+
+/** How many of the tallest cues the layout reading names. */
+const TALLEST_CUES_NAMED = 4;
+
+/**
+ * Every cue's rows and width, as the model reads them: how the track's cues spread over
+ * row counts, the tallest ones by name, and any wider than the frame.
+ *
+ * The contrast half of this tool samples a few cues through full renders; this half is
+ * layout only and covers the WHOLE track. Run `fb90e58d` was asked twice for "no more than
+ * 2 rows", could look at two frames, and told the editor the rest was unchecked — its
+ * final track had 29 of 39 cues on three to five rows and one 133% of the frame wide.
+ */
+function captionLayoutReading(raw: unknown): { lines: string[]; summary: string } {
+  if (!Array.isArray(raw) || raw.length === 0) return { lines: [], summary: '' };
+  const cues = (raw as Record<string, unknown>[]).filter(
+    (cue) => typeof cue.rows === 'number' && typeof cue.widthFraction === 'number',
+  );
+  if (cues.length === 0) return { lines: [], summary: '' };
+  const label = (cue: Record<string, unknown>): string =>
+    `${String(cue.time)}s "${String(cue.text ?? '').replace(/\n/g, ' ')}"`;
+  const byRows = new Map<number, number>();
+  for (const cue of cues) byRows.set(cue.rows as number, (byRows.get(cue.rows as number) ?? 0) + 1);
+  const spread = [...byRows.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([rows, count]) => `${String(count)} on ${String(rows)} row${rows === 1 ? '' : 's'}`)
+    .join(', ');
+  const most = Math.max(...cues.map((cue) => cue.rows as number));
+  const tallest = [...cues]
+    .sort((a, b) => (b.rows as number) - (a.rows as number))
+    .filter((cue) => (cue.rows as number) === most)
+    .slice(0, TALLEST_CUES_NAMED);
+  const wide = cues.filter((cue) => (cue.widthFraction as number) > 1);
+  const lines = [
+    `Layout of all ${String(cues.length)} cue(s) as the export draws them: ${spread}. ` +
+      `The most is ${String(most)}: ${tallest.map(label).join('; ')}.`,
+  ];
+  if (wide.length > 0) {
+    lines.push(
+      `${String(wide.length)} cue(s) are wider than the frame and run off its edges: ` +
+        wide
+          .slice(0, TALLEST_CUES_NAMED)
+          .map((cue) => `${label(cue)} at ${pct(cue.widthFraction)} of the width`)
+          .join('; ') +
+        '. A smaller fontScale or accent fontScale, or fewer words per cue (caption_the_edit ' +
+        'maxWordsPerCue), brings them in.',
+    );
+  }
+  const summary =
+    `${String(cues.length)} cue(s) wrap to at most ${String(most)} row${most === 1 ? '' : 's'}` +
+    (wide.length > 0 ? `, ${String(wide.length)} wider than the frame` : '');
+  return { lines, summary };
 }
 
 /** Request body for `POST /render/frame` — the working document plus what to grab. */

@@ -48,6 +48,95 @@ def test_caption_free_position_can_use_the_full_frame() -> None:
     assert _caption_position(style, 1000, 1000, 100, 100, 50) == (0, 900)
 
 
+def test_caption_clamp_keeps_the_visible_box_not_the_padded_canvas() -> None:
+    # Run fb90e58d: a canvas carrying 150 px of shadow room on each side (1100 px on a
+    # 1000 px frame) was clamped as a whole to x=0, so the 800 px caption inside it was
+    # drawn from 150 px to 950 px: centred on 550, not 500. The box is what must stay
+    # inside the frame; the room around it may hang off the edge.
+    style = CaptionStyle.model_validate({"xPercent": 50, "yPercent": 50})
+    x, y = _caption_position(style, 1000, 1000, 1100, 400, 50, (150, 150))
+    assert (x + 150 + 800 / 2, y + 150 + 100 / 2) == (500, 500)
+
+
+def test_caption_wider_than_the_frame_overflows_both_edges_evenly() -> None:
+    style = CaptionStyle.model_validate({"xPercent": 50, "yPercent": 50})
+    x, _ = _caption_position(style, 1000, 1000, 1400, 400, 50, (100, 100))
+    # 1200 px of caption on a 1000 px frame: 100 px past each edge, as the preview's
+    # centred CSS box draws it — never pinned left with all 200 px off the right edge.
+    assert x + 100 == -100
+
+
+def test_caption_box_near_an_edge_is_clamped_by_its_own_extent() -> None:
+    style = CaptionStyle.model_validate({"xPercent": 90, "yPercent": 50, "safeArea": False})
+    x, _ = _caption_position(style, 1000, 1000, 500, 200, 50, (100, 100))
+    # The 300 px box would reach 1050; it is pulled in until its OWN right edge is 1000.
+    assert x + 100 + 300 == 1000
+
+
+def test_anchored_caption_measures_its_margin_from_the_box() -> None:
+    style = CaptionStyle.model_validate({"position": "bottom"})
+    _, y = _caption_position(style, 1000, 1000, 600, 300, 80, (100, 100))
+    # The visible 100 px box ends 80 px above the frame's bottom — not 80 px plus the
+    # transparent room below it, which lifted every styled caption above the preview's.
+    assert y + 100 + 100 == 1000 - 80
+
+
+def test_burned_caption_with_a_large_shadow_stays_centred() -> None:
+    from framepilot_engine.render.compiler import caption_overlay_frames
+
+    cue = {
+        "id": "cue_1",
+        "assetId": "__caption__",
+        "trackId": "captions",
+        "start": 0.0,
+        "end": 2.0,
+        "sourceStart": 0,
+        "sourceEnd": 2.0,
+        "effects": [],
+        "captionCue": {"text": "top 1% of motion", "words": []},
+    }
+    project = Project.model_validate(
+        {
+            "id": "p",
+            "name": "p",
+            "fps": 30,
+            "resolution": {"width": 288, "height": 512},
+            "assets": [],
+            "timeline": {
+                "tracks": [
+                    {
+                        "id": "captions",
+                        "type": "caption",
+                        "clips": [cue],
+                        # The style run fb90e58d shipped: a 2-font-height drop offset grows
+                        # the canvas past the 288 px frame.
+                        "captionStyle": {
+                            "fontFamily": "Anton",
+                            "fontScale": 2.2,
+                            "xPercent": 50,
+                            "yPercent": 64,
+                            "maxWidthPercent": 80,
+                            "shadow": {
+                                "color": "#00000099",
+                                "blur": 0.3,
+                                "offsetX": 0,
+                                "offsetY": 2,
+                            },
+                        },
+                    }
+                ]
+            },
+            "transcript": [],
+        }
+    )
+    (frame,) = caption_overlay_frames(project, (288, 512), [1.0])
+    _, cols = np.nonzero(frame.max(axis=2) > 200)
+    assert cols.size > 0
+    # Bright letters only (the shadow is dark): their extent is centred on the frame.
+    assert abs((int(cols.min()) + int(cols.max())) / 2 - 144) <= 3
+    assert cols.min() > 0 and cols.max() < 287
+
+
 def _project(tracks: list[dict[str, Any]], assets: list[dict[str, Any]] | None = None) -> Project:
     return Project.model_validate(
         {

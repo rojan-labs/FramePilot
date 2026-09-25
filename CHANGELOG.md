@@ -8,6 +8,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The caption check counts rows.** Checking whether captions read now also reports, for every
+  caption, how many rows it wraps to and whether any is wider than the frame. When you ask for "no
+  more than two lines", the assistant can check every caption, not just the two it looked at.
+
 - **The assistant sees the images you attach.** An image dropped into the AI sidebar now goes to
   the model as the picture itself, not just its size and colours, so it can read the words on a
   logo, recognise the person you want kept in frame, or follow a design's layout. Models that
@@ -99,6 +103,48 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   MO-12), privacy and face-recognition consent.
 
 ### Fixed
+
+- **The preview plays the mix the export writes.** The editor's preview played each clip's sound
+  flat: muting a clip, fading it, ducking music under speech or soloing a track changed the
+  export but not what you heard, and reversed or speed-ramped clips were silent. Music played on
+  its own clock and could drift up to half a second from the picture. Every clip's sound now
+  plays on the preview's own clock with the export's volume, fades, ducking, volume keyframes,
+  speed, normalize, EQ and compression. Mono recordings were also 3 dB louder in the preview
+  than in the export, and 5.1 camera sound almost 8 dB louder; both now play at the export's
+  level. The export dialog's loudness and limiter settings still apply only to the file.
+- **The preview shows styled captions exactly as the export draws them.** Template captions were
+  drawn by the editor on top of the video, a second rendering that could wrap, place or animate
+  differently from the file. They are now the export's own caption, frame by frame: the same
+  lines, position, animation, frosted glass and blend mode. An effect lane under a caption no
+  longer blurs it in the preview when the export leaves it sharp. Release builds now use the
+  preview that composites every layer the export does (it was already the default while
+  developing).
+- **Captions no longer run off the right edge of the frame.** A caption with a large shadow, a
+  big accent word or a large font was drawn from the centre of the frame to the right, whatever
+  position it was given. The assistant could see this in every frame it checked and kept
+  restyling to fix it, which could not work. Captions now sit where their position says. One
+  wider than the frame overflows both edges evenly instead of one.
+- **The preview wraps captions where the export does.** A caption placed by position wrapped at
+  half the frame width in the editor and at its real width in the export. You saw three rows where
+  the exported video, and every frame the assistant looked at, had two. Captions at the top or
+  bottom also sat at a different height in the editor than in the export.
+- **No more false "caption out of date" warnings.** When a second caption track (such as text
+  behind a cut-out speaker) showed the same words, the check said a caption on the main track was
+  out of date right after it had been rebuilt. The assistant then rebuilt the captions again and
+  again, and finally told you to fix the caption by hand.
+- **The assistant no longer loses its emphasis when it restyles captions.** Changing the caption
+  font or colour could silently clear the highlighted words. The assistant now also refuses
+  shadow and letter-spacing values meant as pixels, and knows when some captions keep their own
+  style.
+- **"Checking the edit…" instead of a stuck "Generating…".** After the assistant replies it may
+  check its last edit in the background. That showed as "Generating…" for up to a minute or more,
+  and pressing Stop marked the finished request as cancelled. Now it reads "Checking the edit…".
+  Stop or sending your next message skips the check and your request stays completed.
+- **A cleaner summary at the end of each request.** Caption changes are one line per caption
+  track, not a row per caption with its internal id. The summary no longer says stock footage
+  "was never loaded" when you only asked to retime b-roll that was already there.
+- **The assistant stops restyling in circles.** After five restyles of the same captions in one
+  request, it stops and tells you what it sees instead of trying again.
 
 - **A message sent while the assistant is working is no longer lost.** Pressing Send during a
   run used to empty the box and send nothing. The message is now queued above the message box

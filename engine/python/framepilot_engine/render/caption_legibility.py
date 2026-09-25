@@ -32,8 +32,11 @@ import numpy as np
 import numpy.typing as npt
 from PIL import Image
 
+from framepilot_engine.render.caption_templates import layer_caption_style
+from framepilot_engine.render.captions import measure_caption_layout, resolve_caption_cue
 from framepilot_engine.render.compiler import caption_overlay_frames
 from framepilot_engine.render.frame_grab import DEFAULT_MAX_DIMENSION, grab_frame
+from framepilot_engine.render.frame_plan import caption_tracks
 from framepilot_engine.timeline.models import CaptionStyle, Clip, Project, Track
 
 _log = logging.getLogger(__name__)
@@ -281,3 +284,50 @@ def check_caption_legibility(
         LEGIBLE_CONTRAST,
     )
     return results
+
+
+@dataclass(frozen=True)
+class CueLayout:
+    """One cue as the export lays it out: its rows, and how wide its box is."""
+
+    time: float
+    clip_id: str
+    text: str
+    rows: int
+    #: The caption's own box as a fraction of the frame width; above 1 it runs off the frame.
+    width_fraction: float
+
+
+def caption_layout_report(project: Project) -> list[CueLayout]:
+    """Every burned cue's rows and width on the delivered frame, in time order.
+
+    Layout only — no decode, no render — so it covers the whole track where the contrast
+    check samples a few cues. Run ``fb90e58d``: asked twice for "no more than 2 rows", the
+    agent could look at two frames and had to tell the editor the other 37 cues were
+    unchecked.
+
+    :param project: The working project; laid out at its own resolution.
+    :returns: One entry per non-empty cue on a visible caption track.
+    """
+    width = int(project.resolution.width)
+    height = int(project.resolution.height)
+    report: list[CueLayout] = []
+    for track in caption_tracks(project):
+        for clip in track.clips:
+            cue = resolve_caption_cue(clip, project.transcript)
+            if not cue.text.strip():
+                continue
+            style = layer_caption_style(track.caption_style, clip.caption_style)
+            layout = measure_caption_layout(
+                cue.text, width, height, style=style, words=cue.words if style else None
+            )
+            report.append(
+                CueLayout(
+                    time=round(clip.start, 3),
+                    clip_id=clip.id,
+                    text=cue.text,
+                    rows=layout.rows,
+                    width_fraction=round(layout.box_width / max(1, width), 3),
+                )
+            )
+    return sorted(report, key=lambda entry: entry.time)

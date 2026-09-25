@@ -26,6 +26,18 @@ import {
   undoButton,
 } from './helpers.js';
 
+/**
+ * Every test here toggles effects on a paused frame, and on CI that is slow for a reason the
+ * app does not have on a GPU: the runner's WebGL is SwiftShader (CPU), and turning an effect
+ * on re-renders the paused frame through the float effect chain and reads it back
+ * synchronously (`layer-compositor.ts`, `output === 'pixels'`). The page's main thread is
+ * busy for 2.7–5.4 s, and Playwright's post-click `Page.enable` round trip waits for it.
+ * "bypasses and deletes a layer from the context menu" makes four such toggles: 16.6–27.8 s
+ * across main's runs against the 30 s default, and 36 s on a slower runner. The budget is for
+ * the runner's GL, not for the feature — every assertion keeps its own 5 s expect timeout.
+ */
+test.describe.configure({ timeout: 60_000 });
+
 /** An effect tile in the library, by its visible label. */
 function tile(page: Page, label: string): Locator {
   // The accessible name is `${label}. ${description}`, so anchor to the start —

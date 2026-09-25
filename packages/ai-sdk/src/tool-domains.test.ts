@@ -247,9 +247,29 @@ describe('requestedDomainsNeverLoaded — the brief named it, the run never load
   it('names the domain, the words that asked for it, and the tools never offered', () => {
     const missing = requestedDomainsNeverLoaded(brief, new Set(['captions', 'audio', 'motion', 'effects']));
     const sourcing = missing.find((m) => m.domain === 'sourcing');
-    expect(sourcing?.mentions.map((m) => m.toLowerCase())).toEqual(['b-roll', 'stock footages', 'music']);
+    // "B-roll" as a phase heading and "a music bed" do not ask for material on their own;
+    // "download stock footages" does.
+    expect(sourcing?.mentions.map((m) => m.toLowerCase())).toEqual(['stock footages']);
     expect(sourcing?.tools).toEqual(expect.arrayContaining(['search_stock', 'add_stock', 'search_music', 'add_music']));
     expect(missing.find((m) => m.domain === 'color')?.mentions.map((m) => m.toLowerCase())).toContain('colour');
+  });
+
+  it('does not read b-roll or music already on the timeline as a request for more', () => {
+    // Run 0e12b96e: a retime of existing cutaways was reported as "sourcing never loaded".
+    expect(
+      requestedDomainsNeverLoaded('no need bg on captions and also synchronize the broll with the video', new Set()).map(
+        (m) => m.domain,
+      ),
+    ).not.toContain('sourcing');
+    expect(requestedDomainsNeverLoaded('cut the b-roll to the beat of the music', new Set()).map((m) => m.domain)).not.toContain(
+      'sourcing',
+    );
+  });
+
+  it('still hears a request for new b-roll or music', () => {
+    for (const request of ['add some b-roll over the intro', 'can you add more broll', 'put background music under it']) {
+      expect(requestedDomainsNeverLoaded(request, new Set()).map((m) => m.domain)).toContain('sourcing');
+    }
   });
 
   it('is empty when the request loaded what it named, or named nothing', () => {

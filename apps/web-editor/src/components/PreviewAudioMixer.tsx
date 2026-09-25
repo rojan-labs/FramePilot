@@ -13,10 +13,11 @@
  * compute — we only drive HTMLMediaElement `currentTime`/`volume`, never DSP.
  * The Python engine remains the sole renderer. The volume it is handed, though,
  * is the engine's own envelope sampled at the playhead (`previewClipVolume`):
- * gain, fades and ducking. A monitor that played a ducked bed flat was loudest
- * exactly where the render is quietest, which read to the editor as "the music
- * is drowning my voice" about a mix that was already correct. Normalize and
- * keyframed automation lanes remain engine-truth.
+ * the fader or its automation lane, fades and ducking. A monitor that played a
+ * ducked bed flat was loudest exactly where the render is quietest, which read
+ * to the editor as "the music is drowning my voice" about a mix that was already
+ * correct. This mixer serves the legacy monitor only; the layered monitor plays
+ * every clip's sound, channel strip included, on its own audio clock.
  *
  * Track solo (H0.4 J2) is folded in here too: it is session-local monitoring
  * state (never the project, never a patch — see `useTrackLayout.ts`), but it
@@ -86,7 +87,7 @@ export function PreviewAudioMixer({
   return (
     // aria-hidden: this is an audio bus, not content — nothing to announce.
     <div className="preview-audio-mixer" aria-hidden="true" style={{ display: 'none' }}>
-      {audible.map(({ clip, sourceTime, volume }) => {
+      {audible.map(({ clip, sourceTime, playbackRate, volume }) => {
         const asset = assetById.get(clip.assetId);
         if (!asset) return null;
         return (
@@ -97,6 +98,7 @@ export function PreviewAudioMixer({
             key={clip.id}
             src={mediaSrc(asset.path)}
             sourceTime={sourceTime}
+            playbackRate={playbackRate}
             // The clip's own computed gain, scaled by the monitor level. Two
             // separate concerns multiplied at the last moment: the clip's gain is
             // the EDIT, the monitor level is how loud this room is.
@@ -112,6 +114,7 @@ export function PreviewAudioMixer({
 interface PreviewAudioTrackProps {
   readonly src: string;
   readonly sourceTime: number;
+  readonly playbackRate: number;
   readonly volume: number;
   readonly playing: boolean;
 }
@@ -120,10 +123,19 @@ interface PreviewAudioTrackProps {
 function PreviewAudioTrack({
   src,
   sourceTime,
+  playbackRate,
   volume,
   playing,
 }: PreviewAudioTrackProps): JSX.Element {
   const ref = useRef<HTMLAudioElement>(null);
+
+  // Speed: the export resamples a sped-up clip, so pitch follows speed here too.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.preservesPitch = false;
+    el.playbackRate = playbackRate;
+  }, [playbackRate]);
 
   // Volume: drive the element gain from the clip's computed volume.
   useEffect(() => {

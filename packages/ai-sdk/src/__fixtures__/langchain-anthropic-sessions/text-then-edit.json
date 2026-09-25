@@ -1250,7 +1250,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "assistant_message",
-      "text": "**Applied 1 edit** in 1 step — on your timeline now; each one can be undone.\n\n- Deleted range Video 1 · 0s–3s\n\n**Never loaded:**\n- audio — the request mentions \"dead air\", but load_tools was never called for it, so adjust_audio, analyze_silence, remove_silences, remove_filler_words, professional_audio were never offered."
+      "text": "**Applied 1 edit** in 1 step — on your timeline now; each one can be undone.\n\n- Deleted range Video 1 · 0s–3s\n\n**Not attempted:**\n- Audio clean-up — you asked for \"dead air\", but this run never opened those tools, so none of that was done. Ask for it again."
     },
     {
       "id": "turn_parity:status:13",

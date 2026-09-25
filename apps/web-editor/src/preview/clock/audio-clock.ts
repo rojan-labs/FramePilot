@@ -32,6 +32,16 @@ export interface AudioSegment {
    * `MultiplySpeed` resamples audio, so pitch follows speed here too.
    */
   playbackRate?: number;
+  /**
+   * The clip's mix over this segment (`preview/audio/mix-envelope.ts`): a constant, or a curve
+   * spread evenly from the segment's start to its end in timeline time. Absent means unity.
+   */
+  gain?: number | { readonly curve: Float32Array };
+  /**
+   * The clip's channel strip (normalize, EQ, compression), built on the context this segment
+   * plays in. Runs before the gain, as the export's filtergraph runs before its fader.
+   */
+  strip?: (ctx: BaseAudioContext) => AudioNode;
 }
 
 /** Seconds of lead time before the first segment starts, giving the browser's
@@ -126,10 +136,41 @@ export class AudioMasterClock {
       if (seg.playbackRate !== undefined && seg.playbackRate !== 1) {
         node.playbackRate.value = seg.playbackRate;
       }
-      node.connect(this.masterGain);
+      const timelineSeconds = seg.durationSec / (seg.playbackRate ?? 1);
+      let output: AudioNode = node;
+      if (seg.strip) {
+        const strip = seg.strip(this.ctx);
+        output.connect(strip);
+        output = strip;
+      }
+      const gain = this.gainFor(seg.gain, scheduled.ctxStartSec, timelineSeconds);
+      if (gain) {
+        output.connect(gain);
+        output = gain;
+      }
+      output.connect(this.masterGain);
       node.start(scheduled.ctxStartSec, seg.offsetSec, seg.durationSec);
       this.sources.push(node);
     });
+  }
+
+  /** A gain node playing a segment's mix, or none when the mix is unity. */
+  private gainFor(
+    gain: AudioSegment['gain'],
+    ctxStartSec: number,
+    timelineSeconds: number,
+  ): GainNode | null {
+    if (gain === undefined || gain === 1) return null;
+    const node = this.ctx.createGain();
+    if (typeof gain === 'number') {
+      node.gain.value = gain;
+      return node;
+    }
+    node.gain.value = gain.curve[0] ?? 1;
+    if (gain.curve.length >= 2 && timelineSeconds > 0) {
+      node.gain.setValueCurveAtTime(gain.curve, ctxStartSec, timelineSeconds);
+    }
+    return node;
   }
 
   /** The media-clock time (microseconds) right now, derived from `ctx.currentTime`. */

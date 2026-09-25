@@ -596,14 +596,35 @@ describe('verify_captions judges the two look facts it can compute', () => {
     expect(report.ok).toBe(false);
     const oversize = report.issues.filter((i) => i.code === 'caption_chip_oversize');
     expect(oversize.length).toBe(3 * report.cueCount);
-    expect(oversize[0]?.detail).toMatch(/background\.radius to 18 — a fraction of the font size, so about \d+ px/);
+    expect(oversize[0]?.detail).toMatch(
+      /background\.radius to 18 — a fraction of the font size, so about \d+ px/,
+    );
+  });
+
+  it('flags a shadow offset and letter spacing written in pixels, as what they draw', () => {
+    // Runs fb90e58d / 0d7d679f left `offsetY: 2` and `letterSpacing: -0.5` on the track.
+    const doc = projectDoc(correctCaptions());
+    const track = doc.timeline.tracks.find((t) => t.id === 'caption_1')!;
+    (track as { captionStyle?: unknown }).captionStyle = {
+      letterSpacing: -0.5,
+      shadow: { color: '#000000a6', blur: 0.3, offsetX: 0, offsetY: 2 },
+    };
+    const report = verifyCaptions(doc);
+    const range = report.issues.filter((i) => i.code === 'caption_style_out_of_range');
+    expect(range.length).toBe(2 * report.cueCount);
+    expect(range.map((i) => i.detail).join(' ')).toContain('detached second copy');
+    expect(range.map((i) => i.detail).join(' ')).toContain('run into each other');
+    // Not a chip: the chip finding's "covers the picture" would be false here.
+    expect(report.issues.filter((i) => i.code === 'caption_chip_oversize')).toEqual([]);
   });
 
   it('passes the same cues under the catalog chip', () => {
     const doc = projectDoc(correctCaptions());
     const track = doc.timeline.tracks.find((t) => t.id === 'caption_1')!;
     (track as { captionStyle?: unknown }).captionStyle = { templateId: 'tag' };
-    expect(verifyCaptions(doc).issues.filter((i) => i.code === 'caption_chip_oversize')).toEqual([]);
+    expect(verifyCaptions(doc).issues.filter((i) => i.code === 'caption_chip_oversize')).toEqual(
+      [],
+    );
   });
 
   it('flags a cue shorter than any preset floor', () => {

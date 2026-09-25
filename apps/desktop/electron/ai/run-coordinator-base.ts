@@ -281,7 +281,26 @@ function reduceCommand(snapshot: RunSnapshot, command: RunCommandEnvelope): RunS
       return { ...common, status: 'executing', pendingGate: undefined };
     case 'steer':
       return { ...common, status: snapshot.status };
-    case 'cancel':
+    case 'cancel': {
+      const changed = snapshot.patchDecisions.some((decision) => decision.state === 'committed');
+      if (snapshot.status === 'verifying') {
+        // The run had already replied and applied its edits; only the perceptual review of
+        // the last one was still rendering (ADR 0187). Stopping that ends the review, not
+        // the run — recorded `cancelled` it contradicted the conversation, which shows the
+        // turn completed, and read as "stopped" on a finished run.
+        return {
+          ...common,
+          status: 'completed',
+          pendingGate: undefined,
+          outcome: {
+            kind: 'completed_with_warnings',
+            source: command.payload.source,
+            changed,
+            warnings: ['The review of the last edit was skipped.'],
+            reason: 'The editor moved on before the review of the last edit finished.',
+          },
+        };
+      }
       return {
         ...common,
         status: 'cancelled',
@@ -289,11 +308,12 @@ function reduceCommand(snapshot: RunSnapshot, command: RunCommandEnvelope): RunS
         outcome: {
           kind: 'cancelled',
           source: command.payload.source,
-          changed: snapshot.patchDecisions.some((decision) => decision.state === 'committed'),
+          changed,
           warnings: [],
           reason: command.payload.reason,
         },
       };
+    }
     case 'resume':
       if (snapshot.status !== 'suspended') {
         throw new RunStoreConflictError(`Only a suspended run can resume.`);

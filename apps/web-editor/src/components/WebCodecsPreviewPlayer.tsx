@@ -57,6 +57,7 @@ import { maskToolTelemetry } from './preview/mask-tool-telemetry.js';
 import { previewFailureMessage } from '../preview/preview-availability.js';
 import { isDesktop } from '../editor/bridge-base.js';
 import { CaptionOverlay } from './CaptionOverlay.js';
+import { resolveTextRasterSource } from '../preview/engine/engine-text-rasters.js';
 import { MonitorHeaderPortal } from './MonitorHeaderPortal.js';
 import { PreviewAudioMixer } from './PreviewAudioMixer.js';
 import { PreviewViewControls, type PreviewZoom } from './PreviewViewControls.js';
@@ -421,10 +422,14 @@ export function WebCodecsPreviewPlayer({
       trackStyle: (typeof editor.state.timeline.tracks)[number]['captionStyle'];
       lines: readonly (readonly TranscriptWord[])[];
       text: string;
+      drawn: boolean;
     }[] = [];
-    // Layer compositor: captions burn into the frame when the monitor shows them; this DOM layer
-    // only keeps the styled (template) captions the compositor does not rasterise yet.
+    // Layer compositor: captions burn into the frame when the monitor shows them. With the
+    // engine reachable (desktop), styled captions are drawn in the frame too — the export's own
+    // raster, above the effect lanes — and this DOM layer keeps only their editing handles.
+    // Without it (plain browser), the DOM layer still draws them.
     if (layered && !settings.previewBurnCaptions) return [];
+    const compositorDrawsStyled = layered && resolveTextRasterSource() !== null;
     for (const track of editor.state.timeline.tracks) {
       if (track.hidden) continue;
       for (const clip of track.clips) {
@@ -441,6 +446,7 @@ export function WebCodecsPreviewPlayer({
           trackStyle: track.captionStyle,
           lines: cue.lines,
           text: cue.text,
+          drawn: !compositorDrawsStyled,
         });
       }
     }
@@ -831,6 +837,12 @@ export function WebCodecsPreviewPlayer({
     engineRef.current?.setVolume(monitorGain);
   }, [monitorGain, hasSegments]);
 
+  // Solo (H0.4 J2) is monitoring state: the layered engine folds it into what it plays.
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (engine instanceof LayerPreviewEngine) engine.setSoloedTracks(soloedTrackIds);
+  }, [soloedTrackIds, hasSegments]);
+
   // Tab-hidden pause (P4): a backgrounded tab throttles rAF and gains nothing
   // from decoding ahead, so pause playback when the document is hidden (the
   // pump only runs while playing, so this also stops decode). The user resumes
@@ -852,21 +864,18 @@ export function WebCodecsPreviewPlayer({
       data-preview-engine="webcodecs"
       ref={previewRef}
     >
-      {/* Audio-only tracks (music/VO/SFX) have no picture to ride, so the
-          existing hidden mixer plays them in sync — it's driven entirely by
-          the shared editor.state.playing/usePlayhead, which the engine above
-          already keeps correct via setPlaying/seekTransient, so no engine
-          changes were needed to wire this up (P2's "reuse PreviewAudioMixer
-          for non-footage audio" per the plan). */}
-      {/* The monitor's volume/mute governs BOTH audio paths: footage audio via the
-          engine's master gain bus (setVolume, below) and audio-only clips via this
-          mixer's monitor scale. One control, everything you hear. */}
-      <PreviewAudioMixer
-        editor={editor}
-        assets={assets}
-        soloedTrackIds={soloedTrackIds}
-        monitorVolume={monitorGain}
-      />
+      {/* The layer compositor plays every clip's sound itself, on the clock the picture follows,
+          with the export's mix (`preview/audio/program-audio.ts`). The flat-EDL engine only plays
+          footage, so audio clips there ride the hidden element mixer. Either way the monitor
+          volume governs everything you hear. */}
+      {layered ? null : (
+        <PreviewAudioMixer
+          editor={editor}
+          assets={assets}
+          soloedTrackIds={soloedTrackIds}
+          monitorVolume={monitorGain}
+        />
+      )}
       <div className="preview-stage" ref={setStageHost}>
         <div
           className="preview-frame"
@@ -1076,6 +1085,8 @@ type CaptionPreviewClip = {
   readonly trackStyle: NonNullable<Parameters<typeof CaptionOverlay>[0]>['trackStyle'];
   readonly lines: readonly (readonly TranscriptWord[])[];
   readonly text: string;
+  /** Whether this layer draws the caption; `false` when the compositor burns it into the frame. */
+  readonly drawn: boolean;
 };
 
 /** The only React subtree that updates on each live tick. Keeping it separate
@@ -1101,12 +1112,14 @@ function WebCodecsCaptionLayer({
     <>
       {active.map((caption) => (
         <div key={caption.clipId} className="preview-caption-object">
-          <CaptionOverlay
-            style={caption.style}
-            trackStyle={caption.trackStyle}
-            lines={caption.lines}
-            time={currentTimeSec}
-          />
+          {caption.drawn && (
+            <CaptionOverlay
+              style={caption.style}
+              trackStyle={caption.trackStyle}
+              lines={caption.lines}
+              time={currentTimeSec}
+            />
+          )}
           <PreviewCaptionEditor
             clipId={caption.clipId}
             style={caption.style}

@@ -277,6 +277,7 @@ from framepilot_engine.render.caption_legibility import (
 )
 from framepilot_engine.render.caption_legibility import (
     CaptionLegibilityError,
+    caption_layout_report,
     check_caption_legibility,
 )
 from framepilot_engine.render.export_settings import ExportSettings
@@ -305,8 +306,12 @@ from framepilot_engine.render.matte_tier_job import (
 from framepilot_engine.render.mattes import MATTE_FILE
 from framepilot_engine.render.pipeline import RenderJob, RenderOptions, render
 from framepilot_engine.render.preview_text import (
+    MAX_CUE_WORDS as PREVIEW_CAPTION_MAX_WORDS,
+)
+from framepilot_engine.render.preview_text import (
     PreviewTextError,
     baseline_caption_raster,
+    styled_caption_raster,
     text_overlay_raster,
 )
 from framepilot_engine.render.queue import JobStatus, RenderQueue, RenderTask
@@ -1115,11 +1120,26 @@ class CaptionCueLegibilityPayload(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class CaptionCueLayoutPayload(BaseModel):
+    """One cue as the export lays it out: its rows, and its box against the frame width."""
+
+    time: float
+    clip_id: str = Field(alias="clipId")
+    text: str
+    rows: int
+    #: The caption's box as a fraction of the frame width; above 1 it runs off the frame.
+    width_fraction: float = Field(alias="widthFraction")
+
+    model_config = {"populate_by_name": True}
+
+
 class CaptionLegibilityResponse(BaseModel):
-    """Every sampled cue, and the contrast a cue needs to read at a glance."""
+    """Every sampled cue, the contrast a cue needs to read at a glance, and every cue's layout."""
 
     threshold: float
     cues: list[CaptionCueLegibilityPayload]
+    #: EVERY burned cue's rows and width — layout only, so the whole track, not a sample.
+    layout: list[CaptionCueLayoutPayload] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True}
 
@@ -1204,6 +1224,23 @@ class PreviewTextRasterRequest(BaseModel):
     )
     frame_width: int = Field(ge=1, le=8192, description="Output frame width in pixels.")
     frame_height: int = Field(ge=1, le=8192, description="Output frame height in pixels.")
+    # --- a STYLED caption (kind 'caption' with a track or clip style) ---------------------------
+    track_style: dict[str, Any] | None = Field(
+        default=None, description="The caption track's default style, as the project stores it."
+    )
+    clip_style: dict[str, Any] | None = Field(
+        default=None, description="The cue's own style override."
+    )
+    words: list[dict[str, Any]] | None = Field(
+        default=None,
+        max_length=PREVIEW_CAPTION_MAX_WORDS,
+        description="The cue's timed words (word, start, end), in timeline seconds.",
+    )
+    clip_start: float | None = Field(default=None, description="The cue's timeline start (s).")
+    clip_end: float | None = Field(default=None, description="The cue's timeline end (s).")
+    frame_time: float | None = Field(
+        default=None, description="Timeline seconds of the frame to draw (motion, word states)."
+    )
 
 
 class PreviewTextRasterResponse(BaseModel):
@@ -1214,6 +1251,16 @@ class PreviewTextRasterResponse(BaseModel):
     rgba_base64: str = Field(description="width x height x 4 bytes, base64-encoded.")
     x: int | None = Field(default=None, description="Caption paste x; None for a text clip.")
     y: int | None = Field(default=None, description="Caption paste y; None for a text clip.")
+    animated: bool = Field(
+        default=False, description="True when the raster changes with the frame time."
+    )
+    backdrop_base64: str | None = Field(
+        default=None,
+        description="A frosted chip's coverage, width x height bytes, base64; None without one.",
+    )
+    backdrop_sigma_px: float = Field(
+        default=0.0, description="The frost's Gaussian standard deviation, in output pixels."
+    )
 
 
 class TemporalEvidenceBatchRequest(AnalysisProjectSource):
@@ -6687,9 +6734,25 @@ def create_app(
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         except FrameGrabError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-        _log.info("ACT caption legibility served: cues=%d source=%s", len(checked), label)
+        layout = caption_layout_report(project)
+        _log.info(
+            "ACT caption legibility served: cues=%d laid_out=%d source=%s",
+            len(checked),
+            len(layout),
+            label,
+        )
         return CaptionLegibilityResponse(
             threshold=CAPTION_LEGIBLE_CONTRAST,
+            layout=[
+                CaptionCueLayoutPayload(
+                    time=entry.time,
+                    clip_id=entry.clip_id,
+                    text=entry.text,
+                    rows=entry.rows,
+                    width_fraction=entry.width_fraction,
+                )
+                for entry in layout
+            ],
             cues=[
                 CaptionCueLegibilityPayload(
                     time=cue.time,
@@ -6716,6 +6779,20 @@ def create_app(
         try:
             if req.kind == "text":
                 raster = text_overlay_raster(req.params or {}, req.frame_width, req.frame_height)
+            elif req.track_style or req.clip_style:
+                if req.clip_start is None or req.clip_end is None:
+                    raise PreviewTextError("A styled caption needs its clip_start and clip_end.")
+                raster = styled_caption_raster(
+                    text=req.text or "",
+                    words=req.words or [],
+                    track_style=req.track_style,
+                    clip_style=req.clip_style,
+                    clip_start=req.clip_start,
+                    clip_end=req.clip_end,
+                    frame_width=req.frame_width,
+                    frame_height=req.frame_height,
+                    frame_time=req.frame_time if req.frame_time is not None else req.clip_start,
+                )
             else:
                 raster = baseline_caption_raster(req.text or "", req.frame_width, req.frame_height)
         except PreviewTextError as exc:
@@ -6726,6 +6803,9 @@ def create_app(
             rgba_base64=raster.base64(),
             x=raster.x,
             y=raster.y,
+            animated=raster.animated,
+            backdrop_base64=raster.backdrop_base64(),
+            backdrop_sigma_px=raster.backdrop_sigma_px,
         )
 
     @app.post("/review/temporal-evidence", response_model=TemporalEvidenceBatch)

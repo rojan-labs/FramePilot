@@ -19,6 +19,7 @@ describe('previewTextRasterViaSidecar', () => {
       rgba: new Uint8Array([1, 2, 3, 4]),
       x: 3,
       y: null,
+      animated: false,
     });
     const [url, init] = (fetchFn as unknown as { mock: { calls: [string, RequestInit][] } }).mock
       .calls[0]!;
@@ -42,6 +43,76 @@ describe('previewTextRasterViaSidecar', () => {
       expect((await previewTextRasterViaSidecar('http://e', req, fetchFn)).ok).toBe(false);
     }
     expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('forwards a styled caption with its words and frame time, and decodes the frost', async () => {
+    const fetchFn = ok({
+      width: 2,
+      height: 1,
+      rgba_base64: 'AQIDBAUGBwg=',
+      x: -4,
+      y: 10,
+      animated: true,
+      backdrop_base64: 'AP8=',
+      backdrop_sigma_px: 12.5,
+    });
+    const result = await previewTextRasterViaSidecar(
+      'http://e',
+      {
+        kind: 'caption',
+        text: 'top 1%',
+        frameWidth: 288,
+        frameHeight: 512,
+        trackStyle: { fontFamily: 'Anton' },
+        words: [{ word: 'top', start: 1, end: 1.3 }],
+        clipStart: 1,
+        clipEnd: 2.5,
+        frameTime: 1.4,
+      },
+      fetchFn,
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      x: -4,
+      y: 10,
+      animated: true,
+      backdrop: new Uint8Array([0, 255]),
+      backdropSigmaPx: 12.5,
+    });
+    const [, init] = (fetchFn as unknown as { mock: { calls: [string, RequestInit][] } }).mock
+      .calls[0]!;
+    expect(JSON.parse(String(init.body))).toEqual({
+      kind: 'caption',
+      text: 'top 1%',
+      frame_width: 288,
+      frame_height: 512,
+      track_style: { fontFamily: 'Anton' },
+      words: [{ word: 'top', start: 1, end: 1.3 }],
+      clip_start: 1,
+      clip_end: 2.5,
+      frame_time: 1.4,
+    });
+  });
+
+  it('refuses a styled caption without a span, with bad words, or a bloated style', async () => {
+    const fetchFn = ok({});
+    const base = { kind: 'caption', text: 'hi', frameWidth: 10, frameHeight: 10 };
+    for (const req of [
+      { ...base, trackStyle: { fontFamily: 'Inter' } },
+      { ...base, trackStyle: {}, clipStart: 2, clipEnd: 1 },
+      { ...base, trackStyle: {}, clipStart: 0, clipEnd: 1, words: [{ word: 1, start: 0, end: 1 }] },
+      { ...base, trackStyle: { x: 'y'.repeat(20_000) }, clipStart: 0, clipEnd: 1 },
+      { ...base, clipStyle: {}, clipStart: 0, clipEnd: 1, frameTime: Number.NaN },
+    ]) {
+      expect((await previewTextRasterViaSidecar('http://e', req, fetchFn)).ok).toBe(false);
+    }
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('refuses a frost coverage of the wrong size', async () => {
+    const fetchFn = ok({ width: 1, height: 1, rgba_base64: 'AQIDBA==', backdrop_base64: 'AP8=' });
+    const req = { kind: 'caption', text: 'hi', frameWidth: 10, frameHeight: 10 };
+    expect((await previewTextRasterViaSidecar('http://e', req, fetchFn)).ok).toBe(false);
   });
 
   it('reports an unavailable engine and a wrong-size raster', async () => {

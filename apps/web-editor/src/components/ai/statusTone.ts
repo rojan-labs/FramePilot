@@ -74,8 +74,11 @@ export function runStatusLabel(status: RunStatus): string {
       return 'Rendering…';
     case 'reconciling':
       return 'Reconciling…';
+    // The only time a run reports this is after its reply, while the perceptual review
+    // renders the finished edit (the orchestrator's terminal wait). Plain words, because a
+    // bare "Verifying…" under a written reply read as a hang and got stopped.
     case 'verifying':
-      return 'Verifying…';
+      return 'Checking the edit…';
     case 'awaiting_review':
       return 'Awaiting your review…';
     case 'suspended':

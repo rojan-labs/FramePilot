@@ -361,3 +361,74 @@ describe('ownership on a track the segmenter did not build', () => {
     expect(report.cueCount).toBe(1800);
   });
 });
+
+describe('a second caption track captions the same speech without stealing it', () => {
+  /** A caption cue on the cut-out's text layer — the shape runs 1292449c/0d7d679f carried. */
+  const behindText = (start: number, end: number, words: readonly TranscriptWord[]): Clip => ({
+    id: `caption_subject_text_${String(Math.round(start * 1000))}`,
+    assetId: '__caption__',
+    trackId: 'subject_text',
+    start,
+    end,
+    sourceStart: 0,
+    sourceEnd: end - start,
+    effects: [{ id: 'fx_caption', type: 'caption', params: {}, keyframes: [] }],
+    keyframes: [],
+    captionCue: {
+      text: words.map((word) => word.word).join(' '),
+      words: words.map(({ word, start: s, end: e }) => ({ word, start: s, end: e })),
+      derivedFromRevision: 28,
+      source: { assetId: ASSET, clipId: 'clip_talk', start, end },
+    },
+  });
+
+  it('keeps the main track’s freshly generated cues clean', () => {
+    // "product isn't" is spoken inside a main-track cue AND shown by a cue on another track
+    // that BEGINS later than the main one (as run 0d7d679f's 42.07s cue sat inside the main
+    // track's 41.867s cue). One partition across both tracks gave the words to the cue that
+    // began last, and the main cue — the generator's own output — read as stale after every
+    // regeneration. The cue ends before the next word ("the", 38.43s) by more than the one
+    // frame of ownership slack.
+    const spoken = transcript().filter((word) => word.start >= 37.88 && word.end <= 38.43);
+    const base = projectDoc(committedCues());
+    const doc: Project = {
+      ...base,
+      timeline: {
+        ...base.timeline,
+        tracks: [
+          ...base.timeline.tracks,
+          { id: 'subject_text', type: 'overlay', clips: [behindText(37.88, 38.39, spoken)] },
+        ],
+      },
+    };
+    const report = verifyCaptions(doc);
+    expect(report.issues).toEqual([]);
+    expect(report.cueCount).toBe(committedCues().length + 1);
+  });
+
+  it('still counts a word as uncaptioned only when no track covers it', () => {
+    const base = projectDoc([]);
+    const first = transcript()[0]!;
+    const doc: Project = {
+      ...base,
+      timeline: {
+        ...base.timeline,
+        tracks: [
+          ...base.timeline.tracks,
+          {
+            id: 'subject_text',
+            type: 'overlay',
+            clips: [behindText(first.start, first.end + 0.1, [first])],
+          },
+        ],
+      },
+    };
+    const uncaptioned = verifyCaptions(doc).issues.find(
+      (issue) => issue.code === 'speech_uncaptioned',
+    );
+    // Every word but the one the second track shows.
+    expect(uncaptioned?.detail).toMatch(
+      new RegExp(`^${String(WORDS.length - 1)} of ${String(WORDS.length)} retained words`),
+    );
+  });
+});

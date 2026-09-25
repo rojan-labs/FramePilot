@@ -43,7 +43,7 @@ import {
 } from './domain-tools/automatic-tracking.js';
 import { clipCandidates } from './domain-tools/clip-candidates.js';
 import { colorSolveNote } from './domain-tools/solved-color.js';
-import { emphasisCoverageNote } from './caption-style-facts.js';
+import { emphasisCoverageNote, trackStyleNote } from './caption-style-facts.js';
 import { transitionsNote } from './domain-tools/transition-planning.js';
 import { tracksCoveredByPictureInFront } from './domain-tools/picture-layers.js';
 import {
@@ -131,6 +131,7 @@ import {
   toolDomain,
   toolIsAdvertised,
   requestedDomainsNeverLoaded,
+  DOMAIN_LABEL,
   type NeverLoadedDomain,
 } from './tool-domains.js';
 import {
@@ -1633,6 +1634,39 @@ function readVerdict(toolName: string, value: unknown): string | undefined {
  * Only the top level is sorted — a nested params object's order is the model's own and
  * has never varied in a captured run, and recursing would cost more than it buys.
  */
+/**
+ * How many whole-track caption restyles one run may apply to one track. A design pass that
+ * converges — a restyle, a look, one or two corrections — sits well inside it; run
+ * `fb90e58d` spent ten on one track in one turn, each followed by the same frame and the
+ * same complaint, because the renderer was placing the text wrongly whatever the style
+ * said.
+ */
+export const MAX_TRACK_RESTYLES_PER_RUN = 5;
+
+/**
+ * The distinct `set_track_caption_style` calls this run has already applied to the track
+ * `call` restyles, read from the run's applied-call ledger. A byte-identical repeat is one
+ * entry; it is caught earlier as "already done".
+ */
+function trackRestyleCount(call: ToolCall, appliedCalls: ReadonlySet<string> | undefined): number {
+  if (call.name !== 'set_track_caption_style' || appliedCalls === undefined) return 0;
+  const trackId = (call.arguments as { trackId?: unknown } | undefined)?.trackId;
+  if (typeof trackId !== 'string') return 0;
+  const prefix = 'set_track_caption_style:';
+  let count = 0;
+  for (const key of appliedCalls) {
+    if (!key.startsWith(prefix)) continue;
+    try {
+      if ((JSON.parse(key.slice(prefix.length)) as { trackId?: unknown }).trackId === trackId) {
+        count += 1;
+      }
+    } catch {
+      // A key is always `name:JSON`; one that is not cannot be a restyle of this track.
+    }
+  }
+  return count;
+}
+
 function appliedCallKey(call: ToolCall): string {
   const args = call.arguments;
   if (!args || typeof args !== 'object' || Array.isArray(args)) {
@@ -5765,6 +5799,33 @@ export class Orchestrator {
         });
         return { ops: [], note, summary, status: 'warning', satisfied: true };
       }
+      const restylesSoFar = trackRestyleCount(call, host.appliedCalls);
+      if (restylesSoFar >= MAX_TRACK_RESTYLES_PER_RUN) {
+        const restyledTrack = String((call.arguments as { trackId?: unknown }).trackId);
+        const trackLabel = names.track(restyledTrack);
+        const note =
+          `${desc} — refused: ${trackLabel} has already been restyled ` +
+          `${String(restylesSoFar)} times in this run. When a look after each restyle shows ` +
+          'the same problem, the style is not what causes it. Stop restyling: tell the editor ' +
+          'what the frame shows, what you changed, and what you think is wrong, and let them decide.';
+        orchestratorLog.warn('refused a caption restyle past the per-run budget', {
+          tool: call.name,
+          restyles: restylesSoFar,
+        });
+        return {
+          ops: [],
+          note,
+          summary: `${desc} — not applied: ${trackLabel} was restyled ${String(restylesSoFar)} times this run`,
+          status: 'failed',
+          data: note,
+          deterministicFailure: true,
+          // Keyed per TRACK: the budget is one track's, so the repeated-failure guard must not
+          // fold it into "set_track_caption_style already failed" and block every other
+          // caption track for the rest of the run. No refusal cause is needed to make it
+          // outlive an applied edit — the count is re-read from the applied-call ledger.
+          failureKeyText: `caption_restyle_budget:${restyledTrack}`,
+        };
+      }
       host.appliedCalls?.add(callKey);
       const outcomeLine =
         summarizeOperations(normalized, names, call) +
@@ -5775,6 +5836,11 @@ export class Orchestrator {
         // second identical pass reads as the no-op it is (`caption-style-facts.ts`).
         (call.name === 'auto_emphasize_captions'
           ? emphasisCoverageNote(applied, (call.arguments as { trackId?: unknown }).trackId)
+          : '') +
+        // What a whole-track restyle reached: the emphasis it still carries, and the cues
+        // whose own style it cannot change (`caption-style-facts.ts#trackStyleNote`).
+        (call.name === 'set_track_caption_style'
+          ? trackStyleNote(applied, (call.arguments as { trackId?: unknown }).trackId)
           : '') +
         autoReframeNote(call.name, normalized) +
         // What the solve could NOT do, and which cuts were deliberately left hard. Both are
@@ -8094,6 +8160,24 @@ export class Orchestrator {
           // edit. A finding that lands here is too late to steer — the agent has stopped —
           // so it surfaces unresolved for the user to act on. Reporting it is the honest
           // account; dropping it because the run is "done" would hide a real defect.
+          //
+          // Say what the wait IS. The terminal status is held until the reviews settle, and
+          // without a status of its own the panel kept showing the last one — "Generating…"
+          // — under a reply that was already written. Run `fb90e58d` sat there 77 seconds
+          // while the engine rendered review frames; the editor pressed Stop, which
+          // cancelled the review and stamped a finished turn "cancelled". `verifying` is
+          // what the panel keys the skip on (`AiSidebar`): Stop or a new message ends the
+          // check, never the turn.
+          if (findings.hasPending && event.status !== 'cancelled') {
+            const checking: AiEvent = {
+              ...evidenceBase(),
+              id: `${options.turnId}:review-checking`,
+              type: 'status',
+              status: 'verifying',
+            };
+            projector?.observe(checking);
+            yield checking;
+          }
           const remaining = await findings.drainAll();
           const repaired = findings.takeResolved();
           yield* publishFindings(remaining, repaired);
@@ -8137,7 +8221,21 @@ export class Orchestrator {
           // An unreachable reviewer is not a verdict about the edit, so it neither fails the
           // run nor lets it claim the work was checked. Say plainly which of the two happened.
           const failures = findings.reviewFailures;
-          for (const [index, failure] of failures.entries()) {
+          const endedByEditor = options.signal?.aborted === true;
+          if (failures.length > 0 && endedByEditor) {
+            // The editor ended the check themselves (Stop, or a new message during it). Their
+            // own action is not a reviewer that "could not run": one plain line, not the
+            // engine's "acquisition was cancelled" once per batch.
+            const skipped: AiEvent = {
+              ...evidenceBase(),
+              id: `${options.turnId}:review-skipped`,
+              type: 'notification',
+              text: 'Review skipped — it was still checking when you moved on. Your edits are applied and validated, but were not perceptually checked.',
+            };
+            projector?.observe(skipped);
+            yield skipped;
+          }
+          for (const [index, failure] of (endedByEditor ? [] : failures).entries()) {
             const notice: AiEvent = {
               ...evidenceBase(),
               id: `${options.turnId}:review-unavailable:${String(index)}`,
@@ -9997,6 +10095,11 @@ export class Orchestrator {
                   .filter((track) => track.type === 'caption')
                   .map((track) => track.id),
               ),
+              captionClipTracks: new Map(
+                working.timeline.tracks
+                  .filter((track) => track.type === 'caption')
+                  .flatMap((track) => track.clips.map((clip) => [clip.id, track.id] as const)),
+              ),
               steps: Math.max(effect.appliedTurns, 1),
               rejectedOpCount: effect.rejectedOpCount,
               rejectionReasons: effect.rejectionReasons,
@@ -10700,12 +10803,15 @@ function trimFailureReason(reason: string): string {
  */
 function neverLoadedBlock(neverLoaded: readonly NeverLoadedDomain[]): string {
   if (neverLoaded.length === 0) return '';
+  // Written to the editor: what was asked for, in their words, and that the run never had
+  // the tools for it — not "load_tools was never called, so search_stock … were never
+  // offered", which is the harness talking to itself.
   const lines = neverLoaded.map(
     (entry) =>
-      `- ${entry.domain} — the request mentions ${entry.mentions.map((m) => `"${m}"`).join(', ')}, ` +
-      `but load_tools was never called for it, so ${entry.tools.join(', ')} were never offered.`,
+      `- ${DOMAIN_LABEL[entry.domain]} — you asked for ${entry.mentions.map((m) => `"${m}"`).join(', ')}, ` +
+      'but this run never opened those tools, so none of that was done. Ask for it again.',
   );
-  return `\n\n**Never loaded:**\n${lines.join('\n')}`;
+  return `\n\n**Not attempted:**\n${lines.join('\n')}`;
 }
 
 function notDoneBlock(
@@ -10756,27 +10862,63 @@ function notDoneBlock(
  * @param captionTrackIds - The project's caption tracks; empty ⇒ nothing folds.
  * @returns Rendered lines (before truncation) and the change count for the headline.
  */
+/** Caption operations that change only how cues look, never what they say or when. */
+const CAPTION_STYLE_OPS: ReadonlySet<string> = new Set([
+  'set_caption_style',
+  'set_track_caption_style',
+]);
+
 function operationLines(
   ops: readonly AnyOperation[],
   names: ReturnType<typeof projectNames> | undefined,
   captionTrackIds: ReadonlySet<string>,
+  captionClipTracks: ReadonlyMap<string, string> = new Map(),
 ): { readonly lines: readonly string[]; readonly changeCount: number } {
   const counts = new Map<string, number>();
-  /** Operations per caption track, in first-seen order. */
-  const captionOps = new Map<string, number>();
+  /** Operations per caption track, in first-seen order, and whether all only restyled. */
+  const captionOps = new Map<string, { count: number; styleOnly: boolean }>();
+  // A cue's own operations name its CLIP, not its track: `set_caption_cue` and a per-cue
+  // `set_caption_style`. They fell through as one raw row each — "Set caption cue
+  // caption_layer_captions_67 (×3)" nine times over in run fb90e58d's receipt, and
+  // "Styled captions caption_layer_captions_6300" twenty-eight times in 0e12b96e. A cue
+  // created in this same run is resolved through the `add_caption_layer` that made it.
+  const cueTrack = new Map(captionClipTracks);
   for (const op of ops) {
-    const trackId = (op as { trackId?: unknown }).trackId;
-    if (typeof trackId === 'string' && captionTrackIds.has(trackId)) {
-      captionOps.set(trackId, (captionOps.get(trackId) ?? 0) + 1);
+    const { trackId, clipId } = op as { trackId?: unknown; clipId?: unknown };
+    if (typeof trackId === 'string' && typeof clipId === 'string' && captionTrackIds.has(trackId)) {
+      cueTrack.set(clipId, trackId);
+    }
+  }
+  for (const op of ops) {
+    const { trackId, clipId } = op as { trackId?: unknown; clipId?: unknown };
+    const captionTrack =
+      typeof trackId === 'string'
+        ? captionTrackIds.has(trackId)
+          ? trackId
+          : undefined
+        : typeof clipId === 'string'
+          ? cueTrack.get(clipId)
+          : undefined;
+    if (captionTrack !== undefined) {
+      const seen = captionOps.get(captionTrack) ?? { count: 0, styleOnly: true };
+      captionOps.set(captionTrack, {
+        count: seen.count + 1,
+        styleOnly: seen.styleOnly && CAPTION_STYLE_OPS.has(op.type),
+      });
       continue;
     }
     const line = operationLine(op, names);
     counts.set(line, (counts.get(line) ?? 0) + 1);
   }
   const lines: string[] = [];
-  for (const [trackId, count] of captionOps) {
+  for (const [trackId, { count, styleOnly }] of captionOps) {
     const label = names?.track(trackId) ?? trackId;
-    lines.push(`- Rewrote the captions on ${label} · ${String(count)} caption edits`);
+    const edits = `${String(count)} caption edit${count === 1 ? '' : 's'}`;
+    lines.push(
+      styleOnly
+        ? `- Restyled the captions on ${label} · ${edits}`
+        : `- Rewrote the captions on ${label} · ${edits}`,
+    );
   }
   for (const [line, count] of counts) {
     lines.push(`- ${line}${count > 1 ? ` (×${count})` : ''}`);
@@ -10843,13 +10985,23 @@ export function agentCompletionReport(args: {
    * two hundred (see {@link operationLines}). Absent ⇒ nothing folds.
    */
   captionTrackIds?: ReadonlySet<string>;
+  /**
+   * Which caption track each existing cue sits on, so an operation that names only the cue
+   * (`set_caption_cue`, a per-cue `set_caption_style`) folds into its track's line.
+   */
+  captionClipTracks?: ReadonlyMap<string, string>;
 }): string {
   const maxLines = 10;
   // Collapse lines that render identically, and fold a caption track's rebuild into one
   // line (see `operationLines`). Only the RENDERED line is compared, so two edits that
   // differ in any way the editor can see still get their own row; this hides repetition
   // and internal churn, never distinct work.
-  const summarised = operationLines(args.ops, args.names, args.captionTrackIds ?? new Set());
+  const summarised = operationLines(
+    args.ops,
+    args.names,
+    args.captionTrackIds ?? new Set(),
+    args.captionClipTracks,
+  );
   const lines = [...summarised.lines.slice(0, maxLines)];
   const more = summarised.lines.length - maxLines;
   if (more > 0) lines.push(`- …and ${more} more`);

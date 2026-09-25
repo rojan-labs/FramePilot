@@ -38,6 +38,7 @@ import {
   type Reference,
   type MemoryPreferenceKey,
   type PlanApprovalGate,
+  type RunStatus,
   type SteeringQueue,
   type SourceMonitorInteraction,
   type ViewNode,
@@ -300,6 +301,16 @@ export function projectSnapshotForAiRun(project: Project, editor?: UseEditor): P
 const log = createLogger('web-editor:ai-sidebar');
 
 /**
+ * Whether a run ended by Stop (or by the panel) had already finished its work.
+ *
+ * `verifying` is reported only after the reply, while the perceptual review renders the
+ * applied edit. Ending the run there ends the review; the turn completed.
+ */
+function endedAfterReply(phase: RunStatus | null): boolean {
+  return phase === 'verifying';
+}
+
+/**
  * The short phrase the floating agent control shows for one streamed event.
  *
  * Only events that mark a change of activity produce a phrase; everything else
@@ -316,6 +327,8 @@ export function activityLabelFor(event: AiEvent): string | null {
   if (candidate.kind === 'tool' && typeof candidate.toolName === 'string') {
     return toolMeta(candidate.toolName).label;
   }
+  // The finished run reviewing its own edit — the reply is already written.
+  if (event.type === 'status' && event.status === 'verifying') return 'Checking the edit';
   return null;
 }
 
@@ -908,6 +921,14 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   // `cancelled` status — the desktop transport returns on `done` WITHOUT a terminal
   // status event, so without this the conversation would stay stuck shimmering.
   const stopRequestedRef = useRef(false);
+  // The live run's latest status. `verifying` is the one phase a run can be ended in
+  // without cancelling it: the reply is written, the edits are on the timeline, and only
+  // the perceptual review of them is still rendering (the orchestrator holds the terminal
+  // status for it). Run fb90e58d sat 77 s there under "Generating…", was stopped, and a
+  // finished turn was stamped `cancelled`.
+  const runPhaseRef = useRef<RunStatus | null>(null);
+  // Set when this panel ends a run's review so a queued message can go out now.
+  const skipReviewRef = useRef(false);
   const recoveryStartedRef = useRef<Set<string>>(new Set());
   // P11.3/P11.4: the live, non-serialisable controls for the CURRENT agent run
   // (browser only — see `run-controls.ts`). Fresh per run; `null` when no agent run
@@ -1500,6 +1521,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       try {
         for await (const event of session.run(effectiveMode, runInputFor(effectiveMode))) {
           signals = foldTurnEvent(signals, event);
+          if (event.type === 'status') runPhaseRef.current = event.status;
           // Name the current step for the floating control, so it reports what the
           // agent is DOING and not merely that something is. `publishAgentActivity`
           // is idempotent, so this can run on every event without a guard, and the
@@ -1583,9 +1605,12 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         // which the browser transport surfaces as a thrown `AbortError`. That is a
         // clean cancellation, NOT a failure — close the turn with a `cancelled`
         // status (no scary retryable error banner) so the conversation resolves.
-        if (stopRequestedRef.current || isAbortError(error)) {
-          if (!signals.cancelled && !signals.failed) {
-            conversations.append(conversation.id, emitter.status('cancelled'));
+        if (stopRequestedRef.current || skipReviewRef.current || isAbortError(error)) {
+          if (!signals.cancelled && !signals.failed && !signals.completed) {
+            conversations.append(
+              conversation.id,
+              emitter.status(endedAfterReply(runPhaseRef.current) ? 'completed' : 'cancelled'),
+            );
           }
         } else {
           // A genuine run-level failure (e.g. the desktop hub's max-run timeout, a
@@ -1611,11 +1636,22 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         // terminal status event), so the loop above never entered `catch`. Finalize
         // the turn here too — unless `catch` already did — or the conversation would
         // shimmer "in progress" forever.
-        if (!finalized && stopRequestedRef.current && !signals.cancelled && !signals.failed) {
-          conversations.append(conversation.id, emitter.status('cancelled'));
+        if (
+          !finalized &&
+          (stopRequestedRef.current || skipReviewRef.current) &&
+          !signals.cancelled &&
+          !signals.failed &&
+          !signals.completed
+        ) {
+          conversations.append(
+            conversation.id,
+            emitter.status(endedAfterReply(runPhaseRef.current) ? 'completed' : 'cancelled'),
+          );
         }
         runningSession.current = null;
         stopRequestedRef.current = false;
+        skipReviewRef.current = false;
+        runPhaseRef.current = null;
         planApprovalGateRef.current = null;
         steeringQueueRef.current = null;
         setRunning(false);
@@ -1672,16 +1708,30 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
    * slot taken it lands in the composer rather than vanishing, which is what a bare
    * `runTurn` did — it refuses while a run holds the lane.
    */
+  /**
+   * A message queued while the run is only reviewing its finished edit goes out now: the
+   * review is ended — the edits are applied and validated either way — instead of holding
+   * the editor's next request behind a render they never asked to watch. In any other
+   * phase the run is still working on the request, and the queue waits for it.
+   */
+  const endReviewForQueued = useCallback(() => {
+    if (!endedAfterReply(runPhaseRef.current)) return;
+    skipReviewRef.current = true;
+    (runningSession.current ?? session).abort();
+  }, [session]);
+
   const sendOrQueue = useCallback(
     (text: string) => {
       if (!runningRef.current) {
         void runTurn(text);
         return;
       }
-      if (!queuedTurnRef.current) setQueuedTurn({ text, attachments: [] });
-      else setDraft((current) => joinDrafts(current, text));
+      if (!queuedTurnRef.current) {
+        setQueuedTurn({ text, attachments: [] });
+        endReviewForQueued();
+      } else setDraft((current) => joinDrafts(current, text));
     },
-    [runTurn, setQueuedTurn],
+    [runTurn, setQueuedTurn, endReviewForQueued],
   );
 
   useImperativeHandle(ref, () => ({ runQuickEdit: sendOrQueue }), [sendOrQueue]);
@@ -1698,6 +1748,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       setQueuedTurn({ text, attachments: toMessageAttachments(attachmentsRef.current) });
       setDraft('');
       setAttachments([]);
+      endReviewForQueued();
       return;
     }
     // Freeze the composer's attachments onto this message BEFORE clearing, then clear
@@ -1724,7 +1775,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         error: error instanceof Error ? error.message : String(error),
       });
     }
-  }, [draft, runTurn, setQueuedTurn]);
+  }, [draft, runTurn, setQueuedTurn, endReviewForQueued]);
 
   // The queued message becomes the next turn as soon as the run is over. Guarded on the
   // ref as well as the state: something else may have claimed the lane in the same commit

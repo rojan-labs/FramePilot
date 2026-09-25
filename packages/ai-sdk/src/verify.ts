@@ -35,6 +35,7 @@ import {
 import type { Clip, Project, Track } from '@framepilot/timeline-schema';
 import {
   MIN_CAPTION_CUE_SECONDS,
+  captionEmViolationEffect,
   captionEmViolations,
   resolveCaptionStyle,
 } from './caption-style-facts.js';
@@ -210,6 +211,38 @@ function assignWordsToCues(
     }
     (byClip.get(owner.id) as MappedWord[]).push(word);
   }
+  return { byClip, uncovered };
+}
+
+/**
+ * {@link assignWordsToCues} run on each caption track by itself.
+ *
+ * Two caption tracks may caption the same speech — a styled line behind the speaker's
+ * cut-out, a second language, a lower-third copy — and each is a complete caption of its
+ * own. One partition across every track made the tracks compete for words: in runs
+ * `1292449c` and `0d7d679f` a three-cue "text behind subject" track held "to solve it."
+ * over 42.07–43.1s, so the main track's cue over 41.867–43.1s, which `caption_the_edit`
+ * had just written with those very words, was left owning only "one" and reported
+ * `caption_stale` — after every regeneration, three runs running, until the agent told the
+ * editor the cue "needs a manual fix". A word is uncaptioned only when NO track covers it.
+ */
+function assignWordsPerTrack(
+  tracks: readonly Track[],
+  words: readonly MappedWord[],
+  fps: number,
+): CaptionOwnership {
+  const byClip = new Map<string, readonly MappedWord[]>();
+  const covered = new Set<MappedWord>();
+  for (const track of tracks) {
+    const partition = assignWordsToCues(track.clips.filter(isCaptionClip), words, fps);
+    for (const [clipId, owned] of partition.byClip) {
+      byClip.set(clipId, owned);
+      for (const word of owned) covered.add(word);
+    }
+  }
+  const uncovered = [...words]
+    .sort((a, b) => a.start - b.start)
+    .filter((word) => !covered.has(word));
   return { byClip, uncovered };
 }
 
@@ -413,10 +446,11 @@ export function verifyCaptions(
   // Which lane each cue renders on, for the style it resolves to.
   const trackOfCue = new Map<string, Track>();
   for (const track of tracks) for (const clip of track.clips) trackOfCue.set(clip.id, track);
-  // ONE partition, computed once and read by every check below. Three checks each deriving
-  // their own answer to "which words is this cue answerable for" is what let the verifier
-  // contradict itself — and, worse, contradict the generator whose output it was judging.
-  const ownership = assignWordsToCues(cues, mapped.words, project.fps);
+  // ONE partition per caption track, computed once and read by every check below. Three
+  // checks each deriving their own answer to "which words is this cue answerable for" is
+  // what let the verifier contradict itself — and, worse, contradict the generator whose
+  // output it was judging.
+  const ownership = assignWordsPerTrack(tracks, mapped.words, project.fps);
 
   for (const clip of cues) {
     const owned = ownership.byClip.get(clip.id) ?? [];
@@ -457,12 +491,21 @@ export function verifyCaptions(
       resolveCaptionStyle(clip, trackOfCue.get(clip.id)),
       project.resolution,
     )) {
-      issues.push({
-        code: 'caption_chip_oversize',
-        clipId: clip.id,
-        at: clip.start,
-        detail: `Caption at ${at(clip.start)} resolves ${violation.path} to ${String(violation.value)} — a fraction of the font size, so about ${String(violation.px)} px on this ${String(project.resolution.width)}×${String(project.resolution.height)} frame. The chip covers the picture. Restyle with values in the catalog's 0.25–0.6 range.`,
-      });
+      issues.push(
+        violation.kind === 'chip'
+          ? {
+              code: 'caption_chip_oversize',
+              clipId: clip.id,
+              at: clip.start,
+              detail: `Caption at ${at(clip.start)} resolves ${violation.path} to ${String(violation.value)} — a fraction of the font size, so about ${String(violation.px)} px on this ${String(project.resolution.width)}×${String(project.resolution.height)} frame. The chip covers the picture. Restyle with values in the catalog's 0.25–0.6 range.`,
+            }
+          : {
+              code: 'caption_style_out_of_range',
+              clipId: clip.id,
+              at: clip.start,
+              detail: `Caption at ${at(clip.start)} resolves ${violation.path} to ${String(violation.value)} — a fraction of the font size, not pixels. ${captionEmViolationEffect(violation, project.resolution)} Restyle with ${violation.path} within ${String(violation.min)}–${String(violation.max)}.`,
+            },
+      );
     }
 
     const displayedWordCount = clip.captionCue?.words.length ?? owned.length;
