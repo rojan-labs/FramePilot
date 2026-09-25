@@ -100,6 +100,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A message sent while the assistant is working is no longer lost.** Pressing Send during a
+  run used to empty the box and send nothing. The message is now queued above the message box
+  and goes out as soon as the run finishes. You can edit it or remove it until then. One
+  message can wait at a time; a second one stays in the box until the queued one is sent,
+  edited away or removed. Stop still stops, and hands the queued message back to the box
+  instead of sending it.
+
 - **Exported captions now look like the preview.** Outlines were a hairline in the export while
   the editor showed a bold stroke. Shadows came out twice as soft. The browser faked bold and
   italic that the export couldn't draw. Karaoke and "pop" words sat above the line in the

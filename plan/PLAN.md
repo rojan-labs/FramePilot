@@ -81,6 +81,16 @@ craft tools. No new subsystem; every fix reuses an existing seam.
   into the project's attachments folder so no image bytes cross IPC or the run WAL. ADR 0186.
   Live check (Claude Agent SDK, a real sidebar attachment): the model quoted the image's on-screen
   text and described the person. Deferred: reference VIDEOS as stills (they stay measured profiles).
+- [x] **EQ19** Sending while the agent works queues the message (maintainer: "when i send message
+  when the ai is working that message goes away"). `runTurn` refused the second run after `submit`
+  had already emptied the composer. Now: one queue slot (`ai/queuedTurn.ts`), an in-place
+  editable/removable card in the composer (`QueuedMessage`), Queue beside Stop, sent as the next
+  turn when the run ends; held while being edited; Stop / plan cancel / plan Edit hand it back to
+  the composer; New chat parks it in its own chat's saved draft; the Cmd+K palette and tool-card
+  replies take the same path. Tests: `AiSidebar.queue.test.tsx` (8, real sidebar),
+  `QueuedMessage`, `Composer`, `queuedTurn`; the existing AiSidebar suites stay green.
+  Deferred: the queue is in memory, so a reload mid-run loses a queued message (the durable run
+  itself survives); no hand check in the desktop app yet.
 
 **Status snapshot (2026-09-21, BACKGROUND-REMOVAL speed — `plan/background-removal-ai/13-SPEED-AND-PRODUCTION-READINESS.md`):**
 a maintainer's 52 s 1080p clip ran _Remove background_ for 5+ hours without finishing a step. Not a
