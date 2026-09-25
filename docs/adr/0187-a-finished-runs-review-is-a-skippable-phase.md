@@ -43,8 +43,11 @@ The post-run review is a separate, skippable phase of a run that has already don
 - **A new message skips the review.** Sending while the run is `verifying` queues the message as
   EQ19 does and also aborts the run, so the message goes out now. In every other phase the queue
   waits for the run, as before. Stop still hands a queued message back to the composer.
-- **The durable run agrees.** The desktop hub settles a run `completed` when its stream reported
-  `completed` before the stop.
+- **The durable run agrees.** A `cancel` command that reaches a durable run whose snapshot is
+  `verifying` settles it `completed` with a `completed_with_warnings` outcome ("the review of the
+  last edit was skipped") instead of `cancelled`, and the later settlement keeps that outcome. A
+  legacy (non-durable) run is settled `completed` by the hub when its stream reported `completed`
+  before the stop.
 
 ## Consequences
 

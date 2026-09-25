@@ -328,6 +328,50 @@ describe('RunCoordinator.reconcileInterruptedRuns', () => {
     replay.unsubscribe();
   });
 
+  it('settles a Stop during the finished run’s review as completed, not cancelled (ADR 0187)', async () => {
+    // Run fb90e58d: the reply was written and the edits applied; only the perceptual review
+    // was still rendering when the editor pressed Stop.
+    const { coordinator, gateway } = newCoordinator();
+    const started = await gateway.start({
+      projectId: 'proj',
+      projectRevision: 0,
+      userPrompt: 'emphasise the captions',
+      mode: 'agent',
+    });
+    const runId = started.snapshot.runId;
+    await coordinator.recordStreamEvent({
+      runId,
+      projectId: 'proj',
+      event: { type: 'status', status: 'verifying' },
+    });
+    const stopped = await gateway.command({
+      runId,
+      projectId: 'proj',
+      kind: 'cancel',
+      payload: { source: 'user_stop', reason: 'Stopped by the editor.' },
+    });
+    expect(stopped.snapshot.status).toBe('completed');
+    expect(stopped.snapshot.outcome).toMatchObject({
+      kind: 'completed_with_warnings',
+      source: 'user_stop',
+      warnings: ['The review of the last edit was skipped.'],
+    });
+
+    await coordinator.complete({
+      runId,
+      projectId: 'proj',
+      status: 'completed',
+      outcome: { kind: 'completed_no_changes', source: 'run_completed', changed: false, warnings: [] },
+    });
+    const replay = await coordinator.subscribe(runId, 0, () => undefined);
+    const terminal = replay.events.find((event) => event.kind === 'run.terminal');
+    expect(terminal?.payload).toMatchObject({
+      status: 'completed',
+      outcome: { kind: 'completed_with_warnings', source: 'user_stop' },
+    });
+    replay.unsubscribe();
+  });
+
   it('classifies finished runs from their snapshot without reading their WALs', async () => {
     const { coordinator, gateway, io } = newCoordinator();
     for (const prompt of ['one', 'two', 'three']) {
@@ -420,7 +464,13 @@ describe('RunCoordinator.latestWorkingStateFor', () => {
   async function finishedRun(
     coordinator: RunCoordinator,
     gateway: RunGateway,
-    args: { readonly projectId: string; readonly conversationId: string; readonly fact: string },
+    args: {
+      readonly projectId: string;
+      readonly conversationId: string;
+      readonly fact: string;
+      /** When it finished. Two runs finished back to back share a millisecond. */
+      readonly finishedAt?: number;
+    },
   ): Promise<string> {
     const started = await gateway.start({
       projectId: args.projectId,
@@ -442,21 +492,27 @@ describe('RunCoordinator.latestWorkingStateFor', () => {
       projectId: args.projectId,
       status: 'completed',
       outcome: { kind: 'completed_no_changes', changed: false, warnings: [] },
+      ...(args.finishedAt === undefined ? {} : { occurredAt: args.finishedAt }),
     });
     return runId;
   }
 
   it('returns the ledger of the newest finished run for this conversation and project', async () => {
+    // Explicit finish times: two runs completed back to back in a test land in the same
+    // millisecond, and "newest" between equal timestamps is a coin toss (it failed about
+    // two runs in five). Real runs in one conversation finish seconds apart.
     const { coordinator, gateway } = newCoordinator();
     await finishedRun(coordinator, gateway, {
       projectId: 'proj',
       conversationId: 'conv',
       fact: 'asset_1 runs 8:42.',
+      finishedAt: 1_000,
     });
     await finishedRun(coordinator, gateway, {
       projectId: 'proj',
       conversationId: 'conv',
       fact: 'the strongest claim is at 4:12.',
+      finishedAt: 2_000,
     });
     const found = await coordinator.latestWorkingStateFor('conv', 'proj');
     expect(JSON.stringify(found)).toContain('the strongest claim is at 4:12.');
