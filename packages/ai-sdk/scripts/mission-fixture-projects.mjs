@@ -11,7 +11,7 @@
  *   FRAMEPILOT_PYTHON_API_URL=http://127.0.0.1:8799 node scripts/mission-fixture-projects.mjs
  * Requires a sidecar started with FRAMEPILOT_PROJECTS_ROOT=tests/fixtures/mission/projects.
  */
-import { existsSync, linkSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -30,7 +30,7 @@ const BASE_URL = process.env.FRAMEPILOT_PYTHON_API_URL ?? 'http://127.0.0.1:8799
 const VIDEO_EXT = new Set(['.mp4', '.mov']);
 const AUDIO_EXT = new Set(['.wav', '.mp3']);
 
-/** @typedef {{ id: string, name: string, fps: number, resolution: {width:number,height:number}, media: {file: string, onTimeline?: boolean}[], transcribe?: string, overlayTrackId?: string }} Def */
+/** @typedef {{ id: string, name: string, fps: number, resolution: {width:number,height:number}, media: {file: string, onTimeline?: boolean}[], transcribe?: string, transcriptFrom?: string, overlayTrackId?: string }} Def */
 
 /** @type {Def[]} */
 const DEFS = [
@@ -102,6 +102,18 @@ const DEFS = [
       { file: 'broll/b3-1080p60-15s.mov' },
     ],
     transcribe: 'speech-9min-b.mp4',
+  },
+  {
+    // Elements, case 1 (plan/elements 07 section 8): a drawn screen recording whose Export
+    // button box and narration are known exactly (`tests/screen_demo_fixture.py`). The
+    // transcript is the labels' words, not whisper's: there is no speech in the file, and the
+    // case scores placement on the word, which only a known word time can measure.
+    id: 'mission-screen-demo',
+    name: 'Mission screen demo (a drawn app with an Export button)',
+    fps: 30,
+    resolution: { width: 1280, height: 720 },
+    media: [{ file: 'screen-demo-20s.mp4', onTimeline: true }],
+    transcriptFrom: 'labels/screen-demo.json',
   },
   {
     id: 'mission-photos',
@@ -219,6 +231,11 @@ async function buildProject(def) {
     }
   }
   let transcript = [];
+  if (def.transcriptFrom) {
+    const labels = JSON.parse(readFileSync(join(FIXTURES, def.transcriptFrom), 'utf8'));
+    const asset = assets.find((a) => a.kind === 'video');
+    transcript = labels.transcript.map((w) => ({ ...w, assetId: asset.id }));
+  }
   if (def.transcribe) {
     const asset = assets.find((a) => a.path.endsWith(basename(def.transcribe)));
     const draft = { id: def.id, name: def.name, version: 1, fps: def.fps, resolution: def.resolution, assets, timeline: { tracks: tracksOf(def, clips) } };

@@ -29,7 +29,7 @@
  *                          `369e8c82`'s shape: because the picture track is gapless, every
  *                          placement on `b_roll` overlaps the picture beneath it — the shape ADR 0169 governs.
  */
-import type { MissionScenarioId } from './mission-rubric.js';
+import type { CalloutTarget, MissionScenarioId } from './mission-rubric.js';
 
 export type GoldenCategory =
   | 'trim'
@@ -53,7 +53,9 @@ export type GoldenCategory =
   | 'color'
   | 'transitions'
   | 'duplicates'
-  | 'question';
+  | 'question'
+  // plan/elements 07 section 8: a shape placed on the thing the narration names.
+  | 'callout';
 
 /** The categories goal.md Phase 0 names; the shape test asserts each has a case. */
 export const REQUIRED_CATEGORIES: readonly GoldenCategory[] = [
@@ -100,6 +102,8 @@ export interface GoldenTurn {
   readonly expectedHeadTrimSeconds?: number;
   readonly cutawayWindowSeconds?: readonly [number, number];
   readonly captionStyle?: { readonly textTransform?: string; readonly position?: string };
+  /** `callout-on-target`: where and when the callout must land (the fixture's labels). */
+  readonly calloutTarget?: CalloutTarget;
   /**
    * What the scripted operator answers if the agent asks.
    *
@@ -592,6 +596,29 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
         prompt: 'Drop the duplicate takes.',
         rubric: 'remove-duplicate-takes',
         intent: 'edit',
+      },
+    ],
+  },
+  {
+    id: 'callout-export-button',
+    category: 'callout',
+    project: 'mission-screen-demo',
+    why:
+      'Elements, case 1 (plan/elements 07 section 8): the callout a screen-recording edit needs ' +
+      'most. The model has no tool that returns where a button is: it must read get_frame and ' +
+      'place the box by eye, at the word it finds in the transcript. The fixture is drawn, not ' +
+      'filmed, so the Export button box and the one time the narration says the word are known ' +
+      'exactly; the metric is the hit rate over repeated runs, not one pass.',
+    turns: [
+      {
+        prompt: "Put a box around the Export button when I say 'export'.",
+        rubric: 'callout-on-target',
+        intent: 'edit',
+        // tests/fixtures/mission/labels/screen-demo.json, pinned by golden-cases.test.ts.
+        calloutTarget: {
+          box: { x: 86.875, y: 2.2222, width: 11.25, height: 5.5556 },
+          wordStart: 13.24,
+        },
       },
     ],
   },

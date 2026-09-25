@@ -17,6 +17,7 @@ import {
   coverageVerdict,
   isSyntheticAssetId,
   repeatedSourcePairs,
+  shapeClipParams,
   type ShapedClip,
   type SourceShape,
 } from '@framepilot/editor-core';
@@ -94,7 +95,9 @@ export type MissionScenarioId =
   | 'warmer-subtle'
   | 'transitions-where-they-belong'
   | 'broll-over-sentence'
-  | 'remove-duplicate-takes';
+  | 'remove-duplicate-takes'
+  // plan/elements 07 section 8, case 1: a shape placed on a named UI element at the word.
+  | 'callout-on-target';
 
 export interface RubricContext {
   /** The project the run started from (needed for before/after checks). */
@@ -148,7 +151,33 @@ export interface RubricContext {
    * this scenario runs against; absent entirely for any project nothing has labelled.
    */
   readonly sameSettingByCut?: ReadonlyMap<string, boolean>;
+  /**
+   * `callout-on-target`: the thing the callout must land on, in percent of each frame axis,
+   * and when the narration names it. Ground truth from the fixture's labels
+   * (`tests/fixtures/mission/labels/screen-demo.json`); nothing in the run can see it.
+   */
+  readonly calloutTarget?: CalloutTarget;
 }
+
+/** Where and when a callout must land (see {@link RubricContext.calloutTarget}). */
+export interface CalloutTarget {
+  readonly box: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
+  readonly wordStart: number;
+}
+
+/** A callout may start this far either side of the word and still be "on" it. */
+export const CALLOUT_WORD_TOLERANCE_SECONDS = 0.3;
+/** A callout should be gone this long after it appears. */
+export const CALLOUT_MAX_SECONDS = 3;
+/** A box "around" the target is at most this many times its area. */
+export const CALLOUT_MAX_AREA_RATIO = 9;
+/** An arrow's tip may miss the target's edge by this much (percent of the frame). */
+const CALLOUT_TIP_SLACK_PERCENT = 3;
 
 const FRAME_EPSILON = 1e-6;
 /** Cuts may drift this far from a beat and still count as "on the beat" (one frame at 30 fps + audio slop). */
@@ -1840,5 +1869,93 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkNoGaps(p),
         ...COMMON(ctx),
       ]);
+    case 'callout-on-target':
+      return scored(scenario, [
+        checkChanged(ctx),
+        ...checkCallout(ctx),
+        checkContentPreserved(ctx),
+        ...COMMON(ctx),
+      ]);
   }
 }
+
+/** The shapes a run added, earliest first. */
+function addedShapes(ctx: RubricContext): readonly Clip[] {
+  const before = new Set(ctx.before.timeline.tracks.flatMap((t) => t.clips).map((c) => c.id));
+  return ctx.after.timeline.tracks
+    .flatMap((t) => t.clips)
+    .filter((c) => !before.has(c.id) && shapeClipParams(c) !== null)
+    .sort((a, b) => a.start - b.start);
+}
+
+/**
+ * Whether a shape lands on the target: a box contains it (and is not the whole frame); a line
+ * or arrow ends on it. Percent of each axis throughout; a box's size is converted from percent
+ * of the frame height with the project's aspect.
+ */
+export function calloutHits(
+  params: Readonly<Record<string, unknown>>,
+  target: CalloutTarget['box'],
+  frameAspect: number,
+): { readonly hit: boolean; readonly detail: string } {
+  const n = (key: string): number => Number(params[key]);
+  if (params.x1 !== undefined && params.x1 !== null) {
+    const x = n('x2');
+    const y = n('y2');
+    const slack = CALLOUT_TIP_SLACK_PERCENT;
+    const hit =
+      x >= target.x - slack &&
+      x <= target.x + target.width + slack &&
+      y >= target.y - slack &&
+      y <= target.y + target.height + slack;
+    return { hit, detail: `tip at ${x.toFixed(1)}%, ${y.toFixed(1)}%` };
+  }
+  const width = n('width') / frameAspect;
+  const height = n('height');
+  const left = n('x') - width / 2;
+  const top = n('y') - height / 2;
+  const contains =
+    left <= target.x &&
+    top <= target.y &&
+    left + width >= target.x + target.width &&
+    top + height >= target.y + target.height;
+  const ratio = (width * height) / (target.width * target.height);
+  return {
+    hit: contains && ratio <= CALLOUT_MAX_AREA_RATIO,
+    detail: `box ${left.toFixed(1)}–${(left + width).toFixed(1)}% × ${top.toFixed(1)}–${(top + height).toFixed(1)}%, ${ratio.toFixed(1)}× the target`,
+  };
+}
+
+function checkCallout(ctx: RubricContext): RubricCheck[] {
+  const target = ctx.calloutTarget;
+  const shapes = addedShapes(ctx);
+  const first = shapes[0];
+  if (target === undefined || first === undefined) {
+    return [
+      {
+        id: 'callout-added',
+        ok: false,
+        detail: target === undefined ? 'no target supplied' : 'no shape added',
+      },
+    ];
+  }
+  const offset = first.start - target.wordStart;
+  const aspect = ctx.after.resolution.width / ctx.after.resolution.height;
+  const { hit, detail } = calloutHits(shapeClipParams(first)!, target.box, aspect);
+  return [
+    { id: 'callout-added', ok: shapes.length === 1, detail: `${String(shapes.length)} shape(s)` },
+    {
+      id: 'callout-on-word',
+      ok: Math.abs(offset) <= CALLOUT_WORD_TOLERANCE_SECONDS,
+      detail: `starts ${offset >= 0 ? '+' : ''}${offset.toFixed(2)}s from the word`,
+      facet: 'boundary',
+    },
+    { id: 'callout-on-target', ok: hit, detail, weight: 2, facet: 'target' },
+    {
+      id: 'callout-brief',
+      ok: first.end - first.start <= CALLOUT_MAX_SECONDS + FRAME_EPSILON,
+      detail: `${(first.end - first.start).toFixed(2)}s on screen`,
+    },
+  ];
+}
+
