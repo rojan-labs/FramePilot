@@ -13,7 +13,12 @@
  * constant with one caller is how the next person learns the wrong thing.
  */
 import { z } from 'zod/v4';
-import { CaptionStyleSchema, type Project, type Track } from '@framepilot/timeline-schema';
+import {
+  CaptionStyleSchema,
+  type CaptionStyle,
+  type Project,
+  type Track,
+} from '@framepilot/timeline-schema';
 import { CAPTION_FONT_CATALOG, getCaptionFont } from '@framepilot/timeline-schema/caption-fonts';
 import {
   CAPTION_TEMPLATE_CATALOG,
@@ -39,6 +44,7 @@ import {
   captionEmViolations,
   captionUnitsRefusal,
   containsRun,
+  keepGroundedKeywords,
   normalizeCaptionWord,
 } from '../caption-style-facts.js';
 import { blankEntriesToUndefined, filterString, id, numeric, seconds } from './tool-args.js';
@@ -363,9 +369,10 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'this check as "verified: …", so call this only to re-check after other edits ' +
         'have moved the speech. Repair whatever it reports by re-running caption_the_edit, which ' +
         're-derives every cue from the current timeline in one call — do not delete and ' +
-        're-add cues one at a time. It checks timing, plus two things about the LOOK it ' +
-        'can compute: a chip or shadow whose numbers are in the wrong unit ' +
-        '(caption_chip_oversize) and a cue too short to read (caption_too_short). Whether a ' +
+        're-add cues one at a time. It checks timing, plus what it can compute about the ' +
+        'LOOK: a chip or blur whose numbers are in the wrong unit (caption_chip_oversize), ' +
+        'a shadow offset or letter spacing out of range (caption_style_out_of_range) and a ' +
+        'cue too short to read (caption_too_short). Whether a ' +
         'cue reads against the footage is check_caption_legibility; clipped by the frame ' +
         'edge or sitting on a face is a look with get_frame.',
       capabilities: ['captions'],
@@ -722,7 +729,9 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'set_caption_style overrides still ' +
         'win. Pass captionStyle: null to clear the track default. Call discover_caption_styles ' +
         'first; unbundled fonts and unknown templates are rejected. background.paddingX/' +
-        'paddingY/radius and shadow.blur are fractions of the font size (0.25–0.6), not pixels.',
+        'paddingY/radius, shadow.blur, shadow.offsetX/offsetY and letterSpacing are fractions ' +
+        'of the font size (em), never pixels. An accent in keywords mode with no keywords ' +
+        'keeps the keywords the track already has.',
       capabilities: ['edit', 'captions'],
     },
     z
@@ -734,9 +743,9 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
     (a, ctx) => {
       assertKnownCaptionStyle(a.captionStyle);
       assertCaptionStyleUnits(a.captionStyle, ctx.project.resolution);
-      return [
-        { type: 'set_track_caption_style', trackId: a.trackId, captionStyle: a.captionStyle },
-      ];
+      const track = ctx.project.timeline.tracks.find((candidate) => candidate.id === a.trackId);
+      const captionStyle = keepGroundedKeywords(a.captionStyle, track?.captionStyle?.accent);
+      return [{ type: 'set_track_caption_style', trackId: a.trackId, captionStyle }];
     },
   ),
   mutateTool(
@@ -798,7 +807,19 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
     (a, ctx) => {
       assertKnownCaptionStyle(a.captionStyle);
       assertCaptionStyleUnits(a.captionStyle, ctx.project.resolution);
-      return [{ type: 'set_caption_style', clipId: a.clipId, captionStyle: a.captionStyle }];
+      // The keywords this cue accents now: its own override's, else its track's.
+      let current: CaptionStyle['accent'] | undefined;
+      for (const track of ctx.project.timeline.tracks) {
+        const clip = track.clips.find((candidate) => candidate.id === a.clipId);
+        if (clip === undefined) continue;
+        current =
+          clip.captionStyle?.accent?.keywords !== undefined
+            ? clip.captionStyle.accent
+            : track.captionStyle?.accent;
+        break;
+      }
+      const captionStyle = keepGroundedKeywords(a.captionStyle, current);
+      return [{ type: 'set_caption_style', clipId: a.clipId, captionStyle }];
     },
   ),
 ];

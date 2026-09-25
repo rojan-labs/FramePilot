@@ -35,6 +35,7 @@ import {
 import type { Clip, Project, Track } from '@framepilot/timeline-schema';
 import {
   MIN_CAPTION_CUE_SECONDS,
+  captionEmViolationEffect,
   captionEmViolations,
   resolveCaptionStyle,
 } from './caption-style-facts.js';
@@ -490,12 +491,21 @@ export function verifyCaptions(
       resolveCaptionStyle(clip, trackOfCue.get(clip.id)),
       project.resolution,
     )) {
-      issues.push({
-        code: 'caption_chip_oversize',
-        clipId: clip.id,
-        at: clip.start,
-        detail: `Caption at ${at(clip.start)} resolves ${violation.path} to ${String(violation.value)} — a fraction of the font size, so about ${String(violation.px)} px on this ${String(project.resolution.width)}×${String(project.resolution.height)} frame. The chip covers the picture. Restyle with values in the catalog's 0.25–0.6 range.`,
-      });
+      issues.push(
+        violation.kind === 'chip'
+          ? {
+              code: 'caption_chip_oversize',
+              clipId: clip.id,
+              at: clip.start,
+              detail: `Caption at ${at(clip.start)} resolves ${violation.path} to ${String(violation.value)} — a fraction of the font size, so about ${String(violation.px)} px on this ${String(project.resolution.width)}×${String(project.resolution.height)} frame. The chip covers the picture. Restyle with values in the catalog's 0.25–0.6 range.`,
+            }
+          : {
+              code: 'caption_style_out_of_range',
+              clipId: clip.id,
+              at: clip.start,
+              detail: `Caption at ${at(clip.start)} resolves ${violation.path} to ${String(violation.value)} — a fraction of the font size, not pixels. ${captionEmViolationEffect(violation, project.resolution)} Restyle with ${violation.path} within ${String(violation.min)}–${String(violation.max)}.`,
+            },
+      );
     }
 
     const displayedWordCount = clip.captionCue?.words.length ?? owned.length;

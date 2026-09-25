@@ -43,7 +43,7 @@ import {
 } from './domain-tools/automatic-tracking.js';
 import { clipCandidates } from './domain-tools/clip-candidates.js';
 import { colorSolveNote } from './domain-tools/solved-color.js';
-import { emphasisCoverageNote } from './caption-style-facts.js';
+import { emphasisCoverageNote, trackStyleNote } from './caption-style-facts.js';
 import { transitionsNote } from './domain-tools/transition-planning.js';
 import { tracksCoveredByPictureInFront } from './domain-tools/picture-layers.js';
 import {
@@ -5775,6 +5775,11 @@ export class Orchestrator {
         // second identical pass reads as the no-op it is (`caption-style-facts.ts`).
         (call.name === 'auto_emphasize_captions'
           ? emphasisCoverageNote(applied, (call.arguments as { trackId?: unknown }).trackId)
+          : '') +
+        // What a whole-track restyle reached: the emphasis it still carries, and the cues
+        // whose own style it cannot change (`caption-style-facts.ts#trackStyleNote`).
+        (call.name === 'set_track_caption_style'
+          ? trackStyleNote(applied, (call.arguments as { trackId?: unknown }).trackId)
           : '') +
         autoReframeNote(call.name, normalized) +
         // What the solve could NOT do, and which cuts were deliberately left hard. Both are

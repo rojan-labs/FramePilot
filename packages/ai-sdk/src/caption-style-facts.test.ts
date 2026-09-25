@@ -8,6 +8,7 @@ import {
   captionFontPx,
   emphasisCoverageNote,
   resolveCaptionStyle,
+  trackStyleNote,
 } from './caption-style-facts.js';
 
 const portrait = { width: 1080, height: 1920 };
@@ -37,10 +38,16 @@ describe('the chip arithmetic matches the renderer', () => {
 
   it('accepts the catalog range and the ceiling itself', () => {
     expect(
-      captionEmViolations({ background: { color: '#fff', radius: 0.35, paddingX: 0.45, paddingY: 0.3 } }, portrait),
+      captionEmViolations(
+        { background: { color: '#fff', radius: 0.35, paddingX: 0.45, paddingY: 0.3 } },
+        portrait,
+      ),
     ).toEqual([]);
     expect(
-      captionEmViolations({ background: { color: '#fff', paddingX: MAX_CAPTION_EM_VALUE } }, portrait),
+      captionEmViolations(
+        { background: { color: '#fff', paddingX: MAX_CAPTION_EM_VALUE } },
+        portrait,
+      ),
     ).toEqual([]);
     expect(captionEmViolations(null, portrait)).toEqual([]);
   });
@@ -66,7 +73,12 @@ const cue = (id: string, words: string[], extra: Partial<Clip> = {}): Clip =>
 
 describe('resolveCaptionStyle layers cue over track over template', () => {
   it('takes the template’s chip when neither the track nor the cue sets one', () => {
-    const track = { id: 'c', type: 'caption', clips: [], captionStyle: { templateId: 'tag' } } as unknown as Track;
+    const track = {
+      id: 'c',
+      type: 'caption',
+      clips: [],
+      captionStyle: { templateId: 'tag' },
+    } as unknown as Track;
     const resolved = resolveCaptionStyle(cue('x', ['hi']), track);
     expect(resolved?.background).toEqual(getCaptionTemplate('tag')?.style.background);
   });
@@ -78,11 +90,20 @@ describe('resolveCaptionStyle layers cue over track over template', () => {
       clips: [],
       captionStyle: { templateId: 'tag', background: { color: '#000', paddingX: 18 } },
     } as unknown as Track;
-    expect(resolveCaptionStyle(cue('x', ['hi']), track)?.background).toEqual({ color: '#000', paddingX: 18 });
+    expect(resolveCaptionStyle(cue('x', ['hi']), track)?.background).toEqual({
+      color: '#000',
+      paddingX: 18,
+    });
   });
 
   it('is undefined for an unstyled cue on an unstyled track', () => {
-    expect(resolveCaptionStyle(cue('x', ['hi']), { id: 'c', type: 'caption', clips: [] } as unknown as Track)).toBeUndefined();
+    expect(
+      resolveCaptionStyle(cue('x', ['hi']), {
+        id: 'c',
+        type: 'caption',
+        clips: [],
+      } as unknown as Track),
+    ).toBeUndefined();
   });
 });
 
@@ -91,7 +112,12 @@ describe('emphasisCoverageNote says how many cues an accent reached', () => {
     ({
       timeline: {
         tracks: [
-          { id: 'c', type: 'caption', clips: cues, captionStyle: { accent: { mode: 'keywords', keywords } } },
+          {
+            id: 'c',
+            type: 'caption',
+            clips: cues,
+            captionStyle: { accent: { mode: 'keywords', keywords } },
+          },
         ],
       },
     }) as unknown as Project;
@@ -100,7 +126,12 @@ describe('emphasisCoverageNote says how many cues an accent reached', () => {
     const note = emphasisCoverageNote(
       project(
         ['stop scrolling', '8 principles', 'top 1'],
-        [cue('a', ['founders', 'stop', 'scrolling,']), cue('b', ['there', 'are', '8', 'principles']), cue('c', ['top']), cue('d', ['1%', 'of'])],
+        [
+          cue('a', ['founders', 'stop', 'scrolling,']),
+          cue('b', ['there', 'are', '8', 'principles']),
+          cue('c', ['top']),
+          cue('d', ['1%', 'of']),
+        ],
       ),
       'c',
     );
@@ -147,5 +178,49 @@ describe('emphasisCoverageNote says how many cues an accent reached', () => {
     expect(emphasisCoverageNote(project([], [cue('a', ['x'])]), 'c')).toBe('');
     expect(emphasisCoverageNote(project(['x'], []), 'nope')).toBe('');
     expect(emphasisCoverageNote(project(['x'], []), 7)).toBe('');
+  });
+});
+
+describe('trackStyleNote says what a whole-track restyle reached', () => {
+  const doc = (captionStyle: unknown, cues: Clip[]): Project =>
+    ({
+      timeline: { tracks: [{ id: 'c', type: 'caption', clips: cues, captionStyle }] },
+    }) as unknown as Project;
+
+  it('says a keywords-mode accent with no keywords emphasises nothing', () => {
+    // Run 1292449c: "keywords" mode, a serif accent font, no list — and a reply claiming a
+    // serif emphasis the render never showed.
+    const note = trackStyleNote(
+      doc({ accent: { mode: 'keywords', fontFamily: 'Instrument Serif' } }, [cue('a', ['hi'])]),
+      'c',
+    );
+    expect(note).toContain('names no keywords, so no word is emphasised');
+    expect(note).toContain('auto_emphasize_captions');
+  });
+
+  it('reports the accent coverage the restyle carries', () => {
+    const note = trackStyleNote(
+      doc({ accent: { mode: 'keywords', keywords: ['hi'] } }, [cue('a', ['hi']), cue('b', ['yo'])]),
+      'c',
+    );
+    expect(note).toContain('emphasis lands on 1 of 2 cues');
+  });
+
+  it('names the cues whose own style the track style cannot change (run 0e12b96e)', () => {
+    const note = trackStyleNote(
+      doc({ fontFamily: 'Inter' }, [
+        cue('a', ['one'], { captionStyle: { background: { color: '#000' }, yPercent: 20 } }),
+        cue('b', ['two']),
+        cue('c2', ['three'], { captionStyle: { background: { color: '#000' } } }),
+      ]),
+      'c',
+    );
+    expect(note).toContain('2 of 3 cues keep their own background, yPercent');
+    expect(note).toContain('set_caption_style with captionStyle null');
+  });
+
+  it('says nothing for a plain track restyle', () => {
+    expect(trackStyleNote(doc({ fontFamily: 'Inter' }, [cue('a', ['hi'])]), 'c')).toBe('');
+    expect(trackStyleNote(doc({}, []), 'missing')).toBe('');
   });
 });

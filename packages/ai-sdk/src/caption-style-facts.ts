@@ -40,35 +40,90 @@ export const MAX_CAPTION_EM_VALUE = 3;
  */
 export { MIN_CAPTION_CUE_SECONDS } from '@framepilot/editor-core';
 
+/**
+ * The furthest a shadow may sit from its letters, in font-heights, either way. The catalog's
+ * drop shadows sit 0–0.12 away; past half a font-height it is a detached second copy of the
+ * line, not a shadow. Run `fb90e58d` sent `offsetY: 2` — two pixels, as CSS writes it — and
+ * got a dark copy of every caption two font-heights below it, plus a canvas wide enough to
+ * push the text off the frame.
+ */
+export const MAX_CAPTION_SHADOW_OFFSET = 0.5;
+
+/**
+ * The tracking range, in font-heights (CSS `em`). The catalog uses 0.01–0.16. Tight display
+ * type goes a little negative, wide spaced-out caps go well past the catalog; below −0.2 the
+ * letters run into each other. Runs `0d7d679f` and `fb90e58d` sent `letterSpacing: -0.5` —
+ * half a pixel, meant; half of every letter overlapping the next, drawn.
+ */
+export const MIN_CAPTION_LETTER_SPACING = -0.2;
+export const MAX_CAPTION_LETTER_SPACING = 0.6;
+
 /** The sentence every caption-style surface hands the model about units. */
 export const CAPTION_STYLE_UNITS =
-  'background.radius, background.paddingX, background.paddingY, background.blur and ' +
-  'shadow.blur are FRACTIONS of the font size — the catalog uses 0.25–0.6, and a chip that ' +
+  'background.radius, background.paddingX, background.paddingY, background.blur, ' +
+  'shadow.blur, shadow.offsetX, shadow.offsetY and letterSpacing are FRACTIONS of the font ' +
+  'size (em), never pixels — the catalog uses 0.25–0.6 for a chip, and a chip that ' +
   'hugs the text is paddingX 0.4–0.5, paddingY 0.25–0.35, radius 0.2–0.4; a frosted-glass ' +
-  'box is background.blur 0.3–0.4 over a low-alpha tint. outlineWidth and ' +
+  'box is background.blur 0.3–0.4 over a low-alpha tint; a drop shadow sits 0–0.12 away ' +
+  `(offsets past ${String(MAX_CAPTION_SHADOW_OFFSET)} are refused); letterSpacing is 0.01–0.16 ` +
+  `in the catalog and must stay within ${String(MIN_CAPTION_LETTER_SPACING)}–` +
+  `${String(MAX_CAPTION_LETTER_SPACING)}. outlineWidth and ` +
   'background.borderWidth are in SIXTEENTHS of the font size: the catalog uses 1–2.5, and 3 ' +
-  'is already a heavy stroke. textOpacity is the letters\' fill, 0–1 (0 = outline only). ' +
+  "is already a heavy stroke. textOpacity is the letters' fill, 0–1 (0 = outline only). " +
   'fontScale multiplies ' +
   'the base size (1/22 of the frame height). xPercent, yPercent and maxWidthPercent are ' +
-  `percent of the frame. Font-relative values above ${String(MAX_CAPTION_EM_VALUE)} are refused.`;
+  `percent of the frame. Chip and blur values above ${String(MAX_CAPTION_EM_VALUE)} are refused.`;
 
-/** One font-relative field of a style, with where it lives. */
+/** What a font-relative field draws, which decides the range it must stay in. */
+type EmFieldKind = 'chip' | 'shadow_offset' | 'letter_spacing';
+
+/** One font-relative field of a style, with where it lives and its allowed range. */
 interface EmField {
   readonly path: string;
   readonly value: number;
+  readonly kind: EmFieldKind;
+  readonly min: number;
+  readonly max: number;
 }
 
 function emFields(style: CaptionStyle | null | undefined): EmField[] {
   if (!style) return [];
   const out: EmField[] = [];
   const { background, shadow } = style;
+  const chip = (path: string, value: number): EmField => ({
+    path,
+    value,
+    kind: 'chip',
+    min: 0,
+    max: MAX_CAPTION_EM_VALUE,
+  });
   if (background) {
     for (const key of ['radius', 'paddingX', 'paddingY', 'blur'] as const) {
       const value = background[key];
-      if (typeof value === 'number') out.push({ path: `background.${key}`, value });
+      if (typeof value === 'number') out.push(chip(`background.${key}`, value));
     }
   }
-  if (shadow && typeof shadow.blur === 'number') out.push({ path: 'shadow.blur', value: shadow.blur });
+  if (shadow) {
+    if (typeof shadow.blur === 'number') out.push(chip('shadow.blur', shadow.blur));
+    for (const key of ['offsetX', 'offsetY'] as const) {
+      out.push({
+        path: `shadow.${key}`,
+        value: shadow[key],
+        kind: 'shadow_offset',
+        min: -MAX_CAPTION_SHADOW_OFFSET,
+        max: MAX_CAPTION_SHADOW_OFFSET,
+      });
+    }
+  }
+  if (typeof style.letterSpacing === 'number') {
+    out.push({
+      path: 'letterSpacing',
+      value: style.letterSpacing,
+      kind: 'letter_spacing',
+      min: MIN_CAPTION_LETTER_SPACING,
+      max: MAX_CAPTION_LETTER_SPACING,
+    });
+  }
   return out;
 }
 
@@ -77,7 +132,10 @@ export function captionFontPx(
   style: CaptionStyle | null | undefined,
   resolution: { readonly width: number; readonly height: number },
 ): number {
-  return Math.max(14, Math.floor(resolution.height * CAPTION_FONT_HEIGHT_FRACTION * (style?.fontScale ?? 1)));
+  return Math.max(
+    14,
+    Math.floor(resolution.height * CAPTION_FONT_HEIGHT_FRACTION * (style?.fontScale ?? 1)),
+  );
 }
 
 /** A font-relative value past the ceiling, with what it would render as. */
@@ -87,7 +145,9 @@ export interface CaptionEmViolation extends EmField {
 }
 
 /**
- * Every font-relative field of `style` above {@link MAX_CAPTION_EM_VALUE}.
+ * Every font-relative field of `style` outside its range: a chip or blur value above
+ * {@link MAX_CAPTION_EM_VALUE}, a shadow offset past {@link MAX_CAPTION_SHADOW_OFFSET}, a
+ * letterSpacing outside {@link MIN_CAPTION_LETTER_SPACING}–{@link MAX_CAPTION_LETTER_SPACING}.
  *
  * Only the fields the style itself sets are judged: a template's own values are always in
  * range, and a caller who sent none of these has nothing to be wrong about.
@@ -98,8 +158,31 @@ export function captionEmViolations(
 ): CaptionEmViolation[] {
   const fontPx = captionFontPx(style, resolution);
   return emFields(style)
-    .filter((field) => field.value > MAX_CAPTION_EM_VALUE)
+    .filter((field) => field.value > field.max || field.value < field.min)
     .map((field) => ({ ...field, px: Math.round(field.value * fontPx) }));
+}
+
+/**
+ * What a font-relative value past its range draws on this frame, for a person to read.
+ * Split by field because "the chip covers the picture" is false of a shadow offset.
+ */
+export function captionEmViolationEffect(
+  violation: CaptionEmViolation,
+  resolution: { readonly width: number; readonly height: number },
+): string {
+  const px = Math.abs(violation.px);
+  switch (violation.kind) {
+    case 'shadow_offset':
+      return `The shadow is drawn about ${String(px)} px from the letters — a detached second copy of the line, not a drop shadow.`;
+    case 'letter_spacing':
+      return violation.value < 0
+        ? `About ${String(px)} px is taken out between letters, so they run into each other.`
+        : `About ${String(px)} px is added between letters, so the words fall apart.`;
+    case 'chip':
+      return px > resolution.width
+        ? `That is wider than the ${String(resolution.width)} px frame itself; the chip covers the picture.`
+        : `About ${String(px)} px on this frame.`;
+  }
 }
 
 /**
@@ -110,14 +193,14 @@ export function captionUnitsRefusal(
   violations: readonly CaptionEmViolation[],
   resolution: { readonly width: number; readonly height: number },
 ): string {
-  const worst = violations.reduce((a, b) => (b.value > a.value ? b : a));
   const listed = violations
     .map((v) => `${v.path} ${String(v.value)} (≈${String(v.px)} px)`)
     .join(', ');
+  const effects = violations.map((v) => captionEmViolationEffect(v, resolution)).join(' ');
   return (
-    `${listed}: these are fractions of the font size, not pixels — ${String(worst.value)} means ` +
-    `${String(worst.value)} font-heights, about ${String(worst.px)} px on this ${String(resolution.width)}×` +
-    `${String(resolution.height)} frame, which is wider than the frame itself. ${CAPTION_STYLE_UNITS}`
+    `${listed}: these are fractions of the font size, not pixels — ${String(violations[0]!.value)} ` +
+    `means ${String(violations[0]!.value)} font-heights on this ${String(resolution.width)}×` +
+    `${String(resolution.height)} frame. ${effects} ${CAPTION_STYLE_UNITS}`
   );
 }
 
@@ -126,7 +209,10 @@ export function captionUnitsRefusal(
  * template, with `background`/`shadow` taken whole from the first layer that sets them —
  * the same precedence the renderers use.
  */
-export function resolveCaptionStyle(clip: Clip, track: Track | undefined): CaptionStyle | undefined {
+export function resolveCaptionStyle(
+  clip: Clip,
+  track: Track | undefined,
+): CaptionStyle | undefined {
   const authored: CaptionStyle | undefined =
     clip.captionStyle !== undefined
       ? { ...(track?.captionStyle ?? {}), ...clip.captionStyle }
@@ -192,7 +278,11 @@ export function emphasisCoverageNote(project: Project, trackId: unknown): string
   });
   const reached = new Set<number>();
   cueTokens.forEach((tokens, index) => {
-    if (counts.some(({ keyword }) => containsRun(tokens, keyword.split(/\s+/).map(normalizeCaptionWord).filter(Boolean)))) {
+    if (
+      counts.some(({ keyword }) =>
+        containsRun(tokens, keyword.split(/\s+/).map(normalizeCaptionWord).filter(Boolean)),
+      )
+    ) {
       reached.add(index);
     }
   });
@@ -204,6 +294,65 @@ export function emphasisCoverageNote(project: Project, trackId: unknown): string
       ? `. ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} in the transcript but on no cue — spoken in a stretch that was cut, or split across two cues; nothing on screen will accent ${missing.length === 1 ? 'it' : 'them'}.` +
         splitPhraseRemedy(counts)
       : '.')
+  );
+}
+
+/**
+ * A restyle that keeps the accent in `keywords` mode but omits the list keeps the list the
+ * caption already has.
+ *
+ * `set_track_caption_style` replaces the whole composition, so a restyle written from the
+ * look alone — font, colour, placement, `accent: { mode: 'keywords', fontFamily, color }` —
+ * silently erased the words `auto_emphasize_captions` had grounded. Run `1292449c` sent
+ * exactly that and told the editor its captions now had "a serif italic accent": no word
+ * was accented, and the next turn's frame showed plain sans-serif lines. Run `fb90e58d`
+ * dropped and restored the list between two of its restyles. Nobody restyling in keywords
+ * mode means "and emphasise nothing"; `mode: 'none'` or `accent: null` says that.
+ *
+ * @param next - The style being written (as authored).
+ * @param current - The accent the caption resolves to now, whose keywords carry over.
+ * @returns `next`, with `accent.keywords` filled in when it was omitted and there are some.
+ */
+export function keepGroundedKeywords<S extends CaptionStyle | null>(
+  next: S,
+  current: CaptionStyle['accent'] | undefined,
+): S {
+  const accent = next?.accent;
+  if (next === null || accent === undefined || accent.mode !== 'keywords') return next;
+  if (accent.keywords !== undefined) return next;
+  const keywords = current?.keywords ?? [];
+  if (keywords.length === 0) return next;
+  return { ...next, accent: { ...accent, keywords: [...keywords] } } as S;
+}
+
+/**
+ * What a whole-track restyle reached, read from the applied project: the emphasis it
+ * carries, and the cues it could NOT restyle because they carry their own style.
+ *
+ * A cue's own `captionStyle` wins over the track's field by field, so a track restyle
+ * leaves those fields alone on those cues — and the result used to say nothing about it.
+ * Run `0e12b96e` gave 28 cues their own placement and a dark box, was then asked for "no
+ * bg on captions", cleared the box on 8 of them and told the editor to "check the others
+ * in the preview".
+ */
+export function trackStyleNote(project: Project, trackId: unknown): string {
+  if (typeof trackId !== 'string') return '';
+  const track = project.timeline.tracks.find((candidate) => candidate.id === trackId);
+  if (track === undefined) return '';
+  const accent = track.captionStyle?.accent;
+  const emphasis =
+    accent?.mode === 'keywords' && (accent.keywords ?? []).length === 0
+      ? ' — the accent is in keywords mode but names no keywords, so no word is emphasised; auto_emphasize_captions picks and grounds them.'
+      : emphasisCoverageNote(project, trackId);
+  const overridden = track.clips.filter((clip) => clip.captionStyle !== undefined);
+  if (overridden.length === 0) return emphasis;
+  const fields = [...new Set(overridden.flatMap((clip) => Object.keys(clip.captionStyle ?? {})))]
+    .sort()
+    .slice(0, 6);
+  return (
+    `${emphasis} — ${String(overridden.length)} of ${String(track.clips.length)} cues keep their own ` +
+    `${fields.join(', ')}, which this track style does not change on them; ` +
+    'set_caption_style with captionStyle null returns a cue to the track style.'
   );
 }
 
