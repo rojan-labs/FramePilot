@@ -104,6 +104,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The preview shows styled captions exactly as the export draws them.** Template captions were
+  drawn by the editor on top of the video, a second rendering that could wrap, place or animate
+  differently from the file. They are now the export's own caption, frame by frame: the same
+  lines, position, animation, frosted glass and blend mode. An effect lane under a caption no
+  longer blurs it in the preview when the export leaves it sharp. Release builds now use the
+  preview that composites every layer the export does (it was already the default while
+  developing).
 - **Captions no longer run off the right edge of the frame.** A caption with a large shadow, a
   big accent word or a large font was drawn from the centre of the frame to the right, whatever
   position it was given. The assistant could see this in every frame it checked and kept

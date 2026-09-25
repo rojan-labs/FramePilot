@@ -66,8 +66,6 @@ craft tools. No new subsystem; every fix reuses an existing seam.
 - [x] **EQ15** `check_caption_legibility`: contrast of each sampled cue against the real picture
   (keyed caption frame, WCAG 3:1). Real project: 2 of 4 cues at 1.1–2.0:1; ≥ 9.4:1 with an outline.
   25 s cold / 11 s warm.
-- [ ] **EQ16** (follow-up) The preview's optional burn-captions mode draws captions before its
-  WebGL effect post-process; its default DOM overlay already matches the export.
 - [ ] **EQ17** (follow-up) The captured project itself still holds the damage the old tools left: a
   nested sandwich, a Subtract front cut-out, two cues on an overlay track, un-outlined captions.
   No migration (schema-neutral data the editor owns); the tools now refuse to build on it and name
@@ -122,9 +120,20 @@ the three runs before it (`0d7d679f`, `1292449c`, `0e12b96e`). Every defect was 
 - [x] **EQ27** `check_caption_legibility` lays out EVERY cue (layout only, 39 cues in 0.03 s) and
   reports rows and anything wider than the frame — the check a "max 2 lines" request needs. The
   run's final project: 29 of 39 cues on 3–5 rows, one 133 % of the frame wide.
-- [ ] **EQ28** (follow-up) The PX4 parity oracle has no STYLED-caption case, which is how EQ20/EQ21
-  shipped. Needs a free-placed, shadowed, accented caption in `px4_parity_frames.py` with a
-  box-position tolerance (glyph rasterisation differs between Chromium and Pillow).
+- [x] **EQ28** The PX4 oracle had no STYLED-caption row, which is how EQ20/EQ21 shipped: styled
+  captions were HTML over the canvas the oracle reads. Now in the frame (EQ29), with seven rows
+  (placed, four animated templates, frosted glass, rotated, blended, per-cue override, over an
+  effect lane): all pass locally on Metal, six pixel-identical. No glyph tolerance was needed —
+  both sides draw the engine's raster.
+- [x] **EQ29** "100% parity on preview/export" (maintainer, 2026-09-25). The monitor composites the
+  engine's own caption layer at each frame (`POST /preview/text-raster` styled cues,
+  `caption_layer_for`); captions composite above the frame effects (the open EQ16); raster
+  layers honour a caption clip's blend mode; frosted chips blur the same crop with the Pillow
+  blur port. Production builds default to the layer compositor (ADR 0180 amendment; `legacy` is
+  an explicit kill switch until RD3). Still listed in the baseline: the `webgl` colour
+  REFERENCE measurement on SwiftShader Subzero — Chromium's own `<video>` → texture conversion,
+  which the monitor does not use (its `canvas2d` path passes every encoding on every renderer).
+- [x] **EQ16** Closed by EQ29 (captions above the effect stage in the layer compositor).
 
 **Status snapshot (2026-09-21, BACKGROUND-REMOVAL speed — `plan/background-removal-ai/13-SPEED-AND-PRODUCTION-READINESS.md`):**
 a maintainer's 52 s 1080p clip ran _Remove background_ for 5+ hours without finishing a step. Not a

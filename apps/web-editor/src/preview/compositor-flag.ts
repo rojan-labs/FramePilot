@@ -7,9 +7,11 @@
  * switch until the release gate (RD3) retires it.
  *
  * One build-time variable, no flag framework: `VITE_FRAMEPILOT_PREVIEW_COMPOSITOR` set to
- * `layers` or `legacy` wins. Unset, development and test builds (the dev server the e2e and
- * parity suites run against) get `layers`, and a production build gets `legacy`, so a packaged
- * desktop release only switches when RD3 flips this default.
+ * `layers` or `legacy` wins. Unset, every build gets `layers`. Production builds used to get
+ * `legacy` until the parity work was complete; it is (every PX4 oracle row passes, styled
+ * captions included, ADR 0180 amendment 2026-09-25), and a release that kept the old monitor
+ * showed users a picture the export does not make. `legacy` stays an explicit kill switch
+ * until RD3 deletes it.
  */
 
 export type PreviewCompositor = 'layers' | 'legacy';
@@ -25,13 +27,13 @@ export interface CompositorEnv {
  * Resolve the compositor for this build.
  *
  * @param env - Build environment; defaults to Vite's `import.meta.env`.
- * @returns `layers` or `legacy`. An unrecognised explicit value falls back to the build default
- *   rather than guessing, so a typo cannot silently enable the other path in a release.
+ * @returns `layers` or `legacy`. An unrecognised explicit value falls back to the default
+ *   (`layers`) rather than guessing, so a typo cannot silently switch a release to the old monitor.
  */
 export function previewCompositor(env: CompositorEnv = import.meta.env): PreviewCompositor {
   const explicit = env.VITE_FRAMEPILOT_PREVIEW_COMPOSITOR?.trim().toLowerCase();
   if (explicit === 'layers' || explicit === 'legacy') return explicit;
-  return env.DEV === true || env.MODE === 'test' ? 'layers' : 'legacy';
+  return 'layers';
 }
 
 /** True when the program monitor should run the N-layer compositor. */
