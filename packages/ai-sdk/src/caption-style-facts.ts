@@ -132,10 +132,7 @@ export function captionFontPx(
   style: CaptionStyle | null | undefined,
   resolution: { readonly width: number; readonly height: number },
 ): number {
-  return Math.max(
-    14,
-    Math.floor(resolution.height * CAPTION_FONT_HEIGHT_FRACTION * (style?.fontScale ?? 1)),
-  );
+  return Math.max(14, Math.floor(resolution.height * CAPTION_FONT_HEIGHT_FRACTION * (style?.fontScale ?? 1)));
 }
 
 /** A font-relative value past the ceiling, with what it would render as. */
@@ -209,10 +206,7 @@ export function captionUnitsRefusal(
  * template, with `background`/`shadow` taken whole from the first layer that sets them —
  * the same precedence the renderers use.
  */
-export function resolveCaptionStyle(
-  clip: Clip,
-  track: Track | undefined,
-): CaptionStyle | undefined {
+export function resolveCaptionStyle(clip: Clip, track: Track | undefined): CaptionStyle | undefined {
   const authored: CaptionStyle | undefined =
     clip.captionStyle !== undefined
       ? { ...(track?.captionStyle ?? {}), ...clip.captionStyle }
@@ -278,11 +272,7 @@ export function emphasisCoverageNote(project: Project, trackId: unknown): string
   });
   const reached = new Set<number>();
   cueTokens.forEach((tokens, index) => {
-    if (
-      counts.some(({ keyword }) =>
-        containsRun(tokens, keyword.split(/\s+/).map(normalizeCaptionWord).filter(Boolean)),
-      )
-    ) {
+    if (counts.some(({ keyword }) => containsRun(tokens, keyword.split(/\s+/).map(normalizeCaptionWord).filter(Boolean)))) {
       reached.add(index);
     }
   });

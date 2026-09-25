@@ -38,16 +38,10 @@ describe('the chip arithmetic matches the renderer', () => {
 
   it('accepts the catalog range and the ceiling itself', () => {
     expect(
-      captionEmViolations(
-        { background: { color: '#fff', radius: 0.35, paddingX: 0.45, paddingY: 0.3 } },
-        portrait,
-      ),
+      captionEmViolations({ background: { color: '#fff', radius: 0.35, paddingX: 0.45, paddingY: 0.3 } }, portrait),
     ).toEqual([]);
     expect(
-      captionEmViolations(
-        { background: { color: '#fff', paddingX: MAX_CAPTION_EM_VALUE } },
-        portrait,
-      ),
+      captionEmViolations({ background: { color: '#fff', paddingX: MAX_CAPTION_EM_VALUE } }, portrait),
     ).toEqual([]);
     expect(captionEmViolations(null, portrait)).toEqual([]);
   });
@@ -73,12 +67,7 @@ const cue = (id: string, words: string[], extra: Partial<Clip> = {}): Clip =>
 
 describe('resolveCaptionStyle layers cue over track over template', () => {
   it('takes the template’s chip when neither the track nor the cue sets one', () => {
-    const track = {
-      id: 'c',
-      type: 'caption',
-      clips: [],
-      captionStyle: { templateId: 'tag' },
-    } as unknown as Track;
+    const track = { id: 'c', type: 'caption', clips: [], captionStyle: { templateId: 'tag' } } as unknown as Track;
     const resolved = resolveCaptionStyle(cue('x', ['hi']), track);
     expect(resolved?.background).toEqual(getCaptionTemplate('tag')?.style.background);
   });
@@ -90,20 +79,11 @@ describe('resolveCaptionStyle layers cue over track over template', () => {
       clips: [],
       captionStyle: { templateId: 'tag', background: { color: '#000', paddingX: 18 } },
     } as unknown as Track;
-    expect(resolveCaptionStyle(cue('x', ['hi']), track)?.background).toEqual({
-      color: '#000',
-      paddingX: 18,
-    });
+    expect(resolveCaptionStyle(cue('x', ['hi']), track)?.background).toEqual({ color: '#000', paddingX: 18 });
   });
 
   it('is undefined for an unstyled cue on an unstyled track', () => {
-    expect(
-      resolveCaptionStyle(cue('x', ['hi']), {
-        id: 'c',
-        type: 'caption',
-        clips: [],
-      } as unknown as Track),
-    ).toBeUndefined();
+    expect(resolveCaptionStyle(cue('x', ['hi']), { id: 'c', type: 'caption', clips: [] } as unknown as Track)).toBeUndefined();
   });
 });
 
@@ -112,12 +92,7 @@ describe('emphasisCoverageNote says how many cues an accent reached', () => {
     ({
       timeline: {
         tracks: [
-          {
-            id: 'c',
-            type: 'caption',
-            clips: cues,
-            captionStyle: { accent: { mode: 'keywords', keywords } },
-          },
+          { id: 'c', type: 'caption', clips: cues, captionStyle: { accent: { mode: 'keywords', keywords } } },
         ],
       },
     }) as unknown as Project;
@@ -126,12 +101,7 @@ describe('emphasisCoverageNote says how many cues an accent reached', () => {
     const note = emphasisCoverageNote(
       project(
         ['stop scrolling', '8 principles', 'top 1'],
-        [
-          cue('a', ['founders', 'stop', 'scrolling,']),
-          cue('b', ['there', 'are', '8', 'principles']),
-          cue('c', ['top']),
-          cue('d', ['1%', 'of']),
-        ],
+        [cue('a', ['founders', 'stop', 'scrolling,']), cue('b', ['there', 'are', '8', 'principles']), cue('c', ['top']), cue('d', ['1%', 'of'])],
       ),
       'c',
     );

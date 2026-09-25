@@ -100,10 +100,7 @@ describe('a caption chip written in pixels is refused with the unit it should be
 
   it('set_caption_style is held to the same unit', () => {
     expect(() =>
-      mutate('set_caption_style', {
-        clipId: 'cue_1',
-        captionStyle: { shadow: { color: '#000', blur: 12, offsetX: 0, offsetY: 4 } },
-      }),
+      mutate('set_caption_style', { clipId: 'cue_1', captionStyle: { shadow: { color: '#000', blur: 12, offsetX: 0, offsetY: 4 } } }),
     ).toThrow(/shadow\.blur 12/);
   });
 
@@ -118,10 +115,7 @@ describe('a caption chip written in pixels is refused with the unit it should be
       }),
     ).not.toThrow();
     expect(() =>
-      mutate('set_track_caption_style', {
-        trackId: 'track_captions',
-        captionStyle: { templateId: 'tag' },
-      }),
+      mutate('set_track_caption_style', { trackId: 'track_captions', captionStyle: { templateId: 'tag' } }),
     ).not.toThrow();
   });
 });
@@ -142,9 +136,7 @@ describe('discover_caption_styles shows the numbers a chip override has to match
     expect(result.matched).toBe(0);
     expect(result.returned).toBe(1);
     expect(result.note).toMatch(/No template matches "tag" in category "phrase"/);
-    expect((result.templates as { templateId: string }[]).map((t) => t.templateId)).toEqual([
-      'tag',
-    ]);
+    expect((result.templates as { templateId: string }[]).map((t) => t.templateId)).toEqual(['tag']);
 
     const negative = read('discover_caption_styles', { query: 'negative', category: 'boxed' });
     expect((negative.templates as { templateId: string; category: string }[])[0]).toMatchObject({
