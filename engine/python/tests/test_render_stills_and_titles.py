@@ -14,6 +14,7 @@ import io
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -132,17 +133,17 @@ def _opacity(value: float) -> list[dict[str, Any]]:
     return [{"id": "o0", "time": 0.0, "property": "opacity", "value": value, "easing": "linear"}]
 
 
-def _reds(image: Image.Image) -> list[tuple[int, int]]:
-    """Pure-ish red pixels (the unfaded text or sticker)."""
-    width, height = image.size
-    pixels = image.load()
-    assert pixels is not None
-    return [
-        (x, y)
-        for y in range(height)
-        for x in range(width)
-        if pixels[x, y][0] > 200 and pixels[x, y][1] < 90 and pixels[x, y][2] < 90
-    ]
+def _reds(image: Image.Image) -> int:
+    """How many pure-ish red pixels (the unfaded text or sticker) the frame holds."""
+    rgb = np.asarray(image, dtype=np.int16)
+    return int(np.count_nonzero((rgb[..., 0] > 200) & (rgb[..., 1] < 90) & (rgb[..., 2] < 90)))
+
+
+def _ink(image: Image.Image) -> tuple[np.ndarray, np.ndarray]:
+    """Row and column indices of every text pixel, faded or not: anything clearly off-white."""
+    rgb = np.asarray(image, dtype=np.int16)
+    rows, cols = np.nonzero(rgb[..., 1] < 200)
+    return rows, cols
 
 
 @pytest.fixture
@@ -213,26 +214,22 @@ def test_the_frame_plan_carries_a_stills_crop_and_opacity(media: Path) -> None:
 def test_a_title_honours_its_opacity_keyframe(media: Path) -> None:
     solid = _frame(_project(_title({})), media, 1.0)
     faded = _frame(_project(_title({}, keyframes=_opacity(0.25))), media, 1.0)
-    assert len(_reds(solid)) > 500
-    assert _reds(faded) == []
+    assert _reds(solid) > 500
+    assert _reds(faded) == 0
 
 
 def test_a_title_fades_in_with_its_in_animation(media: Path) -> None:
     project = _project(_title({"inAnimation": "fade", "animDurationSeconds": 0.4}))
-    assert _reds(_frame(project, media, 0.05)) == []
-    assert len(_reds(_frame(project, media, 1.0))) > 500
+    assert _reds(_frame(project, media, 0.05)) == 0
+    assert _reds(_frame(project, media, 1.0)) > 500
 
 
 def test_a_title_slides_up_into_place(media: Path) -> None:
     project = _project(_title({"inAnimation": "slide-up", "animDurationSeconds": 0.4}))
 
     def mean_y(image: Image.Image) -> float:
-        # Every text pixel, faded or not: anything clearly off-white.
-        width, height = image.size
-        pixels = image.load()
-        assert pixels is not None
-        ys = [y for y in range(height) for x in range(width) if pixels[x, y][1] < 200]
-        return sum(ys) / len(ys)
+        rows, _ = _ink(image)
+        return float(rows.mean())
 
     early = mean_y(_frame(project, media, 0.1))
     settled = mean_y(_frame(project, media, 1.0))
@@ -244,11 +241,8 @@ def test_a_title_pops_in_from_smaller(media: Path) -> None:
     project = _project(_title({"inAnimation": "pop", "animDurationSeconds": 0.4}))
 
     def ink_width(image: Image.Image) -> int:
-        width, height = image.size
-        pixels = image.load()
-        assert pixels is not None
-        xs = [x for y in range(height) for x in range(width) if pixels[x, y][1] < 200]
-        return max(xs) - min(xs)
+        _, cols = _ink(image)
+        return int(cols.max() - cols.min())
 
     assert ink_width(_frame(project, media, 0.1)) < ink_width(_frame(project, media, 1.0)) - 10
 
