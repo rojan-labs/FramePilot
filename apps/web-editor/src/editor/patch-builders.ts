@@ -7,6 +7,8 @@
  * keyed to the immutable source clip instead of serializing all styling payloads.
  */
 export * from './patch-builders-base.js';
+// Shapes (plan/elements EL4a): add from a preset, restyle, move.
+export * from './shape-builders.js';
 
 import type { Asset, Timeline } from '@framepilot/timeline-schema';
 import {

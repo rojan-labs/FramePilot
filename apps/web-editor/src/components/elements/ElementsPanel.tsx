@@ -16,6 +16,7 @@ import type { Asset, Project } from '@framepilot/timeline-schema';
 import { isDesktop } from '../../editor/bridge.js';
 import { useViewPreference } from '../../editor/useViewPreference.js';
 import { PexelsBrowser } from './PexelsBrowser.js';
+import { ShapesBrowser } from './ShapesBrowser.js';
 
 /** Every sub-tab Elements can show, in the maintainer's order. */
 export const ELEMENTS_TAB_IDS = ['photos', 'videos', 'stickers', 'shapes'] as const;
@@ -32,10 +33,12 @@ const ELEMENTS_TAB_LABELS: Readonly<Record<ElementsTab, string>> = {
  * The sub-tabs this build can serve, in display order.
  *
  * Photos and Videos are the Pexels library, reached through the desktop main
- * process; the renderer's CSP forbids reaching it directly, on purpose.
+ * process; the renderer's CSP forbids reaching it directly, on purpose. Shapes are
+ * drawn by the engine sidecar, which only the desktop app runs (the browser build's
+ * labelled approximation is EL11).
  */
 export function availableElementsTabs(desktop: boolean = isDesktop()): readonly ElementsTab[] {
-  return desktop ? ['photos', 'videos'] : [];
+  return desktop ? ['photos', 'videos', 'shapes'] : [];
 }
 
 /** Restore a remembered sub-tab only if this build renders it. */
@@ -56,6 +59,8 @@ export interface ElementsPanelProps {
   readonly onAddStock: (asset: Asset) => string | null;
   /** Opens Settings → Photos & videos (Pexels). */
   readonly onOpenSettings?: () => void;
+  /** Add a shape preset at the playhead; returns the refusal sentence, or `null`. */
+  readonly onAddShape?: (presetId: string) => string | null;
 }
 
 export function ElementsPanel({
@@ -63,6 +68,7 @@ export function ElementsPanel({
   placementBlockedReasonFor,
   onAddStock,
   onOpenSettings,
+  onAddShape,
 }: ElementsPanelProps): JSX.Element {
   const available = useMemo(() => availableElementsTabs(), []);
   const coerce = useCallback((raw: unknown) => coerceElementsTab(raw, available), [available]);
@@ -158,6 +164,13 @@ export function ElementsPanel({
             placementBlockedReasonFor={placementBlockedReasonFor}
             onAddStock={onAddStock}
             {...(onOpenSettings ? { onOpenSettings } : {})}
+          />
+        )}
+        {tab === 'shapes' && (
+          <ShapesBrowser
+            onAddShape={
+              onAddShape ?? (() => 'Shapes are added from the editor. Open a project first.')
+            }
           />
         )}
       </div>

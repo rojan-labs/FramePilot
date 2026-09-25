@@ -54,10 +54,10 @@ describe('ElementsPanel', () => {
   });
   afterEach(() => localStorage.clear());
 
-  it('offers Photos then Videos on the desktop, in the maintainer’s order', () => {
+  it('offers Photos, Videos and Shapes on the desktop, in the maintainer’s order', () => {
     renderPanel();
     const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent);
-    expect(tabs).toEqual(['Photos', 'Videos']);
+    expect(tabs).toEqual(['Photos', 'Videos', 'Shapes']);
     expect(screen.getByRole('tablist', { name: 'Elements' })).toBeDefined();
   });
 
@@ -95,7 +95,10 @@ describe('ElementsPanel', () => {
     const videos = screen.getByRole('tab', { name: 'Videos' });
     expect(videos.getAttribute('aria-selected')).toBe('true');
     expect(document.activeElement).toBe(videos);
-    fireEvent.keyDown(videos, { key: 'ArrowRight' });
+    fireEvent.keyDown(videos, { key: 'End' });
+    const shapes = screen.getByRole('tab', { name: 'Shapes' });
+    expect(shapes.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(shapes, { key: 'ArrowRight' });
     // Wraps around, as a tablist does.
     expect(photos.getAttribute('aria-selected')).toBe('true');
   });
@@ -113,6 +116,24 @@ describe('ElementsPanel', () => {
     expect((screen.getByLabelText('query') as HTMLInputElement).value).toBe('city');
   });
 
+  it('shows the shape tiles on the Shapes tab and adds the one clicked', () => {
+    const added: string[] = [];
+    render(
+      <ElementsPanel
+        project={project}
+        placementBlockedReasonFor={() => null}
+        onAddStock={() => null}
+        onAddShape={(presetId) => {
+          added.push(presetId);
+          return null;
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('tab', { name: 'Shapes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add Highlight box' }));
+    expect(added).toEqual(['rounded-rect/highlight']);
+  });
+
   it('is absent-and-explained in a browser build, which serves no sub-tab yet', () => {
     desktop.value = false;
     renderPanel();
@@ -122,8 +143,8 @@ describe('ElementsPanel', () => {
 });
 
 describe('availableElementsTabs / coerceElementsTab', () => {
-  it('serves Photos and Videos only where the main process can reach Pexels', () => {
-    expect(availableElementsTabs(true)).toEqual(['photos', 'videos']);
+  it('serves Photos, Videos and Shapes only where the desktop host runs', () => {
+    expect(availableElementsTabs(true)).toEqual(['photos', 'videos', 'shapes']);
     expect(availableElementsTabs(false)).toEqual([]);
   });
 

@@ -15143,6 +15143,61 @@ a.export-credits-license {
   min-height: 0;
 }
 
+/* Shapes sub-tab (plan/elements EL4a): a grid of preset tiles. The tiles sit on a mid-tone so
+   a white fill and a yellow outline both read, as they would over footage. */
+.shapes-browser {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  overflow-y: auto;
+}
+.shapes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: var(--space-2);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.shapes-grid-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: center;
+  width: 100%;
+  padding: var(--space-2);
+  color: var(--text);
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+.shapes-grid-tile:hover {
+  border-color: var(--accent);
+}
+.shapes-grid-tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.shape-tile {
+  width: 100%;
+  max-width: 64px;
+  aspect-ratio: 1;
+  background: #5b5f6b;
+  border-radius: calc(var(--radius-sm, 6px) - 2px);
+}
+.shapes-grid-name {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------------------------------------------------------------------------
    Stock panel — third-party photo & video search
    (plan/3rd-party-sourcing/photo-video). Token-driven, reusing the existing

@@ -43,6 +43,8 @@ export * from './lane-placement.js';
 // The one shape of "a fetched stock clip on the timeline", shared by the Stock
 // panel and the agent's `add_stock` so the two paths cannot drift (ADR 0140).
 export * from './stock-placement.js';
+// Where a shape (and, later, a sticker) lands: shared by the Elements tab and the agent (EL4a).
+export * from './element-placement.js';
 // The audio twin: shared by the Sounds panel and the agent's `add_music`.
 export * from './music-placement.js';
 // The v22 mask stack's display-corrected source space and compact path storage (ADR 0178).

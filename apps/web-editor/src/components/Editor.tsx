@@ -57,6 +57,7 @@ import { SoundsPanel } from './SoundsPanel.js';
 import { ElementsPanel } from './elements/ElementsPanel.js';
 import {
   addMusicTrackPatch,
+  addShapePatch,
   addStockClipPatch,
   stockPlacementBlockedReason,
 } from '../editor/patch-builders.js';
@@ -724,9 +725,29 @@ export function Editor({
           return null;
         }}
         {...(onOpenSettings ? { onOpenSettings: () => onOpenSettings('ai') } : {})}
+        onAddShape={(presetId) => {
+          const live = editor.state;
+          const added = addShapePatch(
+            live.timeline,
+            presetId,
+            live.playhead,
+            settings.defaultOverlaySeconds,
+          );
+          if (added === null) return 'That shape could not be added. Try another.';
+          editor.applyPatch(added.patch);
+          // Selected, so the Inspector opens on it and the monitor shows its handles.
+          editor.select(added.clipId);
+          return null;
+        }}
       />
     );
-  }, [project, editor.state.playhead, editor.state.timeline, onOpenSettings]);
+  }, [
+    project,
+    editor.state.playhead,
+    editor.state.timeline,
+    onOpenSettings,
+    settings.defaultOverlaySeconds,
+  ]);
   const openTransitionLibrary = useCallback(() => setLeftTab('transitions'), []);
   const aiFacingProject = useMemo(
     () => projectForAi(project, editor.state),
