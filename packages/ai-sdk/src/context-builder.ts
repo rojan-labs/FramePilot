@@ -15,7 +15,7 @@ import {
 } from './references/images.js';
 import { createLogger, type Seconds } from '@framepilot/shared-types';
 import type { Clip, Project, Timeline } from '@framepilot/timeline-schema';
-import { repeatedSourceOf } from '@framepilot/editor-core';
+import { clipRenderKind, repeatedSourceOf } from '@framepilot/editor-core';
 import type { AiImage, AiMessage } from './providers/types.js';
 import type { ContextBudget, ContextTier } from './reliability/types.js';
 import { readMemory } from './memory-store.js';
@@ -244,19 +244,12 @@ export { SYSTEM_PROMPT } from './prompts.js';
 
 const round = (n: number): string => (Math.round(n * 1000) / 1000).toString();
 
-// Synthetic asset ids for clips with no media source (Phase 2, ADR 0032). A clip's
-// kind is derived from its content, never from its layer — layers are type-agnostic.
-const TEXT_OVERLAY_ASSET_ID = '__text__';
-const CAPTION_ASSET_ID = '__caption__';
-
-/** Derive a clip's kind from its asset (or synthetic id). Mirrors the engine. */
+/**
+ * Derive a clip's kind from its asset (or synthetic id, ADR 0032) — from its content, never
+ * from its layer, since layers are type-agnostic. editor-core's one definition.
+ */
 function deriveClipKind(clip: Clip, assetKinds: ReadonlyMap<string, string | undefined>): string {
-  if (clip.assetId === TEXT_OVERLAY_ASSET_ID) return 'text';
-  if (clip.assetId === CAPTION_ASSET_ID) return 'caption';
-  const kind = assetKinds.get(clip.assetId);
-  if (kind === 'audio') return 'audio';
-  if (kind === 'image') return 'image';
-  return 'video';
+  return clipRenderKind(clip.assetId, assetKinds.get(clip.assetId));
 }
 
 /** The dominant kind of a layer's clips (by count), or 'empty'. */

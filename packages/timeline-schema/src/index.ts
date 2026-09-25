@@ -1057,10 +1057,11 @@ export const CaptionAccentSchema = z.object({
  * Rich, persisted caption style (schema v10 — template-based; v5 introduced
  * the field, ADR 0045; v10 rewrote it around the template catalog, ADR 0069).
  * Meaningful only on caption-kind clips (created via `add_caption_layer`,
- * `assetId === '__caption__'`), but modeled as an optional {@link ClipSchema}
- * field — like {@link Clip.keyframes} — rather than nested inside the caption
- * `Effect`'s free-form `params`, so the renderer and editor UI can read/write
- * it with full typed field access instead of unpacking an untyped record.
+ * whose asset id is editor-core's `CAPTION_ASSET_ID`), but modeled as an
+ * optional {@link ClipSchema} field — like {@link Clip.keyframes} — rather
+ * than nested inside the caption `Effect`'s free-form `params`, so the
+ * renderer and editor UI can read/write it with full typed field access
+ * instead of unpacking an untyped record.
  *
  * Resolution: `templateId` names a `CAPTION_TEMPLATE_CATALOG` entry whose
  * style fills every field left unset here; explicit fields are user overrides

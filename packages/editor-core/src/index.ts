@@ -3,6 +3,8 @@
  * and caption segmentation. See plan/PLAN.md Phase 1.2–1.4.
  */
 export * from './operations.js';
+// Synthetic asset ids and clip kind: the one definition (plan/elements EL3).
+export * from './synthetic-assets.js';
 export * from './operation-contract.js';
 export * from './edit-value-contracts.js';
 export * from './project-operations.js';

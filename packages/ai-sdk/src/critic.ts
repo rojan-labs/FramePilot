@@ -18,9 +18,9 @@
  * render was run rather than fabricating a pass (build-order honesty, AGENTS.md).
  */
 import {
-  CAPTION_ASSET_ID,
-  TEXT_OVERLAY_ASSET_ID,
   buildTimelineMap,
+  isSyntheticAssetId,
+  syntheticClipKind,
   listEditBoundaries,
   mapTranscript,
   speechAssetIdsFor,
@@ -184,9 +184,6 @@ export interface CritiqueOptions {
     readonly handle?: string;
   };
 }
-
-/** Engine-provided sentinel asset ids that are valid without a project asset. */
-const SYNTHETIC_ASSET_IDS = new Set<string>([TEXT_OVERLAY_ASSET_ID, CAPTION_ASSET_ID]);
 
 const DEFAULT_DURATION_TOLERANCE = 2;
 
@@ -365,10 +362,9 @@ const allClips = (timeline: Timeline): readonly Clip[] =>
 
 // Layers are type-agnostic (Phase 2, ADR 0032): a clip's role is derived from its
 // content — text overlays and captions are recognised by their synthetic asset ids
-// (imported above), never by their layer's advisory type.
-const isCaptionClip = (clip: Clip): boolean => clip.assetId === CAPTION_ASSET_ID;
-const isOverlayClip = (clip: Clip): boolean =>
-  clip.assetId === TEXT_OVERLAY_ASSET_ID || clip.assetId === CAPTION_ASSET_ID;
+// (editor-core's `syntheticClipKind`), never by their layer's advisory type.
+const isCaptionClip = (clip: Clip): boolean => syntheticClipKind(clip.assetId) === 'caption';
+const isOverlayClip = (clip: Clip): boolean => isSyntheticAssetId(clip.assetId);
 
 /** Every caption clip on the timeline, by clip kind (not by layer type). */
 const captionClips = (timeline: Timeline): readonly Clip[] =>
@@ -1671,7 +1667,7 @@ function checkMissingAssets(project: Project): CriticCheck {
   const known = new Set(project.assets.map((a) => a.id));
   const missing = new Set<string>();
   for (const clip of allClips(project.timeline)) {
-    if (!known.has(clip.assetId) && !SYNTHETIC_ASSET_IDS.has(clip.assetId)) {
+    if (!known.has(clip.assetId) && !isSyntheticAssetId(clip.assetId)) {
       missing.add(clip.assetId);
     }
   }

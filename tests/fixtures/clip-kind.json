@@ -1,0 +1,77 @@
+{
+  "spec": "A clip's renderable kind, whether its asset id is synthetic, whether it has a time-based source, and the lane type that hosts it. Read by packages/editor-core/src/synthetic-assets.test.ts and engine/python/tests/test_synthetic_assets.py; both runtimes must agree on every row.",
+  "cases": [
+    {
+      "assetId": "__text__",
+      "assetKind": null,
+      "kind": "text",
+      "synthetic": true,
+      "hasTimeBasedSource": false,
+      "laneType": "overlay"
+    },
+    {
+      "assetId": "__caption__",
+      "assetKind": null,
+      "kind": "caption",
+      "synthetic": true,
+      "hasTimeBasedSource": false,
+      "laneType": "caption"
+    },
+    {
+      "assetId": "__text__",
+      "assetKind": "video",
+      "kind": "text",
+      "synthetic": true,
+      "hasTimeBasedSource": false,
+      "laneType": "overlay"
+    },
+    {
+      "assetId": "cam-a",
+      "assetKind": "video",
+      "kind": "video",
+      "synthetic": false,
+      "hasTimeBasedSource": true,
+      "laneType": "video"
+    },
+    {
+      "assetId": "photo",
+      "assetKind": "image",
+      "kind": "image",
+      "synthetic": false,
+      "hasTimeBasedSource": true,
+      "laneType": "video"
+    },
+    {
+      "assetId": "song",
+      "assetKind": "audio",
+      "kind": "audio",
+      "synthetic": false,
+      "hasTimeBasedSource": true,
+      "laneType": "audio"
+    },
+    {
+      "assetId": "missing",
+      "assetKind": null,
+      "kind": "video",
+      "synthetic": false,
+      "hasTimeBasedSource": true,
+      "laneType": "video"
+    },
+    {
+      "assetId": "odd",
+      "assetKind": "subtitle",
+      "kind": "video",
+      "synthetic": false,
+      "hasTimeBasedSource": true,
+      "laneType": "video"
+    },
+    {
+      "assetId": "__TEXT__",
+      "assetKind": null,
+      "kind": "video",
+      "synthetic": false,
+      "hasTimeBasedSource": true,
+      "laneType": "video"
+    }
+  ]
+}

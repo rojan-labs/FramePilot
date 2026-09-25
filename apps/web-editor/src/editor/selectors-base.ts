@@ -29,12 +29,14 @@ import {
 } from '../preview/transitions/transition-engine.js';
 import { LEGACY_TRANSITION_IDS } from '@framepilot/timeline-schema/transition-catalog';
 import {
+  clipRenderKind,
   hasTimeBasedSource,
   hidesWhatIsBehind,
   isFullFrameOpaque,
   type ShapedClip,
   type SourceShape,
   TRANSITION_OUT_EFFECT_TYPE,
+  type ClipRenderKind,
 } from '@framepilot/editor-core';
 
 /**
@@ -309,14 +311,8 @@ export function audibleAudioAt(
 // UI, and auto-layering all read, so a clip behaves the same on any layer.
 // ---------------------------------------------------------------------------
 
-/** The renderable kind of a clip. Mirrors the engine's `clip_kind`. */
-export type ClipKind = 'video' | 'audio' | 'image' | 'text' | 'caption';
-
-// Synthetic asset ids for clips that have no media source. Kept in sync with
-// editor-core's `TEXT_OVERLAY_ASSET_ID` / `CAPTION_ASSET_ID` (inlined so this pure
-// selector module stays free of an editor-core dependency).
-const TEXT_OVERLAY_ASSET_ID = '__text__';
-const CAPTION_ASSET_ID = '__caption__';
+/** The renderable kind of a clip: editor-core's one definition, which the engine mirrors. */
+export type ClipKind = ClipRenderKind;
 
 /**
  * Derive a clip's renderable {@link ClipKind} from its asset (or synthetic id).
@@ -324,12 +320,7 @@ const CAPTION_ASSET_ID = '__caption__';
  * clips take their asset's `kind`, defaulting to `video` when the asset is unknown.
  */
 export function clipKind(clip: Clip, assetById: ReadonlyMap<string, Asset>): ClipKind {
-  if (clip.assetId === TEXT_OVERLAY_ASSET_ID) return 'text';
-  if (clip.assetId === CAPTION_ASSET_ID) return 'caption';
-  const kind = assetById.get(clip.assetId)?.kind;
-  if (kind === 'audio') return 'audio';
-  if (kind === 'image') return 'image';
-  return 'video';
+  return clipRenderKind(clip.assetId, assetById.get(clip.assetId)?.kind);
 }
 
 /**

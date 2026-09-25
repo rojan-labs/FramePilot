@@ -136,8 +136,8 @@ function carriesPicture(track: Track): boolean {
  * Touching edges do not count: butting a cutaway against the clip before it is
  * exactly what an editor does.
  *
- * A non-picture candidate — a text overlay (`__text__`), a caption
- * (`__caption__`), an audio bed — conflicts with nothing here by construction,
+ * A non-picture candidate — a text overlay, a caption, an audio bed —
+ * conflicts with nothing here by construction,
  * because those composite outside the picture chain and stacking them is the
  * whole reason layers exist.
  *

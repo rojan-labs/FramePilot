@@ -47,6 +47,12 @@ import {
 import { frameToSeconds, secondsToFrame } from './frame-grid.js';
 import { evaluateKeyframes } from './keyframes.js';
 import {
+  CAPTION_ASSET_ID,
+  TEXT_OVERLAY_ASSET_ID,
+  hasTimeBasedSource,
+  syntheticClipKind,
+} from './synthetic-assets.js';
+import {
   DEFAULT_TRANSITION_ALIGNMENT,
   TRANSITION_EFFECT_TYPE,
   TRANSITION_OUT_EFFECT_TYPE,
@@ -423,7 +429,7 @@ export interface TrackObjectOp {
  * null` clears any existing style back to unstyled; a value replaces it wholesale
  * (not merged) — mirrors `set_track_flags`'s "whole value, single axis" shape, so
  * the inverse is the same-shape op carrying the clip's prior style. Meaningful on
- * caption clips (`assetId === CAPTION_ASSET_ID`) but not restricted to them at the
+ * caption clips (`syntheticClipKind(assetId) === 'caption'`) but not restricted to them at the
  * op level, since the field lives on `Clip` generically (see schema v5 doc note).
  */
 export interface SetCaptionStyleOp {
@@ -443,7 +449,7 @@ export interface SetCaptionStyleOp {
  * merged), mirroring `set_caption_style`/`set_clip_crop`'s "whole value, single
  * axis" shape, so the inverse is the same-shape op carrying the prior cue.
  *
- * Meaningful on caption clips (`assetId === CAPTION_ASSET_ID`) but, like
+ * Meaningful on caption clips (`syntheticClipKind(assetId) === 'caption'`) but, like
  * `captionStyle`, not restricted to them at the op level since the field lives on
  * `Clip` generically.
  */
@@ -810,29 +816,6 @@ export type OperationType = Operation['type'];
  * (`blur` is the clip blur of `clip-blur.ts`, which a mask can limit like a grade).
  */
 export const SUPPORTED_COLOR_GRADE_EFFECTS = ['color_grade', 'lut', 'transform', 'blur'] as const;
-
-/** Synthetic asset ids used for clips that have no media source. */
-export const TEXT_OVERLAY_ASSET_ID = '__text__';
-export const CAPTION_ASSET_ID = '__caption__';
-
-/**
- * Does this clip draw from a real, time-based source?
- *
- * A video or an audio file has a timeline of its own, and a clip on it is a
- * WINDOW onto that timeline: `sourceStart` says where the window begins, and the
- * window cannot be dragged before the file starts. That constraint is what stops a
- * left-edge trim from asking for footage that does not exist.
- *
- * Text overlays and caption cues have no such source. They are generated at render
- * time from their own parameters, so every instant of them is as available as every
- * other, and `sourceStart: 0` on one of them means "nothing to say" rather than
- * "the file starts here". Treating that 0 as a real in-point is what made a text
- * overlay extendable forwards and immovable backwards: its earliest possible start
- * computed to exactly where it already was.
- */
-export function hasTimeBasedSource(clip: Clip): boolean {
-  return clip.assetId !== TEXT_OVERLAY_ASSET_ID && clip.assetId !== CAPTION_ASSET_ID;
-}
 
 /** Runtime type guard for a given operation kind. */
 export const isOperationOfType = <T extends OperationType>(
@@ -2179,7 +2162,7 @@ function applyAddTextOverlay(timeline: Timeline, op: AddTextOverlayOp): Timeline
  * still opens.
  */
 function assertCaptionTrack(assetId: string, track: Track, operation: string): void {
-  if (assetId !== CAPTION_ASSET_ID || track.type === 'caption') return;
+  if (syntheticClipKind(assetId) !== 'caption' || track.type === 'caption') return;
   throw new OperationError(
     'invalid_track',
     `${operation}: '${track.id}' is a ${track.type} track, and a caption cue only renders on a ` +

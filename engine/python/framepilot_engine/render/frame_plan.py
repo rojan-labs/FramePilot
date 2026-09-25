@@ -49,11 +49,10 @@ from framepilot_engine.timeline.models import (
     Track,
     TrackType,
 )
+from framepilot_engine.timeline.synthetic_assets import clip_render_kind, synthetic_clip_kind
 
 _log = logging.getLogger(__name__)
 
-TEXT_ASSET_ID = "__text__"
-CAPTION_ASSET_ID = "__caption__"
 PICTURE_KINDS = frozenset({"video", "image"})
 
 #: How close two clips must sit to count as one cut. See the compiler's note on ADR 0146.
@@ -100,16 +99,11 @@ class FramePlanError(ValueError):
 
 
 def clip_kind(clip: Clip, asset_kinds: Mapping[str, str | None]) -> str:
-    """Derive a clip's renderable kind from its asset (or synthetic id)."""
-    if clip.asset_id == TEXT_ASSET_ID:
-        return "text"
-    if clip.asset_id == CAPTION_ASSET_ID:
-        return "caption"
-    kind = asset_kinds.get(clip.asset_id)
-    if kind == "audio":
-        return "audio"
-    if kind == "image":
-        return "image"
+    """Derive a clip's renderable kind from its asset (or synthetic id).
+
+    ``timeline/synthetic_assets.py`` is the one definition; this keeps the renderer's name.
+    """
+    return clip_render_kind(clip.asset_id, asset_kinds.get(clip.asset_id))
     return "video"
 
 
@@ -439,7 +433,7 @@ IDENTITY_TITLE_ENVELOPE = TitleEnvelope()
 
 
 def _title_params(clip: Clip) -> Mapping[str, Any] | None:
-    if clip.asset_id != TEXT_ASSET_ID:
+    if synthetic_clip_kind(clip.asset_id) != "text":
         return None
     effect = next((e for e in clip.effects if e.type == "text"), None)
     return None if effect is None else effect.params

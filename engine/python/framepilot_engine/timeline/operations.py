@@ -46,6 +46,11 @@ from framepilot_engine.timeline.models import (
     Track,
     TrackType,
 )
+from framepilot_engine.timeline.synthetic_assets import (
+    CAPTION_ASSET_ID,
+    TEXT_OVERLAY_ASSET_ID,
+    has_time_based_source,
+)
 from framepilot_engine.timeline.transition_policy import transition_eligibility
 
 # Floating-point slack for time comparisons (mirrors the TS EPSILON).
@@ -53,10 +58,6 @@ _EPSILON = 1e-9
 
 # Effect types apply_color_grade is allowed to attach (mirrors TS).
 SUPPORTED_COLOR_GRADE_EFFECTS = ("color_grade", "lut", "transform", "blur")
-
-# Synthetic asset ids for clips that have no media source (mirrors TS).
-TEXT_OVERLAY_ASSET_ID = "__text__"
-CAPTION_ASSET_ID = "__caption__"
 
 
 class _Operation(BaseModel):
@@ -636,17 +637,6 @@ def _replace_clip_at(timeline: Timeline, loc: _ClipLocation, next_clip: Clip) ->
     return _with_track_clips(timeline, loc.track_index, clips)
 
 
-def _has_time_based_source(clip: Clip) -> bool:
-    """Does this clip draw from a real, time-based source?
-
-    Mirrors ``operations.ts#hasTimeBasedSource``. A text overlay or a caption cue is
-    generated at render time from its own parameters, so its ``source_start: 0`` means
-    "nothing to say" rather than "the file starts here" — treating that 0 as a real
-    in-point is what made an overlay extendable forwards and immovable backwards.
-    """
-    return clip.asset_id not in (TEXT_OVERLAY_ASSET_ID, CAPTION_ASSET_ID)
-
-
 def _clip_source_end(clip: Clip) -> float:
     """``clip.source_end``, defaulted to the 1:1 span the TS schema always stores."""
     return clip.source_end if clip.source_end is not None else clip.end - clip.start
@@ -837,7 +827,7 @@ def _truncate_clip(clip: Clip, new_start: float, new_end: float, clip_id: str) -
       backwards is invisible in the duration check and obvious in the picture.
     - **Forward, constant or ramped**: the integral mapping, with the ramp re-based.
     """
-    if not _has_time_based_source(clip):
+    if not has_time_based_source(clip):
         return _clone_clip(clip).model_copy(
             update={
                 "id": clip_id,

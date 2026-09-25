@@ -10304,7 +10304,7 @@ stickers, CC BY 4.0 (EL10).
   presets render (fixes the three live bugs)
 - [ ] **EL2b** Masks, edge styles and geometry transitions for stills and titles, with their first
   consumers (EL6b, EL7)
-- [ ] **EL3** One definition of synthetic asset ids and clip kind per runtime + guard tests
+- [~] **EL3** One definition of synthetic asset ids and clip kind per runtime + guard tests
 - [ ] **EL4a** Shapes minimum slice, complete (desktop): six shapes, Inspector, box/endpoint handles,
   export, undo, `add_shape`/`set_shape_style`, one eval case with a measured hit rate, one real run
 - [ ] **EL5** Shapes breadth: ~105 shapes / ~200 presets, chips, search, drag, badges, ~1,600 icons

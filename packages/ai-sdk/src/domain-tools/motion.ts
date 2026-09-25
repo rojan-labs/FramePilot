@@ -10,7 +10,7 @@
  * The resolver-backed `professional_motion` lives in `professional-motion.ts`.
  */
 import { z } from 'zod/v4';
-import { CAPTION_ASSET_ID, punchInKeyframes, type Easing } from '@framepilot/editor-core';
+import { punchInKeyframes, syntheticClipKind, type Easing } from '@framepilot/editor-core';
 import type { Keyframe, Timeline } from '@framepilot/timeline-schema';
 import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool } from './tool-factories.js';
@@ -42,7 +42,7 @@ function refuseCaptionKeyframes(timeline: Timeline, clipId: string): void {
   for (const track of timeline.tracks) {
     const clip = track.clips.find((c) => c.id === clipId);
     if (!clip) continue;
-    if (clip.assetId === CAPTION_ASSET_ID) {
+    if (syntheticClipKind(clip.assetId) === 'caption') {
       throw new ToolRefusalError(
         `"${clipId}" is a caption clip, and captions do not read transform keyframes — ` +
           'their motion comes from the caption style. Use set_track_caption_style (or ' +

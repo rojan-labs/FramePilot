@@ -291,23 +291,23 @@ holds and every row of [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md) is d
 
 ## 6. Ledger
 
-| Phase | Status | Notes                                                                  |
-| ----- | ------ | ---------------------------------------------------------------------- |
-| EL0   | `[~]`  | Scope review done 2026-09-26 (§7); MD-E6, MD-E7 and spike A open       |
-| EL1   | `[~]`  | Rename + Photos/Videos sub-tabs on `feat/elements`; MD-E7 decided      |
+| Phase | Status | Notes                                                                    |
+| ----- | ------ | ------------------------------------------------------------------------ |
+| EL0   | `[~]`  | Scope review done 2026-09-26 (§7); MD-E6, MD-E7 and spike A open         |
+| EL1   | `[~]`  | Rename + Photos/Videos sub-tabs on `feat/elements`; MD-E7 decided        |
 | EL2a  | `[~]`  | Export, plans, monitor, DOM overlay fixed on `feat/elements`; CI pending |
-| EL2b  | `[ ]`  | Lands with EL6b / EL7                                                  |
-| EL3   | `[ ]`  |                                                                        |
-| EL4a  | `[ ]`  |                                                                        |
-| EL5   | `[ ]`  |                                                                        |
-| EL6a  | `[ ]`  |                                                                        |
-| EL6b  | `[ ]`  |                                                                        |
-| EL7   | `[ ]`  |                                                                        |
-| EL8   | `[ ]`  |                                                                        |
-| EL9   | `[ ]`  |                                                                        |
-| EL10  | `[ ]`  | Optional; gated on MD-E3                                               |
-| EL11  | `[ ]`  |                                                                        |
-| EL12  | `[ ]`  |                                                                        |
+| EL2b  | `[ ]`  | Lands with EL6b / EL7                                                    |
+| EL3   | `[~]`  | One helper per runtime + guards on `feat/elements`; CI pending           |
+| EL4a  | `[ ]`  |                                                                          |
+| EL5   | `[ ]`  |                                                                          |
+| EL6a  | `[ ]`  |                                                                          |
+| EL6b  | `[ ]`  |                                                                          |
+| EL7   | `[ ]`  |                                                                          |
+| EL8   | `[ ]`  |                                                                          |
+| EL9   | `[ ]`  |                                                                          |
+| EL10  | `[ ]`  | Optional; gated on MD-E3                                                 |
+| EL11  | `[ ]`  |                                                                          |
+| EL12  | `[ ]`  |                                                                          |
 
 ---
 

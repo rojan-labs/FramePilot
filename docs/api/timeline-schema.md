@@ -157,7 +157,7 @@ validator).
 ## Caption style (schema v5)
 
 `Clip.captionStyle` is an optional, structured object — meaningful on caption-kind
-clips (created by `add_caption_layer`, `assetId === '__caption__'`), but modeled as
+clips (created by `add_caption_layer`, whose asset id is `CAPTION_ASSET_ID`), but modeled as
 a plain clip field rather than nested inside the caption `Effect`'s free-form
 `params`. Set/cleared with the `set_caption_style` operation (`packages/editor-core`).
 

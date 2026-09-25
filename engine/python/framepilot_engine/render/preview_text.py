@@ -22,6 +22,7 @@ import numpy as np
 
 from framepilot_engine.render.captions import render_caption_image
 from framepilot_engine.render.text_overlay import rasterize_text_overlay
+from framepilot_engine.timeline.synthetic_assets import CAPTION_ASSET_ID
 
 #: Largest output frame edge the route rasterises for (the export's own 8K ceiling).
 MAX_FRAME_EDGE = 8192
@@ -176,7 +177,7 @@ def styled_caption_raster(
         clip = Clip.model_validate(
             {
                 "id": "preview_caption",
-                "assetId": "__caption__",
+                "assetId": CAPTION_ASSET_ID,
                 "trackId": "preview_captions",
                 "start": clip_start,
                 "end": clip_end,

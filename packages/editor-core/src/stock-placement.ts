@@ -22,7 +22,7 @@
  */
 import type { Asset, Timeline, Track } from '@framepilot/timeline-schema';
 import type { AnyOperation } from './patch.js';
-import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID } from './operations.js';
+import { clipRenderKind } from './synthetic-assets.js';
 import {
   firstFreePictureStart,
   lastPictureEnd,
@@ -80,12 +80,7 @@ function stockKind(asset: Asset): StockKind {
  * from the bin reads as `video`, matching the renderer.
  */
 function clipKindOf(assetId: string, kindByAssetId: ReadonlyMap<string, Asset['kind']>): ClipKind {
-  if (assetId === TEXT_OVERLAY_ASSET_ID) return 'text';
-  if (assetId === CAPTION_ASSET_ID) return 'caption';
-  const kind = kindByAssetId.get(assetId);
-  if (kind === 'audio') return 'audio';
-  if (kind === 'image') return 'image';
-  return 'video';
+  return clipRenderKind(assetId, kindByAssetId.get(assetId));
 }
 
 /**

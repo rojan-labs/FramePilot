@@ -1,6 +1,6 @@
 """Text-overlay burn-in rasterization (render-vs-preview honesty fix).
 
-WHY: ``add_text_overlay`` stores a synthetic clip (``asset_id == "__text__"``)
+WHY: ``add_text_overlay`` stores a synthetic clip (``TEXT_OVERLAY_ASSET_ID``)
 carrying a single ``text`` effect whose ``params`` hold the authored ``text``
 (see ``packages/editor-core/src/operations.ts::applyAddTextOverlay`` and its
 Python mirror ``timeline/operations.py::_apply_add_text_overlay``). That op

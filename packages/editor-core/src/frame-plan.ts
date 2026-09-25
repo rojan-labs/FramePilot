@@ -39,7 +39,7 @@ import { getTransition } from '@framepilot/timeline-schema/transition-catalog';
 import { resolveCaptionCue } from './captions/cue.js';
 import { assetDisplaySize } from './mask-geometry.js';
 import { applyEasing, evaluateKeyframes } from './keyframes.js';
-import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID } from './operations.js';
+import { clipRenderKind, syntheticClipKind, type ClipRenderKind } from './synthetic-assets.js';
 import { hasSpeedRamp, sourceTimeAt } from './speed-curve.js';
 import {
   readAlignment,
@@ -442,15 +442,8 @@ function liveCatalogTransitions(
 // Shared decisions (mirrors frame_plan.py)
 // ---------------------------------------------------------------------------
 
-type RenderKind = 'video' | 'image' | 'audio' | 'text' | 'caption';
-
-function clipKindOf(clip: Clip, assetKinds: ReadonlyMap<string, string>): RenderKind {
-  if (clip.assetId === TEXT_OVERLAY_ASSET_ID) return 'text';
-  if (clip.assetId === CAPTION_ASSET_ID) return 'caption';
-  const kind = assetKinds.get(clip.assetId);
-  if (kind === 'audio') return 'audio';
-  if (kind === 'image') return 'image';
-  return 'video';
+function clipKindOf(clip: Clip, assetKinds: ReadonlyMap<string, string>): ClipRenderKind {
+  return clipRenderKind(clip.assetId, assetKinds.get(clip.assetId));
 }
 
 /** MoviePy's `is_playing` for a layer placed at `start` for `end - start` seconds. */
@@ -527,7 +520,7 @@ export interface TitleAnimationParams {
 const IDENTITY_TITLE_ENVELOPE: TitleEnvelope = { opacity: 1, dy: 0, scale: 1 };
 
 function titleParams(clip: Clip): Readonly<Record<string, unknown>> | null {
-  if (clip.assetId !== TEXT_OVERLAY_ASSET_ID) return null;
+  if (syntheticClipKind(clip.assetId) !== 'text') return null;
   return effectOfType(clip, 'text')?.params ?? null;
 }
 

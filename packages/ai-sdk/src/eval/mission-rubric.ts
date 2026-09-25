@@ -11,12 +11,11 @@
  */
 import type { Clip, Effect, Project, Track, TranscriptWord } from '@framepilot/timeline-schema';
 import {
-  CAPTION_ASSET_ID,
   COLOR_GRADE_PARAMETER_CONTRACTS,
-  TEXT_OVERLAY_ASSET_ID,
   TRANSITION_EFFECT_TYPE,
   TRANSITION_OUT_EFFECT_TYPE,
   coverageVerdict,
+  isSyntheticAssetId,
   repeatedSourcePairs,
   type ShapedClip,
   type SourceShape,
@@ -226,25 +225,18 @@ export function checkNoOverlaps(project: Project): RubricCheck {
   return { id: 'no-overlaps', ok: overlaps === 0, detail: `${overlaps} overlapping pair(s)` };
 }
 
-/** Asset ids that name no bin asset by design (ADR 0032). See {@link checkValidRefs}. */
-const SYNTHETIC_ASSET_IDS: ReadonlySet<string> = new Set([
-  CAPTION_ASSET_ID,
-  TEXT_OVERLAY_ASSET_ID,
-]);
-
 export function checkValidRefs(project: Project): RubricCheck {
   const assetIds = new Set(project.assets.map((a) => a.id));
   const dangling = project.timeline.tracks
     .flatMap((t) => t.clips)
-    // A caption clip's assetId is deliberately the sentinel CAPTION_ASSET_ID, and a text
-    // overlay's is TEXT_OVERLAY_ASSET_ID — synthetic ids for clips with no media source
-    // (ADR 0032), declared on consecutive lines of operations.ts. Neither is a bin asset,
-    // and flagging either as dangling scores a case against a ref rule that was never
-    // true of it. The caption half was fixed on 2026-09-04 after it capped every
-    // captioning case; the text half was left behind in the same edit, so any run that
-    // put a title on screen — which is most montage and hook cases — was still scored as
-    // having produced a broken timeline.
-    .filter((c) => !SYNTHETIC_ASSET_IDS.has(c.assetId) && !assetIds.has(c.assetId));
+    // A caption's or a text overlay's assetId is a synthetic id for a clip with no media
+    // source (ADR 0032). Neither is a bin asset, and flagging either as dangling scores a
+    // case against a ref rule that was never true of it. The caption half was fixed on
+    // 2026-09-04 after it capped every captioning case; the text half was left behind in
+    // the same edit, so any run that put a title on screen was still scored as having
+    // produced a broken timeline. Asking editor-core's one definition keeps a future
+    // synthetic kind from repeating that.
+    .filter((c) => !isSyntheticAssetId(c.assetId) && !assetIds.has(c.assetId));
   const badRanges = project.timeline.tracks
     .flatMap((t) => t.clips)
     .filter((c) => c.end <= c.start || c.sourceEnd <= c.sourceStart);

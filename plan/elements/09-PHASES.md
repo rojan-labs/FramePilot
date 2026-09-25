@@ -94,11 +94,11 @@ needs. No new user surface.
 - [x] **EL2a.4** Monitor: the image and text branches of the layer engine apply the plan's opacity,
       envelope and crop with the same own-alpha rule.
 - [~] **EL2a.5** Oracle rows: `stills/opacity-keyframes`, `stills/fade-in`, `stills/crop-cover`,
-      `stills/alpha-times-opacity`, `text/opacity`, `text/in-fade`, `text/in-slide-up`,
-      `text/out-pop`.
+  `stills/alpha-times-opacity`, `text/opacity`, `text/in-fade`, `text/in-slide-up`,
+  `text/out-pop`.
 - [~] **EL2a.6** Goldens regenerated where a fixture had such a still or title; ADR "A still is a
-      picture layer like any other"; `CHANGELOG.md` → Fixed (photos fade and crop, titles animate
-      in and out in the export).
+  picture layer like any other"; `CHANGELOG.md` → Fixed (photos fade and crop, titles animate
+  in and out in the export).
 
 **DoD:** each case in EL2a.1 gives the expected pixels in the export **and** the monitor; new
 oracle rows pass; vectors equal; no existing row regresses; CI green.
@@ -129,22 +129,32 @@ shadow, masking), geometry transitions (zoom, slide, wipe passes) with EL7 (In/O
 
 ---
 
-## EL3 — One definition of synthetic assets and clip kind per runtime `[ ]`
+## EL3 — One definition of synthetic assets and clip kind per runtime `[~]`
 
 **Ships:** a behaviour-neutral refactor. Adding `__shape__` must be a change to one module per
 runtime, not to 17 (00 G4).
 
-- [ ] **EL3.1** `packages/editor-core/src/synthetic-assets.ts`: `SYNTHETIC_ASSET_IDS`,
+- [x] **EL3.1** `packages/editor-core/src/synthetic-assets.ts`: `SYNTHETIC_ASSET_IDS`,
       `isSyntheticAssetId`, `hasTimeBasedSource`, `ClipRenderKind`, `clipRenderKind`,
       `laneTypeForKind`; unit tests. Python twin `timeline/synthetic_assets.py` (the render side
       imports it; `frame_plan.clip_kind` and `operations.py`'s `has_time_based_source` delegate).
-- [ ] **EL3.2** Replace every comparison in the 17 modules (00 G4 list), including
+- [x] **EL3.2** Replace every comparison in the 17 modules (00 G4 list), including
       `critic.ts:189` and `mission-rubric.ts:230`'s private `SYNTHETIC_ASSET_IDS` sets.
-- [ ] **EL3.3** A guard test per runtime that fails if `'__text__'`, `'__caption__'` or a
+- [x] **EL3.3** A guard test per runtime that fails if `'__text__'`, `'__caption__'` or a
       `=== TEXT_OVERLAY_ASSET_ID`-style comparison appears outside the helper module.
-- [ ] **EL3.4** `tests/fixtures/clip-kind.json`, read by a vitest and a pytest.
+- [x] **EL3.4** `tests/fixtures/clip-kind.json`, read by a vitest and a pytest.
 
 **DoD:** no output change (all tests green, oracle unchanged); the guard tests pass.
+
+**Evidence (2026-09-26).** Helper + twin: `synthetic-assets.ts`, `timeline/synthetic_assets.py`,
+both reading `tests/fixtures/clip-kind.json` (9 rows). Guards: `synthetic-assets.guard.test.ts`
+(TS, over `packages/` and `apps/`) and `test_synthetic_assets.py` (engine) both failed on the
+tree before the change and pass after. They found three sites the G4 list missed: desktop
+`main.ts` and web-editor `ai.ts` (comments; their bin-only filter already skips synthetic ids)
+and ai-sdk `picture-layers.ts` (a doc comment). All three are rows in 12 now. Tests: editor-core
+(operations, frame plan, parity, stock placement, masks), ai-sdk (critic, verify, project index,
+context builder, rubric, domain tools: 657), web-editor (selectors, builders: 367), engine
+(operations, compiler, frame plan, preview text, stills: 311). ADR 0032 amended.
 
 ---
 

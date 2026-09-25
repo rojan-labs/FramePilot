@@ -31,6 +31,7 @@ import {
   punchInKeyframes,
   resolveCaptionCue,
   splitClipRightId,
+  laneTypeForKind,
 } from '@framepilot/editor-core';
 import type {
   Asset,
@@ -50,7 +51,6 @@ import { findEffect, resolveParams } from '@framepilot/timeline-schema/effect-ca
 import { clampParamsForKind } from '@framepilot/timeline-schema/effect-params';
 import {
   assetKind,
-  type ClipKind,
   clipKind,
   downstreamClips,
   findClip,
@@ -1579,14 +1579,6 @@ export function moveLayerPatch(timeline: Timeline, layerId: string, toIndex: num
   };
 }
 
-/** Map a {@link ClipKind} to the advisory `track.type` of a layer that hosts it. */
-function layerTypeForKind(kind: ClipKind): Track['type'] {
-  if (kind === 'audio') return 'audio';
-  if (kind === 'caption') return 'caption';
-  if (kind === 'text') return 'overlay';
-  return 'video'; // video + image are picture layers
-}
-
 // One of three copies of this test lived here; it now uses the shared rule (and the
 // shared epsilon) from `@framepilot/editor-core`.
 const hasRoomFor = trackHasRoomFor;
@@ -1630,7 +1622,7 @@ export function placeAssetPatch(
 
   // No compatible layer → create a new one at the front and seed the clip onto it
   // as a two-op patch (add_layer then add_clip). Both ops invert together on undo.
-  const layerType = layerTypeForKind(kind);
+  const layerType = laneTypeForKind(kind);
   const layerId = nextLayerId(timeline, layerType);
   return {
     patchId: patchId(`place_${asset.id}_${layerId}_${ms(start)}`),
