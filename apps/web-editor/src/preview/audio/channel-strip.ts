@@ -42,6 +42,11 @@ export interface StripSettings {
 
 /** The strip once its normalize gain is measured: what the worklet runs. */
 export interface StripProgram {
+  /**
+   * The level the export reads the source at, before anything else (a mono file reaches the
+   * mix at -3 dB; `clip-audio.ts#exportStereoWeights`). 1 when absent.
+   */
+  readonly inputGain?: number;
   /** `volume=…dB` ahead of the filters, or 0 for none. */
   readonly normalizeGainDb: number;
   readonly bands: readonly StripBand[];
@@ -97,13 +102,14 @@ export function stripSettingsOf(params: Readonly<Record<string, unknown>>): Stri
  * truncated to int16), and `volumedetect` reports the loudest of those as dB to one decimal.
  * The gain is -1 dBFS minus that figure; a silent clip gets none.
  *
- * @param channels - The clip's samples, per channel, as the export reads them.
+ * @param channels - The clip's samples, per channel.
+ * @param inputGain - The level the export reads them at (see {@link StripProgram.inputGain}).
  */
-export function normalizeGainDb(channels: readonly Float32Array[]): number {
+export function normalizeGainDb(channels: readonly Float32Array[], inputGain = 1): number {
   let peak = 0;
   for (const channel of channels) {
     for (let i = 0; i < channel.length; i += 1) {
-      const clamped = Math.max(-0.99, Math.min(0.99, channel[i]!));
+      const clamped = Math.max(-0.99, Math.min(0.99, inputGain * channel[i]!));
       const quantized = Math.abs(Math.trunc(32768 * clamped));
       if (quantized > peak) peak = quantized;
     }
@@ -284,7 +290,7 @@ export class ChannelStrip {
     sampleRate: number,
     private readonly channelCount: number,
   ) {
-    this.level = 10 ** (program.normalizeGainDb / 20);
+    this.level = (program.inputGain ?? 1) * 10 ** (program.normalizeGainDb / 20);
     this.biquads = program.bands
       .map((band) => biquadFor(band, sampleRate))
       .filter((biquad): biquad is Biquad => biquad !== null);

@@ -165,4 +165,11 @@ describe('normalizeGainDb', () => {
   it('reads a silent clip as needing no gain', () => {
     expect(normalizeGainDb([new Float32Array(64)])).toBe(0);
   });
+
+  it('measures at the level the export reads the source', () => {
+    const channel = new Float32Array(64).fill(0.5);
+    // 0.5 is -6.0 dBFS; read at -3 dB (a mono source) it is -9.0, so normalizing takes +8.0.
+    expect(normalizeGainDb([channel])).toBeCloseTo(5, 9);
+    expect(normalizeGainDb([channel], Math.SQRT1_2)).toBeCloseTo(8, 9);
+  });
 });

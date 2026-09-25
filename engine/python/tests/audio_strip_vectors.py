@@ -238,6 +238,59 @@ def band_impulse(band: dict[str, Any]) -> dict[str, Any]:
     return {"band": band, "filter": filter_str, "response": [float(v) for v in response[:256]]}
 
 
+#: Channel counts ffmpeg has a default layout for, beyond stereo.
+DOWNMIX_COUNTS = (1, 3, 4, 5, 6, 7, 8)
+#: A level whose 16-bit reading keeps four significant digits of every weight.
+DOWNMIX_LEVEL = 0.9
+
+
+def downmix_weights(channels: int) -> dict[str, Any]:
+    """How MoviePy's reader hears each channel of an N-channel file: its left and right weight.
+
+    One file per source channel, lit alone at a constant level; `AudioFileClip` reads it as the
+    export does (2 channels, 16-bit), and the reading divided by the level is that channel's
+    column of ffmpeg's matrix.
+    """
+    from moviepy import AudioFileClip
+
+    left: list[float] = []
+    right: list[float] = []
+    with tempfile.TemporaryDirectory(prefix="fp-downmix-vectors-") as tmp:
+        for lit in range(channels):
+            samples = np.zeros((2 * SAMPLE_RATE, channels), dtype="<f4")
+            samples[:, lit] = DOWNMIX_LEVEL
+            path = Path(tmp) / f"lit-{lit}.wav"
+            subprocess.run(
+                [
+                    find_ffmpeg(),
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-f",
+                    "f32le",
+                    "-ar",
+                    str(SAMPLE_RATE),
+                    "-ac",
+                    str(channels),
+                    "-i",
+                    "-",
+                    "-c:a",
+                    "pcm_f32le",
+                    str(path),
+                ],
+                input=samples.tobytes(),
+                check=True,
+            )
+            reader = AudioFileClip(str(path))
+            try:
+                frame = np.asarray(reader.get_frame(np.linspace(0.5, 1.5, 16))).mean(axis=0)
+            finally:
+                reader.close()
+            left.append(round(float(frame[0]) / DOWNMIX_LEVEL, 6))
+            right.append(round(float(frame[1]) / DOWNMIX_LEVEL, 6))
+    return {"channels": channels, "left": left, "right": right}
+
+
 def document() -> dict[str, Any]:
     signal = test_signal()
     bands = [band for _, params in STRIPS for band in params.get("eq", {}).get("bands", [])]
@@ -251,6 +304,7 @@ def document() -> dict[str, Any]:
         "stride": STRIDE,
         "cases": [strip_case(name, params, signal) for name, params in STRIPS],
         "impulses": [band_impulse(band) for band in bands],
+        "downmix": [downmix_weights(channels) for channels in DOWNMIX_COUNTS],
     }
 
 

@@ -31,6 +31,11 @@ def test_stored_vectors_match_this_ffmpeg() -> None:
         for channel in ("left", "right"):
             error = np.max(np.abs(np.asarray(new[channel]) - np.asarray(old[channel])))
             assert error <= TOLERANCE, (new["name"], channel, error)
+    for new, old in zip(fresh["downmix"], stored["downmix"], strict=True):
+        assert new["channels"] == old["channels"]
+        for side in ("left", "right"):
+            # A 16-bit reading: each weight is known to about 1/29 000.
+            assert np.max(np.abs(np.asarray(new[side]) - np.asarray(old[side]))) < 1e-4
     for new, old in zip(fresh["impulses"], stored["impulses"], strict=True):
         assert new["filter"] == old["filter"]
         assert np.max(np.abs(np.asarray(new["response"]) - np.asarray(old["response"]))) < 1e-9

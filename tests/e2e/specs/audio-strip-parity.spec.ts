@@ -215,7 +215,9 @@ test.describe('channel strip: monitor worklet vs export filtergraph', () => {
       let error = 0;
       for (let n = 0; n < rendered.length; n += 7) {
         const t = n / rate;
-        const expected = t >= shot.start && t < shot.end ? level * mix.gainAt(t - shot.start) : 0;
+        // The source is mono, which the export reads as two channels at -3 dB each.
+        const heard = level * Math.SQRT1_2;
+        const expected = t >= shot.start && t < shot.end ? heard * mix.gainAt(t - shot.start) : 0;
         error = Math.max(error, Math.abs(rendered[n]! - expected));
       }
       return error;

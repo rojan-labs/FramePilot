@@ -18,6 +18,7 @@ import type { Asset, Clip, Timeline } from '@framepilot/timeline-schema';
 import type { AudioSegment } from '../clock/audio-clock.js';
 import { clipMix, sampleClipMix, AUTOMATION_GRID_SECONDS } from './mix-envelope.js';
 import {
+  exportStereoWeights,
   resampleAlong,
   soundingClips,
   sourceReadOf,
@@ -63,6 +64,12 @@ interface LoadedFile {
   readonly buffer: AudioBuffer | undefined;
 }
 
+/** A source as the export hears it: at most two channels, read at `inputGain`. */
+interface HeardSource {
+  readonly buffer: AudioBuffer;
+  readonly inputGain: number;
+}
+
 /** Adds the channel-strip worklet to a context (`channel-strip-module.ts`). */
 export type StripModuleLoader = (ctx: BaseAudioContext) => Promise<void>;
 
@@ -80,9 +87,14 @@ function gainParams(clip: Clip): Readonly<Record<string, unknown>> {
 export class ProgramAudio {
   private readonly files = new Map<string, LoadedFile>();
   private readonly loading = new Map<string, Promise<void>>();
-  private readonly resampled = new Map<string, AudioBuffer>();
+  private readonly resampled = new Map<string, { assetId: string; buffer: AudioBuffer }>();
   private resampledBytes = 0;
   private readonly normalizeGains = new Map<string, number>();
+  /** Each decoded source as the export hears it (see {@link heard}). */
+  private readonly heardSources = new WeakMap<AudioBuffer, HeardSource>();
+  /** A stable id per decoded source, so a relinked file never reuses another's derived audio. */
+  private readonly sourceIds = new WeakMap<AudioBuffer, number>();
+  private nextSourceId = 0;
   /** The context the strip worklet is running in; `null` once loading it has failed there. */
   private stripContext: BaseAudioContext | null | undefined;
 
@@ -108,6 +120,12 @@ export class ProgramAudio {
     }
     for (const [assetId, file] of [...this.files]) {
       if (wanted.get(assetId) !== file.url) this.files.delete(assetId);
+    }
+    const placed = new Set(timeline.tracks.flatMap((track) => track.clips.map((c) => c.assetId)));
+    for (const [key, entry] of [...this.resampled]) {
+      if (placed.has(entry.assetId)) continue;
+      this.resampled.delete(key);
+      this.resampledBytes -= bytesOf(entry.buffer);
     }
     const needsStrip = timeline.tracks.some((track) =>
       track.clips.some((clip) => stripSettingsOf(gainParams(clip)) !== null),
@@ -135,19 +153,23 @@ export class ProgramAudio {
       if (mix.muted) continue;
       const read = sourceReadOf(clip, sound.buffer.duration, sound.mirrorFrameSeconds);
       if (read.kind === 'silent') continue;
+      const buffer =
+        read.kind === 'rate' ? sound.buffer : this.resampledSound(clip, sound, read.sourceAt);
+      if (!buffer) continue;
+      const strip = this.stripFor(clip, { buffer, inputGain: sound.inputGain }, read, sound.id);
+      // The source's read level goes through the strip when there is one (its compressor and
+      // normalize measure the level the export reads), and into the fader otherwise.
+      const readGain = strip ? 1 : sound.inputGain;
       const local = segStart - clip.start;
       const timelineSeconds = clip.end - segStart;
       const gain = mix.varies
         ? {
-            curve: sampleClipMix(mix, local, clip.end - clip.start, AUTOMATION_GRID_SECONDS),
+            curve: scaled(
+              sampleClipMix(mix, local, clip.end - clip.start, AUTOMATION_GRID_SECONDS),
+              readGain,
+            ),
           }
-        : mix.gainAt(local);
-      const buffer =
-        read.kind === 'rate'
-          ? sound.buffer
-          : this.resampledSound(clip, sound.buffer, read.sourceAt);
-      if (!buffer) continue;
-      const strip = this.stripFor(clip, buffer, read);
+        : mix.gainAt(local) * readGain;
       const placed = { mediaStartUs: segStart * 1_000_000, gain, ...(strip ? { strip } : {}) };
       if (read.kind === 'rate') {
         segments.push({
@@ -178,13 +200,16 @@ export class ProgramAudio {
    */
   private stripFor(
     clip: Clip,
-    buffer: AudioBuffer,
+    heard: HeardSource,
     read: SourceRead,
+    sourceId: number,
   ): ((ctx: BaseAudioContext) => AudioNode) | undefined {
     const settings = stripSettingsOf(gainParams(clip));
     if (!settings || !this.stripContext) return undefined;
+    const { buffer, inputGain } = heard;
     const program: StripProgram = {
-      normalizeGainDb: settings.normalize ? this.normalizeFor(clip, buffer, read) : 0,
+      inputGain,
+      normalizeGainDb: settings.normalize ? this.normalizeFor(clip, heard, read, sourceId) : 0,
       bands: settings.bands,
       dynamics: settings.dynamics,
     };
@@ -205,7 +230,8 @@ export class ProgramAudio {
    * `peak_normalize_gain_db` over what the export measures: the clip's sound after its speed.
    * A forward clip is its source range; a resampled one is the buffer already built for it.
    */
-  private normalizeFor(clip: Clip, buffer: AudioBuffer, read: SourceRead): number {
+  private normalizeFor(clip: Clip, heard: HeardSource, read: SourceRead, sourceId: number): number {
+    const { buffer } = heard;
     const rate = buffer.sampleRate;
     const span = clip.end - clip.start;
     const from = read.kind === 'rate' ? Math.max(0, Math.round(clip.sourceStart * rate)) : 0;
@@ -214,12 +240,11 @@ export class ProgramAudio {
         ? Math.min(buffer.length, Math.round((clip.sourceStart + span * read.rate) * rate))
         : buffer.length;
     const key = JSON.stringify([
-      clip.assetId,
+      sourceId,
       read.kind,
       from,
       to,
-      rate,
-      buffer.length,
+      clip.end - clip.start,
       clip.speed ?? 1,
       clip.speedRamp ?? null,
     ]);
@@ -229,7 +254,7 @@ export class ProgramAudio {
     for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
       channels.push(buffer.getChannelData(channel).subarray(from, Math.max(from, to)));
     }
-    const gain = normalizeGainDb(channels);
+    const gain = normalizeGainDb(channels, heard.inputGain);
     this.normalizeGains.set(key, gain);
     return gain;
   }
@@ -255,47 +280,96 @@ export class ProgramAudio {
     clip: Clip,
     kind: 'video' | 'audio',
     input: ProgramAudioInput,
-  ): { buffer: AudioBuffer; mirrorFrameSeconds: number } | undefined {
+  ): (HeardSource & { id: number; mirrorFrameSeconds: number }) | undefined {
+    let decoded: AudioBuffer | undefined;
+    let mirrorFrameSeconds = 1 / AUDIO_READER_FPS;
     if (kind === 'video') {
       const footage = input.footage(clip.assetId);
-      if (!footage) return undefined;
-      return { buffer: footage.buffer, mirrorFrameSeconds: 1 / footage.frameRate };
+      decoded = footage?.buffer;
+      if (footage) mirrorFrameSeconds = 1 / footage.frameRate;
+    } else {
+      decoded = this.files.get(clip.assetId)?.buffer;
     }
-    const buffer = this.files.get(clip.assetId)?.buffer;
-    return buffer ? { buffer, mirrorFrameSeconds: 1 / AUDIO_READER_FPS } : undefined;
+    if (!decoded) return undefined;
+    const heard = this.heard(decoded);
+    if (!heard) return undefined;
+    return { ...heard, id: this.sourceId(decoded), mirrorFrameSeconds };
+  }
+
+  /**
+   * `decoded` as the export hears it (`exportStereoWeights`). Mono stays one channel read at -3 dB
+   * (Web Audio duplicates it into both sides, as the matrix does); more than two channels fold
+   * into a stereo buffer once, which is also smaller than the source.
+   */
+  private heard(decoded: AudioBuffer): HeardSource | undefined {
+    const known = this.heardSources.get(decoded);
+    if (known) return known;
+    const channels = decoded.numberOfChannels;
+    const weights = exportStereoWeights(channels);
+    let heard: HeardSource;
+    if (!weights || channels === 2) {
+      heard = { buffer: decoded, inputGain: 1 };
+    } else if (channels === 1) {
+      heard = { buffer: decoded, inputGain: weights[0][0]! };
+    } else {
+      const ctx = this.context();
+      if (!ctx) return undefined;
+      const stereo = ctx.createBuffer(2, decoded.length, decoded.sampleRate);
+      const sources = Array.from({ length: channels }, (_, c) => decoded.getChannelData(c));
+      weights.forEach((row, side) => {
+        const out = new Float32Array(decoded.length);
+        row.forEach((weight, c) => {
+          if (weight === 0) return;
+          const source = sources[c]!;
+          for (let n = 0; n < out.length; n += 1) out[n] = out[n]! + weight * source[n]!;
+        });
+        stereo.copyToChannel(out, side);
+      });
+      heard = { buffer: stereo, inputGain: 1 };
+    }
+    this.heardSources.set(decoded, heard);
+    return heard;
+  }
+
+  private sourceId(decoded: AudioBuffer): number {
+    let id = this.sourceIds.get(decoded);
+    if (id === undefined) {
+      id = this.nextSourceId++;
+      this.sourceIds.set(decoded, id);
+    }
+    return id;
   }
 
   /** The whole clip's sound resampled along its time map, cached by what shapes it. */
   private resampledSound(
     clip: Clip,
-    source: AudioBuffer,
+    source: HeardSource & { id: number },
     sourceAt: (local: number) => number,
   ): AudioBuffer | undefined {
     const ctx = this.context();
     if (!ctx) return undefined;
     const key = JSON.stringify([
-      clip.assetId,
+      source.id,
       clip.sourceStart,
       clip.sourceEnd,
       clip.end - clip.start,
       clip.speed ?? 1,
       clip.speedRamp ?? null,
-      source.sampleRate,
-      source.length,
     ]);
     const cached = this.resampled.get(key);
     if (cached) {
       this.resampled.delete(key);
       this.resampled.set(key, cached);
-      return cached;
+      return cached.buffer;
     }
-    const frames = Math.max(1, Math.ceil((clip.end - clip.start) * source.sampleRate));
-    const buffer = ctx.createBuffer(source.numberOfChannels, frames, source.sampleRate);
-    for (let channel = 0; channel < source.numberOfChannels; channel += 1) {
+    const { buffer: heard } = source;
+    const frames = Math.max(1, Math.ceil((clip.end - clip.start) * heard.sampleRate));
+    const buffer = ctx.createBuffer(heard.numberOfChannels, frames, heard.sampleRate);
+    for (let channel = 0; channel < heard.numberOfChannels; channel += 1) {
       buffer.copyToChannel(
         resampleAlong(
-          source.getChannelData(channel),
-          source.sampleRate,
+          heard.getChannelData(channel),
+          heard.sampleRate,
           clip.sourceStart,
           sourceAt,
           0,
@@ -304,18 +378,18 @@ export class ProgramAudio {
         channel,
       );
     }
-    this.remember(key, buffer);
+    this.remember(key, clip.assetId, buffer);
     return buffer;
   }
 
-  private remember(key: string, buffer: AudioBuffer): void {
-    const bytes = buffer.length * buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT;
+  private remember(key: string, assetId: string, buffer: AudioBuffer): void {
+    const bytes = bytesOf(buffer);
     for (const [oldest, entry] of this.resampled) {
       if (this.resampledBytes + bytes <= MAX_RESAMPLED_BYTES) break;
       this.resampled.delete(oldest);
-      this.resampledBytes -= entry.length * entry.numberOfChannels * Float32Array.BYTES_PER_ELEMENT;
+      this.resampledBytes -= bytesOf(entry.buffer);
     }
-    this.resampled.set(key, buffer);
+    this.resampled.set(key, { assetId, buffer });
     this.resampledBytes += bytes;
   }
 
@@ -350,4 +424,14 @@ async function defaultFetchBytes(url: string): Promise<ArrayBuffer> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Failed to load audio ${url}: ${response.status}`);
   return response.arrayBuffer();
+}
+
+function bytesOf(buffer: AudioBuffer): number {
+  return buffer.length * buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT;
+}
+
+function scaled(curve: Float32Array, factor: number): Float32Array {
+  if (factor === 1) return curve;
+  for (let i = 0; i < curve.length; i += 1) curve[i] = curve[i]! * factor;
+  return curve;
 }

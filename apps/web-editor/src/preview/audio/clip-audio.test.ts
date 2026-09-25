@@ -7,7 +7,13 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Clip, Timeline } from '@framepilot/timeline-schema';
-import { resampleAlong, soundingClips, sourceReadOf, type SoundKind } from './clip-audio.js';
+import {
+  exportStereoWeights,
+  resampleAlong,
+  soundingClips,
+  sourceReadOf,
+  type SoundKind,
+} from './clip-audio.js';
 
 interface ReadCase {
   readonly name: string;
@@ -107,5 +113,32 @@ describe('resampleAlong', () => {
     expect(out[0]).toBe(0);
     expect(out[5]).toBe(1);
     expect(out[29]).toBe(0);
+  });
+});
+
+describe('exportStereoWeights matches how the export reads every channel count', () => {
+  const DOWNMIX = (
+    JSON.parse(
+      readFileSync(path.join(REPO, 'tests', 'fixtures', 'audio-mix', 'strips.json'), 'utf8'),
+    ) as { downmix: { channels: number; left: number[]; right: number[] }[] }
+  ).downmix;
+  /** MoviePy's reading is 16-bit: a weight is known to about 1/29 000. */
+  const READ_TOLERANCE = 5e-5;
+
+  it.each(DOWNMIX.map((entry) => [entry.channels, entry] as const))(
+    '%i channels',
+    (channels, entry) => {
+      const weights = exportStereoWeights(channels)!;
+      entry.left.forEach((w, c) =>
+        expect(Math.abs(weights[0][c]! - w)).toBeLessThan(READ_TOLERANCE),
+      );
+      entry.right.forEach((w, c) =>
+        expect(Math.abs(weights[1][c]! - w)).toBeLessThan(READ_TOLERANCE),
+      );
+    },
+  );
+
+  it('leaves stereo as it is', () => {
+    expect(exportStereoWeights(2)).toBeNull();
   });
 });

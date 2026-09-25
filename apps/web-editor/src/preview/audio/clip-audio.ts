@@ -160,3 +160,62 @@ export function resampleAlong(
   }
   return out;
 }
+
+// --- channels ----------------------------------------------------------------------------------
+
+const HALF_POWER = Math.SQRT1_2;
+
+/**
+ * ffmpeg's default stereo matrix for an N-channel source, left and right weights per channel,
+ * before normalization: `swresample`'s rematrix for the default layout of each count (mono;
+ * 2.1; 4.0; 5.0; 5.1; 6.1; 7.1). The centre and side/back pairs fold in at half power, a back
+ * centre at half amplitude, and the LFE is dropped.
+ */
+const STEREO_WEIGHTS: Readonly<Record<number, readonly [readonly number[], readonly number[]]>> = {
+  1: [[HALF_POWER], [HALF_POWER]],
+  3: [
+    [1, 0, 0],
+    [0, 1, 0],
+  ],
+  4: [
+    [1, 0, HALF_POWER, 0.5],
+    [0, 1, HALF_POWER, 0.5],
+  ],
+  5: [
+    [1, 0, HALF_POWER, HALF_POWER, 0],
+    [0, 1, HALF_POWER, 0, HALF_POWER],
+  ],
+  6: [
+    [1, 0, HALF_POWER, 0, HALF_POWER, 0],
+    [0, 1, HALF_POWER, 0, 0, HALF_POWER],
+  ],
+  7: [
+    [1, 0, HALF_POWER, 0, 0.5, HALF_POWER, 0],
+    [0, 1, HALF_POWER, 0, 0.5, 0, HALF_POWER],
+  ],
+  8: [
+    [1, 0, HALF_POWER, 0, HALF_POWER, 0, HALF_POWER, 0],
+    [0, 1, HALF_POWER, 0, 0, HALF_POWER, 0, HALF_POWER],
+  ],
+};
+
+/**
+ * How the export hears an N-channel source: MoviePy reads every file as 2 channels of 16-bit
+ * audio (`-ac 2`), so ffmpeg folds it with its default matrix, scaled so no output exceeds unity
+ * (16-bit output is clipped, so swresample normalizes). A mono file therefore reaches the mix at
+ * -3 dB in each channel, and a 5.1 file at 1/2.414 of its front pair. Web Audio's own speaker
+ * mixing plays mono at unity and folds 5.1 without normalizing, 3 and 7.7 dB louder.
+ *
+ * @returns The left and right weights per source channel, or `null` for stereo (or a count ffmpeg
+ *   has no default layout for, which then plays as Web Audio mixes it).
+ */
+export function exportStereoWeights(
+  channelCount: number,
+): readonly [readonly number[], readonly number[]] | null {
+  const weights = STEREO_WEIGHTS[channelCount];
+  if (!weights) return null;
+  const [left, right] = weights;
+  const sum = (row: readonly number[]): number => row.reduce((total, w) => total + w, 0);
+  const scale = Math.max(1, sum(left), sum(right));
+  return [left.map((w) => w / scale), right.map((w) => w / scale)];
+}

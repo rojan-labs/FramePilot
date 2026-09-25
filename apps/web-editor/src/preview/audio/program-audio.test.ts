@@ -149,6 +149,45 @@ describe('ProgramAudio.segmentsFrom', () => {
   });
 });
 
+describe('ProgramAudio hears a source as the export reads it', () => {
+  const heardThrough = (source: FakeBuffer) => {
+    const audio = new ProgramAudio(() => fakeContext);
+    const timeline = timelineOf({
+      id: 'v',
+      type: 'video',
+      clips: [clip('shot', 'cam')],
+    } as Timeline['tracks'][number]);
+    return audio.segmentsFrom(
+      { ...input(timeline), footage: () => ({ buffer: asBuffer(source), frameRate: 25 }) },
+      0,
+    )[0]!;
+  };
+
+  it('reads a mono source at -3 dB, as ffmpeg splits it into two channels', () => {
+    const segment = heardThrough(new FakeBuffer(1, 10 * RATE, RATE, () => 0.5));
+    expect(segment.buffer.numberOfChannels).toBe(1);
+    expect(segment.gain).toBeCloseTo(Math.SQRT1_2, 12);
+  });
+
+  it('folds 5.1 to stereo with ffmpeg’s normalized matrix, dropping the LFE', () => {
+    // Channel c carries c + 1: FL 1, FR 2, FC 3, LFE 4, BL 5, BR 6.
+    const source = new FakeBuffer(6, 10 * RATE, RATE);
+    for (let c = 0; c < 6; c += 1) source.getChannelData(c).fill(c + 1);
+    const segment = heardThrough(source);
+    const scale = 1 + 2 * Math.SQRT1_2;
+    expect(segment.buffer.numberOfChannels).toBe(2);
+    expect(segment.gain).toBe(1);
+    expect(segment.buffer.getChannelData(0)[0]).toBeCloseTo(
+      (1 + Math.SQRT1_2 * (3 + 5)) / scale,
+      5,
+    );
+    expect(segment.buffer.getChannelData(1)[0]).toBeCloseTo(
+      (2 + Math.SQRT1_2 * (3 + 6)) / scale,
+      5,
+    );
+  });
+});
+
 describe('ProgramAudio.retain', () => {
   const assets = [
     { id: 'song', kind: 'audio', path: 'song.wav' },
