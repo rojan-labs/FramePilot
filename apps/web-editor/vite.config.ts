@@ -120,6 +120,11 @@ export default defineConfig({
         'src/preview/spike/harness.ts',
         'src/preview/spike/main.ts',
         'src/preview/engine/webcodecs-preview-engine.ts',
+        // The channel strip's AudioWorklet host and loader (ADR 0188): AudioWorkletGlobalScope
+        // and `audioWorklet.addModule` exist only in a browser, so the audio-strip-parity
+        // Playwright spec runs them. The DSP they host (channel-strip.ts) is unit-tested.
+        'src/preview/audio/channel-strip.worklet.ts',
+        'src/preview/audio/channel-strip-module.ts',
       ],
     },
   },
