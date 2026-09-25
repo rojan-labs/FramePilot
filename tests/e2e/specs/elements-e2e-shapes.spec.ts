@@ -1,0 +1,136 @@
+/**
+ * Elements · Shapes end to end (plan/elements EL4a): add a highlight box from the Shapes tab,
+ * resize it on the monitor, recolour it in the Inspector, export, check the monitor draws what the
+ * export draws, and undo it all.
+ *
+ * What is real: the editor (Elements → Shapes, the monitor handles, the Inspector's Shape
+ * section, History), the engine's shape rasteriser behind the monitor (the sidecar's
+ * `/preview/text-raster` with `kind: "shape"`), and the export (`render()` with validation), read
+ * back through the same parity gates as the PX4 oracle.
+ *
+ * SIMULATED, and why: Electron and `fp-media://` (see `masking/fake-desktop.ts`); the Photos tab's
+ * Pexels calls, which this spec never makes, are not served by the fake host.
+ *
+ * CI ONLY (`elements-e2e` job): it renders.
+ */
+import { expect, test } from '@playwright/test';
+import {
+  attachDiagnostics,
+  clip,
+  clipsById,
+  expectValidExport,
+  openInDesktop,
+  project,
+  savedProject,
+  sidecarUrl,
+  video,
+  type OpenedEditor,
+} from './masking/session.js';
+import { expectPreviewMatchesExport } from './masking/parity.js';
+import { Workspace } from './masking/workspace.js';
+import type { Project } from '../../../packages/timeline-schema/dist/index.js';
+
+const SECONDS = 3;
+const NAME = 'Elements shapes';
+
+const shapesOf = (document: Project) =>
+  [...clipsById(document).values()].filter((entry) => entry.assetId === '__shape__');
+const paramsOf = (document: Project, clipId: string) =>
+  clipsById(document)
+    .get(clipId)
+    ?.effects.find((effect) => effect.type === 'shape')?.params;
+
+let opened: OpenedEditor | undefined;
+test.afterEach(async ({}, testInfo) => {
+  if (opened !== undefined) await attachDiagnostics(testInfo, opened);
+  opened = undefined;
+});
+
+test('Shapes: add a highlight box, resize it on the monitor, recolour it, export, undo', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(5 * 60_000);
+  const workspace = await Workspace.create('elements-shapes');
+  await workspace.media([video('bg', 'blue', SECONDS)]);
+  await workspace.writeProject(
+    project({
+      id: 'elements_shapes',
+      name: NAME,
+      videos: [{ id: 'bg', seconds: SECONDS }],
+      tracks: [
+        {
+          id: 'video_1',
+          type: 'video',
+          clips: [clip('video_1', { id: 'clip_bg', assetId: 'bg', start: 0, end: SECONDS })],
+        },
+      ],
+    }),
+  );
+  opened = await openInDesktop(page, testInfo, { workspace, sidecarUrl: sidecarUrl() }, NAME);
+  const { desktop } = opened;
+
+  // --- add: one click on the tile, one shape at the playhead, selected --------------------------
+  await page.getByRole('tab', { name: 'Elements', exact: true }).click();
+  await page
+    .getByRole('tablist', { name: 'Elements', exact: true })
+    .getByRole('tab', { name: 'Shapes', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Add Highlight box', exact: true }).click();
+  const added = await savedProject(desktop, (doc) => shapesOf(doc).length === 1, 'one shape');
+  const shape = shapesOf(added)[0]!;
+  expect(shape.start).toBe(0);
+  expect(paramsOf(added, shape.id)).toMatchObject({
+    shape: 'rounded-rect',
+    stroke: '#FFD400',
+    width: 48,
+    height: 27,
+  });
+
+  // --- resize on the monitor: one drag of a corner handle, one patch ----------------------------
+  const corner = page.getByRole('button', {
+    name: `resize shape ${shape.id} from se`,
+    exact: true,
+  });
+  await expect(corner).toBeVisible();
+  const start = (await corner.boundingBox())!;
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(start.x + start.width / 2 + 40, start.y + start.height / 2 + 24, {
+    steps: 10,
+  });
+  await page.mouse.up();
+  const resized = await savedProject(
+    desktop,
+    (doc) => {
+      const params = paramsOf(doc, shape.id);
+      return params !== undefined && Number(params.width) > 48 && Number(params.height) > 27;
+    },
+    'the shape resized from its corner',
+  );
+  expect(shapesOf(resized)).toHaveLength(1);
+
+  // --- recolour in the Inspector: one patch --------------------------------------------------------
+  await page.getByRole('tab', { name: 'Inspector', exact: true }).click();
+  await page.getByLabel('shape stroke color', { exact: true }).fill('#ff3b30');
+  await savedProject(
+    desktop,
+    (doc) => paramsOf(doc, shape.id)?.stroke === '#ff3b30',
+    'the shape recoloured red',
+  );
+
+  // --- export: valid, and the monitor draws the engine's own pixels -------------------------------
+  expectValidExport(await workspace.export('shapes.mp4'), SECONDS);
+  await expectPreviewMatchesExport(page, workspace, [0.5, 1.5], 'shapes', testInfo);
+
+  // --- undo: recolour, resize, add — the shape is gone and the footage untouched ------------------
+  const undo = page
+    .getByRole('toolbar', { name: 'editor tools', exact: true })
+    .getByRole('button', { name: 'Undo', exact: true });
+  for (let step = 0; step < 3; step += 1) await undo.click();
+  const undone = await savedProject(
+    desktop,
+    (doc) => shapesOf(doc).length === 0,
+    'the project with the shape undone',
+  );
+  expect(clipsById(undone).get('clip_bg')).toMatchObject({ start: 0, end: SECONDS });
+});

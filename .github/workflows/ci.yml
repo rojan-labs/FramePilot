@@ -426,6 +426,61 @@ jobs:
             reports/e2e
             reports/e2e-results
 
+  # ── Elements end to end (plan/elements EL4a) ───────────────────────────────────────────────
+  # The masking job's harness (fake desktop in real Chrome + the real engine sidecar) driving the
+  # Shapes flow: add from the Elements tab, resize on the monitor, recolour, export, the monitor
+  # compared with the export at the PX4 gates, undo. Stickers join in EL6a.
+  elements-e2e:
+    name: Elements end to end (shapes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: pnpm install --frozen-lockfile
+      - name: Sync engine dependencies
+        working-directory: engine/python
+        run: uv sync --extra dev
+      - run: pnpm build
+      - name: Install Google Chrome for Playwright
+        run: pnpm --filter @framepilot/e2e exec playwright install --with-deps --force chrome
+      - name: Start the engine sidecar (sandboxed to the specs' workspaces, as the desktop does)
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/tests/e2e/.tmp-masking-e2e"
+          cd engine/python
+          FRAMEPILOT_PROJECTS_ROOT="$GITHUB_WORKSPACE/tests/e2e/.tmp-masking-e2e" \
+            nohup uv run framepilot serve --host 127.0.0.1 --port 8799 > "$RUNNER_TEMP/sidecar.log" 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8799/health && break; sleep 1; done
+      - name: Run the Elements end-to-end specs
+        env:
+          MASKING_E2E_SIDECAR_URL: http://127.0.0.1:8799
+        run: pnpm --filter @framepilot/e2e test:elements
+      - name: Collect the sidecar log
+        if: always()
+        run: cp "$RUNNER_TEMP/sidecar.log" reports/e2e-results/elements-sidecar.log || true
+      - name: Upload the Elements end-to-end report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: elements-e2e-report
+          path: |
+            reports/e2e
+            reports/e2e-results
+
   # ── E2E.7: a project with masks, mattes and tracks moves between macOS and Windows ────────
   # plan/background-removal-ai/07 E2E.7 (audit P14). The folder is built, exported and its
   # reference frames recorded on one OS (`tests.masking_archive create`), handed over as an
