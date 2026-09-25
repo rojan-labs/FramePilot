@@ -441,4 +441,35 @@ describe('check_caption_legibility — captions that do not read are named, with
   it('refuses an answer without its cues', () => {
     expect(unwrapCaptionLegibility({ threshold: 3 }).status).toBe('failed');
   });
+
+  it('reports every cue’s rows and any wider than the frame (run fb90e58d)', () => {
+    // Asked twice for "no more than 2 rows", the run could only look at two frames. The
+    // layout half covers the whole track: its final state had cues on up to five rows.
+    const outcome = unwrapCaptionLegibility({
+      threshold: 3,
+      cues: [{ time: 1, clipId: 'c', text: 'ok', contrast: 9, legible: true }],
+      layout: [
+        { time: 0.067, clipId: 'a', text: 'Today we are talking', rows: 3, widthFraction: 0.78 },
+        { time: 0.867, clipId: 'b', text: 'about mastering\nmotion design.', rows: 4, widthFraction: 0.86 },
+        { time: 5.033, clipId: 'c', text: 'stop scrolling,', rows: 2, widthFraction: 0.91 },
+        { time: 8.433, clipId: 'd', text: 'I call this the\nmotion archetype.', rows: 4, widthFraction: 1.33 },
+      ],
+    });
+    expect(outcome.summary).toBe(
+      'All 1 sampled caption(s) read against the picture; 4 cue(s) wrap to at most 4 rows, 1 wider than the frame',
+    );
+    const reading = (outcome.data as { reading: string }).reading;
+    expect(reading).toContain('Layout of all 4 cue(s) as the export draws them: 1 on 2 rows, 1 on 3 rows, 2 on 4 rows.');
+    expect(reading).toContain('The most is 4: 0.867s "about mastering motion design."; 8.433s "I call this the motion archetype."');
+    expect(reading).toContain('8.433s "I call this the motion archetype." at 133% of the width');
+  });
+
+  it('adds nothing about layout when the engine sent none', () => {
+    const outcome = unwrapCaptionLegibility({
+      threshold: 3,
+      cues: [{ time: 1, clipId: 'c', text: 'ok', contrast: 9, legible: true }],
+    });
+    expect(outcome.summary).toBe('All 1 sampled caption(s) read against the picture');
+    expect((outcome.data as { reading: string }).reading).not.toContain('Layout of');
+  });
 });

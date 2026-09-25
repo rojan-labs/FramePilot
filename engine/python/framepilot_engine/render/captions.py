@@ -267,6 +267,62 @@ def render_caption_raster(
     return _render_styled_caption(text, frame_width, frame_height, style, words or [], frame_time)
 
 
+@dataclass(frozen=True)
+class CaptionLayout:
+    """How one cue lays out on the delivered frame — what the export would draw.
+
+    Measured without drawing, from the renderer's own layout pass, so a check can
+    answer "how many rows?" and "does it fit?" for every cue of a track at once.
+    """
+
+    #: Rows of text the cue wraps to (1 in a one-word display).
+    rows: int
+    #: Width of the caption's own box — its text plus chip padding — in pixels.
+    box_width: int
+    #: Width of the frame it is laid out on, in pixels.
+    frame_width: int
+
+    @property
+    def overflows(self) -> bool:
+        """Whether the box is wider than the frame: some of it cannot be seen."""
+        return self.box_width > self.frame_width
+
+
+def measure_caption_layout(
+    text: str,
+    frame_width: int,
+    frame_height: int,
+    *,
+    style: CaptionStyle | None = None,
+    words: Sequence[TranscriptWord] | None = None,
+) -> CaptionLayout:
+    """Lay ``text`` out as :func:`render_caption_raster` would, and measure it.
+
+    :param text: The caption text (non-empty).
+    :param frame_width: Delivered frame width in pixels.
+    :param frame_height: Delivered frame height in pixels (scales the font).
+    :param style: The cue's resolved caption style; ``None`` is the unstyled baseline.
+    :param words: The cue's timed words, as the renderer receives them.
+    :returns: The rows the cue wraps to and the width of its box.
+    :raises ValueError: If ``text`` is empty/whitespace.
+    """
+    if not text.strip():
+        raise ValueError("Cannot measure an empty caption.")
+    if style is None:
+        font_size = _font_size_for(frame_height)
+        font = ImageFont.load_default(size=font_size)
+        pad = int(font_size * _BOX_PAD_FRACTION)
+        lines = wrap_lines(text.split(), font, int(frame_width * _MAX_WIDTH_FRACTION) - 2 * pad)
+        image = _render_baseline_caption_image(text, frame_width, frame_height)
+        return CaptionLayout(rows=len(lines), box_width=image.shape[1], frame_width=frame_width)
+    layout = _layout_styled_caption(text, frame_width, frame_height, style, words or [], 0.0)
+    return CaptionLayout(
+        rows=len(layout.lines),
+        box_width=layout.block_w + 2 * layout.pad_x,
+        frame_width=frame_width,
+    )
+
+
 def _render_baseline_caption_image(text: str, frame_width: int, frame_height: int) -> np.ndarray:
     """The pre-v5 deterministic baseline: translucent box, centered white text.
 
@@ -1244,29 +1300,42 @@ def _visible_indices(plans: Sequence[_TokenPlan], display: str, frame_time: floa
     return {p.index for p in plans}
 
 
-def _render_styled_caption(
+@dataclass(frozen=True)
+class _StyledLayout:
+    """One cue's styled layout, computed once from the FULL phrase.
+
+    Shared by the renderer and :func:`measure_caption_layout`, so the rows a check
+    reports are the rows the export draws — never a second reading of the same rules.
+    """
+
+    resolved: _ResolvedStyle
+    font_size: int
+    spacing_px: float
+    stroke: int
+    plans: list[_TokenPlan]
+    display: str
+    space_width: float
+    pad_x: int
+    pad_y: int
+    visible: set[int]
+    text_align: str
+    line_gap: int
+    lines: list[list[_TokenPlan]]
+    line_dims: list[tuple[float, int, int]]
+    block_w: int
+    chip_w: int
+    block_h: int
+
+
+def _layout_styled_caption(
     text: str,
     frame_width: int,
     frame_height: int,
     style: CaptionStyle,
     words: Sequence[TranscriptWord],
     frame_time: float,
-) -> CaptionRaster:
-    """Render ``text`` via the data-driven template interpreter (schema v10).
-
-    Layout is computed once from the FULL phrase (canvas-size invariant, see
-    module docstring); the display mode then selects which planned words are
-    drawn at ``frame_time``, the emphasis interpreter styles the active word,
-    and entrance/loop math perturbs per-word or whole-image geometry.
-
-    Paint order, bottom to top: the line's chip (with its glass edge), the
-    active-word chips, the shadow, the glow, the letters. With see-through
-    letters (``textOpacity`` < 1, schema v24) the letters are split from their
-    outline ring: the shadow is knocked out wherever a letter is, the ring stays
-    at full strength outside the letters, and only the letter fill is made
-    translucent — so what shows through a letter is the chip or the picture,
-    never the caption's own outline or shadow.
-    """
+) -> _StyledLayout:
+    """Lay ``text`` out for the styled renderer: font size, token plans, wrapped lines."""
     resolved = _resolve_style(style)
     font_size = max(_MIN_FONT_SIZE, int(frame_height * _FONT_HEIGHT_FRACTION * resolved.font_scale))
     spacing_px = resolved.letter_spacing * font_size
@@ -1325,6 +1394,67 @@ def _render_styled_caption(
         block_w = int(max(w for w, _, _ in line_dims))
         chip_w = block_w
     block_h = sum(a + d for _, a, d in line_dims) + line_gap * (len(lines) - 1)
+    return _StyledLayout(
+        resolved=resolved,
+        font_size=font_size,
+        spacing_px=spacing_px,
+        stroke=stroke,
+        plans=plans,
+        display=display,
+        space_width=space_width,
+        pad_x=pad_x,
+        pad_y=pad_y,
+        visible=visible,
+        text_align=text_align,
+        line_gap=line_gap,
+        lines=lines,
+        line_dims=line_dims,
+        block_w=block_w,
+        chip_w=chip_w,
+        block_h=block_h,
+    )
+
+
+def _render_styled_caption(
+    text: str,
+    frame_width: int,
+    frame_height: int,
+    style: CaptionStyle,
+    words: Sequence[TranscriptWord],
+    frame_time: float,
+) -> CaptionRaster:
+    """Render ``text`` via the data-driven template interpreter (schema v10).
+
+    Layout is computed once from the FULL phrase (canvas-size invariant, see
+    module docstring); the display mode then selects which planned words are
+    drawn at ``frame_time``, the emphasis interpreter styles the active word,
+    and entrance/loop math perturbs per-word or whole-image geometry.
+
+    Paint order, bottom to top: the line's chip (with its glass edge), the
+    active-word chips, the shadow, the glow, the letters. With see-through
+    letters (``textOpacity`` < 1, schema v24) the letters are split from their
+    outline ring: the shadow is knocked out wherever a letter is, the ring stays
+    at full strength outside the letters, and only the letter fill is made
+    translucent — so what shows through a letter is the chip or the picture,
+    never the caption's own outline or shadow.
+    """
+    layout = _layout_styled_caption(text, frame_width, frame_height, style, words, frame_time)
+    resolved = layout.resolved
+    font_size = layout.font_size
+    spacing_px = layout.spacing_px
+    stroke = layout.stroke
+    plans = layout.plans
+    space_width = layout.space_width
+    pad_x = layout.pad_x
+    pad_y = layout.pad_y
+    visible = layout.visible
+    text_align = layout.text_align
+    line_gap = layout.line_gap
+    lines = layout.lines
+    line_dims = layout.line_dims
+    block_w = layout.block_w
+    chip_w = layout.chip_w
+    block_h = layout.block_h
 
     # Outer margin: room for scaled emphasis/entrances, wave bob, slide
     # offsets, glow tiles and the shadow so nothing clips at the canvas edge.

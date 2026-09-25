@@ -277,6 +277,7 @@ from framepilot_engine.render.caption_legibility import (
 )
 from framepilot_engine.render.caption_legibility import (
     CaptionLegibilityError,
+    caption_layout_report,
     check_caption_legibility,
 )
 from framepilot_engine.render.export_settings import ExportSettings
@@ -1115,11 +1116,26 @@ class CaptionCueLegibilityPayload(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class CaptionCueLayoutPayload(BaseModel):
+    """One cue as the export lays it out: its rows, and its box against the frame width."""
+
+    time: float
+    clip_id: str = Field(alias="clipId")
+    text: str
+    rows: int
+    #: The caption's box as a fraction of the frame width; above 1 it runs off the frame.
+    width_fraction: float = Field(alias="widthFraction")
+
+    model_config = {"populate_by_name": True}
+
+
 class CaptionLegibilityResponse(BaseModel):
-    """Every sampled cue, and the contrast a cue needs to read at a glance."""
+    """Every sampled cue, the contrast a cue needs to read at a glance, and every cue's layout."""
 
     threshold: float
     cues: list[CaptionCueLegibilityPayload]
+    #: EVERY burned cue's rows and width — layout only, so the whole track, not a sample.
+    layout: list[CaptionCueLayoutPayload] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True}
 
@@ -6687,9 +6703,25 @@ def create_app(
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         except FrameGrabError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-        _log.info("ACT caption legibility served: cues=%d source=%s", len(checked), label)
+        layout = caption_layout_report(project)
+        _log.info(
+            "ACT caption legibility served: cues=%d laid_out=%d source=%s",
+            len(checked),
+            len(layout),
+            label,
+        )
         return CaptionLegibilityResponse(
             threshold=CAPTION_LEGIBLE_CONTRAST,
+            layout=[
+                CaptionCueLayoutPayload(
+                    time=entry.time,
+                    clip_id=entry.clip_id,
+                    text=entry.text,
+                    rows=entry.rows,
+                    width_fraction=entry.width_fraction,
+                )
+                for entry in layout
+            ],
             cues=[
                 CaptionCueLegibilityPayload(
                     time=cue.time,

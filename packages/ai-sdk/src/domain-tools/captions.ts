@@ -348,8 +348,10 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'Measure whether the captions READ against the footage they are burned over: for ' +
         'cues spread over the edit (or the times you give), the contrast of the letters ' +
         'against what immediately surrounds them — outline, box, shadow or bare picture — ' +
-        'in the delivered frame. Under 3:1 does not read at a glance. Run it after styling ' +
-        'captions and again after fixing; takes up to a minute. Measures; never edits.',
+        'in the delivered frame. Under 3:1 does not read at a glance. It also lays out EVERY ' +
+        'cue as the export draws it and reports how many rows each wraps to and any wider ' +
+        'than the frame — the check for a "no more than two lines" request. Run it after ' +
+        'styling captions and again after fixing; takes up to a minute. Measures; never edits.',
       capabilities: ['captions'],
       hostUiOnly: true,
     },

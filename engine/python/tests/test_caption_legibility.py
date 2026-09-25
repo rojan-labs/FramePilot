@@ -17,7 +17,7 @@ import pytest
 from PIL import Image
 
 from framepilot_engine.render import caption_legibility as cl
-from framepilot_engine.timeline.models import SCHEMA_VERSION, Project
+from framepilot_engine.timeline.models import SCHEMA_VERSION, CaptionStyle, Project
 
 CREAM = (214, 205, 188)
 OFF_WHITE = (244, 240, 235)
@@ -223,3 +223,81 @@ def test_see_through_letters_are_still_found_by_the_key() -> None:
     (during,) = caption_overlay_frames(cl.keyed_captions_project(project), (270, 480), [2.0])
     near_key = np.sqrt(((during.astype(float) - np.array(KEY)) ** 2).sum(axis=2)) < cl.FILL_DISTANCE
     assert near_key.sum() > cl.MIN_FILL_PIXELS
+
+
+def test_layout_counts_the_rows_the_export_wraps_to() -> None:
+    from framepilot_engine.render.captions import measure_caption_layout
+
+    text = "I call this the motion archetype of every founder"
+    wide = measure_caption_layout(
+        text, 1080, 1920, style=CaptionStyle.model_validate({"maxWidthPercent": 90})
+    )
+    narrow = measure_caption_layout(
+        text,
+        1080,
+        1920,
+        style=CaptionStyle.model_validate({"maxWidthPercent": 40, "fontScale": 1.6}),
+    )
+    assert 1 <= wide.rows < narrow.rows
+    assert not wide.overflows
+    # An authored break is a row of its own, however short the line.
+    broken = measure_caption_layout("hi\nthere", 1080, 1920, style=CaptionStyle())
+    assert broken.rows == 2
+    # The unstyled baseline measures through its own renderer.
+    assert measure_caption_layout("Today we are talking", 1080, 1920).rows >= 1
+
+
+def test_layout_flags_a_word_wider_than_the_frame() -> None:
+    from framepilot_engine.render.captions import measure_caption_layout
+
+    layout = measure_caption_layout(
+        "commoditized",
+        288,
+        512,
+        style=CaptionStyle.model_validate({"fontFamily": "Anton", "fontScale": 2.6}),
+    )
+    assert layout.overflows
+    assert layout.box_width > layout.frame_width
+
+
+def test_layout_report_covers_every_cue_in_time_order() -> None:
+    project = _project()
+    track = project.timeline.tracks[0]
+    later = track.clips[0].model_copy(
+        update={
+            "id": "cue_2",
+            "start": 4.0,
+            "end": 6.0,
+            "caption_cue": track.clips[0].caption_cue.model_copy(  # type: ignore[union-attr]
+                update={"text": "and then something longer that surely wraps"}
+            ),
+        }
+    )
+    project = project.model_copy(
+        update={
+            "timeline": project.timeline.model_copy(
+                update={"tracks": [track.model_copy(update={"clips": [later, *track.clips]})]}
+            )
+        }
+    )
+    report = cl.caption_layout_report(project)
+    assert [entry.clip_id for entry in report] == ["cue_1", "cue_2"]
+    assert all(entry.rows >= 1 for entry in report)
+    assert all(0 < entry.width_fraction <= 1 for entry in report)
+
+
+def test_the_route_serves_every_cues_layout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from framepilot_engine import service
+    from framepilot_engine.config import Settings
+
+    monkeypatch.setattr(service, "check_caption_legibility", lambda *a, **k: [])
+    client = TestClient(service.create_app(Settings(projects_root=tmp_path)))
+    project = json.loads(_project().model_dump_json(by_alias=True))
+    body = client.post("/review/caption-legibility", json={"project": project}).json()
+    assert body["layout"][0]["clipId"] == "cue_1"
+    assert body["layout"][0]["rows"] >= 1
+    assert 0 < body["layout"][0]["widthFraction"] <= 1
