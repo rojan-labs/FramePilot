@@ -1,6 +1,6 @@
 /**
- * Stock photo & video sourcing — the browser-reachable slice
- * (plan/3rd-party-sourcing/photo-video P2.3, P3.8).
+ * Elements (formerly Stock) — the browser-reachable slice (plan/elements;
+ * plan/3rd-party-sourcing/photo-video P2.3, P3.8).
  *
  * Reaching a provider needs the Electron main process: the renderer's CSP forbids
  * it, deliberately and permanently (README §4). This harness boots neither
@@ -17,7 +17,9 @@
  *  - Provider normalization and every HTTP arm:
  *    `packages/ai-sdk/src/providers/pexels-stock.test.ts` (36 tests).
  *  - Every row of the CONTRACTS §5 UI matrix, the hover-scrub behaviour and the
- *    keyboard model: `apps/web-editor/src/components/StockPanel.test.tsx` (42).
+ *    keyboard model: `apps/web-editor/src/components/elements/PexelsBrowser.test.tsx`;
+ *    the sub-tab host and its remembered tab: `elements/ElementsPanel.test.tsx`;
+ *    the stored `stock` rail tab landing on Elements: `Editor.left-tabs.test.ts`.
  *  - The placement refusal that keeps preview and export in agreement, and the
  *    single builder both the panel and `add_stock` call:
  *    `packages/editor-core/src/stock-placement.test.ts`,
@@ -37,12 +39,14 @@
 import { test, expect } from '@playwright/test';
 import { openEditor } from './helpers.js';
 
-test.describe('stock sourcing degrades by absence in the browser build', () => {
-  test('the Stock tab is not offered at all', async ({ page }) => {
+test.describe('Elements degrades by absence in the browser build', () => {
+  test('neither Elements nor the old Stock tab is offered', async ({ page }) => {
     await openEditor(page);
 
     // Absent, not present-and-broken. A tab that opens a panel explaining it
-    // cannot work costs a click to learn nothing.
+    // cannot work costs a click to learn nothing. Photos and Videos need the
+    // desktop main process, and they are all Elements serves in this build.
+    await expect(page.getByRole('tab', { name: 'Elements' })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Stock' })).toHaveCount(0);
 
     // The rest of the rail is untouched: the gate hides two tabs, not the shelf.

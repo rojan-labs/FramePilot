@@ -354,7 +354,7 @@ const DOMAIN_REQUEST_WORDS: Readonly<Record<Exclude<ToolDomain, 'core'>, RegExp>
  * the editor. A domain id ("sourcing") and a tool list were written there before.
  */
 export const DOMAIN_LABEL: Readonly<Record<Exclude<ToolDomain, 'core'>, string>> = {
-  sourcing: 'Stock footage and music',
+  sourcing: 'Photos, videos and music',
   color: 'Colour',
   captions: 'Captions',
   audio: 'Audio clean-up',

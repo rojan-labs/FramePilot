@@ -1294,7 +1294,8 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
 }
 
 /**
- * Stock media — the Pexels key, and what is left of this month's allowance.
+ * Photos & videos (Pexels) — the key behind Elements → Photos and Videos, and what is left
+ * of this month's allowance.
  *
  * ## Why the key field is not value-bound
  *
@@ -1339,8 +1340,11 @@ function StockMediaSettings(): JSX.Element {
 
   return (
     <SettingGroup
-      title="Stock media"
-      description="Search Pexels for photos and video without leaving the editor."
+      title="Photos & videos (Pexels)"
+      description={
+        'Your Pexels key powers Elements → Photos and Videos. Only the words you search for ' +
+        'leave your computer.'
+      }
     >
       <div className="setting-row setting-row--stack">
         <label className="setting-field-label" htmlFor="stock-pexels-key">

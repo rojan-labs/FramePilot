@@ -478,13 +478,13 @@ export function onMusicDownloadProgress(
  * The "this is desktop-only" answer, shared by every stock helper.
  *
  * Reaching a provider needs the main process — the renderer's CSP forbids it,
- * deliberately. In the browser the Stock tab is absent rather than
+ * deliberately. In the browser the Photos and Videos sub-tabs are absent rather than
  * present-and-broken, so this is a backstop, not the user-facing path.
  */
 const STOCK_DESKTOP_ONLY = {
   ok: false,
   error: 'provider_unavailable',
-  detail: 'Stock search is only available in the desktop app.',
+  detail: 'Photo and video search is only available in the desktop app.',
 } as const;
 
 /** Search the stock provider through the main process. */

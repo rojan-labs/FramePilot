@@ -10299,7 +10299,7 @@ stickers, CC BY 4.0 (EL10).
 **Minimum vertical slice:** EL2a → EL3 → EL4a (EL1 in parallel).
 
 - [~] **EL0** MD-E6/MD-E7 + shape-raster spike (the scope review is done)
-- [ ] **EL1** Stock → Elements rename; Photos and Videos sub-tabs; stored `'stock'` tab aliased
+- [~] **EL1** Stock → Elements rename; Photos and Videos sub-tabs; stored `'stock'` tab aliased
 - [ ] **EL2a** Stills and titles honour opacity, fades, crop and their own alpha; titles' In/Out
   presets render (fixes the three live bugs)
 - [ ] **EL2b** Masks, edge styles and geometry transitions for stills and titles, with their first

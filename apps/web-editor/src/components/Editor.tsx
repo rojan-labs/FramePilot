@@ -54,7 +54,7 @@ import { OverlaysPanel } from './OverlaysPanel.js';
 import { TransitionsPanel } from './TransitionsPanel.js';
 import { MonitorHeaderPortal } from './MonitorHeaderPortal.js';
 import { SoundsPanel } from './SoundsPanel.js';
-import { StockPanel } from './StockPanel.js';
+import { ElementsPanel } from './elements/ElementsPanel.js';
 import {
   addMusicTrackPatch,
   addStockClipPatch,
@@ -77,7 +77,7 @@ import {
   ChevronRight,
   Folder,
   ICON_SIZE,
-  ImagePlus,
+  Shapes,
   ListChecks,
   type LucideIcon,
   SlidersHorizontal,
@@ -133,12 +133,12 @@ export interface EditorProps {
 
 const LEFT_TAB_IDS = [
   'media',
+  'elements',
   'effects',
   'transitions',
   'overlays',
   'captions',
   'sounds',
-  'stock',
 ] as const;
 const RIGHT_TAB_IDS = ['ai', 'inspector', 'jobs'] as const;
 
@@ -158,28 +158,57 @@ type MonitorTab = 'program' | 'source';
  * retired tab falls back to the default instead of selecting a panel that no longer exists.
  */
 
-const LEFT_TABS: readonly { id: LeftTab; label: string; icon: LucideIcon }[] = [
+/**
+ * The left rail. Elements sits second, after Assets — CapCut's Media → Elements order
+ * (plan/elements, MD-E7): both are "things you place", and Elements is where every
+ * photo, video, sticker and shape the user did not film comes from.
+ */
+const LEFT_TABS: readonly { id: LeftTab; label: string; icon: LucideIcon; tooltip?: string }[] = [
   { id: 'media', label: 'Assets', icon: Folder },
+  {
+    id: 'elements',
+    label: 'Elements',
+    icon: Shapes,
+    tooltip: 'Elements — photos, videos, stickers, shapes',
+  },
   { id: 'effects', label: 'Effects', icon: Sparkles },
   { id: 'transitions', label: 'Transitions', icon: ArrowLeftRight },
   { id: 'overlays', label: 'Text', icon: Type },
   { id: 'captions', label: 'Captions', icon: Captions },
   { id: 'sounds', label: 'Sounds', icon: Music },
-  { id: 'stock', label: 'Stock', icon: ImagePlus },
 ];
 
-/** Tabs that need the main process to reach a third-party provider. */
-const DESKTOP_ONLY_TABS: ReadonlySet<LeftTab> = new Set<LeftTab>(['sounds', 'stock']);
+/**
+ * Tabs that need the main process to reach a third-party provider.
+ *
+ * Elements is here while its only sub-tabs are Photos and Videos (Pexels, through
+ * main); it leaves the set once a sub-tab that works without main ships.
+ */
+const DESKTOP_ONLY_TABS: ReadonlySet<LeftTab> = new Set<LeftTab>(['sounds', 'elements']);
+
+/**
+ * A stored rail tab that was renamed, mapped to the tab that replaced it.
+ *
+ * `stock` became `elements` (plan/elements). Mapping it — rather than letting the
+ * stored value fall back to Assets — lands someone who left the rail on Stock on the
+ * panel that now holds the same photos and videos.
+ */
+const RENAMED_LEFT_TABS: Readonly<Record<string, LeftTab>> = { stock: 'elements' };
 
 /**
  * The tabs actually shown.
  *
- * Sounds and Stock need the main process to reach a provider — the renderer's
+ * Sounds and Elements need the main process to reach a provider — the renderer's
  * CSP forbids it, deliberately — so in a plain browser those tabs are **absent**
  * rather than present-and-broken. A tab that opens a panel explaining it cannot
  * work is worse than no tab: it costs a click to learn nothing.
  */
-function visibleLeftTabs(): readonly { id: LeftTab; label: string; icon: LucideIcon }[] {
+function visibleLeftTabs(): readonly {
+  id: LeftTab;
+  label: string;
+  icon: LucideIcon;
+  tooltip?: string;
+}[] {
   return isDesktop() ? LEFT_TABS : LEFT_TABS.filter((tab) => !DESKTOP_ONLY_TABS.has(tab.id));
 }
 
@@ -203,8 +232,8 @@ function coerceRightTab(raw: unknown): RightTab | undefined {
  * `isDesktop()` is a runtime fact, and only ever on the stored value, so the default is
  * untouched.
  */
-function coerceLeftTab(raw: unknown): LeftTab | undefined {
-  const tab = isLeftTab(raw);
+export function coerceLeftTab(raw: unknown): LeftTab | undefined {
+  const tab = isLeftTab(typeof raw === 'string' ? (RENAMED_LEFT_TABS[raw] ?? raw) : raw);
   if (tab === undefined) return undefined;
   return isDesktop() || !DESKTOP_ONLY_TABS.has(tab) ? tab : undefined;
 }
@@ -656,12 +685,12 @@ export function Editor({
     ),
     [nonPlayheadKey, project],
   );
-  const stockEl = useMemo(() => {
+  const elementsEl = useMemo(() => {
     // Recomputed with the playhead, because the answer changes as it moves —
     // the tile must be able to disable Add with a reason *before* the click.
     const assetById = new Map(project.assets.map((asset) => [asset.id, asset]));
     return (
-      <StockPanel
+      <ElementsPanel
         project={project}
         placementBlockedReasonFor={(durationSeconds) =>
           stockPlacementBlockedReason(
@@ -859,8 +888,8 @@ export function Editor({
                 to spare the width. */}
             <nav className="rail-activitybar" aria-label="Library">
               <div className="activity-tabs" role="tablist" aria-label="library tabs">
-                {visibleLeftTabs().map(({ id, label, icon: Icon }) => (
-                  <Tooltip key={id} label={label} placement="right">
+                {visibleLeftTabs().map(({ id, label, icon: Icon, tooltip }) => (
+                  <Tooltip key={id} label={tooltip ?? label} placement="right">
                     <button
                       type="button"
                       role="tab"
@@ -905,7 +934,7 @@ export function Editor({
                 {leftTab === 'effects' && effectsEl}
                 {leftTab === 'transitions' && transitionsEl}
                 {leftTab === 'sounds' && soundsEl}
-                {leftTab === 'stock' && stockEl}
+                {leftTab === 'elements' && elementsEl}
                 {leftTab === 'overlays' && overlaysEl}
                 {leftTab === 'captions' && (
                   <CaptionEditor

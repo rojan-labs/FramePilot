@@ -1,6 +1,14 @@
 /**
- * Stock — search Pexels for photos and video, preview them, and place one on the
- * timeline as a cutaway.
+ * Elements → Photos / Videos — search Pexels for one kind of media, preview it, and
+ * place one on the timeline as a cutaway.
+ *
+ * ## One kind per instance
+ *
+ * The kind is the Elements sub-tab the user chose (`kind` prop), not a control inside
+ * the panel: CapCut keeps photos and videos apart, and a select in a sidebar this
+ * narrow cost a control's width to say something the tab already says. The query is
+ * the panel's own state, so switching between Photos and Videos re-searches the same
+ * words in the other kind — the behaviour the old kind select had.
  *
  * ## Hover is a scrub, not an autoplay loop
  *
@@ -46,9 +54,9 @@ import {
   type StockItemWire,
   type StockMediaKindWire,
   type StockQuotaSnapshot,
-} from '../editor/bridge.js';
-import { stockDownloads, useDownloads } from '../editor/download-registry.js';
-import { Film, ICON_SIZE, Image as ImageIcon, X } from './icons.js';
+} from '../../editor/bridge.js';
+import { stockDownloads, useDownloads } from '../../editor/download-registry.js';
+import { ICON_SIZE, X } from '../icons.js';
 
 /** Typing pause before a search fires. Long enough not to bill every keystroke. */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -59,7 +67,13 @@ const SCRUB_THRESHOLD_PX = 3;
 /** Warn below this share of the monthly allowance. */
 const LOW_QUOTA_RATIO = 0.1;
 
-export interface StockPanelProps {
+export interface PexelsBrowserProps {
+  /** Which Pexels library this instance searches — the Elements sub-tab. */
+  readonly kind: StockMediaKindWire;
+  /** The query to start with, so a remount (a sub-tab round trip) keeps the words. */
+  readonly initialQuery?: string;
+  /** Reports every change of the query, so the host can hand it back on remount. */
+  readonly onQueryChange?: (query: string) => void;
   readonly project: Project;
   /**
    * Why placing a clip of this length would be impossible, or `null` when it is
@@ -76,7 +90,7 @@ export interface StockPanelProps {
    * dropped clip must be *said*, not swallowed: the user watched it download.
    */
   readonly onAddStock: (asset: Asset) => string | null;
-  /** Opens Settings → Stock media, for the no-key and quota states. */
+  /** Opens Settings → Photos & videos (Pexels), for the no-key and quota states. */
   readonly onOpenSettings?: () => void;
 }
 
@@ -84,7 +98,7 @@ export interface StockPanelProps {
  * What a tile is doing.
  *
  * `downloading` and `failed` are read from {@link stockDownloads} rather than
- * component state, because a download outlives the panel: the Stock tab unmounts
+ * component state, because a download outlives the panel: the Elements tab unmounts
  * on a tab switch, which is exactly what a user does while a clip lands. See
  * `download-registry.ts`.
  */
@@ -178,14 +192,23 @@ export function tileVariant(
   return sorted.find((variant) => variant.height >= targetHeight) ?? sorted[sorted.length - 1];
 }
 
-export function StockPanel({
+export function PexelsBrowser({
+  kind,
+  initialQuery = '',
+  onQueryChange,
   project,
   placementBlockedReasonFor,
   onAddStock,
   onOpenSettings,
-}: StockPanelProps): JSX.Element {
-  const [query, setQuery] = useState('');
-  const [kind, setKind] = useState<StockMediaKindWire>('video');
+}: PexelsBrowserProps): JSX.Element {
+  const [query, setQueryState] = useState(initialQuery);
+  const setQuery = useCallback(
+    (next: string): void => {
+      setQueryState(next);
+      onQueryChange?.(next);
+    },
+    [onQueryChange],
+  );
   // Starts loading, not empty: the browse request is fired by the mount effect
   // below, and a skeleton is the honest thing to show while it is in flight.
   const [search, setSearch] = useState<SearchState>({ kind: 'loading' });
@@ -495,14 +518,14 @@ export function StockPanel({
     [add, blockedReasonFor, items, presentRemoteIds],
   );
 
-  // Browser build: the tab is absent entirely (see Editor.tsx). This is the
+  // Browser build: the sub-tab is absent entirely (see ElementsPanel). This is the
   // backstop for a direct render, and says why rather than showing a dead input.
   if (!isDesktop()) {
     return (
       <div className="stock-panel">
         <p className="stock-note" role="note">
-          Stock search runs in the FramePilot desktop app, which fetches media outside the browser
-          sandbox. Open this project in desktop to search for photos and video.
+          Photos and videos come from Pexels through the FramePilot desktop app, which fetches media
+          outside the browser sandbox. Open this project in the desktop app to search them.
         </p>
       </div>
     );
@@ -515,41 +538,22 @@ export function StockPanel({
 
   return (
     <div className="stock-panel">
-      {/* One row holds everything that is not a result: what to search, what to
-          search for, and who the media comes from. Below it is the grid and
-          nothing else — a sidebar this narrow cannot spend two lines on prose
-          the user reads once. */}
+      {/* One row holds everything that is not a result: what to search for, and
+          who the media comes from. Below it is the grid and nothing else — a
+          sidebar this narrow cannot spend two lines on prose the user reads once.
+          The kind is the Elements sub-tab, so it needs no control here. */}
       <div className="stock-controls">
         <label className="stock-search" htmlFor="stock-search-input">
-          <span className="sr-only">Search for photos and video</span>
+          <span className="sr-only">{kind === 'video' ? 'Search videos' : 'Search photos'}</span>
           <input
             id="stock-search-input"
             type="search"
             className="stock-search-input"
-            placeholder={kind === 'video' ? 'Search video…' : 'Search photos…'}
+            placeholder={kind === 'video' ? 'Search videos' : 'Search photos'}
             value={query}
             disabled={noKey}
             onChange={(event) => setQuery(event.target.value)}
           />
-        </label>
-        {/* A select rather than the old segmented pair: it states the current
-            kind in the width of one control instead of two. */}
-        <label className="stock-kind-select" htmlFor="stock-kind-select">
-          <span className="sr-only">Media kind</span>
-          {kind === 'video' ? (
-            <Film size={ICON_SIZE.sm} aria-hidden="true" />
-          ) : (
-            <ImageIcon size={ICON_SIZE.sm} aria-hidden="true" />
-          )}
-          <select
-            id="stock-kind-select"
-            value={kind}
-            disabled={noKey}
-            onChange={(event) => setKind(event.target.value as StockMediaKindWire)}
-          >
-            <option value="video">Video</option>
-            <option value="photo">Photos</option>
-          </select>
         </label>
         {/* Required by the Pexels API guidelines. It lives in this row for the
             same reason everything else does — it is not a result. */}
@@ -581,8 +585,8 @@ export function StockPanel({
       {noKey ? (
         <div className="stock-hint">
           <p className="stock-note">
-            Stock search needs a free Pexels API key. It takes about a minute to get one, and the
-            only thing that leaves your machine is the words you type.
+            Photos and videos need a free Pexels API key. It takes about a minute to get one, and
+            the only thing that leaves your machine is the words you type.
           </p>
           {onOpenSettings ? (
             <Button variant="ghost" type="button" onClick={onOpenSettings}>
@@ -638,8 +642,8 @@ export function StockPanel({
                   browsing
                     ? `${browseLabel} — ${kind === 'video' ? 'video' : 'photos'}`
                     : kind === 'video'
-                      ? 'Stock video results'
-                      : 'Stock photo results'
+                      ? 'Video results'
+                      : 'Photo results'
                 }
               >
                 {search.items.map((item, index) => (

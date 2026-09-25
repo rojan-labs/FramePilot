@@ -6,6 +6,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **Stock is now Elements.** The left-rail tab that searched Pexels is called **Elements** and
+  sits second, right after Assets — the shelf for everything you put on or into the picture that
+  you did not film. Photos and videos are its **Photos** and **Videos** sub-tabs instead of a kind
+  drop-down; they share one search box, so switching re-searches the same words. If you left the
+  rail on Stock, it reopens on Elements. The Settings group is now **Photos & videos (Pexels)**.
+  Saved projects, credits and the agent's photo and video tools are unchanged.
+
 ### Added
 
 - **The caption check counts rows.** Checking whether captions read now also reports, for every

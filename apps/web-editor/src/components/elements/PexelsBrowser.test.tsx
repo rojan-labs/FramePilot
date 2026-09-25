@@ -1,5 +1,5 @@
 /**
- * StockPanel — one test per row of the state matrix in
+ * PexelsBrowser (Elements → Photos / Videos) — one test per row of the state matrix in
  * `plan/3rd-party-sourcing/photo-video/CONTRACTS.md` §5, plus the hover-scrub
  * behaviour, keyboard navigation, and the live region.
  *
@@ -16,14 +16,14 @@ import type {
   StockQuotaSnapshot,
 } from '@framepilot/shared-types';
 import {
-  StockPanel,
+  PexelsBrowser,
   formatBytes,
   formatClipLength,
   stockAssetId,
   stockErrorText,
   tileVariant,
-} from './StockPanel.js';
-import { resetDownloadRegistriesForTests } from '../editor/download-registry.js';
+} from './PexelsBrowser.js';
+import { resetDownloadRegistriesForTests } from '../../editor/download-registry.js';
 
 const bridge = vi.hoisted(() => ({
   search: vi.fn(),
@@ -37,7 +37,7 @@ const bridge = vi.hoisted(() => ({
   quotaListeners: [] as Array<(q: StockQuotaSnapshot) => void>,
 }));
 
-vi.mock('../editor/bridge.js', () => ({
+vi.mock('../../editor/bridge.js', () => ({
   isDesktop: () => bridge.desktop(),
   stockSearch: (...args: unknown[]) => bridge.search(...args),
   stockThumbnail: (...args: unknown[]) => bridge.thumbnail(...args),
@@ -111,19 +111,33 @@ const emptyProject = {
   history: [],
 } as unknown as Project;
 
-function renderPanel(
-  options: { project?: Project; blocked?: string | null; onOpenSettings?: () => void } = {},
-): { onAddStock: ReturnType<typeof vi.fn>; unmount: () => void } {
-  const onAddStock = vi.fn().mockReturnValue(null);
-  const { unmount } = render(
-    <StockPanel
+interface RenderOptions {
+  project?: Project;
+  blocked?: string | null;
+  onOpenSettings?: () => void;
+  kind?: 'photo' | 'video';
+}
+
+function panel(options: RenderOptions, onAddStock: ReturnType<typeof vi.fn>): JSX.Element {
+  return (
+    <PexelsBrowser
+      kind={options.kind ?? 'video'}
       project={options.project ?? emptyProject}
       placementBlockedReasonFor={() => options.blocked ?? null}
       onAddStock={onAddStock}
       {...(options.onOpenSettings ? { onOpenSettings: options.onOpenSettings } : {})}
-    />,
+    />
   );
-  return { onAddStock, unmount };
+}
+
+function renderPanel(options: RenderOptions = {}): {
+  onAddStock: ReturnType<typeof vi.fn>;
+  unmount: () => void;
+  rerender: (next: RenderOptions) => void;
+} {
+  const onAddStock = vi.fn().mockReturnValue(null);
+  const { unmount, rerender } = render(panel(options, onAddStock));
+  return { onAddStock, unmount, rerender: (next) => rerender(panel(next, onAddStock)) };
 }
 
 async function typeQuery(text: string): Promise<void> {
@@ -138,7 +152,7 @@ function okSearch(items: readonly StockItemWire[], hasMore = false) {
   return { ok: true, items, page: 1, totalResults: items.length, hasMore };
 }
 
-describe('StockPanel', () => {
+describe('PexelsBrowser', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     bridge.desktop.mockReturnValue(true);
@@ -220,11 +234,13 @@ describe('StockPanel', () => {
       vi.advanceTimersByTime(1);
       await Promise.resolve();
     });
-    // Search, filter and the required Pexels credit share a row; below it there
-    // is the grid and nothing else to read.
+    // Search and the required Pexels credit share a row; below it there is the grid
+    // and nothing else to read. The kind is the Elements sub-tab, so there is no
+    // kind control in the row at all.
     const controls = document.querySelector('.stock-controls');
     expect(controls?.querySelector('#stock-search-input')).not.toBeNull();
-    expect(controls?.querySelector('#stock-kind-select')).not.toBeNull();
+    expect(controls?.querySelector('select')).toBeNull();
+    expect(screen.queryByRole('combobox')).toBeNull();
     expect(controls?.querySelector('.stock-credit')).not.toBeNull();
     expect(document.querySelectorAll('.stock-note')).toHaveLength(0);
   });
@@ -374,15 +390,14 @@ describe('StockPanel', () => {
     expect(screen.getByText(/broader word/)).toBeDefined();
   });
 
-  it('switches kind and re-searches without losing the query', async () => {
+  it('re-searches the same words when the sub-tab switches kind', async () => {
     bridge.search.mockResolvedValue(okSearch([wireItem()]));
-    renderPanel();
+    const { rerender } = renderPanel();
     await typeQuery('city');
     expect(bridge.search).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'video' }));
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Media kind' }), {
-      target: { value: 'photo' },
-    });
+    // Photos ↔ Videos is the Elements sub-tab; the host hands the new kind down.
+    rerender({ kind: 'photo' });
     await act(async () => {
       vi.advanceTimersByTime(400);
       await Promise.resolve();
@@ -675,7 +690,8 @@ describe('StockPanel', () => {
       ]),
     );
     render(
-      <StockPanel
+      <PexelsBrowser
+        kind="video"
         project={emptyProject}
         placementBlockedReasonFor={(seconds) => {
           asked.push(seconds);
@@ -713,7 +729,8 @@ describe('StockPanel', () => {
       },
     });
     render(
-      <StockPanel
+      <PexelsBrowser
+        kind="video"
         project={emptyProject}
         placementBlockedReasonFor={() => null}
         // The playhead moved onto occupied ground while the bytes were in flight.

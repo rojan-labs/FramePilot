@@ -147,7 +147,7 @@ new renderer.
 
 | Id        | Decision                                                                                                                               | Recommendation                                                                                                                                   | Needed before |
 | --------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------- |
-| **MD-E7** | Left-rail order: Elements moves to second, after Assets (CapCut's order)                                                               | **Yes**                                                                                                                                          | EL1           |
+| **MD-E7** | Left-rail order: Elements moves to second, after Assets (CapCut's order)                                                               | **Yes — decided autonomously, 2026-09-26** (maintainer instruction: take the recommended answer)                                                 | EL1           |
 | **MD-E6** | Schema v25 (a forward-safety bump for shape clips)                                                                                     | **Yes** — an older build must refuse a project with shapes, not render it without them                                                           | EL4a          |
 | **MD-E4** | The agent may place stickers over footage (ADR "An element is an overlay"); element assets never go through the footage cutaway placer | **Yes** — the flat-monitor premise of the coverage refusal is gone, and routing a sticker through it produces a cover-cropped full-frame cutaway | EL6a          |
 | **MD-E2** | Commit the curated ~200 stickers and their thumbnails (≈ 5 MB); never commit the rest                                                  | **Yes** — the repo pack is 80 MB; the full set would add ~40%                                                                                    | EL6a          |
@@ -294,7 +294,7 @@ holds and every row of [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md) is d
 | Phase | Status | Notes                                                                  |
 | ----- | ------ | ---------------------------------------------------------------------- |
 | EL0   | `[~]`  | Scope review done 2026-09-26 (§7); MD-E6, MD-E7 and spike A open       |
-| EL1   | `[ ]`  |                                                                        |
+| EL1   | `[~]`  | Rename + Photos/Videos sub-tabs on `feat/elements`; MD-E7 decided      |
 | EL2a  | `[ ]`  | G1 reproduced 2026-09-26 on `98ea829a`; G6 and G11 found by the review |
 | EL2b  | `[ ]`  | Lands with EL6b / EL7                                                  |
 | EL3   | `[ ]`  |                                                                        |

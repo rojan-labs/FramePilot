@@ -15087,6 +15087,63 @@ a.export-credits-license {
 }
 
 /* ---------------------------------------------------------------------------
+   Elements — the shelf of things placed on or into the picture (plan/elements):
+   a segmented sub-tab strip over the sub-tab's own browser. Token-driven, like
+   every panel here (ADR 0028); no parallel component language.
+   --------------------------------------------------------------------------- */
+.elements-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  min-height: 0;
+}
+.elements-tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+.elements-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  overflow: hidden;
+  font-size: 0.76rem;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: calc(var(--radius-sm, 6px) - 2px);
+  transition:
+    color 0.12s ease,
+    background-color 0.12s ease;
+}
+.elements-tab:hover {
+  color: var(--text);
+}
+.elements-tab[aria-selected='true'] {
+  color: var(--text);
+  background: var(--bg-app);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.elements-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.elements-tabpanel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ---------------------------------------------------------------------------
    Stock panel — third-party photo & video search
    (plan/3rd-party-sourcing/photo-video). Token-driven, reusing the existing
    palette and Button variants (ADR 0028). No parallel component language.
@@ -15099,8 +15156,8 @@ a.export-credits-license {
   min-height: 0;
 }
 
-/* One row: search, kind, attribution. Everything that is not a result lives
-   here, so the space below the row belongs entirely to the grid. */
+/* One row: search and attribution (the kind is the Elements sub-tab). Everything
+   that is not a result lives here, so the space below the row belongs to the grid. */
 .stock-controls {
   display: flex;
   flex-wrap: wrap;
@@ -15125,35 +15182,6 @@ a.export-credits-license {
   outline-offset: 1px;
 }
 .stock-search-input:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-/* The kind filter. A select, so it costs one control's width in a sidebar that
-   has none to spare, and states the current kind without a second chip. */
-.stock-kind-select {
-  display: inline-flex;
-  gap: var(--space-1);
-  align-items: center;
-  padding: 0 var(--space-2);
-  color: var(--muted);
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm, 6px);
-}
-.stock-kind-select select {
-  padding: var(--space-2) 0;
-  font-size: 0.76rem;
-  color: var(--text);
-  cursor: pointer;
-  background: none;
-  border: 0;
-}
-.stock-kind-select select:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-.stock-kind-select:has(select:disabled) {
   cursor: not-allowed;
   opacity: 0.5;
 }

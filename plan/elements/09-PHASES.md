@@ -43,29 +43,29 @@ meets.
 
 ---
 
-## EL1 — Stock becomes Elements (Photos · Videos) `[ ]`
+## EL1 — Stock becomes Elements (Photos · Videos) `[~]`
 
 **Ships:** the rename and the panel shell, with no behaviour change to Pexels search, preview,
 download, quota or placement. Small, independent; needs MD-E7.
 
-- [ ] **EL1.1** `apps/web-editor/src/components/elements/ElementsPanel.tsx`: sub-tab strip
+- [x] **EL1.1** `apps/web-editor/src/components/elements/ElementsPanel.tsx`: sub-tab strip
       (`role="tablist"`), only the sub-tabs this build can serve, remembered sub-tab
       (`useViewPreference('elementsTab')`), first-open rule (02 §2).
-- [ ] **EL1.2** `StockPanel.tsx` → `elements/PexelsBrowser.tsx` with a `kind` prop; the
+- [x] **EL1.2** `StockPanel.tsx` → `elements/PexelsBrowser.tsx` with a `kind` prop; the
       `<select>` removed; placeholders and labels per 08 §1; every behaviour kept. Tests move with
       it (`PexelsBrowser.test.tsx`); kind-select cases become sub-tab cases.
-- [ ] **EL1.3** `Editor.tsx`: id `'elements'`, label, `Shapes` icon (via `icons.tsx`), position
+- [x] **EL1.3** `Editor.tsx`: id `'elements'`, label, `Shapes` icon (via `icons.tsx`), position
       after Assets, `coerceLeftTab` alias `'stock' → 'elements'`, `DESKTOP_ONLY_TABS`,
       `elementsEl`.
-- [ ] **EL1.4** Copy (08 §1): the bridge's desktop-only detail, Settings group title + line,
+- [x] **EL1.4** Copy (08 §1): the bridge's desktop-only detail, Settings group title + line,
       `toolMeta` labels, `DOMAIN_LABEL.sourcing`, the browser backstop note.
-- [ ] **EL1.5** Docs: new `docs/guides/elements.md` (hub; Photos & Videos section), retitle
+- [x] **EL1.5** Docs: new `docs/guides/elements.md` (hub; Photos & Videos section), retitle
       `stock-sourcing.md`, `settings.md`, `configuration.md`, `system-map.md`; website privacy
       heading; `CHANGELOG.md` → Changed.
-- [ ] **EL1.6** Tests: `ElementsPanel.test.tsx` (switching, remembered tab, first-open rule,
-      browser absence), `Editor.test.tsx` and `view-prefs-persist.spec.ts` (a stored `'stock'`
-      opens Elements), `elements.spec.ts` replacing `stock-sourcing.spec.ts`, visual baselines
-      refreshed if the rail is in them.
+- [~] **EL1.6** Tests: `ElementsPanel.test.tsx` (switching, remembered tab, first-open rule,
+  browser absence), `Editor.test.tsx` and `view-prefs-persist.spec.ts` (a stored `'stock'`
+  opens Elements), `elements.spec.ts` replacing `stock-sourcing.spec.ts`, visual baselines
+  refreshed if the rail is in them.
 
 **DoD:** a person who left the rail on Stock reopens on Elements → Photos/Videos with the same
 results; every former Stock test passes under its new name; e2e green on a SHA that contains

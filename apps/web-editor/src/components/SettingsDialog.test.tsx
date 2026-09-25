@@ -1278,10 +1278,10 @@ describe('SettingsDialog', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Stock media — key custody and the quota readout
+  // Photos & videos (Pexels) — key custody and the quota readout
   // ---------------------------------------------------------------------------
 
-  describe('Stock media', () => {
+  describe('Photos & videos (Pexels)', () => {
     /**
      * Render inside a real {@link AiConfigProvider}.
      *

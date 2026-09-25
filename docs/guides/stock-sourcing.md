@@ -1,10 +1,12 @@
-# Stock photos and video
+# Photos and videos (Pexels)
 
 Search Pexels for a shot you don't have and drop it straight onto the timeline —
-without leaving FramePilot, and without a browser round-trip.
+without leaving FramePilot, and without a browser round-trip. Photos and videos
+live in the **Elements** tab, as its **Photos** and **Videos** sub-tabs (this tab
+used to be called **Stock**; see [`elements.md`](./elements.md)).
 
 Desktop only. Reaching a provider needs the app's main process; in the browser
-build the **Stock** tab is not shown at all.
+build the Photos and Videos sub-tabs are not shown at all.
 
 ## Before you start: is stock the right answer?
 
