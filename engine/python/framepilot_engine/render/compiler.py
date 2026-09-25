@@ -134,6 +134,7 @@ from framepilot_engine.render.frame_plan import (
     caption_tracks,
     clips_in_sequence,
     fit_scale,
+    frame_plan_at,
     layer_matte_sources,
     layer_opacity_at,
     layer_position_at,
@@ -187,6 +188,7 @@ from framepilot_engine.render.pts_reader import (
     video_timing,
 )
 from framepilot_engine.render.resources import close_clip_tree
+from framepilot_engine.render.shape_catalog import shape_descriptor
 from framepilot_engine.render.shape_geometry import shape_clip_params
 from framepilot_engine.render.shape_raster import rasterize_shape
 from framepilot_engine.render.text_overlay import rasterize_text_overlay, text_overlay_layout
@@ -411,7 +413,51 @@ def expected_render(project: Project, preset: ExportPreset) -> ExpectedRender:
         # Sound that stops before the picture is the edit, not a defect; only a timeline
         # whose sound reaches the end is held to "no silent tail".
         expect_audio_to_end=audio_end >= duration - _AUDIO_END_SLACK_SECONDS,
+        **_element_expectations(project, (preset.width, preset.height)),
     )
+
+
+def _element_expectations(project: Project, target: tuple[int, int]) -> dict[str, Any]:
+    """How many shapes the export draws, and a sentence for each one drawn off-frame.
+
+    A shape is checked at its midpoint, placed as the frame plan places it (bounds, transform,
+    transitions); it is off-frame when even the circle around its turned rectangle misses the
+    frame, so a rotated shape is never wrongly flagged. The validator refuses a shape that would
+    draw nothing by its params; this catches the one moved or aimed entirely out of the picture.
+    """
+    count = 0
+    offscreen: list[str] = []
+    for track in project.timeline.tracks:
+        if track.hidden:
+            continue
+        for clip in track.clips:
+            params = shape_clip_params(clip)
+            if params is None:
+                continue
+            count += 1
+            midpoint = (clip.start + clip.end) / 2
+            plan = frame_plan_at(project, midpoint, target=target)
+            layer = next((layer for layer in plan.layers if layer.clip_id == clip.id), None)
+            if layer is None or layer.geometry is None or layer.geometry.width is None:
+                continue
+            geometry = layer.geometry
+            radius = math.hypot(geometry.width or 0.0, geometry.height or 0.0) / 2
+            outside = (
+                geometry.anchor_x + radius < 0
+                or geometry.anchor_y + radius < 0
+                or geometry.anchor_x - radius > target[0]
+                or geometry.anchor_y - radius > target[1]
+            )
+            if outside:
+                descriptor = shape_descriptor(str(params.get("shape")))
+                name = descriptor.name if descriptor is not None else "shape"
+                # No time or magnitude in the sentence: the agent's repeated-failure guard keys
+                # on the text, and the remedy is the same wherever the shape went.
+                offscreen.append(
+                    f"A {name.lower()} is entirely outside the frame, so the export does not show "
+                    "it. Move it back in (Inspector, Shape) or delete it."
+                )
+    return {"element_count": count, "offscreen_elements": offscreen}
 
 
 #: Sound may end this close to the picture's end and still count as "to the end" — a

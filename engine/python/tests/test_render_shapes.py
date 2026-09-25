@@ -179,3 +179,45 @@ def test_a_shape_that_cannot_be_drawn_is_skipped_by_both(media: Path) -> None:
     project = _project(broken)
     assert all(layer.clip_id != "s1" for layer in frame_plan_at(project, 1.0).layers)
     assert _frame(project, media).getpixel((212, 180)) == WHITE
+
+
+# --- render validation (PRD section 9.4) ---------------------------------------------------
+
+
+def _preset() -> Any:
+    from framepilot_engine.render.presets import ExportPreset
+
+    return ExportPreset(id="t", label="t", width=WIDTH, height=HEIGHT, fps=30)
+
+
+def test_the_export_expects_its_shapes_on_screen() -> None:
+    from framepilot_engine.render.compiler import expected_render
+    from framepilot_engine.validation.render_validation import _elements_on_screen_check
+
+    on_screen = expected_render(_project(BOX), _preset())
+    assert on_screen.element_count == 1
+    assert on_screen.offscreen_elements == []
+    assert _elements_on_screen_check(on_screen).status == "pass"
+
+
+def test_a_shape_moved_entirely_off_frame_fails_the_export_with_a_remedy() -> None:
+    from framepilot_engine.render.compiler import expected_render
+    from framepilot_engine.validation.render_validation import _elements_on_screen_check
+
+    away = [{"id": "x", "time": 0.0, "property": "x", "value": 5000.0, "easing": "linear"}]
+    expected = expected_render(_project(BOX, keyframes=away), _preset())
+    check = _elements_on_screen_check(expected)
+    assert check.status == "fail"
+    assert check.detail == (
+        "A rounded rectangle is entirely outside the frame, so the export does not show it. "
+        "Move it back in (Inspector, Shape) or delete it."
+    )
+
+
+def test_the_element_check_skips_a_timeline_without_shapes() -> None:
+    from framepilot_engine.validation.render_validation import (
+        ExpectedRender,
+        _elements_on_screen_check,
+    )
+
+    assert _elements_on_screen_check(ExpectedRender()).status == "skip"
