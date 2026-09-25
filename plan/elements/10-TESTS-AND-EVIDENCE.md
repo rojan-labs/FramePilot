@@ -2,8 +2,9 @@
 
 Critical behaviour is proven through real workflows, not lines hit (AGENTS.md §5). Visual claims
 get render-backed evidence (`product-discipline.mdc` §8). Heavy suites (e2e, the oracle, perf) run
-in **CI on the PR head SHA**, one heavy job at a time locally if at all — local full runs have taken
-the 16 GB development Mac past its memory and shut it down.
+in **CI**, whose results are read asynchronously for the latest head SHA and never waited on.
+Targeted local tests run in the background while work continues, one heavy job at a time if at
+all — local full runs have taken the 16 GB development Mac past its memory and shut it down.
 
 ---
 

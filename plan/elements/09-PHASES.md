@@ -11,9 +11,12 @@ the agent path proven inside each category's slice, no second geometry implement
 effect type for loops, and each maintainer decision asked when its phase needs it.
 
 Conventions for every phase: branch in the main checkout (no worktree), commit and push per step,
-stage explicit paths only, no attribution trailers and no step numbers in commit messages; run the
-tests you touched, CI runs the rest (verify on the PR's head SHA); update `plan/PLAN.md`, this plan's
-ledger, docs and `CHANGELOG.md` in the same phase.
+stage explicit paths only, no attribution trailers and no step numbers in commit messages. **Work
+asynchronously — never wait on tests:** run the targeted tests, typecheck and lint for what you
+touched in the background and keep building; CI runs the rest, and nobody sits watching it (push,
+move on, read the latest head SHA's checks later — a push cancels the in-flight run; a red check
+jumps the queue). A task is checked off only when CI is green on a SHA that contains it. Update
+`plan/PLAN.md`, this plan's ledger, docs and `CHANGELOG.md` in the same phase.
 
 **Two documents bind every phase.** [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md) lists every
 surface a phase touches — a phase is done only when **every row tagged with it** is done, and a
@@ -65,7 +68,8 @@ download, quota or placement. Small, independent; needs MD-E7.
       refreshed if the rail is in them.
 
 **DoD:** a person who left the rail on Stock reopens on Elements → Photos/Videos with the same
-results; every former Stock test passes under its new name; e2e green on the PR head.
+results; every former Stock test passes under its new name; e2e green on a SHA that contains
+the change.
 
 ---
 

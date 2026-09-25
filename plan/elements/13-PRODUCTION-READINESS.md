@@ -28,7 +28,9 @@ phase PR meets §1; the programme meets §10 before release.
 - [ ] **Compatibility:** v24 projects open unchanged except the listed fixes; the schema bump
       follows the CT7 checklist (04 §3).
 - [ ] **Docs:** guide, API/ADR as applicable, `CHANGELOG.md`; `plan/PLAN.md` and this plan's ledger.
-- [ ] **CI:** green on the PR head SHA (a draft PR does not run CI — dispatch it).
+- [ ] **CI:** green on a SHA that contains the change — checked asynchronously, never waited on
+      (push and move on; a push cancels the in-flight run; a red check jumps the queue). A draft PR
+      does not run CI — dispatch it.
 
 ---
 
