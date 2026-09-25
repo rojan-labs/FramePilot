@@ -1820,8 +1820,6 @@ class _CaptionLayer:
 
 
 def _caption_layers(project: Project, target: tuple[int, int]) -> list[_CaptionLayer]:
-    target_w, target_h = target
-    margin = int(target_h * _CAPTION_BOTTOM_MARGIN_FRACTION)
     layers: list[_CaptionLayer] = []
     for track in caption_tracks(project):
         for clip in track.clips:
@@ -1829,10 +1827,35 @@ def _caption_layers(project: Project, target: tuple[int, int]) -> list[_CaptionL
             if not cue.text.strip():
                 continue
             style = layer_caption_style(track.caption_style, clip.caption_style)
-            layers.append(
-                _caption_clip(clip, cue.text, style, cue.words, target_w, target_h, margin)
-            )
+            layers.append(caption_layer_for(clip, cue.text, style, cue.words, target))
     return layers
+
+
+def caption_layer_for(
+    clip: Clip,
+    text: str,
+    style: Any,
+    words: Sequence[TranscriptWord],
+    target: tuple[int, int],
+) -> _CaptionLayer:
+    """One burned caption exactly as :func:`compile_timeline` builds it: raster, motion, placement.
+
+    Shared with the desktop monitor's caption raster route
+    (:mod:`framepilot_engine.render.preview_text`), which samples it at one frame, so a styled
+    caption in the monitor is the export's own caption rather than a second rendering of it.
+
+    :param clip: The caption clip (its ``start``/``end`` time the motion; ``blend_mode`` rides
+        along on the returned layer).
+    :param text: The cue's resolved text.
+    :param style: The cue's layered caption style (track default under the clip's override), or
+        ``None`` for the unstyled baseline.
+    :param words: The cue's timed words, in timeline seconds.
+    :param target: ``(width, height)`` of the delivered frame.
+    :returns: The placed picture layer (and, for a frosted chip, its backdrop).
+    """
+    target_w, target_h = target
+    margin = int(target_h * _CAPTION_BOTTOM_MARGIN_FRACTION)
+    return _caption_clip(clip, text, style, words, target_w, target_h, margin)
 
 
 def _caption_clip(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
@@ -60,3 +61,146 @@ def test_refuses_empty_text_and_bad_sizes(tmp_path: Path) -> None:
         json={"kind": "text", "params": {"text": "x"}, "frame_width": 9000, "frame_height": 720},
     )
     assert huge.status_code == 422
+
+
+# --- styled captions: the export's own caption layer, sampled at one frame -----------------------
+
+_WORDS = [
+    {"word": "top", "start": 1.0, "end": 1.3},
+    {"word": "1%", "start": 1.3, "end": 1.6},
+    {"word": "of", "start": 1.6, "end": 1.8},
+    {"word": "motion", "start": 1.8, "end": 2.4},
+]
+
+
+def _export_caption(style: Mapping[str, object], at: float, size: tuple[int, int]) -> np.ndarray:
+    """What the export burns for one styled cue at ``at``, over black."""
+    from framepilot_engine.render.compiler import caption_overlay_frames
+    from framepilot_engine.timeline.models import Project
+
+    cue = {
+        "id": "cue",
+        "assetId": "__caption__",
+        "trackId": "captions",
+        "start": 1.0,
+        "end": 2.5,
+        "sourceStart": 0,
+        "sourceEnd": 1.5,
+        "effects": [],
+        "captionCue": {"text": "top 1% of motion", "words": _WORDS},
+    }
+    project = Project.model_validate(
+        {
+            "id": "p",
+            "name": "p",
+            "fps": 30,
+            "resolution": {"width": size[0], "height": size[1]},
+            "assets": [],
+            "timeline": {
+                "tracks": [
+                    {"id": "captions", "type": "caption", "clips": [cue], "captionStyle": style}
+                ]
+            },
+            "transcript": [],
+        }
+    )
+    (frame,) = caption_overlay_frames(project, size, [at])
+    return frame
+
+
+def _preview_caption(
+    client: TestClient, style: Mapping[str, object], at: float, size: tuple[int, int]
+) -> tuple[dict[str, object], np.ndarray]:
+    """The monitor's raster for the same cue, composited over black as the preview does."""
+    response = client.post(
+        "/preview/text-raster",
+        json={
+            "kind": "caption",
+            "text": "top 1% of motion",
+            "track_style": style,
+            "words": _WORDS,
+            "clip_start": 1.0,
+            "clip_end": 2.5,
+            "frame_time": at,
+            "frame_width": size[0],
+            "frame_height": size[1],
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    rgba = _pixels(body).astype(np.float64)
+    frame = np.zeros((size[1], size[0], 3), dtype=np.float64)
+    x, y = int(body["x"]), int(body["y"])
+    h, w = rgba.shape[:2]
+    # Clip the raster to the frame, as a GPU draw at a negative or overhanging offset does.
+    fx0, fy0 = max(0, x), max(0, y)
+    fx1, fy1 = min(size[0], x + w), min(size[1], y + h)
+    part = rgba[fy0 - y : fy1 - y, fx0 - x : fx1 - x]
+    frame[fy0:fy1, fx0:fx1] = part[:, :, :3] * (part[:, :, 3:4] / 255.0)
+    return body, frame
+
+
+def _assert_matches_export(
+    client: TestClient, style: Mapping[str, object], at: float, size: tuple[int, int]
+) -> dict[str, object]:
+    body, preview = _preview_caption(client, style, at, size)
+    exported = _export_caption(style, at, size).astype(np.float64)
+    # MoviePy truncates the blend to uint8; the preview composites in float. One level apart.
+    assert np.abs(preview - exported).max() <= 1.0
+    assert (exported > 0).sum() > 200  # the caption was actually drawn
+    return body
+
+
+def test_styled_caption_is_the_exports_caption_at_that_frame(tmp_path: Path) -> None:
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    # Run fb90e58d's style: placed, shadowed, accented, per-word slide-up.
+    style = {
+        "fontFamily": "Anton",
+        "fontScale": 2.2,
+        "xPercent": 50,
+        "yPercent": 64,
+        "maxWidthPercent": 80,
+        "shadow": {"color": "#00000099", "blur": 0.3, "offsetX": 0, "offsetY": 0.06},
+        "accent": {"mode": "keywords", "keywords": ["1%"], "color": "#e8b64a", "fontScale": 1.15},
+        "animation": {"in": {"type": "slide-up", "duration": 0.25}, "perWord": True},
+    }
+    # Mid-entrance of "1%" and at rest: the motion is the export's, frame for frame.
+    body = _assert_matches_export(client, style, 1.4, (288, 512))
+    assert body["animated"] is True
+    _assert_matches_export(client, style, 2.2, (288, 512))
+
+
+def test_static_and_rotated_styles_match_and_say_they_are_static(tmp_path: Path) -> None:
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    static = {"fontFamily": "Inter", "fontWeight": 800, "position": "bottom"}
+    body = _assert_matches_export(client, static, 1.5, (640, 360))
+    assert body["animated"] is False
+    _assert_matches_export(
+        client, {"fontFamily": "Inter", "rotation": -8, "yPercent": 40}, 1.5, (640, 360)
+    )
+
+
+def test_a_frosted_chip_carries_its_coverage_and_sigma(tmp_path: Path) -> None:
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    style = {"templateId": "glass"}
+    body, _ = _preview_caption(client, style, 1.5, (640, 360))
+    assert body["backdrop_base64"] is not None
+    assert float(body["backdrop_sigma_px"]) > 0  # type: ignore[arg-type]
+    coverage = np.frombuffer(base64.b64decode(str(body["backdrop_base64"])), dtype=np.uint8)
+    assert coverage.size == int(body["width"]) * int(body["height"])  # type: ignore[call-overload]
+    assert coverage.max() == 255
+
+
+def test_a_styled_caption_without_its_span_is_refused(tmp_path: Path) -> None:
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    response = client.post(
+        "/preview/text-raster",
+        json={
+            "kind": "caption",
+            "text": "hi",
+            "track_style": {"fontFamily": "Inter"},
+            "frame_width": 640,
+            "frame_height": 360,
+        },
+    )
+    assert response.status_code == 422

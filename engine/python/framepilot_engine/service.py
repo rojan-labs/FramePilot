@@ -306,8 +306,12 @@ from framepilot_engine.render.matte_tier_job import (
 from framepilot_engine.render.mattes import MATTE_FILE
 from framepilot_engine.render.pipeline import RenderJob, RenderOptions, render
 from framepilot_engine.render.preview_text import (
+    MAX_CUE_WORDS as PREVIEW_CAPTION_MAX_WORDS,
+)
+from framepilot_engine.render.preview_text import (
     PreviewTextError,
     baseline_caption_raster,
+    styled_caption_raster,
     text_overlay_raster,
 )
 from framepilot_engine.render.queue import JobStatus, RenderQueue, RenderTask
@@ -1220,6 +1224,23 @@ class PreviewTextRasterRequest(BaseModel):
     )
     frame_width: int = Field(ge=1, le=8192, description="Output frame width in pixels.")
     frame_height: int = Field(ge=1, le=8192, description="Output frame height in pixels.")
+    # --- a STYLED caption (kind 'caption' with a track or clip style) ---------------------------
+    track_style: dict[str, Any] | None = Field(
+        default=None, description="The caption track's default style, as the project stores it."
+    )
+    clip_style: dict[str, Any] | None = Field(
+        default=None, description="The cue's own style override."
+    )
+    words: list[dict[str, Any]] | None = Field(
+        default=None,
+        max_length=PREVIEW_CAPTION_MAX_WORDS,
+        description="The cue's timed words (word, start, end), in timeline seconds.",
+    )
+    clip_start: float | None = Field(default=None, description="The cue's timeline start (s).")
+    clip_end: float | None = Field(default=None, description="The cue's timeline end (s).")
+    frame_time: float | None = Field(
+        default=None, description="Timeline seconds of the frame to draw (motion, word states)."
+    )
 
 
 class PreviewTextRasterResponse(BaseModel):
@@ -1230,6 +1251,16 @@ class PreviewTextRasterResponse(BaseModel):
     rgba_base64: str = Field(description="width x height x 4 bytes, base64-encoded.")
     x: int | None = Field(default=None, description="Caption paste x; None for a text clip.")
     y: int | None = Field(default=None, description="Caption paste y; None for a text clip.")
+    animated: bool = Field(
+        default=False, description="True when the raster changes with the frame time."
+    )
+    backdrop_base64: str | None = Field(
+        default=None,
+        description="A frosted chip's coverage, width x height bytes, base64; None without one.",
+    )
+    backdrop_sigma_px: float = Field(
+        default=0.0, description="The frost's Gaussian standard deviation, in output pixels."
+    )
 
 
 class TemporalEvidenceBatchRequest(AnalysisProjectSource):
@@ -6748,6 +6779,20 @@ def create_app(
         try:
             if req.kind == "text":
                 raster = text_overlay_raster(req.params or {}, req.frame_width, req.frame_height)
+            elif req.track_style or req.clip_style:
+                if req.clip_start is None or req.clip_end is None:
+                    raise PreviewTextError("A styled caption needs its clip_start and clip_end.")
+                raster = styled_caption_raster(
+                    text=req.text or "",
+                    words=req.words or [],
+                    track_style=req.track_style,
+                    clip_style=req.clip_style,
+                    clip_start=req.clip_start,
+                    clip_end=req.clip_end,
+                    frame_width=req.frame_width,
+                    frame_height=req.frame_height,
+                    frame_time=req.frame_time if req.frame_time is not None else req.clip_start,
+                )
             else:
                 raster = baseline_caption_raster(req.text or "", req.frame_width, req.frame_height)
         except PreviewTextError as exc:
@@ -6758,6 +6803,9 @@ def create_app(
             rgba_base64=raster.base64(),
             x=raster.x,
             y=raster.y,
+            animated=raster.animated,
+            backdrop_base64=raster.backdrop_base64(),
+            backdrop_sigma_px=raster.backdrop_sigma_px,
         )
 
     @app.post("/review/temporal-evidence", response_model=TemporalEvidenceBatch)
