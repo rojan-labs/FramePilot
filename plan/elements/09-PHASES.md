@@ -173,19 +173,19 @@ pixels, exported, undone in one step; the agent can do the same. Depends on EL2a
 
 A PR stack, each PR green on its own:
 
-1. **Model** — schema v25 (`ShapeParamsSchema` Zod + Pydantic twin, `SHAPE_ASSET_ID` in the EL3
+1. **Model** (done) — schema v25 (`ShapeParamsSchema` Zod + Pydantic twin, `SHAPE_ASSET_ID` in the EL3
    helper, passthrough migration + round trip, `pnpm schema:generate` + drift, engine fixtures
    import `SCHEMA_VERSION`); `shape-catalog.json` with the six (timeline-schema + engine mirror +
    drift test); `add_shape` op in TS and Python (apply/invert, `operation-contract`, frame-grid
    arm), validator rules (04 §2.4), cross-runtime behaviour test; ADR "Shapes are drawn by the
    engine".
-2. **Engine** — `render/shape_geometry.py` + `render/shape_raster.py` (the only rasteriser),
+2. **Engine** (done) — `render/shape_geometry.py` + `render/shape_raster.py` (the only rasteriser),
    `_compile_shape_clip`, frame-plan kind `shape` with bounds computed from params (both runtimes,
    pinned by frame-plan vectors), the raster route's `kind: 'shape'`, monitor drawing and cache,
    render-validation checks (05 §6); Python `validation/patch_validation.py` registers `add_shape`
    and validates its params; element clips are never cuts (`edit-boundaries.ts`,
    `transition-policy.ts`) and never feed caption derivation (`captions/derive.ts`).
-3. **Editor** — `addShapePatch` / `setShapeParamsPatch` / `moveShapeEndpointsPatch` in
+3. **Editor** (done) — `addShapePatch` / `setShapeParamsPatch` / `moveShapeEndpointsPatch` in
    `editor-core/src/element-placement.ts`; a Shapes sub-tab of six tiles (SVG drawn from a
    UI-only TS path helper), click-to-add, keyboard; Inspector **Shape** section (fill, stroke,
    width, corners); `PreviewShapeEditor` box and endpoint handles, one patch per gesture; shape
@@ -193,7 +193,7 @@ A PR stack, each PR green on its own:
    "Elements need the layer preview" rather than showing the wrong picture; "Edit shape" in the clip
    context menu; History reads "Add shape “Highlight box”"; the Text tab's disabled scaffolds
    replaced by the Elements link; Settings "New elements" hint; `px0-inventory` rows.
-4. **Agent** — `add_shape` and `set_shape_style` (shape ids as a `z.enum` of the catalogue) in a
+4. **Agent** (done) — `add_shape` and `set_shape_style` (shape ids as a `z.enum` of the catalogue) in a
    new `elements` domain (summary, label, request words + routing test); `toolMeta`; the shapes
    half of `stickers-and-callouts.md`; the kernel rows of 12 §F (`tool-classification`,
    `tool-scope`, `callNoveltyKey` and the result digest in `orchestrator.ts`, `describe.ts`,
@@ -203,18 +203,31 @@ A PR stack, each PR green on its own:
 
 Evidence (all required for `[x]`):
 
-- [ ] Oracle rows: `shapes/highlight-box`, `shapes/marker-over-video`, `shapes/ellipse-rotated`,
-      `shapes/arrow-segment`.
-- [ ] One evaluation case: on a screen-recording fixture with known button coordinates, "Put a box
-      around the Export button when I say 'export'" — the model finds the button by reading
-      `get_frame` (the only grounding this slice has; 11 §2 defers automatic grounding); report the
-      **measured hit rate** over repeated runs, not a single pass.
-- [ ] One desktop run on a real 5–15 minute screen recording: five callouts placed by hand and by
-      the agent, exported, reopened, undone (10 §4 run A, shapes only).
-- [ ] e2e in a new CI job `elements-e2e`, modelled on `masking-e2e` (the fake-desktop harness + a
-      real sidecar): add a highlight box, resize it on the canvas, recolour it, export a frame,
-      undo. `docs/guides/elements.md` Shapes;
-      `CHANGELOG.md` → Added.
+- [~] Oracle rows: `shapes/highlight-box`, `shapes/marker-over-video`, `shapes/ellipse-rotated`,
+  `shapes/arrow-segment` — landed as `tests/fixtures/frame-plan/shapes.json` (vectors equal in
+  both runtimes locally; the PX4 run in CI decides).
+- [!] One evaluation case: on a screen-recording fixture with known button coordinates, "Put a box
+  around the Export button when I say 'export'" — the model finds the button by reading
+  `get_frame` (the only grounding this slice has; 11 §2 defers automatic grounding); report the
+  **measured hit rate** over repeated runs, not a single pass. **Built:** the case
+  `callout-export-button`, a drawn screen recording with ground truth
+  (`engine/python/tests/screen_demo_fixture.py` → `tests/fixtures/mission/labels/screen-demo.json`),
+  the fixture project (`mission-fixture-projects.mjs`, `mission-screen-demo`) and the
+  `callout-on-target` rubric (unit-tested). **Human step (model runs are paid and not run by the
+  agent):** `tests/fixtures/mission/fetch-fixtures.sh`; start a sidecar with
+  `FRAMEPILOT_PROJECTS_ROOT=tests/fixtures/mission/projects`; `node
+    packages/ai-sdk/scripts/mission-fixture-projects.mjs`; then run the golden harness for
+  `--case callout-export-button` with at least 10 runs and record the `callout-on-target` pass
+  share here as the hit rate.
+- [!] One desktop run on a real 5–15 minute screen recording: five callouts placed by hand and by
+  the agent, exported, reopened, undone (10 §4 run A, shapes only). **Human step:** open a real
+  screen recording in the desktop app; add five callouts from Elements → Shapes and five with
+  the assistant; export; close and reopen the project; undo each; record the export, the
+  reopen and the undo results (and any difference between monitor and export) here.
+- [~] e2e in a new CI job `elements-e2e`, modelled on `masking-e2e` (the fake-desktop harness + a
+  real sidecar): add a highlight box, resize it on the canvas, recolour it, export a frame,
+  undo — `tests/e2e/specs/elements-e2e-shapes.spec.ts`, which also compares the monitor with
+  the export at the PX4 gates. `docs/guides/elements.md` Shapes; `CHANGELOG.md` → Added (done).
 
 **DoD:** the six shapes work end to end by hand and via `add_shape`; oracle rows pass; a v24
 project opens unchanged and a v25 project with shapes is refused by a v24 build with
