@@ -77,4 +77,4 @@ place. (`preview/audio/`)
   compression). They are delivery settings chosen at export time, which the monitor does not
   know.
 - The legacy DOM monitor (the `legacy` kill switch until RD3) plays the shared envelope and clip
-  speed, but not the strip, and not reversed or ramped audio.
+  speed, but not the strip, not the channel matrix, and not reversed or ramped audio.
