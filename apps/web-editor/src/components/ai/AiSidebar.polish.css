@@ -727,10 +727,11 @@
 }
 
 .ai-composer {
-  /* leading controls | input | send. The first column is `auto`, not a fixed 28px:
-     `.ai-composer-lead` holds however many leading buttons this build has, and a fixed
-     width silently clipped the second one. */
-  grid-template-columns: auto minmax(0, 1fr) 28px !important;
+  /* leading controls | input | send. Both outer columns are `auto`, not a fixed 28px:
+     `.ai-composer-lead` holds however many leading buttons this build has, and during a
+     run the trailing cluster holds Queue beside Stop — a fixed width clipped the second
+     control on either side. */
+  grid-template-columns: auto minmax(0, 1fr) auto !important;
   gap: 4px !important;
   align-items: end;
 }

@@ -109,6 +109,8 @@ import { dropActionsListedByDiff } from './diffActionRows.js';
 import { type ActivityRow, groupSelfCheckNotices } from './selfCheckRows.js';
 import type { StepOutcome } from './EventNode.js';
 import { SteeringInput } from './SteeringInput.js';
+import { QueuedMessage } from './QueuedMessage.js';
+import { joinDrafts, returnAttachments, type QueuedTurn } from '../../ai/queuedTurn.js';
 import { explainRunFailure } from '../../ai/runFailure.js';
 import { starterPrompts } from '../../ai/starterPrompts.js';
 import {
@@ -435,6 +437,18 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   // Read inside async callbacks (re-analyze) so they never close over a stale list.
   const attachmentsRef = useRef<readonly Attachment[]>(attachments);
   attachmentsRef.current = attachments;
+  // The one message sent while a run was live (see `QueuedMessage`). The ref is the
+  // synchronous truth, as with `runningRef`: two Enter presses inside one commit must not
+  // both find the slot empty.
+  const [queuedTurn, setQueuedTurnState] = useState<QueuedTurn | null>(null);
+  const queuedTurnRef = useRef<QueuedTurn | null>(null);
+  const setQueuedTurn = useCallback((next: QueuedTurn | null) => {
+    queuedTurnRef.current = next;
+    setQueuedTurnState(next);
+  }, []);
+  // The send is held while the queued message is open for editing, so a run that ends
+  // mid-edit never sends the text the reviewer is in the middle of changing.
+  const [editingQueued, setEditingQueued] = useState(false);
   /**
    * References the editor has taken out of force (P3.5's removal, relocated).
    *
@@ -1632,13 +1646,60 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
 
   // The imperative escape hatch (see AiSidebarHandle) — fire-and-forget into the
   // exact same runTurn/session path the composer's submit() uses.
-  useImperativeHandle(ref, () => ({ runQuickEdit: (text: string) => void runTurn(text) }), [
-    runTurn,
-  ]);
+  /**
+   * Hand the queued message back to the composer instead of sending it — for when the
+   * reviewer ends the run themselves. Stop means nothing more goes out on its own, and
+   * dropping the message would lose it. `queuedFirst` decides the reading order when the
+   * composer already holds text.
+   */
+  const returnQueuedToComposer = useCallback(
+    (queuedFirst = true) => {
+      const queued = queuedTurnRef.current;
+      if (!queued) return;
+      setQueuedTurn(null);
+      setEditingQueued(false);
+      setDraft((current) =>
+        queuedFirst ? joinDrafts(queued.text, current) : joinDrafts(current, queued.text),
+      );
+      setAttachments((current) => returnAttachments(queued.attachments, current));
+    },
+    [setQueuedTurn],
+  );
+
+  /**
+   * Send a prompt that did not come from the composer (the Cmd+K palette, a tool card's
+   * suggested reply). During a run it takes the queue slot like a composer send; with the
+   * slot taken it lands in the composer rather than vanishing, which is what a bare
+   * `runTurn` did — it refuses while a run holds the lane.
+   */
+  const sendOrQueue = useCallback(
+    (text: string) => {
+      if (!runningRef.current) {
+        void runTurn(text);
+        return;
+      }
+      if (!queuedTurnRef.current) setQueuedTurn({ text, attachments: [] });
+      else setDraft((current) => joinDrafts(current, text));
+    },
+    [runTurn, setQueuedTurn],
+  );
+
+  useImperativeHandle(ref, () => ({ runQuickEdit: sendOrQueue }), [sendOrQueue]);
 
   const submit = useCallback(async () => {
     const text = draft.trim();
     if (!text) return;
+    // A run is live: this becomes the next turn instead of a refused one. `runTurn` would
+    // return without starting anything, and the composer had already been emptied — the
+    // message just vanished. One slot; while it is taken the text stays in the box and
+    // the composer says why.
+    if (runningRef.current) {
+      if (queuedTurnRef.current) return;
+      setQueuedTurn({ text, attachments: toMessageAttachments(attachmentsRef.current) });
+      setDraft('');
+      setAttachments([]);
+      return;
+    }
     // Freeze the composer's attachments onto this message BEFORE clearing, then clear
     // both. The message owns them from here: it renders them, it persists them, and it
     // is what a Retry replays. The composer is emptied every time — a submit that left
@@ -1663,7 +1724,45 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         error: error instanceof Error ? error.message : String(error),
       });
     }
-  }, [draft, runTurn]);
+  }, [draft, runTurn, setQueuedTurn]);
+
+  // The queued message becomes the next turn as soon as the run is over. Guarded on the
+  // ref as well as the state: something else may have claimed the lane in the same commit
+  // (a Retry, a recovered durable run), and `runTurn` refuses silently while it is held —
+  // which would drop the message exactly the way the queue exists to prevent. This effect
+  // runs again when that run ends.
+  useEffect(() => {
+    if (running || runningRef.current || editingQueued) return;
+    const queued = queuedTurnRef.current;
+    if (!queued) return;
+    setQueuedTurn(null);
+    runTurn(queued.text, queued.attachments).catch((error: unknown) => {
+      // Same recovery as a failed submit: the message goes back where it can be re-sent.
+      setDraft((current) => joinDrafts(queued.text, current));
+      setAttachments((current) => returnAttachments(queued.attachments, current));
+      log.error('the queued message could not be started; it was returned to the composer', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, [running, queuedTurn, editingQueued, runTurn, setQueuedTurn]);
+
+  const saveQueuedEdit = useCallback(
+    (text: string) => {
+      const queued = queuedTurnRef.current;
+      setEditingQueued(false);
+      if (!queued) return;
+      if (text) {
+        setQueuedTurn({ ...queued, text });
+        return;
+      }
+      // Emptied is removed; its references go back to the composer, not into the bin.
+      setQueuedTurn(null);
+      setAttachments((current) => returnAttachments(queued.attachments, current));
+    },
+    [setQueuedTurn],
+  );
+
+  const removeQueued = useCallback(() => saveQueuedEdit(''), [saveQueuedEdit]);
 
   /** The last turn, but only if it belongs to the conversation on screen. */
   const replayableTurn = useCallback(() => {
@@ -1753,8 +1852,10 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     // a clean `cancelled` (the desktop transport returns via `done` with no terminal
     // status event of its own).
     stopRequestedRef.current = true;
+    // Before the abort, so the send-when-idle effect can never see it.
+    returnQueuedToComposer();
     (runningSession.current ?? session).abort();
-  }, [session]);
+  }, [session, returnQueuedToComposer]);
 
   // Single-session guarantee: this app never keeps a background run. Switching the
   // active conversation while a run is live STOPS it first — otherwise the run would
@@ -1763,11 +1864,25 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   // stopped run's own conversation is finalized as `cancelled` by `runTurn`.
   const switchConversation = useCallback(
     (id: string | null) => {
+      // The queued message was written for THIS conversation, so it is parked in this
+      // conversation's own saved composer — sent into the one being opened it would land
+      // in the wrong chat, and handed to the live composer (what Stop does) it would be
+      // overwritten when the switch reseeds that composer from the next chat's state.
+      const queued = queuedTurnRef.current;
+      if (queued && active && id !== active.id) {
+        setQueuedTurn(null);
+        setEditingQueued(false);
+        conversations.setUiState(active.id, {
+          ...active.uiState,
+          composerDraft: joinDrafts(queued.text, draft),
+          attachments: returnAttachments(queued.attachments, attachments),
+        });
+      }
       if (running) stop();
       conversations.open(id);
       setHistoryOpen(false);
     },
-    [running, stop, conversations],
+    [running, stop, conversations, active, draft, attachments, setQueuedTurn],
   );
 
   // P11.3: the plan-approval gate is showing exactly when the reducer paused the run
@@ -1791,7 +1906,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     const activeSession = runningSession.current ?? session;
     if (activeSession.rejectPlan) activeSession.rejectPlan();
     else planApprovalGateRef.current?.resolve('cancelled');
-  }, [session]);
+    // Cancelling the plan ends the run by the reviewer's hand, like Stop.
+    returnQueuedToComposer();
+  }, [session, returnQueuedToComposer]);
   // "Edit" (P11.3/P12.4 — deliberately scoped, not a full plan editor): cancel the
   // gated run (nothing has touched the timeline yet) and hand the original request
   // back to the composer so the creator can refine it before re-running.
@@ -1807,7 +1924,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       // plan was built from. They return already analyzed; nothing is re-measured.
       setAttachments(turn.attachments.map((a) => ({ ...a, status: 'ready' as const })));
     }
-  }, [replayableTurn, session]);
+    // A message queued behind the plan follows the request it was written after.
+    returnQueuedToComposer(false);
+  }, [replayableTurn, session, returnQueuedToComposer]);
 
   // P11.4: raw "Steering applied: …" notification texts this run has confirmed, so
   // the steering input can clear its own "queued" note once the run actually folds
@@ -2065,9 +2184,10 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         // through the SAME `retry` callback the action bar uses below — never a
         // second retry implementation.
         {...(node.kind === 'notice' ? { onRetryNotice: retry, retryDisabled: running } : {})}
-        // A mask target pick is an ordinary message through the SAME `runTurn` the composer
-        // uses, so the conversation records the choice in words the next turn can read.
-        {...(node.kind === 'tool' ? { onSendMessage: (text: string) => void runTurn(text) } : {})}
+        // A mask target pick is an ordinary message through the same send path the composer
+        // uses (queued during a run), so the conversation records the choice in words the
+        // next turn can read.
+        {...(node.kind === 'tool' ? { onSendMessage: sendOrQueue } : {})}
         {...(node.kind === 'user'
           ? { dismissedReferenceIds, onDismissReference: dismissReference }
           : {})}
@@ -2455,6 +2575,23 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
             attachments={attachments}
             onAttachFiles={(files) => void attachReferenceFiles(files)}
             onRemoveAttachment={(id) => setAttachments((list) => list.filter((a) => a.id !== id))}
+            queueFull={queuedTurn !== null}
+            {...(queuedTurn
+              ? {
+                  queued: (
+                    <QueuedMessage
+                      text={queuedTurn.text}
+                      attachmentCount={queuedTurn.attachments.length}
+                      running={running}
+                      editing={editingQueued}
+                      onStartEdit={() => setEditingQueued(true)}
+                      onSaveEdit={saveQueuedEdit}
+                      onCancelEdit={() => setEditingQueued(false)}
+                      onRemove={removeQueued}
+                    />
+                  ),
+                }
+              : {})}
           />
         </>
       )}

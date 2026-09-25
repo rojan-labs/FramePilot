@@ -282,7 +282,9 @@ describe('the writing row', () => {
   it('swaps send for stop in place while a run is going', () => {
     setup({ running: true, runStatus: 'generating' });
     const children = Array.from(row().children);
-    expect(children[2]?.className).toContain('ai-composer-stop');
+    expect(children).toHaveLength(3);
+    expect(children[2]?.className).toContain('ai-composer-actions');
+    expect(children[2]?.querySelector('.ai-composer-stop')).not.toBeNull();
     expect(document.querySelector('.ai-composer-send')).toBeNull();
   });
 
@@ -545,5 +547,53 @@ describe('dropping a reference on the composer (P3.1)', () => {
     const shell = document.querySelector('.ai-composer-shell') as HTMLElement;
     fireEvent.dragEnter(shell, { dataTransfer: dataTransfer([]) });
     expect(screen.queryByText('Drop a reference video or image')).toBeNull();
+  });
+});
+
+/**
+ * Sending while a run is live queues the message instead of dropping it. The composer's
+ * part is presentational: offer Queue beside Stop, render the queued card the parent
+ * supplies, and refuse visibly when the one slot is taken.
+ */
+describe('queueing during a run', () => {
+  it('offers Queue beside Stop once there is text, and submits through it', () => {
+    const props = setup({ running: true, runStatus: 'generating', value: 'then add captions' });
+    const queue = screen.getByRole('button', { name: 'Queue message' });
+    // Stop is still reachable: typing a follow-up must never take the kill switch away.
+    expect(screen.getByRole('button', { name: 'Stop agent' })).toBeTruthy();
+    fireEvent.click(queue);
+    expect(props.onSubmit).toHaveBeenCalledTimes(1);
+    expect(props.onStop).not.toHaveBeenCalled();
+  });
+
+  it('queues on Enter during a run', () => {
+    const props = setup({ running: true, runStatus: 'generating', value: 'then add captions' });
+    fireEvent.keyDown(screen.getByLabelText('Message FramePilot'), { key: 'Enter' });
+    expect(props.onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a second queued message visibly and keeps Enter from submitting', () => {
+    const props = setup({
+      running: true,
+      runStatus: 'generating',
+      value: 'one more thing',
+      queueFull: true,
+    });
+    const queue = screen.getByRole('button', { name: 'Queue message' }) as HTMLButtonElement;
+    expect(queue.disabled).toBe(true);
+    expect(screen.getByText(/One message is already queued/)).toBeTruthy();
+    fireEvent.keyDown(screen.getByLabelText('Message FramePilot'), { key: 'Enter' });
+    expect(props.onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('says nothing about a full queue while the box is empty', () => {
+    setup({ running: true, runStatus: 'generating', value: '', queueFull: true });
+    expect(screen.queryByText(/One message is already queued/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Queue message' })).toBeNull();
+  });
+
+  it('renders the queued card the parent supplies', () => {
+    setup({ running: true, queued: <div data-testid="queued-slot">waiting</div> });
+    expect(screen.getByTestId('queued-slot')).toBeTruthy();
   });
 });

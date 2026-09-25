@@ -111,10 +111,22 @@ export interface ComposerProps {
    */
   readonly atEntities: readonly PinnedEntity[];
   readonly onPinEntity: (entity: PinnedEntity) => void;
+  /**
+   * The message waiting behind the live run, rendered above the writing row. An element
+   * rather than data so the parent owns its edit/remove lifecycle outright.
+   */
+  readonly queued?: JSX.Element;
+  /**
+   * The one queue slot is taken, so a submit during the run is refused and the text
+   * stays in the box. Surfaced here so the refusal is visible instead of a dead Enter.
+   */
+  readonly queueFull?: boolean;
 }
 
 export function Composer(props: ComposerProps): JSX.Element {
   const { value, onChange, onSubmit, onStop, running } = props;
+  const hasText = value.trim().length > 0;
+  const queueRefused = running && props.queueFull === true && hasText;
   /**
    * Has the message wrapped past its first line?
    *
@@ -164,17 +176,15 @@ export function Composer(props: ComposerProps): JSX.Element {
     // read off the element so a token change cannot desynchronise this from the CSS.
     const styles = window.getComputedStyle(el);
     const lineHeight = Number.parseFloat(styles.lineHeight);
-    const padding =
-      Number.parseFloat(styles.paddingTop) + Number.parseFloat(styles.paddingBottom);
+    const padding = Number.parseFloat(styles.paddingTop) + Number.parseFloat(styles.paddingBottom);
     // A fractional line-height and sub-pixel layout make an exact compare unreliable, so
     // "taller than one line plus half of another" is the threshold.
-    setMultiline(
-      Number.isFinite(lineHeight) ? content > padding + lineHeight * 1.5 : content > 44,
-    );
+    setMultiline(Number.isFinite(lineHeight) ? content > padding + lineHeight * 1.5 : content > 44);
   }, [value]);
 
+  // During a run the parent queues instead of sending, and refuses when the slot is taken.
   const submit = (): void => {
-    if (value.trim().length > 0) onSubmit();
+    if (hasText && !queueRefused) onSubmit();
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -357,6 +367,14 @@ export function Composer(props: ComposerProps): JSX.Element {
         </div>
       )}
 
+      {props.queued}
+
+      {queueRefused && (
+        <p className="ai-composer-note" role="status">
+          One message is already queued. Edit or remove it to queue this one.
+        </p>
+      )}
+
       {slashMatches.length > 0 && (
         <ul className="ai-slash" role="listbox" aria-label="Slash commands">
           {slashMatches.map((command) => (
@@ -455,7 +473,7 @@ export function Composer(props: ComposerProps): JSX.Element {
           ref={inputRef}
           className="ai-composer-input"
           value={value}
-          placeholder="Message FramePilot…"
+          placeholder={running ? 'Queue a follow-up…' : 'Message FramePilot…'}
           aria-label="Message FramePilot"
           rows={1}
           onChange={(e) => onChange(e.target.value)}
@@ -464,18 +482,38 @@ export function Composer(props: ComposerProps): JSX.Element {
         />
 
         {running ? (
-          // Visually STABLE stop control (H2): no pulsing/blinking — a static ring
-          // with distinct hover/pressed states; activity is signalled elsewhere
-          // (activity row + streaming text), never by animating the kill switch.
-          <button
-            type="button"
-            className="ai-composer-stop"
-            aria-label="Stop agent"
-            title="Stop agent"
-            onClick={onStop}
-          >
-            <Square size={12} aria-hidden="true" className="ai-composer-stop-glyph" />
-          </button>
+          // Queue sits BESIDE Stop, never in its place: typing a follow-up must not take
+          // the kill switch away from someone who then sees the run going wrong.
+          <div className="ai-composer-actions">
+            {hasText && (
+              <button
+                type="button"
+                className="ai-composer-send"
+                aria-label="Queue message"
+                title={
+                  queueRefused
+                    ? 'One message is already queued'
+                    : 'Queue — sends when the run finishes'
+                }
+                disabled={queueRefused}
+                onClick={submit}
+              >
+                <Send size={ICON_SIZE.sm} aria-hidden="true" />
+              </button>
+            )}
+            {/* Visually STABLE stop control (H2): no pulsing/blinking — a static ring
+                with distinct hover/pressed states; activity is signalled elsewhere
+                (activity row + streaming text), never by animating the kill switch. */}
+            <button
+              type="button"
+              className="ai-composer-stop"
+              aria-label="Stop agent"
+              title="Stop agent"
+              onClick={onStop}
+            >
+              <Square size={12} aria-hidden="true" className="ai-composer-stop-glyph" />
+            </button>
+          </div>
         ) : (
           <button
             type="button"
