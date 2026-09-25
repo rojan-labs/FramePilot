@@ -87,6 +87,8 @@ import {
   textRasterKey,
 } from './engine-text-rasters.js';
 import { mediaSrc } from '../../editor/media.js';
+import { clipKind, effectiveMutedTrackIds } from '../../editor/selectors.js';
+import { ProgramAudio } from '../audio/program-audio.js';
 import type {
   PresentedFrame,
   PresentedLayer,
@@ -293,6 +295,10 @@ export class LayerPreviewEngine {
   private audioCtx: AudioContext | undefined;
   private audioClock: AudioMasterClock | undefined;
   private monitorGain = 1;
+  /** Every clip's sound, as the export mixes it, on the audio clock. */
+  private readonly programAudio = new ProgramAudio(() => this.audioCtx);
+  /** Tracks soloed for monitoring (session-only; the export ignores solo). */
+  private soloedTrackIds: ReadonlySet<string> = new Set();
   private playing = false;
   private starting = false;
   private pausedAtSec = 0;
@@ -503,6 +509,7 @@ export class LayerPreviewEngine {
       ...[...wantedVideo].map(([assetId, url]) => this.loadVideo(assetId, url)),
       ...[...wantedImages].map((url) => this.loadImage(url)),
       ...[...wantedLuts].map((path) => this.loadLut(path)),
+      this.programAudio.retain(project.timeline, project.assets, project.mediaUrls),
       loadExportTextFont().then((ready) => {
         this.textFontReady = ready;
       }),
@@ -938,7 +945,8 @@ export class LayerPreviewEngine {
     const clip = this.clipsById.get(layer.clipId);
     const trackStyle = this.captionTrackStyles.get(layer.trackId);
     const clipStyle = clip?.captionStyle;
-    if (clip === undefined || (trackStyle === undefined && clipStyle === undefined)) return baseline;
+    if (clip === undefined || (trackStyle === undefined && clipStyle === undefined))
+      return baseline;
     const cue = resolveCaptionCue(clip, this.project?.transcript ?? []);
     return {
       ...baseline,
@@ -1346,30 +1354,39 @@ export class LayerPreviewEngine {
   private audioSegmentsFrom(startSec: number): AudioSegment[] {
     const project = this.project;
     if (!project) return [];
-    const segments: AudioSegment[] = [];
-    for (const track of project.timeline.tracks) {
-      if (track.muted === true || track.hidden === true) continue;
-      for (const clip of track.clips) {
-        const asset = this.assetsById.get(clip.assetId);
-        if (asset?.kind !== 'video') continue;
-        const buffer = this.sources.get(clip.assetId)?.audioBuffer;
-        if (!buffer) continue;
-        const speed = clip.speed ?? 1;
-        // A freeze is silent in the export (`without_audio`). Ramps and reverse are not yet
-        // scheduled here; their picture still follows the plan.
-        if (speed <= 0 || (clip.speedRamp?.length ?? 0) > 0) continue;
-        const segStart = Math.max(clip.start, startSec);
-        if (segStart >= clip.end) continue;
-        segments.push({
-          mediaStartUs: segStart * 1_000_000,
-          buffer,
-          offsetSec: clip.sourceStart + (segStart - clip.start) * speed,
-          durationSec: (clip.end - segStart) * speed,
-          ...(speed !== 1 ? { playbackRate: speed } : {}),
-        });
-      }
-    }
-    return segments.sort((a, b) => a.mediaStartUs - b.mediaStartUs);
+    const tracks = project.timeline.tracks;
+    return this.programAudio.segmentsFrom(
+      {
+        timeline: project.timeline,
+        kindOf: (clip) => {
+          const kind = clipKind(clip, this.assetsById);
+          return kind === 'video' || kind === 'audio' ? kind : 'other';
+        },
+        mutedTrackIds: effectiveMutedTrackIds(tracks, this.soloedTrackIds, this.assetsById),
+        footage: (assetId) => {
+          const source = this.sources.get(assetId);
+          return source?.audioBuffer
+            ? { buffer: source.audioBuffer, frameRate: source.frameRate }
+            : undefined;
+        },
+      },
+      startSec,
+    );
+  }
+
+  /**
+   * Monitor solo (H0.4 J2): soloed tracks sound and the other sound-bearing tracks fall silent.
+   * Session-only, never the project; playing sound is rescheduled from where the clock is.
+   */
+  setSoloedTracks(trackIds: ReadonlySet<string>): void {
+    const unchanged =
+      trackIds.size === this.soloedTrackIds.size &&
+      [...trackIds].every((id) => this.soloedTrackIds.has(id));
+    if (unchanged) return;
+    this.soloedTrackIds = new Set(trackIds);
+    if (!this.playing || !this.audioClock) return;
+    const nowUs = this.audioClock.nowMediaUs();
+    this.audioClock.scheduleSegments(this.audioSegmentsFrom(nowUs / 1_000_000), nowUs);
   }
 
   async play(): Promise<void> {
@@ -1666,6 +1683,7 @@ export class LayerPreviewEngine {
     for (const bitmap of this.images.values()) bitmap.close();
     this.images.clear();
     this.sources.clear();
+    this.programAudio.dispose();
     this.project = null;
     void this.audioCtx?.close().catch(() => undefined);
     this.audioCtx = undefined;

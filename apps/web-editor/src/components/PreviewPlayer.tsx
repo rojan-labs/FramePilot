@@ -58,7 +58,6 @@ import {
   createPlaybackIndex,
   colorGradeCssFilter,
   colorGradeParams,
-  dbToGain,
   effectiveMutedTrackIds,
   formatTime,
   isOverlayKind,
@@ -73,6 +72,7 @@ import {
 } from '../editor/selectors.js';
 import { useSettings } from '../editor/useSettings.js';
 import { PreviewAudioMixer } from './PreviewAudioMixer.js';
+import { clipMix } from '../preview/audio/mix-envelope.js';
 import { MonitorHeaderPortal } from './MonitorHeaderPortal.js';
 import { PreviewViewControls, type PreviewZoom } from './PreviewViewControls.js';
 import {
@@ -359,7 +359,10 @@ export function PreviewPlayer({
   const videoMuted =
     (videoLocation ? effectiveMuted.has(videoLocation.track.id) : false) ||
     (videoAudio?.muted ?? false);
-  const videoVolume = videoAudio ? dbToGain(videoAudio.gainDb) : 1;
+  // The export's own envelope at the playhead (fader or lane, fades, duck), not just the fader.
+  const videoVolume = videoClip
+    ? clipMix(videoClip, timeline.tracks).gainAt(playhead - videoClip.start)
+    : 1;
   // An image is a still picture, not a playable element: it has no media clock to
   // ride. We mount it as an <img> and let the wall-clock advance the playhead
   // through its duration — riding a non-existent <video> clock would freeze the

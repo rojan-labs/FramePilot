@@ -21,6 +21,7 @@ import type {
 } from '@framepilot/timeline-schema';
 import { effectLayersOf } from '@framepilot/timeline-schema';
 import { clipMaskStack, type ClipMaskStack } from '../preview/masks/mask-stack.js';
+import { clipMix, dbToGain } from '../preview/audio/mix-envelope.js';
 import { transitionFromClip, type TransitionEnvelope } from '../preview/transition-envelope.js';
 import {
   resolveTransitionParamsFor,
@@ -290,12 +291,11 @@ export function audibleAudioAt(
   for (const { track, clip } of activeClipsAt(index, t)) {
     if (muted.has(track.id)) continue;
     if (clipKind(clip, assetById) !== 'audio') continue;
-    const audio = audioSettings(clip);
     audible.push({
       track,
       clip,
-      sourceTime: clip.sourceStart + (t - clip.start),
-      volume: previewClipVolume(clip, audio, t, tracks),
+      ...sourcePosition(clip, t),
+      volume: previewClipVolume(clip, t, tracks),
     });
   }
   return audible;
@@ -1674,76 +1674,22 @@ export function audioSettings(clip: Clip): AudioSettings {
 // duck that was already working. A monitor that lies about the mix does not
 // just mislead the person; it teaches the agent to damage the edit.
 //
-// So preview mirrors the engine's own envelope — `fade_gain_at` × `duck_gain_at`
-// in `audio/mixing.py` — evaluated at one instant instead of over a sample
-// array. This stays inside the render-vs-preview invariant (AGENTS.md §4): it
-// sets an element's `volume`, it does not process samples. Automation lanes
-// (keyframed `audio_gain`) remain engine-truth and are not sampled here.
-
-/** The engine's duck attack/release ramp, in seconds (`duck_gain_at`'s `ramp`). */
-const DUCK_RAMP_SECONDS = 0.15;
-
-const clamp01Gain = (value: number): number => (value < 0 ? 0 : value > 1 ? 1 : value);
-
-/** Fade multiplier at clip-relative `elapsed`. Mirrors the engine's `fade_gain_at`. */
-function fadeGainAt(
-  elapsed: number,
-  duration: number,
-  { fadeInSeconds, fadeOutSeconds, fadeCurve }: AudioSettings,
-): number {
-  let gain = 1;
-  if (fadeInSeconds > 0) gain = Math.min(gain, clamp01Gain(elapsed / fadeInSeconds));
-  if (fadeOutSeconds > 0) gain = Math.min(gain, clamp01Gain((duration - elapsed) / fadeOutSeconds));
-  if (fadeCurve === 'equal-power') return Math.sin(gain * (Math.PI / 2));
-  if (fadeCurve === 'smooth') return gain * gain * (3 - 2 * gain);
-  return gain;
-}
+// So preview evaluates the engine's own envelope (`preview/audio/mix-envelope.ts`,
+// held to the export by generated vectors): the fader or its automation lane,
+// the fades and the duck, at one instant. This stays inside the render-vs-preview
+// invariant (AGENTS.md §4): it sets an element's `volume`, it does not process samples.
 
 /**
- * Duck multiplier at absolute time `t`, given the sidechain track's clip spans.
- * Mirrors the engine's `duck_gain_at`, including its 0.15s ramp on each side, so
- * the bed dips in the monitor exactly where and as far as it dips in the render.
- */
-function duckGainAt(
-  t: number,
-  sidechain: Timeline['tracks'][number] | undefined,
-  amountDb: number,
-): number {
-  if (sidechain === undefined || sidechain.clips.length === 0) return 1;
-  const reduced = dbToGain(amountDb);
-  let gain = 1;
-  for (const { start, end } of sidechain.clips) {
-    const attack = clamp01Gain((t - (start - DUCK_RAMP_SECONDS)) / DUCK_RAMP_SECONDS);
-    const release = clamp01Gain((end + DUCK_RAMP_SECONDS - t) / DUCK_RAMP_SECONDS);
-    const presence = clamp01Gain(Math.min(attack, release));
-    gain = Math.min(gain, 1 - presence * (1 - reduced));
-  }
-  return gain;
-}
-
-/**
- * The linear monitor volume for one audio clip at absolute time `t`: the clip's
- * static gain, shaped by its fades and by any duck it is authored under.
- * `tracks` supplies the duck sidechain; pass the timeline's tracks.
+ * The linear monitor volume for one audio clip at absolute time `t`: what the
+ * export multiplies its sound by there. `tracks` supplies the duck sidechain;
+ * pass the timeline's tracks.
  */
 export function previewClipVolume(
   clip: Clip,
-  audio: AudioSettings,
   t: number,
   tracks: readonly Timeline['tracks'][number][],
 ): number {
-  if (audio.muted) return 0;
-  const level = dbToGain(audio.gainDb);
-  const fade = fadeGainAt(t - clip.start, clip.end - clip.start, audio);
-  const duck =
-    audio.duckUnderTrackId === null
-      ? 1
-      : duckGainAt(
-          t,
-          tracks.find((track) => track.id === audio.duckUnderTrackId),
-          audio.duckAmountDb,
-        );
-  return level * fade * duck;
+  return clipMix(clip, tracks).gainAt(t - clip.start);
 }
 
 /** Tracks (other than the clip's own) that carry audio, as duck sidechain options. */
@@ -1759,25 +1705,33 @@ export function duckTrackOptions(timeline: Timeline, ownTrackId: string): readon
 // free — but audio-only clips (music, VO, SFX) on their own layers have no
 // element and would be silent. `audibleAudioClipsAt` is the pure projection the
 // preview audio mixer renders from: which audio-only clips should sound now,
-// where in their source they sit, and at what linear volume. Mirrors the engine
-// mix (gain/mute + track flags, fades and ducking — see `previewClipVolume`);
-// keyframed automation lanes stay engine-truth (preview is approximate —
-// invariant 4). Video-clip footage audio is intentionally excluded
-// here: it rides the monitor's own <video>, not this mixer.
+// where in their source they sit, and at what linear volume: the export's own
+// mix (track flags, then `previewClipVolume`). Video-clip footage audio is
+// intentionally excluded here: it rides the monitor's own <video>, not this mixer.
 
-/** Linear amplitude for a decibel gain — mirrors the engine's `db_to_gain`. */
-export function dbToGain(db: number): number {
-  return 10 ** (db / 20);
-}
+export { dbToGain };
 
 /** An audio-only clip that should sound at a given playhead time. */
 export interface AudibleClip {
   readonly track: Track;
   readonly clip: Clip;
-  /** Source-media time under the playhead (`sourceStart` + offset into the clip). */
+  /** Source-media time under the playhead (`sourceStart` + offset into the clip at its speed). */
   readonly sourceTime: number;
+  /** Source seconds per timeline second: the clip's constant speed, as the export resamples it. */
+  readonly playbackRate: number;
   /** Linear monitor volume after gain, mute, fades and any duck (0 when muted). */
   readonly volume: number;
+}
+
+/**
+ * Where a clip's source sits under timeline time `t`, at its constant speed. A reversed, frozen
+ * or ramped clip has no single element rate; those play from the layered engine's own clock,
+ * which follows the export's time map, and read here at unity.
+ */
+function sourcePosition(clip: Clip, t: number): { sourceTime: number; playbackRate: number } {
+  const speed = clip.speed ?? 1;
+  const rate = speed > 0 && (clip.speedRamp?.length ?? 0) === 0 ? speed : 1;
+  return { sourceTime: clip.sourceStart + (t - clip.start) * rate, playbackRate: rate };
 }
 
 /**
@@ -1800,12 +1754,11 @@ export function audibleAudioClipsAt(
     for (const clip of track.clips) {
       if (t < clip.start || t >= clip.end) continue;
       if (clipKind(clip, assetById) !== 'audio') continue;
-      const audio = audioSettings(clip);
       audible.push({
         track,
         clip,
-        sourceTime: clip.sourceStart + (t - clip.start),
-        volume: previewClipVolume(clip, audio, t, timeline.tracks),
+        ...sourcePosition(clip, t),
+        volume: previewClipVolume(clip, t, timeline.tracks),
       });
     }
   }

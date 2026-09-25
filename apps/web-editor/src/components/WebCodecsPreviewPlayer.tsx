@@ -837,6 +837,12 @@ export function WebCodecsPreviewPlayer({
     engineRef.current?.setVolume(monitorGain);
   }, [monitorGain, hasSegments]);
 
+  // Solo (H0.4 J2) is monitoring state: the layered engine folds it into what it plays.
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (engine instanceof LayerPreviewEngine) engine.setSoloedTracks(soloedTrackIds);
+  }, [soloedTrackIds, hasSegments]);
+
   // Tab-hidden pause (P4): a backgrounded tab throttles rAF and gains nothing
   // from decoding ahead, so pause playback when the document is hidden (the
   // pump only runs while playing, so this also stops decode). The user resumes
@@ -858,21 +864,18 @@ export function WebCodecsPreviewPlayer({
       data-preview-engine="webcodecs"
       ref={previewRef}
     >
-      {/* Audio-only tracks (music/VO/SFX) have no picture to ride, so the
-          existing hidden mixer plays them in sync — it's driven entirely by
-          the shared editor.state.playing/usePlayhead, which the engine above
-          already keeps correct via setPlaying/seekTransient, so no engine
-          changes were needed to wire this up (P2's "reuse PreviewAudioMixer
-          for non-footage audio" per the plan). */}
-      {/* The monitor's volume/mute governs BOTH audio paths: footage audio via the
-          engine's master gain bus (setVolume, below) and audio-only clips via this
-          mixer's monitor scale. One control, everything you hear. */}
-      <PreviewAudioMixer
-        editor={editor}
-        assets={assets}
-        soloedTrackIds={soloedTrackIds}
-        monitorVolume={monitorGain}
-      />
+      {/* The layer compositor plays every clip's sound itself, on the clock the picture follows,
+          with the export's mix (`preview/audio/program-audio.ts`). The flat-EDL engine only plays
+          footage, so audio clips there ride the hidden element mixer. Either way the monitor
+          volume governs everything you hear. */}
+      {layered ? null : (
+        <PreviewAudioMixer
+          editor={editor}
+          assets={assets}
+          soloedTrackIds={soloedTrackIds}
+          monitorVolume={monitorGain}
+        />
+      )}
       <div className="preview-stage" ref={setStageHost}>
         <div
           className="preview-frame"
