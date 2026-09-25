@@ -1100,11 +1100,11 @@ export const SHAPE_CATALOG: readonly ShapeDescriptor[] = [
   }),
   iconShape(
     'callout-leader',
-    'Callout with leader line',
+    'Message',
     'callouts',
-    ['callout', 'label', 'annotation'],
+    ['message', 'comment', 'chat', 'callout', 'annotation'],
     'message-square-text',
-    symbolPresets('callout-leader', 'Callout'),
+    symbolPresets('callout-leader', 'Message'),
     SQUARE,
   ),
   box({
@@ -1118,9 +1118,9 @@ export const SHAPE_CATALOG: readonly ShapeDescriptor[] = [
   }),
   iconShape(
     'banner-ribbon',
-    'Banner ribbon',
-    'callouts',
-    ['banner', 'ribbon', 'award'],
+    'Awareness ribbon',
+    'symbols',
+    ['ribbon', 'awareness', 'cause', 'support'],
     'ribbon',
     symbolPresets('banner-ribbon', 'Ribbon'),
   ),

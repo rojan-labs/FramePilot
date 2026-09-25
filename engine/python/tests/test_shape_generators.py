@@ -179,3 +179,38 @@ def test_a_long_label_shrinks_to_fit_its_box() -> None:
     box_width = pill["width"] / 100 * H
     assert cols.max() - cols.min() <= box_width * 0.8
     assert image.size == (bounds.width, bounds.height)
+
+
+_SEGMENT_SHAPES = sorted(
+    {
+        preset_id.split("/")[0]
+        for preset_id in shape_preset_ids()
+        if (params := preset_shape_params(preset_id)) is not None and "x1" in params
+    }
+)
+
+
+@pytest.mark.parametrize("shape_id", _SEGMENT_SHAPES)
+@pytest.mark.parametrize("cap", ["none", "arrow", "dot", "bar"])
+@pytest.mark.parametrize("style", ["solid", "dashed", "dotted"])
+def test_every_line_takes_every_cap_and_stroke_style(
+    shape_id: str, cap: str, style: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # plan/elements EL5.3: caps and stroke styles on every segment shape, curved ones included.
+    preset = next(p for p in shape_preset_ids() if p.startswith(f"{shape_id}/"))
+    params = _preset(preset, startCap=cap, endCap=cap, strokeStyle=style)
+    image, _ = rasterize_shape(params, W, H)
+    drawn = float(np.asarray(image, dtype=np.float64)[..., 3].sum())
+    assert drawn > 0
+    monkeypatch.setattr(shape_geometry, "BOUNDS_MARGIN", 12)
+    roomy, _ = rasterize_shape(params, W, H)
+    assert float(np.asarray(roomy, dtype=np.float64)[..., 3].sum()) == pytest.approx(
+        drawn, rel=0.01
+    )
+
+
+def test_a_zero_length_line_still_draws_its_caps() -> None:
+    dot = _preset("line/white", x1=50, y1=50, x2=50, y2=50, startCap="dot", endCap="dot")
+    assert _alpha(dot).max() == 255
+    curved = _preset("curved-arrow/white", x1=50, y1=50, x2=50, y2=50)
+    assert _alpha(curved).max() > 0

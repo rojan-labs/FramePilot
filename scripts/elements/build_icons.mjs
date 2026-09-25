@@ -112,7 +112,15 @@ function normalisePath(d) {
   let sx = 0;
   let sy = 0;
   let lastCtrl = null; // for S/T reflection: [x, y, kind]
+  let drawn = false; // the current subpath has drawn since its M and is not closed
   const num = () => Number(tk[i++]);
+  // An outline that returns to where it started is closed, whether or not it says Z (Lucide's
+  // heart does not): closing it is what lets a filled style fill it, and a round join there
+  // looks the same as two round caps.
+  const closeIfReturned = () => {
+    if (drawn && Math.abs(x - sx) < 1e-3 && Math.abs(y - sy) < 1e-3) out.push('Z');
+    drawn = false;
+  };
   while (i < tk.length) {
     if (/[a-zA-Z]/.test(tk[i])) cmd = tk[i++];
     const rel = cmd === cmd.toLowerCase();
@@ -121,6 +129,7 @@ function normalisePath(d) {
     const oy = rel ? y : 0;
     switch (C) {
       case 'M': {
+        closeIfReturned();
         x = num() + ox;
         y = num() + oy;
         sx = x;
@@ -212,11 +221,14 @@ function normalisePath(d) {
         x = sx;
         y = sy;
         lastCtrl = null;
+        drawn = false;
         break;
       default:
         throw new Error(`build_icons: unsupported path command '${cmd}'.`);
     }
+    if (C !== 'M' && C !== 'Z') drawn = true;
   }
+  closeIfReturned();
   return out;
 }
 
