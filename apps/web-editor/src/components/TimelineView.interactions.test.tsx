@@ -13,6 +13,7 @@ import { useEditor } from '../editor/useEditor.js';
 import { TimelineView } from './TimelineView.js';
 import { ASSET_DND_TYPE } from './MediaBin.js';
 import { TEXT_OVERLAY_DND_TYPE } from './OverlaysPanel.js';
+import { ELEMENT_DND_TYPE, encodeElementDrag } from './elements/element-dnd.js';
 
 /** One short clip on a single video track with empty room to move into. */
 const timeline: Timeline = {
@@ -470,6 +471,29 @@ describe('TimelineView direct manipulation', () => {
     fireEvent(lane, dropEvent);
     // A new text-overlay clip is created at the drop point (alongside c1).
     expect(container.querySelectorAll('.clip-block').length).toBe(2);
+  });
+
+  it('drops a shape tile from Elements as a graphic clip with its glyph, never on the footage lane', () => {
+    const { container } = render(<Host />);
+    const lane = container.querySelector('[data-track-id="v"]') as HTMLElement;
+    const payload = encodeElementDrag({
+      kind: 'shape',
+      presetId: 'star-5/white',
+      colour: '#FF3B30',
+    });
+    const dataTransfer = {
+      getData: (type: string) => (type === ELEMENT_DND_TYPE ? payload : ''),
+      types: [ELEMENT_DND_TYPE],
+    };
+    const dropEvent = new MouseEvent('drop', { bubbles: true, clientX: 300 });
+    Object.defineProperty(dropEvent, 'dataTransfer', { value: dataTransfer });
+    fireEvent(lane, dropEvent);
+    const graphic = container.querySelector('.clip-block.is-graphic') as HTMLElement;
+    expect(graphic).toBeTruthy();
+    // Dropped on the video lane, the shape still goes on a graphics lane of its own.
+    expect(lane.querySelector('.clip-block.is-graphic')).toBeNull();
+    expect(graphic.style.left).toBe('300px');
+    expect(graphic.querySelector('.clip-shape-glyph')).toBeTruthy();
   });
 
   it('adds a new layer at the front via the Add-track menu (Phase 2 / TIMELINE-TOOLBAR-REORG)', () => {

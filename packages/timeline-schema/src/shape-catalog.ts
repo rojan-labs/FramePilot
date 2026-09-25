@@ -15,6 +15,8 @@
 
 import { SHAPE_ICON_NAMES } from './shape-icon-names.js';
 
+export { SHAPE_ICON_NAMES };
+
 /** Where a shape sits in the Shapes tab. */
 export const SHAPE_CATEGORIES = [
   'basic',

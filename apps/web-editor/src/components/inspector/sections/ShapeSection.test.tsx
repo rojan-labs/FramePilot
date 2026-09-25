@@ -1,6 +1,7 @@
 /**
- * The Shape section (plan/elements EL4a): each control is one patch, a change that would leave
- * the shape drawing nothing is not applied and says why, and a segment shows its ends and caps.
+ * The Shape section (plan/elements EL4a, EL5): each control is one patch, a change that would
+ * leave the shape drawing nothing is not applied and says why, a segment shows its ends and caps,
+ * and the shape itself can be swapped for another placed the same way.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -83,5 +84,30 @@ describe('ShapeInspector', () => {
     expect(screen.getByLabelText('shape corners')).toBeDefined();
     expect(screen.getByLabelText('shape width')).toBeDefined();
     expect(screen.queryByLabelText('shape end cap')).toBeNull();
+  });
+
+  it('swaps the shape for another placed the same way, keeping its style, as one patch', () => {
+    const clip = shapeClip('rounded-rect/highlight');
+    const { editor, applyPatch } = editorWith(clip);
+    render(<ShapeInspector editor={editor} clip={clip} />);
+    fireEvent.click(screen.getByRole('combobox', { name: 'shape kind' }));
+    const options = screen.getAllByRole('option').map((option) => option.textContent);
+    expect(options).toContain('Star');
+    expect(options).not.toContain('Arrow');
+    fireEvent.click(screen.getByRole('option', { name: 'Star' }));
+    const params = applyPatch.mock.calls[0]![0].operations[0].params;
+    expect(params).toMatchObject({
+      shape: 'star-5',
+      stroke: '#FFD400',
+      points: 5,
+      cornerRadius: null,
+    });
+  });
+
+  it('moves a count knob in whole steps', () => {
+    const clip = shapeClip('star-5/white');
+    const { editor } = editorWith(clip);
+    render(<ShapeInspector editor={editor} clip={clip} />);
+    expect(screen.getByLabelText('shape points').getAttribute('step')).toBe('1');
   });
 });

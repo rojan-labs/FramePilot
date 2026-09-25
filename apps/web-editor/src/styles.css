@@ -5054,6 +5054,9 @@ g.mask-canvas-draft circle {
 .track-head.is-overlay .track-glyph {
   color: var(--clip-ai-border);
 }
+.track-head.is-graphic .track-glyph {
+  color: var(--clip-graphic-border);
+}
 
 /* Per-layer z-order nudge (Phase 2, ADR 0032): two stacked chevrons that appear
    over the type-glyph area on hover so they take zero layout space at rest. Using
@@ -5869,6 +5872,22 @@ g.mask-canvas-draft circle {
   --clip-edge-strong: var(--clip-ai-border);
   --clip-bar: var(--clip-ai-bar);
   background: var(--clip-ai);
+}
+.clip-block.is-graphic {
+  --clip-edge: var(--clip-graphic-edge);
+  --clip-edge-strong: var(--clip-graphic-border);
+  --clip-bar: var(--clip-graphic-bar);
+  background: var(--clip-graphic);
+}
+/* A shape clip's glyph beside its name (plan/elements 02 §6), on the mid-tone the tiles use so a
+   white or a yellow shape both read. */
+.clip-shape-glyph {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  background: #5b5f6b;
+  border-radius: 3px;
 }
 
 /* Selection = one accent ring (never a different fill), so the per-kind clip
@@ -15341,6 +15360,84 @@ a.export-credits-license {
   font-size: 0.72rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* The browse surface for the whole catalogue (plan/elements EL5): search, category chips and the
+   colour row sit above the grid, in the tokens the Photos search already uses. */
+.shapes-search {
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+.shapes-search:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.shapes-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.shapes-chip {
+  padding: 2px var(--space-2);
+  font-size: 0.72rem;
+  color: var(--text-secondary, var(--text));
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.shapes-chip[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--surface-3, var(--surface-2));
+  border-color: var(--accent);
+}
+.shapes-chip:focus-visible,
+.shapes-swatch:focus-visible,
+.shapes-more:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.shapes-colours {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+}
+.shapes-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+}
+.shapes-swatch.is-preset {
+  /* "Each shape in its own colours": a split disc rather than one colour. */
+  background: conic-gradient(#ffd400 0 25%, #ff3b30 0 50%, #ffffff 0 75%, #0a84ff 0);
+}
+.shapes-swatch[aria-pressed='true'] {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.shapes-swatch-picker {
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+.shapes-more {
+  align-self: center;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text);
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
 }
 
 /* ---------------------------------------------------------------------------

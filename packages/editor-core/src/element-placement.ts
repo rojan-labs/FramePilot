@@ -7,7 +7,7 @@
  * with room over its span, else a lane that already has room, else a new overlay lane at the
  * front. It never goes on a picture lane, where it would be read as a cutaway.
  */
-import type { Timeline } from '@framepilot/timeline-schema';
+import { shapeDescriptor, type Timeline } from '@framepilot/timeline-schema';
 import { createLaneAllocator, nextLayerId } from './lane-placement.js';
 import { shapeClipId, shapeEffectId, type Operation } from './operations.js';
 import { syntheticClipKind } from './synthetic-assets.js';
@@ -83,4 +83,28 @@ export function setShapeParamsOp(
   changes: Readonly<Record<string, unknown>>,
 ): Operation {
   return { type: 'set_effect_params', clipId, effectId: shapeEffectId(clipId), params: changes };
+}
+
+/**
+ * A shape's params with its geometry swapped for `shapeId`'s (plan/elements 04 §2.3): the style
+ * (colours, stroke, caps, label) and the placement (box or ends) stay, the old shape's knobs are
+ * dropped, and the new shape's knobs start at their defaults.
+ *
+ * @returns `undefined` when `shapeId` is unknown or placed differently (a box shape cannot become
+ *   a line: there is no box-to-ends mapping the editor would expect).
+ */
+export function swapShapeParams(
+  params: Readonly<Record<string, unknown>>,
+  shapeId: string,
+): Record<string, unknown> | undefined {
+  const next = shapeDescriptor(shapeId);
+  const current = typeof params.shape === 'string' ? shapeDescriptor(params.shape) : undefined;
+  if (next === undefined || current === undefined || next.frame !== current.frame) return undefined;
+  const oldKnobs = new Set(current.knobs.map((knob) => knob.name));
+  const swapped: Record<string, unknown> = { shape: shapeId };
+  for (const [key, value] of Object.entries(params)) {
+    if (key !== 'shape' && !oldKnobs.has(key)) swapped[key] = value;
+  }
+  for (const knob of next.knobs) swapped[knob.name] = knob.default;
+  return swapped;
 }

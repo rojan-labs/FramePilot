@@ -97,6 +97,7 @@ import {
   addClipPatch,
   addLayerPatch,
   addEffectLayerPatch,
+  addShapePatch,
   addTextOverlayPatch,
   duplicateEffectLayerPatch,
   moveEffectLayerPatch,
@@ -130,6 +131,8 @@ import {
 } from '../editor/patch-builders.js';
 import { ASSET_DND_TYPE } from './MediaBin.js';
 import { TEXT_OVERLAY_DND_TYPE } from './OverlaysPanel.js';
+import { ELEMENT_DND_TYPE, decodeElementDrag } from './elements/element-dnd.js';
+import { ShapeClipGlyph } from './elements/ShapeClipGlyph.js';
 import { TRANSITION_DND_TYPE } from './transition-catalog.js';
 import { getTransition } from '@framepilot/timeline-schema/transition-catalog';
 import { EFFECT_DND_TYPE } from './EffectsPanel.js';
@@ -362,8 +365,8 @@ const KIND_META: Record<ClipKind, { icon: LucideIcon; cls: string; label: string
   audio: { icon: AudioLines, cls: 'is-audio', label: 'Audio' },
   text: { icon: Type, cls: 'is-overlay', label: 'Text' },
   caption: { icon: Captions, cls: 'is-caption', label: 'Caption' },
-  // A shape is a graphic like a title: it shares the overlay lane's colour.
-  shape: { icon: Shapes, cls: 'is-overlay', label: 'Shape' },
+  // Element graphics get their own colour (`--clip-graphic`), apart from footage and titles.
+  shape: { icon: Shapes, cls: 'is-graphic', label: 'Shape' },
 };
 
 /**
@@ -1209,6 +1212,7 @@ const TimelineClip = memo(function TimelineClip({
       )}
       {density.showHeader && (
         <div className="clip-header">
+          {kind === 'shape' && <ShapeClipGlyph clip={clip} />}
           <span className="clip-label" id={`${clip.id}-label`} title={name}>
             {name}
           </span>
@@ -2561,6 +2565,27 @@ export function TimelineView({
     [timeline, applyPatch, settings.defaultOverlaySeconds],
   );
 
+  const onDropElement = useCallback(
+    (track: Track, raw: string, atSeconds: number): void => {
+      const payload = decodeElementDrag(raw);
+      if (payload === null) return;
+      const added = addShapePatch(
+        timeline,
+        payload.presetId,
+        Math.max(0, atSeconds),
+        settings.defaultOverlaySeconds,
+        {
+          colour: payload.colour,
+          ...(track.type === 'overlay' && !track.locked ? { trackId: track.id } : {}),
+        },
+      );
+      if (added === null) return;
+      applyPatch(added.patch);
+      select(added.clipId);
+    },
+    [timeline, applyPatch, select, settings.defaultOverlaySeconds],
+  );
+
   // --- On-cut transitions (M3b) ---------------------------------------------
   // Selecting a pill selects its incoming clip, so the inspector's Transition
   // section acts on the same clip; resize/add each commit one validated patch.
@@ -2941,7 +2966,11 @@ export function TimelineView({
                 }
                 return;
               }
-              if (types.includes(ASSET_DND_TYPE) || types.includes(TEXT_OVERLAY_DND_TYPE)) {
+              if (
+                types.includes(ASSET_DND_TYPE) ||
+                types.includes(TEXT_OVERLAY_DND_TYPE) ||
+                types.includes(ELEMENT_DND_TYPE)
+              ) {
                 event.preventDefault();
                 event.dataTransfer.dropEffect = 'copy';
               }
@@ -2968,6 +2997,13 @@ export function TimelineView({
               if (event.dataTransfer.types.includes(TEXT_OVERLAY_DND_TYPE)) {
                 event.preventDefault();
                 onDropTextOverlay(track, value);
+                return;
+              }
+              // A shape tile dragged from Elements lands at the drop time: on this lane when it
+              // is a graphics lane with room, else where a click would put it (EL5.2).
+              if (event.dataTransfer.types.includes(ELEMENT_DND_TYPE)) {
+                event.preventDefault();
+                onDropElement(track, event.dataTransfer.getData(ELEMENT_DND_TYPE), value);
                 return;
               }
               const assetId =
@@ -3185,6 +3221,7 @@ export function TimelineView({
     snapDisabled,
     xToSeconds,
     onDropTextOverlay,
+    onDropElement,
     select,
     openClipMenu,
     transitionsByTrack,

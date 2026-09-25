@@ -1,12 +1,14 @@
 /**
- * The Inspector's Shape section (plan/elements EL4a): fill, stroke, the shape's own knobs, its
- * box or its two ends. Every change is one `set_effect_params` patch; a change that would leave
- * the shape drawing nothing is not applied, and the section says why.
+ * The Inspector's Shape section (plan/elements EL4a, EL5): the shape itself (swapped for another
+ * placed the same way, keeping its style), fill, stroke, the shape's own knobs, its box or its two
+ * ends. Every change is one `set_effect_params` patch; a change that would leave the shape drawing
+ * nothing is not applied, and the section says why.
  */
 import { useState } from 'react';
 import type { Clip } from '@framepilot/timeline-schema';
 import {
   SHAPE_CAPS,
+  SHAPE_CATALOG,
   SHAPE_EFFECT_TYPE,
   SHAPE_LIMITS,
   SHAPE_STROKE_STYLES,
@@ -14,7 +16,7 @@ import {
   shapeParamsProblem,
 } from '@framepilot/timeline-schema';
 import type { UseEditor } from '../../../editor/useEditor.js';
-import { setShapeParamsPatch } from '../../../editor/patch-builders.js';
+import { setShapeParamsPatch, swapShapePatch } from '../../../editor/patch-builders.js';
 import { ScrubNumber } from '../../ScrubNumber.js';
 import { Checkbox } from '../../Checkbox.js';
 import { LabeledSelect } from '../LabeledSelect.js';
@@ -132,9 +134,32 @@ export function ShapeInspector({
         ? SHAPE_LIMITS.size
         : SHAPE_LIMITS.position;
 
+  // The shapes this one can become: those placed the same way (a box never turns into a line).
+  const swappable = SHAPE_CATALOG.filter((entry) => entry.frame === descriptor.frame);
+  const shapeIds = swappable.some((entry) => entry.id === descriptor.id)
+    ? swappable.map((entry) => entry.id)
+    : [descriptor.id, ...swappable.map((entry) => entry.id)];
+  const shapeNames = shapeIds.map((id) => shapeDescriptor(id)?.name ?? id);
+
   return (
     <>
       <div className="inspector-subpanel" aria-label="shape style">
+        <LabeledSelect
+          caption="Shape"
+          label="shape kind"
+          value={descriptor.id}
+          options={shapeIds}
+          labels={shapeNames}
+          onChange={(shapeId) => {
+            const patch = swapShapePatch(editor.state.timeline, clip.id, shapeId);
+            if (patch === null) {
+              setRefusal('That shape cannot take this one’s place. Pick another.');
+              return;
+            }
+            setRefusal(null);
+            editor.applyPatch(patch);
+          }}
+        />
         {!segment && (
           <PaintControls
             which="fill"
@@ -175,7 +200,8 @@ export function ShapeInspector({
             value={number(knob.name, knob.default)}
             min={knob.min}
             max={knob.max}
-            step={knob.unit === '%' ? 1 : 0.5}
+            // Counts (star points) move in whole steps; multiples (head size) in halves.
+            step={knob.unit === '×' ? 0.5 : 1}
             onChange={(value) => commit({ [knob.name]: value }, knob.label.toLowerCase())}
           />
         ))}

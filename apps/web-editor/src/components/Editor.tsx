@@ -737,13 +737,14 @@ export function Editor({
           return null;
         }}
         {...(onOpenSettings ? { onOpenSettings: () => onOpenSettings('ai') } : {})}
-        onAddShape={(presetId) => {
+        onAddShape={(presetId, colour) => {
           const live = editor.state;
           const added = addShapePatch(
             live.timeline,
             presetId,
             live.playhead,
             settings.defaultOverlaySeconds,
+            { colour },
           );
           if (added === null) return 'That shape could not be added. Try another.';
           editor.applyPatch(added.patch);

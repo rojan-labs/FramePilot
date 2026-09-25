@@ -60,7 +60,7 @@ export interface ElementsPanelProps {
   /** Opens Settings → Photos & videos (Pexels). */
   readonly onOpenSettings?: () => void;
   /** Add a shape preset at the playhead; returns the refusal sentence, or `null`. */
-  readonly onAddShape?: (presetId: string) => string | null;
+  readonly onAddShape?: (presetId: string, colour: string | null) => string | null;
 }
 
 export function ElementsPanel({
