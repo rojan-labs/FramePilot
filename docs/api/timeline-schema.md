@@ -448,6 +448,18 @@ nothing to backfill — no v22 project ever saved a preset — but it still bump
 FramePilot that predates presets refuses a file whose presets it would otherwise silently drop on
 the next save. See [Mask presets and binary path arrays](#mask-presets-and-binary-path-arrays-schema-v23-mk4).
 
+**v24 → v25** (plan/elements, ADR 0190) adds shapes: a clip whose `assetId` is the shape sentinel
+(`SHAPE_ASSET_ID`) carries one effect of type `shape` whose params are a `ShapeParams` — declared
+in `project.schema.json` under `$defs.ShapeParams`, twinned by the engine's Pydantic
+`ShapeParams`, and validated against the shape catalogue (`schema/shape-catalog.json`) by
+`shapeParamsProblem` / `shape_params_problem`, which return the same sentences
+(`tests/fixtures/shape-params.json`). Units: a box centre in percent of each frame axis, a box size
+and the stroke width in percent of the frame height, segment ends in percent of each axis; `null`
+and an absent key mean the same thing. The step rewrites nothing; the envelope bump makes an older
+FramePilot refuse a project with shapes rather than drop them. The desktop monitor fetches a
+shape's raster from the engine's `POST /preview/text-raster` with `kind: "shape"` (and `rotates`),
+whose response carries the raster's untransformed top-left in `x`/`y`.
+
 - `Project.version` is the schema version. It is **bumped only with a migration**.
 - **No breaking schema change without a migration** (CI/agent rule; see
   [../runbooks/ci-cd.md](../runbooks/ci-cd.md) and `.codex/AGENTS.md`).

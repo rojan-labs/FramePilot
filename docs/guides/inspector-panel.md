@@ -20,6 +20,13 @@ The inspector uses one shared structure across every property type:
 - An effect-layer selection takes precedence over clip selection and opens the dedicated effect inspector.
 - An empty selection shows a focused editor hint instead of inactive controls.
 
+## Shapes
+
+A selected shape (Elements → Shapes) gets a **Shape** section on the Basic tab: fill and stroke
+on or off with colour and opacity, stroke width and style, its corners or arrow head, the caps of
+a line's ends, and its box or ends. Adjust, Speed, Crop, Mask and Applied effects are not offered
+for a shape: the export draws it from those settings alone, and they would do nothing to it.
+
 ## Extension rules
 
 New inspector sections belong in `components/inspector/registry.ts` and should use the shared `InspectorSection`, `InspectorRow`, `LabeledSelect`, and existing patch builders. Keep section ids stable because disclosure preferences are persisted by id. New controls must retain explicit accessible names and must never mutate timeline data directly.

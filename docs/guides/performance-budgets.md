@@ -70,6 +70,11 @@ via `useEditor().getPlayhead()` (stable) rather than `state.playhead` (a render 
 | Final export (1080p 9:16, ≤ 60 s)      | **≥ 0.3× realtime** | a 60 s Reel exports in ≲ 3.5 min           |
 | Render validation pass (per output)    | **< 5 s**           | the auto-validation tax stays small        |
 | Timeline compile (Timeline → MoviePy)  | **< 250 ms**        | compile is pure math, not IO               |
+| Shape raster, 1080p / 4K (per shape)   | **≤ 15 / 50 ms**    | the monitor fetches it on every restyle    |
+
+The shape raster (`render/shape_raster.py`, ADR 0190) measured about 4 ms at 1080p and 18 ms at
+4K for a stroked, translucent box on Apple Silicon; `test_shape_raster.py` holds a generous
+ceiling on shared CI runners so an order-of-magnitude regression fails.
 
 Renders run in a resumable background queue with timeout + cancellation
 (`render/queue.py`), so a slow render never blocks the UI and a runaway render is
