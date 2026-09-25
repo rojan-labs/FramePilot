@@ -1634,6 +1634,39 @@ function readVerdict(toolName: string, value: unknown): string | undefined {
  * Only the top level is sorted — a nested params object's order is the model's own and
  * has never varied in a captured run, and recursing would cost more than it buys.
  */
+/**
+ * How many whole-track caption restyles one run may apply to one track. A design pass that
+ * converges — a restyle, a look, one or two corrections — sits well inside it; run
+ * `fb90e58d` spent ten on one track in one turn, each followed by the same frame and the
+ * same complaint, because the renderer was placing the text wrongly whatever the style
+ * said.
+ */
+export const MAX_TRACK_RESTYLES_PER_RUN = 5;
+
+/**
+ * The distinct `set_track_caption_style` calls this run has already applied to the track
+ * `call` restyles, read from the run's applied-call ledger. A byte-identical repeat is one
+ * entry; it is caught earlier as "already done".
+ */
+function trackRestyleCount(call: ToolCall, appliedCalls: ReadonlySet<string> | undefined): number {
+  if (call.name !== 'set_track_caption_style' || appliedCalls === undefined) return 0;
+  const trackId = (call.arguments as { trackId?: unknown } | undefined)?.trackId;
+  if (typeof trackId !== 'string') return 0;
+  const prefix = 'set_track_caption_style:';
+  let count = 0;
+  for (const key of appliedCalls) {
+    if (!key.startsWith(prefix)) continue;
+    try {
+      if ((JSON.parse(key.slice(prefix.length)) as { trackId?: unknown }).trackId === trackId) {
+        count += 1;
+      }
+    } catch {
+      // A key is always `name:JSON`; one that is not cannot be a restyle of this track.
+    }
+  }
+  return count;
+}
+
 function appliedCallKey(call: ToolCall): string {
   const args = call.arguments;
   if (!args || typeof args !== 'object' || Array.isArray(args)) {
@@ -5765,6 +5798,28 @@ export class Orchestrator {
           opCount: normalized.length,
         });
         return { ops: [], note, summary, status: 'warning', satisfied: true };
+      }
+      const restylesSoFar = trackRestyleCount(call, host.appliedCalls);
+      if (restylesSoFar >= MAX_TRACK_RESTYLES_PER_RUN) {
+        const trackLabel = names.track(String((call.arguments as { trackId?: unknown }).trackId));
+        const note =
+          `${desc} — refused: ${trackLabel} has already been restyled ` +
+          `${String(restylesSoFar)} times in this run. When a look after each restyle shows ` +
+          'the same problem, the style is not what causes it. Stop restyling: tell the editor ' +
+          'what the frame shows, what you changed, and what you think is wrong, and let them decide.';
+        orchestratorLog.warn('refused a caption restyle past the per-run budget', {
+          tool: call.name,
+          restyles: restylesSoFar,
+        });
+        return {
+          ops: [],
+          note,
+          summary: `${desc} — not applied: ${trackLabel} was restyled ${String(restylesSoFar)} times this run`,
+          status: 'failed',
+          data: note,
+          deterministicFailure: true,
+          refusalCause: 'caption_restyle_budget',
+        };
       }
       host.appliedCalls?.add(callKey);
       const outcomeLine =

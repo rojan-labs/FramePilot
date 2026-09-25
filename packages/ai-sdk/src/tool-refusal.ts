@@ -132,7 +132,15 @@ export type RefusalCause =
    * renderer would letterbox it. Depends on the crop, the source and the project, none of
    * which the arrangement changes.
    */
-  | 'crop_letterboxes';
+  | 'crop_letterboxes'
+  /**
+   * One caption track was restyled wholesale more times in a run than any converging
+   * design pass needs. Run `fb90e58d` restyled one track ten times, looking at the same
+   * frame after each and reporting the same problem, because the renderer placed the text
+   * wrongly whatever the style said; the editor stopped it at 695k tokens. A budget, so an
+   * applied edit does not reset it.
+   */
+  | 'caption_restyle_budget';
 
 /**
  * Refusal causes that are verdicts about the SURFACE, not about the arrangement — so no
@@ -161,6 +169,7 @@ export const ARRANGEMENT_INDEPENDENT_CAUSES: ReadonlySet<RefusalCause> = new Set
   'caption_style_units',
   'caption_cue_too_short',
   'crop_letterboxes',
+  'caption_restyle_budget',
 ]);
 
 /**
