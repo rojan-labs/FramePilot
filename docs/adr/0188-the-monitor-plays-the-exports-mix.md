@@ -35,6 +35,12 @@ place. (`preview/audio/`)
   A ramp reads through the export's 1 ms source table. A reversed or ramped clip's sound is
   resampled into a buffer of its own, kept in a bounded LRU cache, because a buffer source can
   only play forward at a rate.
+- **How many channels** (`clip-audio.ts#exportStereoWeights`): MoviePy reads every file as two
+  channels of 16-bit audio, so ffmpeg folds any other layout with its default matrix, normalized
+  to unity. Mono reaches the mix at -3 dB per channel; 5.1 at 1/2.414 of its front pair, with the
+  LFE dropped. Web Audio would play mono at unity and fold 5.1 without normalizing, 3 dB and
+  7.7 dB louder. So every source is first shaped as the export hears it. Mono stays one channel,
+  read at -3 dB. More than two channels fold into a stereo buffer once.
 - **How loud** (`mix-envelope.ts`): the fader, or the `gainDb` lane that supersedes it (sampled
   on the engine's 1 ms grid and interpolated as `np.interp`), times fades, times duck. It is
   scheduled as a Web Audio value curve on each clip's own gain node. The legacy element mixer
@@ -54,6 +60,7 @@ place. (`preview/audio/`)
 ## Tolerances
 
 - Envelope and time maps: 1e-9. Both sides compute in double precision.
+- Channel matrices: 5e-5, the precision of MoviePy's 16-bit reading of each layout.
 - Filter designs: each band's impulse response at double precision, 1e-9.
 - A strip over a signal: 1e-4 (-80 dBFS). The export's filtergraph reads a float WAV, so ffmpeg
   runs its biquads in float32. A 120 Hz shelf's poles sit so close to 1 that ffmpeg's own

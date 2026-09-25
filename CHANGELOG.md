@@ -109,8 +109,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   export but not what you heard, and reversed or speed-ramped clips were silent. Music played on
   its own clock and could drift up to half a second from the picture. Every clip's sound now
   plays on the preview's own clock with the export's volume, fades, ducking, volume keyframes,
-  speed, normalize, EQ and compression. The export dialog's loudness and limiter settings still
-  apply only to the file.
+  speed, normalize, EQ and compression. Mono recordings were also 3 dB louder in the preview
+  than in the export, and 5.1 camera sound almost 8 dB louder; both now play at the export's
+  level. The export dialog's loudness and limiter settings still apply only to the file.
 - **The preview shows styled captions exactly as the export draws them.** Template captions were
   drawn by the editor on top of the video, a second rendering that could wrap, place or animate
   differently from the file. They are now the export's own caption, frame by frame: the same

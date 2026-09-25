@@ -142,6 +142,8 @@ the three runs before it (`0d7d679f`, `1292449c`, `0e12b96e`). Every defect was 
   (`preview/audio/`): envelope and time maps held to `_apply_audio_effects`/`_apply_speed` by
   `envelopes.json` (1e-9), the channel strip held to ffmpeg by `strips.json` (designs 1e-9,
   signal 1e-4) in Node and, as the shipped AudioWorklet, in Chromium (`audio-strip-parity`).
+  Sources are first shaped as MoviePy reads them (two 16-bit channels through ffmpeg's matrix):
+  mono was 3 dB and 5.1 7.7 dB louder in the monitor than in the file.
   Not mirrored: the export dialog's master-bus options (loudness, limiter, denoise, master EQ and
   compression), which are delivery settings the monitor does not know.
 
