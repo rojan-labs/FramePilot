@@ -239,6 +239,47 @@ void main() {
 }
 `;
 
+/**
+ * A frosted-glass caption chip (schema v24), as the export's `_frost_behind` does it: inside the
+ * blurred crop, the frame becomes `paste(blurred, mask=coverage)` with Pillow's integer
+ * `DIV255` rounding on every channel; outside it the frame is untouched. `u_coverage` carries
+ * the chip's coverage in its red channel at the caption's paste position.
+ */
+export const FROST_FRAGMENT = `${HEADER}
+uniform sampler2D u_frame;
+uniform sampler2D u_blurred;
+uniform ivec2 u_blurOrigin;
+uniform ivec2 u_blurSize;
+uniform sampler2D u_coverage;
+uniform ivec2 u_position;
+uniform ivec2 u_size;
+out vec4 o_color;
+uint div255(uint v) { uint t = v + 128u; return ((t >> 8u) + t) >> 8u; }
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  uvec4 dst = uvec4(texelFetch(u_frame, p, 0) * 255.0 + 0.5);
+  ivec2 b = p - u_blurOrigin;
+  ivec2 q = p - u_position;
+  if (b.x < 0 || b.y < 0 || b.x >= u_blurSize.x || b.y >= u_blurSize.y ||
+      q.x < 0 || q.y < 0 || q.x >= u_size.x || q.y >= u_size.y) {
+    o_color = vec4(dst) / 255.0;
+    return;
+  }
+  uint m = uint(texelFetch(u_coverage, q, 0).r * 255.0 + 0.5);
+  if (m == 0u) {
+    o_color = vec4(dst) / 255.0;
+    return;
+  }
+  uvec4 blur = uvec4(texelFetch(u_blurred, b, 0) * 255.0 + 0.5);
+  o_color = vec4(
+    float(div255(dst.r * (255u - m) + blur.r * m)),
+    float(div255(dst.g * (255u - m) + blur.g * m)),
+    float(div255(dst.b * (255u - m) + blur.b * m)),
+    float(div255(dst.a * (255u - m) + blur.a * m))
+  ) / 255.0;
+}
+`;
+
 /** Clear the frame to the export's background (opaque black) in one pass. */
 export const FILL_FRAGMENT = `${HEADER}
 uniform vec4 u_color;

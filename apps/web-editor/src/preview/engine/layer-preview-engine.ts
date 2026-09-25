@@ -27,11 +27,19 @@
  */
 import {
   framePlanAt,
+  resolveCaptionCue,
   type FramePlan,
   type FramePlanLayer,
   type TrackArtifact,
 } from '@framepilot/editor-core';
-import type { Asset, Clip, MaskLayer, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
+import type {
+  Asset,
+  CaptionStyle,
+  Clip,
+  MaskLayer,
+  Timeline,
+  TranscriptWord,
+} from '@framepilot/timeline-schema';
 import { createLogger, type PreviewTextRasterRequest } from '@framepilot/shared-types';
 import { DecodeWorkerClient, type WorkerTraffic } from '../decode/worker-client.js';
 import type { WorkerStageReport } from '../decode/decode-worker.js';
@@ -275,7 +283,8 @@ export class LayerPreviewEngine {
   private readonly decoding = new Set<string>();
   private readonly textRasters = new Map<string, TextRaster | null>();
   private readonly captionRasters = new Map<string, CaptionRaster | null>();
-  private styledCaptionClipIds = new Set<string>();
+  /** Each caption track's default style, by track id: a styled cue is drawn by the engine. */
+  private captionTrackStyles = new Map<string, CaptionStyle | undefined>();
   private textFontReady = false;
   /** The engine's own Pillow rasters for text and captions (desktop; canvas fallback). */
   private readonly engineTexts: EngineTextRasters;
@@ -429,15 +438,10 @@ export class LayerPreviewEngine {
     this.project = project;
     this.planInputs.clear();
     this.assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
-    // Styled captions (templates) are still drawn by the monitor's caption layer.
-    this.styledCaptionClipIds = new Set(
-      project.timeline.tracks.flatMap((track) =>
-        track.type === 'caption'
-          ? track.clips
-              .filter((clip) => clip.captionStyle !== undefined || track.captionStyle !== undefined)
-              .map((clip) => clip.id)
-          : [],
-      ),
+    this.captionTrackStyles = new Map(
+      project.timeline.tracks
+        .filter((track) => track.type === 'caption')
+        .map((track) => [track.id, track.captionStyle] as const),
     );
     this.durationSec = project.timeline.tracks.reduce(
       (end, track) => track.clips.reduce((clipEnd, clip) => Math.max(clipEnd, clip.end), end),
@@ -799,7 +803,12 @@ export class LayerPreviewEngine {
 
   // --- presentation --------------------------------------------------------------------------
 
-  /** A burned caption in the export's baseline style, placed in the lower safe area. */
+  /**
+   * A burned caption as the export draws it: the engine's own raster (styled cues through the
+   * compiler's caption layer, at this frame's time), composited over the frame effects in the
+   * clip's blend mode, with a frosted chip's blur. Without an engine, the baseline canvas raster
+   * stands in and the monitor says the text is approximate.
+   */
   private captionLayer(layer: FramePlanLayer, size: PixelSize): CompositeLayer | null | 'pending' {
     const request = this.captionRequest(layer, size);
     if (request === null || layer.text === null) return null;
@@ -815,6 +824,11 @@ export class LayerPreviewEngine {
         height: raster.height,
         x: raster.x ?? 0,
         y: raster.y ?? 0,
+        blendMode: layer.blendMode,
+        aboveEffects: true,
+        ...(raster.backdrop === null
+          ? {}
+          : { frost: { coverage: raster.backdrop.coverage, sigmaPx: raster.backdrop.sigmaPx } }),
       };
     }
     if (!this.textFontReady) return null;
@@ -834,6 +848,8 @@ export class LayerPreviewEngine {
       height: raster.height,
       x: raster.x,
       y: raster.y,
+      blendMode: layer.blendMode,
+      aboveEffects: true,
     };
   }
 
@@ -904,11 +920,35 @@ export class LayerPreviewEngine {
     };
   }
 
-  /** The engine raster request for an unstyled burned caption, or `null`. */
+  /**
+   * The engine raster request for a burned caption, or `null`. A styled cue carries what the
+   * compiler's caption layer is built from — the track and cue styles as stored, the cue's timed
+   * words, its span — and the time of this frame, because its entrance, per-word states and loops
+   * move with it.
+   */
   private captionRequest(layer: FramePlanLayer, size: PixelSize): PreviewTextRasterRequest | null {
     if (layer.kind !== 'caption' || layer.text === null || layer.clipId === null) return null;
-    if (this.styledCaptionClipIds.has(layer.clipId) || layer.text.trim() === '') return null;
-    return { kind: 'caption', text: layer.text, frameWidth: size.width, frameHeight: size.height };
+    if (layer.text.trim() === '') return null;
+    const baseline: PreviewTextRasterRequest = {
+      kind: 'caption',
+      text: layer.text,
+      frameWidth: size.width,
+      frameHeight: size.height,
+    };
+    const clip = this.clipsById.get(layer.clipId);
+    const trackStyle = this.captionTrackStyles.get(layer.trackId);
+    const clipStyle = clip?.captionStyle;
+    if (clip === undefined || (trackStyle === undefined && clipStyle === undefined)) return baseline;
+    const cue = resolveCaptionCue(clip, this.project?.transcript ?? []);
+    return {
+      ...baseline,
+      ...(trackStyle === undefined ? {} : { trackStyle }),
+      ...(clipStyle === undefined ? {} : { clipStyle }),
+      words: cue.words.map(({ word, start, end }) => ({ word, start, end })),
+      clipStart: clip.start,
+      clipEnd: clip.end,
+      frameTime: clip.start + layer.localTime,
+    };
   }
 
   private textRequestsOf(plan: FramePlan): PreviewTextRasterRequest[] {
@@ -1440,8 +1480,9 @@ export class LayerPreviewEngine {
       if (t >= this.durationSec) break;
       const plan = this.planAt(t, this.renderSize());
       if (!plan) break;
-      if (k === 0 || k === LOOKAHEAD_FRAMES)
-        void this.engineTexts.ensure(this.textRequestsOf(plan));
+      // Every frame of the window: an animated caption is one raster per frame. A title or a
+      // still caption resolves to one cached raster, so asking again costs a map lookup.
+      void this.engineTexts.ensure(this.textRequestsOf(plan));
       const matteNeeds = this.matteNeedsOf(plan);
       for (const need of matteNeeds) for (const key of this.matteKeysOf(need)) pinned.add(key);
       windowMattes.push(...matteNeeds);

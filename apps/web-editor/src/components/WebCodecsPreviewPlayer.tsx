@@ -57,6 +57,7 @@ import { maskToolTelemetry } from './preview/mask-tool-telemetry.js';
 import { previewFailureMessage } from '../preview/preview-availability.js';
 import { isDesktop } from '../editor/bridge-base.js';
 import { CaptionOverlay } from './CaptionOverlay.js';
+import { resolveTextRasterSource } from '../preview/engine/engine-text-rasters.js';
 import { MonitorHeaderPortal } from './MonitorHeaderPortal.js';
 import { PreviewAudioMixer } from './PreviewAudioMixer.js';
 import { PreviewViewControls, type PreviewZoom } from './PreviewViewControls.js';
@@ -421,10 +422,14 @@ export function WebCodecsPreviewPlayer({
       trackStyle: (typeof editor.state.timeline.tracks)[number]['captionStyle'];
       lines: readonly (readonly TranscriptWord[])[];
       text: string;
+      drawn: boolean;
     }[] = [];
-    // Layer compositor: captions burn into the frame when the monitor shows them; this DOM layer
-    // only keeps the styled (template) captions the compositor does not rasterise yet.
+    // Layer compositor: captions burn into the frame when the monitor shows them. With the
+    // engine reachable (desktop), styled captions are drawn in the frame too — the export's own
+    // raster, above the effect lanes — and this DOM layer keeps only their editing handles.
+    // Without it (plain browser), the DOM layer still draws them.
     if (layered && !settings.previewBurnCaptions) return [];
+    const compositorDrawsStyled = layered && resolveTextRasterSource() !== null;
     for (const track of editor.state.timeline.tracks) {
       if (track.hidden) continue;
       for (const clip of track.clips) {
@@ -441,6 +446,7 @@ export function WebCodecsPreviewPlayer({
           trackStyle: track.captionStyle,
           lines: cue.lines,
           text: cue.text,
+          drawn: !compositorDrawsStyled,
         });
       }
     }
@@ -1076,6 +1082,8 @@ type CaptionPreviewClip = {
   readonly trackStyle: NonNullable<Parameters<typeof CaptionOverlay>[0]>['trackStyle'];
   readonly lines: readonly (readonly TranscriptWord[])[];
   readonly text: string;
+  /** Whether this layer draws the caption; `false` when the compositor burns it into the frame. */
+  readonly drawn: boolean;
 };
 
 /** The only React subtree that updates on each live tick. Keeping it separate
@@ -1101,12 +1109,14 @@ function WebCodecsCaptionLayer({
     <>
       {active.map((caption) => (
         <div key={caption.clipId} className="preview-caption-object">
-          <CaptionOverlay
-            style={caption.style}
-            trackStyle={caption.trackStyle}
-            lines={caption.lines}
-            time={currentTimeSec}
-          />
+          {caption.drawn && (
+            <CaptionOverlay
+              style={caption.style}
+              trackStyle={caption.trackStyle}
+              lines={caption.lines}
+              time={currentTimeSec}
+            />
+          )}
           <PreviewCaptionEditor
             clipId={caption.clipId}
             style={caption.style}

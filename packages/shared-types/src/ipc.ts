@@ -798,6 +798,19 @@ export interface PreviewTextRasterRequest {
   readonly text?: string;
   readonly frameWidth: number;
   readonly frameHeight: number;
+  // A STYLED caption (kind `caption` with a track or clip style): the engine builds it through
+  // the compiler's own caption layer and samples it at `frameTime`.
+  /** The caption track's default style, as the project stores it. */
+  readonly trackStyle?: Readonly<Record<string, unknown>>;
+  /** The cue's own style override. */
+  readonly clipStyle?: Readonly<Record<string, unknown>>;
+  /** The cue's timed words, in timeline seconds. */
+  readonly words?: readonly { readonly word: string; readonly start: number; readonly end: number }[];
+  /** The cue's span on the timeline, in seconds. */
+  readonly clipStart?: number;
+  readonly clipEnd?: number;
+  /** Timeline seconds of the frame to draw (motion and word states). */
+  readonly frameTime?: number;
 }
 
 export type PreviewTextRasterResult =
@@ -810,6 +823,15 @@ export type PreviewTextRasterResult =
       /** A caption's paste position; `null` for a text clip (the frame plan places it). */
       readonly x: number | null;
       readonly y: number | null;
+      /** True when a styled caption's raster changes with the frame time. */
+      readonly animated?: boolean;
+      /**
+       * A frosted-glass chip's coverage, `width` x `height` bytes: where the picture behind the
+       * caption is replaced by its blur. Absent without a frost.
+       */
+      readonly backdrop?: Uint8Array;
+      /** The frost's Gaussian standard deviation in output pixels (Pillow `GaussianBlur`). */
+      readonly backdropSigmaPx?: number;
     }
   | { ok: false; error: string };
 
