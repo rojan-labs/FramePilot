@@ -21,6 +21,10 @@ conversations behind them, the project file + its undo history, its `brain.sqlit
 exported MP4 frame by frame. Scope gate: user outcome = a finished edit that looks authored; the
 gap is mostly *platform* defects that made the agent blind or dropped its work, then a handful of
 craft tools. No new subsystem; every fix reuses an existing seam.
+**Planned (2026-09-26, maintainer request):** Stock becomes **Elements** — Photos · Videos ·
+Stickers · Shapes, CapCut-style, with large sticker and shape libraries. Sub-plan
+[`plan/elements/`](./elements/README.md); not started; phases EL0–EL12 in the "Elements library"
+section near the end of this file.
 - [x] **EQ1** Engine requests keep `asset.media` (`ai-sdk/engine-view.ts`). Since mask v22 a cut-out
   resolves against the media size; `toModelProject` stripped it, so every review, `get_frame` and
   `measure_color` after `remove_background` 422/500'd ("media size is unknown" — 7 of 7 reviews
@@ -10251,6 +10255,55 @@ from AI, panel and templates; [ADR 0185](../docs/adr/0185-see-through-captions-a
 - [x] CT11 — caption panel "Transparency and glass" controls (`6f76c23c`)
 - [x] CT12 — AI: tool descriptions, units, discover payload, skill; legibility key draws solid
   letters (`e9739d26`)
+
+## Elements library — Photos · Videos · Stickers · Shapes — `[ ]` planned (2026-09-26)
+
+> **Sub-plan: [`plan/elements/README.md`](./elements/README.md)** (twelve files: current state,
+> CapCut reference, UX spec, content library, data model, render/preview, desktop host, AI/MCP,
+> rename matrix, phases, tests/evidence, risks). Maintainer request 2026-09-26: rename Stock to
+> **Elements** with photos, videos, stickers and shapes, following CapCut, with "lots of shapes and
+> stickers loaded up", planned end to end, structural changes allowed. Recorded as decision D1 —
+> an explicit breadth decision under `product-discipline.mdc` §10; finish-before-expand still
+> applies (each category ships complete: UI, engine, preview = export, undo, failure states, agent
+> tool, tests).
+
+**What it is.** Photos and Videos are the existing Pexels library (service, key, quota and
+provenance reused unchanged). Stickers: Microsoft Fluent Emoji (MIT, 1,595 at a pinned commit),
+bundled, materialised into the project as ordinary `image` assets and placed as overlays. Shapes:
+~105 recolourable vector shapes and ~200 presets (boxes, circles, arrows, lines, callouts,
+highlight marks, badges; ~1,600 Lucide line icons later), a synthetic `__shape__` clip drawn by the
+engine for both the export and the desktop monitor (the text-raster pattern). Overlays are honest
+now that the monitor composites every timeline in every build (ADR 0180 amendment).
+
+**Verified gap that comes first (EL2).** On `98ea829a` a still image and a title ignore opacity
+keyframes and transitions at export and in both frame plans (reproduced with `grab_frame`;
+`frame_plan.py:21-23` documents it as a quirk). CapCut-style In/Out/Loop animation of any element
+is impossible until it is fixed, and the Inspector's opacity control on a photo does nothing today.
+
+**Open maintainer decisions:** MD-E1 bundle ~34 MB of stickers · MD-E2 build-time fetch vs commit ·
+MD-E3 animated Noto pack (CC BY 4.0) · MD-E4 agent may place element overlays (ADR 0169 exemption)
+· MD-E5 manual picture-in-picture for Pexels media · MD-E6 schema v25 · MD-E7 Elements second in
+the rail.
+
+- [ ] **EL0** Decisions + spikes (shape raster parity, animated WebP parity, library build dry run)
+- [ ] **EL1** Stock → Elements rename; Photos and Videos sub-tabs; stored `'stock'` tab aliased
+- [ ] **EL2** Stills and titles honour opacity, transitions, crop, masks, edge styles (engine, both
+  frame plans, monitor, oracle rows)
+- [ ] **EL3** One clip-kind function per runtime (replaces six copies)
+- [ ] **EL4** Shapes first slice, complete: schema v25, `add_shape`, engine raster, Shapes tab,
+  Inspector, canvas handles, export, undo, `search_elements`/`add_shape`/`set_shape_style`
+- [ ] **EL5** Shapes breadth: full catalogue, caps and dashes, numbered badges, Lucide icons
+- [ ] **EL6** Stickers first slice, complete: library build, bundle, materialise IPC, Stickers tab,
+  Inspector (outline/shadow), credits, `add_sticker` + element-overlay placement policy
+- [ ] **EL7** Animation In/Out (layer transitions) and Loop (`loop_motion`, schema v26); titles'
+  preview-only animations migrate to exported transitions
+- [ ] **EL8** Agent quality: critic checks, digest, skill craft pass, eval cases, MCP
+- [ ] **EL9** Photos/Videos: category chips, orientation filter, drag to timeline, manual overlay
+- [ ] **EL10** Animated stickers (optional pack, schema v27) — gated on MD-E3
+- [ ] **EL11** Favourites/recents, skin tones, "Add as sticker", drop on monitor, follow subject
+- [ ] **EL12** Docs, changelogs, desktop evidence runs, close-out
+
+**Last updated:** 2026-09-26
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
