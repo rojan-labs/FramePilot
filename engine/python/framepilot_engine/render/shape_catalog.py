@@ -334,6 +334,11 @@ def _raw_catalog() -> list[dict[str, Any]]:
     return list(shapes)
 
 
+def catalogue_entry(shape_id: str) -> dict[str, Any] | None:
+    """The catalogue's raw entry for ``shape_id`` (name, category, tags, defaults), or ``None``."""
+    return next((shape for shape in _raw_catalog() if shape["id"] == shape_id), None)
+
+
 def shape_preset_ids() -> tuple[str, ...]:
     """Every preset id, in catalogue order."""
     return tuple(preset["id"] for shape in _raw_catalog() for preset in shape["presets"])
@@ -347,6 +352,18 @@ def featured_shape_preset_ids() -> tuple[str, ...]:
         .read_text(encoding="utf-8")
     )
     return tuple(json.loads(payload)["featured"])
+
+
+def resolve_shape_preset_id(preset_id: str) -> str | None:
+    """The preset ``preset_id`` names: itself, an icon, or a shape's first style (TS twin)."""
+    if preset_id.startswith(ICON_PREFIX):
+        return preset_id if preset_id in load_shape_icons() else None
+    for shape in _raw_catalog():
+        if shape["id"] == preset_id:
+            return str(shape["presets"][0]["id"])
+        if any(preset["id"] == preset_id for preset in shape["presets"]):
+            return preset_id
+    return None
 
 
 #: The style an icon is inserted with: its outline in white, as Lucide draws it (TS
@@ -417,3 +434,117 @@ def preset_shape_params(
                 **knobs,
             }
     return None
+
+
+# --- search (plan/elements EL5.6) ------------------------------------------------------------
+
+#: Icons rank after every catalogue shape: added to an icon's score (TS ``ICON_RANK_OFFSET``).
+_ICON_RANK_OFFSET: Final = 5
+_WORD_SPLIT: Final = re.compile(r"[^a-z0-9]+")
+
+
+@dataclass(frozen=True)
+class ShapeSearchHit:
+    """One placeable style: a catalogue preset, or an icon (its id is its own preset)."""
+
+    shape_id: str
+    preset_id: str
+    preset_name: str
+    shape_name: str
+    category: str
+    tags: tuple[str, ...]
+
+
+def _words(text: str) -> list[str]:
+    return [word for word in _WORD_SPLIT.split(text.lower()) if word]
+
+
+@cache
+def _catalogue_hits() -> tuple[ShapeSearchHit, ...]:
+    """Every catalogue preset in the Shapes tab's order: the featured staples, then the rest."""
+    rows = [
+        ShapeSearchHit(
+            shape_id=shape["id"],
+            preset_id=preset["id"],
+            preset_name=preset["name"],
+            shape_name=shape["name"],
+            category=shape["category"],
+            tags=tuple(shape["tags"]),
+        )
+        for shape in _raw_catalog()
+        for preset in shape["presets"]
+    ]
+    by_id = {row.preset_id: row for row in rows}
+    featured = featured_shape_preset_ids()
+    return (
+        *(by_id[preset_id] for preset_id in featured),
+        *(row for row in rows if row.preset_id not in featured),
+    )
+
+
+@cache
+def _icon_hits() -> tuple[ShapeSearchHit, ...]:
+    return tuple(
+        ShapeSearchHit(
+            shape_id=icon.id,
+            preset_id=icon.id,
+            preset_name=icon.name,
+            shape_name=icon.name,
+            category="symbols",
+            tags=("icon",),
+        )
+        for icon in load_shape_icons().values()
+    )
+
+
+def _search_score(hit: ShapeSearchHit, terms: list[str]) -> int | None:
+    """The TS ``score`` twin: 0 whole name .. 4 tag or category, worst term; icons after."""
+    names = [hit.preset_name.lower(), hit.shape_name.lower()]
+    name_words = [word for name in names for word in _words(name)]
+    other_words = [word for tag in hit.tags for word in _words(tag)] + _words(hit.category)
+    worst = 0
+    for term in terms:
+        if any(name == term for name in names):
+            best = 0
+        elif any(name.startswith(term) for name in names):
+            best = 1
+        elif any(word.startswith(term) for word in name_words):
+            best = 2
+        elif any(term in name for name in names):
+            best = 3
+        elif any(term in word for word in other_words):
+            best = 4
+        else:
+            return None
+        worst = max(worst, best)
+    return worst + _ICON_RANK_OFFSET if hit.shape_id.startswith(ICON_PREFIX) else worst
+
+
+def search_shapes(
+    query: str, scope: str | None = None, limit: int | None = None
+) -> tuple[list[ShapeSearchHit], int]:
+    """The shapes and icons ``query`` finds, best first, and how many matched in all.
+
+    The twin of TypeScript's ``searchShapes`` (``tests/fixtures/shape-search.json`` pins both):
+    ``scope`` is a category, ``"icons"``, or ``None`` for everything; icons join an unscoped list
+    only for a search.
+    """
+    terms = _words(query)
+    if scope == "icons":
+        catalogue: tuple[ShapeSearchHit, ...] = ()
+    elif scope is None:
+        catalogue = _catalogue_hits()
+    else:
+        catalogue = tuple(hit for hit in _catalogue_hits() if hit.category == scope)
+    with_icons = scope == "icons" or (scope is None and len(terms) > 0)
+    pool = [*catalogue, *(_icon_hits() if with_icons else ())]
+    if not terms:
+        return (pool if limit is None else pool[:limit]), len(pool)
+    scored = [
+        (rank, index, hit)
+        for index, hit in enumerate(pool)
+        if (rank := _search_score(hit, terms)) is not None
+    ]
+    scored.sort(key=lambda row: (row[0], row[1]))
+    hits = [hit for _, _, hit in scored]
+    return (hits if limit is None else hits[:limit]), len(hits)

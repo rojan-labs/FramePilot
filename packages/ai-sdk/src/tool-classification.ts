@@ -233,6 +233,9 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   add_text_layer: { role: 'mutation', scope: 'timeline_dependent' },
   // Shapes (plan/elements EL4a): pure patches over the shared placement builder.
   add_shape: { role: 'mutation', scope: 'timeline_dependent' },
+  // Reads the SHIPPED shape catalogue, like discover_effects: guidance, so it stays offered
+  // after the first cut — a run that decides mid-edit to add a star must still find its id.
+  search_elements: { role: 'guidance', scope: 'revision_independent' },
   set_shape_style: { role: 'mutation', scope: 'timeline_dependent' },
   add_track: { role: 'mutation', scope: 'timeline_dependent' },
   add_transition: { role: 'mutation', scope: 'timeline_dependent' },

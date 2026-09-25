@@ -1938,6 +1938,47 @@ describe('summarizeReadResult carries a verification report the run can act on',
     expect(summarizeReadResult('measure_subject', { clipId: 'talk_1', reading })).toBe(reading);
   });
 
+  it('lists every shape search_elements found with the id, knobs and styles add_shape takes', () => {
+    const note = summarizeReadResult('search_elements', {
+      query: 'star',
+      returned: 2,
+      total: 9,
+      results: [
+        {
+          elementId: 'star-5',
+          name: 'Star',
+          category: 'stars',
+          frame: 'box',
+          knobs: [
+            { name: 'points', min: 3, max: 24 },
+            { name: 'innerRadius', min: 10, max: 95 },
+          ],
+          labelled: false,
+          styles: [{ id: 'star-5/white' }, { id: 'star-5/outline' }],
+        },
+        {
+          elementId: 'numbered-circle',
+          name: 'Numbered circle',
+          category: 'numbers',
+          frame: 'box',
+          knobs: [],
+          labelled: true,
+          styles: [{ id: 'numbered-circle/red-1' }],
+        },
+      ],
+    });
+    expect(note).toBe(
+      [
+        '2 of 9 shapes',
+        '- star-5 "Star" (stars, box; knobs points 3–24, innerRadius 10–95) styles: star-5/white, star-5/outline',
+        '- numbered-circle "Numbered circle" (numbers, box; takes a label) styles: numbered-circle/red-1',
+      ].join('\n'),
+    );
+    expect(
+      summarizeReadResult('search_elements', { query: 'zzz', results: [], total: 0 }),
+    ).toContain('no shapes match "zzz"');
+  });
+
   it('lists every effect id, grouped, because the ids ARE the deliverable', () => {
     const note = summarizeReadResult('discover_effects', {
       matched: 78,

@@ -16,6 +16,7 @@ packages/ai-sdk/src/tool-registry.ts.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -53,6 +54,7 @@ from framepilot_engine.ai_tools.registry import (
     RemoveMarkerArgs,
     RemoveTrackArgs,
     ReorderClipsArgs,
+    SearchElementsArgs,
     SetCaptionStyleArgs,
     SetClipBlendModeArgs,
     SetClipCropArgs,
@@ -73,7 +75,15 @@ from framepilot_engine.ai_tools.skills_generated import SKILLS
 from framepilot_engine.effects.keyframes import punch_in_keyframes
 from framepilot_engine.render.caption_templates import get_caption_template, load_catalog
 from framepilot_engine.render.captions import _font_manifest
-from framepilot_engine.render.shape_catalog import preset_shape_params, shape_params_problem
+from framepilot_engine.render.shape_catalog import (
+    ICON_PREFIX,
+    catalogue_entry,
+    preset_shape_params,
+    resolve_shape_preset_id,
+    search_shapes,
+    shape_descriptor,
+    shape_params_problem,
+)
 from framepilot_engine.render.shape_geometry import shape_clip_params
 from framepilot_engine.timeline.models import Asset, CaptionStyle, Project, Track, TrackType
 from framepilot_engine.timeline.operations import (
@@ -549,8 +559,8 @@ def _shape_style_changes(args: _ShapeStyleArgs) -> dict[str, Any]:
         changes.update(args.box.model_dump())
     if args.ends is not None:
         changes.update(args.ends.model_dump())
-    for key in ("fill", "stroke"):
-        raw = getattr(args, key)
+    for attr, key in (("fill", "fill"), ("stroke", "stroke"), ("label_color", "labelColor")):
+        raw = getattr(args, attr)
         if raw is None:
             continue
         try:
@@ -564,11 +574,12 @@ def _shape_style_changes(args: _ShapeStyleArgs) -> dict[str, Any]:
         ("end_cap", "endCap"),
         ("corner_radius", "cornerRadius"),
         ("head_size", "headSize"),
+        ("label", "label"),
     ):
         value = getattr(args, attr)
         if value is not None:
             changes[key] = value
-    return changes
+    return {**changes, **(args.knobs or {})}
 
 
 def _lane_has_room(clips: Sequence[Any], start: float, end: float) -> bool:
@@ -625,7 +636,8 @@ def add_shape(args: AddShapeArgs, ctx: ToolContext) -> Operations:
     # with the model's box/ends/colours, on an overlay lane with room.
     if not args.end > args.start:
         raise ValueError("end must be after start. Give the shape a time range.")
-    params = {**(preset_shape_params(args.shape) or {}), **_shape_style_changes(args)}
+    preset_id = resolve_shape_preset_id(args.shape) or args.shape
+    params = {**(preset_shape_params(preset_id) or {}), **_shape_style_changes(args)}
     problem = shape_params_problem(params)
     if problem is not None:
         raise ValueError(problem)
@@ -661,6 +673,58 @@ def add_shape(args: AddShapeArgs, ctx: ToolContext) -> Operations:
     return ops
 
 
+_SEARCH_LIMIT_DEFAULT = 12
+
+
+def search_elements(args: SearchElementsArgs, ctx: ToolContext) -> dict[str, Any]:
+    """One row per shape the query finds, best first (the TS ``search_elements`` twin)."""
+    hits, _ = search_shapes(args.query, args.category)
+    shapes: dict[str, list[dict[str, str]]] = {}
+    for hit in hits:
+        shapes.setdefault(hit.shape_id, []).append({"id": hit.preset_id, "name": hit.preset_name})
+    limit = args.limit if args.limit is not None else _SEARCH_LIMIT_DEFAULT
+    results = [_element_row(shape_id, styles) for shape_id, styles in list(shapes.items())[:limit]]
+    return {
+        "query": args.query,
+        "kind": "shape",
+        **({"category": args.category} if args.category is not None else {}),
+        "results": results,
+        "returned": len(results),
+        "total": len(shapes),
+    }
+
+
+def _element_row(shape_id: str, styles: list[dict[str, str]]) -> dict[str, Any]:
+    descriptor = shape_descriptor(shape_id)
+    assert descriptor is not None
+    icon = shape_id.startswith(ICON_PREFIX)
+    raw = catalogue_entry(shape_id)
+    defaults = raw["defaults"] if raw is not None else {"width": 24, "height": 24}
+    return {
+        "elementId": shape_id,
+        "kind": "shape",
+        "name": raw["name"] if raw is not None else descriptor.name.capitalize(),
+        "category": "icons" if icon else raw["category"] if raw is not None else "symbols",
+        "tags": list(raw["tags"]) if raw is not None else ["icon"],
+        "frame": descriptor.frame,
+        "aspect": (
+            # JavaScript's Math.round (half up), so both runtimes print the same aspect.
+            math.floor(defaults["width"] / defaults["height"] * 100 + 0.5) / 100
+            if descriptor.frame == "box"
+            else None
+        ),
+        "knobs": [
+            {"name": knob.name, "min": knob.min, "max": knob.max, "default": knob.default}
+            for knob in descriptor.knobs
+        ],
+        "labelled": descriptor.labelled,
+        "styles": styles,
+        "animated": False,
+        "license": "ISC (Lucide)" if icon else "first-party",
+        "attributionRequired": False,
+    }
+
+
 def set_shape_style(args: SetShapeStyleArgs, ctx: ToolContext) -> Operations:
     clip = next(
         (c for t in ctx.project.timeline.tracks for c in t.clips if c.id == args.clip_id), None
@@ -673,7 +737,9 @@ def set_shape_style(args: SetShapeStyleArgs, ctx: ToolContext) -> Operations:
         )
     changes = _shape_style_changes(args)
     if not changes:
-        raise ValueError("Nothing to change. Pass a colour, a stroke, a box or ends.")
+        raise ValueError(
+            "Nothing to change. Pass a colour, a stroke, a label, a knob, a box or ends."
+        )
     problem = shape_params_problem({**params, **changes})
     if problem is not None:
         raise ValueError(problem)

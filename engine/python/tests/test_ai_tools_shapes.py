@@ -137,3 +137,57 @@ def test_set_shape_style_restyles_a_shape_and_refuses_anything_else() -> None:
         _ops("set_shape_style", {"clipId": "nope", "stroke": "red"}, project)
     with pytest.raises(ToolSemanticError, match="draws nothing"):
         _ops("set_shape_style", {"clipId": "shape__o1_0", "stroke": "none"}, project)
+
+
+def test_add_shape_places_any_style_a_shape_by_name_or_an_icon_with_label_and_knobs() -> None:
+    star = _ops(
+        "add_shape", {"shape": "star-5", "start": 0, "end": 2, "knobs": {"points": 7}}, _project()
+    )
+    assert star[-1]["params"]["points"] == 7
+    assert star[-1]["params"]["fill"] == "#FFFFFF"
+    badge = _ops(
+        "add_shape",
+        {
+            "shape": "numbered-circle/red-1",
+            "start": 0,
+            "end": 2,
+            "label": "3",
+            "labelColor": "black",
+        },
+        _project(),
+    )
+    assert badge[-1]["params"]["label"] == "3"
+    assert badge[-1]["params"]["labelColor"] == "#111111"
+    icon = _ops("add_shape", {"shape": "icon/check", "start": 0, "end": 2}, _project())
+    assert icon[-1]["params"]["shape"] == "icon/check"
+    with pytest.raises(ToolSemanticError, match="'rounded-rect' has no label"):
+        _ops(
+            "add_shape",
+            {"shape": "rounded-rect/highlight", "start": 0, "end": 2, "label": "1"},
+            _project(),
+        )
+
+
+def test_search_elements_lists_one_row_per_shape_with_its_styles_and_knobs() -> None:
+    result = run_tool("search_elements", {"query": "star"}, ToolContext(project=_project()))
+    rows = result.data["results"]
+    assert rows[0]["elementId"] == "star-5"
+    assert [style["id"] for style in rows[0]["styles"]] == [
+        "star-5/white",
+        "star-5/outline",
+        "star-5/translucent",
+    ]
+    assert [knob["name"] for knob in rows[0]["knobs"]] == ["points", "innerRadius"]
+    assert rows[0]["license"] == "first-party"
+    assert len({row["elementId"] for row in rows}) == len(rows) <= 12
+    icons = run_tool(
+        "search_elements",
+        {"query": "heart", "category": "icons", "limit": 3},
+        ToolContext(project=_project()),
+    ).data
+    assert [row["elementId"] for row in icons["results"]] == [
+        "icon/heart",
+        "icon/heart-crack",
+        "icon/heart-handshake",
+    ]
+    assert icons["results"][0]["license"] == "ISC (Lucide)"

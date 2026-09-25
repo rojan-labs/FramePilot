@@ -1,8 +1,9 @@
 /**
- * The agent's shape tools (plan/elements EL4a): `add_shape` places a preset as the Shapes tab
- * would, with the model's box, ends and colours; `set_shape_style` restyles one; both refuse a
- * shape that would draw nothing, with the validator's sentence. And a request that names shapes
- * is routed to the `elements` domain.
+ * The agent's shape tools (plan/elements EL4a, EL5): `search_elements` finds shapes and icons with
+ * the Shapes tab's ranking; `add_shape` places any of them as the tab would, with the model's box,
+ * ends, colours, label and knobs; `set_shape_style` restyles one; both refuse a shape that would
+ * draw nothing, with the validator's sentence. And a request that names shapes is routed to the
+ * `elements` domain.
  */
 import { describe, expect, it } from 'vitest';
 import { applyProjectPatch, buildAddShapeOps, type AnyOperation } from '@framepilot/editor-core';
@@ -112,15 +113,108 @@ describe('add_shape', () => {
     expect(() =>
       run('add_shape', { shape: 'ellipse/outline', start: 0, end: 2, fill: 'teal-ish' }, project()),
     ).toThrow(ToolRefusalError);
+    // No echo of the id: a new wrong id each attempt must not read as progress to the guard.
+    const refusal =
+      'That shape is not in the catalogue. Find one with search_elements, or use a staple: ' +
+      'rounded-rect/highlight, rounded-rect/filled, ellipse/outline, marker-highlight/yellow, ' +
+      'line-arrow/red, underline-marker/yellow.';
+    expect(() => run('add_shape', { shape: 'dodecahedron', start: 0, end: 2 }, project())).toThrow(
+      refusal,
+    );
+    expect(() => run('add_shape', { shape: 'icon/nope', start: 0, end: 2 }, project())).toThrow(
+      refusal,
+    );
+  });
+
+  it('places any catalogue style, a shape by name, or an icon, with a label and knobs', () => {
+    const star = shapeParamsOf(
+      apply(
+        project(),
+        run('add_shape', { shape: 'star-5', start: 0, end: 2, knobs: { points: 7 } }, project()),
+      ),
+    );
+    expect(star).toMatchObject({ shape: 'star-5', points: 7, fill: '#FFFFFF' });
+    const badge = shapeParamsOf(
+      apply(
+        project(),
+        run(
+          'add_shape',
+          { shape: 'numbered-circle/red-1', start: 0, end: 2, label: '3', labelColor: 'black' },
+          project(),
+        ),
+      ),
+    );
+    expect(badge).toMatchObject({ label: '3', labelColor: '#111111', fill: '#FF3B30' });
+    const icon = shapeParamsOf(
+      apply(
+        project(),
+        run('add_shape', { shape: 'icon/check', start: 0, end: 2, stroke: 'green' }, project()),
+      ),
+    );
+    expect(icon).toMatchObject({ shape: 'icon/check', stroke: '#34C759' });
     expect(() =>
-      run('add_shape', { shape: 'dodecahedron', start: 0, end: 2 }, project()),
-    ).toThrow();
+      run('add_shape', { shape: 'star-5', start: 0, end: 2, knobs: { wobble: 1 } }, project()),
+    ).toThrow("Shape parameter 'wobble' is not one this shape has.");
+    expect(() =>
+      run(
+        'add_shape',
+        { shape: 'rounded-rect/highlight', start: 0, end: 2, label: '1' },
+        project(),
+      ),
+    ).toThrow("'rounded-rect' has no label");
   });
 
   it('refuses an empty time range with the remedy', () => {
     expect(() =>
       run('add_shape', { shape: 'ellipse/outline', start: 2, end: 2 }, project()),
     ).toThrow('end must be after start. Give the shape a time range.');
+  });
+});
+
+describe('search_elements', () => {
+  function search(args: Record<string, unknown>) {
+    const tool = getTool('search_elements');
+    if (!tool || tool.kind !== 'read') throw new Error('search_elements is not a read tool');
+    return tool.read(args, { project: project() }) as {
+      results: { elementId: string; styles: { id: string }[]; knobs: { name: string }[] }[];
+      total: number;
+      returned: number;
+    };
+  }
+
+  it('returns one row per shape, its styles and knobs, best first', () => {
+    const found = search({ query: 'star' });
+    expect(found.results[0]).toMatchObject({
+      elementId: 'star-5',
+      frame: 'box',
+      labelled: false,
+      license: 'first-party',
+    });
+    expect(found.results[0]!.styles.map((style) => style.id)).toEqual([
+      'star-5/white',
+      'star-5/outline',
+      'star-5/translucent',
+    ]);
+    expect(found.results[0]!.knobs.map((knob) => knob.name)).toEqual(['points', 'innerRadius']);
+    expect(new Set(found.results.map((row) => row.elementId)).size).toBe(found.results.length);
+    expect(found.returned).toBeLessThanOrEqual(12);
+  });
+
+  it('reaches the icons, keeps to a category, and says how many there are', () => {
+    const heart = search({ query: 'heart', category: 'icons', limit: 3 });
+    expect(heart.results.map((row) => row.elementId)).toEqual([
+      'icon/heart',
+      'icon/heart-crack',
+      'icon/heart-handshake',
+    ]);
+    expect(heart.total).toBeGreaterThan(3);
+    const badges = search({ query: '', category: 'numbers' });
+    expect(badges.results.every((row) => row.elementId.startsWith('numbered-'))).toBe(true);
+    expect(search({ query: 'zzzz' }).total).toBe(0);
+  });
+
+  it('is disclosed with the elements domain', () => {
+    expect(getTool('search_elements')?.mutates).toBe(false);
   });
 });
 
@@ -180,6 +274,8 @@ describe('the elements domain is what a callout request names', () => {
     'draw a highlight box around the settings menu',
     'underline the headline',
     'add a callout on the pricing page',
+    'number each step with a badge',
+    'add a speech bubble over the host',
   ])('%s', (request) => {
     const named = requestedDomainsNeverLoaded(request, new Set()).map((entry) => entry.domain);
     expect(named).toContain('elements');

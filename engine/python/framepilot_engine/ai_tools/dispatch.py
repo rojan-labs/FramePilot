@@ -103,6 +103,7 @@ _HANDLERS: dict[str, Callable[[Any, ToolContext], Any]] = {
     "load_skill": handlers.load_skill,
     "list_assets": handlers.list_assets,
     "discover_caption_styles": handlers.discover_caption_styles,
+    "search_elements": handlers.search_elements,
     "trim_clip": handlers.trim_clip,
     "split_clip": handlers.split_clip,
     "delete_range": handlers.delete_range,

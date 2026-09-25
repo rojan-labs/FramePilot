@@ -32,13 +32,17 @@ from __future__ import annotations
 
 import logging
 import re
+from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
 from framepilot_engine.ai_tools.tool_descriptions_generated import TOOL_DESCRIPTIONS
 from framepilot_engine.render.caption_templates import load_catalog
-from framepilot_engine.render.shape_catalog import featured_shape_preset_ids
+from framepilot_engine.render.shape_catalog import (
+    featured_shape_preset_ids,
+    resolve_shape_preset_id,
+)
 from framepilot_engine.timeline.models import AudioRole, BlendMode, CaptionStyle, CropRect
 
 _log = logging.getLogger(__name__)
@@ -286,12 +290,15 @@ class _ShapeStyleArgs(BaseModel):
     end_cap: Literal["none", "arrow", "dot", "bar"] | None = Field(default=None, alias="endCap")
     corner_radius: float | None = Field(default=None, alias="cornerRadius", ge=0.0, le=50.0)
     head_size: float | None = Field(default=None, alias="headSize", ge=2.0, le=8.0)
+    label: str | None = None
+    label_color: str | None = Field(default=None, alias="labelColor")
+    knobs: dict[str, float] | None = None
 
 
 class AddShapeArgs(_ShapeStyleArgs):
-    """Place a shape preset (plan/elements EL4a); mirrors the TS ``add_shape`` schema."""
+    """Place a shape (plan/elements EL4a, EL5); mirrors the TS ``add_shape`` schema."""
 
-    shape: str = Field(json_schema_extra={"enum": list(featured_shape_preset_ids())})
+    shape: str = Field(min_length=1)
     start: float = Field(ge=0.0)
     end: float = Field(ge=0.0)
     rotation: float | None = Field(default=None, ge=-360.0, le=360.0)
@@ -300,11 +307,47 @@ class AddShapeArgs(_ShapeStyleArgs):
     @field_validator("shape")
     @classmethod
     def _known_shape(cls, value: str) -> str:
-        if value not in featured_shape_preset_ids():
+        # No echo of the id: the repeated-failure guard keys on this text (TS twin).
+        if resolve_shape_preset_id(value) is None:
             raise ValueError(
-                f"Unknown shape. Use one of: {', '.join(featured_shape_preset_ids())}."
+                "That shape is not in the catalogue. Find one with search_elements, or use a "
+                f"staple: {', '.join(featured_shape_preset_ids())}."
             )
         return value
+
+
+class ElementKind(StrEnum):
+    """What search_elements looks for; stickers join with EL6a.
+
+    An enum, not a one-member ``Literal``: Pydantic writes that as ``const``, and the TS schema
+    (and so the parity fixture) says ``enum``.
+    """
+
+    SHAPE = "shape"
+
+
+class SearchElementsArgs(BaseModel):
+    """Search the shape catalogue and icons (plan/elements EL5.6); TS ``search_elements``."""
+
+    model_config = _STRICT
+    query: str
+    kind: ElementKind | None = None
+    category: (
+        Literal[
+            "basic",
+            "arrows",
+            "lines",
+            "callouts",
+            "highlights",
+            "stars",
+            "frames",
+            "symbols",
+            "numbers",
+            "icons",
+        ]
+        | None
+    ) = None
+    limit: int | None = Field(default=None, ge=1, le=30)
 
 
 class SetShapeStyleArgs(_ShapeStyleArgs):
@@ -1566,6 +1609,12 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         kind="mutate",
         input_model=AddTextLayerArgs,
         mutating=True,
+    ),
+    "search_elements": _spec(
+        "search_elements",
+        "Find shapes for add_shape by what they look like or are for (plan/elements EL5.6).",
+        kind="read",
+        input_model=SearchElementsArgs,
     ),
     "add_shape": _spec(
         "add_shape",

@@ -20,20 +20,26 @@ import {
 import {
   FEATURED_SHAPE_PRESET_IDS,
   SHAPE_CAPS,
+  SHAPE_CATEGORIES,
+  SHAPE_ICON_PREFIX,
   SHAPE_PRESETS,
   SHAPE_STROKE_STYLES,
   presetShapeParams,
+  resolveShapePresetId,
+  searchShapes,
   shapeParamsProblem,
+  type ShapeDescriptor,
 } from '@framepilot/timeline-schema';
 import type { ToolSpec } from '../tool-registry.js';
 import { ToolRefusalError } from '../tool-refusal.js';
 import type { ToolContext } from '../tool-context.js';
-import { mutateTool } from './tool-factories.js';
+import { mutateTool, readTool } from './tool-factories.js';
 import { numeric, seconds } from './tool-args.js';
 
-/** The shapes the agent may place: the featured presets, by id. */
-const FEATURED = SHAPE_PRESETS.filter(({ preset }) => FEATURED_SHAPE_PRESET_IDS.includes(preset.id));
-const SHAPE_IDS = FEATURED.map(({ preset }) => preset.id) as [string, ...string[]];
+/** The staples the add_shape description names; search_elements finds everything else. */
+const FEATURED = SHAPE_PRESETS.filter(({ preset }) =>
+  FEATURED_SHAPE_PRESET_IDS.includes(preset.id),
+);
 
 /** Colour names models use, mapped to the catalogue palette (plan/elements 03 §1.3). */
 const NAMED_COLOURS: Readonly<Record<string, string>> = {
@@ -92,6 +98,12 @@ const styleArgs = {
   endCap: z.enum(SHAPE_CAPS).optional(),
   cornerRadius: percent(0, 50).optional(),
   headSize: percent(2, 8).optional(),
+  label: z.string().optional().describe('a badge’s text, up to 8 characters'),
+  labelColor: colourArg.optional(),
+  knobs: z
+    .record(z.string(), numeric(z.number()))
+    .optional()
+    .describe('the shape’s own knobs by name, as search_elements lists them'),
 };
 
 /** The param changes a tool call's style, box and ends ask for; refuses a colour it cannot read. */
@@ -99,7 +111,7 @@ function styleChanges(args: { readonly [key: string]: unknown }): Record<string,
   const box = args.box as Record<string, number> | undefined;
   const ends = args.ends as Record<string, number> | undefined;
   const changes: Record<string, unknown> = { ...box, ...ends };
-  for (const key of ['fill', 'stroke'] as const) {
+  for (const key of ['fill', 'stroke', 'labelColor'] as const) {
     const raw = args[key];
     if (typeof raw !== 'string') continue;
     const colour = shapeColour(raw);
@@ -117,10 +129,12 @@ function styleChanges(args: { readonly [key: string]: unknown }): Record<string,
     'endCap',
     'cornerRadius',
     'headSize',
+    'label',
   ] as const) {
     if (args[key] !== undefined) changes[key] = args[key];
   }
-  return changes;
+  const knobs = args.knobs as Readonly<Record<string, number>> | undefined;
+  return { ...changes, ...knobs };
 }
 
 function shapeClip(ctx: ToolContext, clipId: string) {
@@ -136,15 +150,96 @@ function shapeClip(ctx: ToolContext, clipId: string) {
 }
 
 const PRESET_LIST = FEATURED.map(({ preset }) => `${preset.id} (${preset.name})`).join(', ');
+const FEATURED_IDS = FEATURED_SHAPE_PRESET_IDS.join(', ');
+
+/** The most rows search_elements returns, and how many when the model does not say. */
+const SEARCH_LIMIT_MAX = 30;
+const SEARCH_LIMIT_DEFAULT = 12;
+
+/** One search_elements row: a shape, the styles it comes in, and what add_shape can set on it. */
+function elementRow(shape: ShapeDescriptor, styles: readonly { id: string; name: string }[]) {
+  const icon = shape.id.startsWith(SHAPE_ICON_PREFIX);
+  return {
+    elementId: shape.id,
+    kind: 'shape' as const,
+    name: shape.name,
+    category: icon ? 'icons' : shape.category,
+    tags: shape.tags,
+    frame: shape.frame,
+    aspect:
+      shape.frame === 'box'
+        ? Math.round((shape.defaults.width / shape.defaults.height) * 100) / 100
+        : null,
+    knobs: shape.knobs.map(({ name, min, max, default: value }) => ({
+      name,
+      min,
+      max,
+      default: value,
+    })),
+    labelled: shape.labelled === true,
+    styles,
+    animated: false,
+    license: icon ? 'ISC (Lucide)' : 'first-party',
+    attributionRequired: false,
+  };
+}
 
 export const ELEMENT_TOOLS: readonly ToolSpec[] = [
+  readTool(
+    {
+      name: 'search_elements',
+      description:
+        'Find shapes for add_shape by what they look like or are for: "box", "curved arrow", ' +
+        '"speech bubble", "star", "numbered badge", "check", "heart". Covers the shape ' +
+        'catalogue and every Lucide icon (icon/<name>). Returns one row per shape: its ' +
+        'elementId (pass it to add_shape as shape), its styles (preset ids, also valid as ' +
+        'shape), whether it is placed by a box or two ends, its knobs with their ranges, and ' +
+        'whether it takes a label (numbered badges). category narrows it: ' +
+        `${SHAPE_CATEGORIES.join(', ')}, or icons.`,
+    },
+    z
+      .object({
+        query: z.string().describe('words to find; empty lists the category'),
+        kind: z.enum(['shape']).optional(),
+        category: z.enum([...SHAPE_CATEGORIES, 'icons']).optional(),
+        limit: numeric(z.number().int().min(1).max(SEARCH_LIMIT_MAX)).optional(),
+      })
+      .strict(),
+    (a) => {
+      const { hits } = searchShapes(a.query, a.category);
+      const shapes = new Map<
+        string,
+        { shape: ShapeDescriptor; styles: { id: string; name: string }[] }
+      >();
+      for (const { shape, preset } of hits) {
+        const row = shapes.get(shape.id) ?? { shape, styles: [] };
+        row.styles.push({ id: preset.id, name: preset.name });
+        shapes.set(shape.id, row);
+      }
+      const limit = a.limit ?? SEARCH_LIMIT_DEFAULT;
+      const results = [...shapes.values()]
+        .slice(0, limit)
+        .map(({ shape, styles }) => elementRow(shape, styles));
+      return {
+        query: a.query,
+        kind: 'shape',
+        ...(a.category !== undefined ? { category: a.category } : {}),
+        results,
+        returned: results.length,
+        total: shapes.size,
+      };
+    },
+  ),
   mutateTool(
     {
       name: 'add_shape',
       description:
         'Add a shape over the picture for a timeline range: a highlight box around a button, an ' +
         'arrow pointing at something, an ellipse, a translucent marker over a line of text, an ' +
-        `underline. shape is one of: ${PRESET_LIST}. Boxes take box {x, y, width, height}: the ` +
+        `underline, a numbered badge, a star, an icon. shape is a staple — ${PRESET_LIST} — or ` +
+        'an elementId or style from search_elements (stars, bubbles, frames, badges, icons). ' +
+        'label is a badge’s text (up to 8 characters); knobs sets the shape’s own knobs by name. ' +
+        'Boxes take box {x, y, width, height}: the ' +
         'centre in percent of the frame (50/50 is the middle) and the size in percent of the ' +
         'frame height, like add_text_layer. Lines and arrows take ends {x1, y1, x2, y2} in ' +
         'percent of the frame; the arrow head is at x2/y2, so point it AT the target from empty ' +
@@ -155,7 +250,7 @@ export const ELEMENT_TOOLS: readonly ToolSpec[] = [
     },
     z
       .object({
-        shape: z.enum(SHAPE_IDS),
+        shape: z.string().min(1),
         start: seconds,
         end: seconds,
         box: boxArg.optional(),
@@ -169,7 +264,15 @@ export const ELEMENT_TOOLS: readonly ToolSpec[] = [
       if (!(a.end > a.start)) {
         throw new ToolRefusalError('end must be after start. Give the shape a time range.');
       }
-      const params = { ...presetShapeParams(a.shape)!, ...styleChanges(a) };
+      const presetId = resolveShapePresetId(a.shape);
+      if (presetId === undefined) {
+        // No echo of the id: the repeated-failure guard keys on this text, and a new wrong id
+        // each attempt must not read as progress.
+        throw new ToolRefusalError(
+          `That shape is not in the catalogue. Find one with search_elements, or use a staple: ${FEATURED_IDS}.`,
+        );
+      }
+      const params = { ...presetShapeParams(presetId)!, ...styleChanges(a) };
       const problem = shapeParamsProblem(params);
       if (problem !== null) throw new ToolRefusalError(problem);
       const placed = buildAddShapeOps(ctx.project.timeline, params, a.start, a.end, a.trackId);
@@ -197,9 +300,10 @@ export const ELEMENT_TOOLS: readonly ToolSpec[] = [
       name: 'set_shape_style',
       description:
         'Restyle or move one shape added with add_shape: fill and stroke colours (or none), ' +
-        'stroke width and style, caps on a line or arrow, corner radius, arrow head size, and ' +
-        'its box or ends (same units as add_shape). Only what you pass changes. A change that ' +
-        'would leave the shape drawing nothing is refused.',
+        'stroke width and style, caps on a line or arrow, corner radius, arrow head size, a ' +
+        'badge’s label and its colour, the shape’s other knobs, and its box or ends (same units ' +
+        'as add_shape). Only what you pass changes. A change that would leave the shape drawing ' +
+        'nothing is refused.',
     },
     z
       .object({
@@ -213,7 +317,9 @@ export const ELEMENT_TOOLS: readonly ToolSpec[] = [
       const clip = shapeClip(ctx, a.clipId);
       const changes = styleChanges(a);
       if (Object.keys(changes).length === 0) {
-        throw new ToolRefusalError('Nothing to change. Pass a colour, a stroke, a box or ends.');
+        throw new ToolRefusalError(
+          'Nothing to change. Pass a colour, a stroke, a label, a knob, a box or ends.',
+        );
       }
       const params = shapeClipParams(clip)!;
       const problem = shapeParamsProblem({ ...params, ...changes });

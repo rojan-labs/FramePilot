@@ -10,12 +10,11 @@
  */
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
-  SHAPE_ICON_NAMES,
-  SHAPE_PRESETS,
-  iconShapeDescriptor,
+  searchShapes,
   type ShapeCategory,
   type ShapeDescriptor,
   type ShapePreset,
+  type ShapeSearchHit,
 } from '@framepilot/timeline-schema';
 import { useViewPreference } from '../../editor/useViewPreference.js';
 import { recolourPreset } from '../../editor/shape-builders.js';
@@ -210,51 +209,11 @@ const HEX = /^#[0-9A-F]{6}$/;
 /** Icon tiles shown at once, and how many more "Show more" adds: 1,700 SVGs at once would stall. */
 const ICON_PAGE = 120;
 
-interface Entry {
-  readonly shape: ShapeDescriptor;
-  readonly preset: ShapePreset;
-}
+type Entry = ShapeSearchHit;
 
-let iconEntries: readonly Entry[] | undefined;
-/** Every icon as a tile entry, built once on first use. */
-function allIconEntries(): readonly Entry[] {
-  iconEntries ??= SHAPE_ICON_NAMES.flatMap((name) => {
-    const shape = iconShapeDescriptor(`icon/${name}`);
-    return shape === undefined ? [] : [{ shape, preset: shape.presets[0]! }];
-  });
-  return iconEntries;
-}
-
-/**
- * How well `entry` matches `query` (lower is better), or `null`: a word of its name starting
- * with the query, then the query anywhere in its name, then a tag or its category.
- */
-function matchRank(entry: Entry, query: string): number | null {
-  const names = `${entry.preset.name} ${entry.shape.name}`.toLowerCase();
-  if (names.split(/\s+/).some((word) => word.startsWith(query))) return 0;
-  if (names.includes(query)) return 1;
-  const chip = CHIPS.find((candidate) => candidate.id === entry.shape.category)?.label ?? '';
-  const words = [...entry.shape.tags, chip.toLowerCase()];
-  return words.some((word) => word.includes(query)) ? 2 : null;
-}
-
+/** The chip's tiles for `query`: the shared ranking the agent's search_elements uses too. */
 function visibleEntries(chip: Chip, query: string): readonly Entry[] {
-  const q = query.trim().toLowerCase();
-  const catalogue =
-    chip === 'icons'
-      ? []
-      : chip === 'all'
-        ? SHAPE_PRESETS
-        : SHAPE_PRESETS.filter(({ shape }) => shape.category === chip);
-  // Icons join "All" only for a search: 1,700 of them would bury the catalogue.
-  const icons = chip === 'icons' || (chip === 'all' && q !== '') ? allIconEntries() : [];
-  const pool = [...catalogue, ...icons];
-  if (q === '') return pool;
-  return pool
-    .map((entry, index) => ({ entry, index, rank: matchRank(entry, q) }))
-    .filter((row): row is { entry: Entry; index: number; rank: number } => row.rank !== null)
-    .sort((a, b) => a.rank - b.rank || a.index - b.index)
-    .map((row) => row.entry);
+  return searchShapes(query, chip === 'all' ? undefined : chip).hits;
 }
 
 const coerceChip = (raw: unknown): Chip | undefined =>

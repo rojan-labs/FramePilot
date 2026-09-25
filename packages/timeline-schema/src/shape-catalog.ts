@@ -1663,6 +1663,15 @@ export function shapePreset(
 }
 
 /**
+ * The preset `id` names: the preset itself, an icon (its id is its own preset), or a shape's
+ * first style — a model that names the shape (`star-5`) rather than a style gets its default.
+ */
+export function resolveShapePresetId(id: string): string | undefined {
+  if (shapePreset(id) !== undefined) return id;
+  return catalogShape(id)?.presets[0]?.id;
+}
+
+/**
  * The presets the Shapes tab opens on, in order: the screen-recording staples. Everything else
  * follows in catalogue order.
  */

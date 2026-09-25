@@ -83,7 +83,8 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     "add_clip": (True, True),
     "add_clips": (True, True),
     "add_text_layer": (True, True),
-    # Shapes (plan/elements EL4a): pure patches, available everywhere.
+    # Shapes (plan/elements EL4a, EL5): pure patches and a catalogue read, available everywhere.
+    "search_elements": (True, False),
     "add_shape": (True, True),
     "set_shape_style": (True, True),
     "add_caption_layer": (True, True),

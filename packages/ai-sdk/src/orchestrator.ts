@@ -2299,6 +2299,41 @@ function verificationDigest(obj: Record<string, unknown>, subject: string): stri
  * to refuse to guess. This is the same defect ADR 0128 fixed for
  * `discover_caption_styles`, on the two sibling catalogs it did not reach.
  */
+/**
+ * `search_elements` rows as one line each (plan/elements EL5.6): the id add_shape takes, how it
+ * is placed, its knobs with ranges and its styles — every id survives, tags do not. The generic
+ * JSON preview cut twelve rows off mid-record.
+ */
+function elementSearchDigest(obj: Record<string, unknown>): string | undefined {
+  if (!Array.isArray(obj.results)) return undefined;
+  const rows = obj.results as Record<string, unknown>[];
+  if (rows.length === 0) {
+    return (
+      `no shapes match "${String(obj.query ?? '')}" — try a plainer word (box, arrow, star, ` +
+      'bubble, badge, check) or list a category with an empty query'
+    );
+  }
+  const lines = rows.map((row) => {
+    const knobs = Array.isArray(row.knobs)
+      ? (row.knobs as Record<string, unknown>[])
+          .map((k) => `${String(k.name)} ${String(k.min)}–${String(k.max)}`)
+          .join(', ')
+      : '';
+    const styles = Array.isArray(row.styles)
+      ? (row.styles as Record<string, unknown>[]).map((style) => String(style.id)).join(', ')
+      : '';
+    return `- ${String(row.elementId)} "${String(row.name)}" (${String(row.category)}, ${String(
+      row.frame,
+    )}${knobs ? `; knobs ${knobs}` : ''}${row.labelled === true ? '; takes a label' : ''})${
+      styles ? ` styles: ${styles}` : ''
+    }`;
+  });
+  return [
+    `${String(obj.returned ?? rows.length)} of ${String(obj.total ?? rows.length)} shapes`,
+    ...lines,
+  ].join('\n');
+}
+
 function catalogDigest(
   obj: Record<string, unknown>,
   key: string,
@@ -3199,6 +3234,8 @@ export function summarizeReadResult(
         catalogDigest(obj, 'transitions', 'kind', 'transitions') ??
         previewJson(value, ANALYSIS_PREVIEW_MAX)
       );
+    case 'search_elements':
+      return elementSearchDigest(obj) ?? previewJson(value, ANALYSIS_PREVIEW_MAX);
     case 'detect_subjects': {
       // Detections are evidence the model reasons over (who is on screen, when),
       // so the digest names counts and frame coverage instead of slicing raw JSON.

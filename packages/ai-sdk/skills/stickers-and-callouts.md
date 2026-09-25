@@ -1,7 +1,7 @@
 ---
 name: stickers-and-callouts
-description: Place callout shapes — highlight boxes, arrows, circles, markers, underlines — on the thing the narration names, at the moment it is named, sized to be read and clear of faces and captions. Explains add_shape and set_shape_style.
-tools: [get_mapped_transcript, get_frame, get_timeline, measure_subject, add_shape, set_shape_style, move_clip, trim_clip, delete_clip]
+description: Place callout shapes — highlight boxes, arrows, circles, markers, underlines, numbered badges, icons — on the thing the narration names, at the moment it is named, clear of faces and captions. Explains search_elements, add_shape and set_shape_style.
+tools: [get_mapped_transcript, get_frame, get_timeline, measure_subject, search_elements, add_shape, set_shape_style, move_clip, trim_clip, delete_clip]
 ---
 
 # Stickers and callouts
@@ -37,16 +37,22 @@ then get out of the way.
 
 ## The tools
 
-- `add_shape` places a preset: `rounded-rect/highlight` (yellow outline box), `rounded-rect/filled`
-  (solid box), `ellipse/outline` (red ring), `marker-highlight/yellow` (translucent marker),
-  `line-arrow/red` (arrow), `underline-marker/yellow` (underline).
+- `add_shape` places a preset. The staples: `rounded-rect/highlight` (yellow outline box),
+  `rounded-rect/filled` (solid box), `ellipse/outline` (red ring), `marker-highlight/yellow`
+  (translucent marker), `line-arrow/red` (arrow), `underline-marker/yellow` (underline).
+- `search_elements` finds everything else — curved arrows, speech bubbles, stars, frames,
+  numbered badges, check marks, and every Lucide icon (`icon/<name>`). Pass its `elementId` or one
+  of its `styles` to `add_shape` as `shape`; its `knobs` (points, curvature, tailX…) go in `knobs`.
+- Numbered badges take a `label` (up to 8 characters): `numbered-circle/red-1` with `label: "2"` is
+  step two.
 - Boxes take `box {x, y, width, height}`: the CENTRE in percent of the frame, the size in percent
   of the frame HEIGHT (as `add_text_layer` sizes text). A 16:9 frame is 177.8 units wide in these
   units, so a box `width: 36` is about a fifth of the frame's width.
 - Lines and arrows take `ends {x1, y1, x2, y2}` in percent of each axis. The head is at `x2, y2`:
   start the arrow in empty space and end it just short of the target.
 - Colours are `#rrggbb`, `#rrggbbaa`, a name (yellow, red, white, blue, green, black), or `none`.
-- `set_shape_style` changes only what you pass: colours, stroke, corners, arrow head, box, ends.
+- `set_shape_style` changes only what you pass: colours, stroke, corners, arrow head, label,
+  knobs, box, ends.
 
 ## Professional heuristics
 
@@ -59,6 +65,8 @@ then get out of the way.
 - **Contrast.** Yellow reads on dark UIs, red on light ones; a white filled box behind text needs
   the text on a layer above it.
 - **One style per video.** Reuse the same preset and colour for every callout.
+- **Number the steps.** A tutorial's steps read as numbered badges in order, one per step, the
+  same colour throughout; a curved arrow reaches round an obstacle a straight one would cross.
 - **Faces and captions.** Use `measure_subject` for the face box and keep clear of the bottom
   caption band.
 

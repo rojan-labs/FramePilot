@@ -76,7 +76,7 @@ export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string
   effects: 'effects, transitions and on-screen text; browse what is available; verify fit',
   // Plan/elements: the words a screen-recording or product-demo request uses.
   elements:
-    'shapes over the picture — highlight boxes, arrows, circles, markers, underlines, callouts; place, restyle and move them',
+    'shapes over the picture — highlight boxes, arrows, circles, markers, underlines, callouts, numbered badges, stars, icons; find, place, restyle and move them',
   footage:
     'understand the raw material: scenes, shots, what is visually in it, where each moment lives',
   sourcing: 'find and place stock footage and music from the libraries',
@@ -217,7 +217,7 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'discover_transitions',
     'verify_transitions',
   ],
-  elements: ['add_shape', 'set_shape_style'],
+  elements: ['search_elements', 'add_shape', 'set_shape_style'],
   footage: [
     'detect_scenes',
     'search_media',
@@ -347,7 +347,7 @@ const DOMAIN_REQUEST_WORDS: Readonly<Record<Exclude<ToolDomain, 'core'>, RegExp>
   effects: /\b(transitions?|effects?|titles?|text layers?|graphics?)\b/gi,
   // Plan/elements 07 §2: the callout words live here now; stickers and emoji join with EL6a.
   elements:
-    /\b(shapes?|arrows?|circl(?:e|es|ing)|highlight(?:ed)? box(?:es)?|highlight (?:the|a|an)|underlin\w*|callouts?|box(?:es)? around|point(?:ing)? (?:at|to))\b/gi,
+    /\b(shapes?|arrows?|circl(?:e|es|ing)|highlight(?:ed)? box(?:es)?|highlight (?:the|a|an)|underlin\w*|callouts?|badges?|speech bubbles?|box(?:es)? around|point(?:ing)? (?:at|to))\b/gi,
   footage:
     /\b(index(?:ed|ing)?|index_media|map_footage|describe_footage|search_visual|detect_scenes|footage map|scene detection|shot list)\b/gi,
   tracking: /\b(who is on screen|detect (?:the )?(?:faces?|people|subjects?)|tracker)\b/gi,

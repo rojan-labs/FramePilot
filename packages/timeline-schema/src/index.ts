@@ -2031,4 +2031,5 @@ export * from './float-array-codec.js';
 export * from './edge-styles.js';
 // Shapes (schema v25, plan/elements EL4a): the params a shape clip carries and the catalogue.
 export * from './shape-catalog.js';
+export * from './shape-search.js';
 export * from './shape-params.js';

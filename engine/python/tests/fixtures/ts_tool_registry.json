@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 113,
+  "toolCount": 114,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -488,6 +488,21 @@
             "minimum": 2,
             "maximum": 8
           },
+          "knobs": {
+            "type": [
+              "object"
+            ]
+          },
+          "label": {
+            "type": [
+              "string"
+            ]
+          },
+          "labelColor": {
+            "type": [
+              "string"
+            ]
+          },
           "rotation": {
             "type": [
               "number"
@@ -498,14 +513,6 @@
           "shape": {
             "type": [
               "string"
-            ],
-            "enum": [
-              "ellipse/outline",
-              "line-arrow/red",
-              "marker-highlight/yellow",
-              "rounded-rect/filled",
-              "rounded-rect/highlight",
-              "underline-marker/yellow"
             ]
           },
           "start": {
@@ -4496,6 +4503,60 @@
         }
       }
     },
+    "search_elements": {
+      "kind": "read",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "category": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "arrows",
+              "basic",
+              "callouts",
+              "frames",
+              "highlights",
+              "icons",
+              "lines",
+              "numbers",
+              "stars",
+              "symbols"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "shape"
+            ]
+          },
+          "limit": {
+            "type": [
+              "integer"
+            ],
+            "minimum": 1,
+            "maximum": 30
+          },
+          "query": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
     "search_media": {
       "kind": "analysis",
       "mutates": false,
@@ -5535,6 +5596,21 @@
             ],
             "minimum": 2,
             "maximum": 8
+          },
+          "knobs": {
+            "type": [
+              "object"
+            ]
+          },
+          "label": {
+            "type": [
+              "string"
+            ]
+          },
+          "labelColor": {
+            "type": [
+              "string"
+            ]
           },
           "startCap": {
             "type": [
