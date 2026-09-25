@@ -1011,14 +1011,19 @@ describe('OverlaysPanel', () => {
     expect(screen.getByText('No overlays yet.')).toBeDefined();
   });
 
-  it('disables Shape and Image overlay types (engine scaffold)', () => {
+  it('offers Text and Title, and points shapes and stickers at Elements', () => {
+    const onOpenElements = vi.fn();
     function Host(): JSX.Element {
       const project = newProject('Overlay Test');
       const editor = useEditor(project.timeline);
-      return <OverlaysPanel editor={editor} />;
+      return <OverlaysPanel editor={editor} onOpenElements={onOpenElements} />;
     }
     render(<Host />);
-    expect(screen.getByRole('button', { name: /Shape/ })).toHaveProperty('disabled', true);
-    expect(screen.getByRole('button', { name: /Image/ })).toHaveProperty('disabled', true);
+    const types = within(screen.getByRole('group', { name: 'overlay type' }))
+      .getAllByRole('button')
+      .map((button) => button.textContent);
+    expect(types).toEqual(['Text', 'Title']);
+    fireEvent.click(screen.getByRole('button', { name: 'Elements' }));
+    expect(onOpenElements).toHaveBeenCalledTimes(1);
   });
 });

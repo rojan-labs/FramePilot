@@ -2401,9 +2401,29 @@ g.mask-canvas-draft circle {
 /* ---- Overlays panel (master-prompt §3.4) -------------------------------- */
 .ov-types {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: var(--space-1);
   margin-bottom: var(--space-3);
+}
+
+/* Shapes and stickers moved to Elements (plan/elements EL4a): one line points there. */
+.ov-elements-link {
+  margin: 0 0 var(--space-3);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.ov-elements-link .link-button {
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  text-decoration: underline;
+}
+.ov-elements-link .link-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .ov-type-wrap {
@@ -3807,6 +3827,20 @@ g.mask-canvas-draft circle {
 /* UX-14: how the picture meets the frame, said in the monitor instead of only in
    the export. Top-left over the void the frame floats on, not over the picture —
    it is a note about the frame, and it must never cover the shot it is about. */
+.preview-elements-note {
+  position: absolute;
+  z-index: 2;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  max-width: 60%;
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.72rem;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+}
 .preview-fit-chip {
   position: absolute;
   z-index: 2;
@@ -4146,6 +4180,117 @@ g.mask-canvas-draft circle {
 
 /* Overlay layer spans the whole frame; each text overlay positions itself within
    it by percent via an inline style (see textOverlayStyle, #5). */
+/* Shapes (plan/elements EL4a): hit targets and the selected shape's handles. Each shape's layer
+   covers the frame and carries the clip's transform, so handles sit where the engine drew it. */
+.preview-shapes {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+.preview-shape-editor {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.preview-shape-hit {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.preview-shape-hit:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.preview-shape-box {
+  position: absolute;
+  pointer-events: auto;
+  cursor: move;
+  outline: 1px dashed var(--accent);
+  outline-offset: 0;
+}
+.preview-shape-box:focus-visible {
+  outline-style: solid;
+  outline-width: 2px;
+}
+.preview-shape-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  pointer-events: auto;
+  background: var(--bg-app);
+  border: 1.5px solid var(--accent);
+  border-radius: 2px;
+}
+.preview-shape-handle.is-end {
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  cursor: crosshair;
+  border-radius: 50%;
+}
+.preview-shape-handle.is-nw {
+  left: 0;
+  top: 0;
+  cursor: nwse-resize;
+}
+.preview-shape-handle.is-n {
+  left: 50%;
+  top: 0;
+  cursor: ns-resize;
+}
+.preview-shape-handle.is-ne {
+  left: 100%;
+  top: 0;
+  cursor: nesw-resize;
+}
+.preview-shape-handle.is-e {
+  left: 100%;
+  top: 50%;
+  cursor: ew-resize;
+}
+.preview-shape-handle.is-se {
+  left: 100%;
+  top: 100%;
+  cursor: nwse-resize;
+}
+.preview-shape-handle.is-s {
+  left: 50%;
+  top: 100%;
+  cursor: ns-resize;
+}
+.preview-shape-handle.is-sw {
+  left: 0;
+  top: 100%;
+  cursor: nesw-resize;
+}
+.preview-shape-handle.is-w {
+  left: 0;
+  top: 50%;
+  cursor: ew-resize;
+}
+.preview-shape-editor-line {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.preview-shape-editor-line line {
+  pointer-events: stroke;
+  cursor: move;
+  stroke: var(--accent);
+  stroke-dasharray: 4 3;
+  stroke-width: 12px;
+  stroke-opacity: 0.35;
+  vector-effect: non-scaling-stroke;
+}
+.preview-shape-editor-line line:focus-visible {
+  stroke-opacity: 0.8;
+  outline: none;
+}
+
 .preview-overlays {
   position: absolute;
   inset: 0;

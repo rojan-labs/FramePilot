@@ -18,6 +18,7 @@
  * Closes on action, outside click, or Escape.
  */
 import { useEffect, useRef, type JSX } from 'react';
+import { syntheticClipKind } from '@framepilot/editor-core';
 import type { UseEditor } from '../editor/useEditor.js';
 import {
   addTransitionPatch,
@@ -41,6 +42,7 @@ import {
   Search,
   Sparkles,
   Trash2,
+  Shapes,
 } from './icons.js';
 import { MenuShortcut } from './Menu.js';
 
@@ -132,6 +134,9 @@ export function ClipContextMenu({
   const playheadInside = clip !== undefined && playhead > clip.start && playhead < clip.end;
   const canTransition = addTransitionPatch(timeline, target.clipId, 'crossfade') !== null;
   const speed = clip?.speed ?? 1;
+  // A shape draws from its params alone (ADR 0190): it is edited in the Inspector and on the
+  // monitor, and speed does nothing to it, so the menu offers the one and not the other.
+  const isShape = clip !== undefined && syntheticClipKind(clip.assetId) === 'shape';
   // Reordering is a different question from dragging: a drag puts a clip at a TIME, this
   // puts it at a PLACE in the running order. Gated on the builder, so "move earlier" is
   // never offered on the first clip (ADR 0173).
@@ -147,6 +152,22 @@ export function ClipContextMenu({
       tabIndex={-1}
       style={{ left: target.x, top: target.y }}
     >
+      {isShape && (
+        <>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              // Selecting a shape opens its Shape section and its handles on the monitor.
+              editor.select(target.clipId);
+              onClose();
+            }}
+          >
+            <Shapes size={ICON_SIZE.sm} aria-hidden="true" /> Edit shape
+          </button>
+          <div className="context-menu-sep" role="separator" />
+        </>
+      )}
       <button
         type="button"
         role="menuitem"
@@ -186,27 +207,29 @@ export function ClipContextMenu({
       <button type="button" role="menuitem" disabled={later === null} onClick={() => act(later)}>
         <ChevronRight size={ICON_SIZE.sm} aria-hidden="true" /> Move later in sequence
       </button>
-      <div className="context-menu-sep" role="separator" />
-      <div className="context-menu-group" role="group" aria-label="Speed">
-        <span className="context-menu-group-label">
-          <Gauge size={ICON_SIZE.sm} aria-hidden="true" /> Speed
-        </span>
-        <div className="context-menu-choices">
-          {SPEED_PRESETS.map((preset) => (
-            <button
-              key={preset}
-              type="button"
-              role="menuitemradio"
-              aria-checked={speed === preset}
-              onClick={() =>
-                act(setClipSpeedPatch(timeline, target.clipId, preset === 1 ? null : preset))
-              }
-            >
-              {`${String(preset)}×`}
-            </button>
-          ))}
+      {!isShape && <div className="context-menu-sep" role="separator" />}
+      {!isShape && (
+        <div className="context-menu-group" role="group" aria-label="Speed">
+          <span className="context-menu-group-label">
+            <Gauge size={ICON_SIZE.sm} aria-hidden="true" /> Speed
+          </span>
+          <div className="context-menu-choices">
+            {SPEED_PRESETS.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                role="menuitemradio"
+                aria-checked={speed === preset}
+                onClick={() =>
+                  act(setClipSpeedPatch(timeline, target.clipId, preset === 1 ? null : preset))
+                }
+              >
+                {`${String(preset)}×`}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
       {onAddTransition && (
         <button
           type="button"

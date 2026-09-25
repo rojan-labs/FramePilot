@@ -672,7 +672,19 @@ export function Editor({
     ],
   );
   const effectsEl = useMemo(() => <EffectsPanel editor={editor} />, [nonPlayheadKey]);
-  const overlaysEl = useMemo(() => <OverlaysPanel editor={editor} />, [nonPlayheadKey]);
+  const overlaysEl = useMemo(
+    () => (
+      <OverlaysPanel
+        editor={editor}
+        // Only where the Elements tab is offered (the desktop app): a link to an absent tab
+        // would be a dead end.
+        {...(visibleLeftTabs().some((tab) => tab.id === 'elements')
+          ? { onOpenElements: () => setLeftTab('elements') }
+          : {})}
+      />
+    ),
+    [nonPlayheadKey],
+  );
   const transitionsEl = useMemo(() => <TransitionsPanel editor={editor} />, [nonPlayheadKey]);
   const soundsEl = useMemo(
     () => (

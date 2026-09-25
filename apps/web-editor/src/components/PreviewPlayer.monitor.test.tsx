@@ -4,7 +4,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { Timeline } from '@framepilot/timeline-schema';
+import { presetShapeParams, type Timeline } from '@framepilot/timeline-schema';
 import { useEditor } from '../editor/useEditor.js';
 import { PREVIEW_POOL_SIZE } from '../editor/selectors.js';
 import { SettingsProvider } from '../editor/useSettings.js';
@@ -69,6 +69,45 @@ function Host({
 }
 
 describe('program monitor', () => {
+  it('says it cannot show shapes rather than showing a picture without them', () => {
+    const withShape: Timeline = {
+      tracks: [
+        {
+          id: 'o',
+          type: 'overlay',
+          clips: [
+            {
+              id: 's1',
+              assetId: '__shape__',
+              trackId: 'o',
+              start: 0,
+              end: 4,
+              sourceStart: 0,
+              sourceEnd: 4,
+              effects: [
+                {
+                  id: 's1__shape',
+                  type: 'shape',
+                  params: presetShapeParams('rounded-rect/highlight')!,
+                  keyframes: [],
+                },
+              ],
+              keyframes: [],
+            },
+          ],
+        },
+        ...timeline.tracks,
+      ],
+    };
+    render(<Host editorTimeline={withShape} />);
+    expect(screen.getByRole('note').textContent).toMatch(/Elements need the layer preview/);
+  });
+
+  it('shows no shapes note for a timeline without shapes', () => {
+    render(<Host />);
+    expect(screen.queryByText(/Elements need the layer preview/)).toBeNull();
+  });
+
   it('steps forward and back one frame', () => {
     render(<Host />);
     fireEvent.click(screen.getByRole('button', { name: 'seek 2' }));

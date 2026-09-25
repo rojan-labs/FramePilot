@@ -1,8 +1,8 @@
 /**
  * Overlays panel (master-prompt §3.4 — substantially enhanced).
  *
- * Build an overlay: pick a **type** (Text / Title — Shape & Image/Sticker are
- * scaffolded but disabled until the engine supports them), a **style template**
+ * Build an overlay: pick a **type** (Text / Title; shapes and stickers live in the Elements
+ * tab, which a line here links to), a **style template**
  * (visual previews), a **9-point position**, and **timing** (start at the
  * playhead + duration). A live mini-preview reflects the choices. The list below
  * shows existing overlays with click-to-seek, inline text edit, and delete.
@@ -21,14 +21,15 @@ import type { Clip, Timeline } from '@framepilot/timeline-schema';
 import type { UseEditor } from '../editor/useEditor.js';
 import { addTextOverlayPatch, deleteClipPatch } from '../editor/patch-builders.js';
 import { useSettings } from '../editor/useSettings.js';
-import { Tooltip } from './Tooltip.js';
-import { Captions, ICON_SIZE, ImagePlus, type LucideIcon, Square, Trash2, Type } from './icons.js';
+import { Captions, ICON_SIZE, type LucideIcon, Trash2, Type } from './icons.js';
 
 export interface OverlaysPanelProps {
   readonly editor: UseEditor;
+  /** Opens the Elements tab, where shapes and stickers are; absent where it is not offered. */
+  readonly onOpenElements?: () => void;
 }
 
-type OverlayType = 'text' | 'title' | 'shape' | 'image';
+type OverlayType = 'text' | 'title';
 
 /**
  * DnD payload type for dragging a text overlay from this panel onto a timeline
@@ -41,15 +42,12 @@ interface OverlayTypeDef {
   readonly id: OverlayType;
   readonly label: string;
   readonly icon: LucideIcon;
-  /** Disabled types are scaffolded but not yet supported by the engine. */
   readonly enabled: boolean;
 }
 
 const OVERLAY_TYPES: readonly OverlayTypeDef[] = [
   { id: 'text', label: 'Text', icon: Type, enabled: true },
   { id: 'title', label: 'Title', icon: Captions, enabled: true },
-  { id: 'shape', label: 'Shape', icon: Square, enabled: false },
-  { id: 'image', label: 'Image', icon: ImagePlus, enabled: false },
 ];
 
 interface OverlayTemplate {
@@ -120,7 +118,7 @@ function overlayClips(timeline: Timeline): readonly Clip[] {
   return timeline.tracks.find((t) => t.type === 'overlay')?.clips ?? [];
 }
 
-export function OverlaysPanel({ editor }: OverlaysPanelProps): JSX.Element {
+export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): JSX.Element {
   const { settings } = useSettings();
   const { timeline, playhead } = editor.state;
   const overlayTrack = timeline.tracks.find((track) => track.type === 'overlay');
@@ -197,11 +195,20 @@ export function OverlaysPanel({ editor }: OverlaysPanelProps): JSX.Element {
           );
           return (
             <span key={t.id} className="ov-type-wrap">
-              {t.enabled ? button : <Tooltip label="Coming soon">{button}</Tooltip>}
+              {button}
             </span>
           );
         })}
       </div>
+      {onOpenElements && (
+        <p className="ov-elements-link">
+          Stickers and shapes are in{' '}
+          <button type="button" className="link-button" onClick={onOpenElements}>
+            Elements
+          </button>
+          .
+        </p>
+      )}
 
       {/* Live preview */}
       <div className="ov-preview" aria-label="overlay preview" style={positionStyle(position)}>

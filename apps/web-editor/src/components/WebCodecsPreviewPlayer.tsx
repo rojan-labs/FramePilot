@@ -13,7 +13,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Asset, CaptionStyle, TranscriptWord } from '@framepilot/timeline-schema';
 import { createLogger } from '@framepilot/shared-types';
-import { effectLayerMaskOwner, framePlanAt, resolveCaptionCue } from '@framepilot/editor-core';
+import {
+  effectLayerMaskOwner,
+  evaluateKeyframes,
+  framePlanAt,
+  resolveCaptionCue,
+  shapeClipParams,
+} from '@framepilot/editor-core';
 import { useFramePlayhead, type UseEditor } from '../editor/useEditor.js';
 import { previewMediaSrc } from '../editor/media.js';
 import {
@@ -31,6 +37,7 @@ import {
   setCaptionCuePatch,
   setCaptionStylePatch,
   setClipTransformPatch,
+  setShapeParamsPatch,
   setTextParamsPatch,
   type TextOverlayParams,
 } from '../editor/patch-builders.js';
@@ -63,6 +70,8 @@ import { PreviewAudioMixer } from './PreviewAudioMixer.js';
 import { PreviewViewControls, type PreviewZoom } from './PreviewViewControls.js';
 import { PreviewTransport } from './PreviewTransport.js';
 import { PreviewTextEditor } from './PreviewTextEditor.js';
+import { PreviewShapeEditor } from './PreviewShapeEditor.js';
+import { shapeHitRect, shapePivot } from '../preview/shape-handles.js';
 import { PreviewCaptionEditor } from './PreviewCaptionEditor.js';
 import {
   PreviewTransform,
@@ -393,6 +402,32 @@ export function WebCodecsPreviewPlayer({
 
   const commitTextParams = (clipId: string, params: Partial<TextOverlayParams>): void => {
     const patch = setTextParamsPatch(editor.state.timeline, clipId, params);
+    if (patch) editor.applyPatch(patch);
+  };
+
+  // Shapes at the playhead (plan/elements EL4a), back to front so the front one's hit target is
+  // on top. The engine draws them into the canvas; here they only need selecting and handles.
+  const activeShapes = useMemo(() => {
+    const at = editor.state.playhead;
+    return [...editor.state.timeline.tracks]
+      .reverse()
+      .filter((track) => track.hidden !== true)
+      .flatMap((track) =>
+        track.clips.filter(
+          (clip) => clip.start <= at && at < clip.end && shapeClipParams(clip) !== null,
+        ),
+      );
+  }, [editor.state.timeline, editor.state.playhead]);
+  const selectedShape =
+    [...activeShapes].reverse().find((clip) => editor.state.selectedIds.includes(clip.id)) ?? null;
+  const commitShapeParams = (clipId: string, changes: Record<string, number>): void => {
+    const segment = 'x1' in changes || 'x2' in changes;
+    const patch = setShapeParamsPatch(
+      editor.state.timeline,
+      clipId,
+      changes,
+      segment ? 'ends' : 'box',
+    );
     if (patch) editor.applyPatch(patch);
   };
 
@@ -997,6 +1032,74 @@ export function WebCodecsPreviewPlayer({
               to the background picture, while a double-click selects the topmost
               object under the pointer. Keyboard activation selects the object
               directly because there is no keyboard equivalent of double-click. */}
+          {/* Shapes: a transparent target per shape at the playhead (double-click or Enter
+              selects it, like a text object), and the selected one's handles. */}
+          <div className="preview-shapes" aria-label="preview shapes">
+            {activeShapes.map((clip) => {
+              const params = shapeClipParams(clip)!;
+              const local = editor.state.playhead - clip.start;
+              const value = (property: string, fallback: number): number =>
+                evaluateKeyframes(clip.keyframes, property, local) ?? fallback;
+              const [x, y, scale, rotation] = [
+                value('x', 0),
+                value('y', 0),
+                value('scale', 1),
+                value('rotation', 0),
+              ];
+              if (selectedShape?.id === clip.id) {
+                return (
+                  <PreviewShapeEditor
+                    key={clip.id}
+                    clipId={clip.id}
+                    params={params}
+                    resolution={resolution}
+                    transform={{ x, y, scale, rotation }}
+                    onCommit={(changes) => commitShapeParams(clip.id, changes)}
+                  />
+                );
+              }
+              const pivot = shapePivot(params);
+              const hit = shapeHitRect(params, resolution.width / resolution.height);
+              return (
+                <div
+                  key={clip.id}
+                  className="preview-shape-editor"
+                  style={{
+                    transformOrigin: `${pivot.x}% ${pivot.y}%`,
+                    transform:
+                      `translate(${(x / resolution.width) * 100}%, ` +
+                      `${(y / resolution.height) * 100}%) rotate(${-rotation}deg) scale(${scale})`,
+                  }}
+                >
+                  <span
+                    className="preview-shape-hit"
+                    style={{
+                      left: `${hit.left}%`,
+                      top: `${hit.top}%`,
+                      width: `${hit.width}%`,
+                      height: `${hit.height}%`,
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`select shape ${clip.id} in preview`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      editor.select(shownPicture?.id ?? null);
+                    }}
+                    onDoubleClick={(event) => {
+                      event.stopPropagation();
+                      editor.select(clip.id);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      event.preventDefault();
+                      editor.select(clip.id);
+                    }}
+                  />
+                </div>
+              );
+            })}
+          </div>
           <div className="preview-overlays" aria-label="preview objects">
             {activeOverlays.map((overlay) =>
               selectedOverlay?.id === overlay.id ? (

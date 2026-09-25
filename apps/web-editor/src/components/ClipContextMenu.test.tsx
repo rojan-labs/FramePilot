@@ -77,6 +77,33 @@ function fakeEditor(over: { timeline?: Timeline; playhead?: number } = {}): UseE
 const target: ClipMenuTarget = { clipId: 'c1', x: 10, y: 10 };
 
 describe('ClipContextMenu', () => {
+  it('offers Edit shape on a shape, selecting it, and no speed presets it would ignore', () => {
+    const shapeTimeline: Timeline = {
+      tracks: [
+        {
+          id: 'o',
+          type: 'overlay',
+          clips: [{ ...clip('s1', 0, 4), assetId: '__shape__', trackId: 'o' }],
+        },
+      ],
+    };
+    const editor = fakeEditor({ timeline: shapeTimeline });
+    const onClose = vi.fn();
+    render(
+      <ClipContextMenu editor={editor} target={{ clipId: 's1', x: 0, y: 0 }} onClose={onClose} />,
+    );
+    expect(screen.queryByRole('group', { name: 'Speed' })).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit shape' }));
+    expect(editor.select).toHaveBeenCalledWith('s1');
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('offers no Edit shape on footage', () => {
+    render(<ClipContextMenu editor={fakeEditor()} target={target} onClose={() => {}} />);
+    expect(screen.queryByRole('menuitem', { name: 'Edit shape' })).toBeNull();
+    expect(screen.getByRole('group', { name: 'Speed' })).toBeDefined();
+  });
+
   it('does not render the Ask AI item when no handler is wired', () => {
     render(<ClipContextMenu editor={fakeEditor()} target={target} onClose={vi.fn()} />);
     expect(screen.queryByRole('menuitem', { name: /Ask AI/ })).toBeNull();
