@@ -6,6 +6,10 @@
  */
 import { hasClipSelection, type InspectorSelection } from './selection.js';
 
+/** A clip section the export ignores for shapes, which draw from their params alone. */
+const clipsButNotShapes = (selection: InspectorSelection): boolean =>
+  hasClipSelection(selection) && !selection.anyShape;
+
 export interface InspectorSectionDef {
   readonly id: string;
   readonly title: string;
@@ -33,12 +37,20 @@ export const INSPECTOR_SECTIONS: readonly InspectorSectionDef[] = [
     appliesTo: (selection) => hasClipSelection(selection) && selection.hasText,
   },
   {
+    id: 'shape',
+    title: 'Shape',
+    label: 'shape',
+    order: 22,
+    defaultOpen: true,
+    appliesTo: (selection) => hasClipSelection(selection) && selection.hasShape,
+  },
+  {
     id: 'color',
     title: 'Adjust',
     label: 'color',
     order: 30,
     defaultOpen: true,
-    appliesTo: hasClipSelection,
+    appliesTo: clipsButNotShapes,
   },
   {
     id: 'speed',
@@ -46,7 +58,7 @@ export const INSPECTOR_SECTIONS: readonly InspectorSectionDef[] = [
     label: 'speed',
     order: 40,
     defaultOpen: true,
-    appliesTo: hasClipSelection,
+    appliesTo: clipsButNotShapes,
   },
   {
     id: 'audio',
@@ -62,7 +74,7 @@ export const INSPECTOR_SECTIONS: readonly InspectorSectionDef[] = [
     label: 'crop',
     order: 60,
     defaultOpen: false,
-    appliesTo: hasClipSelection,
+    appliesTo: clipsButNotShapes,
   },
   {
     id: 'blend',
@@ -86,7 +98,7 @@ export const INSPECTOR_SECTIONS: readonly InspectorSectionDef[] = [
     label: 'mask',
     order: 90,
     defaultOpen: false,
-    appliesTo: hasClipSelection,
+    appliesTo: clipsButNotShapes,
   },
   {
     id: 'effects',
@@ -94,7 +106,7 @@ export const INSPECTOR_SECTIONS: readonly InspectorSectionDef[] = [
     label: 'effects',
     order: 100,
     defaultOpen: false,
-    appliesTo: hasClipSelection,
+    appliesTo: clipsButNotShapes,
   },
 ];
 

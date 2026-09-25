@@ -31,6 +31,7 @@ import {
   Palette,
   RotateCcw,
   Scan,
+  Shapes,
   SlidersHorizontal,
   Sparkles,
   Type,
@@ -56,6 +57,7 @@ import { CropPanel } from './inspector/sections/CropSection.js';
 import { BlendModePanel } from './inspector/sections/BlendSection.js';
 import { TransitionPanel } from './inspector/sections/TransitionSection.js';
 import { TextOverlayInspector } from './inspector/sections/TextSection.js';
+import { ShapeInspector } from './inspector/sections/ShapeSection.js';
 import { TransformPanel } from './inspector/sections/TransformSection.js';
 import { ClipEffectList } from './inspector/sections/ClipEffectList.js';
 import { oneOf, useViewPreference } from '../editor/useViewPreference.js';
@@ -114,6 +116,7 @@ const SECTION_TABS: Readonly<Record<string, InspectorTabId>> = {
   crop: 'basic',
   blend: 'basic',
   text: 'text',
+  shape: 'basic',
   audio: 'audio',
   color: 'color',
   mask: 'mask',
@@ -124,6 +127,7 @@ const SECTION_TABS: Readonly<Record<string, InspectorTabId>> = {
 const SECTION_ICONS: Readonly<Record<string, LucideIcon>> = {
   transform: SlidersHorizontal,
   text: Type,
+  shape: Shapes,
   color: Palette,
   speed: Gauge,
   audio: AudioLines,
@@ -324,6 +328,8 @@ export function Inspector({
         );
       case 'text':
         return <TextOverlayInspector key={`text-${clip.id}`} editor={editor} clip={clip} />;
+      case 'shape':
+        return <ShapeInspector key={`shape-${clip.id}`} editor={editor} clip={clip} />;
       case 'color':
         return <ColorPanel key={clip.id} editor={editor} clip={clip} />;
       case 'speed':

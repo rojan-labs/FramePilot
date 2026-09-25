@@ -192,6 +192,42 @@ describe('the section registry', () => {
     expect(visibleSections(without).map((s) => s.id)).not.toContain('text');
   });
 
+  it('gives a shape its Shape section and none the export would ignore for it', () => {
+    const shapeTimeline: Timeline = {
+      tracks: [
+        {
+          id: 'o',
+          type: 'overlay',
+          clips: [
+            clip('s1', 0, 4, 'o', {
+              assetId: '__shape__',
+              effects: [{ id: 's1__shape', type: 'shape', params: {}, keyframes: [] }],
+            }),
+          ],
+        },
+        videoTimeline.tracks[0]!,
+      ],
+    };
+    const shape = resolveInspectorSelection(shapeTimeline, 's1', ['s1']);
+    expect(shape.hasShape).toBe(true);
+    const ids = visibleSections(shape).map((s) => s.id);
+    expect(ids).toContain('shape');
+    expect(ids).toContain('transform');
+    expect(ids).toContain('blend');
+    for (const ignored of ['color', 'speed', 'crop', 'mask', 'effects']) {
+      expect(ids).not.toContain(ignored);
+    }
+    // A mixed selection: no Shape section (not every clip is one), and still none of the
+    // sections that would silently skip the shape.
+    const mixed = resolveInspectorSelection(shapeTimeline, 's1', ['s1', 'c1']);
+    expect(mixed.hasShape).toBe(false);
+    expect(mixed.anyShape).toBe(true);
+    expect(visibleSections(mixed).map((s) => s.id)).not.toContain('color');
+    expect(
+      visibleSections(resolveInspectorSelection(videoTimeline, 'c1', ['c1'])).map((s) => s.id),
+    ).toContain('color');
+  });
+
   it('shows Transition exactly when the PRIMARY clip has one', () => {
     // Revamp Phase 9 replaced the old `kind === 'clip'` rule. It hid the section for
     // any multi-selection, on the reasoning that "the transition" is ambiguous across

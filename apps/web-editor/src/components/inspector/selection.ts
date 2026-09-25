@@ -24,6 +24,7 @@ import {
   findEffectLayer,
 } from '../../editor/selectors.js';
 import { textEffectOf } from '../../editor/patch-builders.js';
+import { syntheticClipKind } from '@framepilot/editor-core';
 import type { Timeline } from '@framepilot/timeline-schema';
 
 /** A clip plus the track it sits on — what every section actually needs. */
@@ -58,6 +59,14 @@ export interface InspectorSelection {
   readonly effectLayer: EffectLayerLocation | null;
   /** True when EVERY selected clip carries a text/caption effect. */
   readonly hasText: boolean;
+  /** True when EVERY selected clip is a shape (schema v25): the Shape section edits them. */
+  readonly hasShape: boolean;
+  /**
+   * True when ANY selected clip is a shape. The export draws a shape from its params alone, so
+   * the grade, speed, crop, mask and effect-list sections would do nothing to it and are not
+   * offered (a present-and-broken control is worse than an absent one).
+   */
+  readonly anyShape: boolean;
   /** True when EVERY selected clip sits on a track that can carry audio. */
   readonly hasAudio: boolean;
   /** True when the primary clip has a transition on its incoming edge. */
@@ -71,6 +80,8 @@ const EMPTY: InspectorSelection = {
   effectLayerIds: [],
   effectLayer: null,
   hasText: false,
+  hasShape: false,
+  anyShape: false,
   hasAudio: false,
   hasTransition: false,
 };
@@ -121,10 +132,14 @@ export function resolveInspectorSelection(
     // EVERY, not SOME: a section that only some of the selection can accept would
     // silently no-op on the rest, which is worse than not offering it.
     hasText: clips.every((location) => textEffectOf(location.clip) !== undefined),
+    hasShape: clips.every((location) => isShape(location.clip)),
+    anyShape: clips.some((location) => isShape(location.clip)),
     hasAudio: clips.every((location) => audioBearing(location.track)),
     hasTransition: clipTransition(primary.clip) !== undefined,
   };
 }
+
+const isShape = (clip: Clip): boolean => syntheticClipKind(clip.assetId) === 'shape';
 
 /** Whether the selection has at least one clip (single or multi). */
 export function hasClipSelection(selection: InspectorSelection): boolean {
