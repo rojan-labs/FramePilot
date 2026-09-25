@@ -143,19 +143,19 @@ collection), anything non-commercial.
 
 Upstream Fluent 3D is 256 × 256 PNG. Options, _measured_ on nine representative emoji:
 
-| Option                         | Avg / sticker | × 1,595     | Look                      | Sharp up to (1080p)          |
-| ------------------------------ | ------------- | ----------- | ------------------------- | ---------------------------- |
-| 3D PNG as shipped              | 31.5 KB       | ≈ 50 MB     | glossy 3D                 | 256 px                       |
-| **3D → lossless WebP 256**     | **19.6 KB**   | **≈ 31 MB** | glossy 3D, bit-exact      | 256 px (24% of frame height) |
-| Color SVG → lossless WebP 512  | 55.2 KB       | ≈ 88 MB     | flat-shaded colour        | 512 px                       |
-| Color SVG → lossy WebP q90 512 | 14.8 KB       | ≈ 24 MB     | flat-shaded colour, lossy | 512 px                       |
-| Thumbnail, lossy WebP q80 96   | 1.9 KB        | ≈ 3 MB      | grid only                 | —                            |
+| Option                                                       | Avg / sticker | × 1,595     | Look                      | Sharp up to (1080p)          |
+| ------------------------------------------------------------ | ------------- | ----------- | ------------------------- | ---------------------------- |
+| 3D PNG as shipped                                            | 31.5 KB       | ≈ 50 MB     | glossy 3D                 | 256 px                       |
+| **3D → lossless WebP 256**                                   | **19.6 KB**   | **≈ 31 MB** | glossy 3D, bit-exact      | 256 px (24% of frame height) |
+| Color SVG → lossless WebP 512                                | 55.2 KB       | ≈ 88 MB     | flat-shaded colour        | 512 px                       |
+| Color SVG → lossy WebP q90 512                               | 14.8 KB       | ≈ 24 MB     | flat-shaded colour, lossy | 512 px                       |
+| Thumbnail 144 px (2× a 72 px tile), lossy WebP q80, measured | 4.4 KB        | ≈ 6.9 MB    | grid only                 | —                            |
 
 **Recommendation (MD-E1, MD-E2):** ship **3D lossless WebP 256** (the recognisable CapCut-like
-look, bit-exact decode in both runtimes) + **96 px thumbnails**, in two steps: a **curated ~200**
-(≈ 4 MB, committed, in every build — EL6a) plus thumbnails for all 1,595 (≈ 3 MB, committed); then
-the **full 1,595** (≈ 31 MB) fetched from the pinned commit when the desktop app is packaged —
-never in the web build (EL6b). The default insert size (30% of
+look, bit-exact decode in both runtimes) + **144 px thumbnails** (2× a 72 px tile, for HiDPI), in two steps: a **curated ~200**
+and their thumbnails (≈ 5 MB, committed, in every build — EL6a); then
+the other ~1,395 with their thumbnails (≈ 33 MB) fetched from the pinned commit when the desktop
+app is packaged — never in the web build (EL6b). The default insert size (30% of
 frame height = 324 px at 1080p) is a 1.27× enlargement; the Inspector shows "Enlarged beyond its
 sharp size" above 1.5× at the export resolution, instead of silently exporting a soft sticker. An
 HD pack (Color style at 512) is deferred until someone asks for bigger stickers.
@@ -208,7 +208,7 @@ environment (`uv run --project engine/python`), because Pillow already encodes W
 3. Pad each sticker with a **12% transparent margin** on every side (256 → 318 px canvas) so an
    outline or shadow edge style has room — edge styles draw inside the layer's picture bounds
    (`render/edge_styles.py`) — then encode `full/<id>.webp` (lossless, `method=6`) and
-   `thumbs/<id>.webp` (96 px, q80, unpadded). The recorded width/height and "sharp size" are the
+   `thumbs/<id>.webp` (144 px, q80, unpadded). The recorded width/height and "sharp size" are the
    padded canvas and the unpadded art respectively.
 4. Emit `sticker-catalog.generated.json` (ids, names, groups, collections, keywords, file, SHA-256 of
    the _encoded_ file, bytes, width, height, licence, licence URL at the pinned commit, attribution,
@@ -218,12 +218,11 @@ environment (`uv run --project engine/python`), because Pillow already encodes W
 
 **Where outputs go (MD-E1, MD-E2):**
 
-| Output                           | Size     | Home                                                                                                                                                                                      |
-| -------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sticker-catalog.generated.json` | ≈ 400 KB | committed — `packages/ai-sdk/src/providers/elements/` (read by the panel, main and the agent); each item marked `bundled` (curated) or `packaged` (desktop installer only)                |
-| `thumbs/*.webp` — all 1,595      | ≈ 3 MB   | committed — `apps/web-editor/public/elements/stickers/thumbs/`                                                                                                                            |
-| `full/*.webp` — the curated ~200 | ≈ 4 MB   | committed — `apps/web-editor/public/elements/stickers/full/` (EL6a; every build has them)                                                                                                 |
-| `full/*.webp` — the other ~1,395 | ≈ 27 MB  | **not committed**; fetched from the pinned commit by the desktop packaging step into electron-builder `extraResources` (EL6b), cached by the lock hash in CI; the web build never fetches |
+| Output                                            | Size              | Home                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sticker-catalog.generated.json` — all 1,595      | ≈ 400 KB          | committed — `packages/ai-sdk/src/providers/elements/` (read by the panel, main and the agent; loaded lazily in the renderer); each item marked `bundled` (curated) or `packaged` (desktop installer only)                                                                                  |
+| curated ~200: `full/*.webp` + `thumbs/*.webp`     | ≈ 4 MB + ≈ 0.9 MB | committed — `apps/web-editor/public/elements/stickers/` (EL6a; every build has them)                                                                                                                                                                                                       |
+| the other ~1,395: `full/*.webp` + `thumbs/*.webp` | ≈ 27 MB + ≈ 6 MB  | **not committed**; fetched and encoded from the pinned commit by the desktop packaging step into electron-builder `extraResources` (EL6b), cached by the lock hash in CI; the renderer loads their tiles over IPC as `blob:` URLs (the Pexels grid's pattern); the web build never fetches |
 
 A test compares the catalogue against the lock (every id has a file, every file its hash): the
 curated set in every build, and the packaged set in the desktop packaging job, so a packaged app can

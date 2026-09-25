@@ -22,21 +22,23 @@ and exports identically, and the agent can use all four.
 
 ## Files
 
-| File                                                         | What it holds                                                                                                               |
-| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `README.md` (this)                                           | Decision record, scope gate, architecture at a glance, phase map, ledger                                                    |
-| [`00-CURRENT-STATE.md`](./00-CURRENT-STATE.md)               | Verified inventory of everything "Stock" touches today, and the gaps found (with a reproduced export gap)                   |
-| [`01-CAPCUT-REFERENCE.md`](./01-CAPCUT-REFERENCE.md)         | How CapCut organises Elements / Stickers / Shapes; what we copy, adapt, and skip                                            |
-| [`02-UX-SPEC.md`](./02-UX-SPEC.md)                           | Panel, tabs, tiles, states, keyboard, drag and drop, Inspector, on-canvas handles, timeline look, copy                      |
-| [`03-CONTENT-LIBRARY.md`](./03-CONTENT-LIBRARY.md)           | The shape catalogue (every base shape and preset), sticker sources and licences, sizes (measured), taxonomy, build pipeline |
-| [`04-DATA-MODEL.md`](./04-DATA-MODEL.md)                     | Schema v25, the `__shape__` clip, `add_shape`, validator rules, provenance, ids, folders, clip-kind consolidation           |
-| [`05-RENDER-AND-PREVIEW.md`](./05-RENDER-AND-PREVIEW.md)     | Engine rasteriser, compiler, both frame plans, layer compositor, animated stickers, parity oracle, performance              |
-| [`06-DESKTOP-HOST-AND-IPC.md`](./06-DESKTOP-HOST-AND-IPC.md) | Main-process library service, IPC, sandbox, CSP, packaging, browser build                                                   |
-| [`07-AI-AND-MCP.md`](./07-AI-AND-MCP.md)                     | Tools, the `elements` domain, orchestration, the overlay placement policy change, skill, MCP, goldens                       |
-| [`08-RENAME-MATRIX.md`](./08-RENAME-MATRIX.md)               | Every surface the word "Stock" reaches: renamed, kept, or aliased — and why                                                 |
-| [`09-PHASES.md`](./09-PHASES.md)                             | The executable phases **EL0–EL12**: tasks, files, tests, Definition of Done, evidence                                       |
-| [`10-TESTS-AND-EVIDENCE.md`](./10-TESTS-AND-EVIDENCE.md)     | Test matrix, parity oracle rows, performance budgets, the desktop evidence runs                                             |
-| [`11-RISKS-AND-DEFERRED.md`](./11-RISKS-AND-DEFERRED.md)     | Risk register, explicitly deferred scope, open questions                                                                    |
+| File                                                         | What it holds                                                                                                                                                        |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `README.md` (this)                                           | Decision record, scope gate, architecture at a glance, phase map, ledger                                                                                             |
+| [`00-CURRENT-STATE.md`](./00-CURRENT-STATE.md)               | Verified inventory of everything "Stock" touches today, and the gaps found (with a reproduced export gap)                                                            |
+| [`01-CAPCUT-REFERENCE.md`](./01-CAPCUT-REFERENCE.md)         | How CapCut organises Elements / Stickers / Shapes; what we copy, adapt, and skip                                                                                     |
+| [`02-UX-SPEC.md`](./02-UX-SPEC.md)                           | Panel, tabs, tiles, states, keyboard, drag and drop, Inspector, on-canvas handles, timeline look, copy                                                               |
+| [`03-CONTENT-LIBRARY.md`](./03-CONTENT-LIBRARY.md)           | The shape catalogue (every base shape and preset), sticker sources and licences, sizes (measured), taxonomy, build pipeline                                          |
+| [`04-DATA-MODEL.md`](./04-DATA-MODEL.md)                     | Schema v25, the `__shape__` clip, `add_shape`, validator rules, provenance, ids, folders, clip-kind consolidation                                                    |
+| [`05-RENDER-AND-PREVIEW.md`](./05-RENDER-AND-PREVIEW.md)     | Engine rasteriser, compiler, both frame plans, layer compositor, animated stickers, parity oracle, performance                                                       |
+| [`06-DESKTOP-HOST-AND-IPC.md`](./06-DESKTOP-HOST-AND-IPC.md) | Main-process library service, IPC, sandbox, CSP, packaging, browser build                                                                                            |
+| [`07-AI-AND-MCP.md`](./07-AI-AND-MCP.md)                     | Tools, the `elements` domain, orchestration, the overlay placement policy change, skill, MCP, goldens                                                                |
+| [`08-RENAME-MATRIX.md`](./08-RENAME-MATRIX.md)               | Every surface the word "Stock" reaches: renamed, kept, or aliased — and why                                                                                          |
+| [`09-PHASES.md`](./09-PHASES.md)                             | The executable phases **EL0–EL12**: tasks, files, tests, Definition of Done, evidence                                                                                |
+| [`10-TESTS-AND-EVIDENCE.md`](./10-TESTS-AND-EVIDENCE.md)     | Test matrix, parity oracle rows, performance budgets, the desktop evidence runs                                                                                      |
+| [`11-RISKS-AND-DEFERRED.md`](./11-RISKS-AND-DEFERRED.md)     | Risk register, explicitly deferred scope, open questions                                                                                                             |
+| [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md)         | **Every surface Elements touches** — schema, editor-core, web editor, desktop, engine, AI SDK kernel, MCP, CI, scripts, docs, website — with its phase and its proof |
+| [`13-PRODUCTION-READINESS.md`](./13-PRODUCTION-READINESS.md) | The per-PR production checklist, rollout/rollback, cross-platform, data safety, security, support runbook, agent quality bar, release gate                           |
 
 ---
 
@@ -147,8 +149,8 @@ new renderer.
 | **MD-E7** | Left-rail order: Elements moves to second, after Assets (CapCut's order)                                                               | **Yes**                                                                                                                                          | EL1           |
 | **MD-E6** | Schema v25 (a forward-safety bump for shape clips)                                                                                     | **Yes** — an older build must refuse a project with shapes, not render it without them                                                           | EL4a          |
 | **MD-E4** | The agent may place stickers over footage (ADR "An element is an overlay"); element assets never go through the footage cutaway placer | **Yes** — the flat-monitor premise of the coverage refusal is gone, and routing a sticker through it produces a cover-cropped full-frame cutaway | EL6a          |
-| **MD-E2** | Commit the curated ~200 stickers (≈ 4 MB) and all thumbnails (≈ 3 MB); never commit the full set                                       | **Yes** — the repo pack is 80 MB; the full set would add ~40%                                                                                    | EL6a          |
-| **MD-E1** | Ship the full 1,595-sticker set in the **desktop installer** (≈ 31 MB, fetched from the pinned commit at packaging)                    | **Yes** — offline and instant, like the 25 MB of caption fonts already bundled                                                                   | EL6b          |
+| **MD-E2** | Commit the curated ~200 stickers and their thumbnails (≈ 5 MB); never commit the rest                                                  | **Yes** — the repo pack is 80 MB; the full set would add ~40%                                                                                    | EL6a          |
+| **MD-E1** | Ship the other ~1,395 stickers in the **desktop installer** (≈ 33 MB with thumbnails, fetched from the pinned commit at packaging)     | **Yes** — offline and instant, like the 25 MB of caption fonts already bundled                                                                   | EL6b          |
 | **MD-E5** | Relax the cutaway-only placement of Pexels photos/videos for **manual** placement (picture-in-picture from the panel)                  | **Yes, manual only first**; the agent keeps cutaway-first until measured                                                                         | EL9           |
 | **MD-E3** | Ship Noto Animated Emoji (CC BY 4.0, credit required in the video description) as on-demand downloads                                  | **Yes, as EL10**, after a licence read (same class of question as MO-6/MO-11)                                                                    | EL10          |
 
@@ -269,7 +271,8 @@ photos and titles). **First new capability:** EL4a — six shapes, end to end.
 
 ## 5. Definition of done for the programme
 
-The programme is done when all of the following hold on a desktop build, with evidence committed:
+The programme ships when the release gate in [`13-PRODUCTION-READINESS.md`](./13-PRODUCTION-READINESS.md) §10
+holds and every row of [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md) is done. In outcome terms, on a desktop build with evidence committed:
 
 1. The left rail shows **Elements** with Photos, Videos, Stickers and Shapes, and nothing in the UI,
    docs or website says "Stock" except where it names the Pexels library by its function.
@@ -278,8 +281,9 @@ The programme is done when all of the following hold on a desktop build, with ev
    (oracle rows) → one undo removes it → failures are stated in words.
 3. The agent can find and place a sticker and a shape, and edit both, through registered tools
    that return validated patches; the MCP server exposes what it can serve.
-4. Old projects open unchanged; a project with shapes refuses to open in a pre-v25 build with a
-   clear message; saved `leftTab: "stock"` lands on Elements.
+4. Old projects open unchanged except the listed EL2a fixes (photos fade and crop, titles animate);
+   a project with shapes refuses to open in a pre-v25 build with a clear message; a saved
+   `leftTab: "stock"` lands on Elements.
 5. `plan/PLAN.md`, the guides, the ADRs, `CHANGELOG.md` and the website changelog are updated.
 
 ---

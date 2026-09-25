@@ -10,9 +10,16 @@ Shaped by the 2026-09-26 product-scope review (README §7, verdict **SHRINK**): 
 the agent path proven inside each category's slice, no second geometry implementation, no new
 effect type for loops, and each maintainer decision asked when its phase needs it.
 
-Conventions for every phase: branch in the main checkout, commit and push per step, stage explicit
-paths only, no attribution trailers; run the tests you touched, CI runs the rest (verify on the
-PR's head SHA); update `plan/PLAN.md`, this plan's ledger, docs and `CHANGELOG.md` in the same phase.
+Conventions for every phase: branch in the main checkout (no worktree), commit and push per step,
+stage explicit paths only, no attribution trailers and no step numbers in commit messages; run the
+tests you touched, CI runs the rest (verify on the PR's head SHA); update `plan/PLAN.md`, this plan's
+ledger, docs and `CHANGELOG.md` in the same phase.
+
+**Two documents bind every phase.** [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md) lists every
+surface a phase touches — a phase is done only when **every row tagged with it** is done, and a
+surface found during implementation gets a row in the same PR.
+[`13-PRODUCTION-READINESS.md`](./13-PRODUCTION-READINESS.md) §1 is the checklist every phase PR
+meets.
 
 **Order.** EL1 runs in parallel with everything. The minimum vertical slice is
 **EL2a → EL3 → EL4a**. Stickers start at EL6a once EL2a is in.
@@ -143,16 +150,24 @@ A PR stack, each PR green on its own:
 2. **Engine** — `render/shape_geometry.py` + `render/shape_raster.py` (the only rasteriser),
    `_compile_shape_clip`, frame-plan kind `shape` with bounds computed from params (both runtimes,
    pinned by frame-plan vectors), the raster route's `kind: 'shape'`, monitor drawing and cache,
-   render-validation checks (05 §6).
+   render-validation checks (05 §6); Python `validation/patch_validation.py` registers `add_shape`
+   and validates its params; element clips are never cuts (`edit-boundaries.ts`,
+   `transition-policy.ts`) and never feed caption derivation (`captions/derive.ts`).
 3. **Editor** — `addShapePatch` / `setShapeParamsPatch` / `moveShapeEndpointsPatch` in
    `editor-core/src/element-placement.ts`; a Shapes sub-tab of six tiles (SVG drawn from a
    UI-only TS path helper), click-to-add, keyboard; Inspector **Shape** section (fill, stroke,
-   width, corners); box and endpoint handles, one patch per gesture; the Text tab's disabled
-   scaffolds replaced by the Elements link; Settings "New elements" hint.
+   width, corners); `PreviewShapeEditor` box and endpoint handles, one patch per gesture; shape
+   layers selectable on the monitor (`WebCodecsPreviewPlayer`); the legacy DOM monitor says
+   "Elements need the layer preview" rather than showing the wrong picture; "Edit shape" in the clip
+   context menu; History reads "Add shape “Highlight box”"; the Text tab's disabled scaffolds
+   replaced by the Elements link; Settings "New elements" hint; `px0-inventory` rows.
 4. **Agent** — `add_shape` and `set_shape_style` (shape ids as a `z.enum` of the catalogue) in a
    new `elements` domain (summary, label, request words + routing test); `toolMeta`; the shapes
-   half of `stickers-and-callouts.md`; regenerated descriptions, skills, parity fixture, Python
-   mirrors, goldens — each diff reviewed as a token delta; MCP descriptors include both tools.
+   half of `stickers-and-callouts.md`; the kernel rows of 12 §F (`tool-classification`,
+   `tool-scope`, `callNoveltyKey` and the result digest in `orchestrator.ts`, `describe.ts`,
+   `prompts.ts`'s domain list, `stage-policy`, `editor-capabilities`); regenerated descriptions,
+   skills, parity fixture, Python mirrors, goldens — each diff reviewed as a token delta; MCP
+   descriptors include both tools.
 
 Evidence (all required for `[x]`):
 
@@ -164,8 +179,9 @@ Evidence (all required for `[x]`):
       **measured hit rate** over repeated runs, not a single pass.
 - [ ] One desktop run on a real 5–15 minute screen recording: five callouts placed by hand and by
       the agent, exported, reopened, undone (10 §4 run A, shapes only).
-- [ ] e2e (desktop harness or the browser build with the engine stubbed): add a highlight box,
-      resize it on the canvas, recolour it, undo. `docs/guides/elements.md` Shapes;
+- [ ] e2e in a new CI job `elements-e2e`, modelled on `masking-e2e` (the fake-desktop harness + a
+      real sidecar): add a highlight box, resize it on the canvas, recolour it, export a frame,
+      undo. `docs/guides/elements.md` Shapes;
       `CHANGELOG.md` → Added.
 
 **DoD:** the six shapes work end to end by hand and via `add_shape`; oracle rows pass; a v24
@@ -202,7 +218,7 @@ green; contact sheet committed.
 Depends on EL2a, MD-E4.
 
 - [ ] **EL6a.1** `scripts/elements/build_library.py` + `fluent.lock.json` + `collections.json`;
-      the curated set's padded full files and thumbnails for **all** 1,595 (≈ 3 MB) committed;
+      the curated set's padded full files and 144 px thumbnails (≈ 5 MB) committed;
       the generated catalogue (curated items marked `bundled`); `LICENSE-fluent-emoji.txt`;
       catalogue-vs-files test. (Library build dry run — the former spike C — is this task's first
       step.)
@@ -215,13 +231,22 @@ Depends on EL2a, MD-E4.
       asset, overlay lane, clip, t = 0 transform) + property tests.
 - [ ] **EL6a.5** Stickers sub-tab: grid, search, click-to-add, keyboard; Inspector **Sticker**
       section with Replace.
-- [ ] **EL6a.6** Element assets skip enrolment and footage tools; `list_assets` labels them (G9);
-      Credits groups identical lines (G10).
+- [ ] **EL6a.6** Element assets are not footage anywhere: no enrolment or derive (desktop), skipped by
+      `editor/visualIndex.ts` and the engine's `visual_indexing.py`, absent from the Footage
+      Understanding panel, exempt from `source-repeats.ts` and `picture-occupancy.ts`; `list_assets`
+      labels them (G9). Credits groups identical lines (G10). The bin shows an **Elements** folder
+      and an "Element" badge.
+- [ ] **EL6a.6b** Opening a project whose element file is missing re-materialises it from the
+      library by id before the missing-media prompt (auto-heal); `asset-paths.ts`'s sentence names
+      stickers; opt-in local telemetry counts adds/failures; the catalogue chunk loads lazily; the
+      frozen engine decodes WebP on macOS and Windows (CI smoke).
 - [ ] **EL6a.7** Agent: `add_sticker` host (`ai/sticker-host.ts`) + orchestrator arm that calls
       `addStickerPatch` directly (**never** the stock placement path, which runs the cutaway placer —
       07 §3); `add_clip` / `add_clips` / `move_clip` of an element asset delegate to the same
       builder instead of becoming a cover-cropped cutaway (07 §4); stickers half of the skill;
-      regenerated goldens and fixtures.
+      the kernel rows of 12 §F for `add_sticker` (host dispatch in `sidecar-executor.ts`, the
+      host-outcome arm, `callNoveltyKey`, classification, scope, `describe.ts`, reliability
+      sentences); regenerated goldens and fixtures.
 - [ ] **EL6a.8** Oracle rows `stickers/rest`, `stickers/scaled-rotated`, `stickers/fading`; one
       evaluation case ("add a fire emoji when I say 'this is fire'" — within ±0.3 s, off the face,
       clear of the caption band); `security-reviewer` pass on 06 §5; docs; `CHANGELOG.md` → Added.
@@ -237,8 +262,12 @@ Depends on EL6a, MD-E1, EL2b.1.
       app** (an electron-builder `extraResources` step, cached by the lock hash), not in
       `web-editor#build`; `elementsRoot()` prefers the packaged set and falls back to the curated
       set (06 §4); CI size budget.
-- [ ] **EL6b.2** Virtualised grid, collection chips, glyph search, favourites star; perf test for
-      02 §9.
+- [ ] **EL6b.2** Virtualised grid, collection chips, glyph search, favourites star; packaged tiles
+      through `framepilot:elements:thumbnail`; perf test for 02 §9.
+- [ ] **EL6b.4** `apps/desktop` `dist` runs `build:elements` before `electron-builder`;
+      `release.yml` and the `desktop-build` job cache it; `scripts/check-installer-budget.mjs`
+      re-checked (raised in the same PR only if needed, with the reason); release checklist and
+      runbooks updated.
 - [ ] **EL6b.3** Inspector Outline and Shadow (edge styles on the sticker's own alpha, from EL2b);
       the "Enlarged beyond its sharp size" hint; oracle rows `stickers/outline-shadow`,
       `stickers/masked`.
@@ -255,7 +284,7 @@ Depends on EL2b.2 (geometry transitions), and EL4a or EL6a.
       layer transitions (`add_layer_transition`, the existing op and catalogue — a curated graphics
       subset: fade, pop, slide ×4, wipe, blur-in); the title's control writes them too from now
       on, while the legacy `inAnimation`/`outAnimation` params (honoured since EL2a) stay readable
-      and are no longer written. No new schema.
+      and are no longer written. No new schema. "Animation…" in the clip context menu.
 - [ ] **EL7.2** **Loop** as keyframes from an `editor-core` builder (`loop-motion.ts`, the
       `track-follow.ts` pattern): pulse, float, wiggle, bounce, spin, blink — one patch, one undo,
       rendered by the transform pipeline that already exists. Trade-off recorded in the ADR:
@@ -271,7 +300,9 @@ agent.
 
 ## EL8 — Agent quality and MCP `[ ]`
 
-- [ ] **EL8.1** Critic/verification checks (07 §4 table) with tests.
+- [ ] **EL8.1** Critic/verification checks (07 §4 table) with tests; `acceptance.ts` does not accept
+      a run whose request named callouts or stickers while none was placed (ADR 0153);
+      `temporal-review.ts` never calls a sticker foreign footage.
 - [ ] **EL8.2** Context digest names element clips compactly (07 §5); token delta measured.
 - [ ] **EL8.3** `editing-skills-expert` craft pass on `stickers-and-callouts.md`; description under
       the 300-character cap (test).
@@ -334,5 +365,10 @@ appears in Credits; already-downloaded stickers work offline.
 - [ ] **EL12.2** `CHANGELOG.md` and the website changelog (`changelog-maintainer`).
 - [ ] **EL12.3** The remaining desktop evidence runs (10 §4) with committed reports.
 - [ ] **EL12.4** `plan/PLAN.md` and this plan's ledger reconciled; deferred items listed.
+- [ ] **EL12.5** Website: `src/content/features.ts`, `content/docs/{getting-started,the-ai-agent,
+keyboard-shortcuts,render-and-export}.mdx`; `MANUAL_TESTING.md` Elements section (macOS and
+      Windows); `docs/runbooks/elements.md`; one line each in `README.md` and `PRD.md`;
+      `DESIGN_SYSTEM.md` token.
+- [ ] **EL12.6** The release gate of 13 §10, every box checked with evidence.
 
 **Last updated:** 2026-09-26

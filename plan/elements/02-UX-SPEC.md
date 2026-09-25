@@ -68,7 +68,7 @@ choice alongside Add (MD-E5).
 - **EL6a:** the curated ~200 in a plain grid with search, click-to-add, keyboard and tile states.
   **EL6b** adds the virtualised grid for all 1,595, the chips and the favourite star.
 - **Grid:** square tiles, ~72 px at the default rail width (`columns = floor(width / 80)`),
-  virtualised with `@tanstack/react-virtual` (EL6b); thumbnails are 96 px WebP loaded as rows
+  virtualised with `@tanstack/react-virtual` (EL6b); thumbnails are 144 px WebP (2× for HiDPI) loaded as rows
   scroll in.
 - **Chips (EL6b):** All · Recent · Favourites (when any) · the curated collections from
   [`03-CONTENT-LIBRARY.md`](./03-CONTENT-LIBRARY.md) §2.3 (Reactions, Celebrate, Hands & gestures,

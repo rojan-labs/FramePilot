@@ -10258,9 +10258,10 @@ from AI, panel and templates; [ADR 0185](../docs/adr/0185-see-through-captions-a
 
 ## Elements library — Photos · Videos · Stickers · Shapes — `[ ]` planned (2026-09-26)
 
-> **Sub-plan: [`plan/elements/README.md`](./elements/README.md)** (twelve files: current state,
+> **Sub-plan: [`plan/elements/README.md`](./elements/README.md)** (fourteen files: current state,
 > CapCut reference, UX spec, content library, data model, render/preview, desktop host, AI/MCP,
-> rename matrix, phases, tests/evidence, risks). Maintainer request 2026-09-26: rename Stock to
+> rename matrix, phases, tests/evidence, risks, **a coverage matrix of every surface touched**
+> (`12-SURFACE-COVERAGE.md`) and **the production-readiness gate** (`13-PRODUCTION-READINESS.md`)). Maintainer request 2026-09-26: rename Stock to
 > **Elements** with photos, videos, stickers and shapes, following CapCut, with "lots of shapes and
 > stickers loaded up", planned end to end, structural changes allowed. Recorded as decision D1 —
 > an explicit breadth decision under `product-discipline.mdc` §10; finish-before-expand still

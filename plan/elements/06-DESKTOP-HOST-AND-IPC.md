@@ -51,11 +51,12 @@ Error union (`ElementErrorCode`, closed, each with one user sentence — 02 §8)
 
 ## 2. IPC surface
 
-| Channel                                 | Direction       | Payload                                                                             | Phase |
-| --------------------------------------- | --------------- | ----------------------------------------------------------------------------------- | ----- |
-| `framepilot:elements:materialize`       | invoke          | `{ projectId, elementId }` → `{ ok: true, asset } \| { ok: false, error, detail? }` | EL6a  |
-| `framepilot:elements:download-progress` | main → renderer | `{ operationId, elementId, percent, state }`                                        | EL10  |
-| `framepilot:elements:download-cancel`   | send            | `operationId`                                                                       | EL10  |
+| Channel                                 | Direction       | Payload                                                                                                                                                                                                                 | Phase |
+| --------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| `framepilot:elements:materialize`       | invoke          | `{ projectId, elementId }` → `{ ok: true, asset } \| { ok: false, error, detail? }`                                                                                                                                     | EL6a  |
+| `framepilot:elements:thumbnail`         | invoke          | `{ elementId }` → `{ ok: true, contentType, data } \| { ok: false, error }` — tiles of **packaged** stickers as bytes the renderer wraps in `blob:` (the Pexels thumbnail pattern); curated tiles are same-origin files | EL6b  |
+| `framepilot:elements:download-progress` | main → renderer | `{ operationId, elementId, percent, state }`                                                                                                                                                                            | EL10  |
+| `framepilot:elements:download-cancel`   | send            | `operationId`                                                                                                                                                                                                           | EL10  |
 
 Touch: `packages/shared-types/src/ipc.ts` (wire types), `apps/desktop/electron/ipc/contract.ts`
 (`IpcChannels`), `apps/desktop/electron/preload.cts` (channel map + bridge methods —
@@ -86,10 +87,10 @@ Wired in `main.ts` beside `createStockHost`. `add_shape` needs no host.
 
 Two locations, because two sets ship differently (03 §3, MD-E1, MD-E2):
 
-| Set                                 | Where                                       | How it gets there                                                                                                                                                                                                                         |
-| ----------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Curated ~200** (+ all thumbnails) | `apps/web-editor/public/elements/stickers/` | committed; Vite copies `public/` into the renderer output, which electron-builder already packages (`files: renderer/**`, `electron-builder.yml:22-24`) — inside `app.asar/renderer/elements/`, which Electron's `fs` reads transparently |
-| **The other ~1,395** (EL6b)         | `<resources>/elements/stickers/full/`       | fetched from the pinned upstream commit by the **desktop packaging** step into electron-builder `extraResources`, cached by the lock hash; never part of `web-editor#build`                                                               |
+| Set                                 | Where                                          | How it gets there                                                                                                                                                                                                                                                                                                |
+| ----------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Curated ~200** (+ all thumbnails) | `apps/web-editor/public/elements/stickers/`    | committed; Vite copies `public/` into the renderer output, which electron-builder already packages (`files: renderer/**`, `electron-builder.yml:22-24`) — inside `app.asar/renderer/elements/`, which Electron's `fs` reads transparently                                                                        |
+| **The other ~1,395** (EL6b)         | `<resources>/elements/stickers/{full,thumbs}/` | fetched and encoded from the pinned upstream commit by the **desktop packaging** step (`apps/desktop` `dist` runs `build:elements` before `electron-builder`) into `extraResources`, cached by the lock hash; never part of `web-editor#build`; tiles reach the renderer through `framepilot:elements:thumbnail` |
 
 `elementsRoot(item)` (one function, tested) resolves per catalogue item — `bundled` items from the
 renderer folder, `packaged` items from `process.resourcesPath` in a packaged app — with the repo paths
