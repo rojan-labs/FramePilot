@@ -142,6 +142,7 @@ from framepilot_engine.render.frame_plan import (
     live_catalog_transitions,
     picture_effects,
     text_overlay_text,
+    title_envelope_animates,
     transition_underlays,
     underlay_material,
     uses_legacy_transition_path,
@@ -444,9 +445,22 @@ def unsupported_animated_properties(timeline: Timeline) -> list[str]:
 def _compile_image_clip(
     image_clip_cls: Any, path: str, clip: Clip, target: tuple[int, int], lut_base_dir: Path
 ) -> Any:
+    """A still through the picture pipeline, in the video path's order (plan/elements EL2a).
+
+    Crop, grade, the legacy transition's blur, opacity (keyframes * a fade * a wipe, multiplied
+    into the image's own transparency), the catalog transitions, then placement with any
+    geometry transition. Masks and edge styles on stills are not drawn yet (``with_stack=False``),
+    matching the frame plan. A still borrows no under-layer.
+    """
     source = image_clip_cls(path).with_duration(clip.end - clip.start)
+    source = _apply_crop(source, clip)
     source = _apply_color_grade(source, clip, lut_base_dir)
-    placed = _place_video_clip(source, clip, target, None)
+    use_legacy = _uses_legacy_transition_path(clip)
+    transition = legacy_transition(clip)
+    source = _apply_transition_blur(source, transition)
+    source = _attach_mask(source, clip, transition, with_stack=False)
+    source = _apply_catalog_transition(source, clip, use_legacy)
+    placed = _place_video_clip(source, clip, target, transition)
     return placed.with_start(clip.start)
 
 
@@ -467,8 +481,19 @@ def _compile_text_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int])
     layout = text_overlay_layout(style_params, target[0], target[1])
     image = rasterize_text_overlay(text, style_params, target[0], target[1])
     layer = image_clip_cls(image, transparent=True).with_duration(clip.end - clip.start)
+    # EL2a: a title's opacity, In/Out envelope and transitions render, as the frame plan says.
+    use_legacy = _uses_legacy_transition_path(clip)
+    transition = legacy_transition(clip)
+    layer = _apply_transition_blur(layer, transition)
+    layer = _attach_mask(layer, clip, transition, with_stack=False)
+    layer = _apply_catalog_transition(layer, clip, use_legacy)
     placed = _place_video_clip(
-        layer, clip, target, None, fit_to_frame=False, centre=(layout.centre_x, layout.centre_y)
+        layer,
+        clip,
+        target,
+        transition,
+        fit_to_frame=False,
+        centre=(layout.centre_x, layout.centre_y),
     )
     return placed.with_start(clip.start)
 
@@ -499,7 +524,8 @@ def _place_video_clip(
     base_scale = fit_scale((clip_w, clip_h), target, fit_to_frame=fit_to_frame)
     centre_x, centre_y = centre if centre is not None else (target_w / 2, target_h / 2)
     geo_transition = transition is not None and transitions.affects_geometry(transition)
-    if not has_rendered_transform(clip) and not geo_transition:
+    animated = has_rendered_transform(clip) or geo_transition or title_envelope_animates(clip)
+    if not animated:
         placed = source if base_scale == 1.0 else source.resized(base_scale)
         if centre is None:
             return placed.with_position("center")
@@ -1026,15 +1052,26 @@ def _attach_mask(
     transition: transitions.Transition | None,
     media_size: tuple[float, float] | None = None,
     stacks: ClipMaskStacks | None = None,
+    *,
+    with_stack: bool = True,
 ) -> VideoClip:
+    """Wrap ``source`` in its alpha: opacity * fade * wipe * the alpha-target mask stack.
+
+    A layer that already carries transparency — a still's PNG/WebP alpha, a title's glyph
+    coverage — keeps it: the alpha computed here MULTIPLIES the existing mask instead of
+    replacing it, or a sticker would turn into an opaque square the moment it fades.
+
+    :param with_stack: ``False`` for layers whose mask stack the export does not draw yet
+        (stills and titles, plan/elements EL2a); the stack is then neither computed nor applied.
+    """
     width, height = source.size
     # Schema v22: the clip's alpha-target mask stack, drawn by the exact rasteriser
     # (render/mask_stack.py, ADR 0178); a stack export cannot draw refuses before rendering.
-    if stacks is None:
+    if stacks is None and with_stack:
         stacks = _clip_mask_stacks(clip, media_size)
     alpha_stack = stacks if stacks is not None and stacks.alpha else None
     geometry_animated = alpha_stack is not None and alpha_stack.alpha_animated
-    opacity_animated = OPACITY in animated_properties(clip)
+    opacity_animated = OPACITY in animated_properties(clip) or title_envelope_animates(clip)
     fade_transition = transition is not None and transitions.affects_opacity(transition)
     wipe_transition = transition is not None and transitions.affects_wipe(transition)
     static_opacity = evaluate_clip_transform(clip, 0.0).opacity
@@ -1082,17 +1119,25 @@ def _attach_mask(
             alpha = alpha * wipe_band
         return alpha
 
+    own = source.mask
+
+    def combined_alpha_at(t: float) -> Any:
+        alpha = alpha_at(t)
+        return alpha if own is None else alpha * own.get_frame(t)
+
     time_varying = (
         geometry_animated or opacity_animated or fade_transition or wipe_transition or keyed
     )
     if time_varying:
         from moviepy import VideoClip as _VideoClip
 
-        mask = _VideoClip(frame_function=alpha_at, is_mask=True).with_duration(source.duration)
+        mask = _VideoClip(frame_function=combined_alpha_at, is_mask=True).with_duration(
+            source.duration
+        )
     else:
         from moviepy import ImageClip
 
-        mask = ImageClip(alpha_at(0.0), is_mask=True).with_duration(source.duration)
+        mask = ImageClip(combined_alpha_at(0.0), is_mask=True).with_duration(source.duration)
     return source.with_mask(mask)
 
 

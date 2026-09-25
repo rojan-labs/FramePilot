@@ -143,7 +143,7 @@ describe('framePlanAt', () => {
     expect(geometry?.anchorY).toBeCloseTo(960, 9);
   });
 
-  it('places a still without its crop or opacity, as the export does', () => {
+  it('places a still with its crop and opacity, as the export does', () => {
     const still = clip('s', 'v', 0, 4, {
       assetId: 'png',
       sourceStart: 0,
@@ -152,9 +152,10 @@ describe('framePlanAt', () => {
     });
     const layer = framePlanAt({ tracks: [track('v', 'video', [still])] }, ASSETS, 1, FRAME)
       .layers[0];
-    expect(layer?.crop).toBeNull();
-    expect(layer?.opacity).toBe(1);
-    expect(layer?.geometry?.baseScale).toBeCloseTo(720 / 600, 12);
+    expect(layer?.crop).toEqual({ x: 0, y: 0, width: 0.5, height: 0.5 });
+    expect(layer?.opacity).toBe(0.25);
+    // The cropped 400x300 fits the 1280x720 frame by height.
+    expect(layer?.geometry?.baseScale).toBeCloseTo(720 / 300, 12);
   });
 
   it('puts a transition under-layer from the neighbour handle beneath the incoming clip', () => {

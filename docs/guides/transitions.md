@@ -74,6 +74,14 @@ The only real limit is length: a transition cannot exceed half the shorter of th
 two clips, or it has eaten the shot it was meant to introduce. The inspector states
 that ceiling rather than just enforcing it.
 
+## Photos, stickers and titles
+
+A photo, a sticker or a title takes a transition exactly as a video clip does: fades, dissolves,
+wipes, zooms and the catalog transitions all play on the monitor and in the export. A
+transparent PNG keeps its see-through edges while it fades; only the art fades, never a box
+around it. A title's own **In/Out** animation (Inspector → Text) runs on top of any transition:
+a slide moves 5% of the frame height, a pop grows from 70% to full size, and both fade.
+
 ## Cutaways: b-roll over the A-roll
 
 A talking head with b-roll laid over it may have no cut between two clips on one

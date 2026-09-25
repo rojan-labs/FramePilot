@@ -18,10 +18,11 @@ on font metrics, which only the pixel stage has), integer rounding MoviePy/ffmpe
 a resized or cropped frame, and the decode-size caps of P7.5. Those are pixel concerns and
 belong to the PX4 oracle. Geometry here is the exact float the compiler asks for.
 
-Quirks of today's export are described, not fixed: a still image ignores its crop and
-opacity keyframes, burned captions sit above every track in caption-track list order, and
-an effect layer applies to the finished frame whatever its lane position. A plan that
-"corrected" them would stop being a description of the export.
+Quirks of today's export are described, not fixed: burned captions sit above every track in
+caption-track list order, and an effect layer applies to the finished frame whatever its lane
+position. A plan that "corrected" them would stop being a description of the export. (A still's
+crop, opacity and transitions used to be on this list; plan/elements EL2a made the export honour
+them, and the plan describes that. Masks and edge styles on stills are still video-only.)
 """
 
 from __future__ import annotations
@@ -69,6 +70,20 @@ FRAME_PTS_EPSILON = 1e-6
 
 #: The export composites on black (``CompositeVideoClip(bg_color=(0, 0, 0))``).
 BACKGROUND_RGB = (0, 0, 0)
+
+#: How far a title's slide In/Out travels, as a fraction of the frame HEIGHT (plan/elements EL2a).
+#: Frame-relative, not text-box-relative, so the frame plan can state the offset without the
+#: raster's size — which only the pixel stage knows — and the preview and the export agree.
+TITLE_SLIDE_TRAVEL = 0.05
+
+#: The scale a title's pop In/Out starts from (and ends at, going out).
+TITLE_POP_FROM = 0.7
+
+#: What an absent ``animDurationSeconds`` means: the editor's default for a new title.
+TITLE_ANIMATION_DEFAULT_SECONDS = 0.4
+
+#: The In/Out presets a title can carry; anything else reads as ``none``.
+TITLE_ANIMATIONS = frozenset({"none", "fade", "slide-up", "slide-down", "pop"})
 
 #: The picture effects the compiler applies per clip, in the order it applies them. ``blur``
 #: (``render/clip_blur.py``) runs last, so a blurred region carries the grade it would have had.
@@ -408,9 +423,95 @@ def fit_scale(
     return float(min(target_w / clip_w, target_h / clip_h))
 
 
+@dataclass(frozen=True)
+class TitleEnvelope:
+    """A title's In/Out animation at one instant: opacity, vertical offset, scale.
+
+    ``dy`` is a fraction of the frame height, positive downwards.
+    """
+
+    opacity: float = 1.0
+    dy: float = 0.0
+    scale: float = 1.0
+
+
+IDENTITY_TITLE_ENVELOPE = TitleEnvelope()
+
+
+def _title_params(clip: Clip) -> Mapping[str, Any] | None:
+    if clip.asset_id != TEXT_ASSET_ID:
+        return None
+    effect = next((e for e in clip.effects if e.type == "text"), None)
+    return None if effect is None else effect.params
+
+
+def _title_animation(value: Any) -> str:
+    return value if isinstance(value, str) and value in TITLE_ANIMATIONS else "none"
+
+
+def _title_animation_seconds(params: Mapping[str, Any]) -> float:
+    raw = params.get("animDurationSeconds", TITLE_ANIMATION_DEFAULT_SECONDS)
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return TITLE_ANIMATION_DEFAULT_SECONDS
+    return max(0.0, float(raw))
+
+
+def title_envelope_animates(clip: Clip) -> bool:
+    """True when a title carries an In or Out preset that moves or fades it."""
+    params = _title_params(clip)
+    if params is None or _title_animation_seconds(params) <= 0.0:
+        return False
+    return (
+        _title_animation(params.get("inAnimation")) != "none"
+        or _title_animation(params.get("outAnimation")) != "none"
+    )
+
+
+def _title_part(kind: str, progress: float, sign: float) -> TitleEnvelope:
+    away = 1.0 - progress
+    travel = away * TITLE_SLIDE_TRAVEL * sign
+    if kind == "fade":
+        return TitleEnvelope(opacity=progress)
+    if kind == "slide-up":
+        return TitleEnvelope(opacity=progress, dy=travel)
+    if kind == "slide-down":
+        return TitleEnvelope(opacity=progress, dy=-travel)
+    if kind == "pop":
+        return TitleEnvelope(
+            opacity=progress, scale=TITLE_POP_FROM + (1.0 - TITLE_POP_FROM) * progress
+        )
+    return IDENTITY_TITLE_ENVELOPE
+
+
+def title_envelope_at(clip: Clip, t: float) -> TitleEnvelope:
+    """A title's In/Out envelope at clip-local ``t`` (identity for anything that is not a title).
+
+    The intro eases in over the first ``animDurationSeconds`` and the outro out over the last;
+    their opacity and scale multiply and their offsets add, so a clip short enough to overlap
+    both still reads sensibly. The math is ``apps/web-editor/src/editor/textOverlay.ts``'s, with
+    the slide measured against the frame (``TITLE_SLIDE_TRAVEL``).
+    """
+    if not title_envelope_animates(clip):
+        return IDENTITY_TITLE_ENVELOPE
+    params = _title_params(clip)
+    assert params is not None
+    seconds = _title_animation_seconds(params)
+    duration = float(clip.end - clip.start)
+    in_progress = min(1.0, max(0.0, t / seconds))
+    out_progress = min(1.0, max(0.0, (duration - t) / seconds))
+    intro = _title_part(_title_animation(params.get("inAnimation")), in_progress, 1.0)
+    outro = _title_part(_title_animation(params.get("outAnimation")), out_progress, -1.0)
+    return TitleEnvelope(
+        opacity=intro.opacity * outro.opacity,
+        dy=intro.dy + outro.dy,
+        scale=intro.scale * outro.scale,
+    )
+
+
 def layer_scale_at(clip: Clip, t: float, transition: transitions.Transition | None) -> float:
-    """The authored scale at clip-local ``t`` times a geometry transition's zoom (no base fit)."""
-    scale = evaluate_clip_transform(clip, t).scale
+    """The authored scale at clip-local ``t`` times a title's pop and a geometry transition's
+    zoom (no base fit)."""
+    scale = evaluate_clip_transform(clip, t).scale * title_envelope_at(clip, t).scale
     if transition is not None and transitions.affects_geometry(transition):
         scale *= transitions.scale_at(transition, t)
     return scale
@@ -438,12 +539,13 @@ def layer_position_at(
         if transition is not None and transitions.affects_geometry(transition)
         else (0.0, 0.0)
     )
+    dy += title_envelope_at(clip, t).dy * target_h
     return (centre_x - width / 2 + transform.x + dx, centre_y - height / 2 + transform.y + dy)
 
 
 def layer_opacity_at(clip: Clip, t: float, transition: transitions.Transition | None) -> float:
-    """Keyframed opacity at clip-local ``t`` times a legacy fade's envelope."""
-    opacity = evaluate_clip_transform(clip, t).opacity
+    """Keyframed opacity at clip-local ``t`` times a title's In/Out and a legacy fade's envelope."""
+    opacity = evaluate_clip_transform(clip, t).opacity * title_envelope_at(clip, t).opacity
     if transition is not None and transitions.affects_opacity(transition):
         opacity *= transitions.opacity_at(transition, t)
     return opacity
@@ -816,7 +918,13 @@ def _edge_styles_json(clip: Clip) -> list[dict[str, Any]]:
 
 
 def _image_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer:
+    """A still: its crop, opacity and transitions, as the video path has them (EL2a).
+
+    Masks and edge styles stay video-only for now (the export does not draw them on stills), and
+    a still borrows no under-layer: its ramp composites over whatever is beneath it.
+    """
     local = ctx.t - clip.start
+    transition = legacy_transition(clip)
     return PlanLayer(
         kind="picture",
         role="clip",
@@ -825,9 +933,12 @@ def _image_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer:
         for_clip_id=None,
         local_time=local,
         source=LayerSource(clip.asset_id, "image", None, None),
-        geometry=_picture_geometry(ctx, clip, local, honour_crop=False, transition=None),
+        crop=_crop_json(clip),
+        geometry=_picture_geometry(ctx, clip, local, honour_crop=True, transition=transition),
+        opacity=layer_opacity_at(clip, local, transition),
         blend_mode=_blend(clip),
         effects=_effects_json(clip),
+        transitions=_transition_states(clip, local),
     )
 
 
@@ -872,6 +983,15 @@ def _text_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer | None:
     local = ctx.t - clip.start
     layout = text_overlay_layout(params, ctx.target[0], ctx.target[1])
     transform = evaluate_clip_transform(clip, local)
+    # A title takes its opacity, its In/Out envelope and its transitions like a picture does
+    # (EL2a). The anchor is `layer_position_at`'s centre: independent of the raster's size.
+    transition = legacy_transition(clip)
+    dx, dy = (
+        transitions.offset_at(transition, local, ctx.target[0], ctx.target[1])
+        if transition is not None and transitions.affects_geometry(transition)
+        else (0.0, 0.0)
+    )
+    dy += title_envelope_at(clip, local).dy * ctx.target[1]
     return PlanLayer(
         kind="text",
         role="clip",
@@ -882,12 +1002,14 @@ def _text_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer | None:
         text=text,
         geometry=LayerGeometry(
             base_scale=1.0,
-            scale=layer_scale_at(clip, local, None),
-            anchor_x=layout.centre_x + transform.x,
-            anchor_y=layout.centre_y + transform.y,
+            scale=layer_scale_at(clip, local, transition),
+            anchor_x=layout.centre_x + transform.x + dx,
+            anchor_y=layout.centre_y + transform.y + dy,
             rotation=transform.rotation,
         ),
+        opacity=layer_opacity_at(clip, local, transition),
         blend_mode=_blend(clip),
+        transitions=_transition_states(clip, local),
     )
 
 

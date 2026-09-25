@@ -13,6 +13,7 @@ import {
   fittedDecodeSize,
   pictureRasterStep,
   readerDecodeSize,
+  textRasterStep,
   type PictureRasterStep,
 } from './layer-raster.js';
 
@@ -170,5 +171,109 @@ describe('layer raster steps mirror compile_timeline pixel decisions', () => {
         90,
       ),
     ).toEqual({ width: 404, height: 720 });
+  });
+});
+
+describe('stills and titles take the picture pipeline (plan/elements EL2a)', () => {
+  const still = (width: number, height: number): Asset => ({
+    id: 'png',
+    path: 'still.png',
+    kind: 'image',
+    media: { width, height },
+  });
+  const opacity = (value: number) =>
+    [{ id: 'o', property: 'opacity', time: 0, value, easing: 'linear' }] as Clip['keyframes'];
+
+  it('crops a still and draws its opacity, as the export does', () => {
+    const c = clip('s', 'png', {
+      crop: { x: 0, y: 0, width: 0.5, height: 1 },
+      keyframes: opacity(0.25),
+    });
+    const step = stepFor(c, still(800, 400));
+    expect(step?.crop).toEqual({ x: 0, y: 0, width: 400, height: 400 });
+    expect(step?.opacity).toBe(0.25);
+    // The 400x400 crop fits the 1280x720 frame by height.
+    expect(step?.resize).toEqual({ width: 720, height: 720 });
+  });
+
+  it('draws a still’s legacy wipe and catalog transition', () => {
+    const wiped = clip('s', 'png', {
+      effects: [
+        {
+          id: 'w',
+          type: 'transition',
+          params: { kind: 'wipe', durationSeconds: 2 },
+          keyframes: [],
+        },
+      ],
+    });
+    expect(stepFor(wiped, still(800, 600), 0.5)?.wipe).not.toBeNull();
+    const dissolved = clip('s', 'png', {
+      effects: [
+        {
+          id: 'd',
+          type: 'transition',
+          params: { kind: 'soft-dissolve', durationSeconds: 2 },
+          keyframes: [],
+        },
+      ],
+    });
+    expect(stepFor(dissolved, still(800, 600), 0.5)?.transitions).toHaveLength(1);
+  });
+
+  it('never draws a still’s mask stack, which the export does not draw yet', () => {
+    const host = clip('s', 'png');
+    const mask = MaskLayerSchema.parse(
+      maskLayerFromLegacyMaskEffect(
+        {
+          id: 's__mask',
+          params: { shape: 'ellipse', bounds: { x: 0.25, y: 0.25, width: 0.5, height: 0.5 } },
+          keyframes: [],
+        },
+        host as unknown as Record<string, unknown>,
+        { width: 800, height: 600 },
+      ),
+    );
+    const step = stepFor({ ...host, masks: [mask] }, still(800, 600));
+    expect(step?.mask).toBeNull();
+    expect(step?.maskRefusal).toBeNull();
+  });
+
+  const title = (params: Record<string, unknown>, extra: Partial<Clip> = {}): Clip =>
+    clip('t', '__text__', {
+      effects: [{ id: 't__text', type: 'text', params: { text: 'Hi', ...params }, keyframes: [] }],
+      ...extra,
+    });
+
+  function titleStep(c: Clip, t: number): PictureRasterStep | null {
+    const timeline: Timeline = { tracks: [{ id: 't', type: 'overlay', clips: [c] }] };
+    const layer = framePlanAt(timeline, [], t, TARGET).layers.find((l) => l.kind === 'text');
+    if (!layer) throw new Error('no text layer');
+    return textRasterStep(layer, c, { width: 200, height: 100 }, { x: 640, y: 360 });
+  }
+
+  it('draws a title’s opacity keyframe', () => {
+    expect(titleStep(title({}, { keyframes: opacity(0.25) }), 1)?.opacity).toBe(0.25);
+    expect(titleStep(title({}), 1)?.opacity).toBeNull();
+  });
+
+  it('pops a title in from smaller and settles at its own size', () => {
+    const popping = title({ inAnimation: 'pop', animDurationSeconds: 0.4 });
+    const early = titleStep(popping, 0.1);
+    // 0.7 + 0.3 × 0.25 = 0.775 of 200x100, around the layout centre; int() truncates the
+    // float 154.99999… exactly as Pillow's size does.
+    expect(early?.opacity).toBe(0.25);
+    expect(early?.resize).toEqual({ width: 154, height: 77 });
+    expect(early?.x).toBe(Math.trunc(640 - (200 * 0.775) / 2));
+    const settled = titleStep(popping, 1);
+    expect(settled?.resize).toBeNull();
+    expect(settled?.x).toBe(540);
+  });
+
+  it('slides a title up by a share of the frame height', () => {
+    const sliding = title({ inAnimation: 'slide-up', animDurationSeconds: 0.4 });
+    // At t=0 it sits 5% of 720 = 36px below its place.
+    expect(titleStep(sliding, 0)?.y).toBe(310 + 36);
+    expect(titleStep(sliding, 1)?.y).toBe(310);
   });
 });

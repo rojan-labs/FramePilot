@@ -489,8 +489,125 @@ function layerScaleAt(
   return scale;
 }
 
+// ---------------------------------------------------------------------------
+// A title's In/Out envelope (plan/elements EL2a; `frame_plan.py#title_envelope_at`)
+// ---------------------------------------------------------------------------
+
+/**
+ * How far a title's slide In/Out travels, as a fraction of the frame HEIGHT. Frame-relative so
+ * the plan can state the offset without the raster's size, which only the pixel stage knows.
+ */
+export const TITLE_SLIDE_TRAVEL = 0.05;
+/** The scale a title's pop In/Out starts from (and ends at, going out). */
+export const TITLE_POP_FROM = 0.7;
+/** What an absent `animDurationSeconds` means: the editor's default for a new title. */
+export const TITLE_ANIMATION_DEFAULT_SECONDS = 0.4;
+const TITLE_ANIMATIONS: ReadonlySet<string> = new Set([
+  'none',
+  'fade',
+  'slide-up',
+  'slide-down',
+  'pop',
+]);
+
+/** A title's In/Out at one instant: opacity, vertical offset (fraction of frame height, down +), scale. */
+export interface TitleEnvelope {
+  readonly opacity: number;
+  readonly dy: number;
+  readonly scale: number;
+}
+
+/** The `text` params a title's In/Out reads; anything else about the title is irrelevant here. */
+export interface TitleAnimationParams {
+  readonly inAnimation?: unknown;
+  readonly outAnimation?: unknown;
+  readonly animDurationSeconds?: unknown;
+}
+
+const IDENTITY_TITLE_ENVELOPE: TitleEnvelope = { opacity: 1, dy: 0, scale: 1 };
+
+function titleParams(clip: Clip): Readonly<Record<string, unknown>> | null {
+  if (clip.assetId !== TEXT_OVERLAY_ASSET_ID) return null;
+  return effectOfType(clip, 'text')?.params ?? null;
+}
+
+function titleAnimation(value: unknown): string {
+  return typeof value === 'string' && TITLE_ANIMATIONS.has(value) ? value : 'none';
+}
+
+function titleAnimationSeconds(params: TitleAnimationParams): number {
+  const raw = params.animDurationSeconds ?? TITLE_ANIMATION_DEFAULT_SECONDS;
+  return typeof raw === 'number' && Number.isFinite(raw)
+    ? Math.max(0, raw)
+    : TITLE_ANIMATION_DEFAULT_SECONDS;
+}
+
+/** True when a title carries an In or Out preset that moves or fades it. */
+export function titleEnvelopeAnimates(clip: Clip): boolean {
+  const params = titleParams(clip);
+  if (params === null || titleAnimationSeconds(params) <= 0) return false;
+  return (
+    titleAnimation(params.inAnimation) !== 'none' || titleAnimation(params.outAnimation) !== 'none'
+  );
+}
+
+function titlePart(kind: string, progress: number, sign: number): TitleEnvelope {
+  const travel = (1 - progress) * TITLE_SLIDE_TRAVEL * sign;
+  switch (kind) {
+    case 'fade':
+      return { opacity: progress, dy: 0, scale: 1 };
+    case 'slide-up':
+      return { opacity: progress, dy: travel, scale: 1 };
+    case 'slide-down':
+      return { opacity: progress, dy: -travel, scale: 1 };
+    case 'pop':
+      return { opacity: progress, dy: 0, scale: TITLE_POP_FROM + (1 - TITLE_POP_FROM) * progress };
+    default:
+      return IDENTITY_TITLE_ENVELOPE;
+  }
+}
+
+/**
+ * A title's In/Out envelope at clip-local `t` (identity for anything that is not a title). The
+ * intro eases in over the first `animDurationSeconds`, the outro out over the last; opacity and
+ * scale multiply, offsets add.
+ */
+export function titleEnvelopeAt(clip: Clip, t: number): TitleEnvelope {
+  if (!titleEnvelopeAnimates(clip)) return IDENTITY_TITLE_ENVELOPE;
+  return titleEnvelopeFromParams(titleParams(clip)!, t, clip.end - clip.start);
+}
+
+/**
+ * {@link titleEnvelopeAt} from a title's `text` params and its duration: the one computation the
+ * frame plan, the DOM overlay and the canvas overlay painter all draw from.
+ *
+ * @param params - The `text` effect's params (`inAnimation`, `outAnimation`, `animDurationSeconds`).
+ * @param t - Seconds into the title.
+ * @param duration - The title's length in seconds.
+ */
+export function titleEnvelopeFromParams(
+  params: TitleAnimationParams,
+  t: number,
+  duration: number,
+): TitleEnvelope {
+  const seconds = titleAnimationSeconds(params);
+  if (seconds <= 0) return IDENTITY_TITLE_ENVELOPE;
+  const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
+  const intro = titlePart(titleAnimation(params.inAnimation), clamp01(t / seconds), 1);
+  const outro = titlePart(
+    titleAnimation(params.outAnimation),
+    clamp01((duration - t) / seconds),
+    -1,
+  );
+  return {
+    opacity: intro.opacity * outro.opacity,
+    dy: intro.dy + outro.dy,
+    scale: intro.scale * outro.scale,
+  };
+}
+
 function layerOpacityAt(clip: Clip, t: number, tr: ResolvedTransition | null): number {
-  let opacity = evaluateClipTransform(clip.keyframes, t).opacity;
+  let opacity = evaluateClipTransform(clip.keyframes, t).opacity * titleEnvelopeAt(clip, t).opacity;
   if (tr !== null && OPACITY_KINDS.has(tr.kind)) opacity *= transitionOpacityAt(tr, t);
   return opacity;
 }
@@ -908,13 +1025,19 @@ function edgeStylesPlan(clip: Clip): { edgeStyles?: readonly FramePlanEdgeStyle[
 
 function imageLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer {
   const local = ctx.t - clip.start;
+  // A still is a picture layer like any other (plan/elements EL2a): its crop, opacity and
+  // transitions, as the video path has them. Masks and edge styles stay video-only for now,
+  // and a still borrows no under-layer.
+  const tr = legacyTransition(clip);
   return {
     ...baseLayer('picture', track.id, clip.id, local),
     source: { assetId: clip.assetId, assetKind: 'image', time: null, frame: null },
-    // The export places a still without its crop, mask, opacity or transition.
-    geometry: pictureGeometry(ctx, clip, clip.keyframes, local, false, null),
+    crop: cropJson(clip),
+    geometry: pictureGeometry(ctx, clip, clip.keyframes, local, true, tr),
+    opacity: layerOpacityAt(clip, local, tr),
     blendMode: clip.blendMode ?? 'normal',
     effects: effectsJson(clip),
+    transitions: transitionStates(clip, local),
   };
 }
 
@@ -960,21 +1083,35 @@ function textLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer | nul
   const [text, params] = content;
   const local = ctx.t - clip.start;
   const transform = evaluateClipTransform(clip.keyframes, local);
+  // A title takes its opacity, In/Out envelope and transitions like a picture (EL2a); the anchor
+  // is `layer_position_at`'s centre, independent of the raster's size.
+  const tr = legacyTransition(clip);
+  const [dx, dy] =
+    tr !== null && GEOMETRY_KINDS.has(tr.kind)
+      ? transitionOffsetAt(tr, local, ctx.width, ctx.height)
+      : [0, 0];
+  const envelope = titleEnvelopeAt(clip, local);
+  // Same operation order as `layer_scale_at` / `_text_layer`, so the floats agree to the bit.
+  let scale = transform.scale * envelope.scale;
+  if (tr !== null && GEOMETRY_KINDS.has(tr.kind)) scale *= transitionScaleAt(tr, local);
+  const offsetY = dy + envelope.dy * ctx.height;
   return {
     ...baseLayer('text', track.id, clip.id, local),
     text,
     geometry: {
       baseScale: 1,
-      scale: layerScaleAt(clip.keyframes, local, null),
-      anchorX: (ctx.width * textPercent(params.xPercent, 50)) / 100 + transform.x,
-      anchorY: (ctx.height * textPercent(params.yPercent, 50)) / 100 + transform.y,
+      scale,
+      anchorX: (ctx.width * textPercent(params.xPercent, 50)) / 100 + transform.x + dx,
+      anchorY: (ctx.height * textPercent(params.yPercent, 50)) / 100 + transform.y + offsetY,
       rotation: transform.rotation,
       left: null,
       top: null,
       width: null,
       height: null,
     },
+    opacity: layerOpacityAt(clip, local, tr),
     blendMode: clip.blendMode ?? 'normal',
+    transitions: transitionStates(clip, local),
   };
 }
 

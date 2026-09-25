@@ -10300,7 +10300,7 @@ stickers, CC BY 4.0 (EL10).
 
 - [~] **EL0** MD-E6/MD-E7 + shape-raster spike (the scope review is done)
 - [~] **EL1** Stock → Elements rename; Photos and Videos sub-tabs; stored `'stock'` tab aliased
-- [ ] **EL2a** Stills and titles honour opacity, fades, crop and their own alpha; titles' In/Out
+- [~] **EL2a** Stills and titles honour opacity, fades, crop and their own alpha; titles' In/Out
   presets render (fixes the three live bugs)
 - [ ] **EL2b** Masks, edge styles and geometry transitions for stills and titles, with their first
   consumers (EL6b, EL7)

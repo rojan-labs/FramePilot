@@ -295,7 +295,7 @@ holds and every row of [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md) is d
 | ----- | ------ | ---------------------------------------------------------------------- |
 | EL0   | `[~]`  | Scope review done 2026-09-26 (§7); MD-E6, MD-E7 and spike A open       |
 | EL1   | `[~]`  | Rename + Photos/Videos sub-tabs on `feat/elements`; MD-E7 decided      |
-| EL2a  | `[ ]`  | G1 reproduced 2026-09-26 on `98ea829a`; G6 and G11 found by the review |
+| EL2a  | `[~]`  | Export, plans, monitor, DOM overlay fixed on `feat/elements`; CI pending |
 | EL2b  | `[ ]`  | Lands with EL6b / EL7                                                  |
 | EL3   | `[ ]`  |                                                                        |
 | EL4a  | `[ ]`  |                                                                        |

@@ -73,35 +73,47 @@ the change.
 
 ---
 
-## EL2a — Stills and titles: opacity, fades, crop, and the title's own In/Out `[ ]`
+## EL2a — Stills and titles: opacity, fades, crop, and the title's own In/Out `[~]`
 
 **Ships:** fixes for four live gaps (00 G1, G6, G11), and the foundation every element animation
 needs. No new user surface.
 
-- [ ] **EL2a.1** Failing tests first (pytest + vitest): a still with an `opacity` keyframe; a still
+- [x] **EL2a.1** Failing tests first (pytest + vitest): a still with an `opacity` keyframe; a still
       with a fade/dissolve transition; a still with a crop (the autoReframe case: a landscape photo
       in a portrait project must fill the frame); a title with `opacity`; a title with each of its
       `inAnimation`/`outAnimation` presets (`fade`, `slide-up`, `slide-down`, `pop`).
-- [ ] **EL2a.2** Compiler: `_compile_image_clip` honours crop and goes through `_attach_mask`
+- [x] **EL2a.2** Compiler: `_compile_image_clip` honours crop and goes through `_attach_mask`
       (opacity × fade envelope); `_compile_text_clip` goes through `_attach_mask` and applies the
       title's In/Out envelope. `_attach_mask` **multiplies** a layer's own alpha (PNG/WebP
       transparency, glyph coverage) instead of replacing it.
-- [ ] **EL2a.3** Frame plans (`frame_plan.py`, `frame-plan.ts`): stills carry crop and opacity;
+- [x] **EL2a.3** Frame plans (`frame_plan.py`, `frame-plan.ts`): stills carry crop and opacity;
       titles carry opacity and the In/Out envelope, ported from `editor/textOverlay.ts`
       (`animationProgress` / `animationTransform`) so the math exists once per runtime and
       vectors pin the two together. The "quirks" docstring and `frame-plan.ts:914`'s comment go
       with the quirks.
-- [ ] **EL2a.4** Monitor: the image and text branches of the layer engine apply the plan's opacity,
+- [x] **EL2a.4** Monitor: the image and text branches of the layer engine apply the plan's opacity,
       envelope and crop with the same own-alpha rule.
-- [ ] **EL2a.5** Oracle rows: `stills/opacity-keyframes`, `stills/fade-in`, `stills/crop-cover`,
+- [~] **EL2a.5** Oracle rows: `stills/opacity-keyframes`, `stills/fade-in`, `stills/crop-cover`,
       `stills/alpha-times-opacity`, `text/opacity`, `text/in-fade`, `text/in-slide-up`,
       `text/out-pop`.
-- [ ] **EL2a.6** Goldens regenerated where a fixture had such a still or title; ADR "A still is a
+- [~] **EL2a.6** Goldens regenerated where a fixture had such a still or title; ADR "A still is a
       picture layer like any other"; `CHANGELOG.md` → Fixed (photos fade and crop, titles animate
       in and out in the export).
 
 **DoD:** each case in EL2a.1 gives the expected pixels in the export **and** the monitor; new
 oracle rows pass; vectors equal; no existing row regresses; CI green.
+
+**Evidence (2026-09-26).** Export pixels: `engine/python/tests/test_render_stills_and_titles.py`
+(10 cases). Plans: `test_frame_plan.py`, `frame-plan.test.ts`; vectors equal
+(`frame-plan.parity.test.ts`). Monitor steps: `layer-raster.test.ts` (stills crop/opacity/wipe/
+catalog; titles opacity/pop/slide); DOM overlay: `textOverlay.test.ts`. Oracle rows landed as
+fixture cases, one per area file rather than one per preset: `alpha/still-opacity` (the PNG
+sentinel's transparent border makes it the alpha × opacity row), `geometry/still-crop-cover`,
+`transitions/still-transitions` (fade, zoom, wipe, soft-dissolve), `text/title-opacity`,
+`text/title-in-out` (fade in, slide-up out, pop in, slide-down out). Decision recorded: a slide
+travels 5% of the frame height in every path (ADR 0189); the DOM overlay's box-relative 12% was
+not expressible in the export. Goldens: no engine golden fixture holds a still or title with
+opacity, a transition, a crop or an In/Out preset, so none changes; CI confirms.
 
 ## EL2b — Stills and titles: masks, edge styles, geometry transitions `[ ]`
 

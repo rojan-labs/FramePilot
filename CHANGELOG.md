@@ -113,6 +113,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Photos and titles fade, crop and animate in the export.** Opacity, opacity keyframes, fades,
+  dissolves, wipes and the other transitions on a photo or a title used to do nothing, in the
+  export and on the desktop monitor. A photo's crop was ignored, so an auto-reframed landscape
+  photo in a portrait project showed bars. A title's In/Out animation (fade, slide up, slide down,
+  pop) only played in the browser preview. All of them now play and export the same way. A title's
+  slide now moves a fixed share of the frame height (5%) whatever its length, so the monitor and
+  the export agree. A transparent PNG keeps its see-through edges while it fades.
+
 - **The preview plays the mix the export writes.** The editor's preview played each clip's sound
   flat: muting a clip, fading it, ducking music under speech or soloing a track changed the
   export but not what you heard, and reversed or speed-ramped clips were silent. Music played on

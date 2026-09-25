@@ -148,7 +148,7 @@ def test_burned_captions_sit_above_every_track_in_caption_track_list_order() -> 
     assert _ids(project, 1.0) == [("picture", "clip", "p")]
 
 
-def test_a_still_image_ignores_its_crop_and_opacity_as_the_export_does() -> None:
+def test_a_still_image_carries_its_crop_and_opacity_as_the_export_draws_them() -> None:
     still = _clip(
         "s",
         "v",
@@ -161,11 +161,13 @@ def test_a_still_image_ignores_its_crop_and_opacity_as_the_export_does() -> None
     )
     plan = frame_plan_at(_project([{"id": "v", "type": "video", "clips": [still]}]), 1.0)
     (layer,) = plan.layers
-    assert layer.crop is None
-    assert layer.opacity == 1.0
+    # plan/elements EL2a: a still is a picture layer like any other, so its crop and its
+    # opacity keyframe are part of the plan (they used to be dropped, as the export dropped them).
+    assert layer.crop == {"x": 0.0, "y": 0.0, "width": 0.5, "height": 0.5}
+    assert layer.opacity == pytest.approx(0.25)
     assert layer.geometry is not None
-    # Fitted from the UNCROPPED 800x600 source into 1280x720.
-    assert layer.geometry.base_scale == pytest.approx(720 / 600)
+    # Fitted from the CROPPED 400x300 source into 1280x720.
+    assert layer.geometry.base_scale == pytest.approx(720 / 300)
 
 
 def test_transition_under_layer_precedes_the_clip_and_reads_the_neighbours_handle() -> None:

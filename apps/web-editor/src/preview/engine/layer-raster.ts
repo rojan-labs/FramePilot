@@ -13,6 +13,7 @@
  */
 import {
   readAlignment,
+  titleEnvelopeAnimates,
   type FramePlanEdgeStyle,
   type FramePlanLayer,
   type TrackArtifact,
@@ -258,7 +259,9 @@ export function cropRect(clip: Clip, decoded: PixelSize): PixelRect | null {
 
 /** Whether `_attach_mask` wraps this clip in a mask at all (v21 opacity/fade/wipe inputs). */
 function attachesOpacityMask(clip: Clip, layer: FramePlanLayer): boolean {
-  const opacityAnimated = clip.keyframes.some((keyframe) => keyframe.property === 'opacity');
+  const opacityAnimated =
+    clip.keyframes.some((keyframe) => keyframe.property === 'opacity') ||
+    titleEnvelopeAnimates(clip);
   const legacyFade = layer.transitions.some(
     (t) => t.path === 'legacy' && (t.kind === 'fade' || t.kind === 'cross-dissolve'),
   );
@@ -307,52 +310,23 @@ export function pictureRasterStep(
       )
     : { kind: 'native' };
   const decoded = decode.kind === 'scaled' ? decode : size;
-  // A still is placed without its crop (the plan's own quirk note), and so is its mask.
-  const crop = isVideo ? cropRect(clip, decoded) : null;
+  // A still is cropped exactly as a video is (`_apply_crop` runs on both).
+  const crop = cropRect(clip, decoded);
   const placed: PixelSize = crop ?? decoded;
   if (placed.width <= 0 || placed.height <= 0) return null;
 
-  const legacy = isVideo && layer.role === 'clip' ? legacyEnvelope(clip) : null;
-  const wiping = legacy !== null && affectsWipe(legacy);
-  // Only a video clip draws its stack: stills are placed without crop or mask (the export's rule).
+  // Only a video clip draws its mask stack; a still's stack is not exported yet (with_stack=False).
   const stack = isVideo && layer.role === 'clip' ? clipMaskStack(clip, asset.media, tracks) : null;
   const drawable = stack !== null && stack.refusal === null ? stack : null;
   const mask: LayerMaskStack | null =
     drawable === null ? null : { stack: drawable, clipTime: layer.localTime };
   const alphaStack = drawable !== null && drawable.alpha.length > 0;
-  const opacity =
-    isVideo && layer.role === 'clip' && (attachesOpacityMask(clip, layer) || wiping || alphaStack)
-      ? Math.min(1, Math.max(0, layer.opacity))
-      : null;
-  const blurRadius =
-    legacy !== null && legacy.kind === 'blur'
-      ? blurRadiusAt(legacy, layer.localTime, Math.min(placed.width, placed.height))
-      : 0;
-  let wipe: LayerWipe | null = null;
-  if (wiping && legacy !== null) {
-    const [axis, inverted] = wipeAxis(legacy);
-    const feather = wipeSoftness(legacy);
-    wipe = {
-      axis,
-      inverted,
-      edge: wipeEdge(wipeProgressAt(legacy, layer.localTime), feather),
-      feather,
-    };
-  }
-  const transitions: LayerTransition[] = [];
-  if (isVideo && layer.role === 'clip') {
-    for (const state of layer.transitions) {
-      if (state.path !== 'catalog') continue;
-      const effect = clip.effects.find(
-        (candidate) => candidate.type === (state.role === 'in' ? 'transition' : 'transition_out'),
-      );
-      const resolved = effect ? resolveTransitionParamsFor(effect.params ?? {}) : null;
-      if (resolved === null || resolved.disabled || resolved.isCut) continue;
-      transitions.push({ role: state.role, transition: resolved, eased: state.eased });
-    }
-    // The compiler walks the outgoing half first.
-    transitions.sort((a, b) => (a.role === b.role ? 0 : a.role === 'out' ? -1 : 1));
-  }
+  const { opacity, blurRadius, wipe, transitions } = layerAlphaWork(
+    layer,
+    clip,
+    placed,
+    alphaStack,
+  );
 
   const base = Math.min(target.width / placed.width, target.height / placed.height);
   // The plan's `scale` is its own base × the authored scale × a geometry transition's zoom; the
@@ -421,6 +395,57 @@ export function pictureRasterStep(
   };
 }
 
+/**
+ * `_attach_mask`, `_apply_transition_blur` and `_apply_catalog_transition` for one clip layer:
+ * the alpha, legacy blur/wipe and catalog transitions the export applies before placement. The
+ * same for a video, a still and a title (plan/elements EL2a); an under-layer takes none of them.
+ *
+ * @param placed - The layer's size at this stage (after crop), which the blur radius scales with.
+ * @param alphaStack - Whether an alpha-target mask stack draws, which forces the alpha step.
+ */
+function layerAlphaWork(
+  layer: FramePlanLayer,
+  clip: Clip,
+  placed: PixelSize,
+  alphaStack: boolean,
+): Pick<PictureRasterStep, 'opacity' | 'blurRadius' | 'wipe' | 'transitions'> {
+  if (layer.role !== 'clip') return { opacity: null, blurRadius: 0, wipe: null, transitions: [] };
+  const legacy = legacyEnvelope(clip);
+  const wiping = legacy !== null && affectsWipe(legacy);
+  const opacity =
+    attachesOpacityMask(clip, layer) || wiping || alphaStack
+      ? Math.min(1, Math.max(0, layer.opacity))
+      : null;
+  const blurRadius =
+    legacy !== null && legacy.kind === 'blur'
+      ? blurRadiusAt(legacy, layer.localTime, Math.min(placed.width, placed.height))
+      : 0;
+  let wipe: LayerWipe | null = null;
+  if (wiping && legacy !== null) {
+    const [axis, inverted] = wipeAxis(legacy);
+    const feather = wipeSoftness(legacy);
+    wipe = {
+      axis,
+      inverted,
+      edge: wipeEdge(wipeProgressAt(legacy, layer.localTime), feather),
+      feather,
+    };
+  }
+  const transitions: LayerTransition[] = [];
+  for (const state of layer.transitions) {
+    if (state.path !== 'catalog') continue;
+    const effect = clip.effects.find(
+      (candidate) => candidate.type === (state.role === 'in' ? 'transition' : 'transition_out'),
+    );
+    const resolved = effect ? resolveTransitionParamsFor(effect.params ?? {}) : null;
+    if (resolved === null || resolved.disabled || resolved.isCut) continue;
+    transitions.push({ role: state.role, transition: resolved, eased: state.eased });
+  }
+  // The compiler walks the outgoing half first.
+  transitions.sort((a, b) => (a.role === b.role ? 0 : a.role === 'out' ? -1 : 1));
+  return { opacity, blurRadius, wipe, transitions };
+}
+
 /** The clip's `transition` envelope when it takes the legacy compiler path, else `null`. */
 function legacyEnvelope(clip: Clip) {
   const effect = clip.effects.find((candidate) => candidate.type === 'transition');
@@ -462,10 +487,13 @@ export function textRasterStep(
   const transformed = clip.keyframes.some((keyframe) =>
     RENDERED_TRANSFORM_PROPERTIES.has(keyframe.property),
   );
+  // `_place_video_clip`'s `animated`: a transform, a legacy geometry transition, or an In/Out.
+  const animated = transformed || legacyGeometryTransition(clip) || titleEnvelopeAnimates(clip);
+  const { opacity, blurRadius, wipe, transitions } = layerAlphaWork(layer, clip, raster, false);
   let resize: PixelSize | null = null;
   let x: number;
   let y: number;
-  if (!transformed) {
+  if (!animated) {
     x = pyInt(centre.x - raster.width / 2);
     y = pyInt(centre.y - raster.height / 2);
   } else {
@@ -483,13 +511,13 @@ export function textRasterStep(
     frame: null,
     decode: { kind: 'native' },
     crop: null,
-    opacity: null,
+    opacity,
     mask: null,
     maskRefusal: null,
     effectIds: [],
-    blurRadius: 0,
-    wipe: null,
-    transitions: [],
+    blurRadius,
+    wipe,
+    transitions,
     resize,
     rotation: clip.keyframes.some((keyframe) => keyframe.property === 'rotation')
       ? geometry.rotation

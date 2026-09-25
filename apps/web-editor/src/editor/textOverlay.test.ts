@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { animationProgress, textOverlayStyle } from './textOverlay.js';
+import { animationProgress, textOverlayAnimationState, textOverlayStyle } from './textOverlay.js';
 import { DEFAULT_TEXT_PARAMS } from './patch-builders.js';
 
 describe('animationProgress', () => {
@@ -35,6 +35,21 @@ describe('textOverlayStyle', () => {
     const midway = textOverlayStyle(params, 2.5, 5).opacity as number;
     expect(atStart).toBe(0);
     expect(midway).toBe(1);
+  });
+
+  it('slides a share of the FRAME height, as the export does, whatever the box size', () => {
+    // The export moves a title by 5% of the frame height (TITLE_SLIDE_TRAVEL); a share of the
+    // text box would move a one-line title a few pixels and a paragraph a long way.
+    const params = { ...DEFAULT_TEXT_PARAMS, inAnimation: 'slide-up' as const };
+    expect(textOverlayAnimationState(params, 0, 5).dyFrame).toBeCloseTo(0.05, 12);
+    expect(textOverlayStyle(params, 0, 5).transform).toContain('translateY(5cqh)');
+    expect(textOverlayAnimationState(params, 2.5, 5).dyFrame).toBe(0);
+  });
+
+  it('pops in from the scale the export starts from', () => {
+    const params = { ...DEFAULT_TEXT_PARAMS, inAnimation: 'pop' as const };
+    expect(textOverlayAnimationState(params, 0, 5).scale).toBeCloseTo(0.7, 12);
+    expect(textOverlayAnimationState(params, 2.5, 5).scale).toBe(1);
   });
 
   it('includes a background box only when set', () => {
