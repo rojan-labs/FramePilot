@@ -8099,6 +8099,24 @@ export class Orchestrator {
           // edit. A finding that lands here is too late to steer — the agent has stopped —
           // so it surfaces unresolved for the user to act on. Reporting it is the honest
           // account; dropping it because the run is "done" would hide a real defect.
+          //
+          // Say what the wait IS. The terminal status is held until the reviews settle, and
+          // without a status of its own the panel kept showing the last one — "Generating…"
+          // — under a reply that was already written. Run `fb90e58d` sat there 77 seconds
+          // while the engine rendered review frames; the editor pressed Stop, which
+          // cancelled the review and stamped a finished turn "cancelled". `verifying` is
+          // what the panel keys the skip on (`AiSidebar`): Stop or a new message ends the
+          // check, never the turn.
+          if (findings.hasPending && event.status !== 'cancelled') {
+            const checking: AiEvent = {
+              ...evidenceBase(),
+              id: `${options.turnId}:review-checking`,
+              type: 'status',
+              status: 'verifying',
+            };
+            projector?.observe(checking);
+            yield checking;
+          }
           const remaining = await findings.drainAll();
           const repaired = findings.takeResolved();
           yield* publishFindings(remaining, repaired);
@@ -8142,7 +8160,21 @@ export class Orchestrator {
           // An unreachable reviewer is not a verdict about the edit, so it neither fails the
           // run nor lets it claim the work was checked. Say plainly which of the two happened.
           const failures = findings.reviewFailures;
-          for (const [index, failure] of failures.entries()) {
+          const endedByEditor = options.signal?.aborted === true;
+          if (failures.length > 0 && endedByEditor) {
+            // The editor ended the check themselves (Stop, or a new message during it). Their
+            // own action is not a reviewer that "could not run": one plain line, not the
+            // engine's "acquisition was cancelled" once per batch.
+            const skipped: AiEvent = {
+              ...evidenceBase(),
+              id: `${options.turnId}:review-skipped`,
+              type: 'notification',
+              text: 'Review skipped — it was still checking when you moved on. Your edits are applied and validated, but were not perceptually checked.',
+            };
+            projector?.observe(skipped);
+            yield skipped;
+          }
+          for (const [index, failure] of (endedByEditor ? [] : failures).entries()) {
             const notice: AiEvent = {
               ...evidenceBase(),
               id: `${options.turnId}:review-unavailable:${String(index)}`,

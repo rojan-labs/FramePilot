@@ -1092,6 +1092,58 @@ describe('AiStreamHub', () => {
     expect(hub.activeCount()).toBe(0);
   });
 
+  it('settles a run completed when the Stop only ended its post-run review', async () => {
+    // Run fb90e58d: the orchestrator reported `completed`, then held the stream open while
+    // the perceptual review rendered; the editor's Stop ended that review. The durable
+    // record must agree with the conversation — the run finished.
+    class ReviewingOrchestrator extends Orchestrator {
+      public override async *streamChat(
+        _input: Parameters<Orchestrator['streamChat']>[0],
+        options: Parameters<Orchestrator['streamChat']>[1],
+      ): AsyncGenerator<AiEvent> {
+        const base = { conversationId: options.conversationId, turnId: options.turnId, ts: 1 };
+        yield { ...base, id: 'done', type: 'status', status: 'completed' };
+        await new Promise<void>((resolve) => {
+          if (options.signal?.aborted) return resolve();
+          options.signal?.addEventListener('abort', () => resolve(), { once: true });
+        });
+      }
+    }
+    const sender = new FakeSender(1);
+    const settlements: { status: string }[] = [];
+    const hub = new AiStreamHub(() => new ReviewingOrchestrator(new MockProvider()), {
+      eventChannel: 'evt',
+    });
+    const requestId = hub.start(sender, request('chat'), {
+      onSettled: (settlement) => {
+        settlements.push(settlement);
+      },
+    });
+    await flush();
+    hub.abort(sender, requestId);
+    await flush();
+    await flush();
+    expect(settlements).toEqual([expect.objectContaining({ status: 'completed' })]);
+  });
+
+  it('still settles a run stopped before it completed as cancelled', async () => {
+    const sender = new FakeSender(1);
+    const settlements: { status: string }[] = [];
+    const hub = stallingHub();
+    const requestId = hub.start(sender, request('chat'), {
+      onSettled: (settlement) => {
+        settlements.push(settlement);
+      },
+    });
+    await flush();
+    hub.abort(sender, requestId);
+    await flush();
+    await flush();
+    expect(settlements).toEqual([
+      expect.objectContaining({ status: 'cancelled', source: 'user_stop' }),
+    ]);
+  });
+
   it('aborts a run that exceeds the timeout with an explanatory error (not a silent cancel)', async () => {
     const sender = new FakeSender(1);
     const settlements: unknown[] = [];

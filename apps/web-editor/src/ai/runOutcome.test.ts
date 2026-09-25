@@ -84,3 +84,17 @@ describe('runOutcome.emptyRunNotice', () => {
     expect(signals.cost).toBeUndefined();
   });
 });
+
+describe('runOutcome.foldTurnEvent — completion', () => {
+  it('records that the run reported completed, so a later Stop cannot re-stamp it', () => {
+    // Run fb90e58d: `completed` arrived, then the finalizer saw the Stop and appended
+    // `cancelled` over a finished turn.
+    const signals = foldAll(true, [
+      { ...base, type: 'status', status: 'verifying' },
+      { ...base, type: 'status', status: 'completed' },
+    ]);
+    expect(signals.completed).toBe(true);
+    expect(signals.cancelled).toBe(false);
+    expect(foldAll(true, [{ ...base, type: 'status', status: 'verifying' }]).completed).toBe(false);
+  });
+});

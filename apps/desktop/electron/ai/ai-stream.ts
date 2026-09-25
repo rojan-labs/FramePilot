@@ -1317,7 +1317,11 @@ export class AiStreamHub {
           push({ error: timeoutMessage(this.timeoutMs) });
           return;
         }
-        if (controller.signal.aborted) {
+        // A stop that lands after the run reported `completed` ended only the perceptual
+        // review the orchestrator holds the terminal status for (the reply is written, the
+        // edits applied). The run finished; recording it `cancelled` would contradict the
+        // conversation and leave a "stopped" run behind a finished turn.
+        if (controller.signal.aborted && streamTerminalStatus !== 'completed') {
           const origin = this.runs.get(requestId)?.abortOrigin;
           settlement =
             origin === 'user_stop'
