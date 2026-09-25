@@ -233,6 +233,13 @@ class CaptionRaster:
     backdrop: np.ndarray | None = None
     #: Gaussian standard deviation of the backdrop blur, in output pixels.
     backdrop_sigma_px: float = 0.0
+    #: Transparent room on EVERY side of the caption's own box, in pixels: space kept for
+    #: entrance motion, emphasis growth, glow and shadow, where nothing is drawn at rest.
+    #: Placement must keep the caption's box inside the frame, not this padding — a canvas
+    #: clamped as a whole slides its visible text off-centre by up to this much (run
+    #: ``fb90e58d``: a 2-font-height shadow offset made the canvas wider than the frame,
+    #: and every cue rendered half off the right edge whatever ``xPercent`` said).
+    margin: int = 0
 
 
 def render_caption_raster(
@@ -1457,7 +1464,7 @@ def _render_styled_caption(
 
     image = whole_caption_motion(image)
     if backdrop is None:
-        return CaptionRaster(np.asarray(image, dtype=np.uint8))
+        return CaptionRaster(np.asarray(image, dtype=np.uint8), margin=margin)
     # The frosted area goes through every whole-caption transform the chip does,
     # so the blur fades, slides and zooms in with the chip it sits behind.
     backdrop = whole_caption_motion(backdrop)
@@ -1465,6 +1472,7 @@ def _render_styled_caption(
         np.asarray(image, dtype=np.uint8),
         np.ascontiguousarray(np.asarray(backdrop, dtype=np.uint8)[:, :, 3]),
         resolved.box_blur * font_size,
+        margin=margin,
     )
 
 
