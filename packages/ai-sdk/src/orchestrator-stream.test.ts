@@ -2018,6 +2018,58 @@ describe('streamAgent', () => {
     expect(report.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(2);
   });
 
+  it('folds the cue-level caption operations too, so no raw cue id reaches the editor', () => {
+    // Run fb90e58d's receipt: "Set caption cue caption_layer_captions_67 (×3)" and eight
+    // rows like it under the caption line, then "…and 46 more". A cue's own operations
+    // name its clip, and a cue made in the same run is resolved through its add.
+    const ops = [
+      { type: 'delete_range', trackId: 'caption_1', start: 0, end: 5 },
+      ...Array.from({ length: 12 }, (_, i) => [
+        { type: 'add_caption_layer', trackId: 'caption_1', start: i, end: i + 1, clipId: `cue_${String(i)}` },
+        { type: 'set_caption_cue', clipId: `cue_${String(i)}`, captionCue: { text: 'x', words: [] } },
+      ]).flat(),
+      { type: 'set_caption_cue', clipId: 'cue_existing', captionCue: { text: 'y', words: [] } },
+    ] as unknown as AnyOperation[];
+    const report = agentCompletionReport({
+      ops,
+      steps: 3,
+      rejectedOpCount: 0,
+      rejectionReasons: [],
+      captionTrackIds: new Set(['caption_1']),
+      captionClipTracks: new Map([['cue_existing', 'caption_1']]),
+    });
+    expect(report).toMatch(/\*\*Applied 1 edit\*\* \(26 operations\) in 3 steps/);
+    expect(report).toMatch(/Rewrote the captions on caption_1 · 26 caption edits/);
+    expect(report).not.toMatch(/cue_\d|cue_existing|Set caption cue/);
+  });
+
+  it('says a per-cue restyle restyled, not rewrote, the captions', () => {
+    // Run 0e12b96e: twenty-eight "Styled captions caption_layer_captions_…" rows.
+    const ops = Array.from({ length: 28 }, (_, i) => ({
+      type: 'set_caption_style',
+      clipId: `cue_${String(i)}`,
+      captionStyle: { yPercent: 20 },
+    })) as unknown as AnyOperation[];
+    const report = agentCompletionReport({
+      ops,
+      steps: 1,
+      rejectedOpCount: 0,
+      rejectionReasons: [],
+      captionTrackIds: new Set(['caption_1']),
+      captionClipTracks: new Map(ops.map((_, i) => [`cue_${String(i)}`, 'caption_1'])),
+    });
+    expect(report).toMatch(/Restyled the captions on caption_1 · 28 caption edits/);
+    expect(report.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
+    const one = agentCompletionReport({
+      ops: [{ type: 'set_track_caption_style', trackId: 'caption_1' } as unknown as AnyOperation],
+      steps: 1,
+      rejectedOpCount: 0,
+      rejectionReasons: [],
+      captionTrackIds: new Set(['caption_1']),
+    });
+    expect(one).toMatch(/Restyled the captions on caption_1 · 1 caption edit$/m);
+  });
+
   it('points at Export when the request asked for a file the panel cannot render', () => {
     const report = agentCompletionReport({
       ops: [{ type: 'delete_range', trackId: 'video_1' } as unknown as AnyOperation],

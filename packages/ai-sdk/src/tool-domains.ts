@@ -328,8 +328,13 @@ export function domainsForSkill(
  * {@link DOMAIN_SUMMARY} is written in, read back the other way.
  */
 const DOMAIN_REQUEST_WORDS: Readonly<Record<Exclude<ToolDomain, 'core'>, RegExp>> = {
+  // B-roll and music name MATERIAL, and most requests that mention them are about material
+  // already on the timeline: run 0e12b96e asked to "synchronize the broll with the video",
+  // a retime, and its receipt told the editor that stock sourcing was never loaded. They
+  // count only when the request asks for some (add / find / more / background …); stock,
+  // cutaways and a soundtrack are always a request for material.
   sourcing:
-    /\b(stock(?: footages?| clips?| plates?| videos?)?|b-?roll|cutaways?|music|soundtrack|score|sound ?bed)\b/gi,
+    /\b(stock(?: footages?| clips?| plates?| videos?)?|cutaways?|soundtrack|score|sound ?bed|(?:add|adding|find|get|source|pull|search(?: for)?|download|insert|include|use|need|want|more|some|new|background)\s+(?:(?:a|an|the|some|more|good|fitting|relevant|few|of)\s+){0,2}(?:b-?roll|music)(?: bed| track)?)\b/gi,
   color: /\b(colou?r(?: grade| pass| correct\w*)?|grade|graded|grading|look|exposure|lut)\b/gi,
   captions: /\b(captions?|subtitles?)\b/gi,
   audio: /\b(silences?|dead air|fillers?|filler words|duck\w*|loudness|beats?)\b/gi,
@@ -342,6 +347,24 @@ const DOMAIN_REQUEST_WORDS: Readonly<Record<Exclude<ToolDomain, 'core'>, RegExp>
     /\b(masks?|rotoscop\w*|track(?:ing)? (?:the )?subject|backgrounds?|cut-?outs?|isolate\w*|blur (?:the |their |every(?:one's)? )?(?:faces?|plates?)|behind (?:the |her|him|them)\w*|green ?screen)\b/gi,
   media: /\b(import\w*|media bin|organi[sz]e the bin)\b/gi,
   professional: /\b(roll edits?|slip|slide edits?|insert edits?)\b/gi,
+};
+
+/**
+ * What each domain does, as an editor would name it — for the receipt, which is written to
+ * the editor. A domain id ("sourcing") and a tool list were written there before.
+ */
+export const DOMAIN_LABEL: Readonly<Record<Exclude<ToolDomain, 'core'>, string>> = {
+  sourcing: 'Stock footage and music',
+  color: 'Colour',
+  captions: 'Captions',
+  audio: 'Audio clean-up',
+  motion: 'Motion and reframing',
+  effects: 'Transitions, titles and effects',
+  footage: 'Footage search',
+  tracking: 'Tracking',
+  masking: 'Masks and cut-outs',
+  media: 'The media bin',
+  professional: 'Trim edits',
 };
 
 /** A domain the request named and the run never loaded. */

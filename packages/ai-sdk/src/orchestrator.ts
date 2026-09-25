@@ -131,6 +131,7 @@ import {
   toolDomain,
   toolIsAdvertised,
   requestedDomainsNeverLoaded,
+  DOMAIN_LABEL,
   type NeverLoadedDomain,
 } from './tool-domains.js';
 import {
@@ -10034,6 +10035,11 @@ export class Orchestrator {
                   .filter((track) => track.type === 'caption')
                   .map((track) => track.id),
               ),
+              captionClipTracks: new Map(
+                working.timeline.tracks
+                  .filter((track) => track.type === 'caption')
+                  .flatMap((track) => track.clips.map((clip) => [clip.id, track.id] as const)),
+              ),
               steps: Math.max(effect.appliedTurns, 1),
               rejectedOpCount: effect.rejectedOpCount,
               rejectionReasons: effect.rejectionReasons,
@@ -10737,12 +10743,15 @@ function trimFailureReason(reason: string): string {
  */
 function neverLoadedBlock(neverLoaded: readonly NeverLoadedDomain[]): string {
   if (neverLoaded.length === 0) return '';
+  // Written to the editor: what was asked for, in their words, and that the run never had
+  // the tools for it — not "load_tools was never called, so search_stock … were never
+  // offered", which is the harness talking to itself.
   const lines = neverLoaded.map(
     (entry) =>
-      `- ${entry.domain} — the request mentions ${entry.mentions.map((m) => `"${m}"`).join(', ')}, ` +
-      `but load_tools was never called for it, so ${entry.tools.join(', ')} were never offered.`,
+      `- ${DOMAIN_LABEL[entry.domain]} — you asked for ${entry.mentions.map((m) => `"${m}"`).join(', ')}, ` +
+      'but this run never opened those tools, so none of that was done. Ask for it again.',
   );
-  return `\n\n**Never loaded:**\n${lines.join('\n')}`;
+  return `\n\n**Not attempted:**\n${lines.join('\n')}`;
 }
 
 function notDoneBlock(
@@ -10793,27 +10802,63 @@ function notDoneBlock(
  * @param captionTrackIds - The project's caption tracks; empty ⇒ nothing folds.
  * @returns Rendered lines (before truncation) and the change count for the headline.
  */
+/** Caption operations that change only how cues look, never what they say or when. */
+const CAPTION_STYLE_OPS: ReadonlySet<string> = new Set([
+  'set_caption_style',
+  'set_track_caption_style',
+]);
+
 function operationLines(
   ops: readonly AnyOperation[],
   names: ReturnType<typeof projectNames> | undefined,
   captionTrackIds: ReadonlySet<string>,
+  captionClipTracks: ReadonlyMap<string, string> = new Map(),
 ): { readonly lines: readonly string[]; readonly changeCount: number } {
   const counts = new Map<string, number>();
-  /** Operations per caption track, in first-seen order. */
-  const captionOps = new Map<string, number>();
+  /** Operations per caption track, in first-seen order, and whether all only restyled. */
+  const captionOps = new Map<string, { count: number; styleOnly: boolean }>();
+  // A cue's own operations name its CLIP, not its track: `set_caption_cue` and a per-cue
+  // `set_caption_style`. They fell through as one raw row each — "Set caption cue
+  // caption_layer_captions_67 (×3)" nine times over in run fb90e58d's receipt, and
+  // "Styled captions caption_layer_captions_6300" twenty-eight times in 0e12b96e. A cue
+  // created in this same run is resolved through the `add_caption_layer` that made it.
+  const cueTrack = new Map(captionClipTracks);
   for (const op of ops) {
-    const trackId = (op as { trackId?: unknown }).trackId;
-    if (typeof trackId === 'string' && captionTrackIds.has(trackId)) {
-      captionOps.set(trackId, (captionOps.get(trackId) ?? 0) + 1);
+    const { trackId, clipId } = op as { trackId?: unknown; clipId?: unknown };
+    if (typeof trackId === 'string' && typeof clipId === 'string' && captionTrackIds.has(trackId)) {
+      cueTrack.set(clipId, trackId);
+    }
+  }
+  for (const op of ops) {
+    const { trackId, clipId } = op as { trackId?: unknown; clipId?: unknown };
+    const captionTrack =
+      typeof trackId === 'string'
+        ? captionTrackIds.has(trackId)
+          ? trackId
+          : undefined
+        : typeof clipId === 'string'
+          ? cueTrack.get(clipId)
+          : undefined;
+    if (captionTrack !== undefined) {
+      const seen = captionOps.get(captionTrack) ?? { count: 0, styleOnly: true };
+      captionOps.set(captionTrack, {
+        count: seen.count + 1,
+        styleOnly: seen.styleOnly && CAPTION_STYLE_OPS.has(op.type),
+      });
       continue;
     }
     const line = operationLine(op, names);
     counts.set(line, (counts.get(line) ?? 0) + 1);
   }
   const lines: string[] = [];
-  for (const [trackId, count] of captionOps) {
+  for (const [trackId, { count, styleOnly }] of captionOps) {
     const label = names?.track(trackId) ?? trackId;
-    lines.push(`- Rewrote the captions on ${label} · ${String(count)} caption edits`);
+    const edits = `${String(count)} caption edit${count === 1 ? '' : 's'}`;
+    lines.push(
+      styleOnly
+        ? `- Restyled the captions on ${label} · ${edits}`
+        : `- Rewrote the captions on ${label} · ${edits}`,
+    );
   }
   for (const [line, count] of counts) {
     lines.push(`- ${line}${count > 1 ? ` (×${count})` : ''}`);
@@ -10880,13 +10925,23 @@ export function agentCompletionReport(args: {
    * two hundred (see {@link operationLines}). Absent ⇒ nothing folds.
    */
   captionTrackIds?: ReadonlySet<string>;
+  /**
+   * Which caption track each existing cue sits on, so an operation that names only the cue
+   * (`set_caption_cue`, a per-cue `set_caption_style`) folds into its track's line.
+   */
+  captionClipTracks?: ReadonlyMap<string, string>;
 }): string {
   const maxLines = 10;
   // Collapse lines that render identically, and fold a caption track's rebuild into one
   // line (see `operationLines`). Only the RENDERED line is compared, so two edits that
   // differ in any way the editor can see still get their own row; this hides repetition
   // and internal churn, never distinct work.
-  const summarised = operationLines(args.ops, args.names, args.captionTrackIds ?? new Set());
+  const summarised = operationLines(
+    args.ops,
+    args.names,
+    args.captionTrackIds ?? new Set(),
+    args.captionClipTracks,
+  );
   const lines = [...summarised.lines.slice(0, maxLines)];
   const more = summarised.lines.length - maxLines;
   if (more > 0) lines.push(`- …and ${more} more`);
