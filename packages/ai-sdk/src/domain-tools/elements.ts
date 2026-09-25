@@ -18,6 +18,7 @@ import {
   type Operation,
 } from '@framepilot/editor-core';
 import {
+  FEATURED_SHAPE_PRESET_IDS,
   SHAPE_CAPS,
   SHAPE_PRESETS,
   SHAPE_STROKE_STYLES,
@@ -30,8 +31,9 @@ import type { ToolContext } from '../tool-context.js';
 import { mutateTool } from './tool-factories.js';
 import { numeric, seconds } from './tool-args.js';
 
-/** The shapes the agent may place: every preset of the catalogue, by id. */
-const SHAPE_IDS = SHAPE_PRESETS.map(({ preset }) => preset.id) as [string, ...string[]];
+/** The shapes the agent may place: the featured presets, by id. */
+const FEATURED = SHAPE_PRESETS.filter(({ preset }) => FEATURED_SHAPE_PRESET_IDS.includes(preset.id));
+const SHAPE_IDS = FEATURED.map(({ preset }) => preset.id) as [string, ...string[]];
 
 /** Colour names models use, mapped to the catalogue palette (plan/elements 03 §1.3). */
 const NAMED_COLOURS: Readonly<Record<string, string>> = {
@@ -133,7 +135,7 @@ function shapeClip(ctx: ToolContext, clipId: string) {
   return clip;
 }
 
-const PRESET_LIST = SHAPE_PRESETS.map(({ preset }) => `${preset.id} (${preset.name})`).join(', ');
+const PRESET_LIST = FEATURED.map(({ preset }) => `${preset.id} (${preset.name})`).join(', ');
 
 export const ELEMENT_TOOLS: readonly ToolSpec[] = [
   mutateTool(

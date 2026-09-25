@@ -1,4 +1,12 @@
 {
+  "featured": [
+    "rounded-rect/highlight",
+    "rounded-rect/filled",
+    "ellipse/outline",
+    "marker-highlight/yellow",
+    "line-arrow/red",
+    "underline-marker/yellow"
+  ],
   "shapes": [
     {
       "id": "rounded-rect",
@@ -12,7 +20,6 @@
         "card",
         "frame"
       ],
-      "frame": "box",
       "generator": "rect",
       "knobs": [
         {
@@ -45,8 +52,25 @@
           "stroke": null,
           "strokeWidth": 0.8,
           "strokeStyle": "solid"
+        },
+        {
+          "id": "rounded-rect/red",
+          "name": "Red highlight box",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "rounded-rect/translucent",
+          "name": "Translucent box",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
         }
-      ]
+      ],
+      "frame": "box"
     },
     {
       "id": "ellipse",
@@ -58,9 +82,7 @@
         "ring",
         "highlight"
       ],
-      "frame": "box",
       "generator": "ellipse",
-      "knobs": [],
       "defaults": {
         "width": 40,
         "height": 28
@@ -73,8 +95,18 @@
           "stroke": "#FF3B30",
           "strokeWidth": 0.8,
           "strokeStyle": "solid"
+        },
+        {
+          "id": "ellipse/white",
+          "name": "White ellipse",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
         }
-      ]
+      ],
+      "frame": "box",
+      "knobs": []
     },
     {
       "id": "marker-highlight",
@@ -87,7 +119,6 @@
         "emphasis",
         "text"
       ],
-      "frame": "box",
       "generator": "rect",
       "knobs": [
         {
@@ -112,8 +143,25 @@
           "stroke": null,
           "strokeWidth": 0.8,
           "strokeStyle": "solid"
+        },
+        {
+          "id": "marker-highlight/green",
+          "name": "Green marker",
+          "fill": "#34C75966",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "marker-highlight/pink",
+          "name": "Pink marker",
+          "fill": "#FF2D5566",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
         }
-      ]
+      ],
+      "frame": "box"
     },
     {
       "id": "line-arrow",
@@ -125,7 +173,6 @@
         "point",
         "direction"
       ],
-      "frame": "segment",
       "generator": "segment",
       "knobs": [
         {
@@ -154,8 +201,19 @@
           "strokeStyle": "solid",
           "startCap": "none",
           "endCap": "arrow"
+        },
+        {
+          "id": "line-arrow/white",
+          "name": "White arrow",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "startCap": "none",
+          "endCap": "arrow"
         }
-      ]
+      ],
+      "frame": "segment"
     },
     {
       "id": "underline-marker",
@@ -167,9 +225,7 @@
         "marker",
         "emphasis"
       ],
-      "frame": "segment",
       "generator": "segment",
-      "knobs": [],
       "defaults": {
         "x1": -15,
         "y1": 0,
@@ -186,8 +242,4725 @@
           "strokeStyle": "solid",
           "startCap": "none",
           "endCap": "none"
+        },
+        {
+          "id": "underline-marker/red",
+          "name": "Red underline",
+          "fill": null,
+          "stroke": "#FF3B30CC",
+          "strokeWidth": 1.2,
+          "strokeStyle": "solid",
+          "startCap": "none",
+          "endCap": "none"
+        }
+      ],
+      "frame": "segment",
+      "knobs": []
+    },
+    {
+      "id": "rectangle",
+      "name": "Rectangle",
+      "category": "basic",
+      "tags": [
+        "box",
+        "square"
+      ],
+      "generator": "rect",
+      "knobs": [
+        {
+          "name": "cornerRadius",
+          "label": "Corners",
+          "min": 0,
+          "max": 50,
+          "default": 0,
+          "unit": "%",
+          "hint": "Corner radius, as a percent of the shorter side. 50 makes the ends fully round."
+        }
+      ],
+      "defaults": {
+        "width": 36,
+        "height": 24
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "rectangle/white",
+          "name": "Rectangle",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "rectangle/outline",
+          "name": "Rectangle outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "rectangle/translucent",
+          "name": "Translucent rectangle",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
         }
       ]
+    },
+    {
+      "id": "square",
+      "name": "Square",
+      "category": "basic",
+      "tags": [
+        "box"
+      ],
+      "generator": "rect",
+      "knobs": [
+        {
+          "name": "cornerRadius",
+          "label": "Corners",
+          "min": 0,
+          "max": 50,
+          "default": 0,
+          "unit": "%",
+          "hint": "Corner radius, as a percent of the shorter side. 50 makes the ends fully round."
+        }
+      ],
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "square/white",
+          "name": "Square",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "square/outline",
+          "name": "Square outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "square/translucent",
+          "name": "Translucent square",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "rounded-square",
+      "name": "Rounded square",
+      "category": "basic",
+      "tags": [
+        "box",
+        "tile"
+      ],
+      "generator": "rect",
+      "knobs": [
+        {
+          "name": "cornerRadius",
+          "label": "Corners",
+          "min": 0,
+          "max": 50,
+          "default": 20,
+          "unit": "%",
+          "hint": "Corner radius, as a percent of the shorter side. 50 makes the ends fully round."
+        }
+      ],
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "rounded-square/white",
+          "name": "Rounded square",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "rounded-square/outline",
+          "name": "Rounded square outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "rounded-square/translucent",
+          "name": "Translucent rounded square",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "pill",
+      "name": "Pill",
+      "category": "basic",
+      "tags": [
+        "capsule",
+        "button",
+        "label"
+      ],
+      "generator": "rect",
+      "knobs": [
+        {
+          "name": "cornerRadius",
+          "label": "Corners",
+          "min": 0,
+          "max": 50,
+          "default": 50,
+          "unit": "%",
+          "hint": "Corner radius, as a percent of the shorter side. 50 makes the ends fully round."
+        }
+      ],
+      "defaults": {
+        "width": 40,
+        "height": 14
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "pill/white",
+          "name": "Pill",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "pill/outline",
+          "name": "Pill outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "pill/translucent",
+          "name": "Translucent pill",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "circle",
+      "name": "Circle",
+      "category": "basic",
+      "tags": [
+        "round",
+        "dot",
+        "ring"
+      ],
+      "generator": "ellipse",
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "knobs": [],
+      "presets": [
+        {
+          "id": "circle/white",
+          "name": "Circle",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "circle/outline",
+          "name": "Circle outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "circle/translucent",
+          "name": "Translucent circle",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "semicircle",
+      "name": "Semicircle",
+      "category": "basic",
+      "tags": [
+        "half circle",
+        "dome"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 0 100 C 0 44.77 22.39 0 50 0 C 77.61 0 100 44.77 100 100 Z"
+      },
+      "defaults": {
+        "width": 30,
+        "height": 15
+      },
+      "frame": "box",
+      "knobs": [],
+      "presets": [
+        {
+          "id": "semicircle/white",
+          "name": "Semicircle",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "semicircle/outline",
+          "name": "Semicircle outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "semicircle/translucent",
+          "name": "Translucent semicircle",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "quarter-circle",
+      "name": "Quarter circle",
+      "category": "basic",
+      "tags": [
+        "quadrant",
+        "pie"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 0 100 L 0 0 C 55.23 0 100 44.77 100 100 Z"
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "knobs": [],
+      "presets": [
+        {
+          "id": "quarter-circle/white",
+          "name": "Quarter circle",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "quarter-circle/outline",
+          "name": "Quarter circle outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "quarter-circle/translucent",
+          "name": "Translucent quarter circle",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "triangle",
+      "name": "Triangle",
+      "category": "basic",
+      "tags": [
+        "arrow",
+        "play"
+      ],
+      "generator": "polygon",
+      "geometry": {
+        "sides": 3
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "knobs": [],
+      "presets": [
+        {
+          "id": "triangle/white",
+          "name": "Triangle",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "triangle/outline",
+          "name": "Triangle outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "triangle/translucent",
+          "name": "Translucent triangle",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "right-triangle",
+      "name": "Right triangle",
+      "category": "basic",
+      "tags": [
+        "corner"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 0 100 L 0 0 L 100 100 Z"
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "knobs": [],
+      "presets": [
+        {
+          "id": "right-triangle/white",
+          "name": "Right triangle",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "right-triangle/outline",
+          "name": "Right triangle outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "right-triangle/translucent",
+          "name": "Translucent right triangle",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "diamond",
+      "name": "Diamond",
+      "category": "basic",
+      "tags": [
+        "rhombus",
+        "gem"
+      ],
+      "generator": "polygon",
+      "geometry": {
+        "sides": 4
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "knobs": [],
+      "presets": [
+        {
+          "id": "diamond/white",
+          "name": "Diamond",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "diamond/outline",
+          "name": "Diamond outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "diamond/translucent",
+          "name": "Translucent diamond",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "pentagon",
+      "name": "Pentagon",
+      "category": "basic",
+      "tags": [
+        "polygon"
+      ],
+      "generator": "polygon",
+      "geometry": {
+        "sides": 5
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "knobs": [],
+      "presets": [
+        {
+          "id": "pentagon/white",
+          "name": "Pentagon",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "pentagon/outline",
+          "name": "Pentagon outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "pentagon/translucent",
+          "name": "Translucent pentagon",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "hexagon",
+      "name": "Hexagon",
+      "category": "basic",
+      "tags": [
+        "polygon",
+        "honeycomb"
+      ],
+      "generator": "polygon",
+      "geometry": {
+        "sides": 6,
+        "rotation": 30
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "knobs": [],
+      "presets": [
+        {
+          "id": "hexagon/white",
+          "name": "Hexagon",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "hexagon/outline",
+          "name": "Hexagon outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "hexagon/translucent",
+          "name": "Translucent hexagon",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "octagon",
+      "name": "Octagon",
+      "category": "basic",
+      "tags": [
+        "polygon",
+        "stop"
+      ],
+      "generator": "polygon",
+      "geometry": {
+        "sides": 8,
+        "rotation": 22.5
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "knobs": [],
+      "presets": [
+        {
+          "id": "octagon/white",
+          "name": "Octagon",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "octagon/outline",
+          "name": "Octagon outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "octagon/translucent",
+          "name": "Translucent octagon",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "parallelogram",
+      "name": "Parallelogram",
+      "category": "basic",
+      "tags": [
+        "slanted",
+        "skew"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 25 0 L 100 0 L 75 100 L 0 100 Z"
+      },
+      "defaults": {
+        "width": 36,
+        "height": 24
+      },
+      "frame": "box",
+      "knobs": [],
+      "presets": [
+        {
+          "id": "parallelogram/white",
+          "name": "Parallelogram",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "parallelogram/outline",
+          "name": "Parallelogram outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "parallelogram/translucent",
+          "name": "Translucent parallelogram",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "trapezoid",
+      "name": "Trapezoid",
+      "category": "basic",
+      "tags": [
+        "trapezium"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 20 0 L 80 0 L 100 100 L 0 100 Z"
+      },
+      "defaults": {
+        "width": 36,
+        "height": 24
+      },
+      "frame": "box",
+      "knobs": [],
+      "presets": [
+        {
+          "id": "trapezoid/white",
+          "name": "Trapezoid",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "trapezoid/outline",
+          "name": "Trapezoid outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "trapezoid/translucent",
+          "name": "Translucent trapezoid",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "block-arrow",
+      "name": "Block arrow",
+      "category": "arrows",
+      "tags": [
+        "arrow",
+        "direction",
+        "next"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 0 30 L 60 30 L 60 5 L 100 50 L 60 95 L 60 70 L 0 70 Z"
+      },
+      "defaults": {
+        "width": 36,
+        "height": 20
+      },
+      "frame": "box",
+      "knobs": [],
+      "presets": [
+        {
+          "id": "block-arrow/white",
+          "name": "Block arrow",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "block-arrow/outline",
+          "name": "Block arrow outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "block-arrow/translucent",
+          "name": "Translucent block arrow",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "double-arrow",
+      "name": "Double arrow",
+      "category": "arrows",
+      "tags": [
+        "arrow",
+        "both ways",
+        "between"
+      ],
+      "generator": "segment",
+      "knobs": [
+        {
+          "name": "headSize",
+          "label": "Head size",
+          "min": 2,
+          "max": 8,
+          "default": 4,
+          "unit": "×",
+          "hint": "How long an arrow head is, as a multiple of the stroke width."
+        }
+      ],
+      "defaults": {
+        "x1": -15,
+        "y1": 0,
+        "x2": 15,
+        "y2": 0
+      },
+      "presets": [
+        {
+          "id": "double-arrow/white",
+          "name": "Double arrow",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "startCap": "arrow",
+          "endCap": "arrow"
+        },
+        {
+          "id": "double-arrow/red",
+          "name": "Red double arrow",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "startCap": "arrow",
+          "endCap": "arrow"
+        }
+      ],
+      "frame": "segment"
+    },
+    {
+      "id": "curved-arrow",
+      "name": "Curved arrow",
+      "category": "arrows",
+      "tags": [
+        "arrow",
+        "curve",
+        "bend",
+        "swoop"
+      ],
+      "generator": "segment",
+      "knobs": [
+        {
+          "name": "headSize",
+          "label": "Head size",
+          "min": 2,
+          "max": 8,
+          "default": 4,
+          "unit": "×",
+          "hint": "How long an arrow head is, as a multiple of the stroke width."
+        },
+        {
+          "name": "curvature",
+          "label": "Curve",
+          "min": -100,
+          "max": 100,
+          "default": 45,
+          "unit": "%",
+          "hint": "How far the line bows out, as a percent of half its length; negative bows the other way."
+        }
+      ],
+      "defaults": {
+        "x1": -12,
+        "y1": -12,
+        "x2": 0,
+        "y2": 0
+      },
+      "presets": [
+        {
+          "id": "curved-arrow/white",
+          "name": "Curved arrow",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "startCap": "none",
+          "endCap": "arrow"
+        },
+        {
+          "id": "curved-arrow/red",
+          "name": "Red curved arrow",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "startCap": "none",
+          "endCap": "arrow"
+        }
+      ],
+      "frame": "segment"
+    },
+    {
+      "id": "u-turn-arrow",
+      "name": "U-turn arrow",
+      "category": "arrows",
+      "tags": [
+        "arrow",
+        "back",
+        "return"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "undo-2",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "u-turn-arrow/white",
+          "name": "U-turn arrow",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "u-turn-arrow/red",
+          "name": "Red u-turn arrow",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "circular-arrow",
+      "name": "Circular arrow",
+      "category": "arrows",
+      "tags": [
+        "arrow",
+        "loop",
+        "rotate",
+        "refresh"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "rotate-cw",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "circular-arrow/white",
+          "name": "Circular arrow",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "circular-arrow/red",
+          "name": "Red circular arrow",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "chevron",
+      "name": "Chevron",
+      "category": "arrows",
+      "tags": [
+        "arrow",
+        "next",
+        "caret"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "chevron-right",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "chevron/white",
+          "name": "Chevron",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1.4,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "chevron/red",
+          "name": "Red chevron",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 1.4,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "double-chevron",
+      "name": "Double chevron",
+      "category": "arrows",
+      "tags": [
+        "arrow",
+        "fast forward"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "chevrons-right",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "double-chevron/white",
+          "name": "Double chevron",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1.4,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "double-chevron/red",
+          "name": "Red double chevron",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 1.4,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "caret-pointer",
+      "name": "Caret pointer",
+      "category": "arrows",
+      "tags": [
+        "arrow",
+        "triangle",
+        "pointer"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 0 0 L 100 50 L 0 100 L 25 50 Z"
+      },
+      "defaults": {
+        "width": 16,
+        "height": 16
+      },
+      "frame": "box",
+      "knobs": [],
+      "presets": [
+        {
+          "id": "caret-pointer/white",
+          "name": "Caret pointer",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "caret-pointer/outline",
+          "name": "Caret pointer outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "caret-pointer/translucent",
+          "name": "Translucent caret pointer",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "dotted-arrow",
+      "name": "Dotted-tail arrow",
+      "category": "arrows",
+      "tags": [
+        "arrow",
+        "dotted",
+        "path"
+      ],
+      "generator": "segment",
+      "knobs": [
+        {
+          "name": "headSize",
+          "label": "Head size",
+          "min": 2,
+          "max": 8,
+          "default": 4,
+          "unit": "×",
+          "hint": "How long an arrow head is, as a multiple of the stroke width."
+        }
+      ],
+      "defaults": {
+        "x1": -12,
+        "y1": -12,
+        "x2": 0,
+        "y2": 0
+      },
+      "presets": [
+        {
+          "id": "dotted-arrow/white",
+          "name": "Dotted arrow",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "dotted",
+          "startCap": "none",
+          "endCap": "arrow"
+        },
+        {
+          "id": "dotted-arrow/red",
+          "name": "Red dotted arrow",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.8,
+          "strokeStyle": "dotted",
+          "startCap": "none",
+          "endCap": "arrow"
+        }
+      ],
+      "frame": "segment"
+    },
+    {
+      "id": "hand-drawn-arrow",
+      "name": "Hand-drawn arrow",
+      "category": "arrows",
+      "tags": [
+        "arrow",
+        "sketch",
+        "doodle"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 4 80 C 25 60 45 70 62 42 C 70 30 78 22 92 12 M 72 10 L 93 11 L 88 32",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "hand-drawn-arrow/white",
+          "name": "Hand-drawn arrow",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "hand-drawn-arrow/red",
+          "name": "Red hand-drawn arrow",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "elbow-arrow",
+      "name": "Elbow arrow",
+      "category": "arrows",
+      "tags": [
+        "arrow",
+        "corner",
+        "turn"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "corner-down-right",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "elbow-arrow/white",
+          "name": "Elbow arrow",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "elbow-arrow/red",
+          "name": "Red elbow arrow",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "zigzag-arrow",
+      "name": "Zigzag arrow",
+      "category": "arrows",
+      "tags": [
+        "arrow",
+        "lightning",
+        "bounce"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 4 70 L 30 40 L 50 62 L 90 22 M 70 20 L 91 21 L 90 42",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "zigzag-arrow/white",
+          "name": "Zigzag arrow",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "zigzag-arrow/red",
+          "name": "Red zigzag arrow",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "cursor-pointer",
+      "name": "Cursor",
+      "category": "arrows",
+      "tags": [
+        "mouse",
+        "pointer",
+        "click",
+        "cursor"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "mouse-pointer-2",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 10,
+        "height": 10
+      },
+      "presets": [
+        {
+          "id": "cursor-pointer/white",
+          "name": "Cursor",
+          "fill": "#FFFFFF",
+          "stroke": "#111111",
+          "strokeWidth": 0.4,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "cursor-pointer/black",
+          "name": "Black cursor",
+          "fill": "#111111",
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.4,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "cursor-pointer/red",
+          "name": "Red cursor",
+          "fill": "#FF3B30",
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.4,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "arrow-head",
+      "name": "Arrow head",
+      "category": "arrows",
+      "tags": [
+        "arrow",
+        "triangle",
+        "tip"
+      ],
+      "generator": "polygon",
+      "geometry": {
+        "sides": 3,
+        "rotation": 90
+      },
+      "defaults": {
+        "width": 12,
+        "height": 12
+      },
+      "frame": "box",
+      "knobs": [],
+      "presets": [
+        {
+          "id": "arrow-head/white",
+          "name": "Arrow head",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "arrow-head/outline",
+          "name": "Arrow head outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "arrow-head/translucent",
+          "name": "Translucent arrow head",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "line",
+      "name": "Line",
+      "category": "lines",
+      "tags": [
+        "line",
+        "rule",
+        "divider"
+      ],
+      "generator": "segment",
+      "defaults": {
+        "x1": -15,
+        "y1": 0,
+        "x2": 15,
+        "y2": 0
+      },
+      "presets": [
+        {
+          "id": "line/white",
+          "name": "Line",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "startCap": "none",
+          "endCap": "none"
+        },
+        {
+          "id": "line/red",
+          "name": "Red line",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "startCap": "none",
+          "endCap": "none"
+        }
+      ],
+      "frame": "segment",
+      "knobs": []
+    },
+    {
+      "id": "dashed-line",
+      "name": "Dashed line",
+      "category": "lines",
+      "tags": [
+        "line",
+        "dashes"
+      ],
+      "generator": "segment",
+      "defaults": {
+        "x1": -15,
+        "y1": 0,
+        "x2": 15,
+        "y2": 0
+      },
+      "presets": [
+        {
+          "id": "dashed-line/white",
+          "name": "Dashed line",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "dashed",
+          "startCap": "none",
+          "endCap": "none"
+        },
+        {
+          "id": "dashed-line/red",
+          "name": "Red dashed line",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.8,
+          "strokeStyle": "dashed",
+          "startCap": "none",
+          "endCap": "none"
+        }
+      ],
+      "frame": "segment",
+      "knobs": []
+    },
+    {
+      "id": "dotted-line",
+      "name": "Dotted line",
+      "category": "lines",
+      "tags": [
+        "line",
+        "dots"
+      ],
+      "generator": "segment",
+      "defaults": {
+        "x1": -15,
+        "y1": 0,
+        "x2": 15,
+        "y2": 0
+      },
+      "presets": [
+        {
+          "id": "dotted-line/white",
+          "name": "Dotted line",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "dotted",
+          "startCap": "none",
+          "endCap": "none"
+        },
+        {
+          "id": "dotted-line/red",
+          "name": "Red dotted line",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 1,
+          "strokeStyle": "dotted",
+          "startCap": "none",
+          "endCap": "none"
+        }
+      ],
+      "frame": "segment",
+      "knobs": []
+    },
+    {
+      "id": "double-line",
+      "name": "Double line",
+      "category": "lines",
+      "tags": [
+        "line",
+        "rule",
+        "equals"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 0 30 L 100 30 M 0 70 L 100 70"
+      },
+      "defaults": {
+        "width": 40,
+        "height": 4
+      },
+      "presets": [
+        {
+          "id": "double-line/white",
+          "name": "Double line",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.5,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "double-line/red",
+          "name": "Red double line",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.5,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "thick-line",
+      "name": "Thick line",
+      "category": "lines",
+      "tags": [
+        "line",
+        "bar",
+        "rule"
+      ],
+      "generator": "segment",
+      "defaults": {
+        "x1": -15,
+        "y1": 0,
+        "x2": 15,
+        "y2": 0
+      },
+      "presets": [
+        {
+          "id": "thick-line/white",
+          "name": "Thick line",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 2.4,
+          "strokeStyle": "solid",
+          "startCap": "none",
+          "endCap": "none"
+        },
+        {
+          "id": "thick-line/red",
+          "name": "Red thick line",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 2.4,
+          "strokeStyle": "solid",
+          "startCap": "none",
+          "endCap": "none"
+        }
+      ],
+      "frame": "segment",
+      "knobs": []
+    },
+    {
+      "id": "wavy-line",
+      "name": "Wavy line",
+      "category": "lines",
+      "tags": [
+        "wave",
+        "squiggle",
+        "underline"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 0 50 L 1.56 38.39 L 3.13 27.78 L 4.69 19.08 L 6.25 13.04 L 7.81 10.19 L 9.38 10.77 L 10.94 14.72 L 12.5 21.72 L 14.06 31.14 L 15.63 42.2 L 17.19 53.92 L 18.75 65.31 L 20.31 75.38 L 21.88 83.26 L 23.44 88.28 L 25 90 L 26.56 88.28 L 28.13 83.26 L 29.69 75.38 L 31.25 65.31 L 32.81 53.92 L 34.38 42.2 L 35.94 31.14 L 37.5 21.72 L 39.06 14.72 L 40.63 10.77 L 42.19 10.19 L 43.75 13.04 L 45.31 19.08 L 46.88 27.78 L 48.44 38.39 L 50 50 L 51.56 61.61 L 53.13 72.22 L 54.69 80.92 L 56.25 86.96 L 57.81 89.81 L 59.38 89.23 L 60.94 85.28 L 62.5 78.28 L 64.06 68.86 L 65.63 57.8 L 67.19 46.08 L 68.75 34.69 L 70.31 24.62 L 71.88 16.74 L 73.44 11.72 L 75 10 L 76.56 11.72 L 78.13 16.74 L 79.69 24.62 L 81.25 34.69 L 82.81 46.08 L 84.38 57.8 L 85.94 68.86 L 87.5 78.28 L 89.06 85.28 L 90.63 89.23 L 92.19 89.81 L 93.75 86.96 L 95.31 80.92 L 96.88 72.22 L 98.44 61.61 L 100 50",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 40,
+        "height": 6
+      },
+      "presets": [
+        {
+          "id": "wavy-line/white",
+          "name": "Wavy line",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "wavy-line/red",
+          "name": "Red wavy line",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "zigzag-line",
+      "name": "Zigzag line",
+      "category": "lines",
+      "tags": [
+        "zigzag",
+        "saw"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 0 90 L 8.33 10 L 16.67 90 L 25 10 L 33.33 90 L 41.67 10 L 50 90 L 58.33 10 L 66.67 90 L 75 10 L 83.33 90 L 91.67 10 L 100 90",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 40,
+        "height": 6
+      },
+      "presets": [
+        {
+          "id": "zigzag-line/white",
+          "name": "Zigzag line",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "zigzag-line/red",
+          "name": "Red zigzag line",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "underline-swoosh",
+      "name": "Underline swoosh",
+      "category": "lines",
+      "tags": [
+        "underline",
+        "swoosh",
+        "brush"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 2 70 C 30 40 70 30 98 45",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 40,
+        "height": 8
+      },
+      "presets": [
+        {
+          "id": "underline-swoosh/white",
+          "name": "Swoosh",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1.2,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "underline-swoosh/red",
+          "name": "Red swoosh",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 1.2,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "divider-dot",
+      "name": "Divider with dot",
+      "category": "lines",
+      "tags": [
+        "divider",
+        "separator"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 0 50 L 42 50 M 58 50 L 100 50 M 53 50 C 53 66.57 51.66 80 50 80 C 48.34 80 47 66.57 47 50 C 47 33.43 48.34 20 50 20 C 51.66 20 53 33.43 53 50 Z"
+      },
+      "defaults": {
+        "width": 40,
+        "height": 4
+      },
+      "presets": [
+        {
+          "id": "divider-dot/white",
+          "name": "Divider",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.5,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "divider-dot/red",
+          "name": "Red divider",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.5,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "curly-brace",
+      "name": "Curly brace",
+      "category": "lines",
+      "tags": [
+        "brace",
+        "bracket",
+        "group"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "braces",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "curly-brace/white",
+          "name": "Curly brace",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "curly-brace/red",
+          "name": "Red curly brace",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "speech-bubble",
+      "name": "Speech bubble",
+      "category": "callouts",
+      "tags": [
+        "speech",
+        "bubble",
+        "talk",
+        "quote"
+      ],
+      "generator": "bubble",
+      "knobs": [
+        {
+          "name": "cornerRadius",
+          "label": "Corners",
+          "min": 0,
+          "max": 50,
+          "default": 25,
+          "unit": "%",
+          "hint": "Corner radius, as a percent of the shorter side. 50 makes the ends fully round."
+        },
+        {
+          "name": "tailX",
+          "label": "Tail position",
+          "min": 5,
+          "max": 95,
+          "default": 30,
+          "unit": "%",
+          "hint": "Where the tail points, across the bottom edge."
+        },
+        {
+          "name": "tailSize",
+          "label": "Tail length",
+          "min": 5,
+          "max": 45,
+          "default": 22,
+          "unit": "%",
+          "hint": "How long the tail is, as a percent of the height."
+        }
+      ],
+      "defaults": {
+        "width": 40,
+        "height": 30
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "speech-bubble/white",
+          "name": "Speech bubble",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "speech-bubble/outline",
+          "name": "Speech bubble outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "speech-bubble/translucent",
+          "name": "Translucent speech bubble",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "speech-bubble-square",
+      "name": "Square speech bubble",
+      "category": "callouts",
+      "tags": [
+        "speech",
+        "bubble",
+        "comic"
+      ],
+      "generator": "bubble",
+      "knobs": [
+        {
+          "name": "cornerRadius",
+          "label": "Corners",
+          "min": 0,
+          "max": 50,
+          "default": 0,
+          "unit": "%",
+          "hint": "Corner radius, as a percent of the shorter side. 50 makes the ends fully round."
+        },
+        {
+          "name": "tailX",
+          "label": "Tail position",
+          "min": 5,
+          "max": 95,
+          "default": 30,
+          "unit": "%",
+          "hint": "Where the tail points, across the bottom edge."
+        },
+        {
+          "name": "tailSize",
+          "label": "Tail length",
+          "min": 5,
+          "max": 45,
+          "default": 22,
+          "unit": "%",
+          "hint": "How long the tail is, as a percent of the height."
+        }
+      ],
+      "defaults": {
+        "width": 40,
+        "height": 30
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "speech-bubble-square/white",
+          "name": "Square speech bubble",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "speech-bubble-square/outline",
+          "name": "Square speech bubble outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "speech-bubble-square/translucent",
+          "name": "Translucent square speech bubble",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "chat-bubble",
+      "name": "Chat bubble",
+      "category": "callouts",
+      "tags": [
+        "chat",
+        "message",
+        "bubble"
+      ],
+      "generator": "bubble",
+      "knobs": [
+        {
+          "name": "cornerRadius",
+          "label": "Corners",
+          "min": 0,
+          "max": 50,
+          "default": 45,
+          "unit": "%",
+          "hint": "Corner radius, as a percent of the shorter side. 50 makes the ends fully round."
+        },
+        {
+          "name": "tailX",
+          "label": "Tail position",
+          "min": 5,
+          "max": 95,
+          "default": 30,
+          "unit": "%",
+          "hint": "Where the tail points, across the bottom edge."
+        },
+        {
+          "name": "tailSize",
+          "label": "Tail length",
+          "min": 5,
+          "max": 45,
+          "default": 22,
+          "unit": "%",
+          "hint": "How long the tail is, as a percent of the height."
+        }
+      ],
+      "defaults": {
+        "width": 40,
+        "height": 26
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "chat-bubble/white",
+          "name": "Chat bubble",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "chat-bubble/outline",
+          "name": "Chat bubble outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "chat-bubble/translucent",
+          "name": "Translucent chat bubble",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "tooltip",
+      "name": "Tooltip",
+      "category": "callouts",
+      "tags": [
+        "tooltip",
+        "hint",
+        "label"
+      ],
+      "generator": "bubble",
+      "knobs": [
+        {
+          "name": "cornerRadius",
+          "label": "Corners",
+          "min": 0,
+          "max": 50,
+          "default": 15,
+          "unit": "%",
+          "hint": "Corner radius, as a percent of the shorter side. 50 makes the ends fully round."
+        },
+        {
+          "name": "tailX",
+          "label": "Tail position",
+          "min": 5,
+          "max": 95,
+          "default": 50,
+          "unit": "%",
+          "hint": "Where the tail points, across the bottom edge."
+        },
+        {
+          "name": "tailSize",
+          "label": "Tail length",
+          "min": 5,
+          "max": 45,
+          "default": 18,
+          "unit": "%",
+          "hint": "How long the tail is, as a percent of the height."
+        }
+      ],
+      "defaults": {
+        "width": 30,
+        "height": 16
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "tooltip/white",
+          "name": "Tooltip",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "tooltip/outline",
+          "name": "Tooltip outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "tooltip/translucent",
+          "name": "Translucent tooltip",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "thought-bubble",
+      "name": "Thought bubble",
+      "category": "callouts",
+      "tags": [
+        "thought",
+        "think",
+        "dream"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 99 38 C 99 57.88 79.3 74 55 74 C 30.7 74 11 57.88 11 38 C 11 18.12 30.7 2 55 2 C 79.3 2 99 18.12 99 38 Z M 31 82 C 31 86.42 26.97 90 22 90 C 17.03 90 13 86.42 13 82 C 13 77.58 17.03 74 22 74 C 26.97 74 31 77.58 31 82 Z M 14 95 C 14 97.49 11.76 99.5 9 99.5 C 6.24 99.5 4 97.49 4 95 C 4 92.51 6.24 90.5 9 90.5 C 11.76 90.5 14 92.51 14 95 Z"
+      },
+      "defaults": {
+        "width": 40,
+        "height": 32
+      },
+      "frame": "box",
+      "knobs": [],
+      "presets": [
+        {
+          "id": "thought-bubble/white",
+          "name": "Thought bubble",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "thought-bubble/outline",
+          "name": "Thought bubble outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "thought-bubble/translucent",
+          "name": "Translucent thought bubble",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "shout-bubble",
+      "name": "Shout bubble",
+      "category": "callouts",
+      "tags": [
+        "shout",
+        "burst",
+        "boom",
+        "comic"
+      ],
+      "generator": "star",
+      "knobs": [
+        {
+          "name": "points",
+          "label": "Points",
+          "min": 3,
+          "max": 24,
+          "default": 14,
+          "unit": "",
+          "hint": "How many points the star has."
+        },
+        {
+          "name": "innerRadius",
+          "label": "Inner radius",
+          "min": 10,
+          "max": 95,
+          "default": 72,
+          "unit": "%",
+          "hint": "How deep the points are cut: the inner corners as a percent of the outer radius."
+        }
+      ],
+      "defaults": {
+        "width": 40,
+        "height": 30
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "shout-bubble/white",
+          "name": "Shout bubble",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "shout-bubble/outline",
+          "name": "Shout bubble outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "shout-bubble/translucent",
+          "name": "Translucent shout bubble",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "callout-leader",
+      "name": "Callout with leader line",
+      "category": "callouts",
+      "tags": [
+        "callout",
+        "label",
+        "annotation"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "message-square-text",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "callout-leader/white",
+          "name": "Callout",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "callout-leader/yellow",
+          "name": "Yellow callout",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "pill-label",
+      "name": "Pill label",
+      "category": "callouts",
+      "tags": [
+        "label",
+        "tag",
+        "chip"
+      ],
+      "generator": "rect",
+      "knobs": [
+        {
+          "name": "cornerRadius",
+          "label": "Corners",
+          "min": 0,
+          "max": 50,
+          "default": 50,
+          "unit": "%",
+          "hint": "Corner radius, as a percent of the shorter side. 50 makes the ends fully round."
+        }
+      ],
+      "defaults": {
+        "width": 30,
+        "height": 10
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "pill-label/white",
+          "name": "Pill label",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "pill-label/outline",
+          "name": "Pill label outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "pill-label/translucent",
+          "name": "Translucent pill label",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "banner-ribbon",
+      "name": "Banner ribbon",
+      "category": "callouts",
+      "tags": [
+        "banner",
+        "ribbon",
+        "award"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "ribbon",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "banner-ribbon/white",
+          "name": "Ribbon",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "banner-ribbon/yellow",
+          "name": "Yellow ribbon",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "tag",
+      "name": "Tag",
+      "category": "callouts",
+      "tags": [
+        "tag",
+        "price",
+        "label"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "tag",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "tag/white",
+          "name": "Tag",
+          "fill": "#FFFFFF",
+          "stroke": "#111111",
+          "strokeWidth": 0.4,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "tag/red",
+          "name": "Red tag",
+          "fill": "#FF3B30",
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.4,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "tag/yellow",
+          "name": "Yellow tag",
+          "fill": "#FFD400",
+          "stroke": "#111111",
+          "strokeWidth": 0.4,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "sticky-note",
+      "name": "Sticky note",
+      "category": "callouts",
+      "tags": [
+        "note",
+        "post-it",
+        "memo"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "sticky-note",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "sticky-note/yellow",
+          "name": "Sticky note",
+          "fill": "#FFE066",
+          "stroke": "#6B5A00",
+          "strokeWidth": 0.4,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "sticky-note/white",
+          "name": "White sticky note",
+          "fill": "#FFFFFF",
+          "stroke": "#111111",
+          "strokeWidth": 0.4,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "highlight-circle",
+      "name": "Highlight circle",
+      "category": "highlights",
+      "tags": [
+        "circle",
+        "ring",
+        "highlight"
+      ],
+      "generator": "ellipse",
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "highlight-circle/yellow",
+          "name": "Highlight circle",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "highlight-circle/red",
+          "name": "Red highlight circle",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "hand-drawn-circle",
+      "name": "Hand-drawn circle",
+      "category": "highlights",
+      "tags": [
+        "circle",
+        "sketch",
+        "loop",
+        "doodle"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 35.44 7.1 L 38.73 6.08 L 42.09 5.22 L 45.51 4.52 L 48.99 4.01 L 52.53 3.75 L 56.1 3.78 L 59.66 4.14 L 63.15 4.89 L 66.53 6.04 L 69.73 7.58 L 72.69 9.48 L 75.39 11.7 L 77.8 14.16 L 79.95 16.78 L 81.87 19.49 L 83.61 22.23 L 85.23 24.95 L 86.8 27.64 L 88.36 30.31 L 89.93 32.98 L 91.5 35.69 L 93.05 38.49 L 94.5 41.41 L 95.79 44.46 L 96.81 47.65 L 97.51 50.95 L 97.8 54.33 L 97.65 57.72 L 97.05 61.06 L 96.02 64.32 L 94.6 67.43 L 92.86 70.37 L 90.85 73.13 L 88.64 75.71 L 86.28 78.13 L 83.82 80.4 L 81.25 82.54 L 78.6 84.55 L 75.85 86.41 L 72.98 88.11 L 70 89.61 L 66.9 90.88 L 63.7 91.86 L 60.42 92.55 L 57.1 92.92 L 53.77 92.99 L 50.47 92.78 L 47.22 92.35 L 44.03 91.73 L 40.9 90.99 L 37.81 90.17 L 34.74 89.28 L 31.66 88.35 L 28.56 87.34 L 25.44 86.21 L 22.32 84.92 L 19.24 83.41 L 16.27 81.63 L 13.49 79.54 L 10.99 77.14 L 8.84 74.44 L 7.1 71.47 L 5.81 68.31 L 4.97 65.01 L 4.56 61.66 L 4.53 58.31 L 4.79 55.01 L 5.28 51.79 L 5.92 48.67 L 6.64 45.64 L 7.42 42.66 L 8.23 39.73 L 9.1 36.82 L 10.05 33.92 L 11.13 31.04 L 12.4 28.2 L 13.89 25.43 L 15.63 22.78 L 17.64 20.29 L 19.9 17.99 L 22.39 15.92 L 25.07 14.07 L 27.9 12.45 L 30.85 11.03 L 33.88 9.8 L 36.98 8.72 L 40.15 7.79 L 43.37 7.01 L 46.66 6.39 L 50 5.97 L 53.39 5.8 L 56.8 5.91 L 60.19 6.36 L 63.5 7.19 L 66.68 8.39 L 69.67 9.97",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 36,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "hand-drawn-circle/yellow",
+          "name": "Hand-drawn circle",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "hand-drawn-circle/red",
+          "name": "Red hand-drawn circle",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "hand-drawn-box",
+      "name": "Hand-drawn box",
+      "category": "highlights",
+      "tags": [
+        "box",
+        "sketch",
+        "doodle"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 6 8 C 35 5 70 7 96 5 M 94 3 C 96 35 95 70 97 96 M 99 94 C 65 96 30 95 4 97 M 6 99 C 4 65 5 30 3 4",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 36,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "hand-drawn-box/yellow",
+          "name": "Hand-drawn box",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "hand-drawn-box/red",
+          "name": "Red hand-drawn box",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "viewfinder-corners",
+      "name": "Viewfinder corners",
+      "category": "highlights",
+      "tags": [
+        "corners",
+        "focus",
+        "frame",
+        "camera"
+      ],
+      "generator": "corners",
+      "knobs": [
+        {
+          "name": "length",
+          "label": "Corner length",
+          "min": 5,
+          "max": 50,
+          "default": 22,
+          "unit": "%",
+          "hint": "How long each corner mark is, as a percent of the shorter side."
+        }
+      ],
+      "defaults": {
+        "width": 36,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "viewfinder-corners/yellow",
+          "name": "Viewfinder corners",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "viewfinder-corners/red",
+          "name": "Red viewfinder corners",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box"
+    },
+    {
+      "id": "crosshair",
+      "name": "Crosshair",
+      "category": "highlights",
+      "tags": [
+        "target",
+        "aim",
+        "focus"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "crosshair",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "crosshair/yellow",
+          "name": "Crosshair",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "crosshair/red",
+          "name": "Red crosshair",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "spotlight-ring",
+      "name": "Spotlight ring",
+      "category": "highlights",
+      "tags": [
+        "ring",
+        "spotlight",
+        "focus"
+      ],
+      "generator": "ring",
+      "geometry": {
+        "inner": "ellipse",
+        "fillRule": "evenodd"
+      },
+      "knobs": [
+        {
+          "name": "thickness",
+          "label": "Thickness",
+          "min": 2,
+          "max": 45,
+          "default": 10,
+          "unit": "%",
+          "hint": "The border, as a percent of the shorter side."
+        }
+      ],
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "spotlight-ring/yellow",
+          "name": "Spotlight ring",
+          "fill": "#FFD400CC",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "spotlight-ring/white",
+          "name": "White spotlight ring",
+          "fill": "#FFFFFFCC",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box"
+    },
+    {
+      "id": "click-ripple",
+      "name": "Click ripple",
+      "category": "highlights",
+      "tags": [
+        "click",
+        "tap",
+        "ripple",
+        "touch"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 98 50 C 98 76.51 76.51 98 50 98 C 23.49 98 2 76.51 2 50 C 2 23.49 23.49 2 50 2 C 76.51 2 98 23.49 98 50 Z M 82 50 C 82 67.67 67.67 82 50 82 C 32.33 82 18 67.67 18 50 C 18 32.33 32.33 18 50 18 C 67.67 18 82 32.33 82 50 Z M 64 50 C 64 57.73 57.73 64 50 64 C 42.27 64 36 57.73 36 50 C 36 42.27 42.27 36 50 36 C 57.73 36 64 42.27 64 50 Z"
+      },
+      "defaults": {
+        "width": 12,
+        "height": 12
+      },
+      "presets": [
+        {
+          "id": "click-ripple/yellow",
+          "name": "Click ripple",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 0.5,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "click-ripple/red",
+          "name": "Red click ripple",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.5,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "cursor-halo",
+      "name": "Cursor halo",
+      "category": "highlights",
+      "tags": [
+        "cursor",
+        "halo",
+        "glow",
+        "mouse"
+      ],
+      "generator": "ellipse",
+      "defaults": {
+        "width": 8,
+        "height": 8
+      },
+      "presets": [
+        {
+          "id": "cursor-halo/yellow",
+          "name": "Cursor halo",
+          "fill": "#FFD40080",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "cursor-halo/red",
+          "name": "Red cursor halo",
+          "fill": "#FF3B3080",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "square-brackets",
+      "name": "Square brackets",
+      "category": "highlights",
+      "tags": [
+        "brackets",
+        "focus",
+        "select"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "brackets",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "square-brackets/yellow",
+          "name": "Square brackets",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "square-brackets/red",
+          "name": "Red square brackets",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "star-5",
+      "name": "Star",
+      "category": "stars",
+      "tags": [
+        "star",
+        "favourite",
+        "rating"
+      ],
+      "generator": "star",
+      "knobs": [
+        {
+          "name": "points",
+          "label": "Points",
+          "min": 3,
+          "max": 24,
+          "default": 5,
+          "unit": "",
+          "hint": "How many points the star has."
+        },
+        {
+          "name": "innerRadius",
+          "label": "Inner radius",
+          "min": 10,
+          "max": 95,
+          "default": 45,
+          "unit": "%",
+          "hint": "How deep the points are cut: the inner corners as a percent of the outer radius."
+        }
+      ],
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "star-5/white",
+          "name": "Star",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "star-5/outline",
+          "name": "Star outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "star-5/translucent",
+          "name": "Translucent star",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "star-4",
+      "name": "Four-point star",
+      "category": "stars",
+      "tags": [
+        "star",
+        "twinkle"
+      ],
+      "generator": "star",
+      "knobs": [
+        {
+          "name": "points",
+          "label": "Points",
+          "min": 3,
+          "max": 24,
+          "default": 4,
+          "unit": "",
+          "hint": "How many points the star has."
+        },
+        {
+          "name": "innerRadius",
+          "label": "Inner radius",
+          "min": 10,
+          "max": 95,
+          "default": 35,
+          "unit": "%",
+          "hint": "How deep the points are cut: the inner corners as a percent of the outer radius."
+        }
+      ],
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "star-4/white",
+          "name": "Four-point star",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "star-4/outline",
+          "name": "Four-point star outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "star-4/translucent",
+          "name": "Translucent four-point star",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "star-6",
+      "name": "Six-point star",
+      "category": "stars",
+      "tags": [
+        "star",
+        "hexagram"
+      ],
+      "generator": "star",
+      "knobs": [
+        {
+          "name": "points",
+          "label": "Points",
+          "min": 3,
+          "max": 24,
+          "default": 6,
+          "unit": "",
+          "hint": "How many points the star has."
+        },
+        {
+          "name": "innerRadius",
+          "label": "Inner radius",
+          "min": 10,
+          "max": 95,
+          "default": 55,
+          "unit": "%",
+          "hint": "How deep the points are cut: the inner corners as a percent of the outer radius."
+        }
+      ],
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "star-6/white",
+          "name": "Six-point star",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "star-6/outline",
+          "name": "Six-point star outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "star-6/translucent",
+          "name": "Translucent six-point star",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "star-8",
+      "name": "Eight-point star",
+      "category": "stars",
+      "tags": [
+        "star",
+        "compass"
+      ],
+      "generator": "star",
+      "knobs": [
+        {
+          "name": "points",
+          "label": "Points",
+          "min": 3,
+          "max": 24,
+          "default": 8,
+          "unit": "",
+          "hint": "How many points the star has."
+        },
+        {
+          "name": "innerRadius",
+          "label": "Inner radius",
+          "min": 10,
+          "max": 95,
+          "default": 50,
+          "unit": "%",
+          "hint": "How deep the points are cut: the inner corners as a percent of the outer radius."
+        }
+      ],
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "star-8/white",
+          "name": "Eight-point star",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "star-8/outline",
+          "name": "Eight-point star outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "star-8/translucent",
+          "name": "Translucent eight-point star",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "sparkle",
+      "name": "Sparkle",
+      "category": "stars",
+      "tags": [
+        "sparkle",
+        "shine",
+        "magic",
+        "new"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "sparkle",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "sparkle/yellow",
+          "name": "Sparkle",
+          "fill": "#FFD400",
+          "stroke": "#FFD400",
+          "strokeWidth": 0.4,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "sparkle/white",
+          "name": "White sparkle",
+          "fill": "#FFFFFF",
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.4,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "starburst-16",
+      "name": "Starburst",
+      "category": "stars",
+      "tags": [
+        "burst",
+        "sale",
+        "badge"
+      ],
+      "generator": "star",
+      "knobs": [
+        {
+          "name": "points",
+          "label": "Points",
+          "min": 3,
+          "max": 24,
+          "default": 16,
+          "unit": "",
+          "hint": "How many points the star has."
+        },
+        {
+          "name": "innerRadius",
+          "label": "Inner radius",
+          "min": 10,
+          "max": 95,
+          "default": 80,
+          "unit": "%",
+          "hint": "How deep the points are cut: the inner corners as a percent of the outer radius."
+        }
+      ],
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "starburst-16/white",
+          "name": "Starburst",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "starburst-16/outline",
+          "name": "Starburst outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "starburst-16/translucent",
+          "name": "Translucent starburst",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "starburst-24",
+      "name": "Dense starburst",
+      "category": "stars",
+      "tags": [
+        "burst",
+        "seal",
+        "badge"
+      ],
+      "generator": "star",
+      "knobs": [
+        {
+          "name": "points",
+          "label": "Points",
+          "min": 3,
+          "max": 24,
+          "default": 24,
+          "unit": "",
+          "hint": "How many points the star has."
+        },
+        {
+          "name": "innerRadius",
+          "label": "Inner radius",
+          "min": 10,
+          "max": 95,
+          "default": 86,
+          "unit": "%",
+          "hint": "How deep the points are cut: the inner corners as a percent of the outer radius."
+        }
+      ],
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "starburst-24/white",
+          "name": "Dense starburst",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "starburst-24/outline",
+          "name": "Dense starburst outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "starburst-24/translucent",
+          "name": "Translucent dense starburst",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "seal",
+      "name": "Seal",
+      "category": "stars",
+      "tags": [
+        "seal",
+        "badge",
+        "stamp"
+      ],
+      "generator": "star",
+      "knobs": [
+        {
+          "name": "points",
+          "label": "Points",
+          "min": 3,
+          "max": 24,
+          "default": 20,
+          "unit": "",
+          "hint": "How many points the star has."
+        },
+        {
+          "name": "innerRadius",
+          "label": "Inner radius",
+          "min": 10,
+          "max": 95,
+          "default": 90,
+          "unit": "%",
+          "hint": "How deep the points are cut: the inner corners as a percent of the outer radius."
+        }
+      ],
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "seal/white",
+          "name": "Seal",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "seal/outline",
+          "name": "Seal outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "seal/translucent",
+          "name": "Translucent seal",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "shield",
+      "name": "Shield",
+      "category": "stars",
+      "tags": [
+        "shield",
+        "security",
+        "badge"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "shield",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "shield/blue",
+          "name": "Shield",
+          "fill": "#0A84FF",
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.4,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "shield/white",
+          "name": "White shield",
+          "fill": "#FFFFFF",
+          "stroke": "#111111",
+          "strokeWidth": 0.4,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "rosette",
+      "name": "Rosette",
+      "category": "stars",
+      "tags": [
+        "award",
+        "prize",
+        "rosette",
+        "medal"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "award",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "rosette/white",
+          "name": "Rosette",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "rosette/yellow",
+          "name": "Yellow rosette",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "banner",
+      "name": "Banner",
+      "category": "stars",
+      "tags": [
+        "flag",
+        "banner"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "flag",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "banner/white",
+          "name": "Banner",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "banner/yellow",
+          "name": "Yellow banner",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "ribbon-corner",
+      "name": "Badge",
+      "category": "stars",
+      "tags": [
+        "badge",
+        "verified"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "badge",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "ribbon-corner/white",
+          "name": "Badge",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "ribbon-corner/yellow",
+          "name": "Yellow badge",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "burst-label",
+      "name": "Burst label",
+      "category": "stars",
+      "tags": [
+        "new",
+        "sale",
+        "burst",
+        "label",
+        "badge"
+      ],
+      "generator": "star",
+      "knobs": [
+        {
+          "name": "points",
+          "label": "Points",
+          "min": 3,
+          "max": 24,
+          "default": 12,
+          "unit": "",
+          "hint": "How many points the star has."
+        },
+        {
+          "name": "innerRadius",
+          "label": "Inner radius",
+          "min": 10,
+          "max": 95,
+          "default": 78,
+          "unit": "%",
+          "hint": "How deep the points are cut: the inner corners as a percent of the outer radius."
+        }
+      ],
+      "labelled": true,
+      "defaults": {
+        "width": 18,
+        "height": 18
+      },
+      "presets": [
+        {
+          "id": "burst-label/new",
+          "name": "New burst",
+          "fill": "#FF3B30",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "label": "NEW",
+          "labelColor": "#FFFFFF"
+        },
+        {
+          "id": "burst-label/sale",
+          "name": "Sale burst",
+          "fill": "#FFD400",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "label": "SALE",
+          "labelColor": "#111111"
+        }
+      ],
+      "frame": "box"
+    },
+    {
+      "id": "frame",
+      "name": "Frame",
+      "category": "frames",
+      "tags": [
+        "frame",
+        "border"
+      ],
+      "generator": "ring",
+      "geometry": {
+        "inner": "rect",
+        "fillRule": "evenodd"
+      },
+      "knobs": [
+        {
+          "name": "thickness",
+          "label": "Thickness",
+          "min": 2,
+          "max": 45,
+          "default": 6,
+          "unit": "%",
+          "hint": "The border, as a percent of the shorter side."
+        },
+        {
+          "name": "cornerRadius",
+          "label": "Corners",
+          "min": 0,
+          "max": 50,
+          "default": 0,
+          "unit": "%",
+          "hint": "Corner radius, as a percent of the shorter side. 50 makes the ends fully round."
+        }
+      ],
+      "defaults": {
+        "width": 36,
+        "height": 24
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "frame/white",
+          "name": "Frame",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "frame/outline",
+          "name": "Frame outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "frame/translucent",
+          "name": "Translucent frame",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "rounded-frame",
+      "name": "Rounded frame",
+      "category": "frames",
+      "tags": [
+        "frame",
+        "border"
+      ],
+      "generator": "ring",
+      "geometry": {
+        "inner": "rect",
+        "fillRule": "evenodd"
+      },
+      "knobs": [
+        {
+          "name": "thickness",
+          "label": "Thickness",
+          "min": 2,
+          "max": 45,
+          "default": 6,
+          "unit": "%",
+          "hint": "The border, as a percent of the shorter side."
+        },
+        {
+          "name": "cornerRadius",
+          "label": "Corners",
+          "min": 0,
+          "max": 50,
+          "default": 14,
+          "unit": "%",
+          "hint": "Corner radius, as a percent of the shorter side. 50 makes the ends fully round."
+        }
+      ],
+      "defaults": {
+        "width": 36,
+        "height": 24
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "rounded-frame/white",
+          "name": "Rounded frame",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "rounded-frame/outline",
+          "name": "Rounded frame outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "rounded-frame/translucent",
+          "name": "Translucent rounded frame",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "circle-frame",
+      "name": "Circle frame",
+      "category": "frames",
+      "tags": [
+        "frame",
+        "ring",
+        "circle"
+      ],
+      "generator": "ring",
+      "geometry": {
+        "inner": "ellipse",
+        "fillRule": "evenodd"
+      },
+      "knobs": [
+        {
+          "name": "thickness",
+          "label": "Thickness",
+          "min": 2,
+          "max": 45,
+          "default": 8,
+          "unit": "%",
+          "hint": "The border, as a percent of the shorter side."
+        }
+      ],
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "frame": "box",
+      "presets": [
+        {
+          "id": "circle-frame/white",
+          "name": "Circle frame",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "circle-frame/outline",
+          "name": "Circle frame outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "circle-frame/translucent",
+          "name": "Translucent circle frame",
+          "fill": "#FFFFFF66",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "double-frame",
+      "name": "Double frame",
+      "category": "frames",
+      "tags": [
+        "frame",
+        "border",
+        "double"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 1 1 L 99 1 L 99 99 L 1 99 Z M 8 8 L 92 8 L 92 92 L 8 92 Z"
+      },
+      "defaults": {
+        "width": 36,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "double-frame/yellow",
+          "name": "Double frame",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 0.5,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "double-frame/red",
+          "name": "Red double frame",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.5,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "corner-frame",
+      "name": "Corner frame",
+      "category": "frames",
+      "tags": [
+        "corners",
+        "frame"
+      ],
+      "generator": "corners",
+      "knobs": [
+        {
+          "name": "length",
+          "label": "Corner length",
+          "min": 5,
+          "max": 50,
+          "default": 14,
+          "unit": "%",
+          "hint": "How long each corner mark is, as a percent of the shorter side."
+        }
+      ],
+      "defaults": {
+        "width": 36,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "corner-frame/yellow",
+          "name": "Corner frame",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 0.6,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "corner-frame/red",
+          "name": "Red corner frame",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.6,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box"
+    },
+    {
+      "id": "polaroid-frame",
+      "name": "Photo frame",
+      "category": "frames",
+      "tags": [
+        "polaroid",
+        "photo",
+        "frame"
+      ],
+      "generator": "path",
+      "geometry": {
+        "path": "M 0 0 L 100 0 L 100 100 L 0 100 Z M 6 6 L 94 6 L 94 76 L 6 76 Z",
+        "fillRule": "evenodd"
+      },
+      "defaults": {
+        "width": 28,
+        "height": 32
+      },
+      "presets": [
+        {
+          "id": "polaroid-frame/white",
+          "name": "Photo frame",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "polaroid-frame/cream",
+          "name": "Cream photo frame",
+          "fill": "#F4EFE6",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "phone-frame",
+      "name": "Phone frame",
+      "category": "frames",
+      "tags": [
+        "phone",
+        "device",
+        "mockup"
+      ],
+      "generator": "ring",
+      "geometry": {
+        "inner": "rect",
+        "fillRule": "evenodd"
+      },
+      "knobs": [
+        {
+          "name": "thickness",
+          "label": "Thickness",
+          "min": 2,
+          "max": 45,
+          "default": 6,
+          "unit": "%",
+          "hint": "The border, as a percent of the shorter side."
+        },
+        {
+          "name": "cornerRadius",
+          "label": "Corners",
+          "min": 0,
+          "max": 50,
+          "default": 18,
+          "unit": "%",
+          "hint": "Corner radius, as a percent of the shorter side. 50 makes the ends fully round."
+        }
+      ],
+      "defaults": {
+        "width": 24,
+        "height": 48
+      },
+      "presets": [
+        {
+          "id": "phone-frame/black",
+          "name": "Phone frame",
+          "fill": "#111111",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "phone-frame/white",
+          "name": "White phone frame",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box"
+    },
+    {
+      "id": "browser-frame",
+      "name": "Browser frame",
+      "category": "frames",
+      "tags": [
+        "browser",
+        "window",
+        "mockup",
+        "screen"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "app-window",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 36,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "browser-frame/yellow",
+          "name": "Browser frame",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 0.6,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "browser-frame/red",
+          "name": "Red browser frame",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.6,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "check",
+      "name": "Check",
+      "category": "symbols",
+      "tags": [
+        "tick",
+        "done",
+        "yes",
+        "correct"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "check",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "check/white",
+          "name": "Check",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "check/yellow",
+          "name": "Yellow check",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "check-circle",
+      "name": "Check in circle",
+      "category": "symbols",
+      "tags": [
+        "tick",
+        "done",
+        "success"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "circle-check",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "check-circle/white",
+          "name": "Check in circle",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "check-circle/yellow",
+          "name": "Yellow check in circle",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "cross",
+      "name": "Cross",
+      "category": "symbols",
+      "tags": [
+        "x",
+        "no",
+        "wrong",
+        "close"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "x",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "cross/white",
+          "name": "Cross",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "cross/yellow",
+          "name": "Yellow cross",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "cross-circle",
+      "name": "Cross in circle",
+      "category": "symbols",
+      "tags": [
+        "x",
+        "error",
+        "wrong"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "circle-x",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "cross-circle/white",
+          "name": "Cross in circle",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "cross-circle/yellow",
+          "name": "Yellow cross in circle",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "plus",
+      "name": "Plus",
+      "category": "symbols",
+      "tags": [
+        "add",
+        "new"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "plus",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "plus/white",
+          "name": "Plus",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "plus/yellow",
+          "name": "Yellow plus",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "minus",
+      "name": "Minus",
+      "category": "symbols",
+      "tags": [
+        "remove",
+        "less"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "minus",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "minus/white",
+          "name": "Minus",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "minus/yellow",
+          "name": "Yellow minus",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "heart",
+      "name": "Heart",
+      "category": "symbols",
+      "tags": [
+        "love",
+        "like",
+        "favourite"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "heart",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "heart/red",
+          "name": "Heart",
+          "fill": "#FF3B30",
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.4,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "heart/white",
+          "name": "Heart outline",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "lightning",
+      "name": "Lightning",
+      "category": "symbols",
+      "tags": [
+        "zap",
+        "bolt",
+        "fast",
+        "energy"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "zap",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "lightning/white",
+          "name": "Lightning",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "lightning/yellow",
+          "name": "Yellow lightning",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "moon",
+      "name": "Moon",
+      "category": "symbols",
+      "tags": [
+        "night",
+        "dark"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "moon",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "moon/white",
+          "name": "Moon",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "moon/yellow",
+          "name": "Yellow moon",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "sun",
+      "name": "Sun",
+      "category": "symbols",
+      "tags": [
+        "day",
+        "light",
+        "bright"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "sun",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "sun/white",
+          "name": "Sun",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "sun/yellow",
+          "name": "Yellow sun",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "cloud",
+      "name": "Cloud",
+      "category": "symbols",
+      "tags": [
+        "weather",
+        "sky"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "cloud",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "cloud/white",
+          "name": "Cloud",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "cloud/yellow",
+          "name": "Yellow cloud",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "drop",
+      "name": "Drop",
+      "category": "symbols",
+      "tags": [
+        "water",
+        "droplet",
+        "liquid"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "droplet",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "drop/white",
+          "name": "Drop",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "drop/yellow",
+          "name": "Yellow drop",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "location-pin",
+      "name": "Location pin",
+      "category": "symbols",
+      "tags": [
+        "pin",
+        "map",
+        "place",
+        "marker"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "map-pin",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "location-pin/white",
+          "name": "Location pin",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "location-pin/yellow",
+          "name": "Yellow location pin",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "play-button",
+      "name": "Play button",
+      "category": "symbols",
+      "tags": [
+        "play",
+        "video",
+        "start"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "circle-play",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "play-button/white",
+          "name": "Play button",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "play-button/yellow",
+          "name": "Yellow play button",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "warning",
+      "name": "Warning",
+      "category": "symbols",
+      "tags": [
+        "alert",
+        "caution",
+        "danger"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "triangle-alert",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "warning/white",
+          "name": "Warning",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "warning/yellow",
+          "name": "Yellow warning",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "info",
+      "name": "Info",
+      "category": "symbols",
+      "tags": [
+        "information",
+        "about",
+        "help"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "info",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "info/white",
+          "name": "Info",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "info/yellow",
+          "name": "Yellow info",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "question",
+      "name": "Question",
+      "category": "symbols",
+      "tags": [
+        "help",
+        "ask",
+        "faq"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "circle-question-mark",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "question/white",
+          "name": "Question",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "question/yellow",
+          "name": "Yellow question",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "star-outline",
+      "name": "Star icon",
+      "category": "symbols",
+      "tags": [
+        "star",
+        "rating",
+        "favourite"
+      ],
+      "generator": "path",
+      "geometry": {
+        "icon": "star",
+        "roundCaps": true
+      },
+      "defaults": {
+        "width": 24,
+        "height": 24
+      },
+      "presets": [
+        {
+          "id": "star-outline/white",
+          "name": "Star icon",
+          "fill": null,
+          "stroke": "#FFFFFF",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "star-outline/yellow",
+          "name": "Yellow star icon",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 1,
+          "strokeStyle": "solid"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "numbered-circle",
+      "name": "Numbered circle",
+      "category": "numbers",
+      "tags": [
+        "number",
+        "step",
+        "badge",
+        "count"
+      ],
+      "generator": "ellipse",
+      "labelled": true,
+      "defaults": {
+        "width": 9,
+        "height": 9
+      },
+      "presets": [
+        {
+          "id": "numbered-circle/red-1",
+          "name": "Red step 1",
+          "fill": "#FF3B30",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "label": "1",
+          "labelColor": "#FFFFFF"
+        },
+        {
+          "id": "numbered-circle/red-2",
+          "name": "Red step 2",
+          "fill": "#FF3B30",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "label": "2",
+          "labelColor": "#FFFFFF"
+        },
+        {
+          "id": "numbered-circle/red-3",
+          "name": "Red step 3",
+          "fill": "#FF3B30",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "label": "3",
+          "labelColor": "#FFFFFF"
+        },
+        {
+          "id": "numbered-circle/red-4",
+          "name": "Red step 4",
+          "fill": "#FF3B30",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "label": "4",
+          "labelColor": "#FFFFFF"
+        },
+        {
+          "id": "numbered-circle/red-5",
+          "name": "Red step 5",
+          "fill": "#FF3B30",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "label": "5",
+          "labelColor": "#FFFFFF"
+        },
+        {
+          "id": "numbered-circle/white-1",
+          "name": "White step 1",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "label": "1",
+          "labelColor": "#111111"
+        },
+        {
+          "id": "numbered-circle/white-2",
+          "name": "White step 2",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "label": "2",
+          "labelColor": "#111111"
+        },
+        {
+          "id": "numbered-circle/white-3",
+          "name": "White step 3",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "label": "3",
+          "labelColor": "#111111"
+        },
+        {
+          "id": "numbered-circle/white-4",
+          "name": "White step 4",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "label": "4",
+          "labelColor": "#111111"
+        },
+        {
+          "id": "numbered-circle/white-5",
+          "name": "White step 5",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "label": "5",
+          "labelColor": "#111111"
+        }
+      ],
+      "frame": "box",
+      "knobs": []
+    },
+    {
+      "id": "numbered-square",
+      "name": "Numbered square",
+      "category": "numbers",
+      "tags": [
+        "number",
+        "step",
+        "badge"
+      ],
+      "generator": "rect",
+      "knobs": [
+        {
+          "name": "cornerRadius",
+          "label": "Corners",
+          "min": 0,
+          "max": 50,
+          "default": 20,
+          "unit": "%",
+          "hint": "Corner radius, as a percent of the shorter side. 50 makes the ends fully round."
+        }
+      ],
+      "labelled": true,
+      "defaults": {
+        "width": 9,
+        "height": 9
+      },
+      "presets": [
+        {
+          "id": "numbered-square/red-1",
+          "name": "Red square step 1",
+          "fill": "#FF3B30",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "label": "1",
+          "labelColor": "#FFFFFF"
+        },
+        {
+          "id": "numbered-square/white-1",
+          "name": "White square step 1",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "label": "1",
+          "labelColor": "#111111"
+        }
+      ],
+      "frame": "box"
+    },
+    {
+      "id": "numbered-pill",
+      "name": "Numbered pill",
+      "category": "numbers",
+      "tags": [
+        "number",
+        "step",
+        "badge",
+        "label"
+      ],
+      "generator": "rect",
+      "knobs": [
+        {
+          "name": "cornerRadius",
+          "label": "Corners",
+          "min": 0,
+          "max": 50,
+          "default": 50,
+          "unit": "%",
+          "hint": "Corner radius, as a percent of the shorter side. 50 makes the ends fully round."
+        }
+      ],
+      "labelled": true,
+      "defaults": {
+        "width": 14,
+        "height": 8
+      },
+      "presets": [
+        {
+          "id": "numbered-pill/red-1",
+          "name": "Red pill step 1",
+          "fill": "#FF3B30",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "label": "1",
+          "labelColor": "#FFFFFF"
+        },
+        {
+          "id": "numbered-pill/white-1",
+          "name": "White pill step 1",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "label": "1",
+          "labelColor": "#111111"
+        }
+      ],
+      "frame": "box"
     }
   ]
 }

@@ -7,7 +7,13 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { SHAPE_CATALOG, SHAPE_PRESETS, shapePreset } from './shape-catalog.js';
+import {
+  FEATURED_SHAPE_PRESET_IDS,
+  SHAPE_CATALOG,
+  SHAPE_CATEGORIES,
+  SHAPE_PRESETS,
+  shapePreset,
+} from './shape-catalog.js';
 import {
   ShapeParamsSchema,
   presetShapeParams,
@@ -20,7 +26,7 @@ const arrow = presetShapeParams('line-arrow/red')!;
 
 describe('the shape catalogue', () => {
   it('ships the six screen-recording staples first', () => {
-    expect(SHAPE_PRESETS.map(({ preset }) => preset.name)).toEqual([
+    expect(SHAPE_PRESETS.slice(0, 6).map(({ preset }) => preset.name)).toEqual([
       'Highlight box',
       'Filled box',
       'Ellipse',
@@ -35,9 +41,38 @@ describe('the shape catalogue', () => {
     expect(new Set(ids).size).toBe(ids.length);
     const presetIds = SHAPE_PRESETS.map(({ preset }) => preset.id);
     expect(new Set(presetIds).size).toBe(presetIds.length);
+    // A tile's accessible name is "Add <preset name>": two alike would be one button to a reader.
+    const names = SHAPE_PRESETS.map(({ preset }) => preset.name);
+    expect(new Set(names).size).toBe(names.length);
     for (const { shape, preset } of SHAPE_PRESETS) {
       expect(preset.id.startsWith(`${shape.id}/`)).toBe(true);
     }
+  });
+
+  it('fills every category, gives every shape a preset, and declares the knobs its generator reads', () => {
+    const reads: Readonly<Record<string, readonly string[]>> = {
+      star: ['points', 'innerRadius'],
+      ring: ['thickness'],
+      bubble: ['cornerRadius', 'tailX', 'tailSize'],
+      corners: ['length'],
+    };
+    for (const category of SHAPE_CATEGORIES) {
+      expect(
+        SHAPE_CATALOG.some((shape) => shape.category === category),
+        category,
+      ).toBe(true);
+    }
+    for (const shape of SHAPE_CATALOG) {
+      expect(shape.presets.length, shape.id).toBeGreaterThan(0);
+      const knobs = shape.knobs.map((knob) => knob.name);
+      for (const name of reads[shape.generator] ?? []) expect(knobs, shape.id).toContain(name);
+      if (shape.generator === 'polygon') expect(shape.geometry?.sides, shape.id).toBeGreaterThan(2);
+      if (shape.generator === 'path') {
+        expect(shape.geometry?.path ?? shape.geometry?.icon, shape.id).toBeDefined();
+      }
+    }
+    expect(SHAPE_CATALOG.length).toBeGreaterThanOrEqual(100);
+    expect(SHAPE_PRESETS.length).toBeGreaterThanOrEqual(200);
   });
 
   it('declares knob defaults inside their own bounds', () => {
@@ -84,7 +119,9 @@ describe('the shape catalogue', () => {
         'utf8',
       ),
     ) as unknown;
-    expect(committed).toEqual(JSON.parse(JSON.stringify({ shapes: SHAPE_CATALOG })));
+    expect(committed).toEqual(
+      JSON.parse(JSON.stringify({ featured: FEATURED_SHAPE_PRESET_IDS, shapes: SHAPE_CATALOG })),
+    );
   });
 });
 

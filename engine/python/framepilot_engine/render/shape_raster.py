@@ -34,9 +34,13 @@ from framepilot_engine.render.shape_geometry import (
     Point,
     ResolvedShape,
     ShapeBounds,
+    Subpath,
     arrow_head_length,
     box_outline,
+    box_subpaths,
     resolve_shape,
+    segment_control,
+    segment_polyline,
     shape_bounds,
 )
 
@@ -76,10 +80,12 @@ class _Canvas:
         self.size = (bounds.width * scale, bounds.height * scale)
 
     def point(self, frame: Point) -> Point:
-        # Pillow's integer coordinates are pixel centres; frame coordinates are pixel edges.
+        # Unshifted: Pillow truncates a float coordinate and fills the pixel it lands in, so an
+        # edge at ``a`` fills from pixel ``floor(a)`` — on average centred where the geometry is.
+        # A half-pixel "centre" shift would bias every shape up and to the left.
         return (
-            (frame[0] - self.bounds.x) * self.scale - 0.5,
-            (frame[1] - self.bounds.y) * self.scale - 0.5,
+            (frame[0] - self.bounds.x) * self.scale,
+            (frame[1] - self.bounds.y) * self.scale,
         )
 
     def mask(self, draw: Callable[[ImageDraw.ImageDraw], None]) -> Mask:
@@ -145,8 +151,69 @@ def _stroke_path(canvas: _Canvas, path: Sequence[Point], width: float, style: st
     return canvas.mask(draw)
 
 
+def _filled(canvas: _Canvas, subpaths: Sequence[Subpath], even_odd: bool) -> Mask:
+    """The closed pieces filled: their union, or with even-odd holes (a ring, a frame)."""
+    mask: Mask | None = None
+    for points, closed in subpaths:
+        if not closed or len(points) < 3:
+            continue
+        piece = canvas.polygon(points)
+        if mask is None:
+            mask = piece
+        else:
+            mask = (
+                ImageChops.difference(mask, piece) if even_odd else ImageChops.lighter(mask, piece)
+            )
+    return mask if mask is not None else Image.new("L", canvas.size, 0)
+
+
+def _stroked(
+    canvas: _Canvas, subpaths: Sequence[Subpath], width: float, style: str, round_caps: bool
+) -> Mask:
+    """Every piece stroked along its centre line: round joins, and round or butt open ends."""
+    if style != "solid":
+        masks = [
+            _stroke_path(canvas, [*points, points[0]] if closed else list(points), width, style)
+            for points, closed in subpaths
+            if len(points) > 1
+        ]
+        mask = masks[0] if masks else Image.new("L", canvas.size, 0)
+        for other in masks[1:]:
+            mask = ImageChops.lighter(mask, other)
+        return mask
+    w = width * canvas.scale
+    line_width = max(1, round(w))
+
+    def draw(d: ImageDraw.ImageDraw) -> None:
+        for points, closed in subpaths:
+            if len(points) < 2:
+                continue
+            mapped = [canvas.point(p) for p in points]
+            if closed:
+                mapped.append(mapped[0])
+            d.line(mapped, fill=255, width=line_width, joint="curve")
+            ends = mapped[:1] if closed else [mapped[0], mapped[-1]]
+            if round_caps or closed:
+                for x, y in ends:
+                    d.ellipse((x - w / 2, y - w / 2, x + w / 2, y + w / 2), fill=255)
+
+    return canvas.mask(draw)
+
+
 def _box_masks(shape: ResolvedShape, canvas: _Canvas) -> tuple[Mask | None, Mask | None]:
     tolerance = FLATTEN_TOLERANCE / canvas.scale
+    if shape.descriptor.generator not in ("rect", "ellipse"):
+        # Every other generator is outline pieces: polygons, stars, rings, bubbles, corners and
+        # paths (icons among them), filled by their rule and stroked along their centre lines.
+        subpaths = box_subpaths(shape, tolerance)
+        geometry = shape.descriptor.geometry
+        even_odd = geometry.get("fillRule") == "evenodd"
+        fill_mask = _filled(canvas, subpaths, even_odd) if shape.fill is not None else None
+        if shape.stroke is None:
+            return fill_mask, None
+        style = str(shape.params.get("strokeStyle", "solid"))
+        round_caps = bool(geometry.get("roundCaps"))
+        return fill_mask, _stroked(canvas, subpaths, shape.stroke_width, style, round_caps)
     fill = canvas.polygon(box_outline(shape, 0.0, tolerance)) if shape.fill is not None else None
     if shape.stroke is None:
         return fill, None
@@ -168,8 +235,86 @@ def _box_masks(shape: ResolvedShape, canvas: _Canvas) -> tuple[Mask | None, Mask
     return fill, _stroke_path(canvas, [*outline, outline[0]], shape.stroke_width, style)
 
 
+def _unit(a: Point, b: Point) -> tuple[float, float]:
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length = math.hypot(dx, dy)
+    return (dx / length, dy / length) if length > 0 else (1.0, 0.0)
+
+
+def _curved_segment_mask(shape: ResolvedShape, canvas: _Canvas) -> Mask:
+    """A curved line or arrow: the flattened curve, with caps along its end tangents."""
+    polyline = segment_polyline(shape, FLATTEN_TOLERANCE / canvas.scale)
+    w = shape.stroke_width
+    head = arrow_head_length(shape)
+    start_cap = str(shape.params.get("startCap", "none"))
+    end_cap = str(shape.params.get("endCap", "none"))
+    style = str(shape.params.get("strokeStyle", "solid"))
+
+    def trimmed(points: list[Point], cut: float) -> list[Point]:
+        # Drop the first `cut` pixels of arc length, so a head's base meets the line.
+        remaining = cut
+        while len(points) > 2:
+            step = math.dist(points[0], points[1])
+            if step > remaining:
+                ux, uy = _unit(points[0], points[1])
+                return [(points[0][0] + ux * remaining, points[0][1] + uy * remaining), *points[1:]]
+            remaining -= step
+            points = points[1:]
+        return points
+
+    body = list(polyline)
+    if start_cap == "arrow":
+        body = trimmed(body, head * 0.9)
+    if end_cap == "arrow":
+        body = list(reversed(trimmed(list(reversed(body)), head * 0.9)))
+    line = _stroked(canvas, [(body, False)], w, style, round_caps=False)
+    start_dir = _unit(polyline[1], polyline[0])
+    end_dir = _unit(polyline[-2], polyline[-1])
+    caps = _caps_mask(
+        canvas,
+        shape,
+        ((start_cap, polyline[0], start_dir), (end_cap, polyline[-1], end_dir)),
+    )
+    return ImageChops.lighter(line, caps)
+
+
+def _caps_mask(
+    canvas: _Canvas,
+    shape: ResolvedShape,
+    caps: Sequence[tuple[str, Point, tuple[float, float]]],
+) -> Mask:
+    """Caps drawn at tips, each pointing along its outward direction."""
+    w = shape.stroke_width
+    head = arrow_head_length(shape)
+
+    def draw(d: ImageDraw.ImageDraw) -> None:
+        for cap, tip, (ux, uy) in caps:
+            if cap == "arrow":
+                base = (tip[0] - ux * head, tip[1] - uy * head)
+                half = head * ARROW_HALF_WIDTH
+                triangle = [
+                    tip,
+                    (base[0] - uy * half, base[1] + ux * half),
+                    (base[0] + uy * half, base[1] - ux * half),
+                ]
+                d.polygon([canvas.point(p) for p in triangle], fill=255)
+            elif cap == "dot":
+                cx, cy = canvas.point(tip)
+                r = DOT_RADIUS * w * canvas.scale
+                d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=255)
+            elif cap == "bar":
+                half = BAR_HALF_LENGTH * w
+                a = canvas.point((tip[0] - uy * half, tip[1] + ux * half))
+                b = canvas.point((tip[0] + uy * half, tip[1] - ux * half))
+                d.line([a, b], fill=255, width=max(1, round(w * canvas.scale)))
+
+    return canvas.mask(draw)
+
+
 def _segment_mask(shape: ResolvedShape, canvas: _Canvas) -> Mask:
     assert shape.ends is not None
+    if segment_control(shape) is not None:
+        return _curved_segment_mask(shape, canvas)
     start, end = shape.ends
     dx, dy = end[0] - start[0], end[1] - start[1]
     length = math.hypot(dx, dy)

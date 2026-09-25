@@ -169,6 +169,11 @@ def shape_bounds(
         assert shape.ends is not None
         (x1, y1), (x2, y2) = shape.ends
         left, top, right, bottom = min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)
+        # A curved segment stays inside the triangle of its ends and control point.
+        control = segment_control(shape)
+        if control is not None:
+            left, top = min(left, control[0]), min(top, control[1])
+            right, bottom = max(right, control[0]), max(bottom, control[1])
         reach = max(
             shape.stroke_width / 2,
             _cap_reach(shape, str(params.get("startCap", "none"))),
@@ -258,3 +263,185 @@ def box_outline(shape: ResolvedShape, grow: float, tolerance: float) -> list[Poi
     raise ValueError(
         f"Shape '{shape.descriptor.id}' has a generator this build cannot draw. Update FramePilot."
     )
+
+
+# --- the other generators (plan/elements EL5) --------------------------------------------------
+
+#: One outline piece in frame pixels, and whether it closes back on its start.
+Subpath = tuple[list[Point], bool]
+
+
+def _box_point(box: tuple[float, float, float, float], u: float, v: float) -> Point:
+    """A point given in percent (0-100) of ``box``."""
+    left, top, right, bottom = box
+    return (left + (right - left) * u / 100, top + (bottom - top) * v / 100)
+
+
+def regular_polygon(
+    box: tuple[float, float, float, float], sides: int, rotation_degrees: float
+) -> list[Point]:
+    """A regular polygon inscribed in the box's ellipse, first vertex at the top (plus rotation)."""
+    points = []
+    for i in range(sides):
+        angle = math.radians(rotation_degrees) - math.pi / 2 + 2 * math.pi * i / sides
+        points.append(_box_point(box, 50 + 50 * math.cos(angle), 50 + 50 * math.sin(angle)))
+    return points
+
+
+def star_points(
+    box: tuple[float, float, float, float], points: int, inner_percent: float
+) -> list[Point]:
+    """A star of ``points`` points, the inner vertices at ``inner_percent`` of the outer radius."""
+    outline = []
+    for i in range(points * 2):
+        radius = 50 if i % 2 == 0 else 50 * inner_percent / 100
+        angle = -math.pi / 2 + math.pi * i / points
+        outline.append(
+            _box_point(box, 50 + radius * math.cos(angle), 50 + radius * math.sin(angle))
+        )
+    return outline
+
+
+def _cubic(p0: Point, p1: Point, p2: Point, p3: Point, tolerance: float) -> list[Point]:
+    """Flatten a cubic Bezier (excluding its first point) so no chord strays past ``tolerance``."""
+    ddx = max(abs(p0[0] - 2 * p1[0] + p2[0]), abs(p1[0] - 2 * p2[0] + p3[0]))
+    ddy = max(abs(p0[1] - 2 * p1[1] + p2[1]), abs(p1[1] - 2 * p2[1] + p3[1]))
+    steps = max(1, min(256, math.ceil(math.sqrt(3 * math.hypot(ddx, ddy) / (4 * tolerance)))))
+    out = []
+    for i in range(1, steps + 1):
+        t = i / steps
+        mt = 1 - t
+        a, b, c, d = mt**3, 3 * mt * mt * t, 3 * mt * t * t, t**3
+        out.append(
+            (
+                a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0],
+                a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1],
+            )
+        )
+    return out
+
+
+def path_subpaths(
+    path: str, box: tuple[float, float, float, float], tolerance: float
+) -> list[Subpath]:
+    """A catalogue path (absolute ``M L C Z`` on a 0-100 box) mapped onto ``box`` and flattened."""
+    tokens = path.split()
+    subpaths: list[Subpath] = []
+    current: list[Point] = []
+    i = 0
+
+    def take_point() -> Point:
+        nonlocal i
+        point = _box_point(box, float(tokens[i]), float(tokens[i + 1]))
+        i += 2
+        return point
+
+    while i < len(tokens):
+        command = tokens[i]
+        i += 1
+        if command == "M":
+            if len(current) > 1:
+                subpaths.append((current, False))
+            current = [take_point()]
+        elif command == "L":
+            current.append(take_point())
+        elif command == "C":
+            c1, c2, end = take_point(), take_point(), take_point()
+            current.extend(_cubic(current[-1], c1, c2, end, tolerance))
+        elif command == "Z":
+            if len(current) > 1:
+                subpaths.append((current, True))
+            current = [current[0]] if current else []
+        else:
+            raise ValueError(
+                f"Shape path command '{command}' is not one this build reads. Update FramePilot."
+            )
+    if len(current) > 1:
+        subpaths.append((current, False))
+    return subpaths
+
+
+def box_subpaths(shape: ResolvedShape, tolerance: float) -> list[Subpath]:
+    """A box shape's outline pieces in frame pixels, for its generator."""
+    assert shape.box is not None
+    box = shape.box
+    left, top, right, bottom = box
+    short = min(right - left, bottom - top)
+    descriptor = shape.descriptor
+    geometry = descriptor.geometry
+    generator = descriptor.generator
+
+    def knob(name: str) -> float:
+        return knob_value(descriptor, shape.params, name)
+
+    if generator in ("rect", "ellipse"):
+        return [(box_outline(shape, 0.0, tolerance), True)]
+    if generator == "polygon":
+        sides = int(geometry.get("sides", 3))
+        rotation = float(geometry.get("rotation", 0))
+        return [(regular_polygon(box, sides, rotation), True)]
+    if generator == "star":
+        return [(star_points(box, round(knob("points")), knob("innerRadius")), True)]
+    if generator == "ring":
+        inset = short * knob("thickness") / 100
+        inner = (left + inset, top + inset, right - inset, bottom - inset)
+        if geometry.get("inner") == "ellipse":
+            pieces = [ellipse_outline(box, tolerance), ellipse_outline(inner, tolerance)]
+        else:
+            radius = short * knob("cornerRadius") / 100
+            pieces = [
+                rounded_rect_outline(box, radius, tolerance),
+                rounded_rect_outline(inner, max(0.0, radius - inset), tolerance),
+            ]
+        return [(piece, True) for piece in pieces if len(piece) > 2]
+    if generator == "bubble":
+        tail = (bottom - top) * knob("tailSize") / 100
+        body = (left, top, right, bottom - tail)
+        radius = min(right - left, bottom - tail - top) * knob("cornerRadius") / 100
+        tip_x = left + (right - left) * knob("tailX") / 100
+        base_half = max(4.0, (right - left) * 0.06)
+        base_x = min(max(tip_x, left + radius + base_half), right - radius - base_half)
+        tail_points = [
+            (base_x - base_half, bottom - tail - 1),
+            (tip_x, bottom),
+            (base_x + base_half, bottom - tail - 1),
+        ]
+        return [(rounded_rect_outline(body, radius, tolerance), True), (tail_points, True)]
+    if generator == "corners":
+        length = short * knob("length") / 100
+        return [
+            ([(left, top + length), (left, top), (left + length, top)], False),
+            ([(right - length, top), (right, top), (right, top + length)], False),
+            ([(right, bottom - length), (right, bottom), (right - length, bottom)], False),
+            ([(left + length, bottom), (left, bottom), (left, bottom - length)], False),
+        ]
+    if generator == "path":
+        return path_subpaths(str(geometry["path"]), box, tolerance)
+    raise ValueError(
+        f"Shape '{descriptor.id}' has a generator this build cannot draw. Update FramePilot."
+    )
+
+
+def segment_control(shape: ResolvedShape) -> Point | None:
+    """A curved segment's control point (quadratic), or ``None`` for a straight one."""
+    if shape.ends is None or shape.descriptor.knob("curvature") is None:
+        return None
+    (x1, y1), (x2, y2) = shape.ends
+    bend = knob_value(shape.descriptor, shape.params, "curvature") / 100
+    length = math.hypot(x2 - x1, y2 - y1)
+    if length == 0 or bend == 0:
+        return None
+    nx, ny = -(y2 - y1) / length, (x2 - x1) / length
+    return ((x1 + x2) / 2 + nx * bend * length / 2, (y1 + y2) / 2 + ny * bend * length / 2)
+
+
+def segment_polyline(shape: ResolvedShape, tolerance: float) -> list[Point]:
+    """A segment's centre line in frame pixels: straight, or the flattened quadratic curve."""
+    assert shape.ends is not None
+    start, end = shape.ends
+    control = segment_control(shape)
+    if control is None:
+        return [start, end]
+    c1 = (start[0] + 2 / 3 * (control[0] - start[0]), start[1] + 2 / 3 * (control[1] - start[1]))
+    c2 = (end[0] + 2 / 3 * (control[0] - end[0]), end[1] + 2 / 3 * (control[1] - end[1]))
+    return [start, *_cubic(start, c1, c2, end, tolerance)]

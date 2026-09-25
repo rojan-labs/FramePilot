@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 
 from framepilot_engine.render.shape_catalog import (
+    featured_shape_preset_ids,
     load_shape_catalog,
     preset_shape_params,
     shape_descriptor,
@@ -44,13 +45,11 @@ def test_the_packaged_catalogue_is_the_generated_one() -> None:
 
 def test_the_catalogue_loads_every_shape() -> None:
     catalog = load_shape_catalog()
-    assert set(catalog) == {
-        "rounded-rect",
-        "ellipse",
-        "marker-highlight",
-        "line-arrow",
-        "underline-marker",
-    }
+    # The EL4a staples keep their ids (persisted in projects); the catalogue grows around them.
+    assert {"rounded-rect", "ellipse", "marker-highlight", "line-arrow", "underline-marker"} <= set(
+        catalog
+    )
+    assert len(catalog) >= 100
     arrow = shape_descriptor("line-arrow")
     assert arrow is not None and arrow.frame == "segment"
     assert arrow.knob("headSize") is not None
@@ -115,5 +114,34 @@ def test_preset_params_are_the_typescript_ones(
 
 def test_preset_ids_list_every_preset_in_catalogue_order() -> None:
     assert shape_preset_ids()[:2] == ("rounded-rect/highlight", "rounded-rect/filled")
-    assert len(shape_preset_ids()) == 6
+    generated = json.loads(GENERATED.read_text(encoding="utf-8"))
+    assert shape_preset_ids() == tuple(
+        preset["id"] for shape in generated["shapes"] for preset in shape["presets"]
+    )
     assert preset_shape_params("nope/none") is None
+
+
+def test_the_featured_presets_are_the_screen_recording_staples() -> None:
+    assert featured_shape_preset_ids() == (
+        "rounded-rect/highlight",
+        "rounded-rect/filled",
+        "ellipse/outline",
+        "marker-highlight/yellow",
+        "line-arrow/red",
+        "underline-marker/yellow",
+    )
+
+
+def test_an_icon_id_is_its_own_preset_in_white() -> None:
+    assert preset_shape_params("icon/check", (20, 30)) == {
+        "shape": "icon/check",
+        "x": 20,
+        "y": 30,
+        "width": 24,
+        "height": 24,
+        "fill": None,
+        "stroke": "#FFFFFF",
+        "strokeWidth": 1,
+        "strokeStyle": "solid",
+    }
+    assert preset_shape_params("icon/not-an-icon") is None

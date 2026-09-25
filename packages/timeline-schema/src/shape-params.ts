@@ -22,7 +22,7 @@
  * the only rasteriser; the Python twin of this module is `render/shape_catalog.py`.
  */
 import { z } from 'zod/v4';
-import { SHAPE_CATALOG, shapePreset, type ShapeDescriptor } from './shape-catalog.js';
+import { catalogShape, shapePreset, type ShapeDescriptor } from './shape-catalog.js';
 
 /** The `Effect.type` a shape's params are stored under. */
 export const SHAPE_EFFECT_TYPE = 'shape';
@@ -112,9 +112,9 @@ function present(params: Readonly<Record<string, unknown>>, key: string): boolea
   return params[key] !== undefined && params[key] !== null;
 }
 
-/** The catalogue entry for `shapeId`, or `undefined`. */
+/** The catalogue entry (or `icon/<name>` icon) for `shapeId`, or `undefined`. */
 export function shapeDescriptor(shapeId: string): ShapeDescriptor | undefined {
-  return SHAPE_CATALOG.find((entry) => entry.id === shapeId);
+  return catalogShape(shapeId);
 }
 
 /**

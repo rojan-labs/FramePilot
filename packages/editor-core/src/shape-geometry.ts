@@ -55,6 +55,25 @@ function capReach(
   return strokeWidth / 2;
 }
 
+/**
+ * A curved segment's control point (quadratic) in frame pixels, or `null` for a straight one: the
+ * mid-point pushed along the normal by `curvature` percent of half the length. Mirrors the
+ * engine's `segment_control`.
+ */
+export function segmentControl(
+  descriptor: ShapeDescriptor,
+  params: Params,
+  ends: readonly [number, number, number, number],
+): readonly [number, number] | null {
+  if (!descriptor.knobs.some((knob) => knob.name === 'curvature')) return null;
+  const [x1, y1, x2, y2] = ends;
+  const bend = knobValue(descriptor, params, 'curvature') / 100;
+  const length = Math.hypot(x2 - x1, y2 - y1);
+  if (length === 0 || bend === 0) return null;
+  const [nx, ny] = [-(y2 - y1) / length, (x2 - x1) / length];
+  return [(x1 + x2) / 2 + (nx * bend * length) / 2, (y1 + y2) / 2 + (ny * bend * length) / 2];
+}
+
 /** How long an arrow cap is, in frame pixels (`headSize` × the stroke width). */
 export function arrowHeadLength(
   descriptor: ShapeDescriptor,
@@ -107,6 +126,12 @@ export function shapeBounds(
       Math.max(x1, x2),
       Math.max(y1, y2),
     ];
+    // A curved segment stays inside the triangle of its ends and control point.
+    const control = segmentControl(descriptor, params, [x1, y1, x2, y2]);
+    if (control !== null) {
+      [left, top] = [Math.min(left, control[0]), Math.min(top, control[1])];
+      [right, bottom] = [Math.max(right, control[0]), Math.max(bottom, control[1])];
+    }
     const reach = Math.max(
       strokeWidth / 2,
       capReach(descriptor, params, params.startCap ?? 'none', strokeWidth),

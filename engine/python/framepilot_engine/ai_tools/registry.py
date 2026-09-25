@@ -38,7 +38,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_valida
 
 from framepilot_engine.ai_tools.tool_descriptions_generated import TOOL_DESCRIPTIONS
 from framepilot_engine.render.caption_templates import load_catalog
-from framepilot_engine.render.shape_catalog import shape_preset_ids
+from framepilot_engine.render.shape_catalog import featured_shape_preset_ids
 from framepilot_engine.timeline.models import AudioRole, BlendMode, CaptionStyle, CropRect
 
 _log = logging.getLogger(__name__)
@@ -291,7 +291,7 @@ class _ShapeStyleArgs(BaseModel):
 class AddShapeArgs(_ShapeStyleArgs):
     """Place a shape preset (plan/elements EL4a); mirrors the TS ``add_shape`` schema."""
 
-    shape: str = Field(json_schema_extra={"enum": list(shape_preset_ids())})
+    shape: str = Field(json_schema_extra={"enum": list(featured_shape_preset_ids())})
     start: float = Field(ge=0.0)
     end: float = Field(ge=0.0)
     rotation: float | None = Field(default=None, ge=-360.0, le=360.0)
@@ -300,8 +300,10 @@ class AddShapeArgs(_ShapeStyleArgs):
     @field_validator("shape")
     @classmethod
     def _known_shape(cls, value: str) -> str:
-        if value not in shape_preset_ids():
-            raise ValueError(f"Unknown shape. Use one of: {', '.join(shape_preset_ids())}.")
+        if value not in featured_shape_preset_ids():
+            raise ValueError(
+                f"Unknown shape. Use one of: {', '.join(featured_shape_preset_ids())}."
+            )
         return value
 
 

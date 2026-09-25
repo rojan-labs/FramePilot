@@ -40,7 +40,7 @@ import { EFFECT_CATALOG, EFFECT_CATEGORIES } from '../dist/effect-catalog.js';
 import { EFFECT_PARAMS } from '../dist/effect-params.js';
 import { EDGE_STYLE_CATALOG, EDGE_STYLE_KINDS, EDGE_STYLE_PARAMS } from '../dist/edge-styles.js';
 import { TRANSITION_CATALOG, TRANSITION_CATEGORIES } from '../dist/transition-catalog.js';
-import { SHAPE_CATALOG } from '../dist/shape-catalog.js';
+import { FEATURED_SHAPE_PRESET_IDS, SHAPE_CATALOG } from '../dist/shape-catalog.js';
 import {
   TRANSITION_APPLY_PATH,
   TRANSITION_DIRECTIONS,
@@ -208,7 +208,7 @@ for (const outPath of transitionPaths) writeJson(outPath, transitions);
 //    shape from the SAME descriptor (generator, knob bounds and defaults) the Shapes tab and the
 //    AI tools publish. Drift is guarded by `shape-params.test.ts` (TS) and
 //    `test_shape_catalog.py` (engine).
-const shapes = { shapes: SHAPE_CATALOG };
+const shapes = { featured: FEATURED_SHAPE_PRESET_IDS, shapes: SHAPE_CATALOG };
 const shapePaths = [
   path.join(here, '..', 'schema', 'shape-catalog.json'),
   path.join(

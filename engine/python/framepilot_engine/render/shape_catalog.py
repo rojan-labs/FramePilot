@@ -15,7 +15,7 @@ import json
 import math
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
 from importlib import resources
 from typing import Any, Final, Literal
@@ -54,6 +54,8 @@ _LIMITS: Final[dict[str, tuple[float, float]]] = {
 }
 _OPTIONAL: Final = frozenset({*_BOX_KEYS, *_SEGMENT_KEYS, "fill", "stroke", "startCap", "endCap"})
 _PICK_ONE: Final = "Pick one with search_elements (kind: shape) or from the Shapes tab."
+#: Icons are shapes whose id is this prefix and a Lucide icon name (plan/elements EL5.5).
+ICON_PREFIX: Final = "icon/"
 
 
 @dataclass(frozen=True)
@@ -72,6 +74,8 @@ class ShapeDescriptor:
     frame: ShapeFrame
     generator: str
     knobs: tuple[ShapeKnob, ...]
+    #: Fixed generator settings (polygon sides, a path, the fill rule, ...); see the catalogue.
+    geometry: Mapping[str, Any] = field(default_factory=dict)
 
     def knob(self, name: str) -> ShapeKnob | None:
         return next((knob for knob in self.knobs if knob.name == name), None)
@@ -107,12 +111,51 @@ def load_shape_catalog() -> dict[str, ShapeDescriptor]:
             frame=entry["frame"],
             generator=entry["generator"],
             knobs=knobs,
+            geometry=_resolved_geometry(entry.get("geometry") or {}),
         )
     return catalog
 
 
+def _resolved_geometry(geometry: Mapping[str, Any]) -> dict[str, Any]:
+    """A catalogue shape's geometry with a Lucide ``icon`` reference swapped for its outline."""
+    icon = geometry.get("icon")
+    if not isinstance(icon, str):
+        return dict(geometry)
+    source = load_shape_icons().get(ICON_PREFIX + icon)
+    if source is None:  # pragma: no cover - guarded by test_shape_icons.py
+        raise ValueError(
+            f"shape_catalog.json draws the icon '{icon}', which shape_icons.json lacks. "
+            "Run scripts/elements/build_icons.mjs and schema:generate."
+        )
+    return {**source.geometry, **geometry}
+
+
+@cache
+def load_shape_icons() -> dict[str, ShapeDescriptor]:
+    """The Lucide icons as path shapes, keyed ``icon/<name>`` (``shape_icons.json``)."""
+    payload = (
+        resources.files("framepilot_engine.render")
+        .joinpath("shape_icons.json")
+        .read_text(encoding="utf-8")
+    )
+    icons = json.loads(payload)["icons"]
+    return {
+        icon["id"]: ShapeDescriptor(
+            id=icon["id"],
+            name=icon["name"],
+            frame="box",
+            generator="path",
+            knobs=(),
+            geometry={"path": icon["path"], "fillRule": "nonzero", "roundCaps": True},
+        )
+        for icon in icons
+    }
+
+
 def shape_descriptor(shape_id: str) -> ShapeDescriptor | None:
-    """The catalogue entry for ``shape_id``, or ``None``."""
+    """The catalogue entry for ``shape_id`` (a shape or an ``icon/`` shape), or ``None``."""
+    if shape_id.startswith(ICON_PREFIX):
+        return load_shape_icons().get(shape_id)
     return load_shape_catalog().get(shape_id)
 
 
@@ -261,8 +304,25 @@ def _raw_catalog() -> list[dict[str, Any]]:
 
 
 def shape_preset_ids() -> tuple[str, ...]:
-    """Every preset id, in catalogue order (what the agent's ``add_shape`` accepts)."""
+    """Every preset id, in catalogue order."""
     return tuple(preset["id"] for shape in _raw_catalog() for preset in shape["presets"])
+
+
+def featured_shape_preset_ids() -> tuple[str, ...]:
+    """The presets the Shapes tab opens on: the screen-recording staples, in order."""
+    payload = (
+        resources.files("framepilot_engine.render")
+        .joinpath("shape_catalog.json")
+        .read_text(encoding="utf-8")
+    )
+    return tuple(json.loads(payload)["featured"])
+
+
+#: The style an icon is inserted with: its outline in white, as Lucide draws it (TS
+#: ``ICON_PRESET_STYLE``).
+_ICON_STYLE: Final = {"fill": None, "stroke": "#FFFFFF", "strokeWidth": 1, "strokeStyle": "solid"}
+#: Where an icon lands when first placed, percent of the frame height (TS ``SQUARE``).
+_ICON_SIZE: Final = 24
 
 
 def preset_shape_params(
@@ -271,8 +331,21 @@ def preset_shape_params(
     """The complete params a preset is inserted with, centred on ``at`` (percent of each axis).
 
     The twin of TypeScript's ``presetShapeParams``: knobs take the preset's value, else the
-    descriptor's default, so a fresh shape states every number the engine draws it with.
+    descriptor's default, so a fresh shape states every number the engine draws it with. An icon's
+    id (``icon/<name>``) is its own preset: its outline in white.
     """
+    if preset_id.startswith(ICON_PREFIX):
+        if preset_id not in load_shape_icons():
+            return None
+        x, y = at
+        return {
+            "shape": preset_id,
+            "x": x,
+            "y": y,
+            "width": _ICON_SIZE,
+            "height": _ICON_SIZE,
+            **_ICON_STYLE,
+        }
     for shape in _raw_catalog():
         for preset in shape["presets"]:
             if preset["id"] != preset_id:

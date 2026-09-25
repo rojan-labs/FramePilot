@@ -643,6 +643,188 @@
         "cornerRadius": 12
       },
       "problem": "Shape parameter 'width' is out of range or the wrong type. A box size is a percent of the frame height, 0.1 to 400."
+    },
+    {
+      "name": "an icon",
+      "params": {
+        "shape": "icon/check",
+        "x": 70,
+        "y": 30,
+        "width": 24,
+        "height": 24,
+        "fill": null,
+        "stroke": "#FFFFFF",
+        "strokeWidth": 1,
+        "strokeStyle": "solid"
+      },
+      "problem": null
+    },
+    {
+      "name": "an unknown icon",
+      "params": {
+        "shape": "icon/not-an-icon",
+        "x": 50,
+        "y": 50,
+        "width": 24,
+        "height": 24,
+        "fill": null,
+        "stroke": "#FFFFFF",
+        "strokeWidth": 1,
+        "strokeStyle": "solid"
+      },
+      "problem": "There is no shape called 'icon/not-an-icon'. Pick one with search_elements (kind: shape) or from the Shapes tab."
+    },
+    {
+      "name": "a knob on an icon",
+      "params": {
+        "shape": "icon/check",
+        "x": 50,
+        "y": 50,
+        "width": 24,
+        "height": 24,
+        "fill": null,
+        "stroke": "#FFFFFF",
+        "strokeWidth": 1,
+        "strokeStyle": "solid",
+        "cornerRadius": 10
+      },
+      "problem": "Shape parameter 'cornerRadius' is not one this shape has. Its parameters are: shape, x, y, width, height, fill, stroke, strokeWidth, strokeStyle."
+    },
+    {
+      "name": "a star",
+      "params": {
+        "shape": "star-5",
+        "x": 50,
+        "y": 50,
+        "width": 24,
+        "height": 24,
+        "fill": "#FFFFFF",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "points": 5,
+        "innerRadius": 45
+      },
+      "problem": null
+    },
+    {
+      "name": "a star with too few points",
+      "params": {
+        "shape": "star-5",
+        "x": 50,
+        "y": 50,
+        "width": 24,
+        "height": 24,
+        "fill": "#FFFFFF",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "points": 2,
+        "innerRadius": 45
+      },
+      "problem": "points must be between 3 and 24."
+    },
+    {
+      "name": "a curved arrow bent the other way",
+      "params": {
+        "shape": "curved-arrow",
+        "x1": 38,
+        "y1": 38,
+        "x2": 50,
+        "y2": 50,
+        "fill": null,
+        "stroke": "#FF3B30",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "startCap": "none",
+        "endCap": "arrow",
+        "headSize": 4,
+        "curvature": -30
+      },
+      "problem": null
+    },
+    {
+      "name": "a curve too bent",
+      "params": {
+        "shape": "curved-arrow",
+        "x1": 38,
+        "y1": 38,
+        "x2": 50,
+        "y2": 50,
+        "fill": null,
+        "stroke": "#FF3B30",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "startCap": "none",
+        "endCap": "arrow",
+        "headSize": 4,
+        "curvature": 140
+      },
+      "problem": "curvature must be between -100 and 100."
+    },
+    {
+      "name": "a speech bubble with its tail right",
+      "params": {
+        "shape": "speech-bubble",
+        "x": 50,
+        "y": 50,
+        "width": 40,
+        "height": 30,
+        "fill": "#FFFFFF",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 25,
+        "tailX": 80,
+        "tailSize": 22
+      },
+      "problem": null
+    },
+    {
+      "name": "a ring",
+      "params": {
+        "shape": "spotlight-ring",
+        "x": 50,
+        "y": 50,
+        "width": 24,
+        "height": 24,
+        "fill": "#FFD400CC",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "thickness": 10
+      },
+      "problem": null
+    },
+    {
+      "name": "a path shape",
+      "params": {
+        "shape": "hand-drawn-circle",
+        "x": 50,
+        "y": 50,
+        "width": 36,
+        "height": 24,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 1,
+        "strokeStyle": "solid"
+      },
+      "problem": null
+    },
+    {
+      "name": "a catalogue icon shape",
+      "params": {
+        "shape": "check",
+        "x": 50,
+        "y": 50,
+        "width": 24,
+        "height": 24,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 1,
+        "strokeStyle": "solid"
+      },
+      "problem": null
     }
   ]
 }
