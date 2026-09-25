@@ -130,4 +130,98 @@ test.describe('channel strip: monitor worklet vs export filtergraph', () => {
     }
     expect(results.map((result) => result.name)).toEqual(vectors.cases.map((c) => c.name));
   });
+
+  test('the audio clock plays each clip’s mix at its place on the timeline', async ({ page }) => {
+    await page.goto('/src/preview/audio/channel-strip.ts');
+    const worst = await page.evaluate(async () => {
+      const load = new Function('path', 'return import(path)') as (
+        path: string,
+      ) => Promise<Record<string, unknown>>;
+      const { ProgramAudio } = (await load('/src/preview/audio/program-audio.ts')) as {
+        ProgramAudio: new (ctx: () => BaseAudioContext) => {
+          segmentsFrom(input: unknown, startSec: number): unknown[];
+        };
+      };
+      const { AudioMasterClock } = (await load('/src/preview/clock/audio-clock.ts')) as {
+        AudioMasterClock: new (ctx: BaseAudioContext) => {
+          scheduleSegments(segments: unknown[], mediaStartUs: number, leadSec: number): void;
+        };
+      };
+      const { clipMix } = (await load('/src/preview/audio/mix-envelope.ts')) as {
+        clipMix: (clip: unknown, tracks: unknown) => { gainAt(local: number): number };
+      };
+      const rate = 8000;
+      const seconds = 4;
+      const ctx = new OfflineAudioContext({
+        numberOfChannels: 1,
+        length: rate * seconds,
+        sampleRate: rate,
+      });
+      const level = 0.5;
+      const source = ctx.createBuffer(1, rate * seconds, rate);
+      source.getChannelData(0).fill(level);
+      const shot = {
+        id: 'shot',
+        assetId: 'cam',
+        trackId: 'v',
+        start: 0.5,
+        end: 3.5,
+        sourceStart: 0,
+        sourceEnd: 3,
+        keyframes: [],
+        effects: [
+          {
+            id: 'mix',
+            type: 'audio_gain',
+            keyframes: [],
+            params: {
+              gainDb: -3,
+              fadeInSeconds: 0.5,
+              fadeOutSeconds: 1,
+              fadeCurve: 'equal-power',
+              duckUnderTrackId: 'vo',
+              duckAmountDb: -12,
+            },
+          },
+        ],
+      };
+      const line = {
+        ...shot,
+        id: 'line',
+        assetId: 'narration',
+        trackId: 'vo',
+        start: 1.5,
+        end: 2,
+        effects: [],
+      };
+      const timeline = {
+        tracks: [
+          { id: 'v', type: 'video', clips: [shot] },
+          { id: 'vo', type: 'audio', clips: [line] },
+        ],
+      };
+      const planned = new ProgramAudio(() => ctx).segmentsFrom(
+        {
+          timeline,
+          kindOf: (clip: { assetId: string }) => (clip.assetId === 'cam' ? 'video' : 'audio'),
+          mutedTrackIds: new Set(),
+          footage: () => ({ buffer: source, frameRate: 30 }),
+        },
+        0,
+      );
+      new AudioMasterClock(ctx).scheduleSegments(planned, 0, 0);
+      const rendered = (await ctx.startRendering()).getChannelData(0);
+      const mix = clipMix(shot, timeline.tracks);
+      let error = 0;
+      for (let n = 0; n < rendered.length; n += 7) {
+        const t = n / rate;
+        const expected = t >= shot.start && t < shot.end ? level * mix.gainAt(t - shot.start) : 0;
+        error = Math.max(error, Math.abs(rendered[n]! - expected));
+      }
+      return error;
+    });
+    // A 1 ms value curve against the exact envelope, in float32: 1e-3 is -60 dBFS of a
+    // -6 dBFS signal. A curve placed one lead (50 ms) late misses by 0.1 on the fade.
+    expect(worst).toBeLessThanOrEqual(1e-3);
+  });
 });
