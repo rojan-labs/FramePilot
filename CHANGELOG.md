@@ -17,6 +17,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Shapes, in Elements.** A new **Shapes** sub-tab adds the six callouts a screen recording or
+  a product demo needs: a highlight box, a filled box, an ellipse, a translucent marker, an arrow
+  and an underline. Click one to drop it at the playhead; drag it on the monitor to move or resize
+  it, or drag an arrow's tip onto what it points at; style its fill, stroke, corners and arrow
+  head in the Inspector. The assistant can add and restyle them too ("box the Export button when
+  I say export"). What the monitor shows is what the export draws. Projects with shapes use
+  project format 25, which older versions refuse to open rather than lose the shapes.
+
 - **The caption check counts rows.** Checking whether captions read now also reports, for every
   caption, how many rows it wraps to and whether any is wider than the frame. When you ask for "no
   more than two lines", the assistant can check every caption, not just the two it looked at.
