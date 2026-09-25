@@ -134,6 +134,16 @@ the three runs before it (`0d7d679f`, `1292449c`, `0e12b96e`). Every defect was 
   REFERENCE measurement on SwiftShader Subzero — Chromium's own `<video>` → texture conversion,
   which the monitor does not use (its `canvas2d` path passes every encoding on every renderer).
 - [x] **EQ16** Closed by EQ29 (captions above the effect stage in the layer compositor).
+- [x] **EQ30** EQ29 for sound (ADR 0188). The layered monitor, now the default everywhere, played
+  footage flat: a muted clip still spoke, fades and ducks did nothing, solo did not silence the
+  rest, reversed/ramped clips were silent; audio clips drifted on their own `<audio>` clocks and
+  ignored speed; no preview path ran normalize, EQ or compression, or automation lanes in the
+  layered path. Now every clip plays on the engine's audio clock through the export's mix
+  (`preview/audio/`): envelope and time maps held to `_apply_audio_effects`/`_apply_speed` by
+  `envelopes.json` (1e-9), the channel strip held to ffmpeg by `strips.json` (designs 1e-9,
+  signal 1e-4) in Node and, as the shipped AudioWorklet, in Chromium (`audio-strip-parity`).
+  Not mirrored: the export dialog's master-bus options (loudness, limiter, denoise, master EQ and
+  compression), which are delivery settings the monitor does not know.
 
 **Status snapshot (2026-09-21, BACKGROUND-REMOVAL speed — `plan/background-removal-ai/13-SPEED-AND-PRODUCTION-READINESS.md`):**
 a maintainer's 52 s 1080p clip ran _Remove background_ for 5+ hours without finishing a step. Not a
