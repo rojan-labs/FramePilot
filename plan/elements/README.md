@@ -66,7 +66,7 @@ finish-before-expand rule: every category ships as a complete vertical slice (en
 
 Shapes are the category with the strongest pull from the product's own niche. Highlight boxes,
 arrows, circles and underlines over a screen recording are the most common graphic in a SaaS demo
-or tutorial, and today FramePilot cannot draw one (`OverlaysPanel.tsx:46-51` scaffolds a disabled
+or tutorial, and today FramePilot cannot draw one (`OverlaysPanel.tsx:48-53` scaffolds a disabled
 "Shape" type).
 
 ### D3 — Every element is an ordinary edit
@@ -83,24 +83,30 @@ They sit on graphics lanes in front of the footage. This became honest on 2026-0
 monitor composites every timeline in every build (ADR 0180 amendment; `compositor-flag.ts`
 defaults to `layers`; PX4 oracle 72/72). The cutaway-only rule for stock (ADR 0140) and the agent's
 refusal of scaled or positioned picture overlays (ADR 0169/0170, `picture-layers.ts`) were both
-justified by the old flat monitor; this plan revisits both (EL8, EL9).
+justified by the old flat monitor. Element assets never go through that cutaway placer: stickers
+are placed on overlay lanes by their own builder, and `add_clip` of an element asset delegates to it
+(EL6a, 07 §4). Manual picture-in-picture for Pexels media is EL9.
 
 ### D5 — Parity by construction
 
 Shapes are rasterised by the engine (Pillow) for the export **and** for the desktop monitor, through
 the same raster route the monitor already uses for text (`POST /preview/text-raster`, PX2.3). The
-browser build falls back to a canvas rasteriser and says "Preview approximate", exactly as titles
-do (ADR 0180 decision 4). Stickers are files that both runtimes decode. New PX4 oracle rows prove
-it.
+engine is the **only** shape rasteriser; TypeScript draws shapes only as SVG panel tiles. A browser
+fallback ("Preview approximate", as titles have under ADR 0180 decision 4) is deferred to EL11 —
+desktop first. Stickers are files that both runtimes decode. New PX4 oracle rows prove it.
 
 ### D6 — Fix the picture pipeline for stills and graphics first
 
 Verified on `98ea829a` (00 §3): a still image and a text overlay ignore **opacity keyframes and
 transitions** at export _and_ in both frame plans (`frame_plan.py:21-23` documents it as a
 "quirk"; `frame-plan.ts:914` "The export places a still without its crop, mask, opacity or
-transition"). CapCut-style In/Out/Loop animation of a sticker or shape is impossible until that is
-fixed, and the Inspector's opacity control on a photo does nothing today. Phase EL2 fixes it before
-any new element type lands.
+transition"). Three live consequences: the Inspector's opacity control on a photo does nothing; a
+title's In/Out control does nothing on the desktop monitor or in the export (G6); and a landscape
+photo the agent places in a portrait project gets a cover crop (`autoReframeCrop`) that neither the
+monitor nor the export applies, while the coverage check believes it (G11). CapCut-style
+In/Out/Loop animation of a sticker or shape is impossible until this is fixed. **EL2a** fixes the
+opacity, fade, crop and title-animation half before any new element type lands; **EL2b** (masks,
+edge styles, geometry transitions for stills) lands with its first consumer.
 
 ### D7 — Rename what people see; never rename what projects store
 
@@ -113,10 +119,11 @@ is aliased to `'elements'`. Full matrix: [`08-RENAME-MATRIX.md`](./08-RENAME-MAT
 
 ### D8 — Sticker library: Fluent Emoji (MIT) core; animated stickers are an optional later pack
 
-- **Core (bundled, offline):** Microsoft Fluent Emoji, MIT licence, 1,595 emoji at upstream commit
+- **Core (offline):** Microsoft Fluent Emoji, MIT licence, 1,595 emoji at upstream commit
   `1ffb34c752ec` (2026-08-24), 3D style (256 px PNG upstream; 19.6 KB average as lossless WebP,
-  measured). Per-emoji `metadata.json` supplies CLDR name, group and keywords, which is a ready-made
-  search index.
+  measured). A curated ~200 are committed and ship in every build (EL6a); the full set is fetched
+  from the pinned commit when the desktop app is packaged (EL6b). Per-emoji `metadata.json` supplies
+  CLDR name, group and keywords, which is a ready-made search index.
 - **Animated (optional, later, EL10):** Google Noto Animated Emoji, **CC BY 4.0** (attribution
   required), 881 items, 512 px animated WebP (~370 KB each, measured). The engine's Pillow already
   decodes them (48 frames RGBA, verified). Carried as required credits through `Asset.source`
@@ -128,20 +135,24 @@ is aliased to `'elements'`. Full matrix: [`08-RENAME-MATRIX.md`](./08-RENAME-MAT
 
 A shape is a catalogue entry (`shape-catalog.json` in `timeline-schema`, mirrored into the engine
 with a drift test, the caption-template pattern) that resolves to a normalised vector path plus a
-style. One rasteriser draws all of them. The same primitive later draws line icons (Lucide, ISC,
-already a dependency) with no new renderer.
+style. One rasteriser — the engine's — draws all of them; the frame plans carry a shape's bounds
+computed from its parameters, so no second geometry implementation has to agree with the first to
+the pixel. The same primitive later draws line icons (Lucide, ISC, already a dependency) with no
+new renderer.
 
 ### Open maintainer decisions
 
-| Id        | Decision                                                                                                                    | Recommendation                                                                                             | Needed before |
-| --------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------- |
-| **MD-E1** | Bundle ~33 MB of sticker content in the installer (Fluent 3D lossless WebP ≈ 30 MB + thumbnails ≈ 3 MB)                     | **Yes** — offline, instant, like the 25 MB of caption fonts already bundled                                | EL6           |
-| **MD-E2** | Store the generated sticker files in git, or fetch them at build time from the pinned upstream commit with SHA-256 pins     | **Fetch at build** (repo pack is 80 MB; stickers would add ~40%); commit only the catalogue and thumbnails | EL6           |
-| **MD-E3** | Ship Noto Animated Emoji (CC BY 4.0, credit required in the video description) as a downloadable pack                       | **Yes, as EL10**, after a licence read (same class of question as MO-6/MO-11)                              | EL10          |
-| **MD-E4** | Let the agent place stickers and shapes over footage (an exemption from the ADR 0169 coverage refusal for element overlays) | **Yes** — the refusal's premise (the flat monitor) is gone                                                 | EL8           |
-| **MD-E5** | Relax the cutaway-only placement of Pexels photos/videos for **manual** placement (picture-in-picture from the panel)       | **Yes, manual only first**; the agent keeps cutaway-first until measured                                   | EL9           |
-| **MD-E6** | Schema v25 (a forward-safety bump for shape clips)                                                                          | **Yes** — an older build must refuse a project with shapes, not render it without them                     | EL4           |
-| **MD-E7** | Left-rail order: Elements moves to second, after Assets (CapCut's order)                                                    | **Yes**                                                                                                    | EL1           |
+| Id        | Decision                                                                                                                               | Recommendation                                                                                                                                   | Needed before |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------- |
+| **MD-E7** | Left-rail order: Elements moves to second, after Assets (CapCut's order)                                                               | **Yes**                                                                                                                                          | EL1           |
+| **MD-E6** | Schema v25 (a forward-safety bump for shape clips)                                                                                     | **Yes** — an older build must refuse a project with shapes, not render it without them                                                           | EL4a          |
+| **MD-E4** | The agent may place stickers over footage (ADR "An element is an overlay"); element assets never go through the footage cutaway placer | **Yes** — the flat-monitor premise of the coverage refusal is gone, and routing a sticker through it produces a cover-cropped full-frame cutaway | EL6a          |
+| **MD-E2** | Commit the curated ~200 stickers (≈ 4 MB) and all thumbnails (≈ 3 MB); never commit the full set                                       | **Yes** — the repo pack is 80 MB; the full set would add ~40%                                                                                    | EL6a          |
+| **MD-E1** | Ship the full 1,595-sticker set in the **desktop installer** (≈ 31 MB, fetched from the pinned commit at packaging)                    | **Yes** — offline and instant, like the 25 MB of caption fonts already bundled                                                                   | EL6b          |
+| **MD-E5** | Relax the cutaway-only placement of Pexels photos/videos for **manual** placement (picture-in-picture from the panel)                  | **Yes, manual only first**; the agent keeps cutaway-first until measured                                                                         | EL9           |
+| **MD-E3** | Ship Noto Animated Emoji (CC BY 4.0, credit required in the video description) as on-demand downloads                                  | **Yes, as EL10**, after a licence read (same class of question as MO-6/MO-11)                                                                    | EL10          |
+
+Each is asked when its phase is next, not all at once (EL0.1).
 
 ---
 
@@ -157,15 +168,21 @@ type is a disabled scaffold). Stickers: **possible only by hand-importing a PNG*
 fit-to-frame as a cutaway, cannot fade (D6), and has no library. Photos/videos: **work**, but the
 panel is a single mixed list behind a kind dropdown and placement is cutaway-only.
 
-**Minimum vertical slice.** EL1 (rename, no behaviour change) is the first shippable step and is
-small. The first _capability_ slice is **EL2 + EL4**: stills/text honour opacity and transitions,
-then one Shapes sub-tab with the basic, arrow, line and highlight shapes, placed, edited, previewed,
-exported and undone. Stickers (EL6) follow on the same foundation.
+**Minimum vertical slice** (adopted from the scope review, §7). EL1 (the rename, no behaviour
+change) runs in parallel. The first capability slice is **EL2a → EL3 → EL4a**: stills and titles
+honour opacity, fades, crop and their own alpha; one helper per runtime owns synthetic asset ids and
+clip kind; then, on desktop, **six shapes** — highlight box, filled box, ellipse, marker, arrow,
+underline — added at the playhead, styled in the Inspector, moved and resized with box and endpoint
+handles, exported and undone in one step, and placeable by the agent through `add_shape` /
+`set_shape_style`; proven by four oracle rows, one evaluation case with a measured hit rate, and one
+desktop run on a real screen recording. Stickers start at EL6a (a curated ~200) on the same
+foundation.
 
 **Reuse.** Pexels service, quota, key custody and provenance (unchanged); `add_text_overlay`'s
 synthetic-clip pattern for shapes; the engine text-raster route for shape rasters; the layer
 compositor and PX4 oracle; `add_layer_transition` and the transition catalogue for In/Out
-animation; `track-follow.ts` for stickers that follow a subject; `@tanstack/react-virtual` for the
+animation; the `track-follow.ts` keyframe-planning pattern for loops, and `track-follow.ts` itself
+for stickers that follow a subject; `@tanstack/react-virtual` for the
 grid; the lane allocator; `create_folder`; `Asset.source` and the Credits view; the stock download
 path (temp → atomic rename, size cap, stall timeout, cancel, progress registry) for the optional
 per-sticker animated downloads.
@@ -227,24 +244,26 @@ like `add_stock`) and `add_shape` (pure patch), in a new `elements` tool domain 
 
 Full tasks, files, tests and DoD in [`09-PHASES.md`](./09-PHASES.md).
 
-| Phase    | Ships                                                                                                                                                                                                                                                                     | Depends on               |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
-| **EL0**  | Decisions answered, three spikes (shape raster parity, animated WebP parity, library build dry run), product-scope review                                                                                                                                                 | —                        |
-| **EL1**  | Stock → **Elements** rename; Photos and Videos as sub-tabs; alias of the saved tab; docs and copy                                                                                                                                                                         | EL0 (MD-E7)              |
-| **EL2**  | Stills and text honour opacity keyframes, In/Out transitions, crop and masks, in both frame plans, the monitor and the export                                                                                                                                             | EL0                      |
-| **EL3**  | One clip-kind function per runtime (replaces six copies)                                                                                                                                                                                                                  | —                        |
-| **EL4**  | **Shapes, first slice, complete**: schema v25, `add_shape`, engine rasteriser, raster route, Shapes sub-tab (~40 shapes), Inspector, on-canvas handles, export, undo — **and** the agent's `search_elements` / `add_shape` / `set_shape_style` in a new `elements` domain | EL2, EL3, MD-E6          |
-| **EL5**  | Shapes breadth: the full catalogue (~105 shapes / ~200 presets), dashes and caps, numbered badges, ~1,600 line icons                                                                                                                                                      | EL4                      |
-| **EL6**  | **Stickers, first slice, complete**: library build, bundle, `elements:materialize`, Stickers sub-tab (1,595 stickers), placement, Inspector, credits — **and** the agent's `add_sticker` with the overlay placement policy                                                | EL2, MD-E1, MD-E2, MD-E4 |
-| **EL7**  | Animation: In / Out (layer transitions) and Loop (new declarative `loop_motion`) for stickers, shapes and titles; `set_element_animation`                                                                                                                                 | EL2, EL4 or EL6          |
-| **EL8**  | Agent quality: critic checks, compact digest, skill craft pass, evaluation cases, MCP verification (+ optional MCP sticker materialiser)                                                                                                                                  | EL4, EL6                 |
-| **EL9**  | Photos/Videos upgrades: category chips, orientation filter, drag to timeline, manual picture-in-picture                                                                                                                                                                   | EL1, MD-E5               |
-| **EL10** | Animated stickers (optional pack): on-demand download, animated decode in both runtimes, required credits                                                                                                                                                                 | EL6, EL7, MD-E3          |
-| **EL11** | Favourites and recents, skin tones, "Add as sticker" for your own PNGs, stickers that follow a subject                                                                                                                                                                    | EL6                      |
-| **EL12** | Docs, both changelogs, release notes, desktop evidence runs, close-out                                                                                                                                                                                                    | all shipped phases       |
+| Phase    | Ships                                                                                                                                                    | Depends on         |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| **EL0**  | MD-E6 and MD-E7 answered; shape-raster spike; the scope review (done)                                                                                    | —                  |
+| **EL1**  | Stock → **Elements** rename; Photos and Videos as sub-tabs; alias of the saved tab; docs and copy                                                        | MD-E7              |
+| **EL2a** | Stills and titles honour opacity keyframes, fades, crop and their own alpha; titles' In/Out presets render (fixes G1, G6, G11)                           | —                  |
+| **EL2b** | Masks, edge styles and geometry transitions for stills and titles — with their first consumers (EL6b, EL7)                                               | EL2a               |
+| **EL3**  | One definition of synthetic asset ids and clip kind per runtime (replaces 17 modules' comparisons) + guard tests                                         | —                  |
+| **EL4a** | **Shapes minimum slice, complete** (desktop): six shapes, Inspector, box/endpoint handles, export, undo, `add_shape` / `set_shape_style`, one eval case  | EL2a, EL3, MD-E6   |
+| **EL5**  | Shapes breadth: ~105 shapes / ~200 presets, chips, search, colour row, drag, clip glyph, dashes and caps, numbered badges, ~1,600 icons                  | EL4a               |
+| **EL6a** | **Stickers minimum slice, complete**: curated ~200, materialise IPC, Stickers tab, Replace, credits, `add_sticker`, `add_clip` delegation, one eval case | EL2a, MD-E2, MD-E4 |
+| **EL6b** | The full 1,595 in the desktop installer, virtualised grid, collections, outline and shadow                                                               | EL6a, EL2b, MD-E1  |
+| **EL7**  | Animation: In/Out (layer transitions) and Loop (keyframes from a builder) for stickers, shapes and titles; `set_element_animation`                       | EL2b, EL4a or EL6a |
+| **EL8**  | Agent quality: critic checks, compact digest, skill craft pass, remaining eval cases, MCP verification (+ optional MCP sticker materialiser)             | EL4a, EL6a         |
+| **EL9**  | Photos/Videos upgrades: category chips, orientation filter, drag to timeline, manual picture-in-picture                                                  | EL1, MD-E5         |
+| **EL10** | Animated stickers (optional): on-demand download, animated decode in both runtimes, required credits                                                     | EL6a, EL7, MD-E3   |
+| **EL11** | Favourites and recents, skin tones, "Add as sticker", drop on the monitor, follow subject, the browser build                                             | EL6a               |
+| **EL12** | Docs, both changelogs, release notes, remaining desktop evidence runs, close-out                                                                         | shipped phases     |
 
-**First executable slice:** EL1 (small, independent) and EL2 (engine, fixes a live bug in photos
-and titles). **First new capability:** EL4 Shapes.
+**First executable slice:** EL1 (small, independent) and EL2a (engine; fixes three live bugs in
+photos and titles). **First new capability:** EL4a — six shapes, end to end.
 
 ---
 
@@ -267,26 +286,48 @@ The programme is done when all of the following hold on a desktop build, with ev
 
 ## 6. Ledger
 
-| Phase | Status | Notes                                           |
-| ----- | ------ | ----------------------------------------------- |
-| EL0   | `[ ]`  |                                                 |
-| EL1   | `[ ]`  |                                                 |
-| EL2   | `[ ]`  | Gap reproduced 2026-09-26 on `98ea829a` (00 §3) |
-| EL3   | `[ ]`  |                                                 |
-| EL4   | `[ ]`  |                                                 |
-| EL5   | `[ ]`  |                                                 |
-| EL6   | `[ ]`  |                                                 |
-| EL7   | `[ ]`  |                                                 |
-| EL8   | `[ ]`  |                                                 |
-| EL9   | `[ ]`  |                                                 |
-| EL10  | `[ ]`  | Optional; gated on MD-E3                        |
-| EL11  | `[ ]`  |                                                 |
-| EL12  | `[ ]`  |                                                 |
+| Phase | Status | Notes                                                                  |
+| ----- | ------ | ---------------------------------------------------------------------- |
+| EL0   | `[~]`  | Scope review done 2026-09-26 (§7); MD-E6, MD-E7 and spike A open       |
+| EL1   | `[ ]`  |                                                                        |
+| EL2a  | `[ ]`  | G1 reproduced 2026-09-26 on `98ea829a`; G6 and G11 found by the review |
+| EL2b  | `[ ]`  | Lands with EL6b / EL7                                                  |
+| EL3   | `[ ]`  |                                                                        |
+| EL4a  | `[ ]`  |                                                                        |
+| EL5   | `[ ]`  |                                                                        |
+| EL6a  | `[ ]`  |                                                                        |
+| EL6b  | `[ ]`  |                                                                        |
+| EL7   | `[ ]`  |                                                                        |
+| EL8   | `[ ]`  |                                                                        |
+| EL9   | `[ ]`  |                                                                        |
+| EL10  | `[ ]`  | Optional; gated on MD-E3                                               |
+| EL11  | `[ ]`  |                                                                        |
+| EL12  | `[ ]`  |                                                                        |
 
 ---
 
 ## 7. Product-scope review
 
-_Filled in below after the review runs (§2 "Product-scope review")._
+Run 2026-09-26 by the `product-scope-reviewer` against this plan, `product-discipline.mdc`,
+`AGENTS.md` and `CLAUDE.md`, with D1 (the maintainer's breadth decision) taken as given.
+
+**Verdict: SHRINK** — keep the programme, shrink the slices. Every finding was checked against the
+code before it was adopted; all of the following were confirmed and are now in the plan:
+
+| #   | Finding                                                                                                                                                                                                                                                                                             | Adopted as                                                                                                                                                                                    |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | EL4 (~40 shapes, full panel, two handle systems, browser fallback, three tools, MCP) was too big for a first slice                                                                                                                                                                                  | **EL4a**: six shapes on desktop, as a four-PR stack; the rest moved to EL5                                                                                                                    |
+| 2   | Proof of the agent path waited for EL8                                                                                                                                                                                                                                                              | One evaluation case in each category's DoD (EL4a, EL6a, EL7). Grounding is the model reading `get_frame`, reported as a measured hit rate, because automatic UI grounding is deferred (11 §2) |
+| 3   | Synthetic ids are compared in **17** modules, not six; `critic.ts:189` and `mission-rubric.ts:230` would count every shape as a missing asset; `frame_plan.py:87` / `frame-plan.ts:447` would call `__shape__` a video                                                                              | **EL3** widened to synthetic asset ids + clip kind, with a guard test per runtime (00 G4)                                                                                                     |
+| 4   | A 1e-6 TS↔Python geometry fixture had no consumer once the engine is the only rasteriser                                                                                                                                                                                                            | Dropped; frame-plan bounds come from params; TS geometry is UI-only; the browser fallback is deferred to EL11                                                                                 |
+| 5   | EL2 bundled unrelated stages, and missed a live crop bug (G11) and that title In/Out does nothing on desktop (G6)                                                                                                                                                                                   | **EL2a** (opacity, fades, own alpha, still crop, title In/Out) now; **EL2b** (masks, edge styles, geometry transitions) with its first consumers                                              |
+| 6   | `loop_motion` + schema v26 had no need a keyframe builder cannot meet                                                                                                                                                                                                                               | Loops are keyframes from `editor-core` (the `track-follow.ts` pattern); `drawOn` deferred; schema v26 is now only EL10's `AssetMedia.animation`                                               |
+| 7   | EL0 held spikes for optional phases and asked every MD up front                                                                                                                                                                                                                                     | Spike B moved to EL10, spike C into EL6a.1; each MD is asked when its phase is next                                                                                                           |
+| 8   | MD-E4 sat in two phases, and its mechanics were wrong: `createPicturePlacer` is reached only from `add_clip`, `add_clips`, `move_clip` and the `add_stock` path; overlay lanes are skipped (`carriesPicture`); the real trap is `add_clip` of a sticker becoming a cover-cropped full-frame cutaway | MD-E4 is needed before EL6a; `add_sticker` never uses the stock placement path; `add_clip` / `add_clips` / `move_clip` of an element asset delegate to the sticker builder (07 §3–4)          |
+| 9   | Fetching all 1,595 stickers in `web-editor#build` ties the web build to a network fetch                                                                                                                                                                                                             | A committed curated ~200 (≈ 4 MB) first (EL6a); the full set is fetched when the desktop app is packaged (EL6b)                                                                               |
+
+Factual corrections made: the raster route's line numbers (`service.py:1211, 6771`), D2's
+`OverlaysPanel.tsx:48-53`, 00 G4's function name (`clipKindOf`), 00 G6 (the control does nothing on
+desktop — it is not "preview-only"), and 04 §2.5's "one-line change" (true only after EL3).
 
 **Last updated:** 2026-09-26

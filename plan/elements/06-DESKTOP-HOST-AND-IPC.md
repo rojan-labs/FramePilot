@@ -53,7 +53,7 @@ Error union (`ElementErrorCode`, closed, each with one user sentence — 02 §8)
 
 | Channel                                 | Direction       | Payload                                                                             | Phase |
 | --------------------------------------- | --------------- | ----------------------------------------------------------------------------------- | ----- |
-| `framepilot:elements:materialize`       | invoke          | `{ projectId, elementId }` → `{ ok: true, asset } \| { ok: false, error, detail? }` | EL6   |
+| `framepilot:elements:materialize`       | invoke          | `{ projectId, elementId }` → `{ ok: true, asset } \| { ok: false, error, detail? }` | EL6a  |
 | `framepilot:elements:download-progress` | main → renderer | `{ operationId, elementId, percent, state }`                                        | EL10  |
 | `framepilot:elements:download-cancel`   | send            | `operationId`                                                                       | EL10  |
 
@@ -84,28 +84,27 @@ Wired in `main.ts` beside `createStockHost`. `add_shape` needs no host.
 
 ## 4. Where the sticker files live, and packaging
 
-**One location for both builds:** `apps/web-editor/public/elements/stickers/`
-(`thumbs/` committed; `full/` produced by `pnpm elements:build`, git-ignored — MD-E2). Vite copies
-`public/` into the renderer output, which electron-builder already packages (`files: renderer/**`,
-`electron-builder.yml:22-24`) — so the packaged app has them inside `app.asar/renderer/elements/`,
-which Electron's `fs` reads transparently.
+Two locations, because two sets ship differently (03 §3, MD-E1, MD-E2):
 
-`elementsRoot()` (one function, tested):
+| Set                                 | Where                                       | How it gets there                                                                                                                                                                                                                         |
+| ----------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Curated ~200** (+ all thumbnails) | `apps/web-editor/public/elements/stickers/` | committed; Vite copies `public/` into the renderer output, which electron-builder already packages (`files: renderer/**`, `electron-builder.yml:22-24`) — inside `app.asar/renderer/elements/`, which Electron's `fs` reads transparently |
+| **The other ~1,395** (EL6b)         | `<resources>/elements/stickers/full/`       | fetched from the pinned upstream commit by the **desktop packaging** step into electron-builder `extraResources`, cached by the lock hash; never part of `web-editor#build`                                                               |
 
-- packaged: `path.join(app.getAppPath(), 'renderer', 'elements')`;
-- development: the repo's `apps/web-editor/public/elements` (the Vite dev server serves the
-  renderer; main still reads files from disk);
-- test: injected.
+`elementsRoot(item)` (one function, tested) resolves per catalogue item — `bundled` items from the
+renderer folder, `packaged` items from `process.resourcesPath` in a packaged app — with the repo paths
+in development and an injected root in tests. A `packaged` item missing from a build that should have
+it is `library_missing`, and the panel hides `packaged` items in a build that has no packaged set, so
+a tile never fails on click.
 
-Build order: turbo `web-editor#build` depends on `elements:build`; CI caches the upstream fetch by
-the lock file's hash; the build script's size report is uploaded, and CI fails if the packaged
-`elements/` grows past its budget (MD-E1: 40 MB) without the budget being changed in the same PR.
+CI uploads the build script's size report and fails if the packaged `elements/` grows past its budget
+(MD-E1: 40 MB) without the budget being changed in the same PR.
 
-**Licence files** travel with the files they cover (03 §4), inside the same folder.
+**Licence files** travel with the files they cover (03 §4), inside each folder.
 
 ---
 
-## 5. Security review points (for `security-reviewer`, EL6 and EL10)
+## 5. Security review points (for `security-reviewer`, EL6a and EL10)
 
 | Surface                       | Control                                                                                                                                                                                        |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -119,16 +118,18 @@ the lock file's hash; the build script's size report is uploaded, and CI fails i
 
 ---
 
-## 6. The browser build
+## 6. The browser build (decided in EL11)
 
-- **Shapes:** fully available (no file; the canvas raster fallback marks the monitor "Preview
-  approximate" when no engine is reachable).
-- **Stickers:** the renderer fetches `elements/stickers/full/<id>.webp` from its own origin and
-  hands the bytes to the existing import path (`editor/import.ts:128-152`, `importMedia`). EL6
-  verifies the browser project can store it; if it cannot, the Stickers sub-tab is **absent** in the
-  browser (degrade by absence), recorded in the guide.
-- **Photos / Videos:** absent, as the Stock tab is today (`tests/e2e/specs/stock-sourcing.spec.ts`
-  keeps asserting no provider host appears in the page).
+Desktop is product focus #1, so the browser build keeps the Elements tab **absent** until EL11 decides
+each half with a test:
+
+- **Shapes:** need an engine-free raster — a canvas `Path2D` fallback labelled "Preview approximate"
+  (ADR 0180 decision 4).
+- **Stickers:** the curated set only; the renderer fetches `elements/stickers/full/<id>.webp` from its
+  own origin and hands the bytes to the existing import path (`editor/import.ts:128-152`,
+  `importMedia`) — if the browser project cannot store it, Stickers stay absent (degrade by absence).
+- **Photos / Videos:** absent, as the Stock tab is today (`elements.spec.ts`, formerly
+  `stock-sourcing.spec.ts`, keeps asserting no provider host appears in the page).
 
 ---
 
@@ -138,5 +139,21 @@ the lock file's hash; the build script's size report is uploaded, and CI fails i
 behaviour. EL9's additions (orientation filter, category queries) are request parameters the
 adapter already models (`StockOrientationWire`). Only user-facing sentences that say "Stock" change
 (08).
+
+---
+
+## 8. Observability
+
+- Scoped loggers, never `console.log`: `desktop:elements` (materialise, downloads),
+  `web-editor:elements` (panel actions), and `logging.getLogger(__name__)` in the new engine
+  modules (raster timings at `debug`).
+  `log.action` for the high-signal events only: an element added, a materialise that copied bytes,
+  a download finished or failed.
+- The opt-in, local-only telemetry (`electron/telemetry/telemetry.ts` — never uploads) may record
+  `elements.add` with `{ kind, library }` and `elements.failed` with the error code. **Search text is
+  never logged or recorded** — the same privacy line the Pexels panel draws (only the words typed
+  leave the machine, and only to Pexels).
+- Render-validation failures for elements (05 §6) name the element, so a support log says which
+  sticker or shape went missing.
 
 **Last updated:** 2026-09-26

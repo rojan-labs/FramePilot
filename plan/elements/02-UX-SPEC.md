@@ -15,9 +15,11 @@ written for editors, not engineers.
   Sounds.
 - **Persistence:** the saved `leftTab` value `'stock'` opens Elements (alias in `coerceLeftTab`),
   and the last sub-tab is remembered separately (`framepilot.view.elementsTab`).
-- **Browser build:** the tab is **present** once Stickers or Shapes ship (both are local). The
-  Photos and Videos sub-tabs are **absent** in the browser (they need the main process), exactly as
-  the Stock tab is today — absence, never a disabled panel.
+- **Browser build:** desktop first. Photos and Videos need the main process and stay **absent** in
+  the browser, as the Stock tab is today — absence, never a disabled panel. Stickers and Shapes are
+  local and _could_ work there, but shapes need an engine-free raster fallback and stickers the
+  browser import path; both are decided in EL11 (06 §6). Until then the Elements tab is absent in
+  the browser.
 
 ---
 
@@ -61,11 +63,14 @@ Backgrounds, Food, Travel, Textures), an orientation filter (the provider suppor
 exists) defaulting to the project's orientation, drag to the timeline, and an **Add as overlay**
 choice alongside Add (MD-E5).
 
-### 2.2 Stickers (EL6)
+### 2.2 Stickers (EL6a the curated ~200; EL6b the full library)
 
+- **EL6a:** the curated ~200 in a plain grid with search, click-to-add, keyboard and tile states.
+  **EL6b** adds the virtualised grid for all 1,595, the chips and the favourite star.
 - **Grid:** square tiles, ~72 px at the default rail width (`columns = floor(width / 80)`),
-  virtualised with `@tanstack/react-virtual`; thumbnails are 96 px WebP loaded as rows scroll in.
-- **Chips:** All · Recent · Favourites (when any) · the curated collections from
+  virtualised with `@tanstack/react-virtual` (EL6b); thumbnails are 96 px WebP loaded as rows
+  scroll in.
+- **Chips (EL6b):** All · Recent · Favourites (when any) · the curated collections from
   [`03-CONTENT-LIBRARY.md`](./03-CONTENT-LIBRARY.md) §2.3 (Reactions, Celebrate, Hands & gestures,
   Hearts, Tech & work, Arrows & pointers, Symbols & signs, Food, Nature, Animals, Travel, Objects,
   Flags) · then the nine upstream groups.
@@ -74,15 +79,18 @@ choice alongside Add (MD-E5).
 - **Tile states:** idle · adding (spinner, the file is being copied into the project) · failed
   (reason on the tile, Retry) · in project (a small dot; click still adds another instance — a
   sticker is reusable, unlike a stock download).
-- **Hover:** name tooltip; the favourite star appears. Animated stickers (EL10) play on hover
+- **Hover:** name tooltip; the favourite star appears (EL6b). Animated stickers (EL10) play on hover
   unless `prefers-reduced-motion`.
 - **Skin tones (EL11):** tiles for emoji with tones show a tone dot; long-press or right-click picks
   the tone; the panel remembers the last chosen tone.
 
-### 2.3 Shapes (EL4, breadth in EL5)
+### 2.3 Shapes (EL4a six tiles; the catalogue in EL5)
 
-- **Tiles** draw the shape as inline SVG from the catalogue path in its preset's colours on the
+- **EL4a** shows six tiles — highlight box, filled box, ellipse, marker, arrow, underline — with
+  click-to-add and keyboard. No chips, search or colour row: six tiles do not need them.
+- **Tiles** draw the shape as inline SVG from a UI-only path helper in its preset's colours on the
   panel background — no raster needed to browse, and every tile is sharp at any zoom.
+- **EL5** adds the rest below, for ~200 tiles:
 - **Chips:** All · Basic · Arrows · Lines · Callouts · Highlights · Stars & badges · Frames ·
   Symbols · Numbers (EL5) · Icons (EL5).
 - **Colour row** above the grid: the six most recent colours plus the project accent. Clicking one
@@ -94,11 +102,11 @@ choice alongside Add (MD-E5).
 
 ## 3. Adding an element
 
-| Gesture                                     | Result                                                                                   |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Click a tile (or Enter on a focused tile)   | Added at the **playhead**                                                                |
-| Drag a tile onto a timeline lane            | Added at the drop time; on that lane if it has room, else the nearest free graphics lane |
-| Drag a tile onto the program monitor (EL11) | Added at the playhead, **centred where it was dropped**                                  |
+| Gesture                                                                         | Result                                                                                   |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Click a tile (or Enter on a focused tile)                                       | Added at the **playhead**                                                                |
+| Drag a tile onto a timeline lane (EL5 shapes, EL6b stickers, EL9 photos/videos) | Added at the drop time; on that lane if it has room, else the nearest free graphics lane |
+| Drag a tile onto the program monitor (EL11)                                     | Added at the playhead, **centred where it was dropped**                                  |
 
 **Duration:** `settings.defaultOverlaySeconds` — the existing default in Settings' "New elements"
 group, whose hint becomes "On-screen seconds for a new title, sticker or shape." An element may run
@@ -133,29 +141,29 @@ one shared one.
 
 ### 4.1 Sticker selected
 
-| Section                          | Controls                                                                                                                                                                                                                                                               |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Position & size (existing)       | x, y, scale, rotation, opacity — keyframeable                                                                                                                                                                                                                          |
-| **Sticker** (new)                | Thumbnail + **Replace…** (opens the Stickers sub-tab in replace mode: keeps timing, transform and animation, swaps the asset); **Outline** (on/off, colour, width — the existing `edge_style` stroke, which EL2 makes apply to stills); **Shadow** (edge-style shadow) |
-| **Animation** (new, shared, EL7) | In · Out · Loop, each a preset picker + duration                                                                                                                                                                                                                       |
-| Blend, Mask (existing)           | unchanged                                                                                                                                                                                                                                                              |
-| Follow subject (EL11)            | reuse of `track-follow.ts`                                                                                                                                                                                                                                             |
+| Section                          | Controls                                                                                                                                                                                                                                                                       |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Position & size (existing)       | x, y, scale, rotation, opacity — keyframeable                                                                                                                                                                                                                                  |
+| **Sticker** (new)                | Thumbnail + **Replace…** (opens the Stickers sub-tab in replace mode: keeps timing, transform and animation, swaps the asset); **Outline** (on/off, colour, width — the existing `edge_style` stroke, which EL2b makes apply to stills — EL6b); **Shadow** (edge-style shadow) |
+| **Animation** (new, shared, EL7) | In · Out · Loop, each a preset picker + duration                                                                                                                                                                                                                               |
+| Blend, Mask (existing)           | unchanged                                                                                                                                                                                                                                                                      |
+| Follow subject (EL11)            | reuse of `track-follow.ts`                                                                                                                                                                                                                                                     |
 
 ### 4.2 Shape selected
 
-| Section                    | Controls                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Shape** (new)            | Shape picker (swap geometry, keep style) · **Fill** (colour with alpha, or none) · **Stroke** (colour, width, style: solid / dashed / dotted, or none) · **Corners** (when the shape has them) · shape knobs from the catalogue (points, inner radius, arrow-head size, tail position…) · **Size** W × H in project pixels with an aspect lock (on by default for circles and stars) · **Shadow / Glow** — the existing edge styles, which read the shape's own alpha once EL2 lands (no shape-specific shadow code) |
-| Position & size (existing) | position offset, rotation, opacity, scale animation                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Animation (EL7)            | In · Out · Loop                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| Blend, Mask (existing)     | unchanged                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Section                    | Controls                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Shape** (new)            | Shape picker (swap geometry, keep style) · **Fill** (colour with alpha, or none) · **Stroke** (colour, width, style: solid / dashed / dotted, or none) · **Corners** (when the shape has them) · shape knobs from the catalogue (points, inner radius, arrow-head size, tail position…) · **Size** W × H in project pixels with an aspect lock (on by default for circles and stars) · **Shadow / Glow** — the existing edge styles, which read the shape's own alpha once EL2b lands (no shape-specific shadow code; EL5) |
+| Position & size (existing) | position offset, rotation, opacity, scale animation                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Animation (EL7)            | In · Out · Loop                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Blend, Mask (existing)     | unchanged                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 Validation errors are shown inline in words ("A shape needs a fill or a stroke — both are off"),
 never as a dead control.
 
 ### 4.3 The Text tab
 
-`OverlaysPanel.tsx`'s disabled "Shape" and "Image" types are removed (EL4) and replaced by one line:
+`OverlaysPanel.tsx`'s disabled "Shape" and "Image" types are removed (EL4a) and replaced by one line:
 "Stickers and shapes are in **Elements**" linking to the tab.
 
 ---
@@ -177,7 +185,8 @@ never as a dead control.
 
 ## 6. The timeline
 
-- Element clips get their own clip style: a sticker shows its image repeated along the clip (the
+- Until EL5, element clips use the existing clip style for their kind (a sticker looks like a
+  photo clip; a shape like a title). From EL5, element clips get their own clip style: a sticker shows its image repeated along the clip (the
   filmstrip path images already use); a shape shows a small glyph of itself in its colours and its
   name ("Highlight box").
 - A graphics colour token (`--clip-graphic`) distinguishes element clips from footage and titles in
@@ -226,7 +235,7 @@ quota readout are unchanged.
 
 ---
 
-## 9. Performance targets (measured in EL6/EL12)
+## 9. Performance targets (measured in EL4a, EL6b and EL12)
 
 | Interaction                                                         | Budget                                        |
 | ------------------------------------------------------------------- | --------------------------------------------- |

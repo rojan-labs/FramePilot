@@ -45,16 +45,21 @@ templates already use. An entry is:
   converted to cubics at build time) for shapes that are drawings rather than formulas (heart,
   cloud, lightning, pin, check, swoosh…).
 - **Parametric generators** compute the path from knobs (corner radius, points, inner radius,
-  arrow-head size, tail position, curvature). The generator code exists twice — TS
-  (`editor-core/src/shapes/geometry.ts`) and Python (`render/shape_geometry.py`) — pinned by shared
-  vectors (`tests/fixtures/shapes/geometry.json`), the frame-plan vector pattern.
+  arrow-head size, tail position, curvature). The generator code lives **once**, in the engine
+  (`render/shape_geometry.py`), because the engine is the only rasteriser; the frame plans carry
+  bounds computed from params, and TypeScript keeps only a small UI path helper for panel tiles,
+  deliberately not pinned to the engine (05 §2.1).
 - **Style** is not in the geometry: fill (colour with alpha, or none), stroke (colour, width,
   solid/dashed/dotted, or none), and end caps for segment shapes. A preset is a named style.
 
 ### 1.2 The catalogue (target: ~105 base shapes, ~200 presets)
 
-**EL4 ships the rows marked ●** (~40 shapes, the ones a screen-recording edit needs first). EL5
-ships the rest, numbered badges and icons.
+**EL4a ships six**, the screen-recording staples, each as a preset of a base shape below:
+**highlight box** (rounded rectangle, stroke only), **filled box** (rounded rectangle, solid),
+**ellipse**, **marker** (marker highlight — translucent yellow), **arrow** (line arrow, segment) and
+**underline** (underline marker, segment). **EL5 ships everything else**, starting with the rows
+marked ● (~35 more a screen-recording edit reaches for next), then the rest, numbered badges and
+icons.
 
 **Basic (17)** — ● rectangle · ● square · ● rounded rectangle · ● rounded square · ● pill ·
 ● circle · ● ellipse · semicircle · quarter circle · ● triangle · right triangle · ● diamond ·
@@ -122,11 +127,11 @@ dark 1 px-equivalent stroke so a shape stays visible over any footage.
 
 ### 2.1 Sources and licences
 
-| Library                                                 | Licence                          | Items                                                                                              | Obligation                                                                                 | Status                          |
-| ------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------- |
-| **Microsoft Fluent Emoji** (`microsoft/fluentui-emoji`) | **MIT**                          | **1,595** emoji at `1ffb34c752ec` (2026-08-24) _measured_; 9 groups; 6 skin tones where applicable | Include the MIT notice with the app (third-party notices). **Nothing** in the user's video | **Core — EL6**                  |
-| **Google Noto Animated Emoji**                          | **CC BY 4.0**                    | **881** _measured_ (`noto-emoji-animation/data/api.json`), with popularity rank and category       | Credit in the published work ("Noto Emoji Animation by Google, CC BY 4.0")                 | **Optional pack — EL10, MD-E3** |
-| Lucide icons                                            | ISC (+ MIT for Feather portions) | ≈ 1,600                                                                                            | Notices with the app                                                                       | Shapes → Icons (EL5)            |
+| Library                                                 | Licence                          | Items                                                                                              | Obligation                                                                  | Status                                 |
+| ------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------- |
+| **Microsoft Fluent Emoji** (`microsoft/fluentui-emoji`) | **MIT**                          | **1,595** emoji at `1ffb34c752ec` (2026-08-24) _measured_; 9 groups; 6 skin tones where applicable | Ship the MIT licence text beside the files. **Nothing** in the user's video | **Core — EL6a (curated), EL6b (full)** |
+| **Google Noto Animated Emoji**                          | **CC BY 4.0**                    | **881** _measured_ (`noto-emoji-animation/data/api.json`), with popularity rank and category       | Credit in the published work ("Noto Emoji Animation by Google, CC BY 4.0")  | **Optional pack — EL10, MD-E3**        |
+| Lucide icons                                            | ISC (+ MIT for Feather portions) | ≈ 1,600                                                                                            | Notices with the app                                                        | Shapes → Icons (EL5)                   |
 
 **Rejected:** OpenMoji (CC BY-SA 4.0 — share-alike on a video is a trap), Twemoji graphics
 (CC BY 4.0 on every static sticker — a credit line for a thumbs-up is not a product), Simple Icons
@@ -146,13 +151,16 @@ Upstream Fluent 3D is 256 × 256 PNG. Options, _measured_ on nine representative
 | Color SVG → lossy WebP q90 512 | 14.8 KB       | ≈ 24 MB     | flat-shaded colour, lossy | 512 px                       |
 | Thumbnail, lossy WebP q80 96   | 1.9 KB        | ≈ 3 MB      | grid only                 | —                            |
 
-**Recommendation (MD-E1):** ship **3D lossless WebP 256** (the recognisable CapCut-like look,
-bit-exact decode in both runtimes) + **96 px thumbnails**: ≈ 34 MB. The default insert size (30% of
+**Recommendation (MD-E1, MD-E2):** ship **3D lossless WebP 256** (the recognisable CapCut-like
+look, bit-exact decode in both runtimes) + **96 px thumbnails**, in two steps: a **curated ~200**
+(≈ 4 MB, committed, in every build — EL6a) plus thumbnails for all 1,595 (≈ 3 MB, committed); then
+the **full 1,595** (≈ 31 MB) fetched from the pinned commit when the desktop app is packaged —
+never in the web build (EL6b). The default insert size (30% of
 frame height = 324 px at 1080p) is a 1.27× enlargement; the Inspector shows "Enlarged beyond its
 sharp size" above 1.5× at the export resolution, instead of silently exporting a soft sticker. An
 HD pack (Color style at 512) is deferred until someone asks for bigger stickers.
 
-**Skin tones:** EL6 ships the default tone only. The five other tones for the ~300 toned emoji add
+**Skin tones:** EL6a/EL6b ship the default tone only. The five other tones for the ~300 toned emoji add
 ≈ 30 MB; EL11 decides between bundling them and an on-demand tone pack.
 
 **Noto Animated (EL10):** 512 × 512 animated WebP, _measured_ 360.6 KB for `1f600` (48 frames RGBA,
@@ -208,16 +216,19 @@ environment (`uv run --project engine/python`), because Pillow already encodes W
 5. Copy the upstream `LICENSE` to `LICENSE-fluent-emoji.txt` next to the sticker files — the way
    every bundled font ships its `OFL-*.txt` / `Apache-*.txt` beside it.
 
-**Where outputs go (MD-E2):**
+**Where outputs go (MD-E1, MD-E2):**
 
-| Output                           | Size     | Recommended home                                                                                                                                                                    |
-| -------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sticker-catalog.generated.json` | ≈ 400 KB | committed — `packages/ai-sdk/src/providers/elements/` (read by the panel, main, and the agent)                                                                                      |
-| `thumbs/*.webp`                  | ≈ 3 MB   | committed — `apps/web-editor/public/elements/stickers/thumbs/`                                                                                                                      |
-| `full/*.webp`                    | ≈ 31 MB  | **not committed**; produced by `pnpm elements:build` into a git-ignored `apps/web-editor/public/elements/stickers/full/` before `vite build` / packaging; CI caches it by lock hash |
+| Output                           | Size     | Home                                                                                                                                                                                      |
+| -------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sticker-catalog.generated.json` | ≈ 400 KB | committed — `packages/ai-sdk/src/providers/elements/` (read by the panel, main and the agent); each item marked `bundled` (curated) or `packaged` (desktop installer only)                |
+| `thumbs/*.webp` — all 1,595      | ≈ 3 MB   | committed — `apps/web-editor/public/elements/stickers/thumbs/`                                                                                                                            |
+| `full/*.webp` — the curated ~200 | ≈ 4 MB   | committed — `apps/web-editor/public/elements/stickers/full/` (EL6a; every build has them)                                                                                                 |
+| `full/*.webp` — the other ~1,395 | ≈ 27 MB  | **not committed**; fetched from the pinned commit by the desktop packaging step into electron-builder `extraResources` (EL6b), cached by the lock hash in CI; the web build never fetches |
 
-A test compares the catalogue against the lock (every id has a file, every file its hash) and fails
-the build if a file is missing, so a packaged app can never ship a tile it cannot place.
+A test compares the catalogue against the lock (every id has a file, every file its hash): the
+curated set in every build, and the packaged set in the desktop packaging job, so a packaged app can
+never ship a tile it cannot place. A build without the packaged set (the browser build, a dev tree
+that has not fetched it) shows only the curated stickers — never a tile that fails on click.
 
 **Shapes:** `shape-catalog.json` is authored by hand (it is design, not data) and reviewed on an
 export-rendered contact sheet, the way caption templates were (CT4).

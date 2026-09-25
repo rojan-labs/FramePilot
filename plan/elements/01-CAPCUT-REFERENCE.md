@@ -51,18 +51,18 @@ stickers download on first use in the desktop app (the web app shows loading spi
 
 ## 2. What FramePilot copies
 
-| CapCut pattern                                          | FramePilot Elements                                                                                                                           |
-| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Elements groups stock media with graphics               | **Elements** tab with **Photos · Videos · Stickers · Shapes** sub-tabs                                                                        |
-| Search above category chips                             | One search field per sub-tab, category chips below it, results filter live                                                                    |
-| Click a tile → at the playhead; or drag to the timeline | Both. Click places on the front graphics lane at the playhead; drag lands where dropped (EL4, EL6); drop on the monitor at a position is EL11 |
-| Animated tiles play on hover                            | Animated stickers play on hover; video tiles keep the existing hover-scrub; both respect `prefers-reduced-motion`                             |
-| Favourites                                              | Star on a tile; a **Favourites** chip; plus **Recents** (EL11)                                                                                |
-| Stickers are their own coloured bars                    | Element clips get their own clip style on the timeline (sticker thumbnail / shape glyph)                                                      |
-| Move, resize, rotate on the preview                     | Existing on-canvas transform handles for stickers; shapes add width/height handles (non-uniform resize)                                       |
-| Animation: In / Out / Loop                              | Inspector **Animation** section: In and Out are layer transitions (existing), Loop is a new declarative loop motion (EL7)                     |
-| Tracking                                                | "Follow subject" for stickers via `track-follow.ts` (EL11)                                                                                    |
-| Shapes recolour, opacity                                | Shape section: fill, stroke, stroke width, dash, corner radius, per-shape knobs; opacity through the existing transform                       |
+| CapCut pattern                                          | FramePilot Elements                                                                                                                                                               |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Elements groups stock media with graphics               | **Elements** tab with **Photos · Videos · Stickers · Shapes** sub-tabs                                                                                                            |
+| Search above category chips                             | One search field per sub-tab, category chips below it, results filter live                                                                                                        |
+| Click a tile → at the playhead; or drag to the timeline | Both. Click places on the front graphics lane at the playhead; drag lands where dropped (EL5 shapes, EL6b stickers, EL9 photos/videos); drop on the monitor at a position is EL11 |
+| Animated tiles play on hover                            | Animated stickers play on hover; video tiles keep the existing hover-scrub; both respect `prefers-reduced-motion`                                                                 |
+| Favourites                                              | Star on a tile; a **Favourites** chip; plus **Recents** (EL11)                                                                                                                    |
+| Stickers are their own coloured bars                    | Element clips get their own clip style on the timeline (sticker thumbnail / shape glyph)                                                                                          |
+| Move, resize, rotate on the preview                     | Existing on-canvas transform handles for stickers; shapes add width/height handles (non-uniform resize)                                                                           |
+| Animation: In / Out / Loop                              | Inspector **Animation** section: In and Out are layer transitions (existing), Loop is a new declarative loop motion (EL7)                                                         |
+| Tracking                                                | "Follow subject" for stickers via `track-follow.ts` (EL11)                                                                                                                        |
+| Shapes recolour, opacity                                | Shape section: fill, stroke, stroke width, dash, corner radius, per-shape knobs; opacity through the existing transform                                                           |
 
 ## 3. What FramePilot adapts
 

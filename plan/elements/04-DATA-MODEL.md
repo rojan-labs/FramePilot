@@ -20,7 +20,10 @@ No new asset kind for static stickers.
 | `source`   | `{ provider: 'fluent-emoji', remoteId: <itemId>, license: 'mit', licenseUrl, attributionRequired: false, attribution: 'Fluent Emoji by Microsoft (MIT)', creator: 'Microsoft', sourceUrl, fetchedAt }` (schema v20, unchanged)                                                                |
 
 **"Is this an element?"** is derived, never stored: `isElementAsset(asset)` in `editor-core` is
-true when `asset.source?.provider` is one of the element libraries. It is the only definition, used
+true when `asset.source?.provider` is one of the element libraries. Placement of an element asset
+always goes through `addStickerPatch` — from the panel, from `add_sticker`, **and** from `add_clip` /
+`add_clips` / `move_clip` when the model hands them an element asset — so a sticker can never become
+a cover-cropped, full-frame footage cutaway (00 G3). It is the only definition, used
 by the Inspector (show the Sticker section), the agent's asset views (label it an element; keep it
 out of footage tools), enrolment (skip footage indexing — G9) and the Credits view (group it).
 
@@ -62,23 +65,23 @@ false for it (it can be extended and moved freely, as a title can).
 ### 2.2 `ShapeParams` — flat, numeric where it can be
 
 Flat on purpose: `set_effect_params` shallow-merges (`operations.ts:2289-2309`), the Inspector edits
-one key at a time, and a flat numeric param can be animated later through effect keyframes (EL7's
-draw-on) with no new machinery.
+one key at a time, and a flat numeric param could later be animated through effect keyframes (a
+stroke draw-on, deferred) with no new machinery.
 
-| Key                    | Type                              | Applies to           | Notes                                                                                                   |
-| ---------------------- | --------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------- |
-| `shape`                | catalogue id                      | all                  | must exist in `shape-catalog.json`                                                                      |
-| `x`, `y`               | 0–100                             | box                  | centre, % of each axis                                                                                  |
-| `width`, `height`      | 0.1–400                           | box                  | % of **frame height** (03 §1.4)                                                                         |
-| `x1`, `y1`, `x2`, `y2` | −50–150                           | segment              | endpoints, % of each axis (may start off-frame)                                                         |
-| `fill`                 | `#rrggbb` / `#rrggbbaa` / `null`  | all                  |                                                                                                         |
-| `stroke`               | colour / `null`                   | all                  |                                                                                                         |
-| `strokeWidth`          | 0.05–10                           | all                  | % of frame height                                                                                       |
-| `strokeStyle`          | `solid` / `dashed` / `dotted`     | all                  |                                                                                                         |
-| `startCap`, `endCap`   | `none` / `arrow` / `dot` / `bar`  | segment              |                                                                                                         |
-| catalogue knobs        | number, bounded by the descriptor | per shape            | e.g. `cornerRadius`, `points`, `innerRadius`, `headSize`, `curvature`, `tailX`, `tailSide`, `thickness` |
-| `label`, `labelColor`  | ≤ 8 chars, colour                 | badge shapes (EL5)   | drawn by the title rasteriser                                                                           |
-| `drawOn`               | 0–1                               | stroked shapes (EL7) | stroke drawn-on fraction; keyframeable                                                                  |
+| Key                    | Type                              | Applies to         | Notes                                                                                                   |
+| ---------------------- | --------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------- |
+| `shape`                | catalogue id                      | all                | must exist in `shape-catalog.json`                                                                      |
+| `x`, `y`               | 0–100                             | box                | centre, % of each axis                                                                                  |
+| `width`, `height`      | 0.1–400                           | box                | % of **frame height** (03 §1.4)                                                                         |
+| `x1`, `y1`, `x2`, `y2` | −50–150                           | segment            | endpoints, % of each axis (may start off-frame)                                                         |
+| `fill`                 | `#rrggbb` / `#rrggbbaa` / `null`  | all                |                                                                                                         |
+| `stroke`               | colour / `null`                   | all                |                                                                                                         |
+| `strokeWidth`          | 0.05–10                           | all                | % of frame height                                                                                       |
+| `strokeStyle`          | `solid` / `dashed` / `dotted`     | all                |                                                                                                         |
+| `startCap`, `endCap`   | `none` / `arrow` / `dot` / `bar`  | segment            |                                                                                                         |
+| catalogue knobs        | number, bounded by the descriptor | per shape          | e.g. `cornerRadius`, `points`, `innerRadius`, `headSize`, `curvature`, `tailX`, `tailSide`, `thickness` |
+| `label`, `labelColor`  | ≤ 8 chars, colour                 | badge shapes (EL5) | drawn by the title rasteriser                                                                           |
+| `drawOn`               | 0–1                               | deferred (11 §2)   | stroke write-on fraction; not in v25                                                                    |
 
 `ShapeParamsSchema` lives in `packages/timeline-schema/src/shape-params.ts` (Zod), is exported and
 generated into `project.schema.json`, and has a Pydantic twin in `engine/python/framepilot_engine/timeline/models.py`
@@ -111,9 +114,11 @@ and box, resets knobs to the new shape's defaults, drops knobs it does not decla
 
 ### 2.5 Clip kind
 
-`shape` joins `video | image | audio | text | caption` as a render kind. After EL3 there is exactly
-**one** derivation per runtime (see §4), so this is a one-line change in each plus the switch
-arms that need behaviour.
+`shape` joins `video | image | audio | text | caption` as a render kind. That is a small change
+**only after EL3**: today 17 modules decide synthetic ids and clip kind on their own (00 G4), and
+without EL3 both frame plans would call `__shape__` a video while the critic and the mission rubric
+reported it as a missing asset. After EL3 it is one entry in one helper module per runtime, plus the
+switch arms that need new behaviour (frame plan, compiler, monitor).
 
 ---
 
@@ -127,9 +132,13 @@ turns silent loss into that message.
 
 | Version | Lands with | Change                                                                                               | Migration                                                        |
 | ------- | ---------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| **v25** | EL4        | `ShapeParams` defined and exported; `__shape__` recognised; the `shape` effect type validated        | passthrough (no v24 project contains a shape) + round-trip tests |
-| v26     | EL7        | `loop_motion` effect type (declarative loop animation)                                               | passthrough                                                      |
-| v27     | EL10       | `AssetMedia.animation: { frameCount, loopSeconds, frameDurationsMs? } \| null` for animated stickers | passthrough; nullable, as every `AssetMedia` field is            |
+| **v25** | EL4a       | `ShapeParams` defined and exported; `__shape__` recognised; the `shape` effect type validated        | passthrough (no v24 project contains a shape) + round-trip tests |
+| v26     | EL10       | `AssetMedia.animation: { frameCount, loopSeconds, frameDurationsMs? } \| null` for animated stickers | passthrough; nullable, as every `AssetMedia` field is            |
+
+No bump for animation (EL7): In/Out are layer transitions (existing effect types every build
+understands) and loops are ordinary keyframes generated by a builder (the scope review's change 6).
+No bump for EL2a either: honouring a still's crop and a title's In/Out params changes rendering, not
+the file format.
 
 Phases that land in the same release share one bump. Obligations per bump (the CT7 checklist):
 `SCHEMA_VERSION`, migration + tests, Pydantic twin, `pnpm schema:generate` + drift tests, engine
@@ -138,21 +147,24 @@ fixtures importing the constant (the engine loader requires an exact envelope ve
 
 ---
 
-## 4. Clip-kind consolidation (EL3, structural)
+## 4. Synthetic assets and clip kind in one place (EL3, structural)
 
-Today the same question — "what kind of clip is this?" — is answered by six functions
-(00 §3 G4). Adding `shape` to six copies is how they drift.
+Today the same two questions — "is this asset id synthetic?" and "what kind of clip is this?" — are
+answered in 17 modules (00 G4). Adding `__shape__` to 17 copies is how they drift.
 
-- **TS:** `packages/editor-core/src/clip-kind.ts` exports `ClipRenderKind` and
-  `clipRenderKind(clip, assetKindOf)`. `frame-plan.ts`, `stock-placement.ts`,
-  `lane-placement.ts`, web-editor `patch-builders-base.ts`/`selectors-base.ts` and ai-sdk
-  `project-index.ts` import it. `layerTypeForKind` becomes `laneTypeForKind` beside it
-  (`shape`/`image`-as-element/`text` → `overlay`).
-- **Python:** `frame_plan.clip_kind` stays the single definition (the compiler already imports it);
-  any other Python copy is replaced by an import.
-- **Pinned:** `tests/fixtures/clip-kind.json` — the same table of (asset id, asset kind) → kind read
-  by a vitest and a pytest, so the runtimes cannot disagree.
-- Behaviour-neutral: no output changes; all existing tests pass unchanged.
+- **TS:** `packages/editor-core/src/synthetic-assets.ts` exports `SYNTHETIC_ASSET_IDS`,
+  `isSyntheticAssetId`, `hasTimeBasedSource`, `ClipRenderKind`, `clipRenderKind(clip,
+assetKindOf)` and `laneTypeForKind` (`shape` / element `image` / `text` → `overlay`). Every TS
+  site in the G4 list imports from it — including the private `SYNTHETIC_ASSET_IDS` sets in
+  `critic.ts:189` and `eval/mission-rubric.ts:230`.
+- **Python:** `engine/python/framepilot_engine/timeline/synthetic_assets.py` is the one definition;
+  `frame_plan.clip_kind`, `operations.py`'s `has_time_based_source`, `text_overlay.py` and
+  `preview_text.py` import it.
+- **Guarded:** one test per runtime fails if a literal `'__text__'` / `'__caption__'` / `'__shape__'`
+  or an `=== TEXT_OVERLAY_ASSET_ID`-style comparison appears outside the helper module.
+- **Pinned:** `tests/fixtures/clip-kind.json` — (asset id, asset kind) → kind, read by a vitest and a
+  pytest, so the runtimes cannot disagree.
+- Behaviour-neutral: no output changes; every existing test passes unchanged.
 
 ---
 
@@ -161,7 +173,7 @@ Today the same question — "what kind of clip is this?" — is answered by six 
 | Decision                                                                                                                   | Why                                                                                                                                                                                                                       |
 | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Favourites, recents, the shapes colour row and the chosen skin tone live in the **user settings store**, never the project | View state (AGENTS.md invariant 5; `useViewPreference` doc): nothing there can change a frame of the output                                                                                                               |
-| No `Clip.graphic` generalisation of text + shape                                                                           | Text already works through `__text__` + `text` effect; a unifying field would be a migration of every title for no user outcome today. Recorded as a considered alternative in the EL4 ADR                                |
+| No `Clip.graphic` generalisation of text + shape                                                                           | Text already works through `__text__` + `text` effect; a unifying field would be a migration of every title for no user outcome today. Recorded as a considered alternative in the EL4a ADR                               |
 | Stickers keep the renderer's fit + transform scale rather than a new sticker box                                           | Zero new placement pipeline; `PreviewTransform` already edits it. Trade-off: a sticker keeps its pixel size, not its frame-relative size, when the project orientation changes — covered by a test and noted in the guide |
 | Line/arrow shapes are placed by endpoints, not box + rotation                                                              | The user's intent is "point at that"; endpoints are the natural handles and the natural agent arguments                                                                                                                   |
 | `drawOn`, `label` are optional keys, absent until their phase                                                              | A v25 project never contains them; the validator accepts them only once their phase ships                                                                                                                                 |

@@ -9,17 +9,17 @@ capability.
 
 ## 1. Tools
 
-| Tool                              | Kind                       | Where it runs                                  | What it does                                                                                                                                                                                                                                                                                 |
-| --------------------------------- | -------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`search_elements`**             | analysis                   | anywhere (local catalogue, no network, no key) | `{ query, kind?: 'sticker' \| 'shape', category?, limit? ≤ 30 }` → `{ results: [{ elementId, kind, name, category, tags, aspect, frame: 'box' \| 'segment', knobs?, animated, license, attributionRequired }], total }`                                                                      |
-| **`add_shape`**                   | mutate (pure patch)        | anywhere                                       | `{ shape (catalogue id or preset id), start, end, box?: { x, y, width, height } \| ends?: { x1, y1, x2, y2 }, fill?, stroke?, strokeWidth?, strokeStyle?, startCap?, endCap?, knobs?, label? (EL5), rotation?, in?, out?, trackId? }` → `addShapePatch` (+ layer transitions for `in`/`out`) |
-| **`set_shape_style`**             | mutate                     | anywhere                                       | typed partial update of one shape's params (colours, stroke, knobs, box/ends, label) → one `set_effect_params`, merged params re-validated                                                                                                                                                   |
-| **`add_sticker`**                 | host (materialise) + patch | **desktop** (`hostUiOnly`)                     | `{ elementId, start, end?, xPercent?, yPercent?, sizePercent? (of frame height, default 30), rotation?, in?, out?, trackId? }` → host copies the file (06 §3) → orchestrator builds `addStickerPatch`                                                                                        |
-| **`set_element_animation`** (EL7) | mutate                     | anywhere                                       | `{ clipId, in?: { kind, seconds }, out?: …, loop?: { preset, period, amount } \| null }` → `add_layer_transition` ops + the `loop_motion` effect                                                                                                                                             |
+| Tool                        | Phase                         | Kind                       | Where it runs                                  | What it does                                                                                                                                                                                                                                                                                                                          |
+| --------------------------- | ----------------------------- | -------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`add_shape`**             | EL4a                          | mutate (pure patch)        | anywhere                                       | `{ shape, start, end, box?: { x, y, width, height } \| ends?: { x1, y1, x2, y2 }, fill?, stroke?, strokeWidth?, strokeStyle?, startCap?, endCap?, knobs?, label? (EL5), rotation?, trackId? }` → `addShapePatch`. `shape` is a **`z.enum` of the catalogue ids**, so the model cannot invent one; in EL4a that enum is the six shapes |
+| **`set_shape_style`**       | EL4a                          | mutate                     | anywhere                                       | typed partial update of one shape's params (colours, stroke, knobs, box/ends, label) → one `set_effect_params`, merged params re-validated                                                                                                                                                                                            |
+| **`search_elements`**       | EL5 (shapes), EL6a (stickers) | analysis                   | anywhere (local catalogue, no network, no key) | `{ query, kind?: 'sticker' \| 'shape', category?, limit? ≤ 30 }` → `{ results: [{ elementId, kind, name, category, tags, aspect, frame: 'box' \| 'segment', knobs?, animated, license, attributionRequired }], total }`. Not needed while the shape enum fits in the tool description                                                 |
+| **`add_sticker`**           | EL6a                          | host (materialise) + patch | **desktop** (`hostUiOnly`)                     | `{ elementId, start, end?, xPercent?, yPercent?, sizePercent? (of frame height, default 30), rotation?, trackId? }` → host copies the file (06 §3) → orchestrator calls `addStickerPatch`                                                                                                                                             |
+| **`set_element_animation`** | EL7                           | mutate                     | anywhere                                       | `{ clipId, in?: { kind, seconds }, out?: …, loop?: { preset, period, amount } \| null }` → `add_layer_transition` ops + loop keyframes from the `loop-motion.ts` builder                                                                                                                                                              |
 
 **Reused unchanged:** `move_clip`, `trim_clip`, `split_clip`, `delete_clip(s)`, `add_keyframes`,
 `remove_keyframes`, `punch_in`, `set_clip_blend_mode`, `style_cutout_edge` (sticker outline and
-shadow once EL2 lets edge styles read a still's own alpha), `follow_subject` (EL11), `get_frame`
+shadow once EL2b lets edge styles read a still's own alpha), `follow_subject` (EL11), `get_frame`
 (the agent looks at what it placed — ADR 0183/0186).
 
 Argument conventions match `add_text_layer` exactly (percent of each axis for position, percent of
@@ -55,11 +55,13 @@ cost when it is loaded (§7).
 
 - **`add_shape`, `set_shape_style`, `set_element_animation`** are ordinary mutate tools: build ops
   with the shared `editor-core` builders, return them, the kernel validates and commits.
-- **`add_sticker`** follows `add_stock` exactly: the executor calls the host; the host returns the
-  asset (and `atSeconds`); the orchestrator arm turns it into operations via
-  `stickerOpsFromPayload` (ai-sdk `element-placement.ts`, wrapping the editor-core builder, so an
-  agent-placed sticker and a hand-placed one are deep-equal — pinned by a cross-path test in
-  `apps/web-editor/src/editor/element-placement.test.ts`, the one package that can import both).
+- **`add_sticker`** borrows `add_stock`'s **host** pattern — the executor calls the host, the host
+  materialises the file in main and returns the asset (and `atSeconds`), editing nothing — but
+  **not** its placement: the stock arm runs `createPicturePlacer` (`ai-sdk/src/stock-placement.ts:201`),
+  the footage cutaway placer. The sticker arm calls `addStickerPatch` directly (through
+  `stickerOpsFromPayload`, ai-sdk `element-placement.ts`), so an agent-placed sticker and a
+  hand-placed one are deep-equal — pinned by a cross-path test in
+  `apps/web-editor/src/editor/element-placement.test.ts`, the one package that can import both.
   Several stickers in one turn **acquire in parallel and commit in series** (ADR 0150).
 - **Failure is stated, never fabricated.** A refused placement returns the reason and the remedy
   (`ToolRefusalError`), with no varying magnitudes in the message (the repeated-failure guard keys on
@@ -67,17 +69,25 @@ cost when it is loaded (§7).
 
 ---
 
-## 4. Placement policy for element overlays (MD-E4)
+## 4. Placement policy for element overlays (MD-E4, needed before EL6a)
 
 `domain-tools/picture-layers.ts` refuses scaled, positioned, faded or blended picture placements
-over picture because "the preview paints ONE picture layer at a time" (ADR 0169/0170). Since the
-ADR 0180 amendment that is untrue in every build, and ADR 0180 left the relaxation to the AI layer.
+over picture because "the preview paints ONE picture layer at a time" (ADR 0169/0170) — untrue in
+every build since the ADR 0180 amendment, which left relaxing it to the AI layer. Its reach is
+narrow (00 G3): `createPicturePlacer` runs only for `add_clip`, `add_clips`, `move_clip` and the
+`add_stock` path, and only counts `video` lanes (`carriesPicture`).
 
-**Decision proposed:** an **element** is an overlay by definition. `picture-layers.ts` does not apply
-the coverage refusal to clips whose asset `isElementAsset` (stickers); shapes are not picture kinds
-and were never subject to it. New ADR: "An element is an overlay". The refusal for _footage_
-(photos/videos from Pexels or the bin) stays as it is until EL9 measures agent picture-in-picture
-separately.
+**Decision proposed (ADR "An element is an overlay"):**
+
+1. **Element assets never enter the cutaway placer.** `add_clip`, `add_clips` and `move_clip` check
+   `isElementAsset` first and delegate to the sticker builder (overlay lane, sticker size, t = 0
+   transform). Without this, a model that `add_clip`s a sticker onto a video lane gets a footage
+   cutaway: in a portrait project `autoReframeCrop` cover-crops it and the placer lifts it full-frame.
+2. **Stickers are placed over footage freely** by `add_sticker` and the delegated tools — the flat-
+   monitor premise of the refusal is gone, and an overlay is what a sticker is for.
+3. **Shapes** are not picture kinds and never met the refusal.
+4. **Footage is unchanged:** photos and videos from Pexels or the bin keep today's rule until EL9
+   measures agent picture-in-picture separately.
 
 What the agent **is** held to, in `critic.ts` / verification (advisories, not refusals, except the
 first):
@@ -132,10 +142,10 @@ only where it names the panel.
 
 ## 7. MCP server and parity fixtures
 
-| Tool                                                                       | MCP                                                                                                                                                                                                                                             |
-| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `search_elements`, `add_shape`, `set_shape_style`, `set_element_animation` | **exposed** (no host needed; `packages/mcp-server/src/tools.ts` descriptor filter includes them)                                                                                                                                                |
-| `add_sticker`                                                              | `hostUiOnly` in EL8. Optional EL8b: an MCP materialiser that copies from `FRAMEPILOT_ELEMENTS_ROOT` inside the MCP project sandbox — a new env var, so `.env.example` **and** `turbo.json` `globalEnv` change in the same commit (CLAUDE.md §2) |
+| Tool                                                                       | MCP                                                                                                                                                                                                                                                   |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `search_elements`, `add_shape`, `set_shape_style`, `set_element_animation` | **exposed** (no host needed; `packages/mcp-server/src/tools.ts` descriptor filter includes them)                                                                                                                                                      |
+| `add_sticker`                                                              | `hostUiOnly` from EL6a. Optional (EL8.5): an MCP materialiser that copies from `FRAMEPILOT_ELEMENTS_ROOT` inside the MCP project sandbox — a new env var, so `.env.example` **and** `turbo.json` `globalEnv` change in the same commit (CLAUDE.md §2) |
 
 Regenerate and review, each as its own measured diff (the diff _is_ the token delta):
 
@@ -151,20 +161,25 @@ Regenerate and review, each as its own measured diff (the diff _is_ the token de
 
 ---
 
-## 8. Evaluation cases (run by the maintainer / CI, not in this plan's local steps)
+## 8. Evaluation cases
 
-Added to the golden set with expected **timeline outcomes**, judged on the resulting timeline and
-the rendered frame, not on tool-call counts:
+Each category proves its agent path **inside its own slice** (scope review, change 2): the case is
+part of that phase's DoD, run by the maintainer or CI, judged on the resulting timeline and the
+rendered frame — never on tool-call counts — and reported as a **rate over repeated runs**.
 
-1. _Screen recording (SaaS demo):_ "Circle the Export button when I say 'export'." → one ellipse or
-   highlight-box shape starting within ±0.3 s of the word, containing the button's pixels in the
-   rendered frame, gone within 3 s.
-2. _Talking head:_ "Add a fire emoji when I say 'this is fire'." → one sticker, within ±0.3 s of the
-   phrase, not overlapping the face box, not in the caption band.
-3. _Product still:_ "Underline the headline and put an arrow pointing at the price." → an underline
-   shape under the headline's text box and an arrow whose end lies inside the price region.
-4. _Restyle:_ "Make all the highlight boxes red and thicker." → `set_shape_style` on each, no clip
-   moved.
-5. _Undo:_ "Remove the stickers." → every sticker clip deleted; footage untouched.
+**Grounding is the model's own eyes.** No tool returns the position of a UI element or a headline:
+automatic grounding (OCR / UI-element boxes from visual understanding) is deferred (11 §2). The
+model finds the target by reading `get_frame` (it sees images, ADR 0186) and places by percent
+coordinates. Where a case needs a position, its fixture records the ground-truth box, and the metric
+is the **hit rate** — the share of runs whose element covers the target.
+
+| #   | Phase | Case                                                                              | Expected outcome                                                                                                                                    |
+| --- | ----- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | EL4a  | _Screen recording:_ "Put a box around the Export button when I say 'export'."     | one highlight box starting within ±0.3 s of the word, containing the fixture's button box in the rendered frame, gone within 3 s; hit rate reported |
+| 2   | EL6a  | _Talking head:_ "Add a fire emoji when I say 'this is fire'."                     | one sticker within ±0.3 s of the phrase, not overlapping the face box, not in the caption band                                                      |
+| 3   | EL7   | "Make the arrow pop in and the sticker pulse."                                    | a pop-in layer transition on the arrow; loop keyframes on the sticker; nothing else changed                                                         |
+| 4   | EL8   | _Product still:_ "Underline the headline and put an arrow pointing at the price." | an underline under the fixture's headline box and an arrow ending inside the price box; hit rate reported                                           |
+| 5   | EL8   | _Restyle:_ "Make all the highlight boxes red and thicker."                        | `set_shape_style` on each; no clip moved                                                                                                            |
+| 6   | EL8   | _Undo:_ "Remove the stickers."                                                    | every sticker clip deleted; footage untouched                                                                                                       |
 
 **Last updated:** 2026-09-26

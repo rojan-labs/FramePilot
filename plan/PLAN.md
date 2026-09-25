@@ -10268,39 +10268,55 @@ from AI, panel and templates; [ADR 0185](../docs/adr/0185-see-through-captions-a
 > tool, tests).
 
 **What it is.** Photos and Videos are the existing Pexels library (service, key, quota and
-provenance reused unchanged). Stickers: Microsoft Fluent Emoji (MIT, 1,595 at a pinned commit),
-bundled, materialised into the project as ordinary `image` assets and placed as overlays. Shapes:
+provenance reused unchanged). Stickers: Microsoft Fluent Emoji (MIT, 1,595 at a pinned commit; a
+curated ~200 in every build, the full set in the desktop installer), materialised into the project
+as ordinary `image` assets and placed as overlays. Shapes:
 ~105 recolourable vector shapes and ~200 presets (boxes, circles, arrows, lines, callouts,
 highlight marks, badges; ~1,600 Lucide line icons later), a synthetic `__shape__` clip drawn by the
 engine for both the export and the desktop monitor (the text-raster pattern). Overlays are honest
 now that the monitor composites every timeline in every build (ADR 0180 amendment).
 
-**Verified gap that comes first (EL2).** On `98ea829a` a still image and a title ignore opacity
+**Verified gaps that come first (EL2a).** On `98ea829a` a still image and a title ignore opacity
 keyframes and transitions at export and in both frame plans (reproduced with `grab_frame`;
-`frame_plan.py:21-23` documents it as a quirk). CapCut-style In/Out/Loop animation of any element
-is impossible until it is fixed, and the Inspector's opacity control on a photo does nothing today.
+`frame_plan.py:21-23` documents it as a quirk). Two more live bugs found by the scope review: a
+title's In/Out control does nothing on the desktop monitor or in the export, and a landscape photo
+the agent places in a portrait project gets a cover crop (`autoReframeCrop`) that neither the monitor
+nor the export draws while the coverage check believes it — so the footage behind shows through the
+bars. CapCut-style In/Out/Loop animation of any element is impossible until these are fixed.
 
-**Open maintainer decisions:** MD-E1 bundle ~34 MB of stickers · MD-E2 build-time fetch vs commit ·
-MD-E3 animated Noto pack (CC BY 4.0) · MD-E4 agent may place element overlays (ADR 0169 exemption)
-· MD-E5 manual picture-in-picture for Pexels media · MD-E6 schema v25 · MD-E7 Elements second in
-the rail.
+**Product-scope review (2026-09-26): SHRINK**, adopted — small first slices, the agent path proven
+inside each category, one helper per runtime for synthetic asset ids (17 modules compare them today),
+the engine as the only shape rasteriser, loops as keyframes (no new effect type), each maintainer
+decision asked when its phase is next. Details: `plan/elements/README.md` §7.
 
-- [ ] **EL0** Decisions + spikes (shape raster parity, animated WebP parity, library build dry run)
+**Open maintainer decisions:** MD-E7 Elements second in the rail (EL1) · MD-E6 schema v25 (EL4a) ·
+MD-E4 agent may place stickers over footage; element assets never enter the cutaway placer (EL6a) ·
+MD-E2 commit the curated ~200 stickers + thumbnails (EL6a) · MD-E1 full 1,595 in the desktop
+installer (EL6b) · MD-E5 manual picture-in-picture for Pexels media (EL9) · MD-E3 animated Noto
+stickers, CC BY 4.0 (EL10).
+
+**Minimum vertical slice:** EL2a → EL3 → EL4a (EL1 in parallel).
+
+- [~] **EL0** MD-E6/MD-E7 + shape-raster spike (the scope review is done)
 - [ ] **EL1** Stock → Elements rename; Photos and Videos sub-tabs; stored `'stock'` tab aliased
-- [ ] **EL2** Stills and titles honour opacity, transitions, crop, masks, edge styles (engine, both
-  frame plans, monitor, oracle rows)
-- [ ] **EL3** One clip-kind function per runtime (replaces six copies)
-- [ ] **EL4** Shapes first slice, complete: schema v25, `add_shape`, engine raster, Shapes tab,
-  Inspector, canvas handles, export, undo, `search_elements`/`add_shape`/`set_shape_style`
-- [ ] **EL5** Shapes breadth: full catalogue, caps and dashes, numbered badges, Lucide icons
-- [ ] **EL6** Stickers first slice, complete: library build, bundle, materialise IPC, Stickers tab,
-  Inspector (outline/shadow), credits, `add_sticker` + element-overlay placement policy
-- [ ] **EL7** Animation In/Out (layer transitions) and Loop (`loop_motion`, schema v26); titles'
-  preview-only animations migrate to exported transitions
-- [ ] **EL8** Agent quality: critic checks, digest, skill craft pass, eval cases, MCP
+- [ ] **EL2a** Stills and titles honour opacity, fades, crop and their own alpha; titles' In/Out
+  presets render (fixes the three live bugs)
+- [ ] **EL2b** Masks, edge styles and geometry transitions for stills and titles, with their first
+  consumers (EL6b, EL7)
+- [ ] **EL3** One definition of synthetic asset ids and clip kind per runtime + guard tests
+- [ ] **EL4a** Shapes minimum slice, complete (desktop): six shapes, Inspector, box/endpoint handles,
+  export, undo, `add_shape`/`set_shape_style`, one eval case with a measured hit rate, one real run
+- [ ] **EL5** Shapes breadth: ~105 shapes / ~200 presets, chips, search, drag, badges, ~1,600 icons
+- [ ] **EL6a** Stickers minimum slice, complete: curated ~200, materialise IPC, Stickers tab,
+  credits, `add_sticker`, `add_clip` delegation for element assets, one eval case
+- [ ] **EL6b** The full 1,595 in the desktop installer, virtualised grid, outline and shadow
+- [ ] **EL7** Animation In/Out (layer transitions) and Loop (keyframes from a builder);
+  `set_element_animation`
+- [ ] **EL8** Agent quality: critic checks, digest, skill craft pass, remaining eval cases, MCP
 - [ ] **EL9** Photos/Videos: category chips, orientation filter, drag to timeline, manual overlay
-- [ ] **EL10** Animated stickers (optional pack, schema v27) — gated on MD-E3
-- [ ] **EL11** Favourites/recents, skin tones, "Add as sticker", drop on monitor, follow subject
+- [ ] **EL10** Animated stickers (optional, schema v26) — gated on MD-E3
+- [ ] **EL11** Favourites/recents, skin tones, "Add as sticker", drop on monitor, follow subject,
+  the browser build
 - [ ] **EL12** Docs, changelogs, desktop evidence runs, close-out
 
 **Last updated:** 2026-09-26

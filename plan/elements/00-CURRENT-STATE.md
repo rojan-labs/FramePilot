@@ -110,35 +110,57 @@ background, a 200×200 RGBA sticker (red square) on an overlay lane:
 
 Consequences today: the Inspector's opacity control on a **photo** or a **title** does nothing in
 preview or export; a fade transition on a photo does nothing. For Elements it blocks every In/Out/
-Loop animation of a sticker or shape. **Fixed in EL2, first.**
+Loop animation of a sticker or shape. **Fixed in EL2a, first.**
 
 ### G2 — No shape exists anywhere
 
 No clip kind, op, raster or UI. The Text tab shows a disabled "Shape" type (`OverlaysPanel.tsx:51`).
 
-### G3 — The agent refuses overlays whose premise is gone
+### G3 — The agent's cutaway placer, and the trap it sets for stickers
 
-`picture-layers.ts` refuses any scaled, positioned, cropped, masked, faded or blended picture
-placement over picture, because "the preview paints ONE picture layer at a time". Since the ADR 0180
-amendment that is false in every build. A sticker placed by the agent is exactly such a placement.
-ADR 0180 explicitly left relaxing it to the AI layer. **EL8.**
+`picture-layers.ts` refuses a scaled, positioned, cropped, masked, faded or blended picture
+placement over picture, because "the preview paints ONE picture layer at a time" — false in every
+build since the ADR 0180 amendment, which left relaxing it to the AI layer. Its reach is narrower than
+it looks: `createPicturePlacer` is called only from `add_clip`, `add_clips`, `move_clip`
+(`domain-tools/timeline.ts:1395, 1515, 1560`) and the `add_stock` path
+(`ai-sdk/src/stock-placement.ts:201`), and it only counts `video` lanes (`carriesPicture`,
+`picture-layers.ts:128`). A sticker placed on an overlay lane by its own builder never meets it.
 
-### G4 — Clip kind is derived in at least six places
+The trap is the other direction: `add_clip` of a sticker asset onto a video lane is treated as a
+footage cutaway — in a portrait project `autoReframeCrop` gives it a cover crop and the placer lifts
+it as full-frame. **EL6a** routes element assets in `add_clip` / `add_clips` / `move_clip` to the
+sticker builder, and `add_sticker` never uses the stock placement path.
 
-`frame_plan.py:87` `clip_kind`; `frame-plan.ts:445-448` `renderKind`; `ai-sdk/src/project-index.ts:88`
-`clipKindOf`; `editor-core/src/stock-placement.ts` `clipKindOf`; `patch-builders-base.ts`
-`assetKind`/`layerKindOf`/`layerTypeForKind` (`:1583`); `selectors-base.ts`. Adding `shape` means
-touching each and hoping they agree. **EL3** consolidates to one function per runtime first.
+### G4 — Synthetic asset ids and clip kind are decided in 17 modules
+
+Clip kind is derived by `frame_plan.py:87` `clip_kind`, `frame-plan.ts:447` `clipKindOf`,
+`ai-sdk/src/project-index.ts:88` `clipKindOf`, `editor-core/src/stock-placement.ts` `clipKindOf`,
+`patch-builders-base.ts` (`assetKind` / `layerTypeForKind`, `:1583`) and `selectors-base.ts`; and
+**17** non-test modules compare against `__text__` / `__caption__` directly or through their
+constants: `selectors-base.ts`; `frame_plan.py`, `preview_text.py`, `text_overlay.py`,
+`timeline/operations.py` (`has_time_based_source`, `:647`); ai-sdk `context-builder.ts`,
+`critic.ts` (its own `SYNTHETIC_ASSET_IDS`, `:189`), `domain-tools/graphics.ts`,
+`domain-tools/motion.ts`, `eval/mission-rubric.ts` (another `SYNTHETIC_ASSET_IDS`, `:230`),
+`project-index.ts`, `verify.ts`; editor-core `frame-plan.ts`, `mask-operations.ts`, `operations.ts`
+(`hasTimeBasedSource`, `:833`), `stock-placement.ts`; `timeline-schema/src/index.ts`.
+
+Adding `__shape__` without consolidating would make both frame plans call a shape a **video**, and
+the critic and the mission rubric report every shape as a missing asset. **EL3** gives each runtime
+one helper module and a guard test first.
 
 ### G5 — Stock placement is cutaway-only, for people too
 
 ADR 0140's refusal is enforced in the panel (`stockPlacementBlockedReason`), for manual placement as
 well as the agent. Its premise was the flat monitor. **EL9** (MD-E5).
 
-### G6 — Text In/Out animations are preview-only
+### G6 — A title's In/Out control does nothing on desktop
 
-`text_overlay.py` module docstring: "`inAnimation` / `outAnimation` … The preview animates those …
-this module does not". **EL7** maps them onto layer transitions so they export.
+The Inspector writes `inAnimation` / `outAnimation` / `animDurationSeconds` into a title's `text`
+params. The export ignores them (`text_overlay.py` docstring). So does the default monitor: the layer
+engine draws a title from a static raster (`layer-preview-engine.ts:864-894`), and the DOM overlay
+above it is a transparent hit target; only the legacy engine and the selected title's DOM editor box
+animate. The control is as dead as G1's opacity. **EL2a** renders the four presets (fade, slide up,
+slide down, pop) in both frame plans and the compiler, ported from `editor/textOverlay.ts`.
 
 ### G7 — The Stock panel mixes two libraries behind a dropdown
 
@@ -153,13 +175,23 @@ sticker".
 
 Acquired assets are enrolled for footage understanding and appear in `list_assets` like footage
 (ADR 0175 enrolment on commit). A sticker is not footage: indexing it wastes analysis calls and
-pollutes the agent's footage map. **EL6** excludes element assets from enrolment and labels them in
+pollutes the agent's footage map. **EL6a** excludes element assets from enrolment and labels them in
 the agent's asset views.
 
 ### G10 — Credits would list one row per sticker
 
 `CreditsSection` renders a row per asset with a source. Twenty stickers from one library would be
-twenty identical rows. **EL6** groups identical credit lines.
+twenty identical rows. **EL6a** groups identical credit lines.
+
+### G11 — A still's crop is recorded, believed, and not drawn (found by the scope review)
+
+In a portrait project `add_clip` gives a landscape still a cover crop (`autoReframeCrop`,
+`domain-tools/timeline.ts:451`) so it fills the frame. `visibleRect` (`picture-occupancy.ts:184`)
+counts that crop, so the coverage check believes the still covers the footage behind it. But the
+export's `_compile_image_clip` and both frame plans (`honour_crop=False`) ignore a still's crop:
+monitor and export agree with each other, and both show the photo letterboxed with the A-roll
+visible through the bars — the "no black bars" brief the reframe exists for, quietly failed.
+**EL2a** makes stills honour crop.
 
 ---
 
