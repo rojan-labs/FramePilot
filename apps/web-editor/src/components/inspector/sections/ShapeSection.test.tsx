@@ -110,4 +110,26 @@ describe('ShapeInspector', () => {
     render(<ShapeInspector editor={editor} clip={clip} />);
     expect(screen.getByLabelText('shape points').getAttribute('step')).toBe('1');
   });
+
+  it('edits a badge label and its colour, and clears an emptied label', () => {
+    const clip = shapeClip('numbered-circle/red-1');
+    const { editor, applyPatch } = editorWith(clip);
+    render(<ShapeInspector editor={editor} clip={clip} />);
+    const label = screen.getByLabelText('shape label') as HTMLInputElement;
+    expect(label.value).toBe('1');
+    expect(label.maxLength).toBe(8);
+    fireEvent.change(label, { target: { value: '12' } });
+    expect(applyPatch.mock.calls[0]![0].operations[0].params).toEqual({ label: '12' });
+    fireEvent.change(label, { target: { value: '' } });
+    expect(applyPatch.mock.calls[1]![0].operations[0].params).toEqual({ label: null });
+    fireEvent.change(screen.getByLabelText('shape label color'), { target: { value: '#111111' } });
+    expect(applyPatch.mock.calls[2]![0].operations[0].params).toEqual({ labelColor: '#111111' });
+  });
+
+  it('offers no label on a shape that has none', () => {
+    const clip = shapeClip('rounded-rect/highlight');
+    const { editor } = editorWith(clip);
+    render(<ShapeInspector editor={editor} clip={clip} />);
+    expect(screen.queryByLabelText('shape label')).toBeNull();
+  });
 });

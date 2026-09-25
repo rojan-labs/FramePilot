@@ -148,3 +148,34 @@ def test_a_dashed_and_a_dotted_line_leave_gaps() -> None:
         # Several separate runs along the line, not one solid stroke.
         runs = int(np.count_nonzero(drawn[1:] & ~drawn[:-1]))
         assert runs >= 4, preset_id
+
+
+def _label_pixels(params: dict[str, Any]) -> np.ndarray:
+    """Where the raster is near white: a white label on a coloured badge."""
+    image, _ = rasterize_shape(params, W, H)
+    rgba = np.asarray(image).astype(int)
+    return (rgba[..., 3] > 200) & (rgba[..., 1] > 220) & (rgba[..., 2] > 220)
+
+
+def test_a_badge_draws_its_number_centred_in_its_label_colour() -> None:
+    badge = _preset("numbered-circle/red-1", width=20, height=20)
+    white = _label_pixels(badge)
+    rows, cols = np.nonzero(white)
+    assert white.sum() > 50
+    # Centred on its ink, both ways.
+    height, width = white.shape
+    assert abs((rows.min() + rows.max()) / 2 - height / 2) < height * 0.05
+    assert abs((cols.min() + cols.max()) / 2 - width / 2) < width * 0.05
+    # The label colour is honoured, and without a label nothing white is drawn.
+    assert _label_pixels({**badge, "labelColor": "#111111"}).sum() == 0
+    assert _label_pixels({**badge, "label": None}).sum() == 0
+
+
+def test_a_long_label_shrinks_to_fit_its_box() -> None:
+    pill = _preset("numbered-pill/red-1", label="STEP 10!")
+    white = _label_pixels(pill)
+    _, cols = np.nonzero(white)
+    image, bounds = rasterize_shape(pill, W, H)
+    box_width = pill["width"] / 100 * H
+    assert cols.max() - cols.min() <= box_width * 0.8
+    assert image.size == (bounds.width, bounds.height)

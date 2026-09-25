@@ -49,6 +49,19 @@ export const SHAPE_LIMITS = {
 /** `#rrggbb` or `#rrggbbaa`: what the engine's Pillow rasteriser parses. */
 export const SHAPE_COLOR_PATTERN = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
 
+/** The longest badge label, in characters (code points, as the engine counts them). */
+export const SHAPE_LABEL_MAX = 8;
+
+/**
+ * Whether `value` can be a badge label: 1–{@link SHAPE_LABEL_MAX} characters on one line, not
+ * all spaces. Counted in code points so an emoji is one character in both runtimes.
+ */
+export function isShapeLabel(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const length = [...value].length;
+  return length >= 1 && length <= SHAPE_LABEL_MAX && value.trim() !== '' && !/[\n\r]/.test(value);
+}
+
 const colour = z.string().regex(SHAPE_COLOR_PATTERN);
 const within = (bounds: { readonly min: number; readonly max: number }) =>
   z.number().min(bounds.min).max(bounds.max);
@@ -70,6 +83,8 @@ export const SHAPE_STANDARD_KEYS = [
   'strokeStyle',
   'startCap',
   'endCap',
+  'label',
+  'labelColor',
 ] as const;
 
 const BOX_KEYS = ['x', 'y', 'width', 'height'] as const;
@@ -91,6 +106,9 @@ const ShapeStandardParamsSchema = z.object({
   strokeStyle: z.enum(SHAPE_STROKE_STYLES),
   startCap: z.enum(SHAPE_CAPS).nullish(),
   endCap: z.enum(SHAPE_CAPS).nullish(),
+  /** A badge's text, drawn inside the shape (numbered badges, burst labels; plan/elements EL5.4). */
+  label: z.string().refine(isShapeLabel).nullish(),
+  labelColor: colour.nullish(),
 });
 
 /** The standard keys, plus knobs: catalogue-declared numbers (`shapeParamsProblem` checks them). */
@@ -156,6 +174,9 @@ export function shapeParamsProblem(params: Readonly<Record<string, unknown>>): s
   if (descriptor.frame === 'box' && (present(params, 'startCap') || present(params, 'endCap'))) {
     return `'${shapeId}' has no ends to cap; startCap and endCap are for lines and arrows.`;
   }
+  if (descriptor.labelled !== true && (present(params, 'label') || present(params, 'labelColor'))) {
+    return `'${shapeId}' has no label; label and labelColor are for numbered badges and burst labels.`;
+  }
   for (const knob of descriptor.knobs) {
     const value = params[knob.name];
     if (value === undefined || value === null) continue;
@@ -192,6 +213,7 @@ export function shapeParamsProblem(params: Readonly<Record<string, unknown>>): s
 export function shapeKeysFor(descriptor: ShapeDescriptor): readonly string[] {
   const frame = descriptor.frame === 'box' ? BOX_KEYS : SEGMENT_KEYS;
   const caps = descriptor.frame === 'segment' ? (['startCap', 'endCap'] as const) : [];
+  const label = descriptor.labelled === true ? (['label', 'labelColor'] as const) : [];
   return [
     'shape',
     ...frame,
@@ -200,6 +222,7 @@ export function shapeKeysFor(descriptor: ShapeDescriptor): readonly string[] {
     'strokeWidth',
     'strokeStyle',
     ...caps,
+    ...label,
     ...descriptor.knobs.map((knob) => knob.name),
   ];
 }
@@ -219,7 +242,10 @@ function standardKeyHint(key: string): string {
       return 'An end is a percent of the frame, -50 to 150.';
     case 'fill':
     case 'stroke':
+    case 'labelColor':
       return 'A colour is #rrggbb or #rrggbbaa, or null for none.';
+    case 'label':
+      return 'A label is 1 to 8 characters on one line.';
     case 'strokeWidth':
       return 'A stroke width is a percent of the frame height, 0.05 to 10.';
     case 'strokeStyle':
@@ -265,6 +291,8 @@ export function presetShapeParams(
       width: shape.defaults.width,
       height: shape.defaults.height,
       ...style,
+      ...(preset.label !== undefined ? { label: preset.label } : {}),
+      ...(preset.labelColor !== undefined ? { labelColor: preset.labelColor } : {}),
       ...knobs,
     };
   }

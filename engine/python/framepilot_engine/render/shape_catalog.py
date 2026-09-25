@@ -18,7 +18,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import cache
 from importlib import resources
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, TypeGuard
 
 ShapeFrame = Literal["box", "segment"]
 
@@ -40,7 +40,11 @@ _STANDARD_KEYS: Final = (
     "strokeStyle",
     "startCap",
     "endCap",
+    "label",
+    "labelColor",
 )
+#: The longest badge label, in characters (code points; TS counts the same way).
+SHAPE_LABEL_MAX: Final = 8
 _LIMITS: Final[dict[str, tuple[float, float]]] = {
     "x": (0, 100),
     "y": (0, 100),
@@ -52,7 +56,9 @@ _LIMITS: Final[dict[str, tuple[float, float]]] = {
     "y2": (-50, 150),
     "strokeWidth": (0.05, 10),
 }
-_OPTIONAL: Final = frozenset({*_BOX_KEYS, *_SEGMENT_KEYS, "fill", "stroke", "startCap", "endCap"})
+_OPTIONAL: Final = frozenset(
+    {*_BOX_KEYS, *_SEGMENT_KEYS, "fill", "stroke", "startCap", "endCap", "label", "labelColor"}
+)
 _PICK_ONE: Final = "Pick one with search_elements (kind: shape) or from the Shapes tab."
 #: Icons are shapes whose id is this prefix and a Lucide icon name (plan/elements EL5.5).
 ICON_PREFIX: Final = "icon/"
@@ -76,6 +82,8 @@ class ShapeDescriptor:
     knobs: tuple[ShapeKnob, ...]
     #: Fixed generator settings (polygon sides, a path, the fill rule, ...); see the catalogue.
     geometry: Mapping[str, Any] = field(default_factory=dict)
+    #: Badges draw a ``label`` inside the shape (plan/elements EL5.4).
+    labelled: bool = False
 
     def knob(self, name: str) -> ShapeKnob | None:
         return next((knob for knob in self.knobs if knob.name == name), None)
@@ -112,6 +120,7 @@ def load_shape_catalog() -> dict[str, ShapeDescriptor]:
             generator=entry["generator"],
             knobs=knobs,
             geometry=_resolved_geometry(entry.get("geometry") or {}),
+            labelled=bool(entry.get("labelled", False)),
         )
     return catalog
 
@@ -163,6 +172,7 @@ def shape_keys_for(descriptor: ShapeDescriptor) -> tuple[str, ...]:
     """Every key a shape of this descriptor accepts, standard frame keys first."""
     frame = _BOX_KEYS if descriptor.frame == "box" else _SEGMENT_KEYS
     caps = ("startCap", "endCap") if descriptor.frame == "segment" else ()
+    label = ("label", "labelColor") if descriptor.labelled else ()
     return (
         "shape",
         *frame,
@@ -171,6 +181,7 @@ def shape_keys_for(descriptor: ShapeDescriptor) -> tuple[str, ...]:
         "strokeWidth",
         "strokeStyle",
         *caps,
+        *label,
         *(knob.name for knob in descriptor.knobs),
     )
 
@@ -188,10 +199,23 @@ def _is_number(value: Any) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
 
 
+def is_shape_label(value: Any) -> TypeGuard[str]:
+    """Whether ``value`` can be a badge label: 1-8 characters on one line, not all spaces."""
+    return (
+        isinstance(value, str)
+        and 1 <= len(value) <= SHAPE_LABEL_MAX
+        and value.strip() != ""
+        and "\n" not in value
+        and "\r" not in value
+    )
+
+
 def _standard_key_ok(key: str, value: Any) -> bool:
     if key == "shape":
         return isinstance(value, str) and value != ""
-    if key in ("fill", "stroke"):
+    if key == "label":
+        return is_shape_label(value)
+    if key in ("fill", "stroke", "labelColor"):
         return value is None or (isinstance(value, str) and bool(SHAPE_COLOR_PATTERN.match(value)))
     if key == "strokeStyle":
         return value in SHAPE_STROKE_STYLES
@@ -208,8 +232,10 @@ def _standard_key_hint(key: str) -> str:
         return "A box size is a percent of the frame height, 0.1 to 400."
     if key in _SEGMENT_KEYS:
         return "An end is a percent of the frame, -50 to 150."
-    if key in ("fill", "stroke"):
+    if key in ("fill", "stroke", "labelColor"):
         return "A colour is #rrggbb or #rrggbbaa, or null for none."
+    if key == "label":
+        return "A label is 1 to 8 characters on one line."
     if key == "strokeWidth":
         return "A stroke width is a percent of the frame height, 0.05 to 10."
     if key == "strokeStyle":
@@ -254,6 +280,11 @@ def shape_params_problem(params: Mapping[str, Any]) -> str | None:
         return f"'{shape_id}' needs both ends: x1, y1, x2 and y2."
     if descriptor.frame == "box" and (_present(params, "startCap") or _present(params, "endCap")):
         return f"'{shape_id}' has no ends to cap; startCap and endCap are for lines and arrows."
+    if not descriptor.labelled and (_present(params, "label") or _present(params, "labelColor")):
+        return (
+            f"'{shape_id}' has no label; label and labelColor are for numbered badges and "
+            "burst labels."
+        )
     for knob in descriptor.knobs:
         if not _present(params, knob.name):
             continue
@@ -363,6 +394,7 @@ def preset_shape_params(
             defaults = shape["defaults"]
             x, y = at
             if shape["frame"] == "box":
+                label = {key: preset[key] for key in ("label", "labelColor") if key in preset}
                 return {
                     "shape": shape["id"],
                     "x": x,
@@ -370,6 +402,7 @@ def preset_shape_params(
                     "width": defaults["width"],
                     "height": defaults["height"],
                     **style,
+                    **label,
                     **knobs,
                 }
             return {

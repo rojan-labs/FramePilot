@@ -825,6 +825,197 @@
         "strokeStyle": "solid"
       },
       "problem": null
+    },
+    {
+      "name": "a numbered badge",
+      "params": {
+        "shape": "numbered-circle",
+        "x": 50,
+        "y": 50,
+        "width": 9,
+        "height": 9,
+        "fill": "#FF3B30",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "label": "2",
+        "labelColor": "#FFFFFF"
+      },
+      "problem": null
+    },
+    {
+      "name": "a burst label",
+      "params": {
+        "shape": "burst-label",
+        "x": 50,
+        "y": 50,
+        "width": 18,
+        "height": 18,
+        "fill": "#FFD400",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "label": "SALE",
+        "labelColor": "#111111",
+        "points": 12,
+        "innerRadius": 78
+      },
+      "problem": null
+    },
+    {
+      "name": "a badge label of eight characters",
+      "params": {
+        "shape": "numbered-pill",
+        "x": 50,
+        "y": 50,
+        "width": 14,
+        "height": 8,
+        "fill": "#FF3B30",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "label": "STEP 10!",
+        "labelColor": "#FFFFFF",
+        "cornerRadius": 50
+      },
+      "problem": null
+    },
+    {
+      "name": "a badge label too long",
+      "params": {
+        "shape": "numbered-pill",
+        "x": 50,
+        "y": 50,
+        "width": 14,
+        "height": 8,
+        "fill": "#FF3B30",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "label": "STEP 100!",
+        "labelColor": "#FFFFFF",
+        "cornerRadius": 50
+      },
+      "problem": "Shape parameter 'label' is out of range or the wrong type. A label is 1 to 8 characters on one line."
+    },
+    {
+      "name": "a blank badge label",
+      "params": {
+        "shape": "numbered-circle",
+        "x": 50,
+        "y": 50,
+        "width": 9,
+        "height": 9,
+        "fill": "#FF3B30",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "label": "   ",
+        "labelColor": "#FFFFFF"
+      },
+      "problem": "Shape parameter 'label' is out of range or the wrong type. A label is 1 to 8 characters on one line."
+    },
+    {
+      "name": "a badge label on two lines",
+      "params": {
+        "shape": "numbered-circle",
+        "x": 50,
+        "y": 50,
+        "width": 9,
+        "height": 9,
+        "fill": "#FF3B30",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "label": "a\nb",
+        "labelColor": "#FFFFFF"
+      },
+      "problem": "Shape parameter 'label' is out of range or the wrong type. A label is 1 to 8 characters on one line."
+    },
+    {
+      "name": "an emoji badge label",
+      "params": {
+        "shape": "numbered-circle",
+        "x": 50,
+        "y": 50,
+        "width": 9,
+        "height": 9,
+        "fill": "#FF3B30",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "label": "⭐",
+        "labelColor": "#FFFFFF"
+      },
+      "problem": null
+    },
+    {
+      "name": "a badge label colour by name",
+      "params": {
+        "shape": "numbered-circle",
+        "x": 50,
+        "y": 50,
+        "width": 9,
+        "height": 9,
+        "fill": "#FF3B30",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "label": "1",
+        "labelColor": "white"
+      },
+      "problem": "Shape parameter 'labelColor' is out of range or the wrong type. A colour is #rrggbb or #rrggbbaa, or null for none."
+    },
+    {
+      "name": "a label on a shape without one",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12,
+        "label": "1"
+      },
+      "problem": "'rounded-rect' has no label; label and labelColor are for numbered badges and burst labels."
+    },
+    {
+      "name": "a label colour on a shape without one",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12,
+        "labelColor": "#FFFFFF"
+      },
+      "problem": "'rounded-rect' has no label; label and labelColor are for numbered badges and burst labels."
+    },
+    {
+      "name": "a null label on a box",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12,
+        "label": null
+      },
+      "problem": null
     }
   ]
 }

@@ -265,6 +265,9 @@ class ShapeParams(BaseModel):
     stroke_style: ShapeStrokeStyle = Field(alias="strokeStyle")
     start_cap: ShapeCap | None = Field(default=None, alias="startCap")
     end_cap: ShapeCap | None = Field(default=None, alias="endCap")
+    #: A badge's text, drawn inside the shape (plan/elements EL5.4); 1-8 characters.
+    label: str | None = Field(default=None, min_length=1, max_length=8)
+    label_color: str | None = Field(default=None, alias="labelColor")
 
     model_config = {"populate_by_name": True, "extra": "allow"}
 

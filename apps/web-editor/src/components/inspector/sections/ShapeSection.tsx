@@ -10,6 +10,7 @@ import {
   SHAPE_CAPS,
   SHAPE_CATALOG,
   SHAPE_EFFECT_TYPE,
+  SHAPE_LABEL_MAX,
   SHAPE_LIMITS,
   SHAPE_STROKE_STYLES,
   shapeDescriptor,
@@ -20,6 +21,7 @@ import { setShapeParamsPatch, swapShapePatch } from '../../../editor/patch-build
 import { ScrubNumber } from '../../ScrubNumber.js';
 import { Checkbox } from '../../Checkbox.js';
 import { LabeledSelect } from '../LabeledSelect.js';
+import { InspectorRow } from '../InspectorRow.js';
 
 /** `#rrggbb` part and alpha (0–100 %) of a stored `#rrggbb[aa]` colour. */
 function splitColour(colour: string): { readonly rgb: string; readonly alpha: number } {
@@ -191,6 +193,28 @@ export function ShapeInspector({
               onChange={(value) => commit({ strokeStyle: value }, 'stroke style')}
             />
           </>
+        )}
+        {descriptor.labelled === true && (
+          <InspectorRow label="Label" name="shape label">
+            <input
+              type="text"
+              className="inspector-text-input"
+              aria-label="shape label"
+              maxLength={SHAPE_LABEL_MAX}
+              value={typeof params.label === 'string' ? params.label : ''}
+              onChange={(event) =>
+                commit({ label: event.target.value === '' ? null : event.target.value }, 'label')
+              }
+            />
+            <input
+              type="color"
+              aria-label="shape label color"
+              value={(typeof params.labelColor === 'string' ? params.labelColor : '#ffffff')
+                .slice(0, 7)
+                .toLowerCase()}
+              onChange={(event) => commit({ labelColor: event.target.value }, 'label colour')}
+            />
+          </InspectorRow>
         )}
         {descriptor.knobs.map((knob) => (
           <ScrubNumber

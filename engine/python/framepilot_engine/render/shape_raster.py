@@ -27,6 +27,8 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageChops, ImageDraw
 
+from framepilot_engine.render.captions import _load_font
+from framepilot_engine.render.shape_catalog import is_shape_label
 from framepilot_engine.render.shape_geometry import (
     ARROW_HALF_WIDTH,
     BAR_HALF_LENGTH,
@@ -43,6 +45,7 @@ from framepilot_engine.render.shape_geometry import (
     segment_polyline,
     shape_bounds,
 )
+from framepilot_engine.render.text_overlay import _basic_features
 
 #: Supersampling factor for anti-aliasing.
 SUPERSAMPLE = 4
@@ -55,6 +58,15 @@ DASH_ON = 3.0
 DASH_OFF = 2.0
 #: Dot spacing, in stroke widths.
 DOT_SPACING = 2.0
+#: A badge label's face: the title default (Inter, bold), through the title rasteriser's loader.
+LABEL_FAMILY = "Inter"
+LABEL_WEIGHT = 700
+#: The label's font size as a fraction of the box's shorter side, and the widest it may run as a
+#: fraction of the box's width (a long label shrinks to fit rather than spilling out).
+LABEL_SIZE = 0.56
+LABEL_MAX_WIDTH = 0.78
+#: A label's colour when the shape names none.
+LABEL_DEFAULT_COLOR = "#FFFFFF"
 
 Mask = Image.Image
 
@@ -367,6 +379,30 @@ def _segment_mask(shape: ResolvedShape, canvas: _Canvas) -> Mask:
     return ImageChops.lighter(canvas.polygon(body), cap_mask)
 
 
+def _label_mask(shape: ResolvedShape, canvas: _Canvas) -> Mask | None:
+    """A badge's label, centred on its ink in the shape's box (plan/elements EL5.4), or ``None``."""
+    label = shape.params.get("label")
+    if shape.box is None or not is_shape_label(label):
+        return None
+    left, top, right, bottom = shape.box
+    width, height = right - left, bottom - top
+    size = max(1, round(min(width, height) * LABEL_SIZE * canvas.scale))
+    font = _load_font(LABEL_FAMILY, size, LABEL_WEIGHT)
+    features = _basic_features(font)
+    probe = ImageDraw.Draw(Image.new("L", (1, 1)))
+    bbox = probe.textbbox((0, 0), label, font=font, features=features)
+    room = width * LABEL_MAX_WIDTH * canvas.scale
+    if bbox[2] - bbox[0] > room:
+        size = max(1, math.floor(size * room / (bbox[2] - bbox[0])))
+        font = _load_font(LABEL_FAMILY, size, LABEL_WEIGHT)
+        bbox = probe.textbbox((0, 0), label, font=font, features=features)
+    cx, cy = canvas.point(((left + right) / 2, (top + bottom) / 2))
+    origin = (cx - (bbox[0] + bbox[2]) / 2, cy - (bbox[1] + bbox[3]) / 2)
+    return canvas.mask(
+        lambda draw: draw.text(origin, label, font=font, fill=255, features=features)
+    )
+
+
 def _coverage(mask: Mask | None, scale: int) -> np.ndarray | None:
     if mask is None:
         return None
@@ -425,8 +461,16 @@ def rasterize_shape(
         fill_mask, stroke_mask = _box_masks(shape, canvas)
     else:
         fill_mask, stroke_mask = None, _segment_mask(shape, canvas)
+    label_colour = params.get("labelColor")
     image = _composite(
         (bounds.width, bounds.height),
-        [(_coverage(fill_mask, scale), shape.fill), (_coverage(stroke_mask, scale), shape.stroke)],
+        [
+            (_coverage(fill_mask, scale), shape.fill),
+            (_coverage(stroke_mask, scale), shape.stroke),
+            (
+                _coverage(_label_mask(shape, canvas), scale),
+                label_colour if isinstance(label_colour, str) else LABEL_DEFAULT_COLOR,
+            ),
+        ],
     )
     return image, bounds
