@@ -40,6 +40,7 @@ import { resolveCaptionCue } from './captions/cue.js';
 import { assetDisplaySize } from './mask-geometry.js';
 import { applyEasing, evaluateKeyframes } from './keyframes.js';
 import { clipRenderKind, syntheticClipKind, type ClipRenderKind } from './synthetic-assets.js';
+import { shapeBounds, shapeClipParams, type ShapeBounds } from './shape-geometry.js';
 import { hasSpeedRamp, sourceTimeAt } from './speed-curve.js';
 import {
   readAlignment,
@@ -53,7 +54,7 @@ import {
 // Plan shape (JSON-identical to `FramePlan.to_json()` in the engine)
 // ---------------------------------------------------------------------------
 
-export type FramePlanLayerKind = 'picture' | 'text' | 'caption' | 'solid';
+export type FramePlanLayerKind = 'picture' | 'text' | 'caption' | 'solid' | 'shape';
 export type FramePlanLayerRole = 'clip' | 'underlay';
 
 export interface FramePlanSource {
@@ -128,6 +129,11 @@ export interface FramePlanLayer {
    * params. Present only when the clip has one, so plans without edge styles are unchanged.
    */
   readonly edgeStyles?: readonly FramePlanEdgeStyle[];
+  /**
+   * Shapes (schema v25): the frame-pixel rectangle the engine's raster covers, before the clip's
+   * transform. Present only on `shape` layers, so other plans are unchanged.
+   */
+  readonly shape?: ShapeBounds;
 }
 
 /** One cut-out edge style as the renderers read it (`render/edge_styles.py`). */
@@ -1108,6 +1114,50 @@ function textLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer | nul
   };
 }
 
+/**
+ * A shape as the export places the engine's raster: `fit_to_frame=False` around the bounds'
+ * centre, with the clip's transform, opacity and transitions like a title (`_shape_layer`).
+ */
+function shapeLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer | null {
+  const params = shapeClipParams(clip);
+  if (params === null) return null;
+  const local = ctx.t - clip.start;
+  const rotates = clip.keyframes.some((keyframe) => keyframe.property === 'rotation');
+  const bounds = shapeBounds(params, ctx.width, ctx.height, rotates);
+  if (bounds === null) return null;
+  const centreX = bounds.x + bounds.width / 2;
+  const centreY = bounds.y + bounds.height / 2;
+  const transform = evaluateClipTransform(clip.keyframes, local);
+  const tr = legacyTransition(clip);
+  const geometric = tr !== null && GEOMETRY_KINDS.has(tr.kind);
+  const [dx, dy] = geometric ? transitionOffsetAt(tr, local, ctx.width, ctx.height) : [0, 0];
+  // `layer_scale_at`'s operation order, so the floats agree to the bit.
+  let scale = transform.scale * titleEnvelopeAt(clip, local).scale;
+  if (geometric) scale *= transitionScaleAt(tr, local);
+  const anchorX = centreX + transform.x + dx;
+  const anchorY = centreY + transform.y + dy;
+  const width = bounds.width * scale;
+  const height = bounds.height * scale;
+  return {
+    ...baseLayer('shape', track.id, clip.id, local),
+    geometry: {
+      baseScale: 1,
+      scale,
+      anchorX,
+      anchorY,
+      rotation: transform.rotation,
+      left: anchorX - width / 2,
+      top: anchorY - height / 2,
+      width,
+      height,
+    },
+    opacity: layerOpacityAt(clip, local, tr),
+    blendMode: clip.blendMode ?? 'normal',
+    transitions: transitionStates(clip, local),
+    shape: bounds,
+  };
+}
+
 /** One track's active layers in the compiler's placement order, track mattes marked (MK8.2). */
 function trackLayers(ctx: Context, track: Track): FramePlanLayer[] {
   return placedTrackLayers(ctx, track).map((layer) =>
@@ -1133,6 +1183,9 @@ function placedTrackLayers(ctx: Context, track: Track): FramePlanLayer[] {
     } else if (kind === 'text' && layerIsActive(clip.start, clip.end, ctx.t)) {
       const layer = textLayer(ctx, track, clip);
       if (layer !== null) layers.push(layer);
+    } else if (kind === 'shape' && layerIsActive(clip.start, clip.end, ctx.t)) {
+      const layer = shapeLayer(ctx, track, clip);
+      if (layer !== null) layers.push(layer);
     }
   });
   return layers;
@@ -1147,7 +1200,8 @@ function hasPictureAnywhere(timeline: Timeline, assetKinds: ReadonlyMap<string, 
         return (
           kind === 'video' ||
           kind === 'image' ||
-          (kind === 'text' && textOverlayText(clip) !== null)
+          (kind === 'text' && textOverlayText(clip) !== null) ||
+          (kind === 'shape' && shapeClipParams(clip) !== null)
         );
       }),
   );

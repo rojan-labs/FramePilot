@@ -61,7 +61,7 @@
  * prefix law names the operation index where it first diverges.
  */
 import { describe, expect, it } from 'vitest';
-import type { Clip, Timeline } from '@framepilot/timeline-schema';
+import { presetShapeParams, type Clip, type Timeline } from '@framepilot/timeline-schema';
 import type { PatchId } from '@framepilot/shared-types';
 import { applyPatch, invertPatch, revertPatch, type Patch } from './patch.js';
 import { type Operation } from './operations.js';
@@ -119,6 +119,8 @@ const videoClips = (timeline: Timeline): readonly Clip[] =>
  * against a stale intermediate state actually shows up. Returns `undefined` when the timeline
  * has been whittled down too far to offer the chosen move.
  */
+const SHAPE_PARAMS = presetShapeParams('rounded-rect/highlight')!;
+
 function proposeOperation(timeline: Timeline, rng: () => number): Operation | undefined {
   const clips = videoClips(timeline);
   if (clips.length === 0) return undefined;
@@ -149,6 +151,18 @@ function proposeOperation(timeline: Timeline, rng: () => number): Operation | un
   if (kind === 3) {
     const overlay = timeline.tracks.find((track) => track.id === 'overlay_1');
     const next = (overlay?.clips.length ?? 0) * 2;
+    // Every other graphic is a shape (schema v25), chosen without another draw from `rng` so
+    // the sequences the seeds produce are otherwise unchanged.
+    if (next % 4 === 2) {
+      return {
+        type: 'add_shape',
+        trackId: 'overlay_1',
+        start: next,
+        end: next + 1,
+        params: SHAPE_PARAMS,
+        clipId: `overlay_${String(next)}`,
+      };
+    }
     return {
       type: 'add_text_overlay',
       trackId: 'overlay_1',

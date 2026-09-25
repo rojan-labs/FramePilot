@@ -682,6 +682,37 @@
           }
         ]
       }
+    },
+    {
+      "name": "add shape",
+      "operation": {
+        "type": "add_shape",
+        "trackId": "overlay_main",
+        "start": 1,
+        "end": 3,
+        "params": {
+          "shape": "rounded-rect",
+          "x": 50,
+          "y": 50,
+          "width": 48,
+          "height": 27,
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "cornerRadius": 12
+        }
+      },
+      "expect": {
+        "clipId": "shape__overlay_main_1000",
+        "trackId": "overlay_main",
+        "start": 1,
+        "end": 3,
+        "sourceStart": 0,
+        "sourceEnd": 2,
+        "effectType": "shape",
+        "shape": "rounded-rect"
+      }
     }
   ]
 }

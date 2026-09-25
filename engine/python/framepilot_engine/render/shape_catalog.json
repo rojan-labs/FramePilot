@@ -1,0 +1,193 @@
+{
+  "shapes": [
+    {
+      "id": "rounded-rect",
+      "name": "Rounded rectangle",
+      "category": "highlights",
+      "tags": [
+        "box",
+        "rectangle",
+        "highlight",
+        "button",
+        "card",
+        "frame"
+      ],
+      "frame": "box",
+      "generator": "rect",
+      "knobs": [
+        {
+          "name": "cornerRadius",
+          "label": "Corners",
+          "min": 0,
+          "max": 50,
+          "default": 12,
+          "unit": "%",
+          "hint": "Corner radius, as a percent of the shorter side. 50 makes the ends fully round."
+        }
+      ],
+      "defaults": {
+        "width": 48,
+        "height": 27
+      },
+      "presets": [
+        {
+          "id": "rounded-rect/highlight",
+          "name": "Highlight box",
+          "fill": null,
+          "stroke": "#FFD400",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        },
+        {
+          "id": "rounded-rect/filled",
+          "name": "Filled box",
+          "fill": "#FFFFFF",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "ellipse",
+      "name": "Ellipse",
+      "category": "basic",
+      "tags": [
+        "circle",
+        "oval",
+        "ring",
+        "highlight"
+      ],
+      "frame": "box",
+      "generator": "ellipse",
+      "knobs": [],
+      "defaults": {
+        "width": 40,
+        "height": 28
+      },
+      "presets": [
+        {
+          "id": "ellipse/outline",
+          "name": "Ellipse",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "marker-highlight",
+      "name": "Marker highlight",
+      "category": "highlights",
+      "tags": [
+        "marker",
+        "highlighter",
+        "highlight",
+        "emphasis",
+        "text"
+      ],
+      "frame": "box",
+      "generator": "rect",
+      "knobs": [
+        {
+          "name": "cornerRadius",
+          "label": "Corners",
+          "min": 0,
+          "max": 50,
+          "default": 8,
+          "unit": "%",
+          "hint": "Corner radius, as a percent of the shorter side. 50 makes the ends fully round."
+        }
+      ],
+      "defaults": {
+        "width": 60,
+        "height": 10
+      },
+      "presets": [
+        {
+          "id": "marker-highlight/yellow",
+          "name": "Marker",
+          "fill": "#FFD40066",
+          "stroke": null,
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid"
+        }
+      ]
+    },
+    {
+      "id": "line-arrow",
+      "name": "Arrow",
+      "category": "arrows",
+      "tags": [
+        "arrow",
+        "pointer",
+        "point",
+        "direction"
+      ],
+      "frame": "segment",
+      "generator": "segment",
+      "knobs": [
+        {
+          "name": "headSize",
+          "label": "Head size",
+          "min": 2,
+          "max": 8,
+          "default": 4,
+          "unit": "×",
+          "hint": "How long an arrow head is, as a multiple of the stroke width."
+        }
+      ],
+      "defaults": {
+        "x1": -12,
+        "y1": -12,
+        "x2": 0,
+        "y2": 0
+      },
+      "presets": [
+        {
+          "id": "line-arrow/red",
+          "name": "Arrow",
+          "fill": null,
+          "stroke": "#FF3B30",
+          "strokeWidth": 0.8,
+          "strokeStyle": "solid",
+          "startCap": "none",
+          "endCap": "arrow"
+        }
+      ]
+    },
+    {
+      "id": "underline-marker",
+      "name": "Underline",
+      "category": "highlights",
+      "tags": [
+        "underline",
+        "line",
+        "marker",
+        "emphasis"
+      ],
+      "frame": "segment",
+      "generator": "segment",
+      "knobs": [],
+      "defaults": {
+        "x1": -15,
+        "y1": 0,
+        "x2": 15,
+        "y2": 0
+      },
+      "presets": [
+        {
+          "id": "underline-marker/yellow",
+          "name": "Underline",
+          "fill": null,
+          "stroke": "#FFD400CC",
+          "strokeWidth": 1.2,
+          "strokeStyle": "solid",
+          "startCap": "none",
+          "endCap": "none"
+        }
+      ]
+    }
+  ]
+}

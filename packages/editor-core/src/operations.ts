@@ -48,6 +48,7 @@ import { frameToSeconds, secondsToFrame } from './frame-grid.js';
 import { evaluateKeyframes } from './keyframes.js';
 import {
   CAPTION_ASSET_ID,
+  SHAPE_ASSET_ID,
   TEXT_OVERLAY_ASSET_ID,
   hasTimeBasedSource,
   syntheticClipKind,
@@ -68,6 +69,8 @@ import {
   CropRectSchema,
   EDGE_STYLE_EFFECT_TYPE,
   EffectLayerSchema,
+  SHAPE_EFFECT_TYPE,
+  shapeParamsProblem,
   SpeedPointSchema,
   clampEdgeStyleParams,
   edgeStyleParamsIssue,
@@ -210,6 +213,19 @@ export interface AddTextOverlayOp {
   readonly text: string;
   readonly start: Seconds;
   readonly end: Seconds;
+  readonly clipId?: string;
+}
+
+/**
+ * Add a shape (schema v25, plan/elements EL4a): a synthetic clip carrying one `shape` effect
+ * whose params are a complete `ShapeParams`. Refused before apply when the params cannot be drawn.
+ */
+export interface AddShapeOp {
+  readonly type: 'add_shape';
+  readonly trackId: string;
+  readonly start: Seconds;
+  readonly end: Seconds;
+  readonly params: Readonly<Record<string, unknown>>;
   readonly clipId?: string;
 }
 
@@ -778,6 +794,7 @@ export type Operation =
   | RippleDeleteOp
   | AddClipOp
   | AddTextOverlayOp
+  | AddShapeOp
   | AddCaptionLayerOp
   | AddKeyframesOp
   | RemoveKeyframesOp
@@ -915,6 +932,13 @@ export const textOverlayClipId = (trackId: string, start: number): string =>
 
 /** The id of the `text` effect on a text overlay clip. */
 export const textEffectId = (clipId: string): string => `${clipId}__text`;
+
+/** The id `add_shape` gives a shape it creates on `trackId` at `start` without an explicit id. */
+export const shapeClipId = (trackId: string, start: number): string =>
+  deriveClipId('shape', trackId, start);
+
+/** The id of the `shape` effect on a shape clip. */
+export const shapeEffectId = (clipId: string): string => `${clipId}__shape`;
 
 /**
  * The id `split_clip` will give the right-hand piece when it splits `clipId` at
@@ -1115,6 +1139,8 @@ function applyOperationInner(
       return applyAddClip(timeline, op);
     case 'add_text_overlay':
       return applyAddTextOverlay(timeline, op);
+    case 'add_shape':
+      return applyAddShape(timeline, op);
     case 'add_caption_layer':
       return applyAddCaptionLayer(timeline, op);
     case 'add_keyframes':
@@ -2149,6 +2175,27 @@ function applyAddTextOverlay(timeline: Timeline, op: AddTextOverlayOp): Timeline
   return insertClip(timeline, op.trackId, clip);
 }
 
+function applyAddShape(timeline: Timeline, op: AddShapeOp): Timeline {
+  assertPositiveRange(op.start, op.end, 'add_shape');
+  const problem = shapeParamsProblem(op.params);
+  if (problem !== null) throw new OperationError('invalid_style', problem);
+  const id = op.clipId ?? shapeClipId(op.trackId, op.start);
+  const clip: Clip = {
+    id,
+    assetId: SHAPE_ASSET_ID,
+    trackId: op.trackId,
+    start: op.start,
+    end: op.end,
+    sourceStart: 0,
+    sourceEnd: op.end - op.start,
+    effects: [
+      { id: shapeEffectId(id), type: SHAPE_EFFECT_TYPE, params: clone(op.params), keyframes: [] },
+    ],
+    keyframes: [],
+  };
+  return insertClip(timeline, op.trackId, clip);
+}
+
 /**
  * Refuse a caption cue on a track that is not a caption track.
  *
@@ -2285,6 +2332,12 @@ function applySetEffectParams(timeline: Timeline, op: SetEffectParamsOp): Timeli
   for (const [key, value] of Object.entries(op.params)) {
     if (value === undefined) delete mergedParams[key];
     else mergedParams[key] = value;
+  }
+  // A shape's params are re-validated whole: a merge that leaves an arrow without a stroke, or a
+  // box with an arrow cap, would otherwise land and draw nothing (ADR 0144).
+  if (existing.type === SHAPE_EFFECT_TYPE) {
+    const problem = shapeParamsProblem(mergedParams);
+    if (problem !== null) throw new OperationError('invalid_style', problem);
   }
   const effects = loc.clip.effects.slice();
   effects[index] = { ...clone(existing), params: mergedParams };
@@ -3398,6 +3451,7 @@ export function invertOperation(
     case 'ripple_delete':
     case 'add_clip':
     case 'add_text_overlay':
+    case 'add_shape':
     case 'add_caption_layer':
     case 'restore_clips':
       return [restoreFor(findTrack(timelineBefore, op.trackId).track)];

@@ -187,6 +187,8 @@ from framepilot_engine.render.pts_reader import (
     video_timing,
 )
 from framepilot_engine.render.resources import close_clip_tree
+from framepilot_engine.render.shape_geometry import shape_clip_params
+from framepilot_engine.render.shape_raster import rasterize_shape
 from framepilot_engine.render.text_overlay import rasterize_text_overlay, text_overlay_layout
 from framepilot_engine.render.tracks import TrackArtifact, TrackRefusal, prepare_track
 from framepilot_engine.safety import PathTraversalError, resolve_within
@@ -375,7 +377,9 @@ def unsupported_track_types(
     burn_captions: bool = False,
 ) -> list[str]:
     kinds = asset_kinds or {}
-    rendered = {"video", "image", "audio", "text"} | ({"caption"} if burn_captions else set())
+    rendered = {"video", "image", "audio", "text", "shape"} | (
+        {"caption"} if burn_captions else set()
+    )
     deferred = {
         clip_kind(clip, kinds)
         for track in timeline.tracks
@@ -494,6 +498,29 @@ def _compile_text_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int])
         transition,
         fit_to_frame=False,
         centre=(layout.centre_x, layout.centre_y),
+    )
+    return placed.with_start(clip.start)
+
+
+def _compile_shape_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int]) -> Any | None:
+    """Rasterise a shape and place it: the title's pipeline around the raster's own centre.
+
+    The engine is the only shape rasteriser (``render/shape_raster.py``); the desktop monitor draws
+    this same raster, placed by the bounds the frame plans compute (plan/elements EL4a, ADR 0190).
+    """
+    params = shape_clip_params(clip)
+    if params is None:
+        return None
+    rotates = ROTATION in animated_properties(clip)
+    image, bounds = rasterize_shape(params, target[0], target[1], rotates=rotates)
+    layer = image_clip_cls(np.asarray(image), transparent=True).with_duration(clip.end - clip.start)
+    use_legacy = _uses_legacy_transition_path(clip)
+    transition = legacy_transition(clip)
+    layer = _apply_transition_blur(layer, transition)
+    layer = _attach_mask(layer, clip, transition, with_stack=False)
+    layer = _apply_catalog_transition(layer, clip, use_legacy)
+    placed = _place_video_clip(
+        layer, clip, target, transition, fit_to_frame=False, centre=bounds.centre
     )
     return placed.with_start(clip.start)
 
@@ -1601,16 +1628,20 @@ def compile_timeline(
                     source = _apply_speed(source, clip)
                     source = _apply_audio_effects(source, clip, project.timeline)
                     audio_layers.append(source.with_start(clip.start))
-                elif kind == "text":
+                elif kind in ("text", "shape"):
                     if track.hidden:
                         continue
-                    text_layer = _compile_text_clip(ImageClip, clip, target)
-                    if text_layer is not None:
-                        opened.append(text_layer)
+                    graphic = (
+                        _compile_text_clip(ImageClip, clip, target)
+                        if kind == "text"
+                        else _compile_shape_clip(ImageClip, clip, target)
+                    )
+                    if graphic is not None:
+                        opened.append(graphic)
                         if matte_sources.consumes(track.id, clip.id, None):
-                            layer_mattes.add(track.id, clip.id, text_layer)
+                            layer_mattes.add(track.id, clip.id, graphic)
                         else:
-                            track_pictures.append((text_layer, clip.blend_mode))
+                            track_pictures.append((graphic, clip.blend_mode))
             picture_by_track.append(track_pictures)
 
         video_layers: list[tuple[Any, str | None]] = []

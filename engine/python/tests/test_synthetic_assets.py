@@ -17,6 +17,7 @@ import pytest
 
 from framepilot_engine.timeline.synthetic_assets import (
     CAPTION_ASSET_ID,
+    SHAPE_ASSET_ID,
     SYNTHETIC_ASSET_IDS,
     TEXT_OVERLAY_ASSET_ID,
     clip_render_kind,
@@ -51,17 +52,18 @@ def test_every_row_agrees_with_the_typescript_twin(row: dict[str, Any]) -> None:
 def test_names_what_each_synthetic_id_draws() -> None:
     assert synthetic_clip_kind(TEXT_OVERLAY_ASSET_ID) == "text"
     assert synthetic_clip_kind(CAPTION_ASSET_ID) == "caption"
+    assert synthetic_clip_kind(SHAPE_ASSET_ID) == "shape"
     assert synthetic_clip_kind("cam-a") is None
 
 
 def test_keeps_the_persisted_sentinel_values() -> None:
     # Saved projects hold these strings; changing one orphans every title or caption in them.
-    assert sorted(SYNTHETIC_ASSET_IDS) == ["__caption__", "__text__"]
+    assert sorted(SYNTHETIC_ASSET_IDS) == ["__caption__", "__shape__", "__text__"]
 
 
-_NAMES = r"(?:TEXT_OVERLAY_ASSET_ID|CAPTION_ASSET_ID|TEXT_ASSET_ID)"
+_NAMES = r"(?:TEXT_OVERLAY_ASSET_ID|CAPTION_ASSET_ID|SHAPE_ASSET_ID|TEXT_ASSET_ID)"
 _GUARDS = {
-    "spells a sentinel id": re.compile(r"""["'`]__(?:text|caption)__["'`]"""),
+    "spells a sentinel id": re.compile(r"""["'`]__(?:text|caption|shape)__["'`]"""),
     "keeps its own copy of a sentinel constant": re.compile(rf"^\s*{_NAMES}\s*(?::[^=]*)?=[^=]"),
     "compares against a sentinel directly": re.compile(
         rf"[!=]=\s*{_NAMES}\b|\b{_NAMES}\s*[!=]=|\bin\s*\(\s*{_NAMES}"

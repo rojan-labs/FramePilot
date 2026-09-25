@@ -54,8 +54,10 @@ from pydantic import BaseModel, Field, field_validator
 # optional ``Timeline.maskPresets`` (saved masks, MK4.3), round-tripped only; v24
 # added caption translucency — ``CaptionStyle.textOpacity`` (see-through letters)
 # and a frosted ``CaptionBackground`` (``blur``, ``borderColor``, ``borderWidth``;
-# ADR 0185); the engine rejects any file whose envelope version exceeds this.
-SCHEMA_VERSION = 24
+# ADR 0185); v25 added shapes — a clip with the shape sentinel asset id carrying one
+# ``shape`` effect whose params are a :class:`ShapeParams` (plan/elements, ADR 0190);
+# the engine rejects any file whose envelope version exceeds this.
+SCHEMA_VERSION = 25
 
 
 class ProjectFileError(Exception):
@@ -219,6 +221,57 @@ class Effect(BaseModel):
     type: str = Field(description="Effect type, e.g. 'transform' or 'color_grade'.")
     params: dict[str, Any] = Field(default_factory=dict)
     keyframes: list[Keyframe] = Field(default_factory=list)
+
+
+class ShapeStrokeStyle(StrEnum):
+    """How a shape's outline is drawn (TS ``SHAPE_STROKE_STYLES``)."""
+
+    SOLID = "solid"
+    DASHED = "dashed"
+    DOTTED = "dotted"
+
+
+class ShapeCap(StrEnum):
+    """What an end of a segment shape draws (TS ``SHAPE_CAPS``)."""
+
+    NONE = "none"
+    ARROW = "arrow"
+    DOT = "dot"
+    BAR = "bar"
+
+
+class ShapeParams(BaseModel):
+    """The params of a shape clip's ``shape`` effect (schema v25, ADR 0190).
+
+    Mirrors the TS ``ShapeParamsSchema`` (declared in ``project.schema.json`` under
+    ``$defs.ShapeParams``). Units: box centre ``x``/``y`` in percent of each frame axis; box
+    ``width``/``height`` and ``stroke_width`` in percent of the frame HEIGHT; segment ends in
+    percent of each axis. Extra keys are the shape's catalogue knobs (``cornerRadius``,
+    ``headSize``, ...), numbers whose names and ranges ``render/shape_catalog.py`` checks.
+    """
+
+    shape: str = Field(min_length=1)
+    x: float | None = Field(default=None, ge=0.0, le=100.0)
+    y: float | None = Field(default=None, ge=0.0, le=100.0)
+    width: float | None = Field(default=None, ge=0.1, le=400.0)
+    height: float | None = Field(default=None, ge=0.1, le=400.0)
+    x1: float | None = Field(default=None, ge=-50.0, le=150.0)
+    y1: float | None = Field(default=None, ge=-50.0, le=150.0)
+    x2: float | None = Field(default=None, ge=-50.0, le=150.0)
+    y2: float | None = Field(default=None, ge=-50.0, le=150.0)
+    fill: str | None = None
+    stroke: str | None = None
+    stroke_width: float = Field(alias="strokeWidth", ge=0.05, le=10.0)
+    stroke_style: ShapeStrokeStyle = Field(alias="strokeStyle")
+    start_cap: ShapeCap | None = Field(default=None, alias="startCap")
+    end_cap: ShapeCap | None = Field(default=None, alias="endCap")
+
+    model_config = {"populate_by_name": True, "extra": "allow"}
+
+    def knobs(self) -> dict[str, float]:
+        """The shape's catalogue knobs as sent (the extra keys)."""
+        extra = self.model_extra or {}
+        return {key: float(value) for key, value in extra.items()}
 
 
 # --- Mask stack (schema v22, ADR 0178) -----------------------------------------------

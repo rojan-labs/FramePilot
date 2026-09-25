@@ -40,6 +40,7 @@ import { EFFECT_CATALOG, EFFECT_CATEGORIES } from '../dist/effect-catalog.js';
 import { EFFECT_PARAMS } from '../dist/effect-params.js';
 import { EDGE_STYLE_CATALOG, EDGE_STYLE_KINDS, EDGE_STYLE_PARAMS } from '../dist/edge-styles.js';
 import { TRANSITION_CATALOG, TRANSITION_CATEGORIES } from '../dist/transition-catalog.js';
+import { SHAPE_CATALOG } from '../dist/shape-catalog.js';
 import {
   TRANSITION_APPLY_PATH,
   TRANSITION_DIRECTIONS,
@@ -201,3 +202,25 @@ const transitionPaths = [
   ),
 ];
 for (const outPath of transitionPaths) writeJson(outPath, transitions);
+
+// 5. `schema/shape-catalog.json` — the shapes Elements offers (schema v25, plan/elements EL4a),
+//    copied into the Python engine because the engine is the only shape rasteriser: it draws a
+//    shape from the SAME descriptor (generator, knob bounds and defaults) the Shapes tab and the
+//    AI tools publish. Drift is guarded by `shape-params.test.ts` (TS) and
+//    `test_shape_catalog.py` (engine).
+const shapes = { shapes: SHAPE_CATALOG };
+const shapePaths = [
+  path.join(here, '..', 'schema', 'shape-catalog.json'),
+  path.join(
+    here,
+    '..',
+    '..',
+    '..',
+    'engine',
+    'python',
+    'framepilot_engine',
+    'render',
+    'shape_catalog.json',
+  ),
+];
+for (const outPath of shapePaths) writeJson(outPath, shapes);

@@ -18,6 +18,14 @@
       "laneType": "caption"
     },
     {
+      "assetId": "__shape__",
+      "assetKind": null,
+      "kind": "shape",
+      "synthetic": true,
+      "hasTimeBasedSource": false,
+      "laneType": "overlay"
+    },
+    {
       "assetId": "__text__",
       "assetKind": "video",
       "kind": "text",

@@ -145,15 +145,15 @@ new renderer.
 
 ### Open maintainer decisions
 
-| Id        | Decision                                                                                                                               | Recommendation                                                                                                                                   | Needed before |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------- |
-| **MD-E7** | Left-rail order: Elements moves to second, after Assets (CapCut's order)                                                               | **Yes — decided autonomously, 2026-09-26** (maintainer instruction: take the recommended answer)                                                 | EL1           |
-| **MD-E6** | Schema v25 (a forward-safety bump for shape clips)                                                                                     | **Yes** — an older build must refuse a project with shapes, not render it without them                                                           | EL4a          |
-| **MD-E4** | The agent may place stickers over footage (ADR "An element is an overlay"); element assets never go through the footage cutaway placer | **Yes** — the flat-monitor premise of the coverage refusal is gone, and routing a sticker through it produces a cover-cropped full-frame cutaway | EL6a          |
-| **MD-E2** | Commit the curated ~200 stickers and their thumbnails (≈ 5 MB); never commit the rest                                                  | **Yes** — the repo pack is 80 MB; the full set would add ~40%                                                                                    | EL6a          |
-| **MD-E1** | Ship the other ~1,395 stickers in the **desktop installer** (≈ 33 MB with thumbnails, fetched from the pinned commit at packaging)     | **Yes** — offline and instant, like the 25 MB of caption fonts already bundled                                                                   | EL6b          |
-| **MD-E5** | Relax the cutaway-only placement of Pexels photos/videos for **manual** placement (picture-in-picture from the panel)                  | **Yes, manual only first**; the agent keeps cutaway-first until measured                                                                         | EL9           |
-| **MD-E3** | Ship Noto Animated Emoji (CC BY 4.0, credit required in the video description) as on-demand downloads                                  | **Yes, as EL10**, after a licence read (same class of question as MO-6/MO-11)                                                                    | EL10          |
+| Id        | Decision                                                                                                                               | Recommendation                                                                                                                                    | Needed before |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| **MD-E7** | Left-rail order: Elements moves to second, after Assets (CapCut's order)                                                               | **Yes — decided autonomously, 2026-09-26** (maintainer instruction: take the recommended answer)                                                  | EL1           |
+| **MD-E6** | Schema v25 (a forward-safety bump for shape clips)                                                                                     | **Yes — decided autonomously, 2026-09-26** (the recommended answer: an older build must refuse a project with shapes, not render it without them) | EL4a          |
+| **MD-E4** | The agent may place stickers over footage (ADR "An element is an overlay"); element assets never go through the footage cutaway placer | **Yes** — the flat-monitor premise of the coverage refusal is gone, and routing a sticker through it produces a cover-cropped full-frame cutaway  | EL6a          |
+| **MD-E2** | Commit the curated ~200 stickers and their thumbnails (≈ 5 MB); never commit the rest                                                  | **Yes** — the repo pack is 80 MB; the full set would add ~40%                                                                                     | EL6a          |
+| **MD-E1** | Ship the other ~1,395 stickers in the **desktop installer** (≈ 33 MB with thumbnails, fetched from the pinned commit at packaging)     | **Yes** — offline and instant, like the 25 MB of caption fonts already bundled                                                                    | EL6b          |
+| **MD-E5** | Relax the cutaway-only placement of Pexels photos/videos for **manual** placement (picture-in-picture from the panel)                  | **Yes, manual only first**; the agent keeps cutaway-first until measured                                                                          | EL9           |
+| **MD-E3** | Ship Noto Animated Emoji (CC BY 4.0, credit required in the video description) as on-demand downloads                                  | **Yes, as EL10**, after a licence read (same class of question as MO-6/MO-11)                                                                     | EL10          |
 
 Each is asked when its phase is next, not all at once (EL0.1).
 
@@ -298,7 +298,7 @@ holds and every row of [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md) is d
 | EL2a  | `[~]`  | Export, plans, monitor, DOM overlay fixed on `feat/elements`; CI pending |
 | EL2b  | `[ ]`  | Lands with EL6b / EL7                                                    |
 | EL3   | `[~]`  | One helper per runtime + guards on `feat/elements`; CI pending           |
-| EL4a  | `[ ]`  |                                                                          |
+| EL4a  | `[~]`  | Model (schema v25, `add_shape`) and engine raster on `feat/elements`     |
 | EL5   | `[ ]`  |                                                                          |
 | EL6a  | `[ ]`  |                                                                          |
 | EL6b  | `[ ]`  |                                                                          |

@@ -25,6 +25,7 @@ import {
   type TransitionEligibility,
 } from '@framepilot/editor-core';
 import type { Asset, Clip, Effect, Timeline, Track } from '@framepilot/timeline-schema';
+import { SHAPE_EFFECT_TYPE, shapeDescriptor } from '@framepilot/timeline-schema';
 import { type UseEditor, useFramePlayhead } from '../editor/useEditor.js';
 import { type EditPulseKind, useEditPulse } from '../editor/useEditPulse.js';
 import { alignToDevicePixel } from '../editor/pixel-alignment.js';
@@ -156,6 +157,7 @@ import { Menu, MenuItem } from './Menu.js';
 import {
   AudioLines,
   Captions,
+  Shapes,
   ChevronDown,
   ChevronRight,
   Eye,
@@ -360,6 +362,8 @@ const KIND_META: Record<ClipKind, { icon: LucideIcon; cls: string; label: string
   audio: { icon: AudioLines, cls: 'is-audio', label: 'Audio' },
   text: { icon: Type, cls: 'is-overlay', label: 'Text' },
   caption: { icon: Captions, cls: 'is-caption', label: 'Caption' },
+  // A shape is a graphic like a title: it shares the overlay lane's colour.
+  shape: { icon: Shapes, cls: 'is-overlay', label: 'Shape' },
 };
 
 /**
@@ -553,6 +557,10 @@ function clipLabel(kind: ClipKind, clip: Clip, asset: Asset | undefined): string
     return typeof text === 'string' && text.trim() !== '' ? text : 'Text';
   }
   if (kind === 'caption') return 'Caption';
+  if (kind === 'shape') {
+    const shape = clip.effects.find((e) => e.type === SHAPE_EFFECT_TYPE)?.params?.shape;
+    return (typeof shape === 'string' ? shapeDescriptor(shape)?.name : undefined) ?? 'Shape';
+  }
   return assetDisplayName(asset, clip.id);
 }
 

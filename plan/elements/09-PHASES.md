@@ -126,6 +126,12 @@ shadow, masking), geometry transitions (zoom, slide, wipe passes) with EL7 (In/O
       frame plans and the monitor.
 - [ ] **EL2b.3** Oracle rows: `stills/mask-ellipse`, `stills/edge-outline`, `stills/zoom-in`,
       `text/slide-in`.
+- [ ] **EL2b.4** (found 2026-09-26 while building shapes) A rotated title is clipped: the export
+      rotates a layer inside its own box (`expand=False`) and a title's raster is tight to its
+      glyphs, so "HELLO" turned 90° loses most of its letters, on the monitor and in the file.
+      Shapes already avoid it with a rotation-safe square raster (ADR 0190); give titles the same
+      (a padded raster when the clip animates `rotation`), in the engine raster, both frame plans
+      and the monitor, with an oracle row `text/rotated`.
 
 ---
 
@@ -158,7 +164,7 @@ context builder, rubric, domain tools: 657), web-editor (selectors, builders: 36
 
 ---
 
-## EL4a — Shapes: the minimum vertical slice, complete `[ ]`
+## EL4a — Shapes: the minimum vertical slice, complete `[~]`
 
 **Ships (desktop):** six shapes — **highlight box, filled box, ellipse, marker, arrow, underline** —
 added at the playhead, styled in the Inspector, moved and resized on the canvas (box handles for

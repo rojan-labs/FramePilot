@@ -22,7 +22,7 @@
  */
 import type { Asset, Timeline, Track } from '@framepilot/timeline-schema';
 import type { AnyOperation } from './patch.js';
-import { clipRenderKind } from './synthetic-assets.js';
+import { clipRenderKind, type ClipRenderKind } from './synthetic-assets.js';
 import {
   firstFreePictureStart,
   lastPictureEnd,
@@ -51,7 +51,7 @@ type StockKind = 'video' | 'image';
  * dominant-kind rule below counts over the same space and cannot resolve a tie
  * differently from the panel it replaced.
  */
-type ClipKind = StockKind | 'audio' | 'text' | 'caption';
+type ClipKind = ClipRenderKind;
 
 /** What {@link buildAddStockOps} decided, for a caller that must describe it. */
 export interface StockPlacement {

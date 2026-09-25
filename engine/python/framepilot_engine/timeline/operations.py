@@ -18,6 +18,7 @@ else inverts to ``restore_clips``.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable
 from typing import Annotated, Any, Literal, NamedTuple, cast
 
@@ -32,6 +33,7 @@ from framepilot_engine.effects.speed_curve import (
     source_time_at,
 )
 from framepilot_engine.render.frame_grid import frame_to_seconds, seconds_to_frame
+from framepilot_engine.render.shape_catalog import SHAPE_EFFECT_TYPE, shape_params_problem
 from framepilot_engine.timeline.models import (
     AudioRole,
     BlendMode,
@@ -48,6 +50,7 @@ from framepilot_engine.timeline.models import (
 )
 from framepilot_engine.timeline.synthetic_assets import (
     CAPTION_ASSET_ID,
+    SHAPE_ASSET_ID,
     TEXT_OVERLAY_ASSET_ID,
     has_time_based_source,
 )
@@ -184,6 +187,21 @@ class AddTextOverlay(_Operation):
     text: str
     start: float
     end: float
+    clip_id: str | None = Field(default=None, alias="clipId")
+
+
+class AddShape(_Operation):
+    """Add a shape (schema v25, plan/elements EL4a). Mirrors ``AddShapeOp``.
+
+    ``params`` is a complete ``ShapeParams``; the op refuses params that cannot be drawn with the
+    same sentence as TypeScript (``render/shape_catalog.shape_params_problem``).
+    """
+
+    type: Literal["add_shape"] = "add_shape"
+    track_id: str = Field(alias="trackId")
+    start: float
+    end: float
+    params: dict[str, Any]
     clip_id: str | None = Field(default=None, alias="clipId")
 
 
@@ -511,6 +529,7 @@ Operation = Annotated[
     | RippleDelete
     | AddClip
     | AddTextOverlay
+    | AddShape
     | AddCaptionLayer
     | AddKeyframes
     | RemoveKeyframes
@@ -544,6 +563,7 @@ _OperationCode = Literal[
     "duplicate_layer",
     "duplicate_mask",
     "invalid_speed",
+    "invalid_style",
     "broken_audio_link",
 ]
 
@@ -622,6 +642,16 @@ def text_overlay_clip_id(track_id: str, start: float) -> str:
 def text_effect_id(clip_id: str) -> str:
     """The id of the ``text`` effect on a text overlay clip."""
     return f"{clip_id}__text"
+
+
+def shape_clip_id(track_id: str, start: float) -> str:
+    """The id ``add_shape`` gives a shape it creates without an explicit id (``shapeClipId``)."""
+    return _derive_clip_id("shape", track_id, start)
+
+
+def shape_effect_id(clip_id: str) -> str:
+    """The id of the ``shape`` effect on a shape clip (``shapeEffectId``)."""
+    return f"{clip_id}__shape"
 
 
 def _assert_positive_range(start: float, end: float, label: str) -> None:
@@ -1225,6 +1255,31 @@ def _apply_add_text_overlay(timeline: Timeline, op: AddTextOverlay) -> Timeline:
     return _insert_clip(timeline, op.track_id, clip)
 
 
+def _apply_add_shape(timeline: Timeline, op: AddShape) -> Timeline:
+    _assert_positive_range(op.start, op.end, "add_shape")
+    problem = shape_params_problem(op.params)
+    if problem is not None:
+        raise OperationError("invalid_style", problem)
+    clip_id = op.clip_id or shape_clip_id(op.track_id, op.start)
+    clip = Clip(
+        id=clip_id,
+        asset_id=SHAPE_ASSET_ID,
+        track_id=op.track_id,
+        start=op.start,
+        end=op.end,
+        source_start=0.0,
+        source_end=op.end - op.start,
+        effects=[
+            Effect(
+                id=shape_effect_id(clip_id),
+                type=SHAPE_EFFECT_TYPE,
+                params=copy.deepcopy(op.params),
+            )
+        ],
+    )
+    return _insert_clip(timeline, op.track_id, clip)
+
+
 def _apply_add_caption_layer(timeline: Timeline, op: AddCaptionLayer) -> Timeline:
     _assert_positive_range(op.start, op.end, "add_caption_layer")
     clip_id = op.clip_id or _derive_clip_id("caption", op.track_id, op.start)
@@ -1555,6 +1610,12 @@ def _apply_set_effect_params(timeline: Timeline, op: SetEffectParams) -> Timelin
             merged.pop(key, None)
         else:
             merged[key] = value
+    # A shape's params are re-validated whole, as in TypeScript: a merge that leaves an arrow
+    # without a stroke would otherwise land and draw nothing (ADR 0144).
+    if existing.type == SHAPE_EFFECT_TYPE:
+        problem = shape_params_problem(merged)
+        if problem is not None:
+            raise OperationError("invalid_style", problem)
     effects = list(loc.clip.effects)
     effects[index] = existing.model_copy(deep=True, update={"params": merged})
     return _replace_clip_at(timeline, loc, loc.clip.model_copy(update={"effects": effects}))
@@ -1711,6 +1772,7 @@ _APPLY: dict[str, Callable[[Timeline, Any], Timeline]] = {
     "reorder_clips": _apply_reorder_clips,
     "add_clip": _apply_add_clip,
     "add_text_overlay": _apply_add_text_overlay,
+    "add_shape": _apply_add_shape,
     "add_caption_layer": _apply_add_caption_layer,
     "add_keyframes": _apply_add_keyframes,
     "remove_keyframes": _apply_remove_keyframes,
@@ -1757,6 +1819,7 @@ _TRACK_RESTORE_OPS = frozenset(
         "ripple_delete",
         "add_clip",
         "add_text_overlay",
+        "add_shape",
         "add_caption_layer",
         "restore_clips",
     }

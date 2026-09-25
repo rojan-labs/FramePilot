@@ -30,6 +30,7 @@ import {
   isValidAssetPath,
   wouldCreateFolderCycle,
   type ProjectOperation,
+  reservedAssetIdProblem,
 } from './project-operations.js';
 import { clipTimelineDuration, hasSpeedRamp } from './speed-curve.js';
 import { TRANSITION_OUT_EFFECT_TYPE } from './transitions.js';
@@ -151,6 +152,7 @@ const SUPPORTED_OPERATIONS: ReadonlySet<OperationType> = new Set<OperationType>(
   'ripple_delete',
   'add_clip',
   'add_text_overlay',
+  'add_shape',
   'add_caption_layer',
   'add_keyframes',
   'remove_keyframes',
@@ -613,13 +615,16 @@ function projectChecks(
     !markers || markers.some((marker) => marker.id === id);
 
   switch (op.type) {
-    case 'add_asset':
-      if (assetIds?.has(op.asset.id))
+    case 'add_asset': {
+      const reserved = reservedAssetIdProblem(op.asset.id);
+      if (reserved !== null) issue('duplicate_asset', reserved);
+      else if (assetIds?.has(op.asset.id))
         issue('duplicate_asset', `Asset id already exists: ${op.asset.id}`);
       if (op.asset.folderId !== undefined && !folderExists(op.asset.folderId)) {
         issue('missing_folder', `add_asset targets unknown folder '${op.asset.folderId}'.`);
       }
       break;
+    }
     case 'remove_asset':
       if (!assetExists(op.assetId)) issue('missing_asset', `Unknown asset '${op.assetId}'.`);
       else if (assetIsInUse(timeline, op.assetId)) {

@@ -8,6 +8,7 @@
  * patch authority as every timeline edit.
  */
 import type { Asset, Folder, Marker, Project, TranscriptWord } from '@framepilot/timeline-schema';
+import { isSyntheticAssetId } from './synthetic-assets.js';
 
 // ---------------------------------------------------------------------------
 // Project-operation union
@@ -166,6 +167,17 @@ const PROJECT_OPERATION_TYPES: ReadonlySet<string> = new Set<ProjectOperationTyp
 export const isProjectOperation = (op: { type: string }): op is ProjectOperation =>
   PROJECT_OPERATION_TYPES.has(op.type);
 
+/**
+ * Why a bin asset may not take `assetId`, or `null`. A title, a caption and a shape name their
+ * clip's asset with a sentinel id; a bin asset under one would be drawn as a graphic, or its clips
+ * as media (plan/elements EL4a).
+ */
+export function reservedAssetIdProblem(assetId: string): string | null {
+  return isSyntheticAssetId(assetId)
+    ? `The asset id '${assetId}' is reserved for titles, captions and shapes. Import the file again so it gets its own id.`
+    : null;
+}
+
 export class ProjectOperationError extends Error {
   constructor(
     readonly code:
@@ -318,6 +330,8 @@ export const wouldCreateFolderCycle = (
 export function applyProjectOperation(project: Project, op: ProjectOperation): Project {
   switch (op.type) {
     case 'add_asset': {
+      const reserved = reservedAssetIdProblem(op.asset.id);
+      if (reserved !== null) throw new ProjectOperationError('duplicate_asset', reserved);
       if (project.assets.some((a) => a.id === op.asset.id)) {
         throw new ProjectOperationError(
           'duplicate_asset',
@@ -343,7 +357,10 @@ export function applyProjectOperation(project: Project, op: ProjectOperation): P
     case 'relink_asset': {
       findAsset(project, op.assetId);
       if (!isValidAssetPath(op.path)) {
-        throw new ProjectOperationError('invalid_asset_path', 'relink_asset needs an absolute file path.');
+        throw new ProjectOperationError(
+          'invalid_asset_path',
+          'relink_asset needs an absolute file path.',
+        );
       }
       return withAssets(
         project,

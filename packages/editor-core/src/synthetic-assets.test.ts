@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   CAPTION_ASSET_ID,
+  SHAPE_ASSET_ID,
   SYNTHETIC_ASSET_IDS,
   TEXT_OVERLAY_ASSET_ID,
   clipRenderKind,
@@ -45,11 +46,12 @@ describe('synthetic assets and clip kind', () => {
   it('names what each synthetic id draws, and nothing for media', () => {
     expect(syntheticClipKind(TEXT_OVERLAY_ASSET_ID)).toBe('text');
     expect(syntheticClipKind(CAPTION_ASSET_ID)).toBe('caption');
+    expect(syntheticClipKind(SHAPE_ASSET_ID)).toBe('shape');
     expect(syntheticClipKind('cam-a')).toBeNull();
   });
 
   it('keeps the persisted sentinel values', () => {
     // Saved projects hold these strings; changing one orphans every title or caption in them.
-    expect([...SYNTHETIC_ASSET_IDS].sort()).toEqual(['__caption__', '__text__']);
+    expect([...SYNTHETIC_ASSET_IDS].sort()).toEqual(['__caption__', '__shape__', '__text__']);
   });
 });

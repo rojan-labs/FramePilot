@@ -15,13 +15,16 @@ import type { Track } from '@framepilot/timeline-schema';
 export const TEXT_OVERLAY_ASSET_ID = '__text__';
 /** The asset id of a caption cue (`add_caption_layer`). Persisted: never change it. */
 export const CAPTION_ASSET_ID = '__caption__';
+/** The asset id of a shape (`add_shape`, schema v25). Persisted: never change it. */
+export const SHAPE_ASSET_ID = '__shape__';
 
 /** What a synthetic asset id draws. */
-export type SyntheticClipKind = 'text' | 'caption';
+export type SyntheticClipKind = 'text' | 'caption' | 'shape';
 
 const SYNTHETIC_KIND_BY_ASSET_ID: ReadonlyMap<string, SyntheticClipKind> = new Map([
   [TEXT_OVERLAY_ASSET_ID, 'text'],
   [CAPTION_ASSET_ID, 'caption'],
+  [SHAPE_ASSET_ID, 'shape'],
 ]);
 
 /** Every synthetic asset id: a clip carrying one has no asset in the bin, by design. */
@@ -43,8 +46,8 @@ export function syntheticClipKind(assetId: string): SyntheticClipKind | null {
 /**
  * Does this clip draw from a real, time-based source?
  *
- * Text overlays and caption cues have no such source. They are generated at render time from
- * their own parameters, so every instant of them is as available as every other, and
+ * Text overlays, caption cues and shapes have no such source. They are generated at render time
+ * from their own parameters, so every instant of them is as available as every other, and
  * `sourceStart: 0` on one of them means "nothing to say" rather than "the file starts here".
  * Treating that 0 as a real in-point is what made a text overlay extendable forwards and
  * immovable backwards: its earliest possible start computed to exactly where it already was.
@@ -80,6 +83,7 @@ export function laneTypeForKind(kind: ClipRenderKind): Track['type'] {
     case 'caption':
       return 'caption';
     case 'text':
+    case 'shape':
       return 'overlay';
     case 'video':
     case 'image':

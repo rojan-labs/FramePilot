@@ -1,0 +1,249 @@
+"""The shape catalogue and shape-param validation (schema v25, plan/elements EL4a, ADR 0190).
+
+Loads ``shape_catalog.json``, the committed artifact generated from
+``packages/timeline-schema/src/shape-catalog.ts``, and validates a shape clip's params with the
+same rules and the same sentences as the TypeScript ``shapeParamsProblem``. Both runtimes read
+``tests/fixtures/shape-params.json``, so neither can drift from the other.
+
+The messages name the fix and never the offending magnitude: the agent's repeated-failure guard
+keys on the text, and a message that varied with the input would read as progress.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass
+from functools import cache
+from importlib import resources
+from typing import Any, Final, Literal
+
+ShapeFrame = Literal["box", "segment"]
+
+SHAPE_EFFECT_TYPE: Final = "shape"
+SHAPE_STROKE_STYLES: Final = ("solid", "dashed", "dotted")
+SHAPE_CAPS: Final = ("none", "arrow", "dot", "bar")
+SHAPE_COLOR_PATTERN: Final = re.compile(r"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")
+
+_BOX_KEYS: Final = ("x", "y", "width", "height")
+_SEGMENT_KEYS: Final = ("x1", "y1", "x2", "y2")
+#: The standard keys in the TS schema's declaration order: the first failing one is reported.
+_STANDARD_KEYS: Final = (
+    "shape",
+    *_BOX_KEYS,
+    *_SEGMENT_KEYS,
+    "fill",
+    "stroke",
+    "strokeWidth",
+    "strokeStyle",
+    "startCap",
+    "endCap",
+)
+_LIMITS: Final[dict[str, tuple[float, float]]] = {
+    "x": (0, 100),
+    "y": (0, 100),
+    "width": (0.1, 400),
+    "height": (0.1, 400),
+    "x1": (-50, 150),
+    "y1": (-50, 150),
+    "x2": (-50, 150),
+    "y2": (-50, 150),
+    "strokeWidth": (0.05, 10),
+}
+_OPTIONAL: Final = frozenset({*_BOX_KEYS, *_SEGMENT_KEYS, "fill", "stroke", "startCap", "endCap"})
+_PICK_ONE: Final = "Pick one with search_elements (kind: shape) or from the Shapes tab."
+
+
+@dataclass(frozen=True)
+class ShapeKnob:
+    name: str
+    label: str
+    min: float
+    max: float
+    default: float
+
+
+@dataclass(frozen=True)
+class ShapeDescriptor:
+    id: str
+    name: str
+    frame: ShapeFrame
+    generator: str
+    knobs: tuple[ShapeKnob, ...]
+
+    def knob(self, name: str) -> ShapeKnob | None:
+        return next((knob for knob in self.knobs if knob.name == name), None)
+
+
+@cache
+def load_shape_catalog() -> dict[str, ShapeDescriptor]:
+    """Parse the packaged catalogue once, keyed by shape id."""
+    payload = (
+        resources.files("framepilot_engine.render")
+        .joinpath("shape_catalog.json")
+        .read_text(encoding="utf-8")
+    )
+    data = json.loads(payload)
+    shapes = data.get("shapes") if isinstance(data, dict) else None
+    if not isinstance(shapes, list):  # pragma: no cover - corrupt artifact
+        raise ValueError("shape_catalog.json: expected a 'shapes' array")
+    catalog: dict[str, ShapeDescriptor] = {}
+    for entry in shapes:
+        knobs = tuple(
+            ShapeKnob(
+                name=knob["name"],
+                label=knob["label"],
+                min=float(knob["min"]),
+                max=float(knob["max"]),
+                default=float(knob["default"]),
+            )
+            for knob in entry["knobs"]
+        )
+        catalog[entry["id"]] = ShapeDescriptor(
+            id=entry["id"],
+            name=entry["name"],
+            frame=entry["frame"],
+            generator=entry["generator"],
+            knobs=knobs,
+        )
+    return catalog
+
+
+def shape_descriptor(shape_id: str) -> ShapeDescriptor | None:
+    """The catalogue entry for ``shape_id``, or ``None``."""
+    return load_shape_catalog().get(shape_id)
+
+
+def shape_keys_for(descriptor: ShapeDescriptor) -> tuple[str, ...]:
+    """Every key a shape of this descriptor accepts, standard frame keys first."""
+    frame = _BOX_KEYS if descriptor.frame == "box" else _SEGMENT_KEYS
+    caps = ("startCap", "endCap") if descriptor.frame == "segment" else ()
+    return (
+        "shape",
+        *frame,
+        "fill",
+        "stroke",
+        "strokeWidth",
+        "strokeStyle",
+        *caps,
+        *(knob.name for knob in descriptor.knobs),
+    )
+
+
+def _present(params: Mapping[str, Any], key: str) -> bool:
+    """Whether ``key`` carries a value. ``None`` reads as absent for every key.
+
+    ``set_effect_params`` clears a key with ``None`` here and keeps a ``null`` in TypeScript, so the
+    runtimes agree on a shape only if neither tells ``None`` and "absent" apart.
+    """
+    return params.get(key) is not None
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _standard_key_ok(key: str, value: Any) -> bool:
+    if key == "shape":
+        return isinstance(value, str) and value != ""
+    if key in ("fill", "stroke"):
+        return value is None or (isinstance(value, str) and bool(SHAPE_COLOR_PATTERN.match(value)))
+    if key == "strokeStyle":
+        return value in SHAPE_STROKE_STYLES
+    if key in ("startCap", "endCap"):
+        return value in SHAPE_CAPS
+    low, high = _LIMITS[key]
+    return _is_number(value) and low <= value <= high
+
+
+def _standard_key_hint(key: str) -> str:
+    if key in ("x", "y"):
+        return "A box centre is a percent of the frame, 0 to 100."
+    if key in ("width", "height"):
+        return "A box size is a percent of the frame height, 0.1 to 400."
+    if key in _SEGMENT_KEYS:
+        return "An end is a percent of the frame, -50 to 150."
+    if key in ("fill", "stroke"):
+        return "A colour is #rrggbb or #rrggbbaa, or null for none."
+    if key == "strokeWidth":
+        return "A stroke width is a percent of the frame height, 0.05 to 10."
+    if key == "strokeStyle":
+        return "It is solid, dashed or dotted."
+    if key in ("startCap", "endCap"):
+        return "A cap is none, arrow, dot or bar."
+    return "Knobs are numbers."
+
+
+def _format_bound(value: float) -> str:
+    """A bound as JavaScript's ``String(number)`` writes it (``50``, not ``50.0``)."""
+    return str(int(value)) if value == int(value) else repr(value)
+
+
+def shape_params_problem(params: Mapping[str, Any]) -> str | None:
+    """Why ``params`` cannot be a shape, as one sentence with its remedy, or ``None``.
+
+    The TS twin is ``shapeParamsProblem``; the checks run in the same order so the first
+    problem found is the same sentence in both runtimes.
+    """
+    shape_id = params.get("shape")
+    if not isinstance(shape_id, str) or shape_id == "":
+        return f"A shape needs a shape id. {_PICK_ONE}"
+    descriptor = shape_descriptor(shape_id)
+    if descriptor is None:
+        return f"There is no shape called '{shape_id}'. {_PICK_ONE}"
+    knob_names = {knob.name for knob in descriptor.knobs}
+    for key in params:
+        if not _present(params, key) or key in _STANDARD_KEYS or key in knob_names:
+            continue
+        allowed = ", ".join(shape_keys_for(descriptor))
+        return f"Shape parameter '{key}' is not one this shape has. Its parameters are: {allowed}."
+    wrong_frame = _SEGMENT_KEYS if descriptor.frame == "box" else _BOX_KEYS
+    if any(_present(params, key) for key in wrong_frame):
+        if descriptor.frame == "box":
+            return f"'{shape_id}' is placed by a box (x, y, width, height), not by two ends."
+        return f"'{shape_id}' is placed by its two ends (x1, y1, x2, y2), not a box."
+    frame_keys = _BOX_KEYS if descriptor.frame == "box" else _SEGMENT_KEYS
+    if any(not _present(params, key) for key in frame_keys):
+        if descriptor.frame == "box":
+            return f"'{shape_id}' needs its box: x, y, width and height."
+        return f"'{shape_id}' needs both ends: x1, y1, x2 and y2."
+    if descriptor.frame == "box" and (_present(params, "startCap") or _present(params, "endCap")):
+        return f"'{shape_id}' has no ends to cap; startCap and endCap are for lines and arrows."
+    for knob in descriptor.knobs:
+        if not _present(params, knob.name):
+            continue
+        value = params[knob.name]
+        if not _is_number(value) or value < knob.min or value > knob.max:
+            return (
+                f"{knob.name} must be between {_format_bound(knob.min)} "
+                f"and {_format_bound(knob.max)}."
+            )
+    for key in _STANDARD_KEYS:
+        if key in _OPTIONAL and not _present(params, key):
+            continue
+        if not _standard_key_ok(key, params.get(key)):
+            return (
+                f"Shape parameter '{key}' is out of range or the wrong type. "
+                f"{_standard_key_hint(key)}"
+            )
+    if descriptor.frame == "segment" and params.get("stroke") is None:
+        return (
+            f"'{shape_id}' is drawn by its stroke — with the stroke off it draws nothing. "
+            "Set a stroke colour."
+        )
+    if params.get("fill") is None and params.get("stroke") is None:
+        return "A shape needs a fill or a stroke — with both off it draws nothing."
+    return None
+
+
+def knob_value(descriptor: ShapeDescriptor, params: Mapping[str, Any], name: str) -> float:
+    """A knob's value on a shape: the param when set, else the descriptor's default."""
+    knob = descriptor.knob(name)
+    if knob is None:
+        raise KeyError(f"Shape '{descriptor.id}' has no knob '{name}'.")
+    value = params.get(name)
+    if isinstance(value, int | float) and _is_number(value):
+        return float(value)
+    return knob.default

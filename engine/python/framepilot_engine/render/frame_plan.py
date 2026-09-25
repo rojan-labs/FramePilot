@@ -34,10 +34,15 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from framepilot_engine.effects.speed_curve import has_speed_ramp, source_time_at
-from framepilot_engine.effects.transform import evaluate_clip_transform
+from framepilot_engine.effects.transform import (
+    ROTATION,
+    animated_properties,
+    evaluate_clip_transform,
+)
 from framepilot_engine.render import transitions
 from framepilot_engine.render.captions import resolve_caption_cue
 from framepilot_engine.render.edge_styles import EdgeStyleRefusal, clip_edge_styles
+from framepilot_engine.render.shape_geometry import ShapeBounds, shape_bounds, shape_clip_params
 from framepilot_engine.render.text_overlay import text_overlay_layout
 from framepilot_engine.timeline.models import (
     Clip,
@@ -729,13 +734,17 @@ class PlanLayer:
     matte_only: bool = False
     #: MK9.2: the clip's cut-out edge styles, bottom first (``render/edge_styles.py``).
     edge_styles: list[dict[str, Any]] = field(default_factory=list)
+    #: Shapes (schema v25): the frame-pixel rectangle the engine's raster covers, untransformed.
+    shape: ShapeBounds | None = None
 
     def to_json(self) -> dict[str, Any]:
-        # ``matteOnly`` and ``edgeStyles`` are written only when set, so plans without a track
-        # matte or an edge style are unchanged.
+        # ``matteOnly``, ``edgeStyles`` and ``shape`` are written only when set, so plans without
+        # a track matte, an edge style or a shape are unchanged.
         extra: dict[str, Any] = {"matteOnly": True} if self.matte_only else {}
         if self.edge_styles:
             extra["edgeStyles"] = self.edge_styles
+        if self.shape is not None:
+            extra["shape"] = self.shape.to_json()
         return {
             **extra,
             "kind": self.kind,
@@ -1007,6 +1016,53 @@ def _text_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer | None:
     )
 
 
+def _shape_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer | None:
+    """A shape as the export places its raster: ``fit_to_frame=False`` around the bounds' centre,
+    with the clip's transform, opacity and transitions like a title (plan/elements EL4a)."""
+    params = shape_clip_params(clip)
+    if params is None:
+        return None
+    local = ctx.t - clip.start
+    rotates = ROTATION in animated_properties(clip)
+    bounds = shape_bounds(params, ctx.target[0], ctx.target[1], rotates=rotates)
+    centre_x, centre_y = bounds.centre
+    transform = evaluate_clip_transform(clip, local)
+    transition = legacy_transition(clip)
+    dx, dy = (
+        transitions.offset_at(transition, local, ctx.target[0], ctx.target[1])
+        if transition is not None and transitions.affects_geometry(transition)
+        else (0.0, 0.0)
+    )
+    scale = layer_scale_at(clip, local, transition)
+    anchor_x = centre_x + transform.x + dx
+    anchor_y = centre_y + transform.y + dy
+    width = bounds.width * scale
+    height = bounds.height * scale
+    return PlanLayer(
+        kind="shape",
+        role="clip",
+        track_id=track.id,
+        clip_id=clip.id,
+        for_clip_id=None,
+        local_time=local,
+        geometry=LayerGeometry(
+            base_scale=1.0,
+            scale=scale,
+            anchor_x=anchor_x,
+            anchor_y=anchor_y,
+            rotation=transform.rotation,
+            left=anchor_x - width / 2,
+            top=anchor_y - height / 2,
+            width=width,
+            height=height,
+        ),
+        opacity=layer_opacity_at(clip, local, transition),
+        blend_mode=_blend(clip),
+        transitions=_transition_states(clip, local),
+        shape=bounds,
+    )
+
+
 def _blend(clip: Clip) -> str:
     mode = clip.blend_mode
     return "normal" if mode is None else str(mode.value)
@@ -1042,6 +1098,10 @@ def _placed_track_layers(ctx: _Context, track: Track) -> list[PlanLayer]:
             text_layer = _text_layer(ctx, track, clip)
             if text_layer is not None:
                 layers.append(text_layer)
+        elif kind == "shape" and layer_is_active(clip.start, clip.end, ctx.t):
+            shape_layer = _shape_layer(ctx, track, clip)
+            if shape_layer is not None:
+                layers.append(shape_layer)
     return layers
 
 
@@ -1052,6 +1112,8 @@ def _has_picture_anywhere(project: Project, asset_kinds: Mapping[str, str | None
         for clip in track.clips:
             kind = clip_kind(clip, asset_kinds)
             if kind in PICTURE_KINDS or (kind == "text" and text_overlay_text(clip) is not None):
+                return True
+            if kind == "shape" and shape_clip_params(clip) is not None:
                 return True
     return False
 

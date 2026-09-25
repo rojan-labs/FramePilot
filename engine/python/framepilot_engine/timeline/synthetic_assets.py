@@ -18,14 +18,17 @@ from typing import Final, Literal, Protocol
 TEXT_OVERLAY_ASSET_ID: Final = "__text__"
 #: The asset id of a caption cue (``add_caption_layer``). Persisted: never change it.
 CAPTION_ASSET_ID: Final = "__caption__"
+#: The asset id of a shape (``add_shape``, schema v25). Persisted: never change it.
+SHAPE_ASSET_ID: Final = "__shape__"
 
-SyntheticClipKind = Literal["text", "caption"]
-ClipRenderKind = Literal["video", "image", "audio", "text", "caption"]
+SyntheticClipKind = Literal["text", "caption", "shape"]
+ClipRenderKind = Literal["video", "image", "audio", "text", "caption", "shape"]
 LaneType = Literal["video", "audio", "caption", "overlay"]
 
 _SYNTHETIC_KIND_BY_ASSET_ID: Final[dict[str, SyntheticClipKind]] = {
     TEXT_OVERLAY_ASSET_ID: "text",
     CAPTION_ASSET_ID: "caption",
+    SHAPE_ASSET_ID: "shape",
 }
 
 #: Every synthetic asset id: a clip carrying one has no asset in the bin, by design.
@@ -79,6 +82,6 @@ def lane_type_for_kind(kind: ClipRenderKind) -> LaneType:
         return "audio"
     if kind == "caption":
         return "caption"
-    if kind == "text":
+    if kind in ("text", "shape"):
         return "overlay"
     return "video"

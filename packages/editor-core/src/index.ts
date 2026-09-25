@@ -5,6 +5,8 @@
 export * from './operations.js';
 // Synthetic asset ids and clip kind: the one definition (plan/elements EL3).
 export * from './synthetic-assets.js';
+// Where a shape's engine raster sits: the plan's placement and the monitor's hit-test (EL4a).
+export * from './shape-geometry.js';
 export * from './operation-contract.js';
 export * from './edit-value-contracts.js';
 export * from './project-operations.js';

@@ -15,10 +15,11 @@ const ROOTS = ['packages', 'apps'];
 const HOME = path.join('packages', 'editor-core', 'src', 'synthetic-assets.ts');
 const SKIPPED_DIRS = new Set(['node_modules', 'dist', 'build', 'out', '.next', 'coverage']);
 
-const SENTINEL_LITERAL = /['"`]__(?:text|caption)__['"`]/;
-const LOCAL_COPY = /\bconst\s+(?:TEXT_OVERLAY_ASSET_ID|CAPTION_ASSET_ID|SYNTHETIC_ASSET_IDS)\b/;
+const SENTINEL_LITERAL = /['"`]__(?:text|caption|shape)__['"`]/;
+const LOCAL_COPY =
+  /\bconst\s+(?:TEXT_OVERLAY_ASSET_ID|CAPTION_ASSET_ID|SHAPE_ASSET_ID|SYNTHETIC_ASSET_IDS)\b/;
 const DIRECT_COMPARISON =
-  /[!=]==?\s*(?:TEXT_OVERLAY_ASSET_ID|CAPTION_ASSET_ID)\b|\b(?:TEXT_OVERLAY_ASSET_ID|CAPTION_ASSET_ID)\s*[!=]==?/;
+  /[!=]==?\s*(?:TEXT_OVERLAY_ASSET_ID|CAPTION_ASSET_ID|SHAPE_ASSET_ID)\b|\b(?:TEXT_OVERLAY_ASSET_ID|CAPTION_ASSET_ID|SHAPE_ASSET_ID)\s*[!=]==?/;
 
 function isSource(name: string): boolean {
   if (!/\.(?:ts|tsx)$/.test(name) || name.endsWith('.d.ts')) return false;
