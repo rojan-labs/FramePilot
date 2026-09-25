@@ -37,6 +37,8 @@ function captionProject() {
             },
           ],
         },
+        // After caption_1: panel labels are positional ("Caption 2" is the second lane).
+        { id: 'caption_2', name: 'Caption 2', type: 'caption' as const, clips: [] },
       ],
     },
   };
@@ -95,6 +97,18 @@ describe('the per-run caption restyle budget', () => {
     expect(results.filter((summary) => !/not applied/.test(summary))).toHaveLength(
       MAX_TRACK_RESTYLES_PER_RUN,
     );
+  });
+
+  it('is one track’s budget: another caption track can still be restyled after it', async () => {
+    const calls = [
+      ...Array.from({ length: MAX_TRACK_RESTYLES_PER_RUN + 1 }, (_, i) => restyle(i)),
+      restyle(0, 'caption_2'),
+    ];
+    const results = await summaries(calls);
+    expect(results.filter((summary) => /not applied/.test(summary))).toHaveLength(1);
+    expect(
+      results.some((summary) => /Caption 2/.test(summary) && !/not applied/.test(summary)),
+    ).toBe(true);
   });
 
   it('allows a converging pass — a restyle and a couple of corrections', async () => {

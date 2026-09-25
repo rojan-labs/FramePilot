@@ -5801,7 +5801,8 @@ export class Orchestrator {
       }
       const restylesSoFar = trackRestyleCount(call, host.appliedCalls);
       if (restylesSoFar >= MAX_TRACK_RESTYLES_PER_RUN) {
-        const trackLabel = names.track(String((call.arguments as { trackId?: unknown }).trackId));
+        const restyledTrack = String((call.arguments as { trackId?: unknown }).trackId);
+        const trackLabel = names.track(restyledTrack);
         const note =
           `${desc} — refused: ${trackLabel} has already been restyled ` +
           `${String(restylesSoFar)} times in this run. When a look after each restyle shows ` +
@@ -5818,7 +5819,11 @@ export class Orchestrator {
           status: 'failed',
           data: note,
           deterministicFailure: true,
-          refusalCause: 'caption_restyle_budget',
+          // Keyed per TRACK: the budget is one track's, so the repeated-failure guard must not
+          // fold it into "set_track_caption_style already failed" and block every other
+          // caption track for the rest of the run. No refusal cause is needed to make it
+          // outlive an applied edit — the count is re-read from the applied-call ledger.
+          failureKeyText: `caption_restyle_budget:${restyledTrack}`,
         };
       }
       host.appliedCalls?.add(callKey);
