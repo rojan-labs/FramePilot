@@ -213,11 +213,19 @@ describe('StickersBrowser', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Add Fire' }));
     });
-    expect(await screen.findByRole('status')).toHaveProperty(
-      'textContent',
-      "Couldn't add this sticker: there isn't enough disk space.",
+    const alert = screen.getByRole('alert');
+    await waitFor(() =>
+      expect(alert.textContent).toBe("Couldn't add this sticker: there isn't enough disk space."),
     );
     expect(onAddSticker).not.toHaveBeenCalled();
+    // Above the grid, where the eye is, not under a thousand stickers.
+    const scroll = document.querySelector('.stickers-scroll') as HTMLElement;
+    expect(alert.compareDocumentPosition(scroll) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // And gone with the next thing the person does.
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search stickers' }), {
+      target: { value: 'hea' },
+    });
+    expect(alert.textContent).toBe('');
   });
 
   it('says the copy failed, rather than throwing, when main does not answer', async () => {
@@ -226,8 +234,10 @@ describe('StickersBrowser', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Add Fire' }));
     });
-    expect((await screen.findByRole('status')).textContent).toBe(
-      "Couldn't copy this sticker into the project. Check the project folder can be written to, then try again.",
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe(
+        "Couldn't copy this sticker into the project. Check the project folder can be written to, then try again.",
+      ),
     );
     expect(onAddSticker).not.toHaveBeenCalled();
     // And the grid is usable again.

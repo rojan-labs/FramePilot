@@ -53,8 +53,9 @@ Two things to know about that readout:
 **It's the monthly window only.** Pexels doesn't report the hourly one, so
 FramePilot can't show it. If you search rapidly you can hit the hourly limit
 while the monthly bar still looks healthy — that's not a contradiction, it's two
-different limits. When it happens you'll see a separate "Hourly limit" line, and
-it clears within the hour.
+different limits. When it happens the panel says "You've hit Pexels' hourly
+limit" once, in the line above the results, and it clears within the hour;
+Settings shows how long is left.
 
 **It's the last number we saw, not a live one.** If you use the same key
 elsewhere, these figures move without FramePilot hearing about it. That's what
@@ -77,8 +78,8 @@ skyline at dusk", "hands typing" — rather than by mood.
 **Categories.** Under the search box is a row of chips: **Business**,
 **Technology**, **People**, **Nature**, **City**, **Abstract**, **Backgrounds**,
 **Food**, **Travel** and **Textures**. A chip is a ready-made search: one click,
-one search of your allowance, and clicking it again shows the same results
-without spending another. Typing in the search box leaves the category; the
+one search of your allowance (the chip's tooltip says so), and clicking it again
+shows the same results without spending another. Typing in the search box leaves the category; the
 **Curated** / **Popular** chip takes you back to the feed.
 
 **Orientation.** The four small buttons beside the search box — **Any**,
@@ -195,18 +196,21 @@ result.
 
 ## When something goes wrong
 
-Each failure has its own message and its own remedy:
+Each failure has its own message, and each message says what to do. A failed
+search has a **Try again** button beside it.
 
-| What you see                          | What to do                                          |
-| ------------------------------------- | --------------------------------------------------- |
-| "Add your Pexels API key in Settings" | Get a free key (above)                              |
-| "Pexels rejected this key"            | Check it in Settings — Replace to paste a fresh one |
-| "You've hit the hourly limit…"        | Wait — it clears within the hour                    |
-| "You've used this month's allowance"  | Wait for the reset date shown in Settings           |
-| "Pexels is not responding"            | Try again shortly                                   |
-| "No network connection"               | Downloads you already made are unaffected           |
-| "That file is larger than the 2 GB…"  | Pick a smaller size                                 |
-| "The download didn't finish"          | Nothing was added; press Retry                      |
+| What you see                                 | What to do                                          |
+| -------------------------------------------- | --------------------------------------------------- |
+| "Add your Pexels API key in Settings"        | Get a free key (above)                              |
+| "Pexels rejected this key"                   | Check it in Settings — Replace to paste a fresh one |
+| "You've hit Pexels' hourly limit…"           | Wait — it clears within the hour                    |
+| "You've used this month's Pexels allowance…" | Wait for the reset date shown in Settings           |
+| "Pexels is not responding"                   | Try again shortly                                   |
+| "No network connection…"                     | Check your connection; downloads you made are fine  |
+| "Pexels took too long to answer"             | Try again                                           |
+| "That file is over the 2 GB limit…"          | Pick another clip                                   |
+| "Not enough disk space…"                     | Free some space, then try again                     |
+| "The download didn't finish…"                | Nothing was added; press Retry                      |
 
 A cancelled or failed download leaves nothing behind — no partial file, no orphan
 entry in your bin.

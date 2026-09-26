@@ -16,6 +16,7 @@ import type {
   StockQuotaSnapshot,
 } from '@framepilot/shared-types';
 import {
+  CATEGORY_COST_NOTE,
   PexelsBrowser,
   STOCK_CATEGORIES,
   formatBytes,
@@ -530,7 +531,62 @@ describe('PexelsBrowser', () => {
     expect(stockErrorText('quota_exhausted')).toMatch(/month/i);
     expect(stockErrorText('rate_limited')).not.toBe(stockErrorText('quota_exhausted'));
     expect(stockErrorText('cancelled')).toBe('');
-    expect(stockErrorText('offline')).toBe('No network connection.');
+    expect(stockErrorText('offline')).toBe(
+      'No network connection. Check your connection and try again.',
+    );
+  });
+
+  it('says each failure as a fixed sentence with a way forward, never a varying number', () => {
+    // The provider's retry detail varies per request; the sentence does not carry it.
+    expect(stockErrorText('rate_limited', 'retry in 118s')).toBe(stockErrorText('rate_limited'));
+    expect(stockErrorText('rate_limited')).not.toMatch(/\d/);
+    expect(stockErrorText('timeout')).toBe('Pexels took too long to answer. Try again.');
+    // There is no size picker to pick a smaller size with.
+    expect(stockErrorText('too_large')).toBe(
+      'That file is over the 2 GB limit, so nothing was downloaded. Pick another clip.',
+    );
+    expect(stockErrorText('disk_full')).toMatch(/Free some space/);
+    expect(stockErrorText('download_failed')).toMatch(/Try again/);
+  });
+
+  it('offers Try again after a failed search, and runs the same search again', async () => {
+    bridge.search.mockResolvedValue({ ok: false, error: 'timeout' });
+    renderPanel();
+    await typeQuery('city');
+    expect(screen.getByRole('alert').textContent).toBe(
+      'Pexels took too long to answer. Try again.',
+    );
+    bridge.search.mockClear();
+    bridge.search.mockResolvedValue(okSearch([wireItem()]));
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await settle();
+    expect(bridge.search).toHaveBeenCalledWith({
+      text: 'city',
+      kind: 'video',
+      page: 1,
+      orientation: 'landscape',
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText('City skyline at dusk')).toBeDefined();
+  });
+
+  it('says the hourly limit once, in the strip, and not again as an error', async () => {
+    bridge.quota.mockResolvedValue({
+      kind: 'hourly_limited',
+      monthly: {
+        limit: 20000,
+        remaining: 19400,
+        resetAt: '2026-09-01T00:00:00.000Z',
+        observedAt: '2026-08-24T12:00:00.000Z',
+      },
+      since: '2026-08-24T12:00:00.000Z',
+      retryAfterSeconds: 120,
+    });
+    bridge.search.mockResolvedValue({ ok: false, error: 'rate_limited', detail: 'retry in 120s' });
+    renderPanel();
+    await typeQuery('city');
+    expect(quotaStrip()?.textContent).toMatch(/hourly limit/i);
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('surfaces a provider error as an alert', async () => {
@@ -565,8 +621,10 @@ describe('PexelsBrowser', () => {
     });
     // A healthy monthly figure and an hourly 429 are both true at once, because
     // the provider only reports the monthly one.
-    expect(quotaStrip()?.textContent).toMatch(/Hourly limit reached/);
+    expect(quotaStrip()?.textContent).toMatch(/hourly limit/i);
     expect(quotaStrip()?.getAttribute('role')).toBe('status');
+    // A fixed sentence: the minutes left change while it is on screen.
+    expect(quotaStrip()?.textContent).not.toMatch(/\d/);
   });
 
   it('warns only when the monthly allowance is genuinely low', async () => {
@@ -1217,13 +1275,16 @@ describe('PexelsBrowser — categories, orientation, drag and Add as overlay (EL
     expect(bridge.search).toHaveBeenCalledTimes(1);
   });
 
-  it('says in the quota strip that each category is one search', async () => {
+  it('says what a category costs in its chip’s tooltip, not as an announcement', async () => {
     renderPanel();
     await settle();
-    expect(screen.queryByText(/Each category is one search/)).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'City' }));
+    const city = screen.getByRole('button', { name: 'City' });
+    expect(city.getAttribute('title')).toContain(CATEGORY_COST_NOTE);
+    fireEvent.click(city);
     await settle();
-    expect(quotaStrip()?.textContent).toMatch(/Each category is one search/);
+    // Billing is not news: nothing is announced for a click on a chip.
+    expect(quotaStrip()).toBeNull();
+    expect(screen.queryByText(CATEGORY_COST_NOTE)).toBeNull();
   });
 
   it('leaves the category when the user types, and goes back to the feed from its chip', async () => {
@@ -1441,7 +1502,7 @@ describe('PexelsBrowser — categories, orientation, drag and Add as overlay (EL
     await settle();
     fireEvent.click(screen.getByRole('button', { name: 'Add as overlay' }));
     await settle();
-    expect(screen.getByRole('alert').textContent).toBe('No network connection.');
+    expect(screen.getByRole('alert').textContent).toBe(stockErrorText('offline'));
     // The action that failed is the one that says Retry; Add stays Add.
     expect(screen.getByRole('button', { name: 'Add' })).toBeDefined();
     expect(screen.queryByRole('button', { name: 'Retry adding at the playhead' })).toBeNull();

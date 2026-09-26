@@ -246,9 +246,11 @@ section with the keyboard on **In** — or find **Animation** on the Inspector's
   moving left, and as an Out it leaves moving left. A moving Out plays its In backwards, so it
   eases away the way it eased in.
 - **Loop:** Pulse (grows and shrinks), Float (drifts up and down), Wiggle (rocks), Bounce (hops),
-  Spin or Blink, with its **Speed** (seconds per cycle) and **Amount**. A loop is written over the
-  clip as it is when you set it: lengthen the clip later and the section says the clip is longer
-  than its loop, with **Re-apply** to cover it again. A loop will not replace animation you keyed
+  Spin or Blink, with its **Cycle** (seconds per cycle: a bigger number is slower) and **Amount**
+  (a percentage of its size, of the frame height for Float and Bounce, or of its opacity for
+  Blink; degrees for Wiggle and Spin). A loop is written over the
+  clip as it is when you set it: lengthen the clip later and the section says the loop stops
+  before the clip ends, with **Re-apply** to cover it again. A loop will not replace animation you keyed
   yourself: clear those keyframes first, or pick a loop that moves something else.
 - Every change is one undo, and the monitor shows exactly what the export draws.
 - **Titles** used to set In and Out on the Text tab; that is Animation's job now. A title that

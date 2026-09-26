@@ -783,7 +783,7 @@ export function PexelsBrowser({
               type="button"
               className="shapes-chip"
               aria-pressed={category === id}
-              title={`Search Pexels for “${words}” — one search`}
+              title={`Search Pexels for “${words}”. ${CATEGORY_COST_NOTE}`}
               onClick={() => chooseCategory(id)}
             >
               {label}
@@ -808,7 +808,6 @@ export function PexelsBrowser({
 
       <QuotaStrip
         quota={quota ?? { kind: 'unmeasured' }}
-        categoryActive={category !== null}
         {...(onOpenSettings ? { onOpenSettings } : {})}
       />
 
@@ -854,11 +853,24 @@ export function PexelsBrowser({
             </p>
           )}
 
-          {search.kind === 'error' && search.message !== '' && (
-            <p className="stock-error" role="alert">
-              {search.message}
-            </p>
-          )}
+          {/* The hourly limit is said once: by the quota strip when it knows, else here. */}
+          {search.kind === 'error' &&
+            search.message !== '' &&
+            !(search.code === 'rate_limited' && quota?.kind === 'hourly_limited') && (
+              <div className="stock-error-row">
+                <p className="stock-error" role="alert">
+                  {search.message}
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  onClick={() => void runSearch(searchText, kind, 1, requestOrientation)}
+                >
+                  Try again
+                </Button>
+              </div>
+            )}
 
           {search.kind === 'results' && items.length === 0 ? (
             // The feed's page is filtered here, and none of it is this shape.
@@ -969,40 +981,32 @@ function prefersReducedMotion(): boolean {
 // Quota strip
 // ---------------------------------------------------------------------------
 
-/** What a category costs, said where the allowance is: each chip is one provider request. */
+/**
+ * What a category costs: each chip is one provider request. Said in the chip's tooltip, where the
+ * choice is made — announcing it on every click was billing noise.
+ */
 export const CATEGORY_COST_NOTE = 'Each category is one search of your Pexels allowance.';
 
 function QuotaStrip({
   quota,
-  categoryActive,
   onOpenSettings,
 }: {
   readonly quota: StockQuotaSnapshot;
-  /** A category chip is in force: the strip says what it cost when nothing more urgent is due. */
-  readonly categoryActive: boolean;
   readonly onOpenSettings?: () => void;
 }): JSX.Element | null {
-  // Neutral tone: a fact about the allowance, not a warning. A warning below takes its place.
-  const categoryNote = categoryActive ? (
-    <p className="stock-quota-strip" role="status">
-      {CATEGORY_COST_NOTE}
-    </p>
-  ) : null;
   if (quota.kind === 'hourly_limited') {
+    // Fixed: a countdown in a status line is a number that changes while it is read. Settings
+    // shows how long is left.
     return (
       <p className="stock-quota-strip" data-tone="warning" role="status">
-        Hourly limit reached. It clears within the hour
-        {quota.retryAfterSeconds !== undefined
-          ? ` — about ${Math.ceil(quota.retryAfterSeconds / 60)} min`
-          : ''}
-        .
+        You&apos;ve hit Pexels&apos; hourly limit. It clears within the hour; search again then.
       </p>
     );
   }
-  if (quota.kind !== 'measured') return categoryNote;
+  if (quota.kind !== 'measured') return null;
 
   const { remaining, limit } = quota.monthly;
-  if (remaining > limit * LOW_QUOTA_RATIO) return categoryNote;
+  if (remaining > limit * LOW_QUOTA_RATIO) return null;
   return (
     <p className="stock-quota-strip" data-tone="warning" role="status">
       {remaining.toLocaleString()} of {limit.toLocaleString()} monthly requests left.{' '}

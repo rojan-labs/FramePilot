@@ -37,7 +37,8 @@ describe('ShapesBrowser', () => {
     render(<ShapesBrowser onAddShape={onAddShape} />);
     fireEvent.click(screen.getByRole('button', { name: 'Add Arrow' }));
     expect(onAddShape).toHaveBeenCalledWith('line-arrow/red', null);
-    expect(screen.queryByRole('status')).toBeNull();
+    // The refusal line is mounted empty, so it is there before it has anything to say.
+    expect(screen.getByRole('status').textContent).toBe('');
   });
 
   it('says why a shape could not be added', () => {
@@ -72,7 +73,10 @@ describe('ShapesBrowser', () => {
     fireEvent.keyDown(search, { key: 'Escape' });
     expect((search as HTMLInputElement).value).toBe('');
     fireEvent.change(search, { target: { value: 'zzzz' } });
-    expect(screen.getByText('No shapes match “zzzz”. Try another word.')).toBeDefined();
+    // The same phrasing as the other sub-tabs, with a hint of its own.
+    expect(
+      screen.getByText('Nothing matched “zzzz”. Try a simpler word — “arrow”, “box”, “star”.'),
+    ).toBeDefined();
   });
 
   it('adds in the colour the row picks, and a custom colour joins the row first', () => {
@@ -93,7 +97,10 @@ describe('ShapesBrowser', () => {
     render(<ShapesBrowser onAddShape={() => null} />);
     fireEvent.click(screen.getByRole('button', { name: 'Icons' }));
     expect(tiles()).toHaveLength(120);
-    fireEvent.click(screen.getByRole('button', { name: /^Show more icons/ }));
+    const more = screen.getByRole('button', { name: /^Show more icons/ });
+    // How many are left, grouped as a person reads a count: "1,580 left", not "1580 more".
+    expect(more.textContent).toMatch(/^Show more icons \(\d{1,3}(,\d{3})* left\)$/);
+    fireEvent.click(more);
     expect(tiles()).toHaveLength(360);
   });
 

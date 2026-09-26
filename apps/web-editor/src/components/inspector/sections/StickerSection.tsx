@@ -44,7 +44,7 @@ export function StickerInspector({
     [timeline, assets, resolution, clip.id],
   );
   return (
-    <div className="inspector-subpanel sticker-section" aria-label="sticker">
+    <div className="inspector-subpanel sticker-section" role="group" aria-label="sticker">
       <div className="sticker-section-row">
         {asset !== undefined && (
           // The project's own copy: every placed sticker has one, curated or packaged.

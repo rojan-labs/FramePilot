@@ -17,6 +17,7 @@ import {
   type AnimationKind,
   type ElementAnimationRequest,
   type LoopPreset,
+  type LoopPresetInfo,
 } from '@framepilot/editor-core';
 import type { Clip } from '@framepilot/timeline-schema';
 import { createLogger } from '@framepilot/shared-types';
@@ -33,12 +34,22 @@ const OTHER = 'other';
 /** The longest In or Out the length field offers; the op holds it to half the clip anyway. */
 const MAX_EDGE_SECONDS = 3;
 
-const UNIT_LABEL: Readonly<Record<string, string | undefined>> = {
-  'share of size': undefined,
-  'share of frame height': undefined,
-  degrees: '°',
-  'share dimmed': undefined,
+/**
+ * How the Amount field reads for each kind of loop. A share (of the clip's size, of the frame's
+ * height, of its opacity) is shown as a percentage — 0.02 of the frame height reads "2 % of
+ * height" — while what is stored, and what the assistant's tool takes, stays the share.
+ */
+const AMOUNT_DISPLAY: Readonly<
+  Record<LoopPresetInfo['amountUnit'], { readonly scale: number; readonly unit: string }>
+> = {
+  'share of size': { scale: 100, unit: '%' },
+  'share of frame height': { scale: 100, unit: '% of height' },
+  'share dimmed': { scale: 100, unit: '%' },
+  degrees: { scale: 1, unit: '°' },
 };
+/** One step of a percentage field: a tenth of a percent; a degree for the rotating loops. */
+const PERCENT_STEP = 0.1;
+const DEGREE_STEP = 1;
 
 export interface AnimationInspectorProps {
   readonly editor: UseEditor;
@@ -123,11 +134,12 @@ export function AnimationInspector({
 
   const loop = animation.loop;
   const loopInfo = loop === null ? null : LOOP_PRESET_INFO[loop.preset];
+  const amountDisplay = loopInfo === null ? null : AMOUNT_DISPLAY[loopInfo.amountUnit];
   const setLoop = (preset: LoopPreset, periodSeconds: number, amount: number, reason: string) =>
     apply({ loop: { preset, periodSeconds, amount } }, reason);
 
   return (
-    <div className="inspector-subpanel animation-section" aria-label="animation">
+    <div className="inspector-subpanel animation-section" role="group" aria-label="animation">
       {edgeRow('in', 'In')}
       {edgeRow('out', 'Out')}
       <LabeledSelect
@@ -144,10 +156,12 @@ export function AnimationInspector({
           );
         }}
       />
-      {loop !== null && loopInfo !== null && (
+      {loop !== null && loopInfo !== null && amountDisplay !== null && (
         <>
+          {/* A period, named as one: seconds per cycle, so a bigger number is a slower loop
+              ("Speed" read the other way round). */}
           <MaskNumberField
-            label="Speed"
+            label="Cycle"
             name="Loop period"
             value={loop.periodSeconds}
             min={loopInfo.period.min}
@@ -159,18 +173,18 @@ export function AnimationInspector({
           <MaskNumberField
             label="Amount"
             name="Loop amount"
-            value={loop.amount}
-            min={loopInfo.amount.min}
-            max={loopInfo.amount.max}
-            step={loopInfo.amountUnit === 'degrees' ? 1 : 0.01}
-            {...(UNIT_LABEL[loopInfo.amountUnit] === undefined
-              ? {}
-              : { unit: UNIT_LABEL[loopInfo.amountUnit]! })}
-            onCommit={(amount) => setLoop(loop.preset, loop.periodSeconds, amount, 'Loop amount')}
+            value={loop.amount * amountDisplay.scale}
+            min={loopInfo.amount.min * amountDisplay.scale}
+            max={loopInfo.amount.max * amountDisplay.scale}
+            step={amountDisplay.scale === 1 ? DEGREE_STEP : PERCENT_STEP}
+            unit={amountDisplay.unit}
+            onCommit={(shown) =>
+              setLoop(loop.preset, loop.periodSeconds, shown / amountDisplay.scale, 'Loop amount')
+            }
           />
           {!loop.coversClip && (
             <p className="inspector-note" role="note">
-              The clip is longer than its loop.{' '}
+              The loop stops before the clip ends.{' '}
               <button
                 type="button"
                 className="animation-reapply"
@@ -185,11 +199,10 @@ export function AnimationInspector({
           )}
         </>
       )}
-      {refusal !== null && (
-        <p className="inspector-note" role="status">
-          {refusal}
-        </p>
-      )}
+      {/* Mounted empty, so the region is there before it has anything to say. */}
+      <p className="inspector-note live-slot" role="status">
+        {refusal ?? ''}
+      </p>
     </div>
   );
 }

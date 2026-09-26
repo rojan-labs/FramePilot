@@ -25,33 +25,39 @@ import type { DownloadRegistry } from './download-registry.js';
 
 const log = createLogger('web-editor:stock-download');
 
-/** The sentence for each failure. No generic "something went wrong". */
-export function stockErrorText(code: StockErrorCodeWire, detail?: string): string {
+/**
+ * The sentence for each failure. No generic "something went wrong", no number that changes from
+ * one request to the next (the provider's retry detail is logged, not shown), and a way forward
+ * in every one.
+ *
+ * @param code - What went wrong.
+ * @param _detail - The provider's own detail (a retry time, say): deliberately not in the
+ *   sentence, which would then differ on every request while meaning the same thing.
+ */
+export function stockErrorText(code: StockErrorCodeWire, _detail?: string): string {
   switch (code) {
     case 'no_key':
       return 'Add your Pexels API key in Settings to search.';
     case 'unauthorized':
       return 'Pexels rejected this key. Check it in Settings.';
     case 'rate_limited':
-      return detail
-        ? `You've hit the hourly limit of about 200 requests (${detail}).`
-        : "You've hit the hourly limit of about 200 requests. It clears within the hour.";
+      return "You've hit Pexels' hourly limit. It clears within the hour; search again then.";
     case 'quota_exhausted':
-      return "You've used this month's request allowance.";
+      return "You've used this month's Pexels allowance. Settings shows when it resets.";
     case 'provider_unavailable':
       return 'Pexels is not responding. Try again shortly.';
     case 'offline':
-      return 'No network connection.';
+      return 'No network connection. Check your connection and try again.';
     case 'timeout':
-      return 'Pexels took too long to answer.';
+      return 'Pexels took too long to answer. Try again.';
     case 'cancelled':
       return '';
     case 'too_large':
-      return 'That file is larger than the 2 GB limit. Pick a smaller size.';
+      return 'That file is over the 2 GB limit, so nothing was downloaded. Pick another clip.';
     case 'disk_full':
-      return 'Not enough disk space to save this file.';
+      return 'Not enough disk space to save this file. Free some space, then try again.';
     case 'download_failed':
-      return "The download didn't finish. Nothing was added.";
+      return "The download didn't finish, so nothing was added. Try again.";
     case 'derive_failed':
       return "Saved the file, but couldn't read its thumbnails.";
   }

@@ -8,6 +8,7 @@
  * 0–255 channels; the picker edits them as one hex value. The Sticker section shows the same
  * controls for an outline and a shadow, fewer of them (`EdgeStyleControls`, plan/elements EL6b.3).
  */
+import { useState } from 'react';
 import { Switch } from '@framepilot/ui';
 import { syntheticClipKind } from '@framepilot/editor-core';
 import {
@@ -121,11 +122,19 @@ export function EdgeStyleControls({
   fields,
 }: EdgeStyleControlsProps): JSX.Element {
   const shows = (field: EdgeStyleField): boolean => fields === undefined || fields.includes(field);
+  const [refused, setRefused] = useState(false);
   const commit = (params: Record<string, number> | null): void => {
     const patch = setClipEdgeStylePatch(editor.state.timeline, clip.id, kind, params);
-    if (patch === null) return;
-    const issues = editor.applyPatchChecked(patch);
-    if (issues.length > 0) log.warn('edge style refused', { kind, issues: issues.length });
+    const issues = patch === null ? [] : editor.applyPatchChecked(patch);
+    // Said, not only logged. The validator's words name clip ids, so they stay in the log.
+    const refusedNow = patch === null || issues.length > 0;
+    if (refusedNow) {
+      log.warn('edge style refused', {
+        kind,
+        issues: issues.map((issue) => issue.message),
+      });
+    }
+    setRefused(refusedNow);
   };
   const params = storedStyle(clip, kind);
   const presets = EDGE_STYLE_CATALOG.filter((entry) => entry.kind === kind);
@@ -138,6 +147,12 @@ export function EdgeStyleControls({
           onCheckedChange={(on) => commit(on ? resolveEdgeStyleParams(presets[0]!) : null)}
         />
       </InspectorRow>
+      {/* Mounted empty, so the region is there before it has anything to say. */}
+      <p className="inspector-note live-slot" role="status">
+        {refused
+          ? `The ${label.toLowerCase()} was not changed. Pick a preset, or turn it off and on.`
+          : ''}
+      </p>
       {params !== null && (
         <>
           {shows('preset') && (

@@ -160,6 +160,8 @@ export function StickersBrowser({
   const setQuery = (next: string): void => {
     setQueryState(next);
     onQueryChange?.(next);
+    // A failure is about the last pick; the next thing the person does moves on from it.
+    setRefusal(null);
   };
   const [busy, setBusy] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -420,6 +422,7 @@ export function StickersBrowser({
             aria-pressed={scope === id}
             onClick={() => {
               setChip(id);
+              setRefusal(null);
               setActive(0);
               if (scrollArea !== null) scrollArea.scrollTop = 0;
             }}
@@ -430,6 +433,11 @@ export function StickersBrowser({
       </div>
       <p className="sr-only" aria-live="polite">
         {`${String(found.total)} stickers`}
+      </p>
+      {/* A failed pick, above the grid where the eye is; cleared by the next pick, search or
+          chip. Mounted empty, so the alert region exists before it has anything to say. */}
+      <p className="stock-error live-slot" role="alert">
+        {refusal ?? ''}
       </p>
       {found.items.length === 0 ? (
         <p className="stock-note">
@@ -543,11 +551,6 @@ export function StickersBrowser({
       <p id={inProjectNoteId} hidden>
         Already in this project
       </p>
-      {refusal !== null && (
-        <p className="stock-note" role="status">
-          {refusal}
-        </p>
-      )}
       <p className="stickers-credit">Stickers: Fluent Emoji by Microsoft (MIT)</p>
     </div>
   );

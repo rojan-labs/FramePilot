@@ -371,7 +371,9 @@ export function ShapesBrowser({
         onScroll={(event) => onScrollTopChange?.(event.currentTarget.scrollTop)}
       >
         {shown.length === 0 ? (
-          <p className="stock-note">No shapes match “{query.trim()}”. Try another word.</p>
+          <p className="stock-note">
+            Nothing matched “{query.trim()}”. Try a simpler word — “arrow”, “box”, “star”.
+          </p>
         ) : (
           <ul ref={gridRef} className="shapes-grid" aria-label="Shapes" onKeyDown={onGridKey}>
             {shown.map((entry, index) => {
@@ -410,15 +412,14 @@ export function ShapesBrowser({
             className="shapes-more"
             onClick={() => setIconLimit((limit) => limit + ICON_PAGE * 2)}
           >
-            {`Show more icons (${String(hidden)} more)`}
+            {`Show more icons (${hidden.toLocaleString()} left)`}
           </button>
         )}
       </div>
-      {refusal !== null && (
-        <p className="stock-note" role="status">
-          {refusal}
-        </p>
-      )}
+      {/* Mounted empty, so the region is there before it has anything to say. */}
+      <p className="stock-note live-slot" role="status">
+        {refusal ?? ''}
+      </p>
     </div>
   );
 }

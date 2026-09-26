@@ -179,7 +179,7 @@ describe('placeDroppedStock', () => {
     expect(placed).toEqual({ ok: false, message: stockErrorText('disk_full') });
     expect(stockDownloads.getSnapshot()[KEY]).toEqual({
       kind: 'failed',
-      message: 'Not enough disk space to save this file.',
+      message: stockErrorText('disk_full'),
       // A drop cannot be retried from the tile's buttons: it is dragged again.
       action: 'drop',
     });

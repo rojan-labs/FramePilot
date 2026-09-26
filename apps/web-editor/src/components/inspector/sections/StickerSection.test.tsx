@@ -90,6 +90,12 @@ describe('StickerInspector', () => {
     expect(onReplace).toHaveBeenCalledWith(clipId, 'Thumbs up');
   });
 
+  it('is a named group for assistive tech', () => {
+    const { project, clipId } = stickerProject(1920, 1080);
+    render(<Host project={project} clipId={clipId} />);
+    expect(screen.getByRole('group', { name: 'sticker' })).toBeDefined();
+  });
+
   it('offers no Replace where there is no panel to replace from', () => {
     const { project, clipId } = stickerProject(1920, 1080);
     render(<Host project={project} clipId={clipId} />);

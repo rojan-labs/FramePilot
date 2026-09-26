@@ -132,4 +132,30 @@ describe('ShapeInspector', () => {
     render(<ShapeInspector editor={editor} clip={clip} />);
     expect(screen.queryByLabelText('shape label')).toBeNull();
   });
+
+  it('names its line styles and caps in words, not stored ids', () => {
+    const clip = shapeClip('line-arrow/red');
+    const { editor } = editorWith(clip);
+    render(<ShapeInspector editor={editor} clip={clip} />);
+    fireEvent.click(screen.getByRole('combobox', { name: 'shape stroke style' }));
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'Solid',
+      'Dashed',
+      'Dotted',
+    ]);
+    fireEvent.click(screen.getByRole('option', { name: 'Solid' }));
+    fireEvent.click(screen.getByRole('combobox', { name: 'shape end cap' }));
+    const caps = screen.getAllByRole('option').map((option) => option.textContent);
+    expect(caps).toContain('Arrow');
+    expect(caps.every((cap) => cap !== null && /^[A-Z]/.test(cap))).toBe(true);
+  });
+
+  it('groups its controls for assistive tech and keeps its refusal line mounted', () => {
+    const clip = shapeClip('rounded-rect/highlight');
+    const { editor } = editorWith(clip);
+    render(<ShapeInspector editor={editor} clip={clip} />);
+    expect(screen.getByRole('group', { name: 'shape style' })).toBeDefined();
+    expect(screen.getByRole('group', { name: 'shape placement' })).toBeDefined();
+    expect(screen.getByRole('status').textContent).toBe('');
+  });
 });

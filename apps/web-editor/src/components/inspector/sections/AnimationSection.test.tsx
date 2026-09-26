@@ -159,4 +159,39 @@ describe('AnimationInspector', () => {
     expect(screen.getByRole('status').textContent).toContain('already animated');
     expect(current().loop).toBeNull();
   });
+
+  it('shows how far a loop moves as a percentage, and its cycle in seconds', () => {
+    render(<Host initial={timelineWith(sticker())} />);
+    pick('Loop animation', 'Float');
+    // Float's amount is stored as a share of the frame height (0.02); it reads as 2 %.
+    const amount = screen.getByLabelText('Loop amount') as HTMLInputElement;
+    expect(amount.value).toBe('2');
+    expect(screen.getByText('% of height')).toBeDefined();
+    act(() => {
+      fireEvent.change(amount, { target: { value: '3' } });
+      fireEvent.blur(amount);
+    });
+    // What is stored, and what the assistant's tool takes, is still the share.
+    expect(current().loop?.amount).toBeCloseTo(0.03, 10);
+    // A period, named as one: a bigger number is a slower loop.
+    expect(screen.getByText('Cycle')).toBeDefined();
+    expect(screen.queryByText('Speed')).toBeNull();
+  });
+
+  it('keeps its refusal line mounted, and says a lengthened clip outruns its loop plainly', () => {
+    render(<Host initial={timelineWith(sticker())} />);
+    expect(screen.getByRole('status').textContent).toBe('');
+    expect(screen.getByRole('group', { name: 'animation' })).toBeDefined();
+    pick('Loop animation', 'Wiggle');
+    const clip = editor.state.timeline.tracks[0]!.clips[0]!;
+    act(() => {
+      editor.applyPatch({
+        patchId: 'extend' as never,
+        createdBy: 'user',
+        reason: 'Extend',
+        operations: [{ type: 'trim_clip', clipId: clip.id, start: clip.start, end: clip.end + 3 }],
+      });
+    });
+    expect(screen.getByText(/The loop stops before the clip ends\./)).toBeDefined();
+  });
 });

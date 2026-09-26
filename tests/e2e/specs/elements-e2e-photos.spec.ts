@@ -283,9 +283,12 @@ test('Videos: a category in the project’s shape, Add as overlay over the foota
       ),
     )
     .toHaveLength(1);
+  // What a category costs is said in its chip's tooltip, where the choice is made.
   await expect(
-    page.getByText('Each category is one search of your Pexels allowance.'),
-  ).toBeVisible();
+    page
+      .getByRole('group', { name: 'Video categories', exact: true })
+      .getByRole('button', { name: 'City', exact: true }),
+  ).toHaveAttribute('title', /Each category is one search of your Pexels allowance\./);
   const tile = tileOf(results, RED_TITLE);
   await expect(tile).toBeVisible();
   await expectPanelAxeClean(page, 'Videos');

@@ -35,6 +35,19 @@ function joinColour(rgb: string, alphaPercent: number): string {
   return alpha >= 255 ? rgb : `${rgb}${alpha.toString(16).padStart(2, '0')}`;
 }
 
+/** The line styles and end caps in words: the stored ids are lower-case codes. */
+const STROKE_STYLE_LABELS: Readonly<Record<(typeof SHAPE_STROKE_STYLES)[number], string>> = {
+  solid: 'Solid',
+  dashed: 'Dashed',
+  dotted: 'Dotted',
+};
+const CAP_LABELS: Readonly<Record<(typeof SHAPE_CAPS)[number], string>> = {
+  none: 'None',
+  arrow: 'Arrow',
+  dot: 'Dot',
+  bar: 'Bar',
+};
+
 /** The colour a paint gets when it is switched on. */
 const DEFAULT_ON: Readonly<Record<'fill' | 'stroke', string>> = {
   fill: '#ffffff',
@@ -145,7 +158,7 @@ export function ShapeInspector({
 
   return (
     <>
-      <div className="inspector-subpanel" aria-label="shape style">
+      <div className="inspector-subpanel" role="group" aria-label="shape style">
         <LabeledSelect
           caption="Shape"
           label="shape kind"
@@ -182,7 +195,8 @@ export function ShapeInspector({
               value={number('strokeWidth', 0.8)}
               min={SHAPE_LIMITS.strokeWidth.min}
               max={SHAPE_LIMITS.strokeWidth.max}
-              step={0.05}
+              // A tenth of a percent a step: 0.05 was finer than a stroke visibly changes.
+              step={0.1}
               onChange={(value) => commit({ strokeWidth: value }, 'stroke width')}
             />
             <LabeledSelect
@@ -190,6 +204,7 @@ export function ShapeInspector({
               label="shape stroke style"
               value={typeof params.strokeStyle === 'string' ? params.strokeStyle : 'solid'}
               options={SHAPE_STROKE_STYLES}
+              labels={SHAPE_STROKE_STYLES.map((style) => STROKE_STYLE_LABELS[style])}
               onChange={(value) => commit({ strokeStyle: value }, 'stroke style')}
             />
           </>
@@ -236,6 +251,7 @@ export function ShapeInspector({
               label="shape start cap"
               value={typeof params.startCap === 'string' ? params.startCap : 'none'}
               options={SHAPE_CAPS}
+              labels={SHAPE_CAPS.map((cap) => CAP_LABELS[cap])}
               onChange={(value) => commit({ startCap: value }, 'start')}
             />
             <LabeledSelect
@@ -243,13 +259,14 @@ export function ShapeInspector({
               label="shape end cap"
               value={typeof params.endCap === 'string' ? params.endCap : 'none'}
               options={SHAPE_CAPS}
+              labels={SHAPE_CAPS.map((cap) => CAP_LABELS[cap])}
               onChange={(value) => commit({ endCap: value }, 'end')}
             />
           </>
         )}
       </div>
 
-      <div className="inspector-subpanel" aria-label="shape placement">
+      <div className="inspector-subpanel" role="group" aria-label="shape placement">
         <h4>{segment ? 'Ends' : 'Box'}</h4>
         {frameKeys.map(([key, label]) => {
           const limits = limitsFor(key);
@@ -267,11 +284,10 @@ export function ShapeInspector({
           );
         })}
       </div>
-      {refusal !== null && (
-        <p className="inspector-note" role="status">
-          {refusal}
-        </p>
-      )}
+      {/* Mounted empty, so the region is there before it has anything to say. */}
+      <p className="inspector-note live-slot" role="status">
+        {refusal ?? ''}
+      </p>
     </>
   );
 }

@@ -109,4 +109,23 @@ describe('edge style panel', () => {
     fireEvent.click(screen.getByRole('option', { name: 'Hard Shadow' }));
     expect(styles()[0]!.params).toMatchObject({ kind: 'shadow', softnessPx: 0, opacity: 0.85 });
   });
+
+  it('says so when the timeline refuses a style, rather than only logging it', () => {
+    function RefusingHost(): JSX.Element {
+      editor = useEditor(timeline(true), { assets: ASSETS });
+      const refusing = {
+        ...editor,
+        applyPatchChecked: () =>
+          [{ code: 'invalid_style', severity: 'error', message: 'Clip c1: width' }] as never,
+      };
+      return <EdgeStylePanel editor={refusing} clip={editor.state.timeline.tracks[0]!.clips[0]!} />;
+    }
+    render(<RefusingHost />);
+    fireEvent.click(screen.getByRole('switch', { name: 'Outline around the cut-out' }));
+    // A sentence with a way forward; the validator's own words name clip ids and stay in the log.
+    expect(
+      screen.getByText('The outline was not changed. Pick a preset, or turn it off and on.'),
+    ).toBeDefined();
+    expect(screen.queryByText(/Clip c1/)).toBeNull();
+  });
 });
