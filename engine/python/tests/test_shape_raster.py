@@ -196,12 +196,16 @@ BUDGET_BOX = {"width": 60, "height": 30}
 #: The case 05 section 2.2 budgeted: a translucent, stroked highlight box.
 BUDGET_HIGHLIGHT = {**HIGHLIGHT, "fill": "#FFD40033", **BUDGET_BOX}
 #: The slowest shape in the catalogue at the budget's size, found by timing every preset and all
-#: 1,703 icons (2026-09-26, M1 Pro, median of 20 CPU): the grape icon, 14.2 ms at 1080p and
-#: 36-41 ms at 4K, where the highlight box preset takes 3.2 and 12.7 ms (4.4 and 19-20 with the
-#: budget's translucent fill). Its ~40 circles flatten to ~740 stroke joints, and Pillow draws a
-#: round joint per vertex. Re-run that scan when the catalogue or the rasteriser's stroke changes,
-#: and pin whatever is slowest here.
-WORST_SHAPE = {**(preset_shape_params("icon/grape") or {}), **BUDGET_BOX}
+#: 1,703 icons (2026-09-26, M1 Pro, the minimum of three runs, the slowest re-timed as a median of
+#: 20 CPU): the "NEW" burst label, 3.8 ms at 1080p and 13.7 ms at 4K, where the budget's highlight
+#: box takes 2.1 and 8.7 ms. Its time is its label, drawn as text at the supersampled size. Re-run
+#: that scan when the catalogue or the rasteriser changes, and pin whatever is slowest here.
+WORST_SHAPE = {**(preset_shape_params("burst-label/new") or {}), **BUDGET_BOX}
+#: The heaviest stroke in the catalogue: the grape icon, whose ~40 circles flatten to ~740 round
+#: joins. It was the slowest shape while each join was a Pillow pieslice (14.2 ms at 1080p, 36-41 ms
+#: at 4K; 44.8 and 100.4 ms on the CI runner, over the 4K ceiling) and takes 3.0 and 8.7 ms with a
+#: disc per join, so a slow join cannot come back unnoticed.
+HEAVIEST_STROKE = {**(preset_shape_params("icon/grape") or {}), **BUDGET_BOX}
 
 
 def _median_raster_ms(params: dict[str, Any], width: int, height: int) -> float:
@@ -220,10 +224,12 @@ def _median_raster_ms(params: dict[str, Any], width: int, height: int) -> float:
     return statistics.median(samples)
 
 
-def test_the_worst_shape_is_the_grape_icon_at_the_budget_size() -> None:
-    # The guard below is only as good as the shape it times.
-    assert WORST_SHAPE["shape"] == "icon/grape"
-    assert (WORST_SHAPE["width"], WORST_SHAPE["height"]) == (60, 30)
+def test_the_guard_times_the_worst_shape_and_the_heaviest_stroke_at_the_budget_size() -> None:
+    # The guard below is only as good as the shapes it times.
+    assert (WORST_SHAPE["shape"], WORST_SHAPE["label"]) == ("burst-label", "NEW")
+    assert HEAVIEST_STROKE["shape"] == "icon/grape"
+    for params in (WORST_SHAPE, HEAVIEST_STROKE):
+        assert (params["width"], params["height"]) == (60, 30)
 
 
 # The budget is the app's, and the app rasterises without a coverage tracer: CI runs this suite
@@ -232,7 +238,9 @@ def test_the_worst_shape_is_the_grape_icon_at_the_budget_size() -> None:
 @pytest.mark.no_cover
 @pytest.mark.parametrize("frame", sorted(FRAME_SIZES))
 @pytest.mark.parametrize(
-    "params", [BUDGET_HIGHLIGHT, WORST_SHAPE], ids=["highlight-box", "worst-grape-icon"]
+    "params",
+    [BUDGET_HIGHLIGHT, WORST_SHAPE, HEAVIEST_STROKE],
+    ids=["highlight-box", "worst-burst-label", "heaviest-stroke-grape-icon"],
 )
 def test_a_shape_rasters_inside_its_budget(params: dict[str, Any], frame: str) -> None:
     width, height = FRAME_SIZES[frame]
