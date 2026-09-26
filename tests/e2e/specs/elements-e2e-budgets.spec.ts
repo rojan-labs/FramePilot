@@ -445,9 +445,10 @@ test('Stickers: a click puts the sticker on the timeline within the budget', asy
     await expect(page.locator('.stickers-grid-cell[data-state="adding"]')).toHaveCount(0);
   }
 
-  const gate = STICKER_CLICK_BUDGET_MS * UNPROVEN_GATE_FACTOR;
+  // Proven on the runner (median 56.5 ms on e399efd0, over 5× headroom), so gated at the budget.
+  const gate = STICKER_CLICK_BUDGET_MS;
   console.info(
-    `[elements budgets] sticker click → clip on the timeline: median ${median(clicks).toFixed(1)} ms of ${listed(clicks)} (budget ${STICKER_CLICK_BUDGET_MS} ms, gate ${gate} ms until headroom is known)`,
+    `[elements budgets] sticker click → clip on the timeline: median ${median(clicks).toFixed(1)} ms of ${listed(clicks)} (budget and gate ${gate} ms)`,
   );
   // Every timed click copied a file into the project: none found it already there.
   const copies = desktop.results
