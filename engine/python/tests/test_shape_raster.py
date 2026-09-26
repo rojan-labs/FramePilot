@@ -141,6 +141,26 @@ def test_dashes_and_dots_cover_less_than_a_solid_stroke() -> None:
     assert 0 < dotted < dashed < solid
 
 
+def test_a_curved_stroke_is_solid_across_its_width() -> None:
+    # A curve is flattened to many short segments with a round join at each turn. Pillow's own
+    # joins (a pieslice per vertex) left thin cracks through a wide stroke: 24 pixels of this ring
+    # at 4K fell short of opaque. A disc per join leaves none.
+    params = {**(preset_shape_params("icon/circle") or {}), "width": 90, "height": 90}
+    width, height = 3840, 2160
+    image, bounds = rasterize_shape(params, width, height)
+    alpha = _alpha(image)
+    # Lucide's circle: radius 10 in its 24-unit box, centred on the box (the frame's centre).
+    radius = height * 0.9 * 10 / 24
+    half_stroke = height * params["strokeWidth"] / 100 / 2
+    centre_x, centre_y = width / 2 - bounds.x, height / 2 - bounds.y
+    rows, cols = np.ogrid[: bounds.height, : bounds.width]
+    from_centre = np.hypot(cols + 0.5 - centre_x, rows + 0.5 - centre_y)
+    # A pixel's width inside either edge of the stroke, every pixel is fully covered.
+    inside = np.abs(from_centre - radius) <= half_stroke - 1
+    assert inside.sum() > 10_000
+    assert alpha[inside].min() == 255
+
+
 def test_the_same_params_draw_the_same_pixels() -> None:
     first, _ = rasterize_shape(HIGHLIGHT, 1920, 1080)
     second, _ = rasterize_shape(HIGHLIGHT, 1920, 1080)

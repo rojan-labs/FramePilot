@@ -12,6 +12,7 @@ How it draws, deterministically and with Pillow alone:
 - a solid stroke is the outline grown by half the stroke width minus the outline shrunk by it, so
   it is centred on the outline; a dashed stroke is dashes of 3w every 5w along the outline, a
   dotted one discs of diameter w every 2w; segment caps are drawn in the stroke's colour;
+- a stroke along an outline piece is its segments with a disc at every turn (round joins);
 - the coloured parts are composited stroke-over-fill in floating point with straight alpha and
   rounded once to 8 bits, so a translucent marker has clean edges instead of the dark fringe a
   straight-alpha downsample leaves.
@@ -58,6 +59,9 @@ DASH_ON = 3.0
 DASH_OFF = 2.0
 #: Dot spacing, in stroke widths.
 DOT_SPACING = 2.0
+#: Lines this wide (supersampled pixels) or thinner are drawn without round joins, as Pillow's
+#: ``line(joint="curve")`` draws them.
+JOINLESS_MAX_WIDTH = 4
 #: A badge label's face: the title default (Inter, bold), through the title rasteriser's loader.
 LABEL_FAMILY = "Inter"
 LABEL_WEIGHT = 700
@@ -112,6 +116,28 @@ class _Canvas:
         return self.mask(lambda d: d.polygon(points, fill=255))
 
 
+def _round_joined_line(draw: ImageDraw.ImageDraw, points: Sequence[Point], width: int) -> None:
+    """A wide polyline with a round join at every turn: Pillow's ``line(joint="curve")``, cheaper.
+
+    Pillow joins each turning vertex with a pieslice, plus two patch lines for the slivers the
+    pieslice's straight edges leave, in Python per vertex. A curve flattens to hundreds of
+    vertices, so an outline icon paid for hundreds of them: the grape icon's ~740 were most of the
+    slowest raster in the catalogue. Here each join is the whole disc that pieslice is cut from
+    (the same bounding box, so the same arc): it covers those slivers itself, and the rest of it is
+    within half a stroke of the vertex, so inside the stroke anyway. The segments are Pillow's own
+    single ``draw_lines`` call, as before.
+    """
+    draw.line(points, fill=255, width=width)
+    if width <= JOINLESS_MAX_WIDTH:
+        return
+    radius = width / 2 - 1
+    for (ax, ay), (x, y), (bx, by) in zip(points, points[1:], points[2:], strict=False):
+        in_x, in_y, out_x, out_y = x - ax, y - ay, bx - x, by - y
+        if in_x * out_y == in_y * out_x and in_x * out_x + in_y * out_y > 0:
+            continue  # straight on: the two segments already meet edge to edge
+        draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=255)
+
+
 def _path_length(points: Sequence[Point]) -> list[float]:
     lengths = [0.0]
     for (ax, ay), (bx, by) in itertools.pairwise(points):
@@ -157,7 +183,7 @@ def _stroke_path(canvas: _Canvas, path: Sequence[Point], width: float, style: st
         distance = 0.0
         while distance < total:
             segment = _sub_path(points, lengths, distance, min(total, distance + on))
-            d.line(segment, fill=255, width=line_width, joint="curve")
+            _round_joined_line(d, segment, line_width)
             distance += period
 
     return canvas.mask(draw)
@@ -203,7 +229,7 @@ def _stroked(
             mapped = [canvas.point(p) for p in points]
             if closed:
                 mapped.append(mapped[0])
-            d.line(mapped, fill=255, width=line_width, joint="curve")
+            _round_joined_line(d, mapped, line_width)
             ends = mapped[:1] if closed else [mapped[0], mapped[-1]]
             if round_caps or closed:
                 for x, y in ends:
