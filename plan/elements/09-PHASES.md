@@ -122,7 +122,7 @@ travels 5% of the frame height in every path (ADR 0189); the DOM overlay's box-r
 not expressible in the export. Goldens: no engine golden fixture holds a still or title with
 opacity, a transition, a crop or an In/Out preset, so none changes; CI confirms: [CI run 36198403567](https://github.com/rojan-labs/FramePilot/actions/runs/36198403567) on `9bbde591`, every job green including the PX4 oracle.
 
-## EL2b — Stills and titles: masks, edge styles, geometry transitions `[ ]`
+## EL2b — Stills and titles: masks, edge styles, geometry transitions `[~]`
 
 Lands **with its first consumer**, not before: edge styles and masks with EL6b (sticker outline,
 shadow, masking), geometry transitions (zoom, slide, wipe passes) with EL7 (In/Out).
@@ -286,47 +286,79 @@ runtimes), and [CI run 36203550932](https://github.com/rojan-labs/FramePilot/act
 
 ---
 
-## EL6a — Stickers: the minimum vertical slice, complete `[~]`
+## EL6a — Stickers: the minimum vertical slice, complete `[!]`
 
 **Ships:** a curated set of ~200 stickers (≈ 4 MB, committed), placeable by hand and by the agent.
 Depends on EL2a, MD-E4.
 
-- [ ] **EL6a.1** `scripts/elements/build_library.py` + `fluent.lock.json` + `collections.json`;
-      the curated set's padded full files and 144 px thumbnails (≈ 5 MB) committed;
+- [x] **EL6a.1** `scripts/elements/build_library.py` + `fluent.lock.json` + `collections.json`;
+      the curated set's padded full files and 144 px thumbnails (251 stickers, 6.3 MB) committed;
       the generated catalogue (curated items marked `bundled`); `LICENSE-fluent-emoji.txt`;
-      catalogue-vs-files test. (Library build dry run — the former spike C — is this task's first
-      step.)
-- [ ] **EL6a.2** `packages/ai-sdk/src/providers/elements/`: typed catalogue loader + search, shared
+      catalogue-vs-files test (`sticker-catalog.test.ts`); the build's own decisions tested without
+      the network (`test_build_library.py`); `pnpm elements:build` / `elements:lock` /
+      `elements:icons`.
+- [x] **EL6a.2** `packages/ai-sdk/src/providers/elements/`: typed catalogue loader + search, shared
       by panel, main and agent; tests.
-- [ ] **EL6a.3** Main `ElementsLibrary` + `framepilot:elements:materialize` IPC + preload + bridge;
+- [x] **EL6a.3** Main `ElementsLibrary` + `framepilot:elements:materialize` IPC + preload + bridge;
       tests: unknown id, dedupe, integrity mismatch, missing file, ENOSPC, concurrent same id,
-      traversal-shaped ids refused.
-- [ ] **EL6a.4** `isElementAsset`, `sourcedAssetId('element', …)`, `addStickerPatch` (folder,
-      asset, overlay lane, clip, t = 0 transform) + property tests.
-- [ ] **EL6a.5** Stickers sub-tab: grid, search, click-to-add, keyboard; Inspector **Sticker**
-      section with Replace.
-- [ ] **EL6a.6** Element assets are not footage anywhere: no enrolment or derive (desktop), skipped by
-      `editor/visualIndex.ts` and the engine's `visual_indexing.py`, absent from the Footage
-      Understanding panel, exempt from `source-repeats.ts` and `picture-occupancy.ts`; `list_assets`
-      labels them (G9). Credits groups identical lines (G10). The bin shows an **Elements** folder
-      and an "Element" badge.
-- [ ] **EL6a.6b** Opening a project whose element file is missing re-materialises it from the
-      library by id before the missing-media prompt (auto-heal); `asset-paths.ts`'s sentence names
-      stickers; opt-in local telemetry counts adds/failures; the catalogue chunk loads lazily; the
-      frozen engine decodes WebP on macOS and Windows (CI smoke).
-- [ ] **EL6a.7** Agent: `add_sticker` host (`ai/sticker-host.ts`) + orchestrator arm that calls
-      `addStickerPatch` directly (**never** the stock placement path, which runs the cutaway placer —
-      07 §3); `add_clip` / `add_clips` / `move_clip` of an element asset delegate to the same
-      builder instead of becoming a cover-cropped cutaway (07 §4); stickers half of the skill;
-      the kernel rows of 12 §F for `add_sticker` (host dispatch in `sidecar-executor.ts`, the
-      host-outcome arm, `callNoveltyKey`, classification, scope, `describe.ts`, reliability
-      sentences); regenerated goldens and fixtures.
-- [ ] **EL6a.8** Oracle rows `stickers/rest`, `stickers/scaled-rotated`, `stickers/fading`; one
-      evaluation case ("add a fire emoji when I say 'this is fire'" — within ±0.3 s, off the face,
-      clear of the caption band); `security-reviewer` pass on 06 §5; docs; `CHANGELOG.md` → Added.
+      traversal-shaped ids and project ids, a media folder linked outside the root, a path-shaped
+      catalogue file, a tampered reuse, stale temp files.
+- [x] **EL6a.4** `isElementAsset`, `sourcedAssetId('element', …)`, `buildAddStickerOps` (folder,
+      asset, overlay lane, clip, t = 0 transform sized to the art) + property tests.
+- [x] **EL6a.5** Stickers sub-tab: grid, search (name, keywords, the emoji itself), click-to-add,
+      keyboard; Inspector **Sticker** section with Replace, and "Replace sticker…" in the clip menu.
+- [x] **EL6a.6** Element assets are not footage anywhere: never enrolled or derived (desktop), off
+      the engine's visual worklist and the batch analyser by id, absent from Footage
+      understanding, exempt from `source-repeats.ts` and `picture-occupancy.ts`; `list_assets`
+      labels them. Credits group identical lines. The bin shows an **Elements** folder and an
+      "Element" badge. A b-roll cutaway opens under graphics lanes, not over them (found here).
+- [x] **EL6a.6b** Opening a project whose element file is missing re-materialises it from the
+      library by id before anything reads it, and never stops the project opening;
+      `asset-paths.ts`'s sentence names stickers; opt-in local telemetry (`element_materialize`);
+      the catalogue chunk loads lazily; the frozen engine decodes WebP on macOS and Windows (the
+      `frozen-engine-webp` CI job).
+- [x] **EL6a.7** Agent: `add_sticker` host (`ai/sticker-host.ts`) + orchestrator arm that calls the
+      sticker builder directly (never the stock placement path); `add_clip` / `add_clips` /
+      `move_clip` of an element asset delegate to the same builder; stickers half of the skill; the
+      kernel rows of 12 §F (host dispatch, host-outcome arm, `callNoveltyKey` keyed on every
+      argument, classification, scope, stage policy, `describe.ts`, the failure sentences in
+      `reliability/sourcing-notes.ts` walked by both gates); regenerated goldens and fixtures;
+      `graphics.sticker.add` in the capability inventory with a rendered proof.
+- [!] **EL6a.8** Oracle rows `stickers/rest`, `stickers/scaled-rotated`, `stickers/fading` (PX4
+  green); the evaluation case (built; the run is a human step, below); `security-reviewer`
+  pass on 06 §5 (PASS WITH FINDINGS; every finding fixed in `0020a7f6`, recorded in the
+  security runbook); docs (guide, ADR 0191, API and MCP pages); `CHANGELOG.md` → Added.
 
 **DoD:** the curated stickers work end to end by hand and via `add_sticker`, including undo and
 export; the eval case is reported.
+
+Evidence:
+
+- [x] CI: [run 36225239258](https://github.com/rojan-labs/FramePilot/actions/runs/36225239258) on
+      `9633653c`, every job green: PX4 (the three sticker rows), `elements-e2e` (add, replace from the
+      Inspector, export, monitor vs export, undo, heal-on-open, axe over the Elements panel in both
+      themes), the rendered professional proofs (`graphics.sticker.add`), and the frozen engine
+      decoding `fire.webp` with its alpha on macos-14 and windows-latest. CodeQL alone reports
+      failure: the PR is over GitHub's 300-file diff limit, so it attributes `main`'s 57 open alerts
+      to it; the PR's open alert set equals `main`'s (PLAN.md has the backlog). The security fixes
+      (`0020a7f6`) land on the next green run.
+- [!] **The evaluation case** `sticker-fire-on-beat` (a drawn talking head who says "this is fire";
+  ground truth in `tests/fixtures/mission/labels/reaction-demo.json`; rubric `sticker-on-beat`:
+  on the phrase ±0.3 s, the art off the face and above the caption band, on screen ≤ 3 s).
+  **Human step (model runs are paid and not run by the agent):** `cd engine/python && uv run
+python -m tests.reaction_fixture`; start a sidecar with
+  `FRAMEPILOT_PROJECTS_ROOT=$(pwd)/tests/fixtures/mission/projects uv run framepilot serve --host
+127.0.0.1 --port 8799`; `pnpm --filter @framepilot/ai-sdk build && node
+packages/ai-sdk/scripts/mission-fixture-projects.mjs`; then, detached on an idle machine,
+  `FRAMEPILOT_AI_PROVIDER=claude-agent-sdk FRAMEPILOT_CLAUDE_AGENT_SDK_MODEL=claude-sonnet-5
+FRAMEPILOT_PYTHON_API_URL=http://127.0.0.1:8799 node packages/ai-sdk/scripts/mission-baseline.mjs
+--case sticker-fire-on-beat --runs 10 --yes`, and record the `sticker-on-beat` pass share here as
+  the hit rate.
+- [!] **One desktop run** (10 §4 run B, stickers): in the desktop app, add five stickers from
+  Elements → Stickers and five with the assistant over real footage; replace one from the
+  Inspector; export; close and reopen the project; delete one sticker's file from the project
+  folder and reopen (it comes back); undo each add. Record the export, the reopened project and
+  any defect here.
 
 ## EL6b — Stickers: the whole library `[ ]`
 

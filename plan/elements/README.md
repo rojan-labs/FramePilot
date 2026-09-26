@@ -296,11 +296,11 @@ holds and every row of [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md) is d
 | EL0   | `[x]`  | Scope review (§7); MD-E6, MD-E7 decided; spike A report with numbers      |
 | EL1   | `[x]`  | Rename + Photos/Videos sub-tabs; CI green on `9bbde591`                   |
 | EL2a  | `[x]`  | Export, plans, monitor, DOM overlay fixed; CI green on `9bbde591`         |
-| EL2b  | `[ ]`  | Lands with EL6b / EL7                                                     |
+| EL2b  | `[~]`  | Masks, edge styles, turning titles for stills and titles; awaiting CI     |
 | EL3   | `[x]`  | One helper per runtime + guards; CI green on `9bbde591`                   |
 | EL4a  | `[!]`  | Built and green on `276b8827`; eval run and desktop run are human steps   |
 | EL5   | `[x]`  | 106 shapes, 260 presets, 1,703 icons, search, badges; CI green `276b8827` |
-| EL6a  | `[~]`  | Library, materialiser, Stickers tab, not-footage rules on `feat/elements` |
+| EL6a  | `[!]`  | Green on `9633653c`; eval run and desktop run are human steps             |
 | EL6b  | `[ ]`  |                                                                           |
 | EL7   | `[ ]`  |                                                                           |
 | EL8   | `[ ]`  |                                                                           |

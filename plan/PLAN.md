@@ -10302,14 +10302,15 @@ stickers, CC BY 4.0 (EL10).
 - [x] **EL1** Stock → Elements rename; Photos and Videos sub-tabs; stored `'stock'` tab aliased
 - [x] **EL2a** Stills and titles honour opacity, fades, crop and their own alpha; titles' In/Out
   presets render (fixes the three live bugs)
-- [ ] **EL2b** Masks, edge styles and geometry transitions for stills and titles, with their first
-  consumers (EL6b, EL7)
+- [~] **EL2b** Masks, edge styles and geometry transitions for stills and titles, with their first
+  consumers (EL6b, EL7); a turning title keeps its letters
 - [x] **EL3** One definition of synthetic asset ids and clip kind per runtime + guard tests
 - [!] **EL4a** Shapes minimum slice, complete (desktop): six shapes, Inspector, box/endpoint handles,
   export, undo, `add_shape`/`set_shape_style`, one eval case with a measured hit rate, one real run
 - [x] **EL5** Shapes breadth: 106 shapes / 260 presets, chips, search, drag, badges, 1,703 icons
-- [~] **EL6a** Stickers minimum slice, complete: curated ~200, materialise IPC, Stickers tab,
-  credits, `add_sticker`, `add_clip` delegation for element assets, one eval case
+- [!] **EL6a** Stickers minimum slice, complete: 251 curated, materialise IPC, Stickers tab,
+  credits, `add_sticker`, `add_clip` delegation for element assets, one eval case; green on
+  `9633653c`; the eval run and one desktop run are human steps (`plan/elements/09-PHASES.md`)
 - [ ] **EL6b** The full 1,595 in the desktop installer, virtualised grid, outline and shadow
 - [ ] **EL7** Animation In/Out (layer transitions) and Loop (keyframes from a builder);
   `set_element_animation`
