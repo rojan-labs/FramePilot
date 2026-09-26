@@ -100,10 +100,12 @@ describe('placeElementAssetPatch', () => {
     const lane = after.timeline.tracks.find((t) => t.clips.some((c) => c.id === again.clipId))!;
     expect(lane.type).toBe('overlay');
     const scale = (
-      again.patch.operations[1] as { keyframes: { property: string; value: number }[] }
+      again.patch.operations[1] as unknown as { keyframes: { property: string; value: number }[] }
     ).keyframes.find((k) => k.property === 'scale')!.value;
     const first = (
-      added.patch.operations.at(-1) as { keyframes: { property: string; value: number }[] }
+      added.patch.operations.at(-1) as unknown as {
+        keyframes: { property: string; value: number }[];
+      }
     ).keyframes.find((k) => k.property === 'scale')!.value;
     expect(scale).toBeCloseTo(first, 3);
   });
