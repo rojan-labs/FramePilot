@@ -1113,7 +1113,11 @@ function textLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer | nul
     },
     opacity: layerOpacityAt(clip, local, tr),
     blendMode: clip.blendMode ?? 'normal',
+    // EL2b: the masks a title takes (a track matte, a Frame-space shape, a key) and the edge
+    // styles that trace its glyphs, as `_compile_text_clip` draws them.
+    mask: maskPlan(clip, local, null),
     transitions: transitionStates(clip, local),
+    ...edgeStylesPlan(clip),
   };
 }
 

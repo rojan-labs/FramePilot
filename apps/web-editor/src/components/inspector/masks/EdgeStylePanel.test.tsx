@@ -6,7 +6,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { MaskLayerSchema, type Asset, type Timeline } from '@framepilot/timeline-schema';
 import { useEditor, type UseEditor } from '../../../editor/useEditor.js';
-import { EdgeStylePanel } from './EdgeStylePanel.js';
+import { EdgeStylePanel, showsEdgeStyles } from './EdgeStylePanel.js';
 
 const ASSETS: Asset[] = [
   {
@@ -71,6 +71,18 @@ describe('edge style panel', () => {
   it('is hidden until the clip has a cut-out to trace', () => {
     render(<Host initial={timeline(false)} />);
     expect(screen.queryByRole('group', { name: 'Edge style' })).toBeNull();
+  });
+
+  it('shows for a photo, a sticker or a title with no mask: its own alpha is the cut-out', () => {
+    expect(showsEdgeStyles(timeline(false).tracks[0]!.clips[0]!, false)).toBe(false);
+    expect(showsEdgeStyles(timeline(false).tracks[0]!.clips[0]!, true)).toBe(true);
+    const still = [{ ...ASSETS[0]!, id: 'a1', kind: 'image', path: 'media/a1.webp' } as Asset];
+    function StillHost(): JSX.Element {
+      editor = useEditor(timeline(false), { assets: still });
+      return <EdgeStylePanel editor={editor} clip={editor.state.timeline.tracks[0]!.clips[0]!} />;
+    }
+    render(<StillHost />);
+    expect(screen.getByRole('group', { name: 'Edge style' })).toBeTruthy();
   });
 
   it('turns an outline on, edits it and turns it off, one undo step each', () => {

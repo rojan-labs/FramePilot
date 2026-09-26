@@ -861,6 +861,19 @@ export class LayerPreviewEngine {
     };
   }
 
+  /**
+   * A title's edge-style lengths are frame pixels at the project's own size (EL2b): raster pixels
+   * per project pixel at this render size, as `_title_edge_size` makes the export's scale.
+   */
+  private titleFrameScale(size: PixelSize): { readonly frameScale: number } {
+    const project = this.project?.projectResolution ?? size;
+    const factor = Math.min(
+      Math.max(1, project.width) / size.width,
+      Math.max(1, project.height) / size.height,
+    );
+    return { frameScale: 1 / factor };
+  }
+
   /** A text clip as the export rasterises and places it (PX2.3). */
   private textLayer(layer: FramePlanLayer, size: PixelSize): CompositeLayer | null | 'pending' {
     const request = this.textRequest(layer, size);
@@ -872,7 +885,13 @@ export class LayerPreviewEngine {
     if (engine.state === 'ready') {
       const raster = engine.raster;
       const layout = textOverlayLayout(effect.params, size.width, size.height);
-      const step = textRasterStep(layer, clip, raster, { x: layout.centreX, y: layout.centreY });
+      const step = textRasterStep(
+        layer,
+        clip,
+        raster,
+        { x: layout.centreX, y: layout.centreY },
+        this.titleFrameScale(size),
+      );
       if (step === null) return null;
       return {
         kind: 'picture',
@@ -895,10 +914,13 @@ export class LayerPreviewEngine {
       this.textRasters.set(key, raster);
     }
     if (raster === null) return null;
-    const step = textRasterStep(layer, clip, raster, {
-      x: raster.layout.centreX,
-      y: raster.layout.centreY,
-    });
+    const step = textRasterStep(
+      layer,
+      clip,
+      raster,
+      { x: raster.layout.centreX, y: raster.layout.centreY },
+      this.titleFrameScale(size),
+    );
     if (step === null) return null;
     return {
       kind: 'picture',

@@ -1015,7 +1015,11 @@ def _text_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer | None:
         ),
         opacity=layer_opacity_at(clip, local, transition),
         blend_mode=_blend(clip),
+        # EL2b: the masks a title takes (a track matte, a Frame-space shape, a key) and the
+        # edge styles that trace its glyphs, as `_compile_text_clip` draws them.
+        mask=_mask_plan_json(clip, local, None),
         transitions=_transition_states(clip, local),
+        edge_styles=_edge_styles_json(clip),
     )
 
 

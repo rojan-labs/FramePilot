@@ -251,6 +251,29 @@ function stillVideoOnlySentence(mask: MaskLayer): string {
   return `${what} needs video, and this clip is a still image. Remove that mask, or draw a shape mask on the photo instead.`;
 }
 
+/** The masks a title cannot take: the export's `_refuse_masks_a_title_cannot_take`, reworded. */
+function titleRefusalSentence(mask: MaskLayer): string | null {
+  if (mask.kind === 'matte' || mask.tracking !== undefined) {
+    const what = mask.kind === 'matte' ? 'Background removal' : 'A tracked mask';
+    return `${what} needs video, and this clip is a title. Remove that mask.`;
+  }
+  const shaped = TITLE_SHAPED_KINDS.has(mask.kind);
+  if (shaped && mask.space !== 'frame') {
+    return "This mask is drawn on the title's own picture, which has no fixed size: set its space to Frame, or use a track matte.";
+  }
+  return null;
+}
+
+/** Mask kinds drawn from geometry (`SHAPE_KINDS` and `ANALYTIC_KINDS` of the engine). */
+const TITLE_SHAPED_KINDS: ReadonlySet<MaskLayer['kind']> = new Set([
+  'rectangle',
+  'ellipse',
+  'path',
+  'linear',
+  'band',
+  'gradient',
+]);
+
 const isLegacy = (mask: MaskLayer): boolean => mask.featherModel === 'gaussian-legacy';
 
 /**
@@ -433,12 +456,14 @@ function pathVertexCountsMatch(mask: PathMask): boolean {
  * @param media - Its asset's measured media (masks are stored in display-corrected pixels).
  * @param options.still - The clip shows a still image: a background removal or a tracked mask,
  *   both measured on video, is refused as the export refuses it (plan/elements EL2b).
+ * @param options.title - The clip is a title: it has no picture of a fixed size, so a shape
+ *   drawn on its own picture is refused as well; one drawn on the frame is not.
  */
 export function clipMaskStack(
   clip: Clip,
   media: Asset['media'] | null | undefined,
   tracks: ReadonlyMap<string, TrackArtifact> = new Map(),
-  options: { readonly still?: boolean } = {},
+  options: { readonly still?: boolean; readonly title?: boolean } = {},
 ): ClipMaskStack | null {
   const enabled = masksOf(clip).filter((mask) => mask.enabled);
   if (enabled.length === 0) return null;
@@ -455,6 +480,10 @@ export function clipMaskStack(
   for (const mask of enabled) {
     if (options.still === true && (mask.kind === 'matte' || mask.tracking !== undefined)) {
       return refuse(refusal(clip, mask, null, stillVideoOnlySentence(mask)));
+    }
+    if (options.title === true) {
+      const refused = titleRefusalSentence(mask);
+      if (refused !== null) return refuse(refusal(clip, mask, null, refused));
     }
     const refused = refusalFor(clip, mask, size);
     if (refused !== null) return refuse(refused);

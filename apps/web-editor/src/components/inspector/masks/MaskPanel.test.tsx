@@ -107,6 +107,21 @@ describe('panel', () => {
       (screen.getByRole('button', { name: 'Draw pen mask' }) as HTMLButtonElement).disabled,
     ).toBe(true);
   });
+
+  it('says what a title can take instead of asking to measure it (EL2b)', () => {
+    render(<Host initial={timeline([], '__text__')} />);
+    expect(
+      screen
+        .getByText(
+          'Drawing a mask needs a video or a photo. A title takes a track matte, below, or an edge style.',
+        )
+        .getAttribute('role'),
+    ).toBe('status');
+    expect(screen.queryByText(/Measure this media first/)).toBeNull();
+    expect(
+      (screen.getByRole('button', { name: 'Draw pen mask' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
 });
 
 describe('mask list', () => {

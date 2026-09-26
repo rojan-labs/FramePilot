@@ -85,14 +85,20 @@ export interface BuiltMask {
   readonly maskId: string;
 }
 
-/** The clip and its measured picture size, or a refusal that says what to do. */
-export function clipWithSize(project: Project, clipId: string): { clip: Clip; size: DisplaySize } {
+/** The clip, or a refusal naming the read that lists real clip ids. */
+export function clipOnTimeline(project: Project, clipId: string): Clip {
   const clip = project.timeline.tracks
     .flatMap((track) => track.clips)
     .find((candidate) => candidate.id === clipId);
   if (!clip) {
     throw new ToolRefusalError(`Unknown clip "${clipId}". Use get_clips to list real clip ids.`);
   }
+  return clip;
+}
+
+/** The clip and its measured picture size, or a refusal that says what to do. */
+export function clipWithSize(project: Project, clipId: string): { clip: Clip; size: DisplaySize } {
+  const clip = clipOnTimeline(project, clipId);
   const asset = project.assets.find((candidate) => candidate.id === clip.assetId);
   const size = assetDisplaySize(asset?.media);
   if (size === null) throw new ToolRefusalError(MEASURE_MEDIA_FIRST);

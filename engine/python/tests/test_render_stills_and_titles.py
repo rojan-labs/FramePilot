@@ -103,7 +103,9 @@ def _still(asset_id: str = "st", **overrides: Any) -> dict[str, Any]:
     }
 
 
-def _title(params: dict[str, Any], **overrides: Any) -> dict[str, Any]:
+def _title(
+    params: dict[str, Any], effects_extra: list[dict[str, Any]] | None = None, **overrides: Any
+) -> dict[str, Any]:
     return {
         "id": "t1",
         "assetId": "__text__",
@@ -117,7 +119,8 @@ def _title(params: dict[str, Any], **overrides: Any) -> dict[str, Any]:
                 "type": "text",
                 "params": {"text": "HELLO", "color": "#ff0000", "fontSizePercent": 30, **params},
                 "keyframes": [],
-            }
+            },
+            *(effects_extra or []),
         ],
         "keyframes": [],
         **overrides,
@@ -313,3 +316,67 @@ def test_the_frame_plan_carries_a_titles_animation(media: Path) -> None:
     assert early.geometry.scale == pytest.approx(0.7 + 0.3 * 0.25)
     assert settled.opacity == pytest.approx(1.0)
     assert settled.geometry.scale == pytest.approx(1.0)
+
+
+# --- EL2b: masks and edge styles on titles -------------------------------------------------
+# A title has no source picture, so its masks are the ones that need none: a track matte, a
+# shape in Frame space, a key. Its edge styles trace its glyphs, in frame pixels.
+
+
+def _blues(image: Image.Image) -> int:
+    rgb = np.asarray(image, dtype=np.int16)
+    return int(np.count_nonzero((rgb[..., 2] > 200) & (rgb[..., 0] < 90) & (rgb[..., 1] < 90)))
+
+
+def test_a_title_is_outlined_around_its_glyphs(media: Path) -> None:
+    plain = _frame(_project(_title({})), media, 1.0)
+    outlined = _frame(_project(_title({}, effects_extra=[_outline(4.0)])), media, 1.0)
+    rows, _ = _ink(plain)
+    assert _blues(plain) == 0
+    assert _blues(outlined) > 500
+    # The outline sits outside the glyphs: above the plain title's top row, and the red stays.
+    blue_rows, _ = np.nonzero(np.asarray(outlined, dtype=np.int16)[..., 2] > 200)
+    assert blue_rows.min() < rows.min()
+    assert _reds(outlined) > 0.8 * _reds(plain)
+
+
+def test_a_frame_space_mask_cuts_a_title(media: Path) -> None:
+    # A rectangle over the frame's left half, in frame pixels: the title's right half goes.
+    left_half = {
+        "id": "m",
+        "kind": "rectangle",
+        "space": "frame",
+        "cx": 160,
+        "cy": 180,
+        "width": 320,
+        "height": 360,
+    }
+    _, plain = _ink(_frame(_project(_title({})), media, 1.0))
+    _, cols = _ink(_frame(_project(_title({}, masks=[left_half])), media, 1.0))
+    assert plain.max() > 330
+    assert cols.size > 0 and cols.max() <= 322 and cols.min() == plain.min()
+
+
+def test_a_picture_space_mask_on_a_title_is_refused_with_a_remedy(media: Path) -> None:
+    from framepilot_engine.render.frame_grab import FrameGrabError
+
+    drawn = {"id": "m", "kind": "ellipse", "cx": 50, "cy": 50, "rx": 20, "ry": 20}
+    # The compile refuses before a frame; the grab passes the sentence on.
+    with pytest.raises(FrameGrabError, match="set its space to Frame, or use a track matte"):
+        _frame(_project(_title({}, masks=[drawn])), media, 1.0)
+
+
+def test_the_frame_plan_carries_a_titles_mask_and_edge_styles(media: Path) -> None:
+    left_half = {
+        "id": "m",
+        "kind": "rectangle",
+        "space": "frame",
+        "cx": 160,
+        "cy": 180,
+        "width": 320,
+        "height": 360,
+    }
+    project = _project(_title({}, masks=[left_half], effects_extra=[_outline(4.0)]))
+    layer = next(layer for layer in frame_plan_at(project, 1.0).layers if layer.clip_id == "t1")
+    assert layer.mask is not None and [e["id"] for e in layer.mask["layers"]] == ["m"]
+    assert [style["kind"] for style in layer.edge_styles] == ["stroke"]

@@ -2,12 +2,13 @@
  * Cut-out edge styles in the Mask tab (MK9.2): the outline, glow and shadow drawn around what the
  * clip's mask stack keeps (a background removal, a drawn shape, a key).
  *
- * Shown once the clip has something to trace (an enabled mask limiting the clip), or a style to
- * remove. Each change is one `set_clip_edge_style` patch through the editor's validated path, the
+ * Shown once the clip has something to trace (an enabled mask limiting the clip, or the alpha of a
+ * photo, sticker or title), or a style to remove. Each change is one `set_clip_edge_style` patch through the editor's validated path, the
  * operation the assistant uses too. Colours are stored as 0–255 channels; the picker edits them
  * as one hex value.
  */
 import { Switch } from '@framepilot/ui';
+import { syntheticClipKind } from '@framepilot/editor-core';
 import {
   EDGE_STYLE_CATALOG,
   EDGE_STYLE_EFFECT_TYPE,
@@ -15,6 +16,7 @@ import {
   clampEdgeStyleParams,
   masksOf,
   resolveEdgeStyleParams,
+  type Asset,
   type Clip,
   type EdgeStyleKind,
 } from '@framepilot/timeline-schema';
@@ -60,9 +62,22 @@ function storedStyle(clip: Clip, kind: EdgeStyleKind): Record<string, number> | 
 }
 
 /** Whether the panel has anything to offer this clip. */
-export function showsEdgeStyles(clip: Clip): boolean {
+/**
+ * Whether the clip has something to trace: an enabled mask limiting it, its own alpha (a photo,
+ * a sticker or a title, plan/elements EL2b; an opaque photo's outline is a border), or a style
+ * to remove.
+ *
+ * @param ownAlpha - The clip shows a still or a title, whose alpha is a cut-out of its own.
+ */
+export function showsEdgeStyles(clip: Clip, ownAlpha = false): boolean {
   const cuts = masksOf(clip).some((mask) => mask.enabled && mask.target.kind === 'alpha');
-  return cuts || clip.effects.some((effect) => effect.type === EDGE_STYLE_EFFECT_TYPE);
+  return ownAlpha || cuts || clip.effects.some((effect) => effect.type === EDGE_STYLE_EFFECT_TYPE);
+}
+
+/** A still or a title: a clip whose picture carries an alpha of its own to trace. */
+export function hasOwnAlpha(clip: Clip, assets: readonly Asset[]): boolean {
+  if (syntheticClipKind(clip.assetId) === 'text') return true;
+  return assets.find((asset) => asset.id === clip.assetId)?.kind === 'image';
 }
 
 export interface EdgeStylePanelProps {
@@ -71,7 +86,7 @@ export interface EdgeStylePanelProps {
 }
 
 export function EdgeStylePanel({ editor, clip }: EdgeStylePanelProps): JSX.Element | null {
-  if (!showsEdgeStyles(clip)) return null;
+  if (!showsEdgeStyles(clip, hasOwnAlpha(clip, editor.state.assets))) return null;
 
   const commit = (kind: EdgeStyleKind, params: Record<string, number> | null): void => {
     const patch = setClipEdgeStylePatch(editor.state.timeline, clip.id, kind, params);

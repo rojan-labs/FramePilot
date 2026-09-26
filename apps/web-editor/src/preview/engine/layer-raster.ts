@@ -500,6 +500,7 @@ export function textRasterStep(
   clip: Clip,
   raster: PixelSize,
   centre: { readonly x: number; readonly y: number },
+  title?: { readonly frameScale: number },
 ): PictureRasterStep | null {
   const geometry = layer.geometry;
   if (geometry === null || raster.width <= 0 || raster.height <= 0) return null;
@@ -508,7 +509,24 @@ export function textRasterStep(
   );
   // `_place_video_clip`'s `animated`: a transform, a legacy geometry transition, or an In/Out.
   const animated = transformed || legacyGeometryTransition(clip) || titleEnvelopeAnimates(clip);
-  const { opacity, blurRadius, wipe, transitions } = layerAlphaWork(layer, clip, raster, false);
+  // EL2b: a title's masks (a track matte, a Frame-space shape, a key), sized by its raster, and
+  // its edge styles, which trace its glyphs in frame pixels (`_compile_text_clip`).
+  const stack =
+    title === undefined
+      ? null
+      : clipMaskStack(clip, { width: raster.width, height: raster.height }, undefined, {
+          title: true,
+        });
+  const drawable = stack !== null && stack.refusal === null ? stack : null;
+  const alphaStack = drawable !== null && drawable.alpha.length > 0;
+  const traced =
+    title !== undefined && (layer.edgeStyles?.length ?? 0) > 0 && stack?.refusal == null;
+  const { opacity, blurRadius, wipe, transitions } = layerAlphaWork(
+    layer,
+    clip,
+    raster,
+    alphaStack,
+  );
   let resize: PixelSize | null = null;
   let x: number;
   let y: number;
@@ -531,8 +549,11 @@ export function textRasterStep(
     decode: { kind: 'native' },
     crop: null,
     opacity,
-    mask: null,
-    maskRefusal: null,
+    mask:
+      drawable !== null && (alphaStack || drawable.byEffect.size > 0)
+        ? { stack: drawable, clipTime: layer.localTime }
+        : null,
+    maskRefusal: stack?.refusal ?? null,
     effectIds: [],
     blurRadius,
     wipe,
@@ -545,7 +566,7 @@ export function textRasterStep(
     y,
     blendMode: layer.blendMode,
     effects: [],
-    edgeStyles: [],
-    ownAlphaEdges: null,
+    edgeStyles: traced ? (layer.edgeStyles ?? []) : [],
+    ownAlphaEdges: traced ? { scale: title.frameScale } : null,
   };
 }

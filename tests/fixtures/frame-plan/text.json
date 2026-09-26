@@ -4463,6 +4463,584 @@
           "frameEffects": []
         }
       ]
+    },
+    {
+      "id": "text-frame-mask",
+      "row": "Text: a title cut by a Frame-space mask (EL2b)",
+      "description": "A rectangle over the left half of the frame, in frame pixels: the title keeps only what lies inside it.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-text-frame-mask",
+        "name": "text-frame-mask",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "t1",
+              "type": "overlay",
+              "clips": [
+                {
+                  "id": "t1c",
+                  "assetId": "__text__",
+                  "trackId": "t1",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [
+                    {
+                      "id": "t1c__text",
+                      "type": "text",
+                      "params": {
+                        "text": "Masked title",
+                        "fontSizePercent": 18
+                      },
+                      "keyframes": []
+                    }
+                  ],
+                  "keyframes": [],
+                  "masks": [
+                    {
+                      "id": "t1c__mask",
+                      "kind": "rectangle",
+                      "space": "frame",
+                      "cx": 320,
+                      "cy": 360,
+                      "width": 640,
+                      "height": 720,
+                      "featherOuterPx": 6
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        1.0,
+        3.0
+      ],
+      "expected": [
+        {
+          "time": 1.0,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 1.0,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 1.0,
+                "frame": 30
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "text",
+              "role": "clip",
+              "trackId": "t1",
+              "clipId": "t1c",
+              "forClipId": null,
+              "localTime": 1.0,
+              "source": null,
+              "text": "Masked title",
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": null,
+                "top": null,
+                "width": null,
+                "height": null
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": {
+                "sourceTime": 1.0,
+                "layers": [
+                  {
+                    "id": "t1c__mask",
+                    "kind": "rectangle",
+                    "mode": "add",
+                    "invert": false,
+                    "space": "frame",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "alpha"
+                    }
+                  }
+                ]
+              },
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        },
+        {
+          "time": 3.0,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 3.0,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 3.0,
+                "frame": 90
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "text",
+              "role": "clip",
+              "trackId": "t1",
+              "clipId": "t1c",
+              "forClipId": null,
+              "localTime": 3.0,
+              "source": null,
+              "text": "Masked title",
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": null,
+                "top": null,
+                "width": null,
+                "height": null
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": {
+                "sourceTime": 3.0,
+                "layers": [
+                  {
+                    "id": "t1c__mask",
+                    "kind": "rectangle",
+                    "mode": "add",
+                    "invert": false,
+                    "space": "frame",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "alpha"
+                    }
+                  }
+                ]
+              },
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        }
+      ]
+    },
+    {
+      "id": "text-outline-shadow",
+      "row": "Text: an outline and a shadow traced around a title (EL2b)",
+      "description": "A title's edge styles trace its glyphs, with lengths in frame pixels at the project's own size.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-text-outline-shadow",
+        "name": "text-outline-shadow",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "t1",
+              "type": "overlay",
+              "clips": [
+                {
+                  "id": "t1c",
+                  "assetId": "__text__",
+                  "trackId": "t1",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [
+                    {
+                      "id": "t1c__text",
+                      "type": "text",
+                      "params": {
+                        "text": "Outlined",
+                        "fontSizePercent": 18
+                      },
+                      "keyframes": []
+                    },
+                    {
+                      "id": "t1c__edge_stroke",
+                      "type": "edge_style",
+                      "params": {
+                        "kind": "stroke",
+                        "widthPx": 5,
+                        "red": 20,
+                        "green": 20,
+                        "blue": 20
+                      }
+                    },
+                    {
+                      "id": "t1c__edge_shadow",
+                      "type": "edge_style",
+                      "params": {
+                        "kind": "shadow",
+                        "offsetXPx": 6,
+                        "offsetYPx": 6,
+                        "softnessPx": 6,
+                        "opacity": 0.5
+                      }
+                    }
+                  ],
+                  "keyframes": []
+                }
+              ]
+            },
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        1.0,
+        3.0
+      ],
+      "expected": [
+        {
+          "time": 1.0,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 1.0,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 1.0,
+                "frame": 30
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "edgeStyles": [
+                {
+                  "kind": "shadow",
+                  "params": {
+                    "offsetXPx": 6.0,
+                    "offsetYPx": 6.0,
+                    "softnessPx": 6.0,
+                    "red": 0.0,
+                    "green": 0.0,
+                    "blue": 0.0,
+                    "opacity": 0.5
+                  }
+                },
+                {
+                  "kind": "stroke",
+                  "params": {
+                    "widthPx": 5.0,
+                    "red": 20.0,
+                    "green": 20.0,
+                    "blue": 20.0,
+                    "opacity": 1.0
+                  }
+                }
+              ],
+              "kind": "text",
+              "role": "clip",
+              "trackId": "t1",
+              "clipId": "t1c",
+              "forClipId": null,
+              "localTime": 1.0,
+              "source": null,
+              "text": "Outlined",
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": null,
+                "top": null,
+                "width": null,
+                "height": null
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        },
+        {
+          "time": 3.0,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 3.0,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 3.0,
+                "frame": 90
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "edgeStyles": [
+                {
+                  "kind": "shadow",
+                  "params": {
+                    "offsetXPx": 6.0,
+                    "offsetYPx": 6.0,
+                    "softnessPx": 6.0,
+                    "red": 0.0,
+                    "green": 0.0,
+                    "blue": 0.0,
+                    "opacity": 0.5
+                  }
+                },
+                {
+                  "kind": "stroke",
+                  "params": {
+                    "widthPx": 5.0,
+                    "red": 20.0,
+                    "green": 20.0,
+                    "blue": 20.0,
+                    "opacity": 1.0
+                  }
+                }
+              ],
+              "kind": "text",
+              "role": "clip",
+              "trackId": "t1",
+              "clipId": "t1c",
+              "forClipId": null,
+              "localTime": 3.0,
+              "source": null,
+              "text": "Outlined",
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": null,
+                "top": null,
+                "width": null,
+                "height": null
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        }
+      ]
     }
   ]
 }

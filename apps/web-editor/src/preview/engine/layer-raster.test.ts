@@ -307,6 +307,67 @@ describe('stills and titles take the picture pipeline (plan/elements EL2a)', () 
     return textRasterStep(layer, c, { width: 200, height: 100 }, { x: 640, y: 360 });
   }
 
+  function titleStepWith(c: Clip, frameScale: number): PictureRasterStep | null {
+    const timeline: Timeline = { tracks: [{ id: 't', type: 'overlay', clips: [c] }] };
+    const layer = framePlanAt(timeline, [], 1, TARGET).layers.find((l) => l.kind === 'text');
+    if (!layer) throw new Error('no text layer');
+    return textRasterStep(
+      layer,
+      c,
+      { width: 200, height: 100 },
+      { x: 640, y: 360 },
+      { frameScale },
+    );
+  }
+
+  it('cuts a title with a Frame-space mask and traces its glyphs (EL2b)', () => {
+    const frameMask = MaskLayerSchema.parse({
+      id: 't__mask',
+      kind: 'rectangle',
+      space: 'frame',
+      cx: 320,
+      cy: 360,
+      width: 640,
+      height: 720,
+    });
+    const traced = title(
+      {},
+      {
+        masks: [frameMask],
+        effects: [
+          { id: 't__text', type: 'text', params: { text: 'Hi' }, keyframes: [] },
+          {
+            id: 't__edge',
+            type: 'edge_style',
+            params: { kind: 'stroke', widthPx: 4, red: 0, green: 0, blue: 0 },
+            keyframes: [],
+          },
+        ],
+      },
+    );
+    const step = titleStepWith(traced, 0.5);
+    expect(step?.mask?.stack.alpha.map((mask) => mask.id)).toEqual(['t__mask']);
+    expect(step?.edgeStyles.map((style) => style.kind)).toEqual(['stroke']);
+    // Frame pixels at the project's size, drawn on a half-size monitor: half a raster pixel each.
+    expect(step?.ownAlphaEdges).toEqual({ scale: 0.5 });
+  });
+
+  it('refuses, visibly, a mask drawn on a title’s own picture, naming the remedy', () => {
+    const drawn = MaskLayerSchema.parse({
+      id: 't__mask',
+      kind: 'ellipse',
+      cx: 50,
+      cy: 50,
+      rx: 20,
+      ry: 20,
+    });
+    const step = titleStepWith(title({}, { masks: [drawn] }), 1);
+    expect(step?.mask).toBeNull();
+    expect(step?.maskRefusal?.message).toBe(
+      "This mask is drawn on the title's own picture, which has no fixed size: set its space to Frame, or use a track matte.",
+    );
+  });
+
   it('draws a title’s opacity keyframe', () => {
     expect(titleStep(title({}, { keyframes: opacity(0.25) }), 1)?.opacity).toBe(0.25);
     expect(titleStep(title({}), 1)?.opacity).toBeNull();
