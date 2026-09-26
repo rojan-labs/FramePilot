@@ -433,6 +433,20 @@ export function Editor({
     },
     [editor, setRightTab],
   );
+  // "Animation…" in the clip menu (plan/elements EL7): the clip, in the Inspector, its
+  // Animation section in view. The nonce asks again for a second clip or a second time.
+  const [inspectorFocus, setInspectorFocus] = useState<{
+    readonly id: string;
+    readonly nonce: number;
+  } | null>(null);
+  const animateClip = useCallback(
+    (clipId: string) => {
+      editor.select(clipId);
+      setRightTab('inspector');
+      setInspectorFocus((last) => ({ id: 'animation', nonce: (last?.nonce ?? 0) + 1 }));
+    },
+    [editor, setRightTab],
+  );
   const dockLayout = useDockHeight();
 
   // Mirror live editable slices upward without turning restart serialization into
@@ -962,6 +976,7 @@ export function Editor({
         onAskAiForClip={onAskAiForClip}
         onRevealAssetInBin={revealAssetInBin}
         onReplaceSticker={openStickerReplace}
+        onAnimateClip={animateClip}
         onDropSticker={dropSticker}
         onOpenTransitionLibrary={openTransitionLibrary}
         tool={tool}
@@ -981,6 +996,7 @@ export function Editor({
       onItemActivate,
       revealAssetInBin,
       openTransitionLibrary,
+      animateClip,
       dropSticker,
       tool,
       selectedEffectLayerIds,
@@ -1127,6 +1143,7 @@ export function Editor({
                   editor={editor}
                   fps={project.fps}
                   resolution={project.resolution}
+                  focusSection={inspectorFocus}
                   onReplaceSticker={openStickerReplace}
                   selectedEffectLayerIds={selectedEffectLayerIds}
                   onClearEffectLayers={() => setSelectedEffectLayerIds([])}

@@ -44,6 +44,7 @@ import {
   Trash2,
   Shapes,
   Smile,
+  Wand2,
 } from './icons.js';
 import { stickerName } from './inspector/sections/StickerSection.js';
 import { MenuShortcut } from './Menu.js';
@@ -88,6 +89,11 @@ export interface ClipContextMenuProps {
    * timing and transform. Absent where there is no Stickers panel (the browser build).
    */
   readonly onReplaceSticker?: (clipId: string, name: string) => void;
+  /**
+   * Bring the Inspector's Animation section up for this clip (plan/elements EL7): offered on a
+   * graphic — a sticker, shape, title or picture on a graphics lane.
+   */
+  readonly onAnimate?: (clipId: string) => void;
 }
 
 export function ClipContextMenu({
@@ -98,6 +104,7 @@ export function ClipContextMenu({
   onAddTransition,
   onRevealInBin,
   onReplaceSticker,
+  onAnimate,
 }: ClipContextMenuProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const { timeline, playhead } = editor.state;
@@ -150,6 +157,9 @@ export function ClipContextMenu({
     clip === undefined ? undefined : editor.state.assets.find((a) => a.id === clip.assetId);
   const isSticker = isElementAsset(stickerAsset);
   const hasSpeed = !isShape && !isSticker;
+  const onGraphicsLane = timeline.tracks.some(
+    (track) => track.type === 'overlay' && track.clips.some((c) => c.id === target.clipId),
+  );
   // Reordering is a different question from dragging: a drag puts a clip at a TIME, this
   // puts it at a PLACE in the running order. Gated on the builder, so "move earlier" is
   // never offered on the first clip (ADR 0173).
@@ -177,6 +187,21 @@ export function ClipContextMenu({
             }}
           >
             <Shapes size={ICON_SIZE.sm} aria-hidden="true" /> Edit shape
+          </button>
+          <div className="context-menu-sep" role="separator" />
+        </>
+      )}
+      {onGraphicsLane && onAnimate && (
+        <>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onAnimate(target.clipId);
+              onClose();
+            }}
+          >
+            <Wand2 size={ICON_SIZE.sm} aria-hidden="true" /> Animation…
           </button>
           <div className="context-menu-sep" role="separator" />
         </>

@@ -6,7 +6,6 @@ import type { Clip } from '@framepilot/timeline-schema';
 import type { UseEditor } from '../../../editor/useEditor.js';
 import {
   TEXT_ALIGNMENTS,
-  TEXT_ANIMATIONS,
   type TextOverlayParams,
   readTextParams,
   setTextParamsPatch,
@@ -141,32 +140,9 @@ export function TextOverlayInspector({
         </div>
       </div>
 
-      <div className="inspector-subpanel" aria-label="text animation">
-        <h4>Animation</h4>
-        <LabeledSelect
-          caption="In"
-          label="in animation"
-          value={params.inAnimation}
-          options={TEXT_ANIMATIONS}
-          onChange={(value) => commit({ inAnimation: value })}
-        />
-        <LabeledSelect
-          caption="Out"
-          label="out animation"
-          value={params.outAnimation}
-          options={TEXT_ANIMATIONS}
-          onChange={(value) => commit({ outAnimation: value })}
-        />
-        <ScrubNumber
-          label="Duration s"
-          ariaLabel="animation duration"
-          value={params.animDurationSeconds}
-          min={0}
-          max={3}
-          step={0.05}
-          onChange={(value) => commit({ animDurationSeconds: value })}
-        />
-      </div>
+      {/* plan/elements EL7: a title's In, Out and Loop are the shared Animation section's (Basic
+          tab), written as layer transitions; the old In/Out params are only read now. */}
+      <p className="inspector-note">In, Out and Loop are in Animation, on the Basic tab.</p>
     </>
   );
 }

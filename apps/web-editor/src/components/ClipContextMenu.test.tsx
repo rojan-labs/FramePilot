@@ -132,6 +132,38 @@ describe('ClipContextMenu', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('offers Animation… on a graphic, and not on footage (EL7)', () => {
+    const graphics: Timeline = {
+      tracks: [
+        { id: 'o', type: 'overlay', clips: [{ ...clip('k1', 0, 3), trackId: 'o' }] },
+        { id: 'v', type: 'video', clips: [clip('c1', 0, 3)] },
+      ],
+    };
+    const onAnimate = vi.fn();
+    const onClose = vi.fn();
+    const { unmount } = render(
+      <ClipContextMenu
+        editor={fakeEditor({ timeline: graphics })}
+        target={{ clipId: 'k1', x: 0, y: 0 }}
+        onClose={onClose}
+        onAnimate={onAnimate}
+      />,
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Animation…' }));
+    expect(onAnimate).toHaveBeenCalledWith('k1');
+    expect(onClose).toHaveBeenCalled();
+    unmount();
+    render(
+      <ClipContextMenu
+        editor={fakeEditor({ timeline: graphics })}
+        target={{ clipId: 'c1', x: 0, y: 0 }}
+        onClose={() => {}}
+        onAnimate={onAnimate}
+      />,
+    );
+    expect(screen.queryByRole('menuitem', { name: 'Animation…' })).toBeNull();
+  });
+
   it('offers no Replace sticker on footage, or where there is no Stickers panel', () => {
     render(
       <ClipContextMenu

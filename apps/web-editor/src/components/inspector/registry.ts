@@ -53,6 +53,14 @@ export const INSPECTOR_SECTIONS: readonly InspectorSectionDef[] = [
     appliesTo: (selection) => hasClipSelection(selection) && selection.hasSticker,
   },
   {
+    id: 'animation',
+    title: 'Animation',
+    label: 'animation',
+    order: 25,
+    defaultOpen: true,
+    appliesTo: (selection) => hasClipSelection(selection) && selection.hasAnimation,
+  },
+  {
     id: 'color',
     title: 'Adjust',
     label: 'color',

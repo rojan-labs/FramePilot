@@ -36,6 +36,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Type,
+  Wand2,
   type LucideIcon,
 } from './icons.js';
 import { Tooltip } from './Tooltip.js';
@@ -60,6 +61,7 @@ import { TransitionPanel } from './inspector/sections/TransitionSection.js';
 import { TextOverlayInspector } from './inspector/sections/TextSection.js';
 import { ShapeInspector } from './inspector/sections/ShapeSection.js';
 import { StickerInspector } from './inspector/sections/StickerSection.js';
+import { AnimationInspector } from './inspector/sections/AnimationSection.js';
 import { TransformPanel } from './inspector/sections/TransformSection.js';
 import { ClipEffectList } from './inspector/sections/ClipEffectList.js';
 import { oneOf, useViewPreference } from '../editor/useViewPreference.js';
@@ -76,6 +78,11 @@ export interface InspectorProps {
   readonly onReplaceSticker?: (clipId: string, name: string) => void;
   /** The export frame size, for the Sticker section's sharpness note (plan/elements EL6b.3). */
   readonly resolution?: { readonly width: number; readonly height: number };
+  /**
+   * A section to bring into view (its tab chosen, opened, scrolled to): the clip menu's
+   * "Animation…" asks for `animation`. A new `nonce` asks again.
+   */
+  readonly focusSection?: { readonly id: string; readonly nonce: number } | null;
 }
 
 /** The frame a host that passes none (tests, stories) is taken to export at. */
@@ -127,6 +134,7 @@ const SECTION_TABS: Readonly<Record<string, InspectorTabId>> = {
   text: 'text',
   shape: 'basic',
   sticker: 'basic',
+  animation: 'basic',
   audio: 'audio',
   color: 'color',
   mask: 'mask',
@@ -139,6 +147,7 @@ const SECTION_ICONS: Readonly<Record<string, LucideIcon>> = {
   text: Type,
   shape: Shapes,
   sticker: Smile,
+  animation: Wand2,
   color: Palette,
   speed: Gauge,
   audio: AudioLines,
@@ -187,6 +196,7 @@ export function Inspector({
   onClearEffectLayers = () => {},
   onReplaceSticker,
   resolution = DEFAULT_RESOLUTION,
+  focusSection = null,
 }: InspectorProps): JSX.Element {
   const { selection: selectionId, selectedIds, timeline, playhead, assets } = editor.state;
   const selection = useMemo(
@@ -225,6 +235,19 @@ export function Inspector({
   useEffect(() => {
     if (reviewRequest !== null) setPreferredTab('mask');
   }, [reviewRequest, setPreferredTab]);
+  // "Animation…" in the clip menu: its tab, opened, in view.
+  const focusNonce = focusSection?.nonce;
+  useEffect(() => {
+    if (focusSection === null) return;
+    setPreferredTab(tabForSection(focusSection.id));
+    if (!sectionState.isOpen(focusSection.id)) sectionState.setOpen(focusSection.id, true);
+    requestAnimationFrame(() =>
+      document
+        .querySelector(`[data-inspector-section="${focusSection.id}"]`)
+        ?.scrollIntoView({ block: 'nearest' }),
+    );
+    // Once per request: the nonce, not the section state, says when to act.
+  }, [focusNonce]);
 
   if (selection.kind === 'effect-layer' && selection.effectLayer !== null) {
     const { layer } = selection.effectLayer;
@@ -344,6 +367,15 @@ export function Inspector({
         return <TextOverlayInspector key={`text-${clip.id}`} editor={editor} clip={clip} />;
       case 'shape':
         return <ShapeInspector key={`shape-${clip.id}`} editor={editor} clip={clip} />;
+      case 'animation':
+        return (
+          <AnimationInspector
+            key={`animation-${clip.id}`}
+            editor={editor}
+            clip={clip}
+            resolution={resolution}
+          />
+        );
       case 'sticker':
         return (
           <StickerInspector
@@ -510,6 +542,7 @@ export function Inspector({
             <div
               key={section.id}
               className="inspector-section-slot"
+              data-inspector-section={section.id}
               hidden={tabForSection(section.id) !== activeTab}
             >
               <InspectorSection

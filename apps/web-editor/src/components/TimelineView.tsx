@@ -216,6 +216,8 @@ export interface TimelineViewProps {
   readonly onRevealAssetInBin?: (assetId: string) => void;
   /** Forwarded to {@link ClipContextMenu}'s "Replace sticker…"; absent where there is no panel. */
   readonly onReplaceSticker?: (clipId: string, name: string) => void;
+  /** Forwarded to {@link ClipContextMenu}'s "Animation…" (plan/elements EL7). */
+  readonly onAnimateClip?: (clipId: string) => void;
   /**
    * A sticker tile dropped on a lane (plan/elements EL6b): the host asks main to copy it into the
    * project, then places it at `atSeconds` — on `trackId` when it is a graphics lane with room.
@@ -1330,6 +1332,7 @@ export function TimelineView({
   onAskAiForClip,
   onRevealAssetInBin,
   onReplaceSticker,
+  onAnimateClip,
   onDropSticker,
   onOpenTransitionLibrary,
   tool = 'select',
@@ -3775,6 +3778,7 @@ export function TimelineView({
           onAddTransition={(fromClipId, x, y) => setTransitionPicker({ fromClipId, x, y })}
           {...(onRevealAssetInBin ? { onRevealInBin: onRevealAssetInBin } : {})}
           {...(onReplaceSticker ? { onReplaceSticker } : {})}
+          {...(onAnimateClip ? { onAnimate: onAnimateClip } : {})}
         />
       )}
       {trackMenu && (

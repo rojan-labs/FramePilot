@@ -71,8 +71,16 @@ export interface InspectorSelection {
   readonly hasSticker: boolean;
   /** True when EVERY selected clip sits on a track that can carry audio. */
   readonly hasAudio: boolean;
-  /** True when the primary clip has a transition on its incoming edge. */
+  /**
+   * True when the primary clip has a transition on its incoming edge that the Transition section
+   * edits: a cut's, or a cutaway's entrance. A graphic's own entrance is the Animation section's.
+   */
   readonly hasTransition: boolean;
+  /**
+   * True when the selection is ONE clip on a graphics lane — a sticker, shape, title or picture
+   * over the footage: the Animation section (In, Out, Loop; plan/elements EL7) edits it.
+   */
+  readonly hasAnimation: boolean;
 }
 
 const EMPTY: InspectorSelection = {
@@ -87,6 +95,7 @@ const EMPTY: InspectorSelection = {
   hasSticker: false,
   hasAudio: false,
   hasTransition: false,
+  hasAnimation: false,
 };
 
 /** A track that can carry audio — the gate the Audio section has always used. */
@@ -143,8 +152,16 @@ export function resolveInspectorSelection(
       clips.length === 1 &&
       isElementAsset(assets.find((asset) => asset.id === primary.clip.assetId)),
     hasAudio: clips.every((location) => audioBearing(location.track)),
-    hasTransition: clipTransition(primary.clip) !== undefined,
+    hasTransition: transitionSectionApplies(primary),
+    hasAnimation: clips.length === 1 && primary.track.type === 'overlay',
   };
+}
+
+/** A transition the Transition section edits: anything but a graphic's own entrance. */
+function transitionSectionApplies({ clip, track }: ClipLocation): boolean {
+  const transition = clipTransition(clip);
+  if (transition === undefined) return false;
+  return !(track.type === 'overlay' && transition.params.fromClipId === undefined);
 }
 
 const isShape = (clip: Clip): boolean => syntheticClipKind(clip.assetId) === 'shape';
