@@ -184,6 +184,7 @@ const INVOKE_METHODS = [
   'aiStreamAbort',
   'aiStreamAnswer',
   'previewTextRaster',
+  'elementsThumbnail',
   'capabilityPackStatus',
   'capabilityPackPropose',
   'capabilityPackInstall',
@@ -280,6 +281,12 @@ export interface FakeDesktopOptions {
   /** The file the relink dialog "picks" (absolute). */
   readonly relinkTo?: string;
   /**
+   * A packaged sticker set (plan/elements EL6b), as the installer's resources hold it: main
+   * then lists the whole library and answers packaged tiles. Absent, the app has only the
+   * stickers the renderer ships, as in a build without the set.
+   */
+  readonly packagedStickers?: string;
+  /**
    * The REAL matte service to run background removal with (see `smart-mask-pack.ts`) instead of
    * the scripted `matteJob`.
    */
@@ -327,6 +334,7 @@ export class FakeDesktop {
     this.elements = new ElementsLibrary({
       projectsRoot: options.workspace.projectDir,
       bundledRoot: () => join(REPO, 'apps', 'web-editor', 'public', 'elements', 'stickers'),
+      packagedRoot: () => options.packagedStickers ?? null,
       catalog: loadStickerCatalog,
     });
     this.packs = {
@@ -503,6 +511,23 @@ export class FakeDesktop {
                 const { rgbaBase64, ...rest } = result as { rgbaBase64: string };
                 return { ...rest, rgba: fromBase64(rgbaBase64) };
               }
+              if (
+                method === 'elementsThumbnail' &&
+                result !== null &&
+                typeof result === 'object' &&
+                'thumbs' in result
+              ) {
+                const { thumbs } = result as {
+                  thumbs: { elementId: string; webpBase64: string }[];
+                };
+                return {
+                  ...(result as object),
+                  thumbs: thumbs.map(({ elementId, webpBase64 }) => ({
+                    elementId,
+                    webp: fromBase64(webpBase64),
+                  })),
+                };
+              }
               return result;
             });
           };
@@ -645,6 +670,19 @@ export class FakeDesktop {
   private rendererPath(stored: string): string {
     const absolute = isAbsolute(stored) ? stored : join(this.options.workspace.projectDir, stored);
     return `${this.origin}${this.options.workspace.urlPath(absolute)}`;
+  }
+
+  /** `framepilot:elements:thumbnail`, the tiles' bytes as base64 (the channel carries JSON). */
+  private async elementThumbnails(request: { elementIds: string[] }): Promise<unknown> {
+    const result = await this.elements.thumbnails(request.elementIds);
+    if (!result.ok) return result;
+    return {
+      ...result,
+      thumbs: result.thumbs.map(({ elementId, webp }) => ({
+        elementId,
+        webpBase64: Buffer.from(webp).toString('base64'),
+      })),
+    };
   }
 
   /** `framepilot:elements:materialize`, with the copied file's path as the page reads it. */
@@ -940,6 +978,8 @@ export class FakeDesktop {
         return this.textRaster(args[0] as Record<string, unknown>);
       case 'elementsMaterialize':
         return this.materializeElement(args[0] as { projectId: string; elementId: string });
+      case 'elementsThumbnail':
+        return this.elementThumbnails(args[0] as { elementIds: string[] });
       case 'aiStreamStart':
         return this.aiStart(args[0] as Record<string, unknown>);
       case 'aiStreamAbort':

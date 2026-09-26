@@ -1,20 +1,26 @@
 /**
- * Elements · Stickers end to end (plan/elements EL6a): add the fire sticker from the Stickers tab,
- * replace it with a heart from the Inspector, export, check the monitor draws what the export
- * draws, undo it all; and open a project whose sticker file went missing to find it back.
+ * Elements · Stickers end to end (plan/elements EL6a, EL6b): add the fire sticker from the Stickers
+ * tab, replace it with a heart from the Inspector, export, check the monitor draws what the export
+ * draws, undo it all; open a project whose sticker file went missing to find it back; and, with
+ * the installer's packaged set, list and place a sticker from the whole library, star it, and drag
+ * one onto a lane.
  *
- * What is real: the editor (Elements → Stickers, the Inspector's Sticker section, History), main's
- * own `ElementsLibrary` copying the sticker the app ships into the project folder by id (and
- * healing it on open), and the export (`render()` with validation), read back through the same
- * parity gates as the PX4 oracle.
+ * What is real: the editor (Elements → Stickers, the Inspector's Sticker section, History, the
+ * timeline's drop), main's own `ElementsLibrary` copying a sticker into the project folder by id
+ * (and healing it on open, and answering packaged tiles), and the export (`render()` with
+ * validation), read back through the same parity gates as the PX4 oracle.
  *
- * SIMULATED, and why: Electron and `fp-media://` (see `masking/fake-desktop.ts`).
+ * SIMULATED, and why: Electron and `fp-media://` (see `masking/fake-desktop.ts`). The packaged set
+ * is one sticker's files standing in for the 1,344 packaging encodes (the `desktop-build` job
+ * builds and checks the real set); its manifest is written as `build:elements` writes one. The
+ * drag is dispatched with a real `DataTransfer`: the tile's own `dragstart` writes the payload and
+ * the lane's own `drop` reads it (headless Chromium has no pointer-driven HTML5 drag to replay).
  *
  * CI ONLY (`elements-e2e` job): it renders.
  */
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { readFile, rm } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
@@ -33,11 +39,14 @@ import {
 import { expectPreviewMatchesExport } from './masking/parity.js';
 import { REPO, Workspace } from './masking/workspace.js';
 import type { Project } from '../../../packages/timeline-schema/dist/index.js';
+import { loadStickerCatalog } from '../../../packages/ai-sdk/dist/index.js';
 
 const SECONDS = 3;
 const FIRE = 'element_fluent3d_fire';
 const HEART = 'element_fluent3d_red_heart';
 const SHIPPED = join(REPO, 'apps', 'web-editor', 'public', 'elements', 'stickers', 'full');
+/** A sticker the renderer does not ship: only the installer's packaged set has it. */
+const LLAMA = 'element_fluent3d_llama';
 
 /**
  * The Elements panel is desktop-only, so the browser `accessibility.spec` never reaches it: it is
@@ -220,4 +229,121 @@ test('Stickers: a sticker file that went missing is back when the project opens'
   expect(await sha256(missing)).toBe(await sha256(join(SHIPPED, 'fire.webp')));
   // So the export finds it: nothing to relink, nothing refused.
   expectValidExport(await workspace.export('healed.mp4'), SECONDS);
+});
+
+/**
+ * A packaged set holding one sticker, `llama`, as `build:elements` lays one out: its full file and
+ * tile (a curated sticker's bytes, standing in), the licence, and a manifest of what was encoded,
+ * for the catalogue's library commit.
+ */
+async function packagedSet(root: string): Promise<{ readonly full: string }> {
+  const stickers = join(REPO, 'apps', 'web-editor', 'public', 'elements', 'stickers');
+  await mkdir(join(root, 'full'), { recursive: true });
+  await mkdir(join(root, 'thumbs'), { recursive: true });
+  const full = join(root, 'full', 'llama.webp');
+  await copyFile(join(stickers, 'full', 'fire.webp'), full);
+  await copyFile(join(stickers, 'thumbs', 'fire.webp'), join(root, 'thumbs', 'llama.webp'));
+  await writeFile(join(root, 'LICENSE-fluent-emoji.txt'), 'MIT');
+  const bytes = (await stat(full)).size;
+  const thumbBytes = (await stat(join(root, 'thumbs', 'llama.webp'))).size;
+  await writeFile(
+    join(root, 'manifest.json'),
+    JSON.stringify({
+      commit: (await loadStickerCatalog()).commit,
+      totalBytes: bytes + thumbBytes,
+      items: {
+        llama: {
+          file: 'full/llama.webp',
+          thumb: 'thumbs/llama.webp',
+          sha256: await sha256(full),
+          bytes,
+          thumbBytes,
+          width: 318,
+          height: 318,
+          sharpSize: 256,
+        },
+      },
+    }),
+  );
+  return { full };
+}
+
+test('Stickers: the whole library where the installer ships it — list, place, star, drag', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(5 * 60_000);
+  const workspace = await workspaceWith('elements-stickers-packaged', 'elements_packaged');
+  const { full } = await packagedSet(join(workspace.root, 'resources', 'elements', 'stickers'));
+  opened = await openInDesktop(
+    page,
+    testInfo,
+    {
+      workspace,
+      sidecarUrl: sidecarUrl(),
+      packagedStickers: join(workspace.root, 'resources', 'elements', 'stickers'),
+    },
+    'Elements stickers',
+  );
+  const { desktop } = opened;
+
+  // --- listed: a sticker only the packaged set has, its tile from main ------------------------
+  await page.getByRole('tab', { name: 'Elements', exact: true }).click();
+  await page
+    .getByRole('tablist', { name: 'Elements', exact: true })
+    .getByRole('tab', { name: 'Stickers', exact: true })
+    .click();
+  await page.getByRole('searchbox', { name: 'Search stickers', exact: true }).fill('llama');
+  const llama = page.getByRole('button', { name: 'Add Llama', exact: true });
+  await expect(llama).toBeVisible();
+  await expect(llama.locator('img')).toHaveAttribute('src', /^blob:/);
+  await expectPanelAxeClean(page, 'Stickers, the whole library');
+
+  // --- placed: main copies the packaged file in by id, byte for byte -------------------------
+  await llama.click();
+  const added = await savedProject(
+    desktop,
+    (doc) => stickersOf(doc).some((entry) => entry.assetId === LLAMA),
+    'the packaged sticker placed',
+  );
+  const asset = added.assets.find((candidate) => candidate.id === LLAMA)!;
+  expect(await sha256(join(workspace.projectDir, asset.path))).toBe(await sha256(full));
+  const lane = stickersOf(added).find((entry) => entry.assetId === LLAMA)!.trackId;
+
+  // --- starred: F on the tile, then the Favourites chip lists it ------------------------------
+  await llama.focus();
+  await page.keyboard.press('f');
+  await page.getByRole('searchbox', { name: 'Search stickers', exact: true }).fill('');
+  await page.getByRole('button', { name: 'Favourites', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Add Llama', exact: true })).toBeVisible();
+  await expect(page.locator('.stickers-grid-tile')).toHaveCount(1);
+  await page.getByRole('button', { name: 'All', exact: true }).click();
+
+  // --- dragged: the heart dropped on the sticker's lane lands there, at the drop time ---------
+  // Searched for, so its tile is drawn: the grid draws only the rows in view.
+  await page.getByRole('searchbox', { name: 'Search stickers', exact: true }).fill('red heart');
+  const heart = page.getByRole('button', { name: 'Add Red heart', exact: true });
+  const target = page.locator(`[data-track-id="${lane}"]`);
+  const box = (await target.boundingBox())!;
+  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+  await heart.dispatchEvent('dragstart', { dataTransfer });
+  const at = { clientX: box.x + box.width * 0.6, clientY: box.y + box.height / 2 };
+  await target.dispatchEvent('dragover', { dataTransfer, ...at });
+  await target.dispatchEvent('drop', { dataTransfer, ...at });
+  const dropped = await savedProject(
+    desktop,
+    (doc) => stickersOf(doc).some((entry) => entry.assetId === 'element_fluent3d_red_heart'),
+    'the dragged heart placed',
+  );
+  const placed = stickersOf(dropped).find(
+    (entry) => entry.assetId === 'element_fluent3d_red_heart',
+  )!;
+  expect(placed.trackId).toBe(lane);
+  expect(placed.start).toBeGreaterThan(0);
+
+  // --- and both undo ---------------------------------------------------------------------------
+  const undo = page
+    .getByRole('toolbar', { name: 'editor tools', exact: true })
+    .getByRole('button', { name: 'Undo', exact: true });
+  for (let step = 0; step < 2; step += 1) await undo.click();
+  await savedProject(desktop, (doc) => stickersOf(doc).length === 0, 'both stickers undone');
 });
