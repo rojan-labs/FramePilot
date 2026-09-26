@@ -122,6 +122,7 @@ interface RenderOptions {
   kind?: 'photo' | 'video';
   /** The host offers no overlay placement (a host without the editor behind it). */
   noOverlay?: boolean;
+  onShowInAssets?: (assetId: string) => void;
 }
 
 function panel(
@@ -137,6 +138,7 @@ function panel(
       onAddStock={onAddStock}
       {...(options.noOverlay ? {} : { onAddStockOverlay })}
       {...(options.onOpenSettings ? { onOpenSettings: options.onOpenSettings } : {})}
+      {...(options.onShowInAssets ? { onShowInAssets: options.onShowInAssets } : {})}
     />
   );
 }
@@ -200,9 +202,33 @@ async function typeQuery(text: string): Promise<void> {
   });
 }
 
+/** The quota strip, which is one of several status lines the panel keeps. */
+const quotaStrip = (): HTMLElement | null => document.querySelector('.stock-quota-strip');
+
+/** The panel-level note that speaks when no tile can be added as a cutaway. */
+const blockedNote = (): HTMLElement => document.querySelector('.stock-blocked') as HTMLElement;
+
+/** The tile's own tab stop: the button covering its picture. */
+const tileMain = (index = 0): HTMLButtonElement =>
+  document.querySelectorAll<HTMLButtonElement>('.stock-tile-main')[index]!;
+
+/** What the panel has said in its polite region (a reason posted by Enter, for one). */
+async function posted(): Promise<string> {
+  await act(async () => {
+    vi.advanceTimersByTime(60);
+    await Promise.resolve();
+  });
+  return document.querySelector('[data-live="posted"]')?.textContent ?? '';
+}
+
 function okSearch(items: readonly StockItemWire[], hasMore = false) {
   return { ok: true, items, page: 1, totalResults: items.length, hasMore };
 }
+
+/** What a blocked Add says: the host's fixed sentence. */
+const BLOCKED =
+  "Add replaces the picture, and there's footage at the playhead. " +
+  'Use Overlay to put it on top, or move the playhead to a gap.';
 
 describe('PexelsBrowser', () => {
   beforeEach(() => {
@@ -405,7 +431,8 @@ describe('PexelsBrowser', () => {
     renderPanel();
     await typeQuery('city');
     expect(screen.getByText('City skyline at dusk')).toBeDefined();
-    expect(screen.getByText('0:12')).toBeDefined();
+    // The duration is read at rest, on the picture, not only on hover.
+    expect(document.querySelector('.stock-tile-dur')?.textContent).toBe('0:12');
     // Sized before the click, so a 24 MB download is a considered one.
     expect(screen.getByText(/1920×1080 · 24 MB/)).toBeDefined();
     expect(screen.getByRole('link', { name: 'Ruvim' })).toBeDefined();
@@ -527,8 +554,8 @@ describe('PexelsBrowser', () => {
     });
     // A healthy monthly figure and an hourly 429 are both true at once, because
     // the provider only reports the monthly one.
-    expect(screen.getByRole('status').textContent).toMatch(/Hourly limit reached/);
-    expect(screen.getByRole('status').textContent).toMatch(/about 2 min/);
+    expect(quotaStrip()?.textContent).toMatch(/Hourly limit reached/);
+    expect(quotaStrip()?.getAttribute('role')).toBe('status');
   });
 
   it('warns only when the monthly allowance is genuinely low', async () => {
@@ -545,7 +572,7 @@ describe('PexelsBrowser', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(quotaStrip()).toBeNull();
 
     await act(async () => {
       for (const listener of bridge.quotaListeners) {
@@ -560,7 +587,7 @@ describe('PexelsBrowser', () => {
         });
       }
     });
-    expect(screen.getByRole('status').textContent).toMatch(/400 of 20,000/);
+    expect(quotaStrip()?.textContent).toMatch(/400 of 20,000/);
   });
 
   // -------------------------------------------------------------------------
@@ -569,22 +596,27 @@ describe('PexelsBrowser', () => {
 
   it('disables Add with the reason shown before the click', async () => {
     bridge.search.mockResolvedValue(okSearch([wireItem()]));
-    renderPanel({ blocked: "There's already footage at the playhead — move the playhead." });
+    renderPanel({ blocked: BLOCKED });
     await typeQuery('city');
 
     const add = screen.getByRole('button', { name: 'Add' });
-    expect(add).toHaveProperty('disabled', true);
+    expect(add.getAttribute('aria-disabled')).toBe('true');
     // Explained up front, not after a click that silently did nothing.
-    expect(screen.getByRole('status').textContent).toMatch(/already footage at the playhead/);
+    expect(blockedNote().textContent).toBe(BLOCKED);
+    expect(blockedNote().getAttribute('role')).toBe('status');
     fireEvent.click(add);
     expect(bridge.download).not.toHaveBeenCalled();
+    // The click is answered: the reason is said, not swallowed.
+    expect(await posted()).toBe(BLOCKED);
   });
 
   it('enables Add when the playhead is clear', async () => {
     bridge.search.mockResolvedValue(okSearch([wireItem()]));
     renderPanel({ blocked: null });
     await typeQuery('city');
-    expect(screen.getByRole('button', { name: 'Add' })).toHaveProperty('disabled', false);
+    expect(screen.getByRole('button', { name: 'Add' }).getAttribute('aria-disabled')).toBeNull();
+    // The note stays mounted, empty, so the region is there before anything is said in it.
+    expect(blockedNote().textContent).toBe('');
   });
 
   // -------------------------------------------------------------------------
@@ -719,12 +751,11 @@ describe('PexelsBrowser', () => {
     renderPanel();
     await typeQuery('city');
 
-    const tile = screen.getAllByRole('listitem')[0] as HTMLElement;
-    fireEvent.keyDown(tile, { key: 'Enter' });
+    fireEvent.keyDown(tileMain(), { key: 'Enter' });
     await act(async () => {
       await Promise.resolve();
     });
-    fireEvent.keyDown(tile, { key: 'Enter' });
+    fireEvent.keyDown(tileMain(), { key: 'Enter' });
     await act(async () => {
       await Promise.resolve();
     });
@@ -760,7 +791,9 @@ describe('PexelsBrowser', () => {
     expect(asked).toContain(12);
     // One tile can be added, the other cannot — the whole panel is not disabled.
     const addable = screen.getAllByRole('button', { name: 'Add' });
-    expect(addable.filter((button) => !(button as HTMLButtonElement).disabled)).toHaveLength(1);
+    expect(
+      addable.filter((button) => button.getAttribute('aria-disabled') !== 'true'),
+    ).toHaveLength(1);
   });
 
   it('says so when the spot filled up during the download, instead of dropping the clip', async () => {
@@ -797,7 +830,7 @@ describe('PexelsBrowser', () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByText(/filled up while this was downloading/)).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toMatch(/filled up while this was downloading/);
   });
 
   it('keeps the results already loaded when Load more fails', async () => {
@@ -874,7 +907,9 @@ describe('PexelsBrowser', () => {
       await Promise.resolve();
     });
     expect(screen.getByRole('alert').textContent).toMatch(/Not enough disk space/);
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeDefined();
+    // The failed button says Retry and says which placement it retries.
+    const retry = screen.getByRole('button', { name: 'Retry adding at the playhead' });
+    expect(retry.textContent).toBe('Retry');
   });
 
   it('marks an item already in this project', async () => {
@@ -1056,23 +1091,26 @@ describe('PexelsBrowser', () => {
     renderPanel();
     await typeQuery('city');
 
-    const tiles = document.querySelectorAll<HTMLElement>('.stock-tile');
-    expect(tiles[0]!.getAttribute('tabindex')).toBe('0');
-    expect(tiles[1]!.getAttribute('tabindex')).toBe('-1');
+    expect(tileMain(0).getAttribute('tabindex')).toBe('0');
+    expect(tileMain(1).getAttribute('tabindex')).toBe('-1');
+    // The list item itself is not a stop; the button over its picture is.
+    expect(document.querySelector('.stock-tile')!.hasAttribute('tabindex')).toBe(false);
 
-    fireEvent.keyDown(tiles[0]!, { key: 'ArrowRight' });
+    fireEvent.keyDown(tileMain(0), { key: 'ArrowRight' });
     await waitFor(() => {
-      expect(document.querySelectorAll('.stock-tile')[1]!.getAttribute('tabindex')).toBe('0');
+      expect(tileMain(1).getAttribute('tabindex')).toBe('0');
     });
+    expect(document.activeElement).toBe(tileMain(1));
   });
 
-  it('adds on Enter, and does nothing on Enter when blocked', async () => {
+  it('adds on Enter, and says why on Enter when Add is blocked', async () => {
     bridge.search.mockResolvedValue(okSearch([wireItem()]));
     bridge.download.mockImplementation(() => new Promise(() => undefined));
-    renderPanel({ blocked: 'occupied' });
+    renderPanel({ blocked: BLOCKED });
     await typeQuery('city');
-    fireEvent.keyDown(document.querySelector('.stock-tile')!, { key: 'Enter' });
+    fireEvent.keyDown(tileMain(), { key: 'Enter' });
     expect(bridge.download).not.toHaveBeenCalled();
+    expect(await posted()).toBe(BLOCKED);
   });
 
   it('leaves Enter to the control that has focus inside the tile', async () => {
@@ -1174,7 +1212,7 @@ describe('PexelsBrowser — categories, orientation, drag and Add as overlay (EL
     expect(screen.queryByText(/Each category is one search/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'City' }));
     await settle();
-    expect(screen.getByRole('status').textContent).toMatch(/Each category is one search/);
+    expect(quotaStrip()?.textContent).toMatch(/Each category is one search/);
   });
 
   it('leaves the category when the user types, and goes back to the feed from its chip', async () => {
@@ -1331,19 +1369,20 @@ describe('PexelsBrowser — categories, orientation, drag and Add as overlay (EL
   // -------------------------------------------------------------------------
 
   it('offers Add as overlay beside Add, and keeps it enabled where Add is blocked', async () => {
-    renderPanel({ blocked: "There's already footage at the playhead — move the playhead." });
+    renderPanel({ blocked: BLOCKED });
     await settle();
     // Add stays a cutaway, disabled with its reason (ADR 0140).
-    expect(screen.getByRole('button', { name: 'Add' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Add' }).getAttribute('aria-disabled')).toBe('true');
     // Covering footage is the point of an overlay (ADR 0193).
     const overlay = screen.getByRole('button', { name: 'Add as overlay' });
-    expect(overlay).toHaveProperty('disabled', false);
-    expect(overlay.textContent).toContain('Overlay');
-    // The reason for the blocked Add points at the placement that works here, by the label the
-    // tile shows.
-    expect(screen.getByRole('status').textContent).toMatch(
-      /press Overlay to put a smaller picture/,
-    );
+    expect(overlay.getAttribute('aria-disabled')).toBeNull();
+    // One compact row: the word the blocked sentence names, no icon, the small size.
+    expect(overlay.textContent).toBe('Overlay');
+    expect(overlay.querySelector('svg')).toBeNull();
+    expect(overlay.getAttribute('data-size')).toBe('sm');
+    expect(screen.getByRole('button', { name: 'Add' }).getAttribute('data-size')).toBe('sm');
+    // The host's sentence, once, with nothing appended: it already names Overlay.
+    expect(blockedNote().textContent).toBe(BLOCKED);
   });
 
   it('downloads and hands the asset to the overlay placement, never to the cutaway', async () => {
@@ -1394,9 +1433,11 @@ describe('PexelsBrowser — categories, orientation, drag and Add as overlay (EL
     expect(screen.getByRole('alert').textContent).toBe('No network connection.');
     // The action that failed is the one that says Retry; Add stays Add.
     expect(screen.getByRole('button', { name: 'Add' })).toBeDefined();
-    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry adding at the playhead' })).toBeNull();
+    const retry = screen.getByRole('button', { name: 'Retry adding as an overlay' });
+    expect(retry.textContent).toBe('Retry');
     bridge.download.mockResolvedValueOnce(downloadedCity());
-    fireEvent.click(screen.getByRole('button', { name: 'Retry overlay' }));
+    fireEvent.click(retry);
     await settle();
     expect(onAddStockOverlay).toHaveBeenCalledTimes(1);
     expect(onAddStock).not.toHaveBeenCalled();
@@ -1457,6 +1498,182 @@ describe('PexelsBrowser — categories, orientation, drag and Add as overlay (EL
     await settle();
     expect(screen.getByRole('button', { name: 'Add' })).toBeDefined();
     expect(screen.queryByRole('button', { name: 'Add as overlay' })).toBeNull();
+  });
+});
+
+describe('PexelsBrowser — the tile as one keyboard stop (Enter adds, Shift+Enter overlays)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    bridge.desktop.mockReturnValue(true);
+    bridge.search.mockReset().mockResolvedValue(okSearch([wireItem()]));
+    bridge.thumbnail.mockReset().mockResolvedValue({ ok: false });
+    bridge.preview.mockReset().mockResolvedValue({ ok: false });
+    bridge.download.mockReset();
+    bridge.cancel.mockReset();
+    bridge.quota.mockReset().mockResolvedValue({ kind: 'unmeasured' });
+    bridge.progressListeners = [];
+    bridge.quotaListeners = [];
+    resetDownloadRegistriesForTests();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const description = (element: Element): string =>
+    (element.getAttribute('aria-describedby') ?? '')
+      .split(' ')
+      .map((id) => document.getElementById(id)?.textContent ?? '')
+      .join(' ')
+      .trim();
+
+  it('is a named button that says what Enter and Shift+Enter do', async () => {
+    bridge.thumbnail.mockResolvedValue({
+      ok: true,
+      contentType: 'image/jpeg',
+      data: new ArrayBuffer(4),
+    });
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:thumb');
+    globalThis.URL.revokeObjectURL = vi.fn();
+    renderPanel();
+    await settle();
+    const main = screen.getByRole('button', {
+      name: 'City skyline at dusk, 0:12, 1920×1080 · 24 MB',
+    });
+    expect(main).toBe(tileMain());
+    expect(main.getAttribute('aria-keyshortcuts')).toBe('Enter Shift+Enter');
+    expect(description(main)).toBe(
+      'Enter adds it at the playhead. Shift+Enter adds it as an overlay.',
+    );
+    // The name already carries the title; the picture adds nothing to it.
+    await waitFor(() => expect(main.querySelector('img')?.getAttribute('alt')).toBe(''));
+    // Everything else in the tile is out of the Tab order: one stop per grid.
+    expect(screen.getByRole('button', { name: 'Add' }).getAttribute('tabindex')).toBe('-1');
+    expect(screen.getByRole('button', { name: 'Add as overlay' }).getAttribute('tabindex')).toBe(
+      '-1',
+    );
+    expect(screen.getByRole('link', { name: 'Ruvim' }).getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('points the stop at the reason when Add is blocked', async () => {
+    renderPanel({ blocked: BLOCKED });
+    await settle();
+    expect(description(tileMain())).toBe(`${BLOCKED} Shift+Enter adds it as an overlay.`);
+  });
+
+  it('adds as an overlay on Shift+Enter, even where Add is blocked', async () => {
+    bridge.download.mockResolvedValue(downloadedCity());
+    const { onAddStock, onAddStockOverlay } = renderPanel({ blocked: BLOCKED });
+    await settle();
+    fireEvent.keyDown(tileMain(), { key: 'Enter', shiftKey: true });
+    await settle();
+    expect(onAddStockOverlay).toHaveBeenCalledTimes(1);
+    expect(onAddStock).not.toHaveBeenCalled();
+  });
+
+  it('adds on a click of the picture, as Enter does', async () => {
+    bridge.download.mockReturnValue(new Promise(() => undefined));
+    renderPanel();
+    await settle();
+    fireEvent.click(tileMain());
+    await settle();
+    expect(bridge.download).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a download with Escape on the tile', async () => {
+    bridge.download.mockReturnValue(new Promise(() => undefined));
+    renderPanel();
+    await settle();
+    fireEvent.keyDown(tileMain(), { key: 'Enter' });
+    await settle();
+    expect(tileMain().getAttribute('aria-keyshortcuts')).toBe('Escape');
+    expect(description(tileMain())).toBe('Downloading. Escape cancels.');
+    fireEvent.keyDown(tileMain(), { key: 'Escape' });
+    expect(bridge.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows an item already in the project in Assets', async () => {
+    const project = {
+      ...emptyProject,
+      assets: [
+        {
+          id: 'a1',
+          path: 'media/p1/city.mp4',
+          kind: 'video',
+          source: {
+            provider: 'pexels',
+            remoteId: '3129671',
+            license: 'pexels',
+            attributionRequired: false,
+            fetchedAt: '2026-08-24T12:00:00.000Z',
+          },
+        },
+      ],
+    } as unknown as Project;
+    const onShowInAssets = vi.fn();
+    renderPanel({ project, onShowInAssets });
+    await settle();
+    const pill = screen.getByRole('button', { name: 'Show City skyline at dusk in Assets' });
+    expect(pill.textContent).toBe('In this project');
+    fireEvent.click(pill);
+    expect(onShowInAssets).toHaveBeenCalledWith('a1');
+    fireEvent.keyDown(tileMain(), { key: 'Enter' });
+    expect(onShowInAssets).toHaveBeenCalledTimes(2);
+    expect(description(tileMain())).toBe('In this project. Enter shows it in Assets.');
+    expect(bridge.download).not.toHaveBeenCalled();
+  });
+
+  it('previews a video while its tile has keyboard focus', async () => {
+    bridge.preview.mockResolvedValue({
+      ok: true,
+      contentType: 'video/mp4',
+      data: new ArrayBuffer(8),
+    });
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:preview');
+    globalThis.URL.revokeObjectURL = vi.fn();
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
+    renderPanel();
+    await settle();
+    await act(async () => {
+      fireEvent.focus(tileMain());
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(bridge.preview).toHaveBeenCalledWith('3129671');
+    await waitFor(() => expect(play).toHaveBeenCalled());
+    act(() => {
+      fireEvent.blur(tileMain());
+    });
+    expect(pause).toHaveBeenCalled();
+    play.mockRestore();
+    pause.mockRestore();
+  });
+
+  it('does not autoplay a focused tile under prefers-reduced-motion', async () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    bridge.preview.mockResolvedValue({
+      ok: true,
+      contentType: 'video/mp4',
+      data: new ArrayBuffer(8),
+    });
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:preview');
+    globalThis.URL.revokeObjectURL = vi.fn();
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    renderPanel();
+    await settle();
+    await act(async () => {
+      fireEvent.focus(tileMain());
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(bridge.preview).toHaveBeenCalled();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(play).not.toHaveBeenCalled();
+    play.mockRestore();
   });
 });
 

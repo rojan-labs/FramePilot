@@ -146,11 +146,13 @@ This is automatic and there is nothing to turn on. If a proxy can't be built (a 
 long source, or the engine isn't running), the clip still lands and previews from the
 original — slower, but never blocked.
 
-### "There's already footage at the playhead"
+### "Add replaces the picture, and there's footage at the playhead"
 
 **Add** is a cutaway, and a cutaway goes where there is no picture yet, so **Add**
 is disabled whenever the playhead is over a picture clip, and the panel says so
-before you click.
+before you click: "Add replaces the picture, and there's footage at the playhead.
+Use Overlay to put it on top, or move the playhead to a gap." Press Enter on a
+blocked tile and a screen reader hears the same sentence.
 
 You have three ways forward: move the playhead to an empty stretch (after the
 last clip, or into a gap you've cut) and press **Add**; press **Overlay** to lay

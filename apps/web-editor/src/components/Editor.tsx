@@ -928,6 +928,7 @@ export function Editor({
           return null;
         }}
         {...(onOpenSettings ? { onOpenSettings: () => onOpenSettings('ai') } : {})}
+        onShowInAssets={revealAssetInBin}
         onAddShape={(presetId, colour) => {
           const live = editor.state;
           const added = addShapePatch(

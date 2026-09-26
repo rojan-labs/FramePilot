@@ -33,7 +33,10 @@ you type leave your computer.
   it searches again straight away. On the **Curated** / **Popular** feed, which Pexels can't filter
   by shape, it narrows the page already loaded instead of searching again.
 - **Add** puts the shot in as a **cutaway** at the playhead: it replaces the picture for its
-  length, so it is disabled over footage and says why.
+  length, so over footage it is greyed out and says why: "Add replaces the picture, and there's
+  footage at the playhead. Use Overlay to put it on top, or move the playhead to a gap." On a
+  screen recording or a talking head, that is most of the timeline, so **Overlay** is the one to
+  reach for.
 - **Overlay** (Add as overlay) puts it **on top** of whatever is at the playhead: a
   picture-in-picture, centred, at 40% of its fitted size, on a layer in front of your footage and
   under your titles, stickers and shapes. It is selected when it lands, ready to move and resize on
@@ -42,6 +45,13 @@ you type leave your computer.
   **Scale** 1 in the Inspector's **Position & size** section.
 - **Drag a tile onto the timeline** to put the shot full frame at the drop point — on the video
   layer you dropped it on when it has room there, else on a new layer in front of your footage.
+- **Keyboard:** the grid is one Tab stop; the arrows move between tiles, Home and End jump to the
+  ends. **Enter** adds the focused tile (or, over footage, says why Add can't), **Shift+Enter**
+  adds it as an overlay, and **Escape** cancels a download in progress. A focused video tile
+  previews as a pointed-at one does, unless your system asks for reduced motion.
+- A tile's duration is shown on the picture; its size and photographer show when you point at it.
+  A tile already in your project says **In this project**: click it (or press Enter on the tile)
+  to find the clip in **Assets**.
 
 Every way in downloads into your project first, with a progress bar and **Cancel** on the tile,
 and one undo takes back the clip, any layer it opened and the bin entry. The feed, the hover-scrub

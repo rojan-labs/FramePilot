@@ -29,10 +29,20 @@
  * click — whenever the playhead is over picture media (ADR 0140, see
  * `addStockClipPatch`). **Add as overlay** lays the media over whatever is there
  * as a centred picture-in-picture at 40% size, and is never refused for covering
- * picture: that is what it is for (ADR 0193). Dragging a tile onto a lane places
- * it at the drop time. All three download through one flow
+ * picture: that is what it is for (ADR 0193). On a screen recording or a talking
+ * head — a timeline full of footage — Overlay is the placement that works almost
+ * everywhere, so it is one key away: the tile's own button takes **Enter** for Add
+ * (or says why Add is blocked) and **Shift+Enter** for Overlay. Dragging a tile
+ * onto a lane places it at the drop time. All three download through one flow
  * (`editor/stock-download.ts`), so the tile shows the same progress, Cancel and
  * failure whichever the user chose.
+ *
+ * ## One tab stop per grid
+ *
+ * Each tile's stop is a real button over its picture, named by the clip and
+ * described by what Enter does there. Add, Overlay, Cancel and the credit link
+ * sit out of the Tab order (Escape cancels a download), so 24 tiles are one stop,
+ * not 72, before "Load more".
  *
  * ## Categories and shape
  *
@@ -47,7 +57,7 @@
  * bytes and wrap them in `blob:`, which the existing CSP already permits. The
  * renderer has nothing to reach a provider host *with*.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Asset, Project } from '@framepilot/timeline-schema';
 import { DEFAULT_STOCK_STILL_SECONDS } from '@framepilot/editor-core';
 import { Button } from '@framepilot/ui';
@@ -68,20 +78,15 @@ import {
 } from '../../editor/bridge.js';
 import { stockDownloads, useDownloads } from '../../editor/download-registry.js';
 import {
+  STOCK_ALREADY_DOWNLOADING,
   downloadAndPlaceStock,
   stockAssetIdOf,
   stockDownloadKey,
   stockErrorText,
   type StockPlacementAction,
 } from '../../editor/stock-download.js';
-import {
-  ICON_SIZE,
-  PictureInPicture2,
-  RectangleHorizontal,
-  RectangleVertical,
-  Square,
-  X,
-} from '../icons.js';
+import { useLiveAnnouncement } from '../../editor/useLiveAnnouncement.js';
+import { ICON_SIZE, RectangleHorizontal, RectangleVertical, Square, X } from '../icons.js';
 import { writeElementDrag } from './element-dnd.js';
 
 // The sentences live with the download flow the drop shares; re-exported for the panel's callers.
@@ -188,7 +193,15 @@ export interface PexelsBrowserProps {
   readonly onOrientationChange?: (orientation: StockOrientationChoice) => void;
   /** Opens Settings → Photos & videos (Pexels), for the no-key and quota states. */
   readonly onOpenSettings?: () => void;
+  /**
+   * Show an asset in Assets (the bin), for a tile already in the project: its "In this project"
+   * pill, and Enter on it. Absent, the pill is a plain label.
+   */
+  readonly onShowInAssets?: (assetId: string) => void;
 }
+
+/** Said by Enter on a tile already in the project when there is no Assets panel to show it in. */
+const ALREADY_IN_PROJECT = 'Already in this project. Drag it from Assets to use it again.';
 
 /**
  * What a tile is doing.
@@ -274,6 +287,7 @@ export function PexelsBrowser({
   initialOrientation,
   onOrientationChange,
   onOpenSettings,
+  onShowInAssets,
 }: PexelsBrowserProps): JSX.Element {
   const [query, setQueryState] = useState(initialQuery);
   const [category, setCategoryState] = useState<StockCategoryId | null>(initialCategory);
@@ -350,6 +364,8 @@ export function PexelsBrowser({
    */
   const [quota, setQuota] = useState<StockQuotaSnapshot | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  /** What Enter said on a tile (a blocked Add's reason, say): read out in the polite region. */
+  const [posted, announce] = useLiveAnnouncement();
   const gridRef = useRef<HTMLUListElement | null>(null);
   const downloads = useDownloads(stockDownloads);
   /**
@@ -370,22 +386,37 @@ export function PexelsBrowser({
 
   /**
    * Items already downloaded into this project, so a tile can say so — by kind and id, since a
-   * Pexels photo and video can share an id. The asset's own kind says which it is.
+   * Pexels photo and video can share an id. The asset's own kind says which it is. Mapped to the
+   * asset's id, so the tile can show it in Assets.
    */
-  const presentKeys = useMemo(
+  const presentAssets = useMemo(
     () =>
-      new Set(
+      new Map(
         project.assets.flatMap((asset) =>
           asset.source?.provider === 'pexels' && typeof asset.source.remoteId === 'string'
-            ? [stockDownloadKey(asset.kind === 'image' ? 'photo' : 'video', asset.source.remoteId)]
+            ? [
+                [
+                  stockDownloadKey(
+                    asset.kind === 'image' ? 'photo' : 'video',
+                    asset.source.remoteId,
+                  ),
+                  asset.id,
+                ] as const,
+              ]
             : [],
         ),
       ),
     [project.assets],
   );
+  /** The project's asset for this item, when it has been downloaded already. */
+  const presentAssetId = useCallback(
+    (item: StockItemWire): string | undefined =>
+      presentAssets.get(stockDownloadKey(item.kind, item.remoteId)),
+    [presentAssets],
+  );
   const inProject = useCallback(
-    (item: StockItemWire): boolean => presentKeys.has(stockDownloadKey(item.kind, item.remoteId)),
-    [presentKeys],
+    (item: StockItemWire): boolean => presentAssetId(item) !== undefined,
+    [presentAssetId],
   );
 
   /** The tile's download state. Absent from the registry means nothing is going on. */
@@ -579,15 +610,39 @@ export function PexelsBrowser({
   }, [search, browsing, orientation]);
   const tabbableId = focusedId ?? items[0]?.remoteId ?? null;
 
+  /**
+   * What the tile's own button does — Enter, a click on the picture — and Shift+Enter. Over
+   * footage Add is blocked and the reason is said rather than swallowed; Overlay still works. A
+   * tile already in the project shows its asset in Assets.
+   */
+  const activate = useCallback(
+    (item: StockItemWire, placement: 'cutaway' | 'overlay'): void => {
+      if (tileState(item).kind === 'downloading') {
+        announce(STOCK_ALREADY_DOWNLOADING);
+        return;
+      }
+      const present = presentAssetId(item);
+      if (present !== undefined) {
+        if (onShowInAssets !== undefined) onShowInAssets(present);
+        else announce(ALREADY_IN_PROJECT);
+        return;
+      }
+      if (placement === 'overlay' && onAddStockOverlay !== undefined) {
+        void add(item, 'overlay');
+        return;
+      }
+      const blocked = blockedReasonFor(item);
+      if (blocked !== null) {
+        announce(blocked);
+        return;
+      }
+      void add(item);
+    },
+    [add, announce, blockedReasonFor, onAddStockOverlay, onShowInAssets, presentAssetId, tileState],
+  );
+
   const onTileKeyDown = useCallback(
     (event: React.KeyboardEvent, index: number, item: StockItemWire): void => {
-      // A tile contains its own controls — Cancel, the licence link. Enter
-      // belongs to whatever is focused, so when focus is INSIDE the tile the
-      // tile must not also act: otherwise Enter on Cancel starts a second
-      // download, and Enter on the licence link is swallowed instead of opening
-      // the page the user is trying to read. Arrow navigation still works from
-      // anywhere in the tile.
-      const onTileItself = event.target === event.currentTarget;
       const move = (to: number): void => {
         const clamped = Math.max(0, Math.min(items.length - 1, to));
         const next = items[clamped];
@@ -597,7 +652,7 @@ export function PexelsBrowser({
         // By position, not by an attribute selector built from a provider id:
         // a `remoteId` is arbitrary provider text and escaping it correctly for
         // a selector is a needless dependency on `CSS.escape`.
-        gridRef.current?.querySelectorAll<HTMLElement>('.stock-tile')[clamped]?.focus();
+        gridRef.current?.querySelectorAll<HTMLElement>('.stock-tile-main')[clamped]?.focus();
       };
       // A masonry has no rows to step across: tiles are different heights and
       // flow DOWN one column before starting the next, so "the tile below" is
@@ -619,16 +674,25 @@ export function PexelsBrowser({
           move(items.length - 1);
           break;
         case 'Enter':
-          if (onTileItself && blockedReasonFor(item) === null && !inProject(item)) {
-            event.preventDefault();
-            void add(item);
-          }
+          // Handled here, not by the button's own click, so Shift is read and the click that
+          // Enter would synthesise does not act a second time.
+          event.preventDefault();
+          activate(item, event.shiftKey ? 'overlay' : 'cutaway');
           break;
+        case 'Escape': {
+          // Cancel sits out of the Tab order with the tile's other controls; Escape is its key.
+          const state = tileState(item);
+          if (state.kind !== 'downloading') break;
+          event.preventDefault();
+          event.stopPropagation();
+          stockDownloadCancel(state.operationId);
+          break;
+        }
         default:
           break;
       }
     },
-    [add, blockedReasonFor, items, inProject],
+    [activate, items, tileState],
   );
 
   // Browser build: the sub-tab is absent entirely (see ElementsPanel). This is the
@@ -740,6 +804,10 @@ export function PexelsBrowser({
             } ${browsing ? 'shown' : 'found'}`
           : ''}
       </span>
+      {/* What a tile's Enter said: a blocked Add's reason, a download already running. */}
+      <p className="sr-only" aria-live="polite" aria-atomic="true" data-live="posted">
+        {posted}
+      </p>
 
       <QuotaStrip
         quota={quota ?? { kind: 'unmeasured' }}
@@ -762,16 +830,12 @@ export function PexelsBrowser({
       ) : (
         <>
           {/* Per-tile reasons live on the tiles; this speaks only when NOTHING
-              here can be added as a cutaway, and points at the placement that
-              still works over footage. */}
-          {search.kind === 'results' && allBlocked ? (
-            <p className="stock-blocked" role="status">
-              {blockedReasonFor(items[0]!)}
-              {onAddStockOverlay
-                ? ' Or press Overlay to put a smaller picture over the footage.'
-                : ''}
-            </p>
-          ) : null}
+              here can be added as a cutaway. The sentence already names Overlay, the
+              placement that still works over footage. Mounted empty, so the region
+              exists before it has anything to say. */}
+          <p className="stock-blocked live-slot" role="status">
+            {search.kind === 'results' && allBlocked ? blockedReasonFor(items[0]!) : ''}
+          </p>
 
           {search.kind === 'loading' && (
             <ul className="stock-grid" aria-busy="true">
@@ -834,10 +898,9 @@ export function PexelsBrowser({
                     tabbable={tabbableId === item.remoteId}
                     onFocus={() => setFocusedId(item.remoteId)}
                     onKeyDown={onTileKeyDown}
-                    onAdd={() => void add(item)}
-                    {...(onAddStockOverlay
-                      ? { onAddOverlay: () => void add(item, 'overlay') }
-                      : {})}
+                    onActivate={(placement) => activate(item, placement)}
+                    overlayOffered={onAddStockOverlay !== undefined}
+                    showInAssetsOffered={onShowInAssets !== undefined}
                     onCancel={(operationId) => stockDownloadCancel(operationId)}
                   />
                 ))}
@@ -952,10 +1015,40 @@ interface StockTileProps {
   readonly tabbable: boolean;
   readonly onFocus: () => void;
   readonly onKeyDown: (event: React.KeyboardEvent, index: number, item: StockItemWire) => void;
-  readonly onAdd: () => void;
-  /** **Add as overlay**; absent when the host offers no overlay placement. */
-  readonly onAddOverlay?: () => void;
+  /** Add (a cutaway, or the reason it is blocked), or Add as overlay: the panel decides. */
+  readonly onActivate: (placement: 'cutaway' | 'overlay') => void;
+  /** The host offers **Add as overlay**. */
+  readonly overlayOffered: boolean;
+  /** The host can show an asset in Assets, so "In this project" is a button. */
+  readonly showInAssetsOffered: boolean;
   readonly onCancel: (operationId: string) => void;
+}
+
+/** `City skyline at dusk, 0:12, 1920×1080 · 24 MB` — the tile's name: what it is and costs. */
+function tileName(item: StockItemWire, variant: StockItemWire['variants'][number] | undefined) {
+  return [
+    item.title,
+    ...(item.durationSeconds === undefined ? [] : [formatClipLength(item.durationSeconds)]),
+    ...(variant === undefined ? [] : [variantLabel(variant)]),
+  ].join(', ');
+}
+
+/** What the tile's button says it does, read after its name. */
+function tileHint(
+  state: TileState,
+  inProject: boolean,
+  blockedReason: string | null,
+  overlayOffered: boolean,
+  showInAssetsOffered: boolean,
+): string {
+  if (state.kind === 'downloading') return 'Downloading. Escape cancels.';
+  if (inProject) {
+    return showInAssetsOffered ? 'In this project. Enter shows it in Assets.' : 'In this project.';
+  }
+  const overlay = overlayOffered ? ' Shift+Enter adds it as an overlay.' : '';
+  const failed = state.kind === 'failed' ? `${state.message} ` : '';
+  if (blockedReason !== null) return `${failed}${blockedReason}${overlay}`;
+  return `${failed}Enter adds it at the playhead.${overlay}`;
 }
 
 function StockTile({
@@ -968,12 +1061,14 @@ function StockTile({
   tabbable,
   onFocus,
   onKeyDown,
-  onAdd,
-  onAddOverlay,
+  onActivate,
+  overlayOffered,
+  showInAssetsOffered,
   onCancel,
 }: StockTileProps): JSX.Element {
   const thumbnail = useObjectUrl(() => stockThumbnail(item.remoteId));
   const preview = useScrubPreview(item);
+  const hintId = useId();
   const downloading = state.kind === 'downloading';
   const variant = tileVariant(item, targetHeight);
   const downloadBlocked = blockedReason !== null;
@@ -996,7 +1091,7 @@ function StockTile({
     <li
       className="stock-tile"
       data-remote-id={item.remoteId}
-      tabIndex={tabbable ? 0 : -1}
+      {...(item.durationSeconds === undefined ? {} : { 'data-has-duration': 'true' })}
       draggable={draggable}
       onDragStart={(event) => {
         if (!draggable) return;
@@ -1021,17 +1116,39 @@ function StockTile({
         backgroundColor: item.avgColor,
         aspectRatio: `${item.width} / ${item.height}`,
       }}
-      onFocus={onFocus}
-      onKeyDown={(event) => onKeyDown(event, index, item)}
       onPointerEnter={preview.onEnter}
       onPointerMove={preview.onMove}
       onPointerLeave={preview.onLeave}
     >
-      {thumbnail ? (
-        <img className="stock-thumb" src={thumbnail} alt={item.title} draggable={false} />
-      ) : (
-        <span className="stock-thumb stock-thumb--pending" aria-hidden="true" />
-      )}
+      {/* The tile's one Tab stop, over its picture: a real button, named by the clip, so a
+          screen reader is told what it is and what Enter does there. */}
+      <button
+        type="button"
+        className="stock-tile-main"
+        tabIndex={tabbable ? 0 : -1}
+        aria-label={tileName(item, variant)}
+        aria-keyshortcuts={
+          downloading ? 'Escape' : overlayOffered && !inProject ? 'Enter Shift+Enter' : 'Enter'
+        }
+        aria-describedby={hintId}
+        onFocus={() => {
+          onFocus();
+          // The keyboard's hover: a focused video tile previews, as a pointed-at one does.
+          preview.onEnter();
+        }}
+        onBlur={preview.onLeave}
+        onKeyDown={(event) => onKeyDown(event, index, item)}
+        onClick={(event) => onActivate(event.shiftKey ? 'overlay' : 'cutaway')}
+      >
+        {thumbnail ? (
+          <img className="stock-thumb" src={thumbnail} alt="" draggable={false} />
+        ) : (
+          <span className="stock-thumb stock-thumb--pending" aria-hidden="true" />
+        )}
+      </button>
+      <span id={hintId} hidden>
+        {tileHint(state, inProject, blockedReason, overlayOffered, showInAssetsOffered)}
+      </span>
 
       {preview.url ? (
         <video
@@ -1053,18 +1170,24 @@ function StockTile({
         />
       ) : null}
 
+      {/* The first thing an editor reads on a clip, so it is on the picture at rest. */}
+      {item.durationSeconds !== undefined ? (
+        <span className="stock-tile-dur tabular" aria-hidden="true">
+          {formatClipLength(item.durationSeconds)}
+        </span>
+      ) : null}
+
       <div className="stock-tile-meta">
         <span className="stock-tile-title">{item.title}</span>
-        <span className="stock-tile-facts">
-          {item.durationSeconds !== undefined ? (
-            <span className="stock-tile-duration">{formatClipLength(item.durationSeconds)}</span>
-          ) : null}
-          {variant ? <span className="stock-tile-size">{variantLabel(variant)}</span> : null}
-        </span>
+        {variant ? (
+          <span className="stock-tile-facts">
+            <span className="stock-tile-size">{variantLabel(variant)}</span>
+          </span>
+        ) : null}
         {item.creator ? (
           <span className="stock-tile-creator">
             {item.creatorUrl ? (
-              <a href={item.creatorUrl} target="_blank" rel="noreferrer noopener">
+              <a href={item.creatorUrl} target="_blank" rel="noreferrer noopener" tabIndex={-1}>
                 {item.creator}
               </a>
             ) : (
@@ -1094,38 +1217,63 @@ function StockTile({
             <button
               type="button"
               className="stock-cancel"
+              tabIndex={-1}
               aria-label={`Cancel downloading ${item.title}`}
+              title="Cancel (Escape)"
               onClick={() => onCancel(state.operationId)}
             >
               <X size={ICON_SIZE.sm} aria-hidden="true" />
             </button>
           </>
         ) : inProject ? (
-          <span className="stock-present">In this project</span>
+          showInAssetsOffered ? (
+            <button
+              type="button"
+              className="stock-present"
+              tabIndex={-1}
+              aria-label={`Show ${item.title} in Assets`}
+              title="Show it in Assets"
+              onClick={() => onActivate('cutaway')}
+            >
+              In this project
+            </button>
+          ) : (
+            <span className="stock-present">In this project</span>
+          )
         ) : (
           <>
+            {/* Out of the Tab order, like everything in the tile but its own button: Enter
+                is this button's key. Blocked, it still answers a click — with the reason. */}
             <Button
               variant="ghost"
+              size="sm"
               type="button"
-              disabled={downloadBlocked}
+              tabIndex={-1}
+              {...(downloadBlocked ? { 'aria-disabled': true } : {})}
+              {...(failedAction === 'cutaway'
+                ? { 'aria-label': 'Retry adding at the playhead' }
+                : {})}
               title={blockedReason ?? 'Add at the playhead as a cutaway'}
-              onClick={onAdd}
+              onClick={() => onActivate('cutaway')}
             >
               {failedAction === 'cutaway' ? 'Retry' : 'Add'}
             </Button>
-            {onAddOverlay !== undefined ? (
+            {overlayOffered ? (
               // Never disabled for covering picture: sitting over footage is the point (ADR 0193).
-              // After its own download failed, it says Retry overlay (its name is its label).
+              // Shift+Enter on the tile is its key.
               <Button
                 variant="ghost"
+                size="sm"
                 type="button"
+                tabIndex={-1}
                 className="stock-overlay-action"
-                {...(failedAction === 'overlay' ? {} : { 'aria-label': 'Add as overlay' })}
-                title="Add as overlay: a smaller picture over what is at the playhead"
-                onClick={onAddOverlay}
+                aria-label={
+                  failedAction === 'overlay' ? 'Retry adding as an overlay' : 'Add as overlay'
+                }
+                title="Add as overlay: a smaller picture over what is at the playhead (Shift+Enter)"
+                onClick={() => onActivate('overlay')}
               >
-                <PictureInPicture2 size={ICON_SIZE.sm} aria-hidden="true" />
-                {failedAction === 'overlay' ? 'Retry overlay' : 'Overlay'}
+                {failedAction === 'overlay' ? 'Retry' : 'Overlay'}
               </Button>
             ) : null}
           </>
@@ -1198,6 +1346,9 @@ function useScrubPreview(item: StockItemWire): {
   const [scrubRatio, setScrubRatio] = useState<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const blobRef = useRef<string | null>(null);
+  const fetchingRef = useRef(false);
+  /** The pointer or focus is on the tile, so a preview that lands should play. */
+  const wantPlayRef = useRef(false);
   const enterXRef = useRef<number | null>(null);
   const scrubbingRef = useRef(false);
   const frameRef = useRef<number | null>(null);
@@ -1209,21 +1360,40 @@ function useScrubPreview(item: StockItemWire): {
     };
   }, []);
 
+  /**
+   * Autoplay is the motion the app initiates, so it is what `prefers-reduced-motion` switches
+   * off. Scrubbing stays: the user is driving it, which is the distinction the setting is about.
+   */
+  const autoplay = useCallback((): void => {
+    if (!wantPlayRef.current || prefersReducedMotion()) return;
+    void videoRef.current?.play()?.catch(() => undefined);
+  }, []);
+
+  // The first hover's bytes land after the pointer arrived: the video mounts with them, and
+  // plays then if the pointer (or focus) is still on the tile.
+  useEffect(() => {
+    if (url !== null) autoplay();
+  }, [url, autoplay]);
+
   const onEnter = useCallback((): void => {
-    if (!item.hasPreview || blobRef.current !== null) return;
+    if (!item.hasPreview) return;
+    wantPlayRef.current = true;
+    // Fetched once; a second hover (or focus) plays what is already here.
+    if (blobRef.current !== null) {
+      autoplay();
+      return;
+    }
+    // A click both points at the tile and focuses it: one request, not two.
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
     void stockPreview(item.remoteId).then((result) => {
-      if (!result.ok) return;
+      fetchingRef.current = false;
+      if (!result.ok || blobRef.current !== null) return;
       const created = URL.createObjectURL(new Blob([result.data], { type: result.contentType }));
       blobRef.current = created;
       setUrl(created);
-      // Autoplay is the motion the app initiates, so it is what
-      // `prefers-reduced-motion` switches off. Scrubbing stays: the user is
-      // driving it, which is the distinction the setting is actually about.
-      if (!prefersReducedMotion()) {
-        queueMicrotask(() => void videoRef.current?.play().catch(() => undefined));
-      }
     });
-  }, [item.hasPreview, item.remoteId]);
+  }, [autoplay, item.hasPreview, item.remoteId]);
 
   const onMove = useCallback((event: React.PointerEvent<HTMLElement>): void => {
     const video = videoRef.current;
@@ -1257,6 +1427,7 @@ function useScrubPreview(item: StockItemWire): {
   }, []);
 
   const onLeave = useCallback((): void => {
+    wantPlayRef.current = false;
     if (frameRef.current !== null) {
       cancelAnimationFrame(frameRef.current);
       frameRef.current = null;

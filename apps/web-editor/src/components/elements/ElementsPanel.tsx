@@ -68,6 +68,8 @@ export interface ElementsPanelProps {
   readonly onAddStockOverlay?: (asset: Asset) => string | null;
   /** Opens Settings → Photos & videos (Pexels). */
   readonly onOpenSettings?: () => void;
+  /** Show an asset in Assets: a Photos or Videos tile already in the project. */
+  readonly onShowInAssets?: (assetId: string) => void;
   /** Add a shape preset at the playhead; returns the refusal sentence, or `null`. */
   readonly onAddShape?: (presetId: string, colour: string | null) => string | null;
   /** Place a materialised sticker at the playhead; returns the refusal sentence, or `null`. */
@@ -84,6 +86,7 @@ export function ElementsPanel({
   onAddStock,
   onAddStockOverlay,
   onOpenSettings,
+  onShowInAssets,
   onAddShape,
   onAddSticker,
   stickerReplaceTarget = null,
@@ -199,6 +202,7 @@ export function ElementsPanel({
             onAddStock={onAddStock}
             {...(onAddStockOverlay ? { onAddStockOverlay } : {})}
             {...(onOpenSettings ? { onOpenSettings } : {})}
+            {...(onShowInAssets ? { onShowInAssets } : {})}
           />
         )}
         {tab === 'stickers' && (
