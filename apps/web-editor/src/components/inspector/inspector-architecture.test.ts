@@ -122,6 +122,27 @@ describe('resolveInspectorSelection', () => {
     expect(selection.kind).toBe('clip');
   });
 
+  it('knows a sticker by its asset’s provenance, and only for a single clip', () => {
+    const sticker = {
+      id: 'a1',
+      path: 'media/p/elements/fluent3d/fire.webp',
+      kind: 'image',
+      source: {
+        provider: 'fluent-emoji',
+        remoteId: 'fire',
+        license: 'mit',
+        attributionRequired: false,
+        fetchedAt: 'x',
+      },
+    } as never;
+    const clipAssets = videoTimeline.tracks.flatMap((t) => t.clips).map((c) => c.assetId);
+    const assets = [{ ...(sticker as object), id: clipAssets[0] }] as never[];
+    expect(resolveInspectorSelection(videoTimeline, 'c1', ['c1'], [], assets).hasSticker).toBe(
+      true,
+    );
+    expect(resolveInspectorSelection(videoTimeline, 'c1', ['c1']).hasSticker).toBe(false);
+  });
+
   it('reports hasAudio from the TRACK, not the clip', () => {
     expect(resolveInspectorSelection(videoTimeline, 'c1', ['c1']).hasAudio).toBe(true);
     expect(resolveInspectorSelection(captionTimeline, 't1', ['t1']).hasAudio).toBe(false);

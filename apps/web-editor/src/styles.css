@@ -15455,6 +15455,101 @@ a.export-credits-license {
   border-radius: var(--radius-sm, 6px);
 }
 
+/* Stickers sub-tab (plan/elements EL6a): square tiles, ~72 px at the default rail width. The
+   same search and chips as Shapes; tiles show the sticker on the panel background. */
+.stickers-browser {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  overflow-y: auto;
+}
+.stickers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: var(--space-1);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.stickers-grid-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: var(--space-1);
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+.stickers-grid-tile:hover {
+  border-color: var(--accent);
+}
+.stickers-grid-tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.stickers-grid-tile[aria-busy='true'] {
+  opacity: 0.6;
+  cursor: progress;
+}
+.stickers-grid-tile:disabled:not([aria-busy='true']) {
+  cursor: default;
+}
+.stickers-grid-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.stickers-replace {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.8rem;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm, 6px);
+}
+.stickers-replace-cancel,
+.sticker-section-replace {
+  padding: 2px var(--space-2);
+  color: var(--text);
+  cursor: pointer;
+  background: var(--surface-3, var(--surface-2));
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+.stickers-credit {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--text-secondary, var(--text));
+}
+.sticker-section-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.sticker-section-thumb {
+  flex: none;
+  object-fit: contain;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm, 6px);
+}
+.sticker-section-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------------------------------------------------------------------------
    Stock panel — third-party photo & video search
    (plan/3rd-party-sourcing/photo-video). Token-driven, reusing the existing

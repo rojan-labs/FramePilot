@@ -12,11 +12,14 @@
  * empty panel in the browser.
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
+import type { StickerItem } from '@framepilot/ai-sdk';
+import type { ElementAssetWire } from '@framepilot/shared-types';
 import type { Asset, Project } from '@framepilot/timeline-schema';
 import { isDesktop } from '../../editor/bridge.js';
 import { useViewPreference } from '../../editor/useViewPreference.js';
 import { PexelsBrowser } from './PexelsBrowser.js';
 import { ShapesBrowser } from './ShapesBrowser.js';
+import { StickersBrowser, type StickerReplaceTarget } from './StickersBrowser.js';
 
 /** Every sub-tab Elements can show, in the maintainer's order. */
 export const ELEMENTS_TAB_IDS = ['photos', 'videos', 'stickers', 'shapes'] as const;
@@ -33,12 +36,12 @@ const ELEMENTS_TAB_LABELS: Readonly<Record<ElementsTab, string>> = {
  * The sub-tabs this build can serve, in display order.
  *
  * Photos and Videos are the Pexels library, reached through the desktop main
- * process; the renderer's CSP forbids reaching it directly, on purpose. Shapes are
- * drawn by the engine sidecar, which only the desktop app runs (the browser build's
- * labelled approximation is EL11).
+ * process; the renderer's CSP forbids reaching it directly, on purpose. Stickers are copied into
+ * the project by main. Shapes are drawn by the engine sidecar, which only the desktop app runs
+ * (the browser build's halves of both are EL11).
  */
 export function availableElementsTabs(desktop: boolean = isDesktop()): readonly ElementsTab[] {
-  return desktop ? ['photos', 'videos', 'shapes'] : [];
+  return desktop ? ['photos', 'videos', 'stickers', 'shapes'] : [];
 }
 
 /** Restore a remembered sub-tab only if this build renders it. */
@@ -61,6 +64,12 @@ export interface ElementsPanelProps {
   readonly onOpenSettings?: () => void;
   /** Add a shape preset at the playhead; returns the refusal sentence, or `null`. */
   readonly onAddShape?: (presetId: string, colour: string | null) => string | null;
+  /** Place a materialised sticker at the playhead; returns the refusal sentence, or `null`. */
+  readonly onAddSticker?: (asset: ElementAssetWire, item: StickerItem) => string | null;
+  /** A sticker the Inspector asked to replace: the Stickers sub-tab opens in replace mode. */
+  readonly stickerReplaceTarget?: StickerReplaceTarget | null;
+  readonly onReplaceSticker?: (asset: ElementAssetWire, item: StickerItem) => string | null;
+  readonly onCancelStickerReplace?: () => void;
 }
 
 export function ElementsPanel({
@@ -69,6 +78,10 @@ export function ElementsPanel({
   onAddStock,
   onOpenSettings,
   onAddShape,
+  onAddSticker,
+  stickerReplaceTarget = null,
+  onReplaceSticker,
+  onCancelStickerReplace,
 }: ElementsPanelProps): JSX.Element {
   const available = useMemo(() => availableElementsTabs(), []);
   const coerce = useCallback((raw: unknown) => coerceElementsTab(raw, available), [available]);
@@ -77,7 +90,10 @@ export function ElementsPanel({
     available[0] ?? null,
     coerce,
   );
-  const tab = storedTab !== null && available.includes(storedTab) ? storedTab : available[0];
+  const remembered = storedTab !== null && available.includes(storedTab) ? storedTab : available[0];
+  // Replacing a sticker needs the sticker grid, whatever tab was open.
+  const tab =
+    stickerReplaceTarget !== null && available.includes('stickers') ? 'stickers' : remembered;
   const tabRefs = useRef(new Map<ElementsTab, HTMLButtonElement>());
   // Photos and Videos share one query: switching between them re-searches the same
   // words in the other kind. Held here so a round trip through another sub-tab keeps it.
@@ -164,6 +180,17 @@ export function ElementsPanel({
             placementBlockedReasonFor={placementBlockedReasonFor}
             onAddStock={onAddStock}
             {...(onOpenSettings ? { onOpenSettings } : {})}
+          />
+        )}
+        {tab === 'stickers' && (
+          <StickersBrowser
+            project={project}
+            onAddSticker={
+              onAddSticker ?? (() => 'Stickers are added from the editor. Open a project first.')
+            }
+            replaceTarget={stickerReplaceTarget}
+            {...(onReplaceSticker ? { onReplaceSticker } : {})}
+            {...(onCancelStickerReplace ? { onCancelReplace: onCancelStickerReplace } : {})}
           />
         )}
         {tab === 'shapes' && (

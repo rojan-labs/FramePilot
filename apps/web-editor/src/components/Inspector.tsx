@@ -32,6 +32,7 @@ import {
   RotateCcw,
   Scan,
   Shapes,
+  Smile,
   SlidersHorizontal,
   Sparkles,
   Type,
@@ -58,6 +59,7 @@ import { BlendModePanel } from './inspector/sections/BlendSection.js';
 import { TransitionPanel } from './inspector/sections/TransitionSection.js';
 import { TextOverlayInspector } from './inspector/sections/TextSection.js';
 import { ShapeInspector } from './inspector/sections/ShapeSection.js';
+import { StickerInspector } from './inspector/sections/StickerSection.js';
 import { TransformPanel } from './inspector/sections/TransformSection.js';
 import { ClipEffectList } from './inspector/sections/ClipEffectList.js';
 import { oneOf, useViewPreference } from '../editor/useViewPreference.js';
@@ -70,6 +72,8 @@ export interface InspectorProps {
   /** Selected effect layers take precedence over clip selection. */
   readonly selectedEffectLayerIds?: readonly string[];
   readonly onClearEffectLayers?: () => void;
+  /** Open Elements → Stickers to replace the selected sticker (plan/elements 02 §4.1). */
+  readonly onReplaceSticker?: (clipId: string, name: string) => void;
 }
 
 const INSPECTOR_TAB_IDS = [
@@ -117,6 +121,7 @@ const SECTION_TABS: Readonly<Record<string, InspectorTabId>> = {
   blend: 'basic',
   text: 'text',
   shape: 'basic',
+  sticker: 'basic',
   audio: 'audio',
   color: 'color',
   mask: 'mask',
@@ -128,6 +133,7 @@ const SECTION_ICONS: Readonly<Record<string, LucideIcon>> = {
   transform: SlidersHorizontal,
   text: Type,
   shape: Shapes,
+  sticker: Smile,
   color: Palette,
   speed: Gauge,
   audio: AudioLines,
@@ -174,11 +180,13 @@ export function Inspector({
   fps = 30,
   selectedEffectLayerIds = [],
   onClearEffectLayers = () => {},
+  onReplaceSticker,
 }: InspectorProps): JSX.Element {
-  const { selection: selectionId, selectedIds, timeline, playhead } = editor.state;
+  const { selection: selectionId, selectedIds, timeline, playhead, assets } = editor.state;
   const selection = useMemo(
-    () => resolveInspectorSelection(timeline, selectionId, selectedIds, selectedEffectLayerIds),
-    [timeline, selectionId, selectedIds, selectedEffectLayerIds],
+    () =>
+      resolveInspectorSelection(timeline, selectionId, selectedIds, selectedEffectLayerIds, assets),
+    [timeline, selectionId, selectedIds, selectedEffectLayerIds, assets],
   );
   // RD2.1: with the mask stack UI turned off the Mask tab is hidden; saved masks still render.
   const [maskToolsOn] = useState(maskToolsEnabled);
@@ -330,6 +338,15 @@ export function Inspector({
         return <TextOverlayInspector key={`text-${clip.id}`} editor={editor} clip={clip} />;
       case 'shape':
         return <ShapeInspector key={`shape-${clip.id}`} editor={editor} clip={clip} />;
+      case 'sticker':
+        return (
+          <StickerInspector
+            key={`sticker-${clip.id}`}
+            clip={clip}
+            asset={clipAsset}
+            {...(onReplaceSticker ? { onReplace: onReplaceSticker } : {})}
+          />
+        );
       case 'color':
         return <ColorPanel key={clip.id} editor={editor} clip={clip} />;
       case 'speed':

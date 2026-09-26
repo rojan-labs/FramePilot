@@ -129,6 +129,8 @@ export {
   Shapes,
   // The Jobs rail tab (BR6.12).
   ListChecks,
+  // The Inspector's Sticker section (plan/elements EL6a).
+  Smile,
 } from 'lucide-react';
 export type { LucideIcon } from 'lucide-react';
 

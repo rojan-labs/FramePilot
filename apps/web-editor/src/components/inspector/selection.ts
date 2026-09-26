@@ -16,7 +16,7 @@
  *
  * Pure: a projection of editor state, no React and no DOM.
  */
-import type { Clip, Track } from '@framepilot/timeline-schema';
+import type { Asset, Clip, Track } from '@framepilot/timeline-schema';
 import {
   type EffectLayerLocation,
   clipTransition,
@@ -24,7 +24,7 @@ import {
   findEffectLayer,
 } from '../../editor/selectors.js';
 import { textEffectOf } from '../../editor/patch-builders.js';
-import { syntheticClipKind } from '@framepilot/editor-core';
+import { isElementAsset, syntheticClipKind } from '@framepilot/editor-core';
 import type { Timeline } from '@framepilot/timeline-schema';
 
 /** A clip plus the track it sits on — what every section actually needs. */
@@ -67,6 +67,8 @@ export interface InspectorSelection {
    * offered (a present-and-broken control is worse than an absent one).
    */
   readonly anyShape: boolean;
+  /** True when the selection is ONE sticker (an element asset): the Sticker section shows it. */
+  readonly hasSticker: boolean;
   /** True when EVERY selected clip sits on a track that can carry audio. */
   readonly hasAudio: boolean;
   /** True when the primary clip has a transition on its incoming edge. */
@@ -82,6 +84,7 @@ const EMPTY: InspectorSelection = {
   hasText: false,
   hasShape: false,
   anyShape: false,
+  hasSticker: false,
   hasAudio: false,
   hasTransition: false,
 };
@@ -96,12 +99,14 @@ const audioBearing = (track: Track): boolean => track.type === 'audio' || track.
  * @param selection - The PRIMARY selected clip id (`editor.state.selection`).
  * @param selectedIds - The whole clip selection (`editor.state.selectedIds`).
  * @param effectLayerIds - Selected effect layer ids (view state, held by `Editor`).
+ * @param assets - The project's assets, to tell a sticker from a photo.
  */
 export function resolveInspectorSelection(
   timeline: Timeline,
   selection: string | null,
   selectedIds: readonly string[],
   effectLayerIds: readonly string[] = [],
+  assets: readonly Asset[] = [],
 ): InspectorSelection {
   // An effect layer wins, and is resolved before any clip lookup — see the type note.
   const primaryLayerId = effectLayerIds[0];
@@ -134,6 +139,9 @@ export function resolveInspectorSelection(
     hasText: clips.every((location) => textEffectOf(location.clip) !== undefined),
     hasShape: clips.every((location) => isShape(location.clip)),
     anyShape: clips.some((location) => isShape(location.clip)),
+    hasSticker:
+      clips.length === 1 &&
+      isElementAsset(assets.find((asset) => asset.id === primary.clip.assetId)),
     hasAudio: clips.every((location) => audioBearing(location.track)),
     hasTransition: clipTransition(primary.clip) !== undefined,
   };

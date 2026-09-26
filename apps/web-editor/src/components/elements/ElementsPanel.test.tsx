@@ -29,6 +29,13 @@ vi.mock('./PexelsBrowser.js', () => ({
   ),
 }));
 
+// The Stickers browser has its own suite; here it only shows whether it is replacing a sticker.
+vi.mock('./StickersBrowser.js', () => ({
+  StickersBrowser: (props: { replaceTarget?: { name: string } | null }) => (
+    <div data-testid="stickers" data-replacing={props.replaceTarget?.name ?? ''} />
+  ),
+}));
+
 const project = {
   id: 'p1',
   assets: [],
@@ -54,10 +61,10 @@ describe('ElementsPanel', () => {
   });
   afterEach(() => localStorage.clear());
 
-  it('offers Photos, Videos and Shapes on the desktop, in the maintainer’s order', () => {
+  it('offers Photos, Videos, Stickers and Shapes on the desktop, in the maintainer’s order', () => {
     renderPanel();
     const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent);
-    expect(tabs).toEqual(['Photos', 'Videos', 'Shapes']);
+    expect(tabs).toEqual(['Photos', 'Videos', 'Stickers', 'Shapes']);
     expect(screen.getByRole('tablist', { name: 'Elements' })).toBeDefined();
   });
 
@@ -81,9 +88,24 @@ describe('ElementsPanel', () => {
   });
 
   it('ignores a remembered sub-tab this build does not offer', () => {
-    localStorage.setItem(STORAGE_KEY, '"stickers"');
+    localStorage.setItem(STORAGE_KEY, '"gifs"');
     renderPanel();
     expect(screen.getByRole('tab', { name: 'Photos' }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('opens the Stickers sub-tab in replace mode when the Inspector asks to replace one', () => {
+    render(
+      <ElementsPanel
+        project={project}
+        placementBlockedReasonFor={() => null}
+        onAddStock={() => null}
+        stickerReplaceTarget={{ clipId: 'c1', name: 'Fire' }}
+      />,
+    );
+    expect(screen.getByRole('tab', { name: 'Stickers' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    expect(screen.getByTestId('stickers').dataset.replacing).toBe('Fire');
   });
 
   it('moves between sub-tabs with the arrow keys and keeps one tab stop', () => {
@@ -143,8 +165,8 @@ describe('ElementsPanel', () => {
 });
 
 describe('availableElementsTabs / coerceElementsTab', () => {
-  it('serves Photos, Videos and Shapes only where the desktop host runs', () => {
-    expect(availableElementsTabs(true)).toEqual(['photos', 'videos', 'shapes']);
+  it('serves Photos, Videos, Stickers and Shapes only where the desktop host runs', () => {
+    expect(availableElementsTabs(true)).toEqual(['photos', 'videos', 'stickers', 'shapes']);
     expect(availableElementsTabs(false)).toEqual([]);
   });
 

@@ -9,6 +9,7 @@
 export * from './patch-builders-base.js';
 // Shapes (plan/elements EL4a): add from a preset, restyle, move.
 export * from './shape-builders.js';
+export * from './sticker-builders.js';
 
 import type { Asset, Timeline } from '@framepilot/timeline-schema';
 import {

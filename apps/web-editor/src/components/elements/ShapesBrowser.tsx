@@ -8,7 +8,7 @@
  * drawing: the engine rasterises every shape (ADR 0190), so a tile is a picture of the preset,
  * deliberately not pinned to the engine's pixels.
  */
-import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   searchShapes,
   type ShapeCategory,
@@ -21,6 +21,7 @@ import { recolourPreset } from '../../editor/shape-builders.js';
 import { ELEMENT_DND_TYPE, encodeElementDrag } from './element-dnd.js';
 import { boxTileOutline, tileBoxFor } from './shape-tile-outline.js';
 import { useShapeIconPaths } from './useShapeIconPaths.js';
+import { useTileGrid } from './useTileGrid.js';
 
 export interface ShapesBrowserProps {
   /**
@@ -229,7 +230,6 @@ export function ShapesBrowser({ onAddShape }: ShapesBrowserProps): JSX.Element {
   const [refusal, setRefusal] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [iconLimit, setIconLimit] = useState(ICON_PAGE);
-  const [active, setActive] = useState(0);
   // View state, never project state: the chip, the chosen colour and the recent colours are
   // how this person browses, and change no frame of the output.
   const [chip, setChip] = useViewPreference<Chip>('shapesChip', 'all', coerceChip);
@@ -241,13 +241,15 @@ export function ShapesBrowser({ onAddShape }: ShapesBrowserProps): JSX.Element {
   );
   const iconPaths = useShapeIconPaths();
   const searchRef = useRef<HTMLInputElement>(null);
-  const gridRef = useRef<HTMLUListElement>(null);
 
   const matches = useMemo(() => visibleEntries(chip, query), [chip, query]);
   const firstIcon = matches.findIndex(({ shape }) => shape.id.startsWith('icon/'));
   const shown = firstIcon < 0 ? matches : matches.slice(0, Math.max(firstIcon, 0) + iconLimit);
   const hidden = matches.length - shown.length;
-  const focusIndex = Math.min(active, Math.max(0, shown.length - 1));
+  const { gridRef, focusIndex, setActive, onGridKey } = useTileGrid(
+    shown.length,
+    '.shapes-grid-tile',
+  );
   const swatches = [...recent, ...DEFAULT_COLOURS.filter((c) => !recent.includes(c))].slice(
     0,
     SWATCHES,
@@ -258,31 +260,6 @@ export function ShapesBrowser({ onAddShape }: ShapesBrowserProps): JSX.Element {
     if (next !== null) setRecent([next, ...recent.filter((c) => c !== next)].slice(0, SWATCHES));
   };
   const add = (entry: Entry): void => setRefusal(onAddShape(entry.preset.id, colour));
-  const focusTile = (index: number): void => {
-    const target = Math.max(0, Math.min(shown.length - 1, index));
-    setActive(target);
-    gridRef.current?.querySelectorAll<HTMLButtonElement>('.shapes-grid-tile')[target]?.focus();
-  };
-  const columns = (): number => {
-    const grid = gridRef.current;
-    if (grid === null) return 1;
-    const template = getComputedStyle(grid).gridTemplateColumns;
-    return Math.max(1, template === '' ? 1 : template.split(' ').length);
-  };
-  const onGridKey = (event: KeyboardEvent<HTMLUListElement>): void => {
-    const moves: Readonly<Record<string, number>> = {
-      ArrowRight: 1,
-      ArrowLeft: -1,
-      ArrowDown: columns(),
-      ArrowUp: -columns(),
-    };
-    if (event.key in moves) focusTile(focusIndex + moves[event.key]!);
-    else if (event.key === 'Home') focusTile(0);
-    else if (event.key === 'End') focusTile(shown.length - 1);
-    else return;
-    event.preventDefault();
-  };
-
   return (
     <div
       className="shapes-browser"

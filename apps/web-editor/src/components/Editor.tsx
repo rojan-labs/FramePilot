@@ -58,6 +58,8 @@ import { ElementsPanel } from './elements/ElementsPanel.js';
 import {
   addMusicTrackPatch,
   addShapePatch,
+  addStickerPatch,
+  replaceStickerPatch,
   addStockClipPatch,
   stockPlacementBlockedReason,
 } from '../editor/patch-builders.js';
@@ -320,6 +322,12 @@ export function Editor({
     editor.replaceAuthoritativeProject(project);
   }, [editor.replaceAuthoritativeProject, project, projectSyncNonce]);
   const [leftTab, setLeftTab] = useViewPreference<LeftTab>('leftTab', 'media', coerceLeftTab);
+  // The sticker the Inspector's Replace… is swapping (plan/elements 02 §4.1): opens Elements →
+  // Stickers in replace mode until a sticker is picked or the swap is cancelled.
+  const [stickerReplaceTarget, setStickerReplaceTarget] = useState<{
+    readonly clipId: string;
+    readonly name: string;
+  } | null>(null);
   // NOT persisted, deliberately. Program/Source is a mode the interaction drives — clicking
   // an asset switches to Source by itself — not a layout preference. Restoring "Source" on
   // open, with no asset loaded, reopens the editor onto an empty monitor: a worse first
@@ -752,6 +760,48 @@ export function Editor({
           editor.select(added.clipId);
           return null;
         }}
+        onAddSticker={(asset, item) => {
+          // Live state at click time: the copy took a moment and the playhead may have moved.
+          const live = editor.state;
+          const added = addStickerPatch(
+            {
+              timeline: live.timeline,
+              assets: live.assets,
+              folders: live.folders,
+              resolution: project.resolution,
+            },
+            asset,
+            item.name,
+            live.playhead,
+            settings.defaultOverlaySeconds,
+          );
+          if (added === null) return 'That sticker could not be added. Try another.';
+          editor.applyPatch(added.patch);
+          editor.select(added.clipId);
+          return null;
+        }}
+        stickerReplaceTarget={stickerReplaceTarget}
+        onReplaceSticker={(asset, item) => {
+          if (stickerReplaceTarget === null) return null;
+          const live = editor.state;
+          const patch = replaceStickerPatch(
+            {
+              timeline: live.timeline,
+              assets: live.assets,
+              folders: live.folders,
+              resolution: project.resolution,
+            },
+            stickerReplaceTarget.clipId,
+            asset,
+            item.name,
+          );
+          setStickerReplaceTarget(null);
+          if (patch === null) return 'That sticker is no longer on the timeline.';
+          editor.applyPatch(patch);
+          editor.select(stickerReplaceTarget.clipId);
+          return null;
+        }}
+        onCancelStickerReplace={() => setStickerReplaceTarget(null)}
       />
     );
   }, [
@@ -760,6 +810,7 @@ export function Editor({
     editor.state.timeline,
     onOpenSettings,
     settings.defaultOverlaySeconds,
+    stickerReplaceTarget,
   ]);
   const openTransitionLibrary = useCallback(() => setLeftTab('transitions'), []);
   const aiFacingProject = useMemo(
@@ -1021,6 +1072,10 @@ export function Editor({
                 <Inspector
                   editor={editor}
                   fps={project.fps}
+                  onReplaceSticker={(clipId, name) => {
+                    setStickerReplaceTarget({ clipId, name });
+                    setLeftTab('elements');
+                  }}
                   selectedEffectLayerIds={selectedEffectLayerIds}
                   onClearEffectLayers={() => setSelectedEffectLayerIds([])}
                 />
