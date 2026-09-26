@@ -396,3 +396,19 @@ def test_a_title_slides_in_with_its_transition(media: Path) -> None:
     # A slide rises from a frame-height below: part-way up it is still lower than its place.
     assert early.size > 0 and settled.size > 0
     assert float(early.mean()) > float(settled.mean()) + 40
+
+
+def test_a_turned_title_keeps_all_its_letters(media: Path) -> None:
+    """EL2b.4: the export turns a layer inside its own box, so a title's raster, tight to its
+    glyphs, lost most of "HELLO" at 90 degrees. A title that animates rotation gets a square
+    raster as wide as its diagonal, as a rotating shape does (ADR 0190)."""
+    turned = [
+        {"id": "r0", "time": 0.0, "property": "rotation", "value": 90.0, "easing": "linear"},
+        {"id": "r1", "time": 2.0, "property": "rotation", "value": 90.0, "easing": "linear"},
+    ]
+    upright = _reds(_frame(_project(_title({})), media, 1.0))
+    rows, cols = _ink(_frame(_project(_title({}, keyframes=turned)), media, 1.0))
+    turned_reds = _reds(_frame(_project(_title({}, keyframes=turned)), media, 1.0))
+    assert turned_reds > 0.85 * upright
+    # On its side the word is taller than it is wide.
+    assert int(rows.max() - rows.min()) > int(cols.max() - cols.min())

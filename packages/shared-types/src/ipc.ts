@@ -794,7 +794,10 @@ export interface PreviewTextRasterRequest {
   readonly kind: 'text' | 'caption' | 'shape';
   /** The text effect's params (kind `text`), or the shape effect's params (kind `shape`). */
   readonly params?: Readonly<Record<string, unknown>>;
-  /** Kind `shape`: the clip animates `rotation`, so the engine draws the rotation-safe square. */
+  /**
+   * Kinds `text` and `shape`: the clip animates `rotation`, so the engine draws the rotation-safe
+   * square the export turns it inside (plan/elements EL2b.4).
+   */
   readonly rotates?: boolean;
   /** The caption cue text (kind `caption`). */
   readonly text?: string;

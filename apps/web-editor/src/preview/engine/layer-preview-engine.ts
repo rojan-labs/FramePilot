@@ -57,6 +57,7 @@ import {
   loadExportTextFont,
   rasterizeBaselineCaption,
   rasterizeTextOverlay,
+  rotationSafe,
   textOverlayLayout,
   type CaptionRaster,
   type TextRaster,
@@ -906,10 +907,12 @@ export class LayerPreviewEngine {
       };
     }
     if (!this.textFontReady) return null;
-    const key = `${size.width}x${size.height}|${JSON.stringify(effect.params)}`;
+    const rotates = clip.keyframes.some((keyframe) => keyframe.property === 'rotation');
+    const key = `${size.width}x${size.height}|${String(rotates)}|${JSON.stringify(effect.params)}`;
     let raster = this.textRasters.get(key);
     if (raster === undefined) {
-      raster = rasterizeTextOverlay(effect.params, size.width, size.height);
+      const drawn = rasterizeTextOverlay(effect.params, size.width, size.height);
+      raster = drawn !== null && rotates ? rotationSafe(drawn) : drawn;
       if (this.textRasters.size > 64) this.textRasters.clear();
       this.textRasters.set(key, raster);
     }
@@ -993,6 +996,10 @@ export class LayerPreviewEngine {
     return {
       kind: 'text',
       params: effect.params,
+      // EL2b.4: a turning title is drawn in the rotation-safe square the export turns it inside.
+      ...(clip.keyframes.some((keyframe) => keyframe.property === 'rotation')
+        ? { rotates: true }
+        : {}),
       frameWidth: size.width,
       frameHeight: size.height,
     };

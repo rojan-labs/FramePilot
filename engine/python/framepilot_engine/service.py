@@ -1226,7 +1226,10 @@ class PreviewTextRasterRequest(BaseModel):
     )
     rotates: bool = Field(
         default=False,
-        description="Kind 'shape': the clip animates rotation, so draw the rotation-safe square.",
+        description=(
+            "Kinds 'text' and 'shape': the clip animates rotation, so draw the rotation-safe "
+            "square."
+        ),
     )
     text: str | None = Field(
         default=None, max_length=2000, description="The caption cue text (kind 'caption')."
@@ -6795,7 +6798,9 @@ def create_app(
         """
         try:
             if req.kind == "text":
-                raster = text_overlay_raster(req.params or {}, req.frame_width, req.frame_height)
+                raster = text_overlay_raster(
+                    req.params or {}, req.frame_width, req.frame_height, rotates=req.rotates
+                )
             elif req.kind == "shape":
                 raster = shape_raster(
                     req.params or {}, req.frame_width, req.frame_height, rotates=req.rotates

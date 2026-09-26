@@ -88,19 +88,20 @@ def _check_text(text: str) -> None:
 
 
 def text_overlay_raster(
-    params: Mapping[str, Any], frame_width: int, frame_height: int
+    params: Mapping[str, Any], frame_width: int, frame_height: int, *, rotates: bool = False
 ) -> PreviewTextRaster:
     """A text clip's raster (its ``text`` effect params) for a ``frame_width`` x ``frame_height``
     output. Placement stays with the frame plan: the layer is centred at ``xPercent/yPercent``
     and transformed like any picture.
 
+    :param rotates: the clip animates rotation: the rotation-safe square the export draws.
     :raises PreviewTextError: If the text is empty or too long, or the frame size is invalid.
     """
     _check_frame(frame_width, frame_height)
     raw = params.get("text")
     text = "" if raw is None else str(raw)
     _check_text(text)
-    rgba = rasterize_text_overlay(text, params, frame_width, frame_height)
+    rgba = rasterize_text_overlay(text, params, frame_width, frame_height, rotates=rotates)
     return PreviewTextRaster(rgba=rgba, x=None, y=None)
 
 

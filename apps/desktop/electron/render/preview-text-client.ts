@@ -36,6 +36,8 @@ function invalid(req: unknown): string | null {
     // The engine validates the shape itself; the host only bounds what crosses the boundary.
     if (JSON.stringify(r.params).length > MAX_STYLE_JSON_LENGTH) return 'Invalid shape params.';
     if (r.rotates !== undefined && typeof r.rotates !== 'boolean') return 'Invalid shape params.';
+  } else if (r.rotates !== undefined && typeof r.rotates !== 'boolean') {
+    return 'Invalid text params.';
   }
   return null;
 }
@@ -67,7 +69,15 @@ function invalidStyled(r: Partial<PreviewTextRasterRequest>): string | null {
 /** The sidecar's wire body for a validated request (snake_case, only the fields it reads). */
 function wireBody(r: PreviewTextRasterRequest): Record<string, unknown> {
   const frame = { frame_width: r.frameWidth, frame_height: r.frameHeight };
-  if (r.kind === 'text') return { kind: 'text', params: r.params, ...frame };
+  if (r.kind === 'text') {
+    // EL2b.4: a turning title is drawn in the rotation-safe square the export turns it inside.
+    return {
+      kind: 'text',
+      params: r.params,
+      ...(r.rotates === true ? { rotates: true } : {}),
+      ...frame,
+    };
+  }
   if (r.kind === 'shape') {
     return { kind: 'shape', params: r.params, rotates: r.rotates === true, ...frame };
   }

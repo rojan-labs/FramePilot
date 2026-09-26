@@ -564,7 +564,8 @@ def _compile_text_clip(
         return None
     text, style_params = content
     layout = text_overlay_layout(style_params, target[0], target[1])
-    image = rasterize_text_overlay(text, style_params, target[0], target[1])
+    rotates = ROTATION in animated_properties(clip)
+    image = rasterize_text_overlay(text, style_params, target[0], target[1], rotates=rotates)
     layer = image_clip_cls(image, transparent=True).with_duration(clip.end - clip.start)
     # EL2a: a title's opacity, In/Out envelope and transitions render, as the frame plan says.
     use_legacy = _uses_legacy_transition_path(clip)

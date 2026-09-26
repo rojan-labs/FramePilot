@@ -36,6 +36,32 @@ def test_text_raster_is_the_compilers_raster(tmp_path: Path) -> None:
     assert body["x"] is None and body["y"] is None
 
 
+def test_a_turning_titles_raster_is_the_rotation_safe_square(tmp_path: Path) -> None:
+    """EL2b.4: the monitor asks for, and gets, the square the export turns a title inside."""
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    params = {"text": "Title card", "color": "#ffcc00"}
+    response = client.post(
+        "/preview/text-raster",
+        json={
+            "kind": "text",
+            "params": params,
+            "rotates": True,
+            "frame_width": 1280,
+            "frame_height": 720,
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    expected = rasterize_text_overlay("Title card", params, 1280, 720, rotates=True)
+    assert np.array_equal(_pixels(body), expected)
+    tight = rasterize_text_overlay("Title card", params, 1280, 720)
+    assert expected.shape[0] == expected.shape[1] > max(tight.shape[:2])
+    # The glyphs sit in the middle: the square's centre is the tight raster's centre.
+    top = (expected.shape[0] - tight.shape[0]) // 2
+    left = (expected.shape[1] - tight.shape[1]) // 2
+    assert np.array_equal(expected[top : top + tight.shape[0], left : left + tight.shape[1]], tight)
+
+
 def test_caption_raster_carries_the_exports_paste_position(tmp_path: Path) -> None:
     client = TestClient(create_app(Settings(projects_root=tmp_path)))
     response = client.post(

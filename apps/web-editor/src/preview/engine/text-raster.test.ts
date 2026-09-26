@@ -6,6 +6,7 @@ import {
   PillowTextMeasure,
   exportText,
   parsePillowMetrics,
+  rotationSafe,
   textOverlayLayout,
 } from './text-raster.js';
 
@@ -73,5 +74,32 @@ describe('text overlay layout mirrors render/text_overlay.py', () => {
   it('draws nothing for blank text', () => {
     expect(exportText({ text: '   ' })).toBeNull();
     expect(exportText({ text: 42 })).toBe('42');
+  });
+});
+
+describe('rotationSafe mirrors render/text_overlay.py rotation_safe (EL2b.4)', () => {
+  it('centres the raster in a transparent square as wide as its diagonal, odd pixel right and down', () => {
+    const width = 4;
+    const height = 3;
+    const data = new Uint8ClampedArray(width * height * 4).fill(255);
+    const raster = {
+      image: { data, width, height } as unknown as ImageData,
+      width,
+      height,
+      layout: textOverlayLayout({}, 1280, 720),
+    };
+    const padded = rotationSafe(
+      raster,
+      (pixels, w, h) => ({ data: pixels, width: w, height: h }) as unknown as ImageData,
+    );
+    // ceil(hypot(4, 3)) = 5: the one spare column goes to the right (the odd pixel), and one row
+    // each above and below.
+    expect([padded.width, padded.height]).toEqual([5, 5]);
+    const alphaAt = (x: number, y: number): number => padded.image.data[(y * 5 + x) * 4 + 3]!;
+    expect(alphaAt(0, 0)).toBe(0);
+    expect(alphaAt(0, 1)).toBe(255);
+    expect(alphaAt(3, 3)).toBe(255);
+    expect(alphaAt(4, 3)).toBe(0);
+    expect(alphaAt(2, 4)).toBe(0);
   });
 });

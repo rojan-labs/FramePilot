@@ -387,6 +387,34 @@ export function rasterizeTextOverlay(
   return { image, width, height, layout };
 }
 
+/**
+ * `rotation_safe` (`render/text_overlay.py`): the raster centred in a transparent square as wide
+ * as its diagonal, for a title that animates rotation (plan/elements EL2b.4). The export turns a
+ * layer inside its own box, so a tight raster lost its letters; the odd pixel of padding goes to
+ * the right and the bottom, as the engine puts it.
+ */
+export function rotationSafe(
+  raster: TextRaster,
+  createImage: (
+    data: Uint8ClampedArray<ArrayBuffer>,
+    width: number,
+    height: number,
+  ) => ImageData = (data, width, height) => new ImageData(data, width, height),
+): TextRaster {
+  const side = Math.ceil(Math.hypot(raster.width, raster.height));
+  const left = Math.floor((side - raster.width) / 2);
+  const top = Math.floor((side - raster.height) / 2);
+  const data = new Uint8ClampedArray(side * side * 4);
+  for (let row = 0; row < raster.height; row += 1) {
+    const from = row * raster.width * 4;
+    data.set(
+      raster.image.data.subarray(from, from + raster.width * 4),
+      ((top + row) * side + left) * 4,
+    );
+  }
+  return { image: createImage(data, side, side), width: side, height: side, layout: raster.layout };
+}
+
 // --- burned captions, baseline style (render/captions.py `_render_baseline_caption_image`) ---
 
 const CAPTION_MAX_WIDTH_FRACTION = 0.9;
