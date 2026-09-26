@@ -64,6 +64,7 @@ import {
   STOCK_ERROR_CODES,
   TOOL_REGISTRY,
   namesNextAction,
+  stickerFailureNoteEntries,
   type StockErrorCode,
 } from '@framepilot/ai-sdk';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
@@ -72,7 +73,7 @@ import { StockService } from '../media/stock-service.js';
 import { createStockHost, type StockHostIO } from './stock-host.js';
 import { trackingFailureNoteEntries } from './automatic-tracking-executor.js';
 import { maskingFailureNoteEntries } from './masking-executor.js';
-import { createStickerHost, stickerFailureNoteEntries } from './sticker-host.js';
+import { createStickerHost } from './sticker-host.js';
 
 const TOOL_NAMES: readonly string[] = TOOL_REGISTRY.map((tool) => tool.name);
 
@@ -216,7 +217,7 @@ describe('every desktop host override names a next action', () => {
 
   it('for every sentence the sticker host can hand back', async () => {
     const entries = stickerFailureNoteEntries();
-    // Every ElementErrorCodeWire: the table is typed as a total Record, so this grows on its own.
+    // Every ElementErrorCodeWire, walked from the SDK's closed union, so this grows on its own.
     expect(entries.length).toBeGreaterThanOrEqual(5);
     const dead = new DeadEnds();
     for (const { code, note } of entries) {

@@ -73,7 +73,11 @@ import {
   unknownToolNote,
   unusableHostPayloadEntries,
 } from './reliability/refusal-notes.js';
-import { sourcingFailureNoteEntries } from './reliability/sourcing-notes.js';
+import {
+  sourcingFailureNoteEntries,
+  stickerFailureNoteEntries,
+} from './reliability/sourcing-notes.js';
+import { ELEMENT_ERROR_CODES } from './providers/elements/sticker-catalog.js';
 import {
   createSidecarExecutor,
   interpretIndexLoop,
@@ -398,6 +402,20 @@ describe('every model-facing failure names a next action', () => {
     expect(entries.length).toBeGreaterThanOrEqual(40);
     const dead = new DeadEnds();
     for (const { tool, code, note } of entries) dead.check(`${tool}/${code}`, note);
+    dead.assertNone();
+  });
+
+  it('for every reason a sticker cannot be added (plan/elements EL6a.7)', () => {
+    // The desktop library's closed union, walked, so a new code is judged when it lands.
+    const entries = stickerFailureNoteEntries();
+    expect(entries.map((entry) => entry.code)).toEqual([...ELEMENT_ERROR_CODES]);
+    const dead = new DeadEnds();
+    for (const { code, note } of entries) {
+      dead.check(`add_sticker/${code}`, note);
+      // The repeated-failure guard keys on the text; a number in it would never repeat.
+      expect(note, code).not.toMatch(/\d/);
+      expect(note.startsWith('"add_sticker" failed — '), code).toBe(true);
+    }
     dead.assertNone();
   });
 

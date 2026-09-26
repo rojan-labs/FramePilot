@@ -79,6 +79,19 @@ export interface StickerCatalog extends StickerCatalogData {
 /** An element id the IPC and the agent may name: a catalogue id, nothing path-shaped. */
 export const STICKER_ID_PATTERN = /^[a-z0-9_]{1,96}$/;
 
+/**
+ * Why a sticker could not be put into the project: the desktop library's closed union
+ * (`ElementErrorCodeWire` over IPC), exported so every sentence for it can be walked.
+ */
+export const ELEMENT_ERROR_CODES = [
+  'unknown_element',
+  'library_missing',
+  'integrity_failed',
+  'disk_full',
+  'io_failed',
+] as const;
+export type ElementErrorCode = (typeof ELEMENT_ERROR_CODES)[number];
+
 /** The sticker catalogue from its data (tests pass their own). */
 export function stickerCatalog(data: StickerCatalogData): StickerCatalog {
   return { ...data, byId: new Map(data.items.map((item) => [item.id, item])) };
