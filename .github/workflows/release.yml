@@ -58,7 +58,9 @@ jobs:
       # Hoisted to job level: a step's `if:` cannot see that same step's own
       # `env:` block, only env set at workflow/job level or by earlier steps —
       # so these must live here, not in the steps that used to declare them.
-      MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+      # Only whether a certificate is configured, not the certificate: the base64 .p12 goes to the
+      # import step alone, so no other step (an install script, a build) can read it.
+      HAS_MAC_CERT: ${{ secrets.MAC_CERT_P12 != '' }}
       DIST_BUCKET: ${{ secrets.DIST_BUCKET }}
     steps:
       - uses: actions/checkout@v7
@@ -84,23 +86,22 @@ jobs:
       - name: Import macOS signing certificate
         # GitHub does not allow the `secrets` context directly in an `if` expression. Project it
         # through the step environment so the workflow remains valid when signing is unconfigured.
-        if: runner.os == 'macOS' && env.MAC_CERT_P12 != ''
+        if: runner.os == 'macOS' && env.HAS_MAC_CERT == 'true'
         uses: apple-actions/import-codesign-certs@v7
         with:
-          p12-file-base64: ${{ env.MAC_CERT_P12 }}
+          p12-file-base64: ${{ secrets.MAC_CERT_P12 }}
           p12-password: ${{ secrets.MAC_CERT_PASSWORD }}
 
       - run: pnpm install --frozen-lockfile
 
-      # `desktop:dist` encodes the packaged stickers (plan/elements EL6b) from the pinned library;
-      # its inputs are pinned byte for byte, so the set is cached by the lock and rebuilt only
-      # when the library changes.
-      - name: Cache the pinned sticker library and the packaged set
+      # `desktop:dist` encodes the packaged stickers (plan/elements EL6b) from the pinned library.
+      # Only the downloaded inputs are cached: every read re-checks them against the lock's hashes.
+      # The encoded set is never restored from a cache, because a cache written by another workflow
+      # could supply both the files and the manifest that vouches for them; a release re-encodes it.
+      - name: Cache the pinned sticker library's inputs
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cache/framepilot/elements
-            apps/desktop/elements-packaged
+          path: ~/.cache/framepilot/elements
           key: packaged-stickers-${{ runner.os }}-${{ hashFiles('scripts/elements/fluent.lock.json', 'scripts/elements/collections.json', 'scripts/elements/build_library.py') }}
 
       # electron-builder's dmg-builder shells out to `which python`; macOS
@@ -117,11 +118,30 @@ jobs:
         # file") and failed every unsigned macOS build. Unset the empty ones, so a build without
         # signing secrets is simply unsigned, and keep an unsigned Mac build from picking up an
         # identity from the runner's keychain.
+        # A tagged release is published to the update feed, so it must be signed (and notarised on
+        # macOS): without its secrets it fails here rather than building an unsigned installer.
         run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            missing=()
+            if [ "$RUNNER_OS" = "macOS" ]; then
+              for var in CSC_NAME APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+                if [ -z "${!var:-}" ]; then missing+=("$var"); fi
+              done
+              if [ "$HAS_MAC_CERT" != "true" ]; then missing+=("MAC_CERT_P12"); fi
+            elif [ "$RUNNER_OS" = "Windows" ]; then
+              for var in CSC_LINK CSC_KEY_PASSWORD; do
+                if [ -z "${!var:-}" ]; then missing+=("$var"); fi
+              done
+            fi
+            if [ "${#missing[@]}" -gt 0 ]; then
+              echo "::error::A tagged release must be signed. Set these secrets (docs/guides/release-checklist-v1.md): ${missing[*]}"
+              exit 1
+            fi
+          fi
           for var in CSC_NAME CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
             if [ -z "${!var:-}" ]; then unset "$var"; fi
           done
-          if [ "$RUNNER_OS" = "macOS" ] && [ -z "${CSC_NAME:-}" ] && [ -z "${MAC_CERT_P12:-}" ]; then
+          if [ "$RUNNER_OS" = "macOS" ] && [ -z "${CSC_NAME:-}" ] && [ "$HAS_MAC_CERT" != "true" ]; then
             export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
           pnpm desktop:dist
@@ -135,6 +155,30 @@ jobs:
           # Windows Authenticode (unsigned when unset).
           CSC_LINK: ${{ runner.os == 'Windows' && secrets.WIN_CSC_LINK || '' }}
           CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+
+      # What reaches the feed must carry a valid signature: checked on the built app, not assumed
+      # from the secrets being set.
+      - name: A tagged release is signed
+        if: startsWith(github.ref, 'refs/tags/') && runner.os == 'macOS'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          apps=(apps/desktop/release/mac*/*.app)
+          [ "${#apps[@]}" -gt 0 ] || { echo "::error::No built .app to verify."; exit 1; }
+          for app in "${apps[@]}"; do
+            codesign --verify --deep --strict --verbose=2 "$app"
+            spctl --assess --type execute --verbose "$app"
+          done
+      - name: A tagged release is signed (Windows)
+        if: startsWith(github.ref, 'refs/tags/') && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installers = Get-ChildItem apps/desktop/release -Filter *.exe | Where-Object { $_.Name -like '*Setup*' }
+          if (-not $installers) { throw 'No built installer to verify.' }
+          foreach ($installer in $installers) {
+            $signature = Get-AuthenticodeSignature $installer.FullName
+            if ($signature.Status -ne 'Valid') { throw "$($installer.Name) is not validly signed: $($signature.Status)" }
+          }
 
       # Stickers ship as WebP with alpha (plan/elements EL6a). The export opens a still with
       # the frozen engine's own Pillow, and a bundle built without the codec would export an
