@@ -160,9 +160,10 @@ BUDGET_BOX = {"width": 60, "height": 30}
 BUDGET_HIGHLIGHT = {**HIGHLIGHT, "fill": "#FFD40033", **BUDGET_BOX}
 #: The slowest shape in the catalogue at the budget's size, found by timing every preset and all
 #: 1,703 icons (2026-09-26, M1 Pro, median of 20 CPU): the grape icon, 14.2 ms at 1080p and
-#: 36-41 ms at 4K, where the highlight box takes 3.2 and 12.7 ms. Its ~40 circles flatten to ~740
-#: stroke joints, and Pillow draws a round joint per vertex. Re-run that scan when the catalogue
-#: or the rasteriser's stroke changes, and pin whatever is slowest here.
+#: 36-41 ms at 4K, where the highlight box preset takes 3.2 and 12.7 ms (4.4 and 19-20 with the
+#: budget's translucent fill). Its ~40 circles flatten to ~740 stroke joints, and Pillow draws a
+#: round joint per vertex. Re-run that scan when the catalogue or the rasteriser's stroke changes,
+#: and pin whatever is slowest here.
 WORST_SHAPE = {**(preset_shape_params("icon/grape") or {}), **BUDGET_BOX}
 
 

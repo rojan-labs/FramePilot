@@ -72,9 +72,9 @@ via `useEditor().getPlayhead()` (stable) rather than `state.playhead` (a render 
 | Timeline compile (Timeline → MoviePy)  | **< 250 ms**        | compile is pure math, not IO               |
 | Shape raster, 1080p / 4K (per shape)   | **≤ 15 / 50 ms**    | the monitor fetches it on every restyle    |
 
-The shape raster (`render/shape_raster.py`, ADR 0190) measured about 4 ms at 1080p and 18 ms at
-4K for a stroked, translucent box on Apple Silicon; `test_shape_raster.py` holds a generous
-ceiling on shared CI runners so an order-of-magnitude regression fails.
+The shape raster (`render/shape_raster.py`, ADR 0190) is budgeted on its slowest shape, not its
+typical one: see [Elements budgets](#elements-budgets) for the measurements
+and the guard.
 
 Renders run in a resumable background queue with timeout + cancellation
 (`render/queue.py`), so a slow render never blocks the UI and a runaway render is
@@ -420,6 +420,61 @@ interval p50 20.6–21.6 → 17.1–18.8 ms, because the tick between two compos
 the Scale spec's invariant `composites ≤ ⌈1.1 · presented⌉ + render-scale steps` (it fails the
 reverted code). Evidence the monitor now shows the export's frames: `project-frame.test.ts` and
 `test_export_frame_grid.py`.
+
+## Elements budgets
+
+The Elements tab and its layers (plan/elements [02 §9](../../plan/elements/02-UX-SPEC.md) and
+[05 §7](../../plan/elements/05-RENDER-AND-PREVIEW.md)): the panel must stay instant with 1,595
+stickers in it, a click must land its clip at once, and 20 element layers must not make the
+monitor or the export noticeably slower. The guards below were added after the release-gate budget
+review (2026-09-26), which found the export ratio unmeasured, click → clip unguarded, no 4K shape
+raster case, and a 1080p raster ceiling of 60 ms for a 15 ms budget.
+
+The budgets hold on the reference machine (an M-series Mac). CI measures what a shared runner can
+measure: a timing whose headroom there is not yet known is **logged and gated at the budget ×2**,
+and its gate moves to the budget once the logged numbers show at least 2× headroom. What a runner
+cannot judge (a real display, a GPU, real camera footage) is a human release step, listed last.
+
+| Budget (reference machine)                                                       | Covers                                                                                                                                | Guard, and what it gates                                                                                                                                                                                                                      | Evidence                                                                                        |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Open Stickers (warm) → first tiles painted **≤ 100 ms**                          | switching back to the Stickers sub-tab, to two frames after the first tile's image has decoded                                        | `elements-e2e-budgets.spec.ts` (`elements-e2e` job): median of 5 warm opens ≤ 100 ms; fewer than 200 tiles drawn                                                                                                                              | CI 28.3 ms median when it stopped at the tile element (before the decode counted)               |
+| Search keystroke → grid updated **≤ 16 ms** (1,595 stickers)                     | the search itself, `searchStickers` over the whole catalogue                                                                          | `StickersBrowser.perf.test.tsx` (`node-quality`, uninstrumented): p95 ≤ 16 ms                                                                                                                                                                 | holds                                                                                           |
+| same, in the browser                                                             | one `input` event → the frame after the grid shows the result, over the whole library (a packaged set of all 1,344 packaged stickers) | `elements-e2e-budgets.spec.ts`: median over ~20 keystrokes (four words typed a key at a time, each cleared) ≤ 32 ms (×2); p95 and max logged                                                                                                  | new: logged first                                                                               |
+| Scroll the full sticker grid: **no dropped frames at 60 Hz** on an M-series Mac  | the virtualised grid and the packaged tiles it asks main for                                                                          | `elements-e2e-budgets.spec.ts`: half a view per frame, top to bottom: fewer than 200 tiles and never none at every frame; the last sticker drawn; every thumbnail request ≤ 96 ids (main refuses more). Frame intervals and long tasks logged | 60 Hz: human release step                                                                       |
+| Click a sticker → clip on the timeline **≤ 300 ms** (desktop: file copy + patch) | main copying the file into the project, then one patch; five different stickers, so every add copies                                  | `elements-e2e-budgets.spec.ts`: median of 5 ≤ 600 ms (×2); each timed click checked to have copied, not deduped                                                                                                                               | new: logged first; the harness's page binding is slower than Electron's IPC, so this reads high |
+| Click a shape → clip on the timeline **≤ 50 ms**                                 | one patch and the redraw; five different shape tiles                                                                                  | `elements-e2e-budgets.spec.ts`: median of 5 ≤ 100 ms (×2)                                                                                                                                                                                     | new: logged first                                                                               |
+| Monitor, 4K footage + 20 element layers: **≤ 1% dropped, seek ≤ 100 ms p95**     | the PX5 `scale-elements` row: 20 stickers over the 4K row, five outlined, five turning                                                | `preview-scale-perf.spec.ts` (`preview-perf` job): invariants only (every layer drawn, one composite per frame, caches bounded, GL pools flat); timings logged — the runner has no GPU                                                        | budget: run D                                                                                   |
+| Shape raster **≤ 15 ms at 1080p, ≤ 50 ms at 4K**                                 | `render/shape_raster.py` at the budget's size, a box 60% × 30% of the frame height                                                    | `test_shape_raster.py`: median CPU time of 20, coverage paused, ≤ 30 / 100 ms (×2) for both the budgeted highlight box and the slowest shape in the catalogue, the grape icon                                                                 | M1 Pro: grape 14.2 / 36–41 ms; the budgeted box 4.4 / 19–20 ms (3.2 / 12.7 without its fill)    |
+| Export with 20 element layers **≤ 1.3×** the same timeline without               | `scale-elements` against `scale-plain`, 4K, the real `export_video` path                                                              | `px5_export_ratio.py` in the `preview-perf` job, 4-second window: **logged in the job summary, not gated**. The whole row on demand: `gh workflow run preview-perf-full.yml -f variant=scale-elements`                                        | new; real footage: run D                                                                        |
+| Animated sticker decode **≤ 150 ms** first frame                                 | EL10                                                                                                                                  | none: EL10 has not shipped, and the budget is not claimed                                                                                                                                                                                     | —                                                                                               |
+
+**How the raster's worst case was found.** Every preset and all 1,703 icons were timed at the
+budget's size at 1080p and 4K (the minimum of three runs, then the slowest re-timed as a median of
+20). The review had named the highlight box; the slowest is the grape icon, about 3× the box,
+because its ~40 circles flatten to ~740 stroke joints and Pillow draws a round joint per vertex
+(`ImageDraw.line(joint="curve")`, the largest single cost in its profile). It is inside the budget,
+with little room at 1080p (14.2 of 15 ms); a faster stroke is the lever if a heavier shape
+arrives. The guard times CPU rather than wall time because the raster is single-threaded (the two
+agree within 0.2 ms on a quiet machine) while CI runs the suite on three workers, and pauses
+coverage because the tracer alone added a quarter to the grape icon's time. Re-run the scan when
+the catalogue or the stroke changes, and pin whatever is slowest.
+
+**Why the export ratio is logged, not gated.** Export is CPU-only, so the runner's ratio is real
+evidence, but a 4-second window reads high: an export's fixed costs (opening every reader and every
+sticker, starting the encoder) weigh more against 4 seconds of frames. The matte's ratio is
+1.32–1.45× on CI's windows against 1.32× on the whole row (PX5.11). One plain export is the
+baseline for both comparisons, each held to its own budget (the matte keeps P13's 1.5×).
+
+**Human release steps** (run D, plan/elements 09; what no CI runner can judge):
+
+- the monitor budget on an M-series Mac: `pnpm px5:fixture`, then
+  `python3 tests/e2e/scripts/px5-local-run.py scale-elements/proxy --budgets` (≤ 1% dropped,
+  seek-to-present p95 ≤ 100 ms), recording peak GPU memory and composite p95;
+- the 60 Hz scroll: scroll the whole sticker grid on a real display in the desktop app, watching
+  for stutter, with the packaged set installed;
+- the timings above on the M-series Mac itself, where the budgets are set;
+- the export ratio on real footage: a 3-minute 4K camera timeline with 20 stickers, exported with
+  them and with their layers hidden (with them ≤ 1.3×).
 
 ## How they're measured
 
