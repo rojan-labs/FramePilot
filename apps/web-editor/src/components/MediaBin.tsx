@@ -33,8 +33,10 @@ import {
 } from '../editor/import.js';
 import {
   addAssetPatch,
+  addImageOverlayPatch,
   createFolderPatch,
   deleteFolderPatch,
+  imageOverlayAnnouncement,
   moveAssetToFolderPatch,
   moveFolderPatch,
   insertClipPatch,
@@ -44,6 +46,7 @@ import {
   removeAssetPatch,
   renameFolderPatch,
 } from '../editor/patch-builders.js';
+import { applyStockPatch } from '../editor/stock-download.js';
 import { assetDisplayName, assetKind, layerKind } from '../editor/selectors.js';
 import { useAssetThumbnail } from '../editor/useAssetThumbnail.js';
 import { mediaSrc } from '../editor/media.js';
@@ -85,6 +88,7 @@ import {
   Link2,
   type LucideIcon,
   Pencil,
+  PictureInPicture2,
   Play,
   Plus,
   Search,
@@ -135,6 +139,21 @@ export interface MediaBinProps {
    * showing.
    */
   readonly revealRequest?: { readonly assetId: string; readonly seq: number };
+  /**
+   * Say something through the editor's polite live region — here, that an image just landed as
+   * an overlay, and where (plan/elements 02 §3). Absent, nothing is announced.
+   */
+  readonly onAnnounce?: (message: string) => void;
+}
+
+/**
+ * Whether a card offers **Add as overlay**: the user's own images only — a logo, a screenshot, a
+ * cut-out (ADR 0193, amendment "bin images"). Not sound, which has no picture; not a sticker,
+ * which is placed as a sticker; and not the user's own videos, which would widen MD-E5 beyond
+ * Pexels media and are the maintainer's decision.
+ */
+function offersImageOverlay(asset: Asset): boolean {
+  return asset.kind === 'image' && !isElementAsset(asset);
 }
 
 /** Lucide glyph per asset kind (Part D iconography mapping — no emoji). */
@@ -330,6 +349,11 @@ interface AssetCardActions {
   readonly onOpen: (asset: Asset) => void;
   /** Place on the timeline — Cmd/Ctrl+Enter, or a double-click. */
   readonly onAdd: (asset: Asset) => void;
+  /**
+   * Lay an image over the picture at the playhead — Cmd/Ctrl+Shift+Enter, or the overlay
+   * button. Offered on the cards {@link offersImageOverlay} allows.
+   */
+  readonly onAddOverlay?: (asset: Asset) => void;
   /** Remove from the project — Delete/Backspace, or the hover control. */
   readonly onRemove: (asset: Asset) => void;
   /** Relink to another file (desktop only; absent in the browser build). */
@@ -392,6 +416,7 @@ const AssetCard = memo(function AssetCard({
   // the play overlay nor a duration badge (both are video/audio affordances).
   const isStill = asset.kind === 'image';
   const duration = isStill ? null : formatDuration(asset.durationSeconds);
+  const addOverlay = offersImageOverlay(asset) ? actions.onAddOverlay : undefined;
 
   // Programmatic focus follows the arrow keys. Keyed on the counter so it fires
   // for a fresh move even when the card was already the tabbable one, and never
@@ -423,9 +448,12 @@ const AssetCard = memo(function AssetCard({
       case 'Enter':
         // Enter alone previews (matching a single click); with the platform
         // modifier it commits the edit (matching a double-click), the same
-        // "modifier commits" pairing the rest of the editor uses.
-        if (event.metaKey || event.ctrlKey) actions.onAdd(asset);
-        else return; // let the button's own click handling run
+        // "modifier commits" pairing the rest of the editor uses. Shift with it
+        // is the overlay button's twin, on the cards that have one.
+        if (!(event.metaKey || event.ctrlKey)) return; // the button's own click runs
+        if (!event.shiftKey) actions.onAdd(asset);
+        else if (addOverlay !== undefined) addOverlay(asset);
+        else return;
         break;
       case 'Delete':
       case 'Backspace':
@@ -482,8 +510,14 @@ const AssetCard = memo(function AssetCard({
           className="bin-card-open"
           tabIndex={tabbable ? 0 : -1}
           aria-label={used ? `Open ${name} (on the timeline)` : `Open ${name}`}
-          aria-keyshortcuts="Enter Meta+Enter Delete"
-          title={`${name}\nEnter: open · ${'⌘'}Enter: add to timeline · Delete: remove`}
+          aria-keyshortcuts={
+            addOverlay === undefined
+              ? 'Enter Meta+Enter Delete'
+              : 'Enter Meta+Enter Meta+Shift+Enter Delete'
+          }
+          title={`${name}\nEnter: open · ${'⌘'}Enter: add to timeline${
+            addOverlay === undefined ? '' : ` · ${'⌘⇧'}Enter: add as overlay`
+          } · Delete: remove`}
           onFocus={() => actions.onFocused(asset.id)}
           onKeyDown={onKeyDown}
         />
@@ -504,6 +538,23 @@ const AssetCard = memo(function AssetCard({
           >
             <Plus size={ICON_SIZE.sm} aria-hidden="true" />
           </button>
+          {addOverlay !== undefined && (
+            <button
+              type="button"
+              className="bin-card-icon-btn bin-card-overlay"
+              // Out of the tab ring like Add: Cmd/Ctrl+Shift+Enter on the focused
+              // card is its keyboard path.
+              tabIndex={-1}
+              aria-label={`add ${asset.id} as an overlay`}
+              title="Add as overlay: a smaller picture over what is at the playhead"
+              onClick={(event) => {
+                event.stopPropagation();
+                addOverlay(asset);
+              }}
+            >
+              <PictureInPicture2 size={ICON_SIZE.sm} aria-hidden="true" />
+            </button>
+          )}
           {actions.onRelink !== undefined && (
             <button
               type="button"
@@ -669,6 +720,7 @@ export function MediaBin({
   onOpenInSource,
   ensureSavedForTranscription,
   revealRequest,
+  onAnnounce,
 }: MediaBinProps): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -1066,6 +1118,33 @@ export function MediaBin({
     [editor, editMode, project.resolution, settings.defaultOverlaySeconds],
   );
 
+  /**
+   * **Add as overlay** (ADR 0193, amendment "bin images"): the image as a picture-in-picture at
+   * the playhead, over whatever is there, through the Pexels overlay's builder. The image is
+   * already in the bin, so the edit adds no asset and one undo leaves the bin as it was.
+   */
+  const addAsOverlay = useCallback(
+    (asset: Asset) => {
+      const name = assetDisplayName(asset, asset.id);
+      const added = addImageOverlayPatch(
+        { timeline: editor.state.timeline, assets: editor.state.assets },
+        asset,
+        name,
+        editor.getPlayhead(),
+      );
+      // Checked, so a patch the timeline refuses is said here, not quietly dropped.
+      const refusal = applyStockPatch(editor.applyPatchChecked, added.patch);
+      if (refusal !== null) {
+        setStatus(refusal);
+        return;
+      }
+      // Selected, so the monitor shows its handles and the Inspector can resize it.
+      editor.select(added.clipId);
+      onAnnounce?.(imageOverlayAnnouncement(name, added.start));
+    },
+    [editor, onAnnounce],
+  );
+
   const relinkFromBin = useCallback(
     async (asset: Asset) => {
       const bridge = getBridge();
@@ -1148,6 +1227,7 @@ export function MediaBin({
     () => ({
       onOpen: (asset) => onOpenInSource?.(asset),
       onAdd: (asset) => addToTimeline(asset),
+      onAddOverlay: (asset) => addAsOverlay(asset),
       onRemove: (asset) => removeFromBin(asset),
       ...(getBridge()?.projectChooseRelinkFile === undefined ? {} : { onRelink: (asset: Asset) => void relinkFromBin(asset) }),
       onMove: (fromId, delta) => {
@@ -1169,7 +1249,7 @@ export function MediaBin({
         // `seq`, or the programmatic-focus effect would fire in a loop.
         setFocus((current) => (current?.id === id ? current : { id, seq: current?.seq ?? 0 })),
     }),
-    [addToTimeline, focusCard, onOpenInSource, relinkFromBin, removeFromBin],
+    [addAsOverlay, addToTimeline, focusCard, onOpenInSource, relinkFromBin, removeFromBin],
   );
 
   /** Begin creating a folder under `parentId`, auto-expanding that parent. */

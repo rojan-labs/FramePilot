@@ -104,3 +104,24 @@ timeline. Only the manual placements change; the agent keeps its cutaway rule.**
   until it is measured.
 - **Open the overlay's lane at index 0.** It would cover every sticker, shape and title on the
   timeline.
+
+## Amendment — 2026-09-26: bin images (EL11)
+
+The media bin's **image** cards gain the same **Add as overlay**: an icon button on the card, and
+Cmd/Ctrl+Shift+Enter on the focused card beside Cmd/Ctrl+Enter's **Add**. The commonest thing
+laid over footage is the user's own picture — a logo, a screenshot, a cut-out — and before this it
+went in full frame at the end of the programme and had to be moved and shrunk by hand.
+
+- **The same builder, a second entry point.** It places through `buildAddStockOverlayOps`, so a
+  bin image lands exactly as a Pexels overlay does: at the playhead, centred, 40% of its fitted
+  size, on the picture-in-picture lane under the graphics, capped to the programme's end. The web
+  editor gives it a patch identity of its own (`addImageOverlayPatch`, "Add “logo.png” as an
+  overlay" in History), applies it checked, selects the clip and announces it politely. The image
+  is already in the bin, which the builder sees, so the patch has no asset operation: one undo
+  takes back the clip and any lane it opened, and the image stays in the bin.
+- **Not sticker placement.** A sticker's placement gives an element library's behaviour — the
+  Elements folder, a copy made again on open, a credit — none of which a user's own file has.
+- **Images only.** A sticker already has its own placement (the card's **Add** uses it), and sound
+  has no picture. The user's own **videos** are not offered: a picture-in-picture of the user's
+  footage widens MD-E5 beyond Pexels media, which is the maintainer's decision.
+- **The agent is still unchanged.** This is a manual entry point, like the Pexels tile's.

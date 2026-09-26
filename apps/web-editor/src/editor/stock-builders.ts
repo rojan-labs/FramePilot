@@ -1,6 +1,7 @@
 /**
  * Patches for the Photos and Videos panel's manual placements (plan/elements EL9, ADR 0193):
- * **Add as overlay** and a tile dropped on the timeline. The shape of each placement is decided
+ * **Add as overlay** and a tile dropped on the timeline — and the media bin's **Add as overlay** on
+ * the user's own images (EL11), the same placement. The shape of each placement is decided
  * in `@framepilot/editor-core` (`buildAddStockOverlayOps`, `buildDropStockOps`), beside the
  * cutaway's `buildAddStockOps`, so a later agent path cannot drift from the panel; these give it
  * the patch identity only — id, author and the line History shows.
@@ -78,6 +79,32 @@ export function addStockOverlayPatch(
 }
 
 /**
+ * The media bin's **Add as overlay** on one of the user's own images (a logo, a screenshot, a
+ * cut-out): the Pexels tile's placement exactly (ADR 0193, amendment "bin images"), so a second
+ * entry point cannot drift from the first. The image is already in the bin, which the builder sees
+ * and so adds no asset operation: one undo takes back the clip and any lane it opened, and the
+ * image stays in the bin.
+ *
+ * @param target - The live editor state.
+ * @param asset - The bin image.
+ * @param name - What the bin calls it (its file name), for History.
+ * @param atStart - Where it starts: the playhead.
+ */
+export function addImageOverlayPatch(
+  target: StockTarget,
+  asset: Asset,
+  name: string,
+  atStart: number,
+): AddedStock {
+  const placement = buildAddStockOverlayOps(target.timeline, target.assets, asset, atStart);
+  return {
+    clipId: placement.clipId,
+    start: placement.start,
+    patch: patchFor(placement, asset, 'imageoverlay', `Add “${name}” as an overlay`),
+  };
+}
+
+/**
  * A photo or video tile dropped on the timeline: full frame at the drop time, on the picture lane
  * it was dropped on when that lane has room, else on a new lane in front of the footage.
  *
@@ -131,4 +158,15 @@ export function stockAddedAnnouncement(
   return placement === 'overlay'
     ? `Added the ${noun} as an overlay at ${where}`
     : `Added the ${noun} at ${where}`;
+}
+
+/**
+ * What the polite live region says once a bin image lands as an overlay: the file's own name,
+ * since "the photo" would misname a logo or a screenshot.
+ *
+ * @param name - What the bin calls the image.
+ * @param atSeconds - Where it starts.
+ */
+export function imageOverlayAnnouncement(name: string, atSeconds: number): string {
+  return `Added ${name} as an overlay at ${positionLabel(atSeconds)}`;
 }

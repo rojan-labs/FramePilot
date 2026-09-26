@@ -3142,16 +3142,22 @@ g.mask-canvas-draft circle {
   pointer-events: none;
 }
 
-/* Hover action cluster, top-right of the tile — two compact icon buttons that
-   never overlap the play badge or each other (fits a half-rail card). */
+/* Hover action cluster, top-right of the tile — compact icon buttons (add, and on
+   an image add as overlay; relink; remove) that never overlap the play badge or
+   each other. An image card on the desktop carries four, wider than a half-rail
+   card at the small densities, so the cluster wraps onto a second row inside the
+   tile rather than pushing Add off its left edge, where the thumbnail clips it. */
 .bin-card-actions {
   position: absolute;
   top: var(--space-1);
   right: var(--space-1);
   z-index: 2;
   display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: var(--space-1);
+  max-width: calc(100% - 2 * var(--space-1));
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--dur-fast) var(--ease);
@@ -3182,7 +3188,8 @@ g.mask-canvas-draft circle {
     color var(--dur-fast) var(--ease);
 }
 
-.bin-card-add:hover {
+.bin-card-add:hover,
+.bin-card-overlay:hover {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-text);

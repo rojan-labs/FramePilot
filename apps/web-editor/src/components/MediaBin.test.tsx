@@ -711,3 +711,146 @@ describe('MediaBin — reveal in bin (UX-08)', () => {
     expect(document.activeElement).toBe(opener('v_1'));
   });
 });
+
+/**
+ * **Add as overlay** on the user's own images (plan/elements EL11, ADR 0193 amendment "bin
+ * images"): a logo, a screenshot or a cut-out laid over the footage at the playhead through the
+ * Pexels overlay's builder. Offered for images only: the user's own videos widen MD-E5 and are the
+ * maintainer's call, sound has no picture, and a sticker is placed as a sticker.
+ */
+describe('MediaBin — Add as overlay on the user’s own images', () => {
+  const footage: Asset = { id: 'cam', path: 'media/cam.mp4', kind: 'video', durationSeconds: 30 };
+  const logo: Asset = {
+    id: 'asset_logo',
+    path: 'media/logo.png',
+    kind: 'image',
+    durationSeconds: 5,
+    media: { width: 400, height: 200 },
+  };
+  const song: Asset = { id: 'asset_song', path: 'media/song.mp3', kind: 'audio' };
+  const sticker: Asset = {
+    id: 'element_fluent3d_fire',
+    path: 'media/p/elements/fluent3d/fire.webp',
+    kind: 'image',
+    media: { width: 318, height: 318 },
+    source: {
+      provider: 'fluent-emoji',
+      remoteId: 'fire',
+      license: 'mit',
+      attributionRequired: false,
+      attribution: 'Fluent Emoji by Microsoft (MIT)',
+      fetchedAt: '2026-09-26T00:00:00.000Z',
+    },
+  };
+  const talk: Clip = {
+    id: 'clip_talk',
+    assetId: footage.id,
+    trackId: 'video_1',
+    start: 0,
+    end: 30,
+    sourceStart: 0,
+    sourceEnd: 30,
+    effects: [],
+    keyframes: [],
+  };
+
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  /** The bin over a talking head, the playhead at 4 s; `live()` is the editor as last rendered. */
+  function renderOverlayBin(onAnnounce?: (message: string) => void) {
+    const project = parseProject({
+      ...newProject('Overlay Test'),
+      assets: [footage, logo, song, sticker],
+      timeline: { tracks: [{ id: 'video_1', type: 'video', clips: [talk] }] },
+    });
+    let current: ReturnType<typeof useEditor> | null = null;
+    function Host(): JSX.Element {
+      const editor = useEditor(project.timeline, { assets: project.assets, folders: [] });
+      current = editor;
+      return (
+        <MediaBin
+          editor={editor}
+          project={project}
+          {...(onAnnounce ? { onAnnounce } : {})}
+          onOpenInSource={() => undefined}
+        />
+      );
+    }
+    const view = render(<Host />);
+    const live = (): ReturnType<typeof useEditor> => current!;
+    act(() => live().seek(4));
+    return { view, live };
+  }
+
+  const overlayButton = (id: string): HTMLElement | null =>
+    screen.queryByRole('button', { name: `add ${id} as an overlay` });
+  const opener = (id: string): HTMLElement =>
+    screen.getByLabelText(`asset ${id}`).querySelector<HTMLElement>('.bin-card-open')!;
+  const clipsOf = (editor: ReturnType<typeof useEditor>) =>
+    editor.state.timeline.tracks.flatMap((track) => track.clips);
+
+  it('is offered on an image card, and not on video, audio or a sticker', () => {
+    renderOverlayBin();
+    expect(overlayButton(logo.id)).not.toBeNull();
+    expect(overlayButton(footage.id)).toBeNull();
+    expect(overlayButton(song.id)).toBeNull();
+    expect(overlayButton(sticker.id)).toBeNull();
+    // Out of the tab ring, like the card's other icon buttons: the grid is one tab stop.
+    expect(overlayButton(logo.id)?.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('lays the image over the footage at the playhead, selected and announced', () => {
+    const onAnnounce = vi.fn();
+    const { live } = renderOverlayBin(onAnnounce);
+    act(() => fireEvent.click(overlayButton(logo.id)!));
+
+    const placed = clipsOf(live()).find((clip) => clip.assetId === logo.id);
+    // At the playhead, over the footage, capped to the programme's end.
+    expect(placed).toMatchObject({ start: 4, end: 9 });
+    expect(placed?.keyframes.map((k) => [k.property, k.value])).toEqual([
+      ['scale', 0.4],
+      ['x', 0],
+      ['y', 0],
+    ]);
+    // On a lane in front of the footage, which stays where it was.
+    const lanes = live().state.timeline.tracks.map((track) => track.id);
+    expect(lanes.indexOf(placed!.trackId)).toBeLessThan(lanes.indexOf('video_1'));
+    expect(clipsOf(live()).find((clip) => clip.id === talk.id)).toMatchObject(talk);
+    // The image was already the project's: the edit adds no asset.
+    const last = live().state.history.entries.at(-1)!;
+    expect(last.patch.operations.map((op) => op.type)).not.toContain('add_asset');
+    expect(live().state.selection).toBe(placed!.id);
+    expect(onAnnounce).toHaveBeenCalledWith('Added logo.png as an overlay at 0:04');
+  });
+
+  it('is on the focused card’s keyboard too: Cmd+Shift+Enter overlays, Cmd+Enter still adds', () => {
+    const { live } = renderOverlayBin();
+    fireEvent.keyDown(opener(logo.id), { key: 'Enter', metaKey: true, shiftKey: true });
+    const overlays = clipsOf(live()).filter((clip) => clip.assetId === logo.id);
+    expect(overlays).toHaveLength(1);
+    expect(overlays[0]).toMatchObject({ start: 4 });
+    // Ctrl on Windows and Linux, as Cmd+Enter's add is.
+    act(() => live().seek(12));
+    fireEvent.keyDown(opener(logo.id), { key: 'Enter', ctrlKey: true, shiftKey: true });
+    expect(clipsOf(live()).filter((clip) => clip.assetId === logo.id)).toHaveLength(2);
+    // A card with no overlay takes no overlay shortcut: nothing is placed.
+    fireEvent.keyDown(opener(footage.id), { key: 'Enter', metaKey: true, shiftKey: true });
+    expect(clipsOf(live())).toHaveLength(3);
+    // The shortcut is announced to assistive tech on the image card only.
+    expect(opener(logo.id).getAttribute('aria-keyshortcuts')).toContain('Meta+Shift+Enter');
+    expect(opener(footage.id).getAttribute('aria-keyshortcuts')).not.toContain('Shift');
+  });
+
+  it('comes off in one undo, and the image stays in the bin', () => {
+    const { live } = renderOverlayBin();
+    const lanesBefore = live().state.timeline.tracks.map((track) => track.id);
+    act(() => fireEvent.click(overlayButton(logo.id)!));
+    expect(live().state.timeline.tracks).toHaveLength(lanesBefore.length + 1);
+    act(() => live().undo());
+    expect(live().state.timeline.tracks.map((track) => track.id)).toEqual(lanesBefore);
+    expect(clipsOf(live()).some((clip) => clip.assetId === logo.id)).toBe(false);
+    expect(live().state.assets.map((asset) => asset.id)).toContain(logo.id);
+    expect(screen.getByLabelText(`asset ${logo.id}`)).toBeTruthy();
+  });
+});

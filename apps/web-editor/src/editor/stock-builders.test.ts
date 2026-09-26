@@ -13,9 +13,11 @@ import {
 } from '@framepilot/editor-core';
 import type { Asset, Project, Timeline } from '@framepilot/timeline-schema';
 import {
+  addImageOverlayPatch,
   addStockClipPatch,
   addStockOverlayPatch,
   dropStockClipPatch,
+  imageOverlayAnnouncement,
   stockAddedAnnouncement,
   stockPlacementBlockedReason,
 } from './patch-builders.js';
@@ -150,6 +152,84 @@ describe('addStockOverlayPatch', () => {
     expect(first.patch.reason).toMatch(/overlay/);
     expect(first.patch.createdBy).toBe('user');
     expect(addStockOverlayPatch(target, STOCK_PHOTO, 2).patch).toEqual(first.patch);
+  });
+});
+
+/**
+ * The media bin's **Add as overlay** on the user's own images (a logo, a screenshot, a cut-out):
+ * the same builder as the Pexels tile's (ADR 0193, amendment "bin images"), a second entry point.
+ */
+describe('addImageOverlayPatch', () => {
+  const LOGO: Asset = {
+    id: 'asset_logo',
+    path: 'media/p/logo.png',
+    kind: 'image',
+    durationSeconds: 5,
+    media: { width: 400, height: 200 },
+  };
+  const inBin = { timeline: TALKING_HEAD, assets: [CAMERA, LOGO] };
+  const binProject = (): Project => ({ ...projectOf(TALKING_HEAD), assets: [CAMERA, LOGO] });
+
+  it('lays a bin image over the footage without adding it to the bin again', () => {
+    const { patch, clipId, start } = addImageOverlayPatch(inBin, LOGO, 'logo.png', 4);
+    expect(start).toBe(4);
+    // The asset is already the project's: no asset operation, so undo cannot take it out.
+    expect(patch.operations.map((op) => op.type)).toEqual([
+      'add_layer',
+      'add_clip',
+      'add_keyframes',
+    ]);
+    const check = validatePatch(TALKING_HEAD, patch, {
+      assetIds: [CAMERA.id, LOGO.id],
+      assets: [CAMERA, LOGO],
+      folders: [],
+    });
+    expect(check.valid, JSON.stringify(check.issues)).toBe(true);
+    const after = applyProjectPatch(binProject(), patch);
+    expect(after.timeline.tracks.map((track) => track.id)).toEqual([
+      'graphics',
+      expect.any(String),
+      'video_1',
+    ]);
+    const clip = after.timeline.tracks[1]!.clips[0]!;
+    expect(clip).toMatchObject({ id: clipId, assetId: LOGO.id, start: 4, end: 9 });
+    expect(clip.keyframes.map((k) => [k.property, k.time, k.value])).toEqual([
+      ['scale', 0, STOCK_OVERLAY_SCALE],
+      ['x', 0, 0],
+      ['y', 0, 0],
+    ]);
+    expect(after.assets).toEqual([CAMERA, LOGO]);
+  });
+
+  it('is the Pexels overlay’s placement, under its own name in History', () => {
+    const own = addImageOverlayPatch(inBin, LOGO, 'logo.png', 4);
+    const stock = addStockOverlayPatch(inBin, LOGO, 4);
+    expect(own.patch.operations).toEqual(stock.patch.operations);
+    expect(own.patch.patchId).not.toBe(stock.patch.patchId);
+    expect(own.patch.reason).toBe('Add “logo.png” as an overlay');
+    expect(own.patch.createdBy).toBe('user');
+  });
+
+  it('inverts to exactly the project it started from, and one undo leaves the bin as it was', () => {
+    const before = binProject();
+    const { patch } = addImageOverlayPatch(inBin, LOGO, 'logo.png', 12);
+    const after = applyProjectPatch(before, patch);
+    expect(contentOf(applyProjectPatch(after, invertProjectPatch(before, patch)))).toEqual(
+      contentOf(before),
+    );
+
+    const added = applyUserPatch(
+      createEditorState(TALKING_HEAD, { assets: [CAMERA, LOGO] }),
+      patch,
+    );
+    expect(added.issues).toEqual([]);
+    const undone = undoEdit(added);
+    expect(undone.timeline.tracks.map((track) => track.id)).toEqual(['graphics', 'video_1']);
+    expect(undone.assets.map((asset) => asset.id)).toEqual([CAMERA.id, LOGO.id]);
+  });
+
+  it('is announced by the file’s name and where it starts', () => {
+    expect(imageOverlayAnnouncement('logo.png', 12.7)).toBe('Added logo.png as an overlay at 0:12');
   });
 });
 

@@ -567,9 +567,10 @@ export function Editor({
   liveEditor.current = editor;
   // A failure outside the patch path, raised as a toast (a dropped sticker main could not copy).
   const [notice, setNotice] = useState<ToastNotice | null>(null);
-  // What a Pexels clip that just landed says to a screen reader (plan/elements 02 §3): the
-  // download ends seconds after the click, so the arrival is announced, politely.
-  const [stockAnnouncement, setStockAnnouncement] = useState('');
+  // What a clip that just landed says to a screen reader (plan/elements 02 §3): a Pexels
+  // download ends seconds after the click, and an image laid over the picture from the bin lands
+  // on a lane the bin cannot show, so each arrival is announced, politely.
+  const [addedAnnouncement, setAddedAnnouncement] = useState('');
   const dropSticker = useCallback(
     (elementId: string, atSeconds: number, trackId?: string): void => {
       void placeDroppedSticker(
@@ -639,7 +640,7 @@ export function Editor({
           if (placed.message !== '') say(placed.message);
           return;
         }
-        setStockAnnouncement(stockAddedAnnouncement(placed.asset, 'drop', placed.added.start));
+        setAddedAnnouncement(stockAddedAnnouncement(placed.asset, 'drop', placed.added.start));
         if (placed.notice !== null) say(placed.notice);
       });
     },
@@ -780,6 +781,7 @@ export function Editor({
         {...(onProjectCommit ? { onProjectCommit } : {})}
         {...(ensureSavedForTranscription ? { ensureSavedForTranscription } : {})}
         {...(revealRequest ? { revealRequest } : {})}
+        onAnnounce={setAddedAnnouncement}
       />
     ),
     [
@@ -870,7 +872,7 @@ export function Editor({
           if (refusal !== null) return refusal;
           // Selected, so the monitor shows its handles and the Inspector can resize it.
           editor.select(added.clipId);
-          setStockAnnouncement(stockAddedAnnouncement(asset, 'overlay', added.start));
+          setAddedAnnouncement(stockAddedAnnouncement(asset, 'overlay', added.start));
           return null;
         }}
         {...(onOpenSettings ? { onOpenSettings: () => onOpenSettings('ai') } : {})}
@@ -1348,7 +1350,7 @@ export function Editor({
           <AgentFab aiPanelVisible={rightTab === 'ai'} onOpenAi={() => setRightTab('ai')} />
           {toastsEl}
           <p className="sr-only" role="status" aria-live="polite">
-            {stockAnnouncement}
+            {addedAnnouncement}
           </p>
           <HistoryPanel
             editor={editor}
