@@ -24,6 +24,7 @@ _AREAS = {
     "Layering",
     # Elements' shapes (schema v25, ADR 0190).
     "Shapes",
+    "Stickers",
     "Text",
     "Time",
     "Transitions",

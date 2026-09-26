@@ -96,8 +96,9 @@ describe('frame plan parity vectors', () => {
         'Effects',
         'Geometry',
         'Layering',
-        // Elements' shapes (schema v25, ADR 0190).
+        // Elements' shapes (schema v25, ADR 0190) and stickers (plan/elements EL6a).
         'Shapes',
+        'Stickers',
         'Text',
         'Time',
         'Transitions',
