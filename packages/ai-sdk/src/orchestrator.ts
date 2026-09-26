@@ -23,6 +23,7 @@ import {
   type AnyOperation,
   type ValidationIssue,
   applyProjectPatch,
+  isElementAsset,
   pictureOccupancySignature,
   projectChanged,
 } from '@framepilot/editor-core';
@@ -2168,7 +2169,8 @@ const round4 = (n: number): string => (Math.round(n * 10_000) / 10_000).toString
 
 /** One line per asset: id + kind + duration + folder + filename. Ids are never elided. */
 function assetLine(a: Asset): string {
-  const parts = [a.id, a.kind];
+  // A sticker is an image the agent must never treat as footage (plan/elements G9).
+  const parts = [a.id, isElementAsset(a) ? 'sticker' : a.kind];
   if (typeof a.durationSeconds === 'number') parts.push(`${round2(a.durationSeconds)}s`);
   if (a.folderId) parts.push(`in:${a.folderId}`);
   return `${parts.join(' ')} (${baseName(a.path)})`;

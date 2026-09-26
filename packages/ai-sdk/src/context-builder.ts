@@ -15,7 +15,7 @@ import {
 } from './references/images.js';
 import { createLogger, type Seconds } from '@framepilot/shared-types';
 import type { Clip, Project, Timeline } from '@framepilot/timeline-schema';
-import { clipRenderKind, repeatedSourceOf } from '@framepilot/editor-core';
+import { clipRenderKind, isElementAsset, repeatedSourceOf } from '@framepilot/editor-core';
 import type { AiImage, AiMessage } from './providers/types.js';
 import type { ContextBudget, ContextTier } from './reliability/types.js';
 import { readMemory } from './memory-store.js';
@@ -649,7 +649,9 @@ export function summarizeMediaBin(project: Project): string {
       typeof asset.durationSeconds === 'number' ? ` ${round(asset.durationSeconds)}s` : '';
     // The per-line "· placed" marks the minority case. With nothing left to place the
     // header has already said so for every line, and repeating it is pure per-turn weight.
-    const line = `- ${asset.id} [${asset.kind}]${duration}${unplaced > 0 && placed.has(asset.id) ? ' · placed' : ''}`;
+    // A sticker is an image the agent must never treat as footage (plan/elements G9).
+    const kind = isElementAsset(asset) ? 'sticker' : asset.kind;
+    const line = `- ${asset.id} [${kind}]${duration}${unplaced > 0 && placed.has(asset.id) ? ' · placed' : ''}`;
     if (used + line.length > MEDIA_BIN_CHARS) {
       // Say what was left out and how to get it, never trail off. A run told "+37 more"
       // with no route to them is a run that invents ids.
@@ -698,7 +700,10 @@ export function summarizeSourceMedia(project: Project): string {
     const width = asset.media?.width ?? null;
     const height = asset.media?.height ?? null;
     let shape = '';
-    if (asset.kind !== 'audio' && width !== null && height !== null) {
+    if (isElementAsset(asset)) {
+      // Its square canvas says nothing about letterboxing: it is placed over the picture.
+      shape = ' · sticker, drawn over the picture (not footage)';
+    } else if (asset.kind !== 'audio' && width !== null && height !== null) {
       const orientation = orientationOf(width, height);
       const fit =
         orientation === sequence

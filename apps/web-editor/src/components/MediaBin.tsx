@@ -39,6 +39,7 @@ import {
   moveFolderPatch,
   insertClipPatch,
   placeAssetPatch,
+  placeElementAssetPatch,
   removeAssetClipsPatch,
   removeAssetPatch,
   renameFolderPatch,
@@ -49,6 +50,7 @@ import { mediaSrc } from '../editor/media.js';
 import { formatClock } from '../editor/captions.js';
 import { searchTranscript, type TranscriptSearchResult } from '../editor/transcriptSearch.js';
 import { useSettings } from '../editor/useSettings.js';
+import { isElementAsset } from '@framepilot/editor-core';
 import { autoTranscribeImportedAssets } from '../editor/transcribeImport.js';
 import {
   type BinDensity,
@@ -466,6 +468,11 @@ const AssetCard = memo(function AssetCard({
           </span>
         )}
         {duration !== null && <span className="bin-card-dur tabular">{duration}</span>}
+        {isElementAsset(asset) && (
+          <span className="bin-card-element" title="A sticker from Elements, not footage">
+            Element
+          </span>
+        )}
         {/* The keyboard/AT entry point for the tile, sized to the thumbnail.
             Its click bubbles to the card's own handler, so there is exactly one
             "open in Source" code path for both input methods. */}
@@ -1010,6 +1017,26 @@ export function MediaBin({
     (asset: Asset) => {
       const timeline = editor.state.timeline;
       const assetById = new Map(editor.state.assets.map((a) => [a.id, a]));
+      // A sticker goes where the Stickers tab puts one: over the picture at the playhead, never
+      // appended to the footage as a full-frame clip (plan/elements EL6a).
+      if (isElementAsset(asset)) {
+        const added = placeElementAssetPatch(
+          {
+            timeline,
+            assets: editor.state.assets,
+            folders: editor.state.folders,
+            resolution: project.resolution,
+          },
+          asset,
+          editor.getPlayhead(),
+          settings.defaultOverlaySeconds,
+        );
+        if (added) {
+          editor.applyPatch(added.patch);
+          editor.select(added.clipId);
+        }
+        return;
+      }
       // Insert mode: drop the clip in at the playhead on the frontmost same-kind
       // (or empty) lane, pushing that lane's downstream clips right (one patch).
       // Falls through to the append path when there is no compatible lane.
@@ -1036,7 +1063,7 @@ export function MediaBin({
       const patch = placeAssetPatch(timeline, assetById, asset, appendAt);
       if (patch) editor.applyPatch(patch);
     },
-    [editor, editMode],
+    [editor, editMode, project.resolution, settings.defaultOverlaySeconds],
   );
 
   const relinkFromBin = useCallback(

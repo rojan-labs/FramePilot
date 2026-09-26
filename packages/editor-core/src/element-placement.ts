@@ -18,6 +18,7 @@ import {
 import { createLaneAllocator, nextLayerId } from './lane-placement.js';
 import { addClipId, shapeClipId, shapeEffectId, type Operation } from './operations.js';
 import type { ProjectOperation } from './project-operations.js';
+import { isElementAsset } from './element-assets.js';
 import { syntheticClipKind } from './synthetic-assets.js';
 
 /** What {@link buildAddShapeOps} decided. */
@@ -119,27 +120,12 @@ export function swapShapeParams(
 
 // --- stickers (plan/elements EL6a) ----------------------------------------------------------
 
-/** The sticker libraries, by the `source.provider` their assets carry. */
-export const ELEMENT_PROVIDERS: readonly string[] = ['fluent-emoji'];
-
-/**
- * Whether `asset` is an element (a sticker) rather than footage: derived from its provenance,
- * never stored. The Inspector, the agent's asset views, footage indexing and Credits all ask this
- * one question.
- */
-export function isElementAsset(asset: Pick<Asset, 'source'> | undefined): boolean {
-  const provider = asset?.source?.provider;
-  return provider !== undefined && ELEMENT_PROVIDERS.includes(provider);
-}
-
-/**
- * The asset id a sticker gets: `element_<library>_<itemId>`, deterministic so adding the same
- * sticker twice reuses one asset. The desktop's `sourcedAssetId('element', …)` is pinned to this
- * formula by its own test.
- */
-export function elementAssetId(library: string, itemId: string): string {
-  return `element_${library}_${itemId}`.replace(/[^a-zA-Z0-9_]/g, '_');
-}
+export {
+  ELEMENT_PROVIDERS,
+  elementArtFraction,
+  elementAssetId,
+  isElementAsset,
+} from './element-assets.js';
 
 /** The bin folder element assets live in, created with the first one. */
 export const ELEMENTS_FOLDER_ID = 'folder_elements';

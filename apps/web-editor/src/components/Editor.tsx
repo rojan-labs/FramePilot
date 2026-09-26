@@ -906,6 +906,7 @@ export function Editor({
         editor={editor}
         assets={project.assets}
         fps={project.fps}
+        resolution={project.resolution}
         editMode={editMode}
         trackLayout={trackLayout}
         onAskAiForClip={onAskAiForClip}

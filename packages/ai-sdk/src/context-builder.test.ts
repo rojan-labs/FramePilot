@@ -894,6 +894,33 @@ describe('per-section accounting (ADR 0080)', () => {
     expect(all).toContain('  Pacing: fast — median shot 1.1s');
   });
 
+  describe('stickers in the agent’s views of the bin', () => {
+    it('are labelled stickers, never footage with an orientation to crop for', () => {
+      const project = makeProject({
+        resolution: { width: 1080, height: 1920 },
+        assets: [
+          {
+            id: 'element_fluent3d_fire',
+            path: 'media/p/elements/fluent3d/fire.webp',
+            kind: 'image',
+            media: { width: 318, height: 318 },
+            source: {
+              provider: 'fluent-emoji',
+              remoteId: 'fire',
+              license: 'mit',
+              attributionRequired: false,
+              fetchedAt: '2026-09-26T00:00:00.000Z',
+            },
+          },
+        ],
+      } as never);
+      expect(summarizeSourceMedia(project)).toContain(
+        '- element_fluent3d_fire fire.webp · sticker, drawn over the picture (not footage)',
+      );
+      expect(summarizeMediaBin(project)).toContain('- element_fluent3d_fire [sticker]');
+    });
+  });
+
   describe('summarizeSourceMedia', () => {
     it('states file, dimensions and whether the source fits the sequence orientation', () => {
       const project = makeProject({

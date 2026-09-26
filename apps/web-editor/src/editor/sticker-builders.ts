@@ -4,7 +4,7 @@
  * the one validated, reversible patch that places it, with editor-core's `buildAddStickerOps` — the
  * builder the agent's `add_sticker` uses too.
  */
-import { buildAddStickerOps, type Patch } from '@framepilot/editor-core';
+import { buildAddStickerOps, elementArtFraction, type Patch } from '@framepilot/editor-core';
 import type { ElementAssetWire, ElementErrorCodeWire } from '@framepilot/shared-types';
 import type { Asset, Folder, Timeline } from '@framepilot/timeline-schema';
 
@@ -74,6 +74,37 @@ export function addStickerPatch(
       patchId: patchId(`sticker_${wire.id}_${placed.trackId}_${ms(start)}`),
       createdBy: 'user',
       reason: `Add sticker “${name}”`,
+      operations: [...placed.operations],
+    },
+  };
+}
+
+/**
+ * Place a sticker that is already in the bin (a double-click or a drag from the media bin): the
+ * same builder and the same transform as the Stickers tab, never the footage path.
+ *
+ * @param trackId - The lane it was dropped on, used when it is a graphics lane with room.
+ */
+export function placeElementAssetPatch(
+  target: StickerTarget,
+  asset: Asset,
+  start: number,
+  durationSeconds: number,
+  trackId?: string,
+): AddedSticker | null {
+  if (!(durationSeconds > 0)) return null;
+  const placed = buildAddStickerOps(target, asset, start, start + durationSeconds, {
+    artFraction: elementArtFraction(asset),
+    ...(trackId !== undefined ? { trackId } : {}),
+  });
+  const id = asset.source?.remoteId ?? asset.id;
+  const name = id.replace(/_/g, ' ');
+  return {
+    clipId: placed.clipId,
+    patch: {
+      patchId: patchId(`sticker_${asset.id}_${placed.trackId}_${ms(start)}`),
+      createdBy: 'user',
+      reason: `Add sticker “${name.charAt(0).toUpperCase()}${name.slice(1)}”`,
       operations: [...placed.operations],
     },
   };

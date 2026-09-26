@@ -63,7 +63,9 @@ const CATALOG: StickerCatalog = stickerCatalog({
     item('fire', 'Fire', '🔥', ['reactions'], 1),
     item('grinning_face', 'Grinning face', '😀', ['reactions'], 0),
     item('red_heart', 'Red heart', '❤️', ['hearts'], 2),
-    { ...item('cat', 'Cat', '🐈', [], 0), availability: 'packaged', rank: undefined },
+    (({ rank: _rank, ...rest }) => ({ ...rest, availability: 'packaged' as const }))(
+      item('cat', 'Cat', '🐈', [], 0),
+    ),
   ],
 });
 

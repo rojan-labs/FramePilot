@@ -23,6 +23,7 @@ import {
   transitionEligibilityIn,
   type TransitionAlignment,
   type TransitionEligibility,
+  isElementAsset,
 } from '@framepilot/editor-core';
 import type { Asset, Clip, Effect, Timeline, Track } from '@framepilot/timeline-schema';
 import { SHAPE_EFFECT_TYPE, shapeDescriptor } from '@framepilot/timeline-schema';
@@ -98,6 +99,7 @@ import {
   addLayerPatch,
   addEffectLayerPatch,
   addShapePatch,
+  placeElementAssetPatch,
   addTextOverlayPatch,
   duplicateEffectLayerPatch,
   moveEffectLayerPatch,
@@ -189,6 +191,8 @@ export interface TimelineViewProps {
   readonly assets?: readonly Asset[];
   /** Project frame rate, used for frame-accurate ruler/clip timecodes. */
   readonly fps?: number;
+  /** The project frame size, for sizing a sticker dropped from the bin. */
+  readonly resolution?: { readonly width: number; readonly height: number };
   /**
    * Placement mode (view state). `insert` pushes downstream same-lane clips right
    * when a clip is dropped; `overwrite` (default) keeps today's auto-layering drop.
@@ -1305,10 +1309,14 @@ const TimelineClip = memo(function TimelineClip({
   );
 });
 
+/** The frame size a sticker is sized for when the host passes none (tests, stories). */
+const DEFAULT_RESOLUTION = { width: 1920, height: 1080 } as const;
+
 export function TimelineView({
   editor,
   assets = [],
   fps = 30,
+  resolution = DEFAULT_RESOLUTION,
   editMode = 'overwrite',
   trackLayout: trackLayoutProp,
   onAskAiForClip,
@@ -2418,6 +2426,22 @@ export function TimelineView({
       const asset = assets.find((a) => a.id === assetId);
       if (!asset) return;
       const start = Math.max(0, atSeconds);
+      // A sticker dragged from the bin lands like one dragged from Elements: on this lane when it
+      // is a graphics lane with room, never as footage (plan/elements EL6a).
+      if (isElementAsset(asset)) {
+        const added = placeElementAssetPatch(
+          { timeline, assets, folders: editor.state.folders, resolution },
+          asset,
+          start,
+          settings.defaultOverlaySeconds,
+          track.type === 'overlay' && !track.locked ? track.id : undefined,
+        );
+        if (added) {
+          applyPatch(added.patch);
+          select(added.clipId);
+        }
+        return;
+      }
       // Insert mode: push the downstream same-lane clips right by the dropped
       // clip's duration (one patch), instead of placing/auto-layering on overlap.
       if (editMode === 'insert' && !track.locked) {
@@ -2442,7 +2466,16 @@ export function TimelineView({
         : placeAssetPatch(timeline, assetById, asset, start);
       if (patch) applyPatch(patch);
     },
-    [assets, assetById, timeline, applyPatch, editMode],
+    [
+      assets,
+      assetById,
+      timeline,
+      applyPatch,
+      editMode,
+      resolution,
+      select,
+      settings.defaultOverlaySeconds,
+    ],
   );
 
   /** Create a text overlay where a "Text" chip was dropped from the Overlays panel. */

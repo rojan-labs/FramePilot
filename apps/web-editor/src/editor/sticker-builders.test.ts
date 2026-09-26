@@ -9,6 +9,7 @@ import type { ElementAssetWire } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import {
   addStickerPatch,
+  placeElementAssetPatch,
   replaceStickerPatch,
   stickerArtFraction,
   stickerErrorSentence,
@@ -84,6 +85,27 @@ describe('replaceStickerPatch', () => {
 
   it('refuses a clip that is gone', () => {
     expect(replaceStickerPatch(withFire, 'nope', wire('rocket'), 'Rocket')).toBeNull();
+  });
+});
+
+describe('placeElementAssetPatch', () => {
+  it('places a sticker already in the bin like the Stickers tab would, never as footage', () => {
+    const added = addStickerPatch(project, wire('fire'), 'Fire', 0, 2)!;
+    const withFire = applyProjectPatch(project, added.patch);
+    const asset = withFire.assets[0]!;
+    const again = placeElementAssetPatch(withFire, asset, 5, 3, 'v1')!;
+    expect(again.patch.reason).toBe('Add sticker “Fire”');
+    expect(again.patch.operations.map((op) => op.type)).toEqual(['add_clip', 'add_keyframes']);
+    const after = applyProjectPatch(withFire, again.patch);
+    const lane = after.timeline.tracks.find((t) => t.clips.some((c) => c.id === again.clipId))!;
+    expect(lane.type).toBe('overlay');
+    const scale = (
+      again.patch.operations[1] as { keyframes: { property: string; value: number }[] }
+    ).keyframes.find((k) => k.property === 'scale')!.value;
+    const first = (
+      added.patch.operations.at(-1) as { keyframes: { property: string; value: number }[] }
+    ).keyframes.find((k) => k.property === 'scale')!.value;
+    expect(scale).toBeCloseTo(first, 3);
   });
 });
 

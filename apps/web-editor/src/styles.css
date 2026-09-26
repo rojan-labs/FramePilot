@@ -3126,6 +3126,22 @@ g.mask-canvas-draft circle {
   pointer-events: none;
 }
 
+/* A sticker in the bin says it is an element, not footage (plan/elements EL6a), in the graphic
+   clip colour it has on the timeline. */
+.bin-card-element {
+  position: absolute;
+  left: var(--space-1);
+  bottom: var(--space-1);
+  z-index: 2;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  background: var(--clip-graphic-border);
+  color: #fff;
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+  pointer-events: none;
+}
+
 /* Hover action cluster, top-right of the tile — two compact icon buttons that
    never overlap the play badge or each other (fits a half-rail card). */
 .bin-card-actions {
@@ -9364,6 +9380,12 @@ details.inspector-panel[open] > .inspector-section-head::before {
   /* A credit line is a fixed legal string, so it wraps rather than truncating —
      an ellipsis here would hide part of the obligation. */
   overflow-wrap: anywhere;
+}
+/* How many assets share a grouped credit line (plan/elements G10). */
+.export-credits-count {
+  flex: none;
+  font-size: 0.75rem;
+  color: var(--text-secondary, var(--text));
 }
 .export-credits-license {
   font-size: 0.74rem;

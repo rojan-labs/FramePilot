@@ -242,6 +242,42 @@ describe('MediaBin → Source monitor wiring (H1.7, J3)', () => {
   });
 });
 
+describe('MediaBin and stickers (plan/elements EL6a)', () => {
+  const sticker: Asset = {
+    id: 'element_fluent3d_fire',
+    path: 'media/p/elements/fluent3d/fire.webp',
+    kind: 'image',
+    media: { width: 318, height: 318 },
+    source: {
+      provider: 'fluent-emoji',
+      remoteId: 'fire',
+      license: 'mit',
+      attributionRequired: false,
+      attribution: 'Fluent Emoji by Microsoft (MIT)',
+      fetchedAt: '2026-09-26T00:00:00.000Z',
+    },
+  };
+  const project = parseProject({ ...newProject('Sticker Test'), assets: [sticker] });
+
+  it('badges a sticker as an element and places it over the picture, not as footage', () => {
+    function Host(): JSX.Element {
+      const editor = useEditor(project.timeline, { assets: project.assets, folders: [] });
+      return (
+        <>
+          <MediaBin editor={editor} project={project} />
+          <TimelineView editor={editor} assets={project.assets} />
+        </>
+      );
+    }
+    const view = render(<Host />);
+    expect(view.getByText('Element')).toBeTruthy();
+    fireEvent.doubleClick(view.getByLabelText(`asset ${sticker.id}`));
+    expect(clipCount(view.container)).toBe(1);
+    const lane = view.container.querySelector('.clip-block')?.closest('[data-track-type]');
+    expect(lane?.getAttribute('data-track-type')).toBe('overlay');
+  });
+});
+
 describe('MediaBin card affordances by kind', () => {
   const card = (view: ReturnType<typeof render>, id: string): HTMLElement =>
     view.getByLabelText(`asset ${id}`);
