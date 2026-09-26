@@ -73,6 +73,33 @@ When a security issue is found or reported (see disclosure process in
 root cause, fix + PR link, and the regression test added. Treat a sandbox escape or
 original-asset loss as **critical**.
 
+### 2026-09-26 — Elements release-gate review (plan/elements EL12, PASS WITH FINDINGS)
+
+- **Surface:** everything Elements added across the IPC and agent boundaries — materialise and
+  thumbnails, the Pexels download's new `kind`, the renderer drag payloads and the monitor and
+  timeline drops, the bin's Add as overlay, `add_sticker`/`search_elements`, the MCP server's
+  `placesStickers: false` — and the release pipeline's changes, reviewed by `security-reviewer`.
+- **Held:** ids match their patterns and the catalogue before main acts on them; a Pexels download
+  resolves only items main fetched itself, now also of the kind asked for; a drag (forgeable by any
+  page or file drop) carries only a kind and an id, validated on drop, never a path or URL; the
+  model reaches no path; the MCP sandbox is not widened; asar, the CSP, `contextIsolation`,
+  `sandbox` and `nodeIntegration: false` are unchanged; no secret is echoed.
+- **Fixed (medium):** making unsigned release builds succeed would have let a tag pushed without
+  its signing secrets publish unsigned installers and their feed to installed apps. A tagged
+  release now fails before building without the macOS signing and notarisation or Windows
+  Authenticode secrets, and each app's signature is verified (codesign and spctl; Authenticode)
+  before upload (`d2fe4d32`).
+- **Fixed (medium):** the release job restored the encoded sticker set, and the manifest that
+  vouches for it, from a cache another workflow could write. Only the pinned inputs are cached now
+  (re-checked against the lock on every read) and a release re-encodes the set (`d2fe4d32`). The
+  base64 `.p12` is readable only by the import step.
+- **Fixed (low):** the packaged `manifest.json` is read bounded (2 MiB, regular file, no link);
+  packaged files open by their real path with `O_NOFOLLOW`; the manifest's items are a `Map`, so a
+  `__proto__` key cannot reach the prototype; the materialise project id is capped at 256
+  characters (`b861b788`).
+- **Accepted risk:** a parent-directory swap between the path check and the open remains possible
+  without `openat`; it needs write access to the install folder, the same class as the EL6b entry.
+
 ### 2026-09-26 — Packaged sticker set review (plan/elements EL6b, PASS WITH FINDINGS)
 
 - **Surface:** the installer's packaged set (`<resources>/elements/stickers`, `manifest.json`),
