@@ -609,8 +609,9 @@ export function Editor({
   );
   /**
    * A sticker or shape tile dropped on the program monitor (plan/elements EL11, 02 §3): added at
-   * the playhead, centred where it was dropped, and selected. A sticker main could not copy says
-   * why in the Stickers tab's words; a patch the timeline refuses is said, not quietly dropped.
+   * the playhead, centred where it was dropped, selected and announced. A sticker main could not
+   * copy says why in the Stickers tab's words; a patch the timeline refuses is said, not quietly
+   * dropped.
    */
   const dropOnMonitor = useCallback(
     (item: MonitorDropItem, point: FramePoint): void => {
@@ -638,6 +639,7 @@ export function Editor({
         }
         // Selected, so the monitor shows its handles for the fine adjustment a drop invites.
         liveEditor.current.select(placed.added.clipId);
+        setAddedAnnouncement(placed.announcement);
       });
     },
     [project.id, liveElementTarget, settings.defaultOverlaySeconds],

@@ -120,6 +120,32 @@ describe('placeMonitorDrop', () => {
     expect(applyProjectPatch(after, invertProjectPatch(project, placed.added.patch))).toEqual(
       project,
     );
+    // Said to a screen reader, as a click's arrival is (02 §3).
+    expect(placed.announcement).toBe('Added the highlight box at 0:02');
+  });
+
+  it('puts an arrow’s tip where it was let go: the point it is dropped to point at', async () => {
+    const placed = await placeMonitorDrop(
+      deps({ ok: true, asset: wire }),
+      drop({ kind: 'shape', presetId: 'line-arrow/red', colour: null }, { x: 0.6, y: 0.3 }),
+    );
+    if (!placed.ok) throw new Error(placed.message);
+    const params = clipOf(
+      applyProjectPatch(project, placed.added.patch),
+      placed.added.clipId,
+    ).effects.find((effect) => effect.type === 'shape')?.params as {
+      readonly endCap: string;
+      readonly x1: number;
+      readonly y1: number;
+      readonly x2: number;
+      readonly y2: number;
+    };
+    // The tip is the end with the arrowhead; the tail trails up and to the left of it.
+    expect(params.endCap).toBe('arrow');
+    expect([params.x2, params.y2]).toEqual([60, 30]);
+    expect(params.x1).toBeLessThan(params.x2);
+    expect(params.y1).toBeLessThan(params.y2);
+    expect(placed.announcement).toBe('Added the arrow at 0:02');
   });
 
   it('keeps the Shapes tab’s colour on a dropped shape, and centres a line on the point', async () => {
@@ -161,6 +187,8 @@ describe('placeMonitorDrop', () => {
       clip.keyframes.find((k) => k.property === property && k.time === 0)?.value;
     // A quarter of the way across and three quarters down a 1080 × 1920 frame.
     expect([base('x'), base('y')]).toEqual([-270, 480]);
+    // By its name, as the Stickers tab names it (02 §3: "Added Grinning face at 0:12").
+    expect(placed.announcement).toBe('Added Fire at 0:02');
     expect(applyProjectPatch(after, invertProjectPatch(project, placed.added.patch))).toEqual(
       project,
     );

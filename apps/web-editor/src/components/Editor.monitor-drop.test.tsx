@@ -100,6 +100,10 @@ describe('Editor — a tile dropped on the program monitor', () => {
     expect(
       screen.getByRole('button', { name: `clip ${shape.id}` }).getAttribute('data-selected'),
     ).toBe('true');
+    // And said, politely: the timeline it landed on is in another part of the window.
+    expect(screen.getByText('Added the highlight box at 0:00').getAttribute('aria-live')).toBe(
+      'polite',
+    );
   });
 
   it('says why a sticker could not be added when main could not copy it', async () => {

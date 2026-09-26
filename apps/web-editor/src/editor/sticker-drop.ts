@@ -33,7 +33,8 @@ export interface StickerDrop {
 }
 
 export type PlacedSticker =
-  | { readonly ok: true; readonly added: AddedSticker }
+  /** `name` is the sticker's, as the Stickers tab shows it, for saying what landed. */
+  | { readonly ok: true; readonly added: AddedSticker; readonly name: string }
   | { readonly ok: false; readonly message: string };
 
 export async function placeDroppedSticker(
@@ -61,5 +62,5 @@ export async function placeDroppedSticker(
   );
   return added === null
     ? { ok: false, message: 'That sticker could not be added. Try another.' }
-    : { ok: true, added };
+    : { ok: true, added, name: item.name };
 }

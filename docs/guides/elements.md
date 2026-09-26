@@ -98,8 +98,11 @@ recording or a product demo:
   drop it, on that layer if it is an overlay layer with room.
 - **Drop one on the monitor** to put it where you want it in the picture: it lands at the
   playhead, centred where you let go — a line on its middle, an arrow on its tip — and is
-  selected, ready to fine-tune. While a tile is over the picture its edge lights up; let go
-  in the black around it and the shape lands on the nearest edge. One drop is one undo step.
+  selected, ready to fine-tune; a screen reader hears "Added the highlight box at 0:12". While a
+  tile is over the monitor the picture's edge lights up; let go in the black around it and the
+  shape lands on the nearest edge. One drop is one undo step. From the keyboard, the same result
+  is Enter on the tile, then the arrow keys to nudge the selected shape, or its box in the
+  Inspector's **Shape** section.
 - **Move and resize it on the monitor:** drag the box to move it, a side or corner to resize it.
   An arrow or underline has two round handles, one per end: drag the arrow's tip onto what it
   points at. Arrow keys nudge a selected shape (Shift for a bigger step). Double-click a shape on
@@ -160,8 +163,10 @@ build:elements` has built the rest.)
 - **Drag one onto the timeline:** drop a tile on an overlay lane and it lands there at the drop
   time. Dropped on footage, it goes on a graphics layer of its own instead.
 - **Drop one on the monitor:** it lands at the playhead, centred where you let go, at its usual
-  size, and is selected. A drop in the black around the picture lands on its nearest edge. One
-  drop is one undo step. (Photos and videos go on the timeline, not the monitor, for now.)
+  size, and is selected; a screen reader hears "Added Fire at 0:12". A drop in the black around
+  the picture lands on its nearest edge. One drop is one undo step. From the keyboard, the same
+  result is Enter on the tile, then **Position & size** in the Inspector. (Photos and videos go
+  on the timeline, not the monitor, for now.)
 - **Move, size and turn it** on the monitor like any other picture: drag it, drag a corner, or use
   the rotate handle. **Position & size** in the Inspector sets the same values as numbers, and
   keyframes animate them. Opacity, fades, transitions and blend modes work as they do on a photo.

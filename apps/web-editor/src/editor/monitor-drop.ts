@@ -7,6 +7,7 @@
  * Photos, videos and bin assets dropped on the monitor are deferred; the monitor does not take them.
  */
 import type { Patch } from '@framepilot/editor-core';
+import { shapePreset } from '@framepilot/timeline-schema';
 import {
   shapeAtForFramePoint,
   stickerOffsetForFramePoint,
@@ -15,6 +16,7 @@ import {
 import { addShapePatch } from './shape-builders.js';
 import type { StickerTarget } from './sticker-builders.js';
 import { placeDroppedSticker, type StickerDropDeps } from './sticker-drop.js';
+import { positionLabel } from './stock-builders.js';
 
 /** What the monitor takes: a shape preset in a colour, or a sticker by catalogue id. */
 export type MonitorDropItem =
@@ -35,7 +37,12 @@ export interface MonitorDrop {
 
 /** The placed element, for the caller that applies, selects and announces it — or why not. */
 export type PlacedOnMonitor =
-  | { readonly ok: true; readonly added: { readonly patch: Patch; readonly clipId: string } }
+  | {
+      readonly ok: true;
+      readonly added: { readonly patch: Patch; readonly clipId: string };
+      /** What the polite live region says once it lands (02 §3: "Added … at 0:12"). */
+      readonly announcement: string;
+    }
   | { readonly ok: false; readonly message: string };
 
 /** Said when a shape cannot be built (a preset this build does not have): what the tile says. */
@@ -53,8 +60,9 @@ export async function placeMonitorDrop(
   drop: MonitorDrop,
 ): Promise<PlacedOnMonitor> {
   const { item } = drop;
+  const when = positionLabel(drop.atSeconds);
   if (item.kind === 'sticker') {
-    return placeDroppedSticker(deps, {
+    const placed = await placeDroppedSticker(deps, {
       projectId: drop.projectId,
       elementId: item.elementId,
       atSeconds: drop.atSeconds,
@@ -62,6 +70,10 @@ export async function placeMonitorDrop(
       offset: stickerOffsetForFramePoint(drop.point, drop.target().resolution),
       target: drop.target,
     });
+    // A sticker by its own name, as the Stickers tab names it: "Added Grinning face at 0:12".
+    return placed.ok
+      ? { ok: true, added: placed.added, announcement: `Added ${placed.name} at ${when}` }
+      : placed;
   }
   const added = addShapePatch(
     drop.target().timeline,
@@ -70,5 +82,8 @@ export async function placeMonitorDrop(
     drop.durationSeconds,
     { colour: item.colour, at: shapeAtForFramePoint(drop.point) },
   );
-  return added === null ? { ok: false, message: SHAPE_NOT_ADDED } : { ok: true, added };
+  if (added === null) return { ok: false, message: SHAPE_NOT_ADDED };
+  // A shape by what it is: "Added the highlight box at 0:12".
+  const name = shapePreset(item.presetId)?.preset.name.toLowerCase() ?? 'shape';
+  return { ok: true, added, announcement: `Added the ${name} at ${when}` };
 }

@@ -135,7 +135,7 @@ export function dropStockClipPatch(
 }
 
 /** `75` → `1:15`: a timeline position as a person reads it aloud. */
-function positionLabel(seconds: number): string {
+export function positionLabel(seconds: number): string {
   const whole = Math.max(0, Math.floor(seconds));
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 }
