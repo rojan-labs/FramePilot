@@ -37,7 +37,7 @@ import numpy.typing as npt
 
 from framepilot_engine.media.ffmpeg import find_export_ffmpeg, find_ffprobe
 from framepilot_engine.media.untrusted import untrusted_input_options
-from framepilot_engine.subprocess_safety import validate_safe_argv
+from framepilot_engine.subprocess_safety import popen_argv, run_argv, safe_operand
 
 _log = logging.getLogger(__name__)
 
@@ -96,42 +96,40 @@ def video_timing(path: str | Path) -> VideoTiming:
     if cached is not None:
         return cached
     probe = find_ffprobe()
-    header = subprocess.run(
-        validate_safe_argv(
-            [
-                probe,
-                "-v",
-                "error",
-                *untrusted_input_options(),
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "stream=time_base:format=start_time",
-                "-of",
-                "default=nw=1",
-                str(resolved),
-            ]
-        ),
+    # The input is positional here, so a relative path shaped like an option is defused.
+    source = safe_operand(str(resolved))
+    header = run_argv(
+        probe,
+        [
+            "-v",
+            "error",
+            *untrusted_input_options(),
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=time_base:format=start_time",
+            "-of",
+            "default=nw=1",
+            source,
+        ],
         capture_output=True,
         check=False,
         timeout=60,
     )
-    packets = subprocess.run(
-        validate_safe_argv(
-            [
-                probe,
-                "-v",
-                "error",
-                *untrusted_input_options(),
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "packet=pts,flags",
-                "-of",
-                "csv=p=0",
-                str(resolved),
-            ]
-        ),
+    packets = run_argv(
+        probe,
+        [
+            "-v",
+            "error",
+            *untrusted_input_options(),
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "packet=pts,flags",
+            "-of",
+            "csv=p=0",
+            source,
+        ],
         capture_output=True,
         check=False,
         timeout=600,
@@ -209,11 +207,12 @@ class PtsVideoReader:
         self.close()
         # MoviePy's own binary, not find_ffmpeg(): a VFR clip must go through the same colour
         # converter as every CFR clip in the export (BR2.8).
-        argv = [find_export_ffmpeg(), "-nostdin"]
+        binary = find_export_ffmpeg()
+        operands = ["-nostdin"]
         seek = self._seek_seconds(index)
         if seek is not None:
-            argv += ["-ss", f"{seek:.9f}"]
-        argv += [
+            operands += ["-ss", f"{seek:.9f}"]
+        operands += [
             *untrusted_input_options(),
             "-i",
             self.filename,
@@ -235,8 +234,9 @@ class PtsVideoReader:
             "rawvideo",
             "-",
         ]
-        self.proc = subprocess.Popen(
-            validate_safe_argv(argv),
+        self.proc = popen_argv(
+            binary,
+            operands,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,

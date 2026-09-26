@@ -79,7 +79,7 @@ from framepilot_engine.render.mattes import (
     read_frames_file,
 )
 from framepilot_engine.safety import PathTraversalError, resolve_within
-from framepilot_engine.subprocess_safety import validate_safe_argv
+from framepilot_engine.subprocess_safety import UnsafeArgvError, popen_argv, run_argv
 
 _log = logging.getLogger(__name__)
 
@@ -135,26 +135,24 @@ def probe_master(path: Path) -> StreamInfo:
 
     :raises MatteTierError: The file is not a readable Matroska video stream.
     """
-    argv = validate_safe_argv(
-        [
-            find_ffprobe(),
-            "-v",
-            "error",
-            *_master_input_args(),
-            "-select_streams",
-            "v:0",
-            "-count_packets",
-            "-show_entries",
-            "stream=width,height,pix_fmt,nb_read_packets",
-            "-of",
-            "json",
-            "-i",
-            str(path),
-        ]
-    )
+    binary = find_ffprobe()
+    operands = [
+        "-v",
+        "error",
+        *_master_input_args(),
+        "-select_streams",
+        "v:0",
+        "-count_packets",
+        "-show_entries",
+        "stream=width,height,pix_fmt,nb_read_packets",
+        "-of",
+        "json",
+        "-i",
+        str(path),
+    ]
     try:
-        completed = subprocess.run(
-            argv, capture_output=True, check=False, timeout=PROBE_TIMEOUT_SECONDS
+        completed = run_argv(
+            binary, operands, capture_output=True, check=False, timeout=PROBE_TIMEOUT_SECONDS
         )
         streams = json.loads(completed.stdout or b"{}").get("streams") or []
         stream = streams[0]
@@ -164,6 +162,9 @@ def probe_master(path: Path) -> StreamInfo:
             pixel_format=str(stream["pix_fmt"]),
             frame_count=int(stream.get("nb_read_packets") or 0),
         )
+    except UnsafeArgvError:
+        # A malformed vector is a bug here, not an unreadable file (it subclasses ValueError).
+        raise
     except (subprocess.SubprocessError, ValueError, IndexError, KeyError, TypeError) as exc:
         raise MatteTierError(f"{path.name} is not a readable matte file.") from exc
 
@@ -172,33 +173,35 @@ class _MasterFrames:
     """Every frame of one master, forward, as raw pixels from one hardened ffmpeg pipe."""
 
     def __init__(self, path: Path, pixel_format: str, shape: tuple[int, ...], dtype: Any) -> None:
-        argv = validate_safe_argv(
-            [
-                # The export's binary: the tier must hold what the export makes of the masters.
-                find_export_ffmpeg(),
-                "-nostdin",
-                "-v",
-                "error",
-                *_master_input_args(),
-                "-i",
-                str(path),
-                "-map",
-                "0:v:0",
-                "-fps_mode",
-                "passthrough",
-                "-f",
-                "rawvideo",
-                "-pix_fmt",
-                pixel_format,
-                "-",
-            ]
-        )
+        # The export's binary: the tier must hold what the export makes of the masters.
+        binary = find_export_ffmpeg()
+        operands = [
+            "-nostdin",
+            "-v",
+            "error",
+            *_master_input_args(),
+            "-i",
+            str(path),
+            "-map",
+            "0:v:0",
+            "-fps_mode",
+            "passthrough",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            pixel_format,
+            "-",
+        ]
         self.name = path.name
         self._shape = shape
         self._dtype = np.dtype(dtype)
         self._bytes = int(np.prod(shape)) * self._dtype.itemsize
-        self._process = subprocess.Popen(
-            argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL
+        self._process: subprocess.Popen[bytes] = popen_argv(
+            binary,
+            operands,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
         )
 
     def next(self) -> npt.NDArray[Any]:
@@ -460,47 +463,47 @@ class GrayEncoder:
     masters, fed raw ``rows x width`` byte frames on stdin."""
 
     def __init__(self, path: Path, width: int, rows: int) -> None:
-        argv = validate_safe_argv(
-            [
-                find_ffmpeg(),
-                "-nostdin",
-                "-v",
-                "error",
-                "-y",
-                # The input is this process's own bytes on stdin (``pipe``; ffmpeg 8 names it
-                # ``fd``) as raw video: nothing else can be opened on that side either.
-                "-protocol_whitelist",
-                "pipe,fd",
-                "-format_whitelist",
-                "rawvideo",
-                "-f",
-                "rawvideo",
-                "-pix_fmt",
-                "gray",
-                "-s",
-                f"{width}x{rows}",
-                "-r",
-                "30",
-                "-i",
-                "-",
-                "-c:v",
-                "ffv1",
-                "-level",
-                "3",
-                "-g",
-                "1",
-                "-slicecrc",
-                "1",
-                "-pix_fmt",
-                "gray",
-                "-f",
-                "matroska",
-                str(path),
-            ]
-        )
+        binary = find_ffmpeg()
+        operands = [
+            "-nostdin",
+            "-v",
+            "error",
+            "-y",
+            # The input is this process's own bytes on stdin (``pipe``; ffmpeg 8 names it
+            # ``fd``) as raw video: nothing else can be opened on that side either.
+            "-protocol_whitelist",
+            "pipe,fd",
+            "-format_whitelist",
+            "rawvideo",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "gray",
+            "-s",
+            f"{width}x{rows}",
+            "-r",
+            "30",
+            "-i",
+            "-",
+            "-c:v",
+            "ffv1",
+            "-level",
+            "3",
+            "-g",
+            "1",
+            "-slicecrc",
+            "1",
+            "-pix_fmt",
+            "gray",
+            "-f",
+            "matroska",
+            str(path),
+        ]
         self.shape = (rows, width)
         self.count = 0
-        self._process = subprocess.Popen(argv, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        self._process: subprocess.Popen[bytes] = popen_argv(
+            binary, operands, stdin=subprocess.PIPE, stderr=subprocess.PIPE
+        )
 
     def write(self, frame: npt.NDArray[np.uint8]) -> None:
         if frame.shape != self.shape or frame.dtype != np.uint8:

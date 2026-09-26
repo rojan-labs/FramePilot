@@ -47,7 +47,7 @@ import numpy.typing as npt
 
 from framepilot_engine.media.ffmpeg import find_export_ffmpeg
 from framepilot_engine.media.untrusted import bounded_decode_input_options
-from framepilot_engine.subprocess_safety import validate_safe_argv
+from framepilot_engine.subprocess_safety import run_argv
 
 _log = logging.getLogger(__name__)
 
@@ -242,37 +242,35 @@ def decode_frame(
     :raises CropColourError: When ffmpeg returns no frame.
     """
     seek = max(0.0, time_seconds - 0.5 / fps)
-    argv = validate_safe_argv(
-        [
-            find_export_ffmpeg(),
-            "-nostdin",
-            "-loglevel",
-            "error",
-            "-ss",
-            f"{seek:.6f}",
-            *bounded_decode_input_options(),
-            "-i",
-            str(path),
-            "-map",
-            "0:v:0",
-            "-frames:v",
-            "1",
-            "-f",
-            "image2pipe",
-            "-vf",
-            "scale=iw:ih",
-            "-sws_flags",
-            "bicubic",
-            "-pix_fmt",
-            "rgb24",
-            "-vcodec",
-            "ppm",
-            "-",
-        ]
-    )
+    binary = find_export_ffmpeg()
+    operands = [
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-ss",
+        f"{seek:.6f}",
+        *bounded_decode_input_options(),
+        "-i",
+        str(path),
+        "-map",
+        "0:v:0",
+        "-frames:v",
+        "1",
+        "-f",
+        "image2pipe",
+        "-vf",
+        "scale=iw:ih",
+        "-sws_flags",
+        "bicubic",
+        "-pix_fmt",
+        "rgb24",
+        "-vcodec",
+        "ppm",
+        "-",
+    ]
     try:
-        completed = subprocess.run(
-            argv, capture_output=True, check=False, timeout=_remaining(deadline)
+        completed = run_argv(
+            binary, operands, capture_output=True, check=False, timeout=_remaining(deadline)
         )
     except subprocess.TimeoutExpired as exc:
         raise CropColourDeadline(f"Decoding {path.name} ran out of time.") from exc

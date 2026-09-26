@@ -52,7 +52,7 @@ from framepilot_engine.media.ffmpeg import find_export_ffmpeg, find_ffprobe
 from framepilot_engine.media.untrusted import bounded_decode_input_options
 from framepilot_engine.render.pts_reader import VideoTiming
 from framepilot_engine.safety import PathTraversalError, resolve_within
-from framepilot_engine.subprocess_safety import validate_safe_argv
+from framepilot_engine.subprocess_safety import popen_argv, run_argv
 
 _log = logging.getLogger(__name__)
 
@@ -332,24 +332,21 @@ def probe_stream(path: Path) -> StreamInfo:
 
     :raises ValueError: The file has no readable video stream.
     """
-    argv = validate_safe_argv(
-        [
-            find_ffprobe(),
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-count_packets",
-            "-show_entries",
-            "stream=width,height,pix_fmt,nb_read_packets",
-            "-of",
-            "json",
-            *_input_options(path),
-            "-i",
-            str(path),
-        ]
-    )
-    completed = subprocess.run(argv, capture_output=True, check=False, timeout=60)
+    operands = [
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-count_packets",
+        "-show_entries",
+        "stream=width,height,pix_fmt,nb_read_packets",
+        "-of",
+        "json",
+        *_input_options(path),
+        "-i",
+        str(path),
+    ]
+    completed = run_argv(find_ffprobe(), operands, capture_output=True, check=False, timeout=60)
     if completed.returncode != 0:
         raise ValueError(f"ffprobe could not read {path.name}.")
     streams = json.loads(completed.stdout or b"{}").get("streams") or []
@@ -555,10 +552,11 @@ class _RawCursor:
         start: int,
         seek_seconds: float | None,
     ) -> None:
-        argv = [find_export_ffmpeg(), "-nostdin", "-v", "error"]  # the export's binary (BR2.8)
+        binary = find_export_ffmpeg()  # the export's binary (BR2.8)
+        operands = ["-nostdin", "-v", "error"]
         if seek_seconds is not None:
-            argv += ["-ss", repr(seek_seconds)]
-        argv += [
+            operands += ["-ss", repr(seek_seconds)]
+        operands += [
             *_input_options(path),
             "-i",
             str(path),
@@ -572,8 +570,9 @@ class _RawCursor:
             pixel_format,
             "-",
         ]
-        self._proc: subprocess.Popen[bytes] | None = subprocess.Popen(
-            validate_safe_argv(argv),
+        self._proc: subprocess.Popen[bytes] | None = popen_argv(
+            binary,
+            operands,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
@@ -675,23 +674,20 @@ def _packet_seconds(path: Path) -> list[float]:
     ``-ss`` on an input is relative to the container start time, so that is subtracted here.
     Demux only (no decode), so it is cheap even for a long matte.
     """
-    argv = validate_safe_argv(
-        [
-            find_ffprobe(),
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "packet=pts_time:format=start_time",
-            "-of",
-            "json",
-            *_input_options(path),
-            "-i",
-            str(path),
-        ]
-    )
-    completed = subprocess.run(argv, capture_output=True, check=False, timeout=120)
+    operands = [
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "packet=pts_time:format=start_time",
+        "-of",
+        "json",
+        *_input_options(path),
+        "-i",
+        str(path),
+    ]
+    completed = run_argv(find_ffprobe(), operands, capture_output=True, check=False, timeout=120)
     if completed.returncode != 0:
         raise MatteFrameMissing(f"Could not index matte file {path.name}.")
     document = json.loads(completed.stdout or b"{}")

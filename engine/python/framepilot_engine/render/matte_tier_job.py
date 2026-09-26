@@ -60,7 +60,7 @@ from framepilot_engine.render.mattes import (
     MATTES_DIR,
     read_frames_file,
 )
-from framepilot_engine.subprocess_safety import validate_safe_argv
+from framepilot_engine.subprocess_safety import UnsafeArgvError, run_argv
 
 _log = logging.getLogger(__name__)
 
@@ -159,31 +159,32 @@ def monitor_tier_size(proxy: Path, rotation: int) -> tuple[int, int]:
     """
     if not _regular_file(proxy):
         raise MatteTierMissing("The picture the tier is made for is missing.")
-    argv = validate_safe_argv(
-        [
-            find_ffprobe(),
-            "-v",
-            "error",
-            "-protocol_whitelist",
-            "file",
-            "-format_whitelist",
-            FORMAT_WHITELIST,
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height",
-            "-of",
-            "json",
-            "-i",
-            str(proxy),
-        ]
-    )
+    binary = find_ffprobe()
+    operands = [
+        "-v",
+        "error",
+        "-protocol_whitelist",
+        "file",
+        "-format_whitelist",
+        FORMAT_WHITELIST,
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height",
+        "-of",
+        "json",
+        "-i",
+        str(proxy),
+    ]
     try:
-        completed = subprocess.run(
-            argv, capture_output=True, check=False, timeout=PROBE_TIMEOUT_SECONDS
+        completed = run_argv(
+            binary, operands, capture_output=True, check=False, timeout=PROBE_TIMEOUT_SECONDS
         )
         stream = (json.loads(completed.stdout or b"{}").get("streams") or [])[0]
         width, height = int(stream["width"]), int(stream["height"])
+    except UnsafeArgvError:
+        # A malformed vector is a bug here, not an unmeasurable picture (it subclasses ValueError).
+        raise
     except (subprocess.SubprocessError, ValueError, IndexError, KeyError, TypeError) as exc:
         raise MatteTierError("The picture could not be measured.") from exc
     if not (0 < width <= TIER_MAX_SIDE and 0 < height <= TIER_MAX_SIDE):
