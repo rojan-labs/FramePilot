@@ -175,7 +175,7 @@ export default defineConfig({
       },
     },
     // Elements end to end (plan/elements EL4a): the same fake desktop and real sidecar as
-    // masking-e2e, for shapes and (later) stickers. CI ONLY, in its own job (`elements-e2e`).
+    // masking-e2e, for shapes and stickers. CI ONLY, in its own job (`elements-e2e`).
     {
       name: 'elements-e2e',
       testMatch: /elements-e2e-[a-z0-9-]+\.spec\.ts/,

@@ -469,10 +469,11 @@ jobs:
 
   # ── Elements end to end (plan/elements EL4a) ───────────────────────────────────────────────
   # The masking job's harness (fake desktop in real Chrome + the real engine sidecar) driving the
-  # Shapes flow: add from the Elements tab, resize on the monitor, recolour, export, the monitor
-  # compared with the export at the PX4 gates, undo. Stickers join in EL6a.
+  # Shapes flow (add from the Elements tab, resize on the monitor, recolour) and the Stickers flow
+  # (add through main's own sticker library, replace from the Inspector, heal a missing file on
+  # open): export, the monitor compared with the export at the PX4 gates, undo.
   elements-e2e:
-    name: Elements end to end (shapes)
+    name: Elements end to end (shapes, stickers)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

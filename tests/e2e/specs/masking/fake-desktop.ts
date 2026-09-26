@@ -56,6 +56,8 @@ import {
 import { registerRelinkIpc } from '../../../../apps/desktop/dist/capability-packs/matte-relink-ipc.js';
 import { DesktopMatteMediaInspector } from '../../../../apps/desktop/dist/capability-packs/matte-media-inspector.js';
 import { validateProjectMattes } from '../../../../apps/desktop/dist/capability-packs/matte-validation.js';
+import { ElementsLibrary } from '../../../../apps/desktop/dist/media/elements-library.js';
+import { loadStickerCatalog } from '../../../../packages/ai-sdk/dist/index.js';
 import {
   frameRange,
   sampleSourcePts,
@@ -70,7 +72,7 @@ import {
   writeProjectFile,
 } from '../../../../packages/timeline-schema/dist/project-file.js';
 import { parseProject, type Project } from '../../../../packages/timeline-schema/dist/index.js';
-import { MEDIA_ROUTE, WORK_ROOT, type Rgb3, type Workspace } from './workspace.js';
+import { MEDIA_ROUTE, REPO, WORK_ROOT, type Rgb3, type Workspace } from './workspace.js';
 
 /** Where a pack stands for one capability, as the host would answer `capabilityPackStatus`. */
 export type PackState = 'ready' | 'missing' | 'catalog_unconfigured';
@@ -192,6 +194,7 @@ const INVOKE_METHODS = [
   'matteSaveCorrection',
   'matteRecheckMedia',
   'projectChooseRelinkFile',
+  'elementsMaterialize',
 ] as const;
 const SUBSCRIPTIONS = [
   'onExportProgress',
@@ -309,9 +312,19 @@ export class FakeDesktop {
   private readonly aiRuns = new Map<string, AbortController>();
   /** The real job scheduler, when the spec gave a journal. */
   public readonly scheduler: CapabilityPackJobScheduler | undefined;
+  /**
+   * Main's own sticker library over the stickers the app ships (plan/elements EL6a): it copies a
+   * sticker into the project folder by id, and heals one whose file went missing on open.
+   */
+  private readonly elements: ElementsLibrary;
   private readonly matteDependencies: Record<string, unknown>;
 
   public constructor(public readonly options: FakeDesktopOptions) {
+    this.elements = new ElementsLibrary({
+      projectsRoot: options.workspace.projectDir,
+      bundledRoot: () => join(REPO, 'apps', 'web-editor', 'public', 'elements', 'stickers'),
+      catalog: loadStickerCatalog,
+    });
     this.packs = {
       'subject.matte': options.packs?.['subject.matte'] ?? 'ready',
       'subject.detect': options.packs?.['subject.detect'] ?? 'ready',
@@ -624,12 +637,24 @@ export class FakeDesktop {
   // --- the project on disk ↔ the renderer's copy --------------------------------------------------
 
   /** Asset paths as the renderer sees them: same-origin URLs for files in the project folder. */
+  /** A stored path (relative to the project file) as the page reads it. */
+  private rendererPath(stored: string): string {
+    const absolute = isAbsolute(stored) ? stored : join(this.options.workspace.projectDir, stored);
+    return `${this.origin}${this.options.workspace.urlPath(absolute)}`;
+  }
+
+  /** `framepilot:elements:materialize`, with the copied file's path as the page reads it. */
+  private async materializeElement(request: {
+    projectId: string;
+    elementId: string;
+  }): Promise<unknown> {
+    const result = await this.elements.materialize(request);
+    if (!result.ok) return result;
+    return { ...result, asset: { ...result.asset, path: this.rendererPath(result.asset.path) } };
+  }
+
   private toRenderer(project: Project): Project {
-    const dir = this.options.workspace.projectDir;
-    const url = (stored: string): string => {
-      const absolute = isAbsolute(stored) ? stored : join(dir, stored);
-      return `${this.origin}${this.options.workspace.urlPath(absolute)}`;
-    };
+    const url = (stored: string): string => this.rendererPath(stored);
     return {
       ...project,
       assets: project.assets.map((asset) => ({
@@ -677,6 +702,8 @@ export class FakeDesktop {
     const path = this.options.workspace.projectPath;
     try {
       const project = await readProjectFile(path, { backupBeforeMigration: true });
+      // As main does: a sticker file that went missing comes back before anything reads it.
+      await this.elements.heal(project);
       this.opened = true;
       if (this.scheduler !== undefined) {
         // `resumeJobsForProject` in main.ts: this project's journaled jobs wake now.
@@ -907,6 +934,8 @@ export class FakeDesktop {
         return this.options.trackJob(args[0] as Record<string, unknown>, this);
       case 'previewTextRaster':
         return this.textRaster(args[0] as Record<string, unknown>);
+      case 'elementsMaterialize':
+        return this.materializeElement(args[0] as { projectId: string; elementId: string });
       case 'aiStreamStart':
         return this.aiStart(args[0] as Record<string, unknown>);
       case 'aiStreamAbort':
