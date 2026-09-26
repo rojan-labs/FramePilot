@@ -335,6 +335,7 @@ from framepilot_engine.validation.temporal_evidence import (
 from framepilot_engine.visual_indexing import (
     FrameExtractionError,
     extract_keyframe_jpeg,
+    is_element_asset_id,
     keyframe_dhashes,
     sample_asset,
 )
@@ -3075,9 +3076,10 @@ def create_app(
         """Whether a brain asset has video frames to sample (video or still image).
 
         Classified from the stored ffprobe result; an asset with no probe (or an
-        audio-only one) is not part of the visual worklist.
+        audio-only one) is not part of the visual worklist. Neither is a sticker: it
+        is an element laid over footage, not footage (plan/elements EL6a.6).
         """
-        if asset.probe is None:
+        if asset.probe is None or is_element_asset_id(asset.id):
             return False
         try:
             return MediaInfo.model_validate(asset.probe).has_video
@@ -4165,7 +4167,8 @@ def create_app(
                 return existing
         explicit = req.asset_ids is not None
         if req.asset_ids is not None:
-            asset_ids = list(dict.fromkeys(req.asset_ids))
+            # Named ids too: a sticker the agent asks for is still not footage.
+            asset_ids = [a for a in dict.fromkeys(req.asset_ids) if not is_element_asset_id(a)]
         else:
             asset_ids = [a.id for a in store.list_assets() if _asset_is_visual(a)]
         asset_ids = _prioritise_worklist(store, asset_ids, req)
@@ -7797,11 +7800,16 @@ def create_app(
                         f"Job {req.job_id!r} exists but is not an {BATCH_JOB_KIND} job.",
                     )
                 return existing
+        # Stickers are elements, not footage: there is nothing in one to analyse (EL6a.6).
         if req.asset_ids is not None:
-            asset_ids = list(dict.fromkeys(req.asset_ids))
+            asset_ids = [a for a in dict.fromkeys(req.asset_ids) if not is_element_asset_id(a)]
         else:
             project = load_project_document(req.project_path, req.project)
-            asset_ids = [a.id for a in project.assets if a.kind in ANALYZABLE_ASSET_KINDS]
+            asset_ids = [
+                a.id
+                for a in project.assets
+                if a.kind in ANALYZABLE_ASSET_KINDS and not is_element_asset_id(a.id)
+            ]
         job_id = req.job_id or f"{BATCH_JOB_KIND}-{uuid4().hex}"
         return store.create_job(
             job_id,

@@ -45,6 +45,21 @@ from framepilot_engine.media.ffmpeg import FFmpegError, find_ffmpeg, run_bytes
 
 _log = logging.getLogger(__name__)
 
+#: Every element asset's id starts with this (``element_<library>_<item>``, written by the
+#: desktop's ``sourcedAssetId('element', …)`` and editor-core's ``elementAssetId``).
+ELEMENT_ASSET_ID_PREFIX = "element_"
+
+
+def is_element_asset_id(asset_id: str) -> bool:
+    """Whether ``asset_id`` names an element (a sticker) rather than footage.
+
+    WHY the id and not the provenance: the brain row the worklist reads carries a path, a hash
+    and a probe, never the asset's ``source``. The id is deterministic from the library item, so
+    it is the one thing both sides agree on (plan/elements EL6a.6).
+    """
+    return asset_id.startswith(ELEMENT_ASSET_ID_PREFIX)
+
+
 __all__ = [
     "DEFAULT_TIMEOUT_SECONDS",
     "KEYFRAME_MAX_EDGE",

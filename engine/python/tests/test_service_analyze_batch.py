@@ -141,6 +141,39 @@ def test_batch_explicit_asset_ids_fix_the_worklist(
     assert [i["assetId"] for i in body["items"]] == ["mus"]
 
 
+def test_batch_never_analyses_a_sticker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A sticker is an element, not footage (plan/elements EL6a.6): swept or named, it is skipped.
+
+    Nothing in one is worth measuring, and a brain row would put it on the visual worklist.
+    """
+    client, _ = _sandboxed_client(tmp_path, monkeypatch)
+    project = Project.model_validate(
+        {
+            "id": "ps",
+            "name": "S",
+            "assets": [
+                {"id": "vid", "path": "clip.mp4", "kind": "video"},
+                {
+                    "id": "element_fluent3d_fire",
+                    "path": "elements/fluent3d/fire.webp",
+                    "kind": "image",
+                },
+            ],
+            "timeline": {"tracks": []},
+        }
+    )
+    dest = tmp_path / "sticker.project.fp.json"
+    ProjectFile.save(project, dest)
+    swept = _post_batch(client, dest, projectId="ps", depth="quick").json()
+    assert swept["total"] == 1 and [i["assetId"] for i in swept["items"]] == ["vid"]
+    named = _post_batch(
+        client, dest, projectId="ps2", assetIds=["element_fluent3d_fire", "vid"], depth="quick"
+    ).json()
+    assert named["total"] == 1
+
+
 def test_batch_empty_worklist_is_done_immediately(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
