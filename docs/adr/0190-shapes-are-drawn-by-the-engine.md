@@ -90,3 +90,11 @@ Option 3.
   fills inclusively, so the shift biased every shape up and left and spilled coverage into the
   top and left margin; a test now redraws every preset with a wide margin and checks nothing was
   clipped.
+
+## Amendment — 2026-09-26: no browser approximation (EL11)
+
+The consequence above that the browser build "cannot draw shapes until a labelled approximation
+lands (EL11)" is settled the other way: EL11's product-scope review keeps Elements out of the
+browser build. A `Path2D` rasteriser for the whole catalogue would be the second geometry
+implementation this ADR rejected, and it would drift. If the browser build gains an engine
+connection, shapes use the existing raster route.

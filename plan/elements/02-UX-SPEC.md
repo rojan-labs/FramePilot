@@ -18,8 +18,8 @@ written for editors, not engineers.
 - **Browser build:** desktop first. Photos and Videos need the main process and stay **absent** in
   the browser, as the Stock tab is today — absence, never a disabled panel. Stickers and Shapes are
   local and _could_ work there, but shapes need an engine-free raster fallback and stickers the
-  browser import path; both are decided in EL11 (06 §6). Until then the Elements tab is absent in
-  the browser.
+  browser import path. **Decided in EL11 (2026-09-26): both stay absent** (06 §6), so the Elements
+  tab is absent in the browser.
 
 ---
 
@@ -81,8 +81,8 @@ choice alongside Add (MD-E5).
   sticker is reusable, unlike a stock download).
 - **Hover:** name tooltip; the favourite star appears (EL6b). Animated stickers (EL10) play on hover
   unless `prefers-reduced-motion`.
-- **Skin tones (EL11):** tiles for emoji with tones show a tone dot; long-press or right-click picks
-  the tone; the panel remembers the last chosen tone.
+- **Skin tones — deferred (EL11 review, 11 §2):** the default tone only; bundling the other five
+  breaks the packaged-set and installer budgets, and an on-demand pack needs EL10's download path.
 
 ### 2.3 Shapes (EL4a six tiles; the catalogue in EL5)
 
@@ -106,7 +106,7 @@ choice alongside Add (MD-E5).
 | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | Click a tile (or Enter on a focused tile)                                       | Added at the **playhead**                                                                |
 | Drag a tile onto a timeline lane (EL5 shapes, EL6b stickers, EL9 photos/videos) | Added at the drop time; on that lane if it has room, else the nearest free graphics lane |
-| Drag a tile onto the program monitor (EL11)                                     | Added at the playhead, **centred where it was dropped**                                  |
+| Drag a sticker or shape onto the monitor (EL11)                                 | Added at the playhead, **centred where it was dropped**                                  |
 
 **Duration:** `settings.defaultOverlaySeconds` — the existing default in Settings' "New elements"
 group, whose hint becomes "On-screen seconds for a new title, sticker or shape." An element may run
@@ -143,13 +143,13 @@ one shared one.
 
 ### 4.1 Sticker selected
 
-| Section                          | Controls                                                                                                                                                                                                                                                                       |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Position & size (existing)       | x, y, scale, rotation, opacity — keyframeable                                                                                                                                                                                                                                  |
-| **Sticker** (new)                | Thumbnail + **Replace…** (opens the Stickers sub-tab in replace mode: keeps timing, transform and animation, swaps the asset); **Outline** (on/off, colour, width — the existing `edge_style` stroke, which EL2b makes apply to stills — EL6b); **Shadow** (edge-style shadow) |
-| **Animation** (new, shared, EL7) | In · Out · Loop, each a preset picker + duration                                                                                                                                                                                                                               |
-| Blend, Mask (existing)           | unchanged                                                                                                                                                                                                                                                                      |
-| Follow subject (EL11)            | reuse of `track-follow.ts`                                                                                                                                                                                                                                                     |
+| Section                           | Controls                                                                                                                                                                                                                                                                       |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Position & size (existing)        | x, y, scale, rotation, opacity — keyframeable                                                                                                                                                                                                                                  |
+| **Sticker** (new)                 | Thumbnail + **Replace…** (opens the Stickers sub-tab in replace mode: keeps timing, transform and animation, swaps the asset); **Outline** (on/off, colour, width — the existing `edge_style` stroke, which EL2b makes apply to stills — EL6b); **Shadow** (edge-style shadow) |
+| **Animation** (new, shared, EL7)  | In · Out · Loop, each a preset picker + duration                                                                                                                                                                                                                               |
+| Blend, Mask (existing)            | unchanged                                                                                                                                                                                                                                                                      |
+| Follow subject — deferred (11 §2) | needs the maintainer's decision on MO-14 first                                                                                                                                                                                                                                 |
 
 ### 4.2 Shape selected
 

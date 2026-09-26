@@ -161,7 +161,10 @@ sharp size" above 1.5× at the export resolution, instead of silently exporting 
 HD pack (Color style at 512) is deferred until someone asks for bigger stickers.
 
 **Skin tones:** EL6a/EL6b ship the default tone only. The five other tones for the ~300 toned emoji add
-≈ 30 MB; EL11 decides between bundling them and an on-demand tone pack.
+≈ 30 MB; EL11 decides between bundling them and an on-demand tone pack. **Decided (EL11 review,
+2026-09-26): deferred.** Measured: 310 toned emoji × 5 = 1,550 files, ≈ 37 MB with thumbnails —
+the packaged set would go from 32.2 MiB to ~70 MB (budget 40 MB) and the installer from 374 to
+~409 MiB (budget 400); an on-demand pack needs EL10's download path first.
 
 **Noto Animated (EL10):** 512 × 512 animated WebP, _measured_ 360.6 KB for `1f600` (48 frames RGBA,
 loop 0) → ≈ 320 MB for all 881. **Never bundled.** Downloaded per sticker on first use, verified

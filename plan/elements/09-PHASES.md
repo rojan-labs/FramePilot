@@ -127,18 +127,29 @@ opacity, a transition, a crop or an In/Out preset, so none changes; CI confirms:
 Lands **with its first consumer**, not before: edge styles and masks with EL6b (sticker outline,
 shadow, masking), geometry transitions (zoom, slide, wipe passes) with EL7 (In/Out).
 
-- [ ] **EL2b.1** Masks and edge styles for stills and titles; edge styles read the layer's own
+- [~] **EL2b.1** Masks and edge styles for stills and titles; edge styles read the layer's own
       alpha when it has no mask stack (`render/edge_styles.py` + the preview's edge passes).
-- [ ] **EL2b.2** Catalogue and geometry transitions for stills and titles in the compiler, both
+      _Built:_ `33c63e45` (a photo or a sticker takes its masks and edge styles, monitor and
+      export), `16bf8a24` (a title takes a track matte or a Frame mask, and an outline around its
+      glyphs), `a8834dad` (a mask a title or photo cannot take is refused up front).
+- [~] **EL2b.2** Catalogue and geometry transitions for stills and titles in the compiler, both
       frame plans and the monitor.
-- [ ] **EL2b.3** Oracle rows: `stills/mask-ellipse`, `stills/edge-outline`, `stills/zoom-in`,
+      _Built:_ with its consumer EL7 (`f738af2f`): stills and titles enter and leave with the
+      catalogue's geometry transitions, and a moving exit plays its entrance backwards.
+- [~] **EL2b.3** Oracle rows: `stills/mask-ellipse`, `stills/edge-outline`, `stills/zoom-in`,
       `text/slide-in`.
-- [ ] **EL2b.4** (found 2026-09-26 while building shapes) A rotated title is clipped: the export
+      _Built as:_ `alpha/still-mask-ellipse`, `stickers/stickers-outline-shadow` (an edge outline
+      on a still's own alpha), `transitions/still-transitions` (fade, zoom and wipe entrances on
+      PNG stills over video), `text/text-slide-in`; TS and Python vectors equal.
+- [~] **EL2b.4** (found 2026-09-26 while building shapes) A rotated title is clipped: the export
       rotates a layer inside its own box (`expand=False`) and a title's raster is tight to its
       glyphs, so "HELLO" turned 90° loses most of its letters, on the monitor and in the file.
       Shapes already avoid it with a rotation-safe square raster (ADR 0190); give titles the same
       (a padded raster when the clip animates `rotation`), in the engine raster, both frame plans
       and the monitor, with an oracle row `text/rotated`.
+      _Built:_ `ea3ebaaa` — a title that animates rotation is drawn in a transparent square as wide
+      as its diagonal in the engine, the preview raster route and the monitor's fallback; row
+      `text/text-rotated` (0° to 90°); `3d55c9f0` gives the oracle harness the same flag.
 
 ---
 
@@ -565,15 +576,39 @@ appears in Credits; already-downloaded stickers work offline.
 
 ## EL11 — Polish `[ ]`
 
-- [ ] **EL11.1** Favourites and Recents (user settings store).
-- [ ] **EL11.2** Skin tones (bundle vs tone pack decided with the measured 30 MB).
-- [ ] **EL11.3** "Add as sticker" for the user's own images (bin context menu → sticker placement).
-- [ ] **EL11.4** Drop onto the program monitor at a position.
-- [ ] **EL11.5** Follow subject for stickers (`track-follow.ts`, Inspector + `follow_subject`).
-- [ ] **EL11.6** Browser build: Shapes with a `Path2D` fallback raster labelled "Preview
-      approximate", and the curated stickers through `importMedia` — or both stay absent, decided
-      with a test (06 §6).
-- [ ] **EL11.7** `accessibility-responsive-auditor` and `ui-ux-critic` passes; fixes.
+**Shrunk by the product-scope review of 2026-09-26** (README §7): two items are shown gaps in the
+editing loop and stay, one was already built, three are deferred with their numbers, and the
+accessibility and UI passes join the release gate. Starts after EL9, whose overlay builder EL11.3
+reuses.
+
+- [ ] **EL11.1** Favourites and Recents (user settings store). **Built in EL6b.2**: the Stickers
+      tab's All/Recent/Favourites chips and star persist through `useViewPreference`, which is the
+      user settings store 04 §5 names. Left: a sticker **dragged** onto a lane is not recorded as
+      recent (only a click is); record it in the browser when the drag ends in a copy, with a test.
+- [ ] **EL11.2** Skin tones — **deferred** (11 §2). Measured: 310 toned emoji × 5 tones = 1,550
+      files ≈ 37 MB with thumbnails; bundled, the packaged set goes from 32.2 MiB to ~70 MB against
+      its 40 MB budget and the installer from 374 to ~409 MiB against 400; an on-demand pack needs
+      EL10's download path first, which waits on a licence read.
+- [ ] **EL11.3** An **"Add as overlay"** button on the media bin's picture cards (the user's own
+      images: a logo, a screenshot, a cut-out), placing through EL9.4's `buildAddStockOverlayOps`
+      at the playhead — not sticker placement, which would give a user's file library behaviour
+      (the Elements folder, re-copy on open, credits). Keyboard parity with the focused card; absent
+      for audio and element assets; one undo. The user's own videos are the maintainer's call
+      (it widens MD-E5 beyond Pexels media) and are not offered.
+- [ ] **EL11.4** Drop a sticker or shape tile onto the **layer monitor** at a position: one drop
+      zone on the frame accepting the elements drag payload, one pure screen-to-frame mapping
+      (letterboxed and zoomed monitors), placing at the playhead through the existing `at` /
+      `offset` builders; the new clip is selected. Photos, videos and bin assets on the monitor are
+      deferred.
+- [ ] **EL11.5** Follow subject for stickers — **deferred** (11 §2): it needs the maintainer's
+      decision on MO-14 (a clip following a track: baked keyframes through `planTrackFollow`, or a
+      `Clip.transformTrack` schema field), and `follow_subject` in the masking domain refuses to
+      move a clip by that decision.
+- [ ] **EL11.6** Browser build — **decided: both halves stay absent**, as `ElementsPanel.test.tsx`
+      and `elements.spec.ts` already prove. A `Path2D` rasteriser would be the second geometry
+      implementation ADR 0190 rejected; browser stickers need a project that stores imported bytes.
+- [ ] **EL11.7** Moved to EL12.6: `accessibility-responsive-auditor` and `ui-ux-critic` over every
+      shipped Elements surface, each finding fixed or waived with a reason.
 
 ---
 

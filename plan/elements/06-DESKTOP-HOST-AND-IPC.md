@@ -121,8 +121,11 @@ CI uploads the build script's size report and fails if the packaged `elements/` 
 
 ## 6. The browser build (decided in EL11)
 
-Desktop is product focus #1, so the browser build keeps the Elements tab **absent** until EL11 decides
-each half with a test:
+**Decided 2026-09-26 (EL11 product-scope review): both halves stay absent**, as
+`ElementsPanel.test.tsx` and `tests/e2e/specs/elements.spec.ts` prove. A `Path2D` rasteriser for the
+whole catalogue would be the second geometry implementation ADR 0190 rejected, and browser stickers
+need a project that stores imported bytes durably. Reopen when the browser build has real users or an
+engine connection (shapes would then use the existing raster route). The options that were weighed:
 
 - **Shapes:** need an engine-free raster — a canvas `Path2D` fallback labelled "Preview approximate"
   (ADR 0180 decision 4).

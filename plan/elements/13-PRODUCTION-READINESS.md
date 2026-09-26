@@ -96,15 +96,15 @@ phase PR meets §1; the programme meets §10 before release.
 
 ## 6. Support runbook (`docs/runbooks/elements.md`, EL12)
 
-| Symptom                                                  | Cause                                         | Fix                                                    |
-| -------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------ |
-| "This sticker's file is missing from this install"       | damaged or partial install                    | reinstall; the packaged set is hash-checked            |
-| A sticker shows as missing media in an old project       | file deleted outside the app                  | auto-heal re-materialises it on open; otherwise relink |
-| "Preview approximate" on shapes                          | browser build without the engine (after EL11) | expected; export is exact                              |
-| Photos/Videos say "Add your Pexels key" / quota messages | unchanged Pexels behaviour                    | Settings → AI → Photos & videos                        |
-| "Update FramePilot to open this project"                 | a v25+ project opened in an older build       | update                                                 |
-| Animated sticker will not download (EL10)                | offline or blocked host                       | retry online; stickers already downloaded keep working |
-| Export slower with many elements                         | per-frame compositing                         | budget 1.3× with 20 elements; flatten or trim elements |
+| Symptom                                                  | Cause                                   | Fix                                                    |
+| -------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------ |
+| "This sticker's file is missing from this install"       | damaged or partial install              | reinstall; the packaged set is hash-checked            |
+| A sticker shows as missing media in an old project       | file deleted outside the app            | auto-heal re-materialises it on open; otherwise relink |
+| No Elements tab in the browser                           | decided in EL11: desktop only           | use the desktop app                                    |
+| Photos/Videos say "Add your Pexels key" / quota messages | unchanged Pexels behaviour              | Settings → AI → Photos & videos                        |
+| "Update FramePilot to open this project"                 | a v25+ project opened in an older build | update                                                 |
+| Animated sticker will not download (EL10)                | offline or blocked host                 | retry online; stickers already downloaded keep working |
+| Export slower with many elements                         | per-frame compositing                   | budget 1.3× with 20 elements; flatten or trim elements |
 
 Log scopes to ask for: `desktop:elements`, `web-editor:elements`, the engine's `render.shape_raster`
 and `render.compiler` loggers; render-validation messages name the element.

@@ -115,3 +115,9 @@ limits on where the agent leaves one.
   and says so, and `add_sticker` is refused with the same advice. The optional
   `FRAMEPILOT_ELEMENTS_ROOT` materialiser is deferred: it would give the MCP sandbox a second read
   root, which is the maintainer's call (CLAUDE.md §5), and no MCP client needs it yet.
+
+## Amendment — 2026-09-26: no stickers in the browser build (EL11)
+
+The browser build keeps no Stickers tab: EL11 decided both halves of the browser question with the
+tests that already prove the tab's absence (`ElementsPanel.test.tsx`, `elements.spec.ts`). A browser
+project has no durable store for a sticker's bytes, and desktop is the product's focus.

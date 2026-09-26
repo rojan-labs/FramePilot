@@ -10323,8 +10323,9 @@ stickers, CC BY 4.0 (EL10).
 - [!] **EL10** Animated stickers (optional, schema v26) — gated on MD-E3, whose recommended answer
   needs a licence read of Noto Emoji Animation (CC BY 4.0): a human step, instructions in
   `plan/elements/09-PHASES.md` EL10
-- [ ] **EL11** Favourites/recents, skin tones, "Add as sticker", drop on monitor, follow subject,
-  the browser build
+- [ ] **EL11** Polish, shrunk by its scope review: "Add as overlay" for the user's own images, drop a
+  sticker or shape on the monitor, record a dragged sticker as recent; skin tones, follow subject
+  and the browser build deferred with reasons (`plan/elements/11-RISKS-AND-DEFERRED.md` §2)
 - [ ] **EL12** Docs, changelogs, desktop evidence runs, close-out
 - [ ] **Found in EL6a — the release workflow has never completed a build.** electron-builder
   rejects the Linux executable name (`@framepilotdesktop`), macOS stops at "not a file", Windows

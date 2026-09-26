@@ -335,4 +335,15 @@ Factual corrections made: the raster route's line numbers (`service.py:1211, 677
 `OverlaysPanel.tsx:48-53`, 00 G4's function name (`clipKindOf`), 00 G6 (the control does nothing on
 desktop — it is not "preview-only"), and 04 §2.5's "one-line change" (true only after EL3).
 
+### EL11 review (2026-09-26)
+
+Run again before EL11 was built. **Verdict: SHRINK** — two items are shown gaps in the editing loop
+and stay small: an "Add as overlay" button for the user's own images on the bin's picture cards,
+through EL9.4's builder rather than sticker placement (EL11.3), and dropping a sticker or shape onto
+the layer monitor at a position (EL11.4). Favourites and recents were already built in EL6b.2
+(one gap: a dragged sticker is not recorded as recent). Deferred with their reasons (11 §2): skin
+tones (measured ≈ 37 MB, over both the packaged-set and installer budgets), follow subject (MO-14 is
+open), and the browser build (both halves stay absent, already proved by tests). The accessibility
+and UI passes move into the release gate (EL12.6).
+
 **Last updated:** 2026-09-26
