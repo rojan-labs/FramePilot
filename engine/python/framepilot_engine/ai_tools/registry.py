@@ -317,13 +317,10 @@ class AddShapeArgs(_ShapeStyleArgs):
 
 
 class ElementKind(StrEnum):
-    """What search_elements looks for; stickers join with EL6a.
-
-    An enum, not a one-member ``Literal``: Pydantic writes that as ``const``, and the TS schema
-    (and so the parity fixture) says ``enum``.
-    """
+    """What search_elements looks for (plan/elements EL5.6, EL6a)."""
 
     SHAPE = "shape"
+    STICKER = "sticker"
 
 
 class SearchElementsArgs(BaseModel):
@@ -347,6 +344,7 @@ class SearchElementsArgs(BaseModel):
         ]
         | None
     ) = None
+    collection: str | None = Field(default=None, min_length=1)
     limit: int | None = Field(default=None, ge=1, le=30)
 
 

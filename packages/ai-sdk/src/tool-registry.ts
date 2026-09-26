@@ -179,6 +179,7 @@ export interface ToolSpec {
    */
   readonly buildOps?: (rawArgs: unknown, ctx: ToolContext) => AnyOperation[];
   /** Read project data from context (read tools only). */
+  /** A read's value, or a promise of it (a read may load shipped data on first use). */
   readonly read?: (rawArgs: unknown, ctx: ToolContext) => unknown;
 }
 

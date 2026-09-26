@@ -66,6 +66,9 @@ describe('tool-parity fixture', () => {
         // Desktop Agent mode is unaffected; this gates the standalone MCP surface.
         'search_music',
         'add_music',
+        // A sticker is copied into the project by the desktop app's main process; the
+        // standalone MCP server has no materialiser (plan/elements 06 §5).
+        'add_sticker',
 
         'remove_silences',
         'search_stock',

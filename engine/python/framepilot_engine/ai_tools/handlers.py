@@ -677,7 +677,15 @@ _SEARCH_LIMIT_DEFAULT = 12
 
 
 def search_elements(args: SearchElementsArgs, ctx: ToolContext) -> dict[str, Any]:
-    """One row per shape the query finds, best first (the TS ``search_elements`` twin)."""
+    """One row per shape the query finds, best first (the TS ``search_elements`` twin).
+
+    The sticker catalogue ships with the desktop app, not the engine, so this mirror answers for
+    shapes; asked for stickers alone it says where they are searched.
+    """
+    if args.kind == "sticker":
+        raise ValueError(
+            "Stickers are searched by the FramePilot app. Search shapes here (kind: shape)."
+        )
     hits, _ = search_shapes(args.query, args.category)
     shapes: dict[str, list[dict[str, str]]] = {}
     for hit in hits:

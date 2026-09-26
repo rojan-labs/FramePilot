@@ -258,6 +258,7 @@ import { cacheDerivedMedia, sidecarDerive } from './media/derived-media-cache.js
 import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
 import { ElementsLibrary, bundledStickersRoot } from './media/elements-library.js';
+import { createStickerHost } from './ai/sticker-host.js';
 
 import { StockQuotaStore } from './media/stock-quota.js';
 import {
@@ -2870,6 +2871,12 @@ function registerIpcHandlers(): void {
     download: downloadStockAsset,
   });
 
+  /**
+   * `add_sticker` for the agent: copy the catalogue sticker into the project and hand back its
+   * asset (`ai/sticker-host.ts`); the orchestrator places it with the Stickers tab's builder.
+   */
+  const hostAddSticker = createStickerHost(elementsLibrary);
+
   const sidecarToolExecutor = createSidecarExecutor({
     baseUrl: engineBaseUrl,
     // Holds a visual pack's lease for the round trip of any call whose body names it
@@ -2882,6 +2889,7 @@ function registerIpcHandlers(): void {
     hostAddMusic,
     hostStockSearch,
     hostAddStock,
+    hostAddSticker,
   });
   // The agent's route into the Capability Pack tracking worker. Same authority
   // the renderer IPC path uses — one hub, leases and install proposals included.

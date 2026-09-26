@@ -110,7 +110,8 @@ async function callRegistryTool(
   rawArgs: Record<string, unknown>,
 ): Promise<CallToolResult> {
   const result = session.runTool(name, rawArgs);
-  if (result.kind === 'read') return ok(result.data);
+  // Awaited: a read may load shipped data on first use (the sticker catalogue).
+  if (result.kind === 'read') return ok(await result.data);
   if (result.kind === 'mutate') {
     return ok({
       applied: result.applied,

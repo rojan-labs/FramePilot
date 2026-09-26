@@ -3850,6 +3850,81 @@ describe('streamAgent host tool execution (Phase T)', () => {
     });
   });
 
+  describe('add_sticker (host-backed placement, plan/elements EL6a.7)', () => {
+    const stickerCall = {
+      id: 'st1',
+      name: 'add_sticker',
+      arguments: { elementId: 'fire', start: 2, end: 4, xPercent: 75, yPercent: 30 },
+    };
+    const stickerAsset = {
+      id: 'element_fluent3d_fire',
+      path: 'media/p/elements/fluent3d/fire.webp',
+      kind: 'image' as const,
+      media: { width: 318, height: 318 },
+      sharpSize: 256,
+      source: {
+        provider: 'fluent-emoji',
+        remoteId: 'fire',
+        license: 'mit',
+        licenseUrl: 'https://example.test/LICENSE',
+        attributionRequired: false,
+        attribution: 'Fluent Emoji by Microsoft (MIT)',
+        creator: 'Microsoft',
+        sourceUrl: 'https://example.test/fire.png',
+        fetchedAt: '2026-09-26T00:00:00.000Z',
+      },
+      deduped: false,
+    };
+    const host = (data: unknown) => ({
+      run: async (): Promise<HostToolOutcome> => ({
+        status: 'completed' as const,
+        summary: 'Added the fire sticker to the project.',
+        data,
+      }),
+    });
+
+    it('places the sticker the host copied as an overlay, with the call’s position', async () => {
+      const provider = new ScriptedProvider([
+        { text: 'a sticker on the punchline', toolCalls: [stickerCall] },
+        { text: 'done', toolCalls: [] },
+      ]);
+      const events = await drain(
+        new Orchestrator(provider, { executor: host({ asset: stickerAsset }) }).streamAgent(
+          input,
+          opts(),
+        ),
+      );
+      const diff = events.find((e) => e.type === 'diff');
+      const ops = diff?.type === 'diff' ? diff.edit.patch.operations : [];
+      expect(ops.map((op: AnyOperation) => op.type)).toEqual([
+        'create_folder',
+        'add_asset',
+        'add_layer',
+        'add_clip',
+        'add_keyframes',
+      ]);
+      const layer = ops.find((op: AnyOperation) => op.type === 'add_layer') as {
+        layerType: string;
+      };
+      expect(layer.layerType).toBe('overlay');
+      const fedBack = JSON.stringify(provider.requests[1]?.messages ?? []);
+      expect(fedBack).toMatch(/from 2\.0s to 4\.0s/);
+    });
+
+    it('fails closed when the host hands back nothing placeable', async () => {
+      const provider = new ScriptedProvider([
+        { text: 'a sticker', toolCalls: [stickerCall] },
+        { text: 'done', toolCalls: [] },
+      ]);
+      const events = await drain(
+        new Orchestrator(provider, { executor: host({ nope: true }) }).streamAgent(input, opts()),
+      );
+      expect(events.find((e) => e.type === 'diff')).toBeUndefined();
+      const terminal = events.filter((e) => e.type === 'tool_call' && e.id === 'st1').at(-1);
+      expect(terminal).toMatchObject({ status: 'failed' });
+    });
+  });
+
   describe('add_stock (host-backed mutation)', () => {
     // The fixture's picture runs 0–10s, so 12s is empty and 2s is occupied.
     const stockCall = {

@@ -153,6 +153,43 @@ export function stickerBaseScale(
   return Math.round((height / fittedArt) * 10000) / 10000;
 }
 
+/**
+ * The lane a sticker spanning `[start, end]` goes on: the named overlay lane when it has room,
+ * else the front-most lane already holding stickers, else any usable overlay lane, else a new
+ * overlay lane at the front — never a picture lane. Shared by placing a sticker and by moving one
+ * (`move_clip`), so both answer the same way.
+ *
+ * @param project - The timeline and assets (to recognise sticker lanes). A move passes the
+ *   timeline without the clip being moved, so its own old span does not block it.
+ */
+export function stickerLane(
+  project: { readonly timeline: Timeline; readonly assets: readonly Asset[] },
+  start: number,
+  end: number,
+  preferredTrackId?: string,
+): { readonly trackId: string; readonly setupOps: readonly Operation[] } {
+  const { timeline } = project;
+  const stickerAssets = new Set(project.assets.filter((a) => isElementAsset(a)).map((a) => a.id));
+  const usable = (track: Timeline['tracks'][number]): boolean =>
+    track.type === 'overlay' && track.locked !== true && track.hidden !== true;
+  const named = timeline.tracks.find(
+    (track) => track.id === preferredTrackId && track.type === 'overlay' && track.locked !== true,
+  );
+  // Stickers join the lane that already holds stickers, as shapes join theirs.
+  const overlay =
+    named ??
+    timeline.tracks.find(
+      (track) => usable(track) && track.clips.some((clip) => stickerAssets.has(clip.assetId)),
+    ) ??
+    timeline.tracks.find(usable);
+  if (overlay !== undefined) return createLaneAllocator(timeline).allocate(overlay.id, start, end);
+  const trackId = nextLayerId(timeline, 'overlay');
+  return {
+    trackId,
+    setupOps: [{ type: 'add_layer', layerId: trackId, layerType: 'overlay', atIndex: 0 }],
+  };
+}
+
 /** What {@link buildAddStickerOps} decided. */
 export interface StickerPlacement {
   readonly operations: readonly (Operation | ProjectOperation)[];
@@ -167,6 +204,8 @@ export interface StickerPlacementOptions {
   readonly artFraction?: number;
   /** Where its centre lands, in canvas pixels from the frame centre (the handles' units). */
   readonly offset?: { readonly x: number; readonly y: number };
+  /** The art's height as a share of the frame height; {@link STICKER_DEFAULT_HEIGHT} without. */
+  readonly height?: number;
 }
 
 /**
@@ -201,31 +240,12 @@ export function buildAddStickerOps(
     }
     projectOps.push({ type: 'add_asset', asset: { ...asset, folderId: ELEMENTS_FOLDER_ID } });
   }
-  const stickerAssets = new Set(
-    [...project.assets, asset].filter((a) => isElementAsset(a)).map((a) => a.id),
+  const { trackId, setupOps } = stickerLane(
+    { timeline, assets: [...project.assets, asset] },
+    start,
+    end,
+    options.trackId,
   );
-  const usable = (track: Timeline['tracks'][number]): boolean =>
-    track.type === 'overlay' && track.locked !== true && track.hidden !== true;
-  const named = timeline.tracks.find(
-    (track) => track.id === options.trackId && track.type === 'overlay' && track.locked !== true,
-  );
-  // Stickers join the lane that already holds stickers, as shapes join theirs.
-  const overlay =
-    named ??
-    timeline.tracks.find(
-      (track) => usable(track) && track.clips.some((clip) => stickerAssets.has(clip.assetId)),
-    ) ??
-    timeline.tracks.find(usable);
-  let trackId: string;
-  let setupOps: readonly Operation[];
-  if (overlay !== undefined) {
-    const placed = createLaneAllocator(timeline).allocate(overlay.id, start, end);
-    trackId = placed.trackId;
-    setupOps = placed.setupOps;
-  } else {
-    trackId = nextLayerId(timeline, 'overlay');
-    setupOps = [{ type: 'add_layer', layerId: trackId, layerType: 'overlay', atIndex: 0 }];
-  }
   const clipId = addClipId(trackId, asset.id, start);
   const media = (known ?? asset).media;
   const scale =
@@ -234,6 +254,7 @@ export function buildAddStickerOps(
           project.resolution,
           { width: media.width, height: media.height },
           options.artFraction,
+          options.height,
         )
       : STICKER_DEFAULT_HEIGHT;
   const base = { scale, x: options.offset?.x ?? 0, y: options.offset?.y ?? 0 };

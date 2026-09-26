@@ -183,7 +183,7 @@ describe('search_elements', () => {
   }
 
   it('returns one row per shape, its styles and knobs, best first', () => {
-    const found = search({ query: 'star' });
+    const found = search({ query: 'star', kind: 'shape' });
     expect(found.results[0]).toMatchObject({
       elementId: 'star-5',
       frame: 'box',
@@ -201,20 +201,106 @@ describe('search_elements', () => {
   });
 
   it('reaches the icons, keeps to a category, and says how many there are', () => {
-    const heart = search({ query: 'heart', category: 'icons', limit: 3 });
+    const heart = search({ query: 'heart', kind: 'shape', category: 'icons', limit: 3 });
     expect(heart.results.map((row) => row.elementId)).toEqual([
       'icon/heart',
       'icon/heart-crack',
       'icon/heart-handshake',
     ]);
     expect(heart.total).toBeGreaterThan(3);
-    const badges = search({ query: '', category: 'numbers' });
+    const badges = search({ query: '', kind: 'shape', category: 'numbers' });
     expect(badges.results.every((row) => row.elementId.startsWith('numbered-'))).toBe(true);
-    expect(search({ query: 'zzzz' }).total).toBe(0);
+    expect(search({ query: 'zzzz', kind: 'shape' }).total).toBe(0);
   });
 
   it('is disclosed with the elements domain', () => {
     expect(getTool('search_elements')?.mutates).toBe(false);
+  });
+});
+
+describe('search_elements for stickers, and add_sticker', () => {
+  async function search(args: Record<string, unknown>) {
+    const tool = getTool('search_elements');
+    if (!tool || tool.kind !== 'read') throw new Error('search_elements is not a read tool');
+    return (await tool.read(args, { project: project() })) as {
+      results: { elementId: string; kind: string; glyph?: string }[];
+      total: number;
+    };
+  }
+
+  it('finds a sticker by word or by its emoji, and leads with stickers when no kind is given', async () => {
+    const byWord = await search({ query: 'fire', kind: 'sticker' });
+    expect(byWord.results[0]).toMatchObject({ elementId: 'fire', kind: 'sticker', glyph: '🔥' });
+    expect((await search({ query: '🔥', kind: 'sticker' })).results[0]?.elementId).toBe('fire');
+    const both = await search({ query: 'heart' });
+    expect(both.results[0]?.kind).toBe('sticker');
+    expect(both.results.some((row) => row.kind === 'shape')).toBe(true);
+    const hearts = await search({ query: '', kind: 'sticker', collection: 'hearts', limit: 3 });
+    expect(hearts.results.map((row) => row.elementId)).toEqual([
+      'red_heart',
+      'orange_heart',
+      'yellow_heart',
+    ]);
+  });
+
+  it('keeps a shape-only search free of the sticker catalogue', () => {
+    const tool = getTool('search_elements');
+    if (!tool || tool.kind !== 'read') throw new Error('search_elements is not a read tool');
+    const value = tool.read({ query: 'star', kind: 'shape' }, { project: project() });
+    expect(value).not.toBeInstanceOf(Promise);
+  });
+
+  it('takes a catalogue id, never a path, and is a host tool the MCP server does not offer', () => {
+    const tool = getTool('add_sticker')!;
+    expect(tool).toMatchObject({ kind: 'analysis', hostUiOnly: true, mutates: false });
+    expect(() => tool.parse({ elementId: 'fire', start: 1 })).not.toThrow();
+    expect(() => tool.parse({ elementId: '../fire', start: 1 })).toThrow();
+    expect(() => tool.parse({ elementId: 'fire', start: 1, sizePercent: 500 })).toThrow();
+  });
+});
+
+describe('a sticker already in the bin, through add_clip and move_clip', () => {
+  const sticker = {
+    id: 'element_fluent3d_fire',
+    path: 'media/p/elements/fluent3d/fire.webp',
+    kind: 'image',
+    media: { width: 318, height: 318 },
+    source: {
+      provider: 'fluent-emoji',
+      remoteId: 'fire',
+      license: 'mit',
+      attributionRequired: false,
+      fetchedAt: '2026-09-26T00:00:00.000Z',
+    },
+  };
+  const withSticker = (): Project => {
+    const base = project();
+    return { ...base, assets: [...base.assets, sticker] } as Project;
+  };
+
+  it('places it as a sticker on a graphics lane even when a picture lane is named', () => {
+    const ops = run(
+      'add_clip',
+      { trackId: 'video_1', assetId: sticker.id, start: 1, end: 3 },
+      withSticker(),
+    );
+    const clip = ops.find((op) => op.type === 'add_clip') as { trackId: string };
+    expect(clip.trackId).not.toBe('video_1');
+    expect(ops.map((op) => op.type)).toContain('add_keyframes');
+    expect(ops.map((op) => op.type)).not.toContain('set_clip_crop');
+  });
+
+  it('moves it to a graphics lane rather than taking it for a cutaway', () => {
+    const placed = apply(
+      withSticker(),
+      run('add_clip', { trackId: 'o1', assetId: sticker.id, start: 1, end: 3 }, withSticker()),
+    );
+    const clipId = placed.timeline.tracks
+      .flatMap((t) => t.clips)
+      .find((c) => c.assetId === sticker.id)!.id;
+    const ops = run('move_clip', { clipId, toTrackId: 'video_1', toStart: 5 }, placed);
+    const move = ops.find((op) => op.type === 'move_clip') as { toTrackId: string };
+    expect(move.toTrackId).toBe('o1');
   });
 });
 

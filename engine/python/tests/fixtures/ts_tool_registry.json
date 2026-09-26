@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 114,
+  "toolCount": 115,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -558,6 +558,74 @@
             "type": [
               "string"
             ]
+          }
+        }
+      }
+    },
+    "add_sticker": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "elementId",
+          "start"
+        ],
+        "properties": {
+          "elementId": {
+            "type": [
+              "string"
+            ]
+          },
+          "end": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "rotation": {
+            "type": [
+              "number"
+            ],
+            "minimum": -360,
+            "maximum": 360
+          },
+          "sizePercent": {
+            "type": [
+              "number"
+            ],
+            "minimum": 2,
+            "maximum": 100
+          },
+          "start": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "trackId": {
+            "type": [
+              "string"
+            ]
+          },
+          "xPercent": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "yPercent": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 100
           }
         }
       }
@@ -4534,12 +4602,18 @@
               "symbols"
             ]
           },
+          "collection": {
+            "type": [
+              "string"
+            ]
+          },
           "kind": {
             "type": [
               "string"
             ],
             "enum": [
-              "shape"
+              "shape",
+              "sticker"
             ]
           },
           "limit": {

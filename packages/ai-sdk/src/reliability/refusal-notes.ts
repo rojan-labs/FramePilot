@@ -119,6 +119,15 @@ const UNUSABLE_HOST_PAYLOAD: Readonly<Record<string, UnusablePayloadCopy>> = {
       'the same way. Pick a different result from search_stock and add that one; if a ' +
       'second one fails like this, tell the editor the stock download failed and move on.',
   },
+  add_sticker: {
+    what:
+      'the app did not return a usable sticker file, so nothing was placed and the timeline ' +
+      'is unchanged',
+    instead:
+      'Do not retry the same sticker. Pick a different one from search_elements (kind: ' +
+      'sticker); if a second one fails like this, tell the editor stickers could not be added ' +
+      'and move on.',
+  },
   create_mask: {
     what: 'the masking host returned a measurement FramePilot could not read, so no mask was added',
     instead:

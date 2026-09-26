@@ -1,7 +1,7 @@
 ---
 name: stickers-and-callouts
-description: Place callout shapes — highlight boxes, arrows, circles, markers, underlines, numbered badges, icons — on the thing the narration names, at the moment it is named, clear of faces and captions. Explains search_elements, add_shape and set_shape_style.
-tools: [get_mapped_transcript, get_frame, get_timeline, measure_subject, search_elements, add_shape, set_shape_style, move_clip, trim_clip, delete_clip]
+description: Place stickers (🔥 👍 🎉) and callout shapes — highlight boxes, arrows, circles, underlines, numbered badges, icons — on the moment and the thing the narration names, clear of faces and captions. Explains search_elements, add_sticker, add_shape, set_shape_style.
+tools: [get_mapped_transcript, get_frame, get_timeline, measure_subject, search_elements, add_sticker, add_shape, set_shape_style, move_clip, trim_clip, delete_clip]
 ---
 
 # Stickers and callouts
@@ -9,7 +9,8 @@ tools: [get_mapped_transcript, get_frame, get_timeline, measure_subject, search_
 ## Purpose
 
 Point the viewer's eye at one thing on screen — a button in a screen recording, a price, a line of
-text — for exactly as long as the voice is talking about it.
+text — for exactly as long as the voice is talking about it; or punctuate a moment with a sticker
+— a 🔥 on "this is fire", a 🎉 on the launch — that lands on the word and gets out of the way.
 
 ## When to use
 
@@ -45,6 +46,11 @@ then get out of the way.
   of its `styles` to `add_shape` as `shape`; its `knobs` (points, curvature, tailX…) go in `knobs`.
 - Numbered badges take a `label` (up to 8 characters): `numbered-circle/red-1` with `label: "2"` is
   step two.
+- `add_sticker` places a sticker (an emoji-style image) by its `elementId` from `search_elements`
+  (kind: sticker — search by word or by the emoji itself: "fire" or 🔥). Give `start` (and `end`,
+  else 3 s), its centre as `xPercent`/`yPercent` of the frame, and `sizePercent` — its height in
+  percent of the frame height (30 by default; 15–40 reads well). It lands on a graphics layer, never
+  as footage.
 - Boxes take `box {x, y, width, height}`: the CENTRE in percent of the frame, the size in percent
   of the frame HEIGHT (as `add_text_layer` sizes text). A 16:9 frame is 177.8 units wide in these
   units, so a box `width: 36` is about a fifth of the frame's width.
@@ -67,6 +73,9 @@ then get out of the way.
 - **One style per video.** Reuse the same preset and colour for every callout.
 - **Number the steps.** A tutorial's steps read as numbered badges in order, one per step, the
   same colour throughout; a curved arrow reaches round an obstacle a straight one would cross.
+- **Stickers punctuate, they do not decorate.** One sticker on the beat it answers — the joke, the
+  reveal, the win — held 1–2 s. Put it in empty frame space beside the subject, never on a face,
+  and above the caption band; two stickers at once is one too many.
 - **Faces and captions.** Use `measure_subject` for the face box and keep clear of the bottom
   caption band.
 

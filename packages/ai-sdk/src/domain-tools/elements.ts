@@ -33,7 +33,13 @@ import {
 import type { ToolSpec } from '../tool-registry.js';
 import { ToolRefusalError } from '../tool-refusal.js';
 import type { ToolContext } from '../tool-context.js';
-import { mutateTool, readTool } from './tool-factories.js';
+import { analysisTool, mutateTool, readTool } from './tool-factories.js';
+import {
+  STICKER_ID_PATTERN,
+  loadStickerCatalog,
+  searchStickers,
+  type StickerItem,
+} from '../providers/elements/sticker-catalog.js';
 import { numeric, seconds } from './tool-args.js';
 
 /** The staples the add_shape description names; search_elements finds everything else. */
@@ -156,6 +162,47 @@ const FEATURED_IDS = FEATURED_SHAPE_PRESET_IDS.join(', ');
 const SEARCH_LIMIT_MAX = 30;
 const SEARCH_LIMIT_DEFAULT = 12;
 
+/** Every shape `query` finds, one row per shape with the styles it comes in. */
+function shapeRows(
+  query: string,
+  category: (typeof SHAPE_CATEGORIES)[number] | 'icons' | undefined,
+): { readonly rows: ReturnType<typeof elementRow>[]; readonly total: number } {
+  const { hits } = searchShapes(query, category);
+  const shapes = new Map<
+    string,
+    { shape: ShapeDescriptor; styles: { id: string; name: string }[] }
+  >();
+  for (const { shape, preset } of hits) {
+    const row = shapes.get(shape.id) ?? { shape, styles: [] };
+    row.styles.push({ id: preset.id, name: preset.name });
+    shapes.set(shape.id, row);
+  }
+  return {
+    rows: [...shapes.values()].map(({ shape, styles }) => elementRow(shape, styles)),
+    total: shapes.size,
+  };
+}
+
+/** One search_elements row for a sticker: the elementId add_sticker takes, and what it is. */
+function stickerRow(item: StickerItem) {
+  return {
+    elementId: item.id,
+    kind: 'sticker' as const,
+    name: item.name,
+    glyph: item.glyph,
+    category: item.collections[0] ?? item.group,
+    tags: item.keywords.slice(0, 6),
+    frame: 'box' as const,
+    aspect: 1,
+    knobs: [],
+    labelled: false,
+    styles: [],
+    animated: false,
+    license: 'MIT (Fluent Emoji by Microsoft)',
+    attributionRequired: false,
+  };
+}
+
 /** One search_elements row: a shape, the styles it comes in, and what add_shape can set on it. */
 function elementRow(shape: ShapeDescriptor, styles: readonly { id: string; name: string }[]) {
   const icon = shape.id.startsWith(SHAPE_ICON_PREFIX);
@@ -189,46 +236,90 @@ export const ELEMENT_TOOLS: readonly ToolSpec[] = [
     {
       name: 'search_elements',
       description:
-        'Find shapes for add_shape by what they look like or are for: "box", "curved arrow", ' +
-        '"speech bubble", "star", "numbered badge", "check", "heart". Covers the shape ' +
-        'catalogue and every Lucide icon (icon/<name>). Returns one row per shape: its ' +
-        'elementId (pass it to add_shape as shape), its styles (preset ids, also valid as ' +
-        'shape), whether it is placed by a box or two ends, its knobs with their ranges, and ' +
-        'whether it takes a label (numbered badges). category narrows it: ' +
-        `${SHAPE_CATEGORIES.join(', ')}, or icons.`,
+        'Find stickers for add_sticker and shapes for add_shape by what they are or are for. ' +
+        'Stickers are emoji-style images — 🔥, 👍, 🎉, "party", "money", "thumbs up"; shapes are ' +
+        'callouts — "box", "curved arrow", "speech bubble", "numbered badge", "check", and every ' +
+        'Lucide icon (icon/<name>). kind narrows it to sticker or shape; without it you get the ' +
+        'best of both. Each row has the elementId to pass on, and for a shape its styles (preset ' +
+        'ids, also valid as shape), whether it is placed by a box or two ends, its knobs with ' +
+        'their ranges, and whether it takes a label. category narrows shapes: ' +
+        `${SHAPE_CATEGORIES.join(', ')}, or icons; collection narrows stickers: reactions, ` +
+        'celebrate, hands, hearts, tech, arrows, symbols, money, food, nature, animals, travel, ' +
+        'objects.',
     },
     z
       .object({
-        query: z.string().describe('words to find; empty lists the category'),
-        kind: z.enum(['shape']).optional(),
+        query: z.string().describe('words to find (a sticker also by its emoji); empty lists'),
+        kind: z.enum(['shape', 'sticker']).optional(),
         category: z.enum([...SHAPE_CATEGORIES, 'icons']).optional(),
+        collection: z.string().min(1).optional(),
         limit: numeric(z.number().int().min(1).max(SEARCH_LIMIT_MAX)).optional(),
       })
       .strict(),
     (a) => {
-      const { hits } = searchShapes(a.query, a.category);
-      const shapes = new Map<
-        string,
-        { shape: ShapeDescriptor; styles: { id: string; name: string }[] }
-      >();
-      for (const { shape, preset } of hits) {
-        const row = shapes.get(shape.id) ?? { shape, styles: [] };
-        row.styles.push({ id: preset.id, name: preset.name });
-        shapes.set(shape.id, row);
-      }
       const limit = a.limit ?? SEARCH_LIMIT_DEFAULT;
-      const results = [...shapes.values()]
-        .slice(0, limit)
-        .map(({ shape, styles }) => elementRow(shape, styles));
-      return {
+      const shapes = shapeRows(a.query, a.category);
+      const head = {
         query: a.query,
-        kind: 'shape',
+        ...(a.kind !== undefined ? { kind: a.kind } : {}),
         ...(a.category !== undefined ? { category: a.category } : {}),
-        results,
-        returned: results.length,
-        total: shapes.size,
+        ...(a.collection !== undefined ? { collection: a.collection } : {}),
       };
+      if (a.kind === 'shape') {
+        const results = shapes.rows.slice(0, limit);
+        return { ...head, results, returned: results.length, total: shapes.total };
+      }
+      // The sticker catalogue is loaded on first use; a shape-only search never pays for it.
+      return loadStickerCatalog().then((catalog) => {
+        const found = searchStickers(
+          catalog,
+          a.query,
+          a.collection !== undefined ? { collection: a.collection } : {},
+        );
+        const stickers = found.items.map(stickerRow);
+        if (a.kind === 'sticker') {
+          const results = stickers.slice(0, limit);
+          return { ...head, results, returned: results.length, total: found.total };
+        }
+        // Both kinds: stickers lead (a word like "fire" means the emoji), and whichever kind
+        // has fewer matches leaves its room to the other.
+        const shapeShare = Math.min(shapes.total, Math.floor(limit / 2));
+        const stickerShare = Math.min(stickers.length, limit - shapeShare);
+        const results = [
+          ...stickers.slice(0, stickerShare),
+          ...shapes.rows.slice(0, limit - stickerShare),
+        ];
+        return { ...head, results, returned: results.length, total: found.total + shapes.total };
+      });
     },
+  ),
+  analysisTool(
+    {
+      name: 'add_sticker',
+      description:
+        'Put a sticker — an emoji-style image such as 🔥, 👍 or 🎉 — over the picture for a ' +
+        'timeline range. elementId comes from search_elements (kind: sticker). start and end ' +
+        'are timeline seconds (end defaults to 3 s after start). xPercent/yPercent place its ' +
+        'centre in percent of the frame (50/50 is the middle); sizePercent is its height in ' +
+        'percent of the frame height (30 by default; 15–40 reads well). The app copies the ' +
+        'sticker into the project and it lands on a graphics layer with room, never as footage. ' +
+        'Keep it off faces and the caption band — look with get_frame.',
+      // The file is copied by the desktop app's main process; the standalone MCP server has no
+      // materialiser (plan/elements 06 §5), so it neither advertises nor accepts this.
+      hostUiOnly: true,
+    },
+    z
+      .object({
+        elementId: z.string().regex(STICKER_ID_PATTERN),
+        start: seconds,
+        end: seconds.optional(),
+        xPercent: percent(0, 100).optional(),
+        yPercent: percent(0, 100).optional(),
+        sizePercent: percent(2, 100).optional(),
+        rotation: numeric(z.number().min(-360).max(360)).optional(),
+        trackId: z.string().min(1).optional(),
+      })
+      .strict(),
   ),
   mutateTool(
     {

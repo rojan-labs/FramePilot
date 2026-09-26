@@ -38,6 +38,11 @@ import {
 } from './music-placement.js';
 import { StockAssetPayloadSchema, stockOpsFromPayload } from './stock-placement.js';
 import {
+  StickerAssetPayloadSchema,
+  stickerOpsFromCall,
+  type StickerCallArgs,
+} from './sticker-placement.js';
+import {
   AUTOMATIC_TRACKING_TOOL_NAME,
   AutomaticTrackingMeasurementSchema,
   automaticTrackingOpsFromMeasurement,
@@ -2311,11 +2316,14 @@ function elementSearchDigest(obj: Record<string, unknown>): string | undefined {
   const rows = obj.results as Record<string, unknown>[];
   if (rows.length === 0) {
     return (
-      `no shapes match "${String(obj.query ?? '')}" — try a plainer word (box, arrow, star, ` +
-      'bubble, badge, check) or list a category with an empty query'
+      `nothing matches "${String(obj.query ?? '')}" — try a plainer word (fire, party, check, ` +
+      'box, arrow, star, bubble) or list a collection or category with an empty query'
     );
   }
   const lines = rows.map((row) => {
+    if (row.kind === 'sticker') {
+      return `- ${String(row.elementId)} ${String(row.glyph ?? '')} "${String(row.name)}" (sticker, ${String(row.category)})`;
+    }
     const knobs = Array.isArray(row.knobs)
       ? (row.knobs as Record<string, unknown>[])
           .map((k) => `${String(k.name)} ${String(k.min)}–${String(k.max)}`)
@@ -2331,7 +2339,9 @@ function elementSearchDigest(obj: Record<string, unknown>): string | undefined {
     }`;
   });
   return [
-    `${String(obj.returned ?? rows.length)} of ${String(obj.total ?? rows.length)} shapes`,
+    `${String(obj.returned ?? rows.length)} of ${String(obj.total ?? rows.length)} ${
+      obj.kind === 'shape' ? 'shapes' : obj.kind === 'sticker' ? 'stickers' : 'elements'
+    }`,
     ...lines,
   ].join('\n');
 }
@@ -5168,6 +5178,36 @@ export class Orchestrator {
           data: outcome.data,
         };
       }
+      // `add_sticker` (plan/elements EL6a.7): the host copied the sticker's file into the
+      // project; the placement is the Stickers tab's own (`buildAddStickerOps`), never the stock
+      // cutaway path, which would cover-crop a sticker to the full frame.
+      if (call.name === 'add_sticker' && outcome.status === 'completed') {
+        const parsed = StickerAssetPayloadSchema.safeParse(outcome.data);
+        if (!parsed.success) {
+          const note = unusableHostPayload('add_sticker');
+          return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
+        }
+        const placed = stickerOpsFromCall(
+          ctx.project,
+          parsed.data,
+          call.arguments as unknown as StickerCallArgs,
+        );
+        const ops = [...placed.operations];
+        const probe = assembleEdit(ctx.project, ops, 'Add sticker', 'agent');
+        if (!probe.validation.valid) {
+          return hostBackedValidatorRejection('add_sticker', probe.validation.issues, ops);
+        }
+        return {
+          ops,
+          note:
+            `${outcome.summary} Placed as clip "${placed.clipId}" on ${placed.trackId} from ` +
+            `${placed.start.toFixed(1)}s to ${placed.end.toFixed(1)}s. Stickers need no credit.`,
+          summary: outcome.summary,
+          status: 'completed',
+          project: applyProjectPatch(ctx.project, probe.patch),
+          data: outcome.data,
+        };
+      }
       // `add_stock` is the picture twin of `add_music`: the host downloaded the
       // rendition and materialized the file, and the orchestrator turns what came
       // back into the SAME reversible operations the Stock panel builds by hand
@@ -5523,7 +5563,8 @@ export class Orchestrator {
         // now — retryably, and unbanked.
         let value: unknown;
         try {
-          value = tool.read(sanitizeToolArgs(tool, call.arguments), ctx);
+          // Awaited: a read may load shipped data on first use (the sticker catalogue).
+          value = await tool.read(sanitizeToolArgs(tool, call.arguments), ctx);
         } catch (cause) {
           // A refusal from the registered, contracted tool boundary IS the model's to fix —
           // a bad window, an unknown id, the wrong kind of clip — so it keeps the argument

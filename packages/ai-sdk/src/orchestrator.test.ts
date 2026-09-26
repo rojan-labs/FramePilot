@@ -1941,6 +1941,7 @@ describe('summarizeReadResult carries a verification report the run can act on',
   it('lists every shape search_elements found with the id, knobs and styles add_shape takes', () => {
     const note = summarizeReadResult('search_elements', {
       query: 'star',
+      kind: 'shape',
       returned: 2,
       total: 9,
       results: [
@@ -1976,7 +1977,17 @@ describe('summarizeReadResult carries a verification report the run can act on',
     );
     expect(
       summarizeReadResult('search_elements', { query: 'zzz', results: [], total: 0 }),
-    ).toContain('no shapes match "zzz"');
+    ).toContain('nothing matches "zzz"');
+    expect(
+      summarizeReadResult('search_elements', {
+        query: 'fire',
+        returned: 1,
+        total: 1,
+        results: [
+          { elementId: 'fire', kind: 'sticker', glyph: '🔥', name: 'Fire', category: 'reactions' },
+        ],
+      }),
+    ).toBe('1 of 1 elements\n- fire 🔥 "Fire" (sticker, reactions)');
   });
 
   it('lists every effect id, grouped, because the ids ARE the deliverable', () => {
