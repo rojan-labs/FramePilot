@@ -165,6 +165,47 @@ jobs:
         working-directory: apps/web-editor
         run: pnpm exec vitest run src/preview/masks/mask-raster.test.ts src/preview/masks/legacy-mask.test.ts src/preview/masks/mask-stack.test.ts src/preview/masks/frame-masks.test.ts src/preview/masks/matte-edges.test.ts src/preview/masks/key-mask.test.ts
 
+  # ── Frozen engine decodes a sticker (plan/elements EL6a.6b) ──────────────────────────
+  # Stickers ship as WebP with alpha, and the export opens a still with the frozen engine's own
+  # Pillow. A bundle built without the codec would export an empty box on that platform only,
+  # so the engine is frozen exactly as the installer freezes it (`build:engine`) on the two
+  # desktop platforms the product ships, and decodes a sticker the app ships. Linux runs the
+  # same step inside the release workflow.
+  frozen-engine-webp:
+    name: Frozen engine decodes a sticker · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      # For the vendored ffprobe the packaging script stages beside the binary.
+      - run: pnpm install --frozen-lockfile
+      - name: Freeze the engine as the installer does
+        working-directory: apps/desktop
+        run: pnpm run build:engine
+      - name: Decode a shipped sticker (WebP with alpha)
+        shell: bash
+        run: |
+          BIN=apps/desktop/engine-dist/framepilot-engine
+          if [ -f "$BIN.exe" ]; then BIN="$BIN.exe"; fi
+          "$BIN" decode-image apps/web-editor/public/elements/stickers/full/fire.webp --expect-alpha
+
   # ── Cross-runtime professional-operation proof ─────────────────────────────────────
   professional-rendered-evals:
     name: Professional operations · rendered proofs
