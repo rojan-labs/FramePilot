@@ -61,3 +61,24 @@ row comparing the monitor's pixels to the export's.
   the monitor and the export all agree.
 - The frame plan's "quirks" list is shorter by three entries. The remaining still-only
   differences (masks, edge styles) are named in the docstring and owned by EL2b.
+
+## Amendment — masks, edge styles and turning titles (EL2b, 2026-09-26)
+
+- **A still draws its mask stack** in its own pixels, as footage does in its frame's, in the
+  export (`_compile_image_clip`), both frame plans and the monitor. Background removal and tracked
+  masks are measured on video, so a still refuses them, at edit time (the mask validator) and at
+  render, with the same sentence.
+- **Edge styles trace the stack times the layer's own alpha.** Footage has no alpha of its own, so
+  its styles still need a mask; a sticker with none is outlined around its art, and an opaque
+  photo's outline is a border. The monitor builds that cut-out from the picture as it stood before
+  its alpha was attached, the picture the export captures before `_attach_mask`.
+- **A title takes the masks that need no source picture**: a track matte, a key, a shape in Frame
+  space, each placed by the title's own placement (unfitted, around its layout centre:
+  `picture_placement_at` takes `_place_video_clip`'s `fit_to_frame` and `centre`). A shape drawn on
+  a title's own picture is refused: the raster follows the text and the frame, so the shape would
+  have nothing fixed to be measured against. A title's edge styles trace its glyphs, their lengths
+  in frame pixels at the project's size.
+- **A turning title is drawn in a square as wide as its diagonal**, centred, as a turning shape is
+  (ADR 0190): the export turns a layer inside its own box, and a raster tight to its glyphs lost
+  most of a word at a right angle. The padding is one function per runtime (`rotation_safe`,
+  `rotationSafe`), the odd pixel to the right and the bottom in both.

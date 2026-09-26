@@ -32,6 +32,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   steps with badges. The assistant searches the same library ("number each step", "a speech
   bubble over the host"). Shape clips now have their own colour on the timeline and the minimap.
 
+- **Masks and outlines on photos, stickers and titles.** A mask drawn on a photo or a sticker, an
+  outline, glow or drop shadow, and a track matte on a title now show on the monitor and in the
+  export; before, they were saved and silently ignored. A sticker or a photo can be outlined or
+  shadowed without a mask (an outline on a photo is a border), and a title's outline follows its
+  letters. The assistant's "outline this sticker" works the same way.
+
 - **Stickers, in Elements.** A new **Stickers** sub-tab holds 251 stickers from Microsoft's
   Fluent Emoji 3D set, in thirteen collections, shipped inside the app so they work offline.
   Search by name or paste the emoji itself; click one to drop it at the playhead, a third of the
@@ -136,6 +142,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   MO-12), privacy and face-recognition consent.
 
 ### Fixed
+
+- **A title that turns keeps all its letters.** A title rotating through a right angle lost most
+  of its word, on the monitor and in the export, because it was turned inside a box as tight as
+  its text. It now turns in a square wide enough for it.
 
 - **A b-roll clip the assistant adds no longer covers your stickers, shapes or titles.** When a
   cutaway needed a new layer, it was opened above every other layer, so graphics already on the

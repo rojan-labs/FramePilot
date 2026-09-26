@@ -111,6 +111,9 @@ Emoji set comes in a later update.
 - **Move, size and turn it** on the monitor like any other picture: drag it, drag a corner, or use
   the rotate handle. **Position & size** in the Inspector sets the same values as numbers, and
   keyframes animate them. Opacity, fades, transitions and blend modes work as they do on a photo.
+- **Outline it, give it a glow or a drop shadow:** **Inspector → Mask → Edge style**. The styles
+  trace the sticker's art (its transparent margin is there so they are not clipped), and a mask
+  you draw on it narrows what they trace.
 - **Replace it** without losing your work: in the Inspector's **Sticker** section press
   **Replace…**, or right-click the clip and choose **Replace sticker…**. Elements opens on
   Stickers; pick another and it takes the old one's place, with the same timing, position, size
