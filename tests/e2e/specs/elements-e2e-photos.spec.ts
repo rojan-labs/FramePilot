@@ -1,76 +1,136 @@
 /**
- * Elements · Photos and Videos end to end (plan/elements EL9, ADR 0193): pick a category in the
- * project's own shape, lay a Pexels clip over the footage with **Add as overlay** — a
- * picture-in-picture on a lane in front of the footage, 40% of its size, centred — export it, check
- * the monitor draws what the export draws, and undo it all.
+ * Elements · Photos and Videos end to end (plan/elements EL9, ADR 0193; the manual path of
+ * plan/elements 10 §2):
+ *
+ *  1. Pick a category in the project's own shape, lay a Pexels clip over the footage with **Add as
+ *     overlay** — a picture-in-picture on a lane in front of the footage, 40% of its size, centred —
+ *     undo and redo it, export it (the overlay's colour in the middle of the frame and the footage's
+ *     around it), check the monitor draws what the export draws, then close the project and reopen
+ *     it: nothing changed, and the monitor still matches the export.
+ *  2. Drag tiles onto the timeline: over the footage a shot lands full frame on a new lane in front
+ *     of it; after the footage it lands on the lane it was dropped on. Both undo.
  *
  * What is real: the editor (Elements → Videos, the category chips and orientation filter, the tile's
- * Add and Add as overlay, the shared download flow and its tile registry, the overlay's patch,
- * History and Undo) and the export (`render()` with validation), read back through the same parity
- * gates as the PX4 oracle.
+ * Add, Add as overlay and drag, the shared download flow and its tile registry, the timeline's drop,
+ * the placement patches, History, Undo and Redo, the project's open path) and the export (`render()`
+ * with validation), read back through the same parity gates as the PX4 oracle.
  *
  * SIMULATED, and why: Electron and `fp-media://` (see `masking/fake-desktop.ts`), and Pexels itself —
- * a search answers one item and a download copies a sentinel clip into the project's media folder,
+ * a search answers two items and a download copies a sentinel clip into the project's media folder,
  * answering as main's service does. The service's cache, quota and download are unit-tested in
- * `apps/desktop` (`stock-service.test.ts`).
+ * `apps/desktop` (`stock-service.test.ts`). The drag is dispatched with a real `DataTransfer`: the
+ * tile's own `dragstart` writes the payload and the lane's own `drop` reads it (headless Chromium
+ * has no pointer-driven HTML5 drag to replay).
  *
  * CI ONLY (`elements-e2e` job): it renders.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Browser, type Locator, type Page } from '@playwright/test';
 import {
+  COLOURS,
+  HEIGHT,
+  WIDTH,
   attachDiagnostics,
   clip,
   clipsById,
   expectValidExport,
-  HEIGHT,
   openInDesktop,
   project,
   savedProject,
   sidecarUrl,
   video,
-  WIDTH,
   type OpenedEditor,
 } from './masking/session.js';
+import type { FakeStockLibrary } from './masking/fake-desktop.js';
 import { expectPreviewMatchesExport } from './masking/parity.js';
 import { Workspace } from './masking/workspace.js';
 import type { Project } from '../../../packages/timeline-schema/dist/index.js';
 
 const SECONDS = 3;
-/** The stand-in Pexels item: a red sentinel clip the "download" copies into the project. */
-const REMOTE_ID = '9000001';
-const STOCK_ASSET = `stock_pexels_${REMOTE_ID}`;
-const TITLE = 'Red sentinel skyline';
+const NAME = 'Elements photos';
+/** The stand-in Pexels items: sentinel clips the "download" copies into the project. */
+const RED_ID = '9000001';
+const GREEN_ID = '9000002';
+const RED_TITLE = 'Red sentinel skyline';
+const GREEN_TITLE = 'Green sentinel field';
+const assetIdOf = (remoteId: string): string => `stock_pexels_${remoteId}`;
 
 /** As main sends a search result to the renderer: dimensions and credits, never a URL. */
-const ITEM = {
-  remoteId: REMOTE_ID,
-  provider: 'pexels',
-  kind: 'video',
-  title: TITLE,
-  width: WIDTH,
-  height: HEIGHT,
-  durationSeconds: SECONDS,
-  avgColor: '#aa3322',
-  // No hover preview: the harness serves no tile bytes, and hovering must not ask for any.
-  hasPreview: false,
-  variants: [
-    {
-      id: 'sd',
+function item(remoteId: string, title: string, avgColor: string): Record<string, unknown> {
+  return {
+    remoteId,
+    provider: 'pexels',
+    kind: 'video',
+    title,
+    width: WIDTH,
+    height: HEIGHT,
+    durationSeconds: SECONDS,
+    avgColor,
+    // No hover preview: the harness serves no tile bytes, and hovering must not ask for any.
+    hasPreview: false,
+    variants: [
+      {
+        id: 'sd',
+        width: WIDTH,
+        height: HEIGHT,
+        fps: 30,
+        contentType: 'video/mp4',
+        format: 'mp4',
+        approxBytes: 200_000,
+      },
+    ],
+    license: 'pexels',
+    licenseUrl: 'https://www.pexels.com/license/',
+    attributionRequired: false,
+    attribution: 'Video by Sentinel on Pexels',
+    creator: 'Sentinel',
+  };
+}
+
+const STOCK: FakeStockLibrary = {
+  items: [item(RED_ID, RED_TITLE, '#aa3322'), item(GREEN_ID, GREEN_TITLE, '#22aa33')],
+  files: {
+    [RED_ID]: {
+      path: 'media/pexels_red.mp4',
+      kind: 'video',
       width: WIDTH,
       height: HEIGHT,
-      fps: 30,
-      contentType: 'video/mp4',
-      format: 'mp4',
-      approxBytes: 200_000,
+      durationSeconds: SECONDS,
     },
-  ],
-  license: 'pexels',
-  licenseUrl: 'https://www.pexels.com/license/',
-  attributionRequired: false,
-  attribution: 'Video by Sentinel on Pexels',
-  creator: 'Sentinel',
+    [GREEN_ID]: {
+      path: 'media/pexels_green.mp4',
+      kind: 'video',
+      width: WIDTH,
+      height: HEIGHT,
+      durationSeconds: SECONDS,
+    },
+  },
 };
+
+/** A project with one blue clip on `video_1`, and the sentinel clips the stand-in Pexels serves. */
+async function photosWorkspace(name: string, id: string): Promise<Workspace> {
+  const workspace = await Workspace.create(name);
+  await workspace.media([
+    video('bg', 'blue', SECONDS),
+    video('pexels_red', 'red', SECONDS),
+    video('pexels_green', 'green', SECONDS),
+  ]);
+  await workspace.writeProject(
+    project({
+      id,
+      name: NAME,
+      videos: [{ id: 'bg', seconds: SECONDS }],
+      tracks: [
+        {
+          id: 'video_1',
+          type: 'video',
+          clips: [clip('video_1', { id: 'clip_bg', assetId: 'bg', start: 0, end: SECONDS })],
+        },
+      ],
+    }),
+  );
+  return workspace;
+}
 
 /**
  * The Elements panel is desktop-only, so the browser `accessibility.spec` never reaches it: it is
@@ -92,8 +152,87 @@ async function expectPanelAxeClean(page: Page, label: string): Promise<void> {
   await page.emulateMedia({ colorScheme: null });
 }
 
-const overlaysOf = (document: Project) =>
-  [...clipsById(document).values()].filter((entry) => entry.assetId === STOCK_ASSET);
+/** Elements → Videos → the City category; resolves once the category's own results are shown. */
+async function openCityVideos(page: Page): Promise<Locator> {
+  await page.getByRole('tab', { name: 'Elements', exact: true }).click();
+  await page
+    .getByRole('tablist', { name: 'Elements', exact: true })
+    .getByRole('tab', { name: 'Videos', exact: true })
+    .click();
+  await page
+    .getByRole('group', { name: 'Video categories', exact: true })
+    .getByRole('button', { name: 'City', exact: true })
+    .click();
+  const results = page.getByRole('list', { name: 'City — video', exact: true });
+  await expect(results).toBeVisible();
+  // A re-search dims the previous results (`is-stale`, half opacity) until the new ones land;
+  // anything measured before then — colour contrast above all — measures the dimmed grid.
+  await expect(results).not.toHaveClass(/is-stale/);
+  return results;
+}
+
+const tileOf = (results: Locator, title: string): Locator =>
+  results.getByRole('listitem').filter({ hasText: title });
+
+const stockClipsOf = (document: Project, remoteId: string) =>
+  [...clipsById(document).values()].filter((entry) => entry.assetId === assetIdOf(remoteId));
+
+const lanesOf = (document: Project): string[] => document.timeline.tracks.map((track) => track.id);
+
+const toolbarButton = (page: Page, name: 'Undo' | 'Redo'): Locator =>
+  page
+    .getByRole('toolbar', { name: 'editor tools', exact: true })
+    .getByRole('button', { name, exact: true });
+
+type Rgb = readonly [number, number, number];
+/** Sentinel colours differ by >= 96/255 on some channel; an encode moves them far less. */
+const COLOUR_TOLERANCE = 40;
+
+/** The colours of an engine frame at points given as fractions of its width and height. */
+async function coloursAt(
+  page: Page,
+  url: string,
+  points: readonly (readonly [number, number])[],
+): Promise<Rgb[]> {
+  return page.evaluate(
+    async ({ url: frameUrl, points: at }) => {
+      const bitmap = await createImageBitmap(await (await fetch(frameUrl)).blob(), {
+        colorSpaceConversion: 'none',
+        premultiplyAlpha: 'none',
+      });
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const context = canvas.getContext('2d')!;
+      context.drawImage(bitmap, 0, 0);
+      const colours = at.map(([fx, fy]) => {
+        const x = Math.round(fx * (bitmap.width - 1));
+        const y = Math.round(fy * (bitmap.height - 1));
+        const pixel = context.getImageData(x, y, 1, 1).data;
+        return [pixel[0]!, pixel[1]!, pixel[2]!] as [number, number, number];
+      });
+      bitmap.close();
+      return colours;
+    },
+    { url, points },
+  );
+}
+
+function expectColour(actual: Rgb, expected: Rgb, where: string): void {
+  const off = Math.max(...actual.map((channel, index) => Math.abs(channel - expected[index]!)));
+  expect(
+    off,
+    `${where}: got ${actual.join(',')}, expected ${expected.join(',')}`,
+  ).toBeLessThanOrEqual(COLOUR_TOLERANCE);
+}
+
+/** A fresh browser context: the reopened project shares nothing in memory with the closed one. */
+async function newEditorPage(browser: Browser, baseURL: string): Promise<Page> {
+  const context = await browser.newContext({
+    baseURL,
+    viewport: { width: 1280, height: 800 },
+    reducedMotion: 'reduce',
+  });
+  return context.newPage();
+}
 
 let opened: OpenedEditor | undefined;
 test.afterEach(async ({}, testInfo) => {
@@ -101,48 +240,17 @@ test.afterEach(async ({}, testInfo) => {
   opened = undefined;
 });
 
-test('Videos: a category in the project’s shape, Add as overlay over the footage, export, undo', async ({
+test('Videos: a category in the project’s shape, Add as overlay over the footage, undo and redo, export, reopen', async ({
   page,
+  browser,
 }, testInfo) => {
-  test.setTimeout(5 * 60_000);
-  const workspace = await Workspace.create('elements-photos');
-  // The footage (blue) and the clip the stand-in Pexels hands over (red), as sentinel colours the
-  // parity gates can tell apart.
-  await workspace.media([video('bg', 'blue', SECONDS), video('pexels_source', 'red', SECONDS)]);
-  await workspace.writeProject(
-    project({
-      id: 'elements_photos',
-      name: 'Elements photos',
-      videos: [{ id: 'bg', seconds: SECONDS }],
-      tracks: [
-        {
-          id: 'video_1',
-          type: 'video',
-          clips: [clip('video_1', { id: 'clip_bg', assetId: 'bg', start: 0, end: SECONDS })],
-        },
-      ],
-    }),
-  );
+  test.setTimeout(6 * 60_000);
+  const workspace = await photosWorkspace('elements-photos', 'elements_photos');
   opened = await openInDesktop(
     page,
     testInfo,
-    {
-      workspace,
-      sidecarUrl: sidecarUrl(),
-      stock: {
-        items: [ITEM],
-        files: {
-          [REMOTE_ID]: {
-            path: 'media/pexels_source.mp4',
-            kind: 'video',
-            width: WIDTH,
-            height: HEIGHT,
-            durationSeconds: SECONDS,
-          },
-        },
-      },
-    },
-    'Elements photos',
+    { workspace, sidecarUrl: sidecarUrl(), stock: STOCK },
+    NAME,
   );
   const { desktop } = opened;
 
@@ -158,10 +266,7 @@ test('Videos: a category in the project’s shape, Add as overlay over the foota
     'aria-pressed',
     'true',
   );
-  await page
-    .getByRole('group', { name: 'Video categories', exact: true })
-    .getByRole('button', { name: 'City', exact: true })
-    .click();
+  const results = await openCityVideos(page);
   await expect
     .poll(() =>
       desktop.stockSearches.filter(
@@ -172,8 +277,7 @@ test('Videos: a category in the project’s shape, Add as overlay over the foota
   await expect(
     page.getByText('Each category is one search of your Pexels allowance.'),
   ).toBeVisible();
-  const results = page.getByRole('list', { name: 'City — video', exact: true });
-  const tile = results.getByRole('listitem').first();
+  const tile = tileOf(results, RED_TITLE);
   await expect(tile).toBeVisible();
   await expectPanelAxeClean(page, 'Videos');
 
@@ -183,10 +287,10 @@ test('Videos: a category in the project’s shape, Add as overlay over the foota
   await tile.getByRole('button', { name: 'Add as overlay', exact: true }).click();
   const added = await savedProject(
     desktop,
-    (doc) => overlaysOf(doc).length === 1,
+    (doc) => stockClipsOf(doc, RED_ID).length === 1,
     'the overlay placed',
   );
-  const overlay = overlaysOf(added)[0]!;
+  const overlay = stockClipsOf(added, RED_ID)[0]!;
   expect(overlay).toMatchObject({ start: 0, end: SECONDS });
   // 40% of its size, centred: the base keyframes the on-canvas handles write.
   expect(overlay.keyframes.map((key) => [key.property, key.time, key.value])).toEqual([
@@ -195,29 +299,156 @@ test('Videos: a category in the project’s shape, Add as overlay over the foota
     ['y', 0, 0],
   ]);
   // On its own lane, in front of the footage.
-  const lanes = added.timeline.tracks.map((track) => track.id);
   expect(overlay.trackId).not.toBe('video_1');
-  expect(lanes.indexOf(overlay.trackId)).toBeLessThan(lanes.indexOf('video_1'));
+  expect(lanesOf(added).indexOf(overlay.trackId)).toBeLessThan(lanesOf(added).indexOf('video_1'));
   expect(clipsById(added).get('clip_bg')).toMatchObject({ start: 0, end: SECONDS });
-  expect(added.assets.find((asset) => asset.id === STOCK_ASSET)?.source?.provider).toBe('pexels');
+  expect(added.assets.find((asset) => asset.id === assetIdOf(RED_ID))?.source?.provider).toBe(
+    'pexels',
+  );
   // The tile now says the clip is in the project.
   await expect(tile.getByText('In this project', { exact: true })).toBeVisible();
 
-  // --- export: valid, and the monitor draws the engine's own pixels ----------------------------
-  expectValidExport(await workspace.export('photos-overlay.mp4'), SECONDS);
-  await expectPreviewMatchesExport(page, workspace, [0.5, 1.5], 'photos-overlay', testInfo);
-
-  // --- undo: one step takes back the clip, its lane and the asset ------------------------------
-  await page
-    .getByRole('toolbar', { name: 'editor tools', exact: true })
-    .getByRole('button', { name: 'Undo', exact: true })
-    .click();
+  // --- undo takes back the clip, its lane and the asset; redo brings back exactly that ---------
+  await toolbarButton(page, 'Undo').click();
   const undone = await savedProject(
     desktop,
-    (doc) => overlaysOf(doc).length === 0,
+    (doc) => stockClipsOf(doc, RED_ID).length === 0,
     'the overlay undone',
   );
-  expect(undone.timeline.tracks.map((track) => track.id)).toEqual(['video_1']);
-  expect(undone.assets.some((asset) => asset.id === STOCK_ASSET)).toBe(false);
+  expect(lanesOf(undone)).toEqual(['video_1']);
+  expect(undone.assets.some((asset) => asset.id === assetIdOf(RED_ID))).toBe(false);
+  expect(clipsById(undone).get('clip_bg')).toMatchObject({ start: 0, end: SECONDS });
+  await toolbarButton(page, 'Redo').click();
+  const redone = await savedProject(
+    desktop,
+    (doc) => stockClipsOf(doc, RED_ID).length === 1,
+    'the overlay redone',
+  );
+  expect(stockClipsOf(redone, RED_ID)).toEqual([overlay]);
+  expect(lanesOf(redone)).toEqual(lanesOf(added));
+  expect(redone.assets).toEqual(added.assets);
+
+  // --- export: valid, the overlay where it belongs, and the monitor draws the same pixels ------
+  expectValidExport(await workspace.export('photos-overlay.mp4'), SECONDS);
+  // Parity alone would pass if both runtimes dropped or mis-sized the overlay, so one export
+  // frame is read directly: the red overlay inside the 40% box centred on the frame (which spans
+  // 30%–70% of each side), the blue footage outside it. Points sit in each sentinel's primary
+  // colour, clear of the second colour in its top-right quadrant.
+  const [frame] = await workspace.frames([1], 'photos-overlay-colours');
+  const origin = new URL(page.url()).origin;
+  const [inside, insideCorner, left, corner] = await coloursAt(
+    page,
+    `${origin}${workspace.urlPath(frame!.path)}`,
+    [
+      [0.4375, 0.6],
+      [0.3125, 0.68],
+      [0.25, 0.6],
+      [0.03, 0.95],
+    ],
+  );
+  expectColour(inside!, COLOURS.red[0], 'the overlay, inside its box');
+  expectColour(insideCorner!, COLOURS.red[0], 'just inside the box’s lower-left corner');
+  expectColour(left!, COLOURS.blue[0], 'the footage, a quarter of the way in');
+  expectColour(corner!, COLOURS.blue[0], 'the footage, in the corner');
+  await expectPreviewMatchesExport(page, workspace, [0.5, 1.5], 'photos-overlay', testInfo);
+
+  // --- save, close, reopen: identical, and still drawn as it exports ---------------------------
+  const onDisk = await workspace.readProject();
+  expect(stockClipsOf(onDisk, RED_ID)).toEqual([overlay]);
+  await attachDiagnostics(testInfo, opened);
+  await page.close();
+  const reopenedPage = await newEditorPage(
+    browser,
+    testInfo.project.use.baseURL ?? 'http://127.0.0.1:5173',
+  );
+  opened = await openInDesktop(
+    reopenedPage,
+    testInfo,
+    { workspace, sidecarUrl: sidecarUrl(), stock: STOCK },
+    NAME,
+  );
+  // What was saved is what opened: the overlay, its lane in front of the footage, and the asset
+  // (an autosave on open may rewrite the file, so the parts that carry the edit are compared).
+  const reread = await workspace.readProject();
+  expect(stockClipsOf(reread, RED_ID)).toEqual([overlay]);
+  expect(lanesOf(reread)).toEqual(lanesOf(onDisk));
+  expect(reread.assets).toEqual(onDisk.assets);
+  // The overlay is on the timeline where it was, and the monitor draws what the export draws.
+  await expect(
+    reopenedPage.getByRole('button', { name: `clip ${overlay.id}`, exact: true }),
+  ).toBeVisible();
+  await expectPreviewMatchesExport(
+    reopenedPage,
+    workspace,
+    [0.5, 1.5],
+    'photos-overlay-reopened',
+    testInfo,
+  );
+});
+
+test('Videos: a tile dragged onto the timeline lands at the drop — in front of footage, or on the lane after it', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(5 * 60_000);
+  const workspace = await photosWorkspace('elements-photos-drag', 'elements_photos_drag');
+  opened = await openInDesktop(
+    page,
+    testInfo,
+    { workspace, sidecarUrl: sidecarUrl(), stock: STOCK },
+    NAME,
+  );
+  const { desktop } = opened;
+  const results = await openCityVideos(page);
+
+  const lane = page.locator('[data-track-id="video_1"]');
+  const footage = page.getByRole('button', { name: 'clip clip_bg', exact: true });
+  const laneBox = (await lane.boundingBox())!;
+  const footageBox = (await footage.boundingBox())!;
+  const drag = async (title: string, clientX: number): Promise<void> => {
+    const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+    await tileOf(results, title).dispatchEvent('dragstart', { dataTransfer });
+    const at = { clientX, clientY: laneBox.y + laneBox.height / 2 };
+    await lane.dispatchEvent('dragover', { dataTransfer, ...at });
+    await lane.dispatchEvent('drop', { dataTransfer, ...at });
+  };
+
+  // --- over the footage: full frame, on a new lane in front of it, at the drop time -------------
+  await drag(RED_TITLE, footageBox.x + footageBox.width / 2);
+  const over = await savedProject(
+    desktop,
+    (doc) => stockClipsOf(doc, RED_ID).length === 1,
+    'the red clip dropped over the footage',
+  );
+  const red = stockClipsOf(over, RED_ID)[0]!;
+  expect(red.trackId).not.toBe('video_1');
+  expect(lanesOf(over).indexOf(red.trackId)).toBeLessThan(lanesOf(over).indexOf('video_1'));
+  expect(red.start).toBeGreaterThan(0);
+  expect(red.start).toBeLessThan(SECONDS);
+  // Full frame: no base transform, unlike an overlay.
+  expect(red.keyframes).toEqual([]);
+
+  // --- after the footage: on the lane it was dropped on, which has room there ------------------
+  // The lane runs well past a 3 s programme (it is at least 10 s wide), so this is empty lane.
+  const afterFootage = footageBox.x + footageBox.width + 24;
+  expect(afterFootage).toBeLessThan(laneBox.x + laneBox.width);
+  await drag(GREEN_TITLE, afterFootage);
+  const dropped = await savedProject(
+    desktop,
+    (doc) => stockClipsOf(doc, GREEN_ID).length === 1,
+    'the green clip dropped after the footage',
+  );
+  const green = stockClipsOf(dropped, GREEN_ID)[0]!;
+  expect(green.trackId).toBe('video_1');
+  expect(green.start).toBeGreaterThanOrEqual(SECONDS - 0.05);
+  expect(green.keyframes).toEqual([]);
+
+  // --- both undo, leaving the footage as it was --------------------------------------------------
+  for (let step = 0; step < 2; step += 1) await toolbarButton(page, 'Undo').click();
+  const undone = await savedProject(
+    desktop,
+    (doc) => stockClipsOf(doc, RED_ID).length === 0 && stockClipsOf(doc, GREEN_ID).length === 0,
+    'both drops undone',
+  );
+  expect(lanesOf(undone)).toEqual(['video_1']);
   expect(clipsById(undone).get('clip_bg')).toMatchObject({ start: 0, end: SECONDS });
 });
