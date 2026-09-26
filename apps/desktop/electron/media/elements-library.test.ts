@@ -203,6 +203,75 @@ describe('ElementsLibrary.materialize', () => {
   });
 });
 
+describe('ElementsLibrary telemetry', () => {
+  it('reports how each request ended, and nothing about the project', async () => {
+    const outcomes: unknown[] = [];
+    const lib = new ElementsLibrary({
+      projectsRoot: path.join(root, 'projects'),
+      bundledRoot: () => bundled,
+      catalog: async () => catalog([item('fire')]),
+      onOutcome: (outcome) => outcomes.push(outcome),
+    });
+    await lib.materialize({ projectId: 'p1', elementId: 'fire' });
+    await lib.materialize({ projectId: 'p1', elementId: 'fire' });
+    await lib.materialize({ projectId: 'p1', elementId: 'nope' });
+    expect(outcomes).toEqual([
+      { ok: true, deduped: false },
+      { ok: true, deduped: true },
+      { ok: false, error: 'unknown_element' },
+    ]);
+  });
+});
+
+describe('ElementsLibrary.heal', () => {
+  const stickerAsset = (projectId: string) => ({
+    id: 'element_fluent3d_fire',
+    path: `media/${projectId}/elements/fluent3d/fire.webp`,
+    source: { provider: 'fluent-emoji', remoteId: 'fire' },
+  });
+
+  it('puts back a sticker file the project lost, at the path it records', async () => {
+    const lib = library([item('fire')]);
+    const result = await lib.heal({ id: 'p1', assets: [stickerAsset('p1')] });
+    expect(result).toEqual({ healed: ['element_fluent3d_fire'], failed: [] });
+    const restored = path.join(
+      root,
+      'projects',
+      'media',
+      'p1',
+      'elements',
+      'fluent3d',
+      'fire.webp',
+    );
+    expect(readFileSync(restored)).toEqual(FIRE);
+    // Present now: a second open copies nothing.
+    expect(await lib.heal({ id: 'p1', assets: [stickerAsset('p1')] })).toEqual({
+      healed: [],
+      failed: [],
+    });
+  });
+
+  it('leaves footage, other projects’ copies and unknown stickers alone, and says which failed', async () => {
+    const lib = library([item('fire')]);
+    const result = await lib.heal({
+      id: 'p2',
+      assets: [
+        { id: 'talk', path: 'media/p2/talk.mp4' },
+        stickerAsset('p1'),
+        {
+          id: 'element_fluent3d_ghost',
+          path: 'media/p2/elements/fluent3d/ghost.webp',
+          source: { provider: 'fluent-emoji', remoteId: 'ghost' },
+        },
+      ],
+    });
+    expect(result).toEqual({
+      healed: [],
+      failed: ['element_fluent3d_fire', 'element_fluent3d_ghost'],
+    });
+  });
+});
+
 describe('bundledStickersRoot', () => {
   it('reads the packaged renderer in an installed app and web-editor/public in a dev tree', () => {
     const mainDir = path.join('/repo', 'apps', 'desktop', 'dist');

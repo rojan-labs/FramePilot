@@ -63,6 +63,12 @@ export interface ElementsLibraryOptions {
   readonly catalog: () => Promise<StickerCatalog>;
   readonly io?: ElementsLibraryIO;
   readonly now?: () => Date;
+  /** Told how each request ended, for the opt-in local telemetry. Never the project or a path. */
+  readonly onOutcome?: (outcome: {
+    readonly ok: boolean;
+    readonly error?: string;
+    readonly deduped?: boolean;
+  }) => void;
 }
 
 const sha256 = (data: Buffer): string => createHash('sha256').update(data).digest('hex');
@@ -91,9 +97,59 @@ export class ElementsLibrary {
     const key = `${request.projectId}\u0000${request.elementId}`;
     const running = this.inFlight.get(key);
     if (running !== undefined) return running;
-    const started = this.materializeUnshared(request).finally(() => this.inFlight.delete(key));
+    const started = this.materializeUnshared(request)
+      .then((result) => {
+        this.options.onOutcome?.(
+          result.ok
+            ? { ok: true, deduped: result.asset.deduped }
+            : { ok: false, error: result.error },
+        );
+        return result;
+      })
+      .finally(() => this.inFlight.delete(key));
     this.inFlight.set(key, started);
     return started;
+  }
+
+  /**
+   * Put back the sticker files a project references but no longer has (auto-heal on open,
+   * plan/elements EL6a.6b): each is re-copied from the library by its catalogue id to the path
+   * the project already records, so it plays again without a relink. A file somewhere else (a
+   * project copied from another) is left for the user to relink.
+   *
+   * @returns the asset ids healed, and those that could not be.
+   */
+  async heal(project: {
+    readonly id: string;
+    readonly assets: readonly {
+      readonly id: string;
+      readonly path: string;
+      readonly source?: { readonly provider: string; readonly remoteId: string } | null | undefined;
+    }[];
+  }): Promise<{ readonly healed: readonly string[]; readonly failed: readonly string[] }> {
+    const catalog = await this.options.catalog();
+    const healed: string[] = [];
+    const failed: string[] = [];
+    for (const asset of project.assets) {
+      if (asset.source?.provider !== catalog.provider) continue;
+      let target: string;
+      try {
+        target = resolveWithin(this.options.projectsRoot, asset.path);
+      } catch {
+        continue;
+      }
+      if (await this.io.exists(target)) continue;
+      const result = await this.materialize({
+        projectId: project.id,
+        elementId: asset.source.remoteId,
+      });
+      if (result.ok && result.asset.path === asset.path) healed.push(asset.id);
+      else failed.push(asset.id);
+    }
+    if (healed.length > 0 || failed.length > 0) {
+      log.action('heal', { projectId: project.id, healed: healed.length, failed: failed.length });
+    }
+    return { healed, failed };
   }
 
   private async materializeUnshared(

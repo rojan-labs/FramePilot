@@ -944,6 +944,8 @@ function registerIpcHandlers(): void {
     projectsRoot,
     bundledRoot: () => bundledStickersRoot(dirname, app.isPackaged),
     catalog: loadStickerCatalog,
+    // Counts only: whether it worked, the closed error code, and whether a copy was reused.
+    onOutcome: (outcome) => appTelemetry?.recordEvent('element_materialize', { ...outcome }),
   });
 
   capabilityPackService = capabilityPackLocation
@@ -1582,6 +1584,8 @@ function registerIpcHandlers(): void {
       if (!guard.ok) return guard;
       try {
         const project = await readProjectFile(guard.path);
+        // A sticker file that went missing comes back from the library before anything reads it.
+        await elementsLibrary.heal(project);
         await recentFiles.add({ path: guard.path, name: project.name, openedAt: Date.now() });
         // Publish the open project so the MCP server edits this same file.
         await activeProject.record({
@@ -1618,6 +1622,7 @@ function registerIpcHandlers(): void {
     const selectedPath = filePaths[0]!;
     try {
       const project = await readProjectFile(selectedPath);
+      await elementsLibrary.heal(project);
       await recentFiles.add({ path: selectedPath, name: project.name, openedAt: Date.now() });
       // A file picked from outside the projects folder is still recorded; the
       // MCP server sandbox-rejects it safely if it later tries to open it.
@@ -3976,6 +3981,12 @@ function hardenRendererSession(): void {
 }
 
 /**
+ * The opt-in local telemetry, once {@link setupTelemetry} has run; services that count their own
+ * events (sticker adds and failures) read it lazily. A no-op while telemetry is off.
+ */
+let appTelemetry: LocalTelemetry | null = null;
+
+/**
  * Wire opt-in, local-first crash telemetry (plan Phase 8). Disabled unless
  * `FRAMEPILOT_TELEMETRY=1`; when enabled, crash records are appended as JSON
  * lines to `telemetry.log` under the app's userData dir. No network, ever.
@@ -3988,6 +3999,7 @@ function setupTelemetry(): void {
     now: () => Date.now(),
     sink: (line) => appendFileSync(logPath, `${line}\n`),
   });
+  appTelemetry = telemetry;
   if (!enabled) return;
   process.on('uncaughtException', (error) => telemetry.recordCrash(error));
   process.on('unhandledRejection', (reason) => telemetry.recordCrash(reason));
