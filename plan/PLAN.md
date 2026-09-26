@@ -10341,6 +10341,11 @@ stickers, CC BY 4.0 (EL10).
   Release run 36243262914 on `8f6985ed` passes all four: macOS arm64 DMG 340.3 MiB, macOS x64
   372.6 MiB, Linux AppImage 327.8 MiB / .deb 330.6 MiB, Windows ~350 MiB (budget 400), each with
   a verified feed.
+- [ ] **Found in EL12 — the slowest shape raster has little headroom (follow-up for
+  `performance-optimizer`).** `icon/grape` rasterises in 14.2 ms at 1080p (budget 15) and 36–41
+  ms at 4K (budget 50) on an M1 Pro, now guarded at budget ×2 in `test_shape_raster.py`; most of
+  it is the curved-joint stroke (`ImageDraw.line(joint="curve")`, one pieslice per vertex, ~737
+  per raster). Not a release blocker; the fix is in the stroke, never a raised ceiling.
 - [ ] **Found in EL6a — the CodeQL alert backlog (separate PR).** 57 alerts are open on `main`
   (path and command-line injection in the sidecar's matte, PTS and service routes; ReDoS in
   caption segmentation and eval metrics; an e2e request-forgery). PR #131 adds none (its set equals
