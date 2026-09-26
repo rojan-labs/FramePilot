@@ -1,8 +1,9 @@
 /**
- * Elements · Shapes end to end (plan/elements EL4a, EL7): add a highlight box from the Shapes tab,
- * resize it on the monitor, recolour it in the Inspector, export, check the monitor draws what the
- * export draws, and undo it all; and animate a shape — Pop in and Pulse from the Animation section
- * the clip menu opens — through the export and the undo.
+ * Elements · Shapes end to end (plan/elements EL4a, EL7, EL11): add a highlight box from the Shapes
+ * tab, resize it on the monitor, recolour it in the Inspector, export, check the monitor draws what
+ * the export draws, and undo it all; animate a shape — Pop in and Pulse from the Animation section
+ * the clip menu opens — through the export and the undo; and drop a highlight box on the monitor at
+ * a point, which the export draws centred there.
  *
  * What is real: the editor (Elements → Shapes, the monitor handles, the Inspector's Shape
  * section, History), the engine's shape rasteriser behind the monitor (the sidecar's
@@ -10,11 +11,14 @@
  * back through the same parity gates as the PX4 oracle.
  *
  * SIMULATED, and why: Electron and `fp-media://` (see `masking/fake-desktop.ts`); the Photos tab's
- * Pexels calls, which this spec never makes, are not served by the fake host.
+ * Pexels calls, which this spec never makes, are not served by the fake host. The drop onto the
+ * monitor is dispatched with a real `DataTransfer`: the tile's own `dragstart` writes the payload
+ * and the monitor's own `dragover` and `drop` read it (headless Chromium has no pointer-driven
+ * HTML5 drag to replay).
  *
  * CI ONLY (`elements-e2e` job): it renders.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import {
   attachDiagnostics,
   clip,
@@ -27,7 +31,7 @@ import {
   video,
   type OpenedEditor,
 } from './masking/session.js';
-import { expectPreviewMatchesExport } from './masking/parity.js';
+import { expectPreviewMatchesExport, waitForMonitor } from './masking/parity.js';
 import { Workspace } from './masking/workspace.js';
 import { presetShapeParams, type Project } from '../../../packages/timeline-schema/dist/index.js';
 
@@ -219,6 +223,131 @@ test('Animation: pop a shape in and pulse it from the clip menu, export, undo (E
       );
     },
     'the animation undone',
+  );
+  expect(clipsById(undone).get('clip_bg')).toMatchObject({ start: 0, end: SECONDS });
+});
+
+/**
+ * The centre of the highlight box's yellow in an engine frame, in that frame's pixels: the middle
+ * of the box the yellow stroke spans (the straight sides reach its extremes; the rounded corners
+ * do not change them).
+ */
+async function yellowBoxCentre(
+  page: Page,
+  url: string,
+): Promise<{ x: number; y: number; width: number; height: number; pixels: number }> {
+  return page.evaluate(async (frameUrl) => {
+    const bitmap = await createImageBitmap(await (await fetch(frameUrl)).blob(), {
+      colorSpaceConversion: 'none',
+      premultiplyAlpha: 'none',
+    });
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext('2d')!;
+    context.drawImage(bitmap, 0, 0);
+    const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+    let [left, top, right, bottom, pixels] = [bitmap.width, bitmap.height, -1, -1, 0];
+    for (let y = 0; y < bitmap.height; y += 1) {
+      for (let x = 0; x < bitmap.width; x += 1) {
+        const at = (y * bitmap.width + x) * 4;
+        // #FFD400 through an encode: strong red and green, little blue. No sentinel is near it.
+        if (data[at]! > 200 && data[at + 1]! > 160 && data[at + 2]! < 100) {
+          left = Math.min(left, x);
+          right = Math.max(right, x);
+          top = Math.min(top, y);
+          bottom = Math.max(bottom, y);
+          pixels += 1;
+        }
+      }
+    }
+    const size = { width: bitmap.width, height: bitmap.height };
+    bitmap.close();
+    return { x: (left + right) / 2, y: (top + bottom) / 2, ...size, pixels };
+  }, url);
+}
+
+test('Monitor drop: a highlight box let go over the picture lands centred there, exports there, undoes (EL11)', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(5 * 60_000);
+  const workspace = await Workspace.create('elements-shapes-monitor-drop');
+  await workspace.media([video('bg', 'blue', SECONDS)]);
+  await workspace.writeProject(
+    project({
+      id: 'elements_shapes_monitor_drop',
+      name: NAME,
+      videos: [{ id: 'bg', seconds: SECONDS }],
+      tracks: [
+        {
+          id: 'video_1',
+          type: 'video',
+          clips: [clip('video_1', { id: 'clip_bg', assetId: 'bg', start: 0, end: SECONDS })],
+        },
+      ],
+    }),
+  );
+  opened = await openInDesktop(page, testInfo, { workspace, sidecarUrl: sidecarUrl() }, NAME);
+  const { desktop } = opened;
+  await waitForMonitor(page);
+
+  await page.getByRole('tab', { name: 'Elements', exact: true }).click();
+  await page
+    .getByRole('tablist', { name: 'Elements', exact: true })
+    .getByRole('tab', { name: 'Shapes', exact: true })
+    .click();
+
+  // --- drag the tile onto the monitor, letting go 30% across and 40% down the picture -----------
+  const DROP = { x: 0.3, y: 0.4 } as const;
+  const frame = page.locator('.preview-stage .preview-frame');
+  const frameBox = (await frame.boundingBox())!;
+  const at = {
+    clientX: frameBox.x + frameBox.width * DROP.x,
+    clientY: frameBox.y + frameBox.height * DROP.y,
+  };
+  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+  await page
+    .getByRole('button', { name: 'Add Highlight box', exact: true })
+    .dispatchEvent('dragstart', { dataTransfer });
+  await frame.dispatchEvent('dragover', { dataTransfer, ...at });
+  // The monitor took the drag: a copy, and its edge lit while the tile is over it.
+  expect(await dataTransfer.evaluate((transfer) => transfer.dropEffect)).toBe('copy');
+  await expect(frame).toHaveClass(/is-element-drop/);
+  await frame.dispatchEvent('drop', { dataTransfer, ...at });
+  await expect(frame).not.toHaveClass(/is-element-drop/);
+
+  // --- one shape at the playhead, its box centred where it was dropped, selected ------------------
+  const dropped = await savedProject(desktop, (doc) => shapesOf(doc).length === 1, 'one shape');
+  const shape = shapesOf(dropped)[0]!;
+  expect(shape.start).toBe(0);
+  const params = paramsOf(dropped, shape.id)!;
+  expect(params).toMatchObject({ shape: 'rounded-rect', stroke: '#FFD400' });
+  expect(Number(params.x)).toBeCloseTo(DROP.x * 100, 1);
+  expect(Number(params.y)).toBeCloseTo(DROP.y * 100, 1);
+  await expect(page.getByRole('button', { name: `clip ${shape.id}`, exact: true })).toHaveAttribute(
+    'data-selected',
+    'true',
+  );
+  expect(clipsById(dropped).get('clip_bg')).toMatchObject({ start: 0, end: SECONDS });
+
+  // --- export: valid, the box's centre on the drop point, and the monitor draws the same pixels ---
+  expectValidExport(await workspace.export('shapes-monitor-drop.mp4'), SECONDS);
+  const [still] = await workspace.frames([1], 'shapes-monitor-drop-centre');
+  const origin = new URL(page.url()).origin;
+  const centre = await yellowBoxCentre(page, `${origin}${workspace.urlPath(still!.path)}`);
+  expect(centre.pixels, 'the exported frame draws the highlight box').toBeGreaterThan(100);
+  // Within a few pixels of where the pointer let go, in the export's own pixels.
+  expect(Math.abs(centre.x - DROP.x * (centre.width - 1))).toBeLessThanOrEqual(3);
+  expect(Math.abs(centre.y - DROP.y * (centre.height - 1))).toBeLessThanOrEqual(3);
+  await expectPreviewMatchesExport(page, workspace, [0.5, 1.5], 'shapes-monitor-drop', testInfo);
+
+  // --- one undo takes the drop back, and the footage is as it was ---------------------------------
+  await page
+    .getByRole('toolbar', { name: 'editor tools', exact: true })
+    .getByRole('button', { name: 'Undo', exact: true })
+    .click();
+  const undone = await savedProject(
+    desktop,
+    (doc) => shapesOf(doc).length === 0,
+    'the project with the dropped shape undone',
   );
   expect(clipsById(undone).get('clip_bg')).toMatchObject({ start: 0, end: SECONDS });
 });

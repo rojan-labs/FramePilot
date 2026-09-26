@@ -9,6 +9,10 @@
  *     it: nothing changed, and the monitor still matches the export.
  *  2. Drag tiles onto the timeline: over the footage a shot lands full frame on a new lane in front
  *     of it; after the footage it lands on the lane it was dropped on. Both undo.
+ *  3. The same **Add as overlay** on the user's own image (ADR 0193, amendment "bin images"):
+ *     import a transparent PNG into the bin, lay it over the footage from its card, export (the
+ *     image where it is opaque, the footage through it where it is transparent), check the monitor
+ *     draws what the export draws, and undo it with the image left in the bin.
  *
  * What is real: the editor (Elements → Videos, the category chips and orientation filter, the tile's
  * Add, Add as overlay and drag, the shared download flow and its tile registry, the timeline's drop,
@@ -20,10 +24,12 @@
  * answering as main's service does. The service's cache, quota and download are unit-tested in
  * `apps/desktop` (`stock-service.test.ts`). The drag is dispatched with a real `DataTransfer`: the
  * tile's own `dragstart` writes the payload and the lane's own `drop` reads it (headless Chromium
- * has no pointer-driven HTML5 drag to replay).
+ * has no pointer-driven HTML5 drag to replay). The import's probe reads the PNG's own header (see
+ * the fake host); the bytes are written by main's own `importMediaFile`.
  *
  * CI ONLY (`elements-e2e` job): it renders.
  */
+import { deflateSync } from 'node:zlib';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Browser, type Locator, type Page } from '@playwright/test';
 import {
@@ -451,4 +457,174 @@ test('Videos: a tile dragged onto the timeline lands at the drop — in front of
   );
   expect(lanesOf(undone)).toEqual(['video_1']);
   expect(clipsById(undone).get('clip_bg')).toMatchObject({ start: 0, end: SECONDS });
+});
+
+// --- The user's own image, from the bin (ADR 0193, amendment "bin images") -----------------------
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+
+function crc32(bytes: Buffer): number {
+  let c = 0xffffffff;
+  for (const byte of bytes) c = CRC_TABLE[(c ^ byte) & 0xff]! ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(body));
+  return Buffer.concat([length, body, crc]);
+}
+
+/** An 8-bit RGBA PNG whose pixel at (x, y) is `pixel(x, y)`. */
+function rgbaPng(
+  width: number,
+  height: number,
+  pixel: (x: number, y: number) => readonly [number, number, number, number],
+): Buffer {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8; // bit depth
+  header[9] = 6; // RGBA
+  const stride = width * 4 + 1;
+  const raw = Buffer.alloc(stride * height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) raw.set(pixel(x, y), y * stride + 1 + x * 4);
+  }
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', header),
+    pngChunk('IDAT', deflateSync(raw)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+/**
+ * A 16:9 "logo" half the project's size: an opaque red block over its middle half, and fully
+ * transparent around it. The transparent pixels carry green, so an export that dropped the alpha
+ * would show green where the footage belongs.
+ */
+const LOGO_WIDTH = 320;
+const LOGO_HEIGHT = 180;
+const LOGO = rgbaPng(LOGO_WIDTH, LOGO_HEIGHT, (x, y) =>
+  x >= LOGO_WIDTH / 4 &&
+  x < (LOGO_WIDTH * 3) / 4 &&
+  y >= LOGO_HEIGHT / 4 &&
+  y < (LOGO_HEIGHT * 3) / 4
+    ? [...COLOURS.red[0], 255]
+    : [0, 255, 0, 0],
+);
+
+const clipsOfAsset = (document: Project, assetId: string) =>
+  [...clipsById(document).values()].filter((entry) => entry.assetId === assetId);
+
+test('Bin image: a transparent PNG imported into the bin, Add as overlay, export, undo — the image stays', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(5 * 60_000);
+  const workspace = await Workspace.create('elements-bin-overlay');
+  await workspace.media([video('bg', 'blue', SECONDS)]);
+  await workspace.writeProject(
+    project({
+      id: 'elements_bin_overlay',
+      name: NAME,
+      videos: [{ id: 'bg', seconds: SECONDS }],
+      tracks: [
+        {
+          id: 'video_1',
+          type: 'video',
+          clips: [clip('video_1', { id: 'clip_bg', assetId: 'bg', start: 0, end: SECONDS })],
+        },
+      ],
+    }),
+  );
+  opened = await openInDesktop(page, testInfo, { workspace, sidecarUrl: sidecarUrl() }, NAME);
+  const { desktop } = opened;
+
+  // --- import the PNG through the bin's own Import -----------------------------------------------
+  await page.getByRole('tab', { name: 'Assets', exact: true }).click();
+  await page
+    .getByLabel('import media', { exact: true })
+    .setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: LOGO });
+  const imported = await savedProject(
+    desktop,
+    (doc) => doc.assets.some((asset) => asset.id === 'asset_logo'),
+    'the image imported into the bin',
+  );
+  const logo = imported.assets.find((asset) => asset.id === 'asset_logo')!;
+  expect(logo).toMatchObject({
+    kind: 'image',
+    media: { width: LOGO_WIDTH, height: LOGO_HEIGHT },
+  });
+  expect(logo.path).toMatch(/^media\/.+\/logo\.png$/);
+
+  // --- Add as overlay from the card: over the footage, at the playhead, selected, announced -------
+  const card = page.getByLabel('asset asset_logo', { exact: true });
+  await card.hover();
+  await card.getByRole('button', { name: 'add asset_logo as an overlay', exact: true }).click();
+  const added = await savedProject(
+    desktop,
+    (doc) => clipsOfAsset(doc, 'asset_logo').length === 1,
+    'the image laid over the footage',
+  );
+  const overlay = clipsOfAsset(added, 'asset_logo')[0]!;
+  // At the playhead, ending with the programme rather than lengthening it.
+  expect(overlay).toMatchObject({ start: 0, end: SECONDS });
+  expect(overlay.keyframes.map((key) => [key.property, key.time, key.value])).toEqual([
+    ['scale', 0, 0.4],
+    ['x', 0, 0],
+    ['y', 0, 0],
+  ]);
+  expect(lanesOf(added).indexOf(overlay.trackId)).toBeLessThan(lanesOf(added).indexOf('video_1'));
+  // The image was already in the bin: the edit added no asset.
+  expect(added.assets).toEqual(imported.assets);
+  await expect(
+    page.getByRole('button', { name: `clip ${overlay.id}`, exact: true }),
+  ).toHaveAttribute('data-selected', 'true');
+  await expect(
+    page.getByText('Added logo.png as an overlay at 0:00', { exact: true }),
+  ).toBeAttached();
+
+  // --- export: the image where it is opaque, the footage through it where it is transparent -------
+  expectValidExport(await workspace.export('bin-overlay.mp4'), SECONDS);
+  // The overlay is 40% of the frame, centred (30%–70% of each side); its opaque block is the middle
+  // half of that (40%–60%). Points sit clear of the footage's second colour, top right.
+  const [frame] = await workspace.frames([1], 'bin-overlay-colours');
+  const origin = new URL(page.url()).origin;
+  const [opaque, transparent, outside] = await coloursAt(
+    page,
+    `${origin}${workspace.urlPath(frame!.path)}`,
+    [
+      [0.45, 0.55],
+      [0.33, 0.62],
+      [0.2, 0.8],
+    ],
+  );
+  expectColour(opaque!, COLOURS.red[0], 'the image, where it is opaque');
+  expectColour(
+    transparent!,
+    COLOURS.blue[0],
+    'the footage, through the image’s transparent margin',
+  );
+  expectColour(outside!, COLOURS.blue[0], 'the footage, outside the overlay');
+  await expectPreviewMatchesExport(page, workspace, [0.5, 1.5], 'bin-overlay', testInfo);
+
+  // --- one undo takes the overlay and its lane back; the image stays in the bin -------------------
+  await toolbarButton(page, 'Undo').click();
+  const undone = await savedProject(
+    desktop,
+    (doc) => clipsOfAsset(doc, 'asset_logo').length === 0,
+    'the overlay undone',
+  );
+  expect(lanesOf(undone)).toEqual(['video_1']);
+  expect(undone.assets.some((asset) => asset.id === 'asset_logo')).toBe(true);
+  expect(clipsById(undone).get('clip_bg')).toMatchObject({ start: 0, end: SECONDS });
+  await expect(page.getByLabel('asset asset_logo', { exact: true })).toBeVisible();
 });

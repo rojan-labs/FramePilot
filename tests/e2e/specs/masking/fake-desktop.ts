@@ -40,10 +40,15 @@
  *    answers the spec's items and a download copies the spec's local file into the project's media
  *    folder, answering as main's service does. The main-process service itself (cache, quota,
  *    download, sizing) is covered by `apps/desktop` `stock-service.test.ts`, not here.
+ *  - **The import probe** (Assets → Import). The bytes are written by main's own
+ *    `importMediaFile`, in one chunk (a spec's files are far smaller than one); the sidecar's
+ *    `/asset-media` probe that follows is stood in for by reading a PNG's own header for its size,
+ *    the one kind of file a spec imports. Anything else answers "not probed", which the app treats
+ *    as the real probe failing: the asset is kept without media.
  */
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { copyFile, mkdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Page, Route } from '@playwright/test';
 import {
@@ -64,6 +69,8 @@ import { registerRelinkIpc } from '../../../../apps/desktop/dist/capability-pack
 import { DesktopMatteMediaInspector } from '../../../../apps/desktop/dist/capability-packs/matte-media-inspector.js';
 import { validateProjectMattes } from '../../../../apps/desktop/dist/capability-packs/matte-validation.js';
 import { ElementsLibrary } from '../../../../apps/desktop/dist/media/elements-library.js';
+import { importMediaFile } from '../../../../apps/desktop/dist/projects/media-import.js';
+import { decodeMediaImportChunk } from '../../../../packages/shared-types/dist/index.js';
 import { previewTextWireBody } from '../../../../apps/desktop/dist/render/preview-text-client.js';
 import { loadStickerCatalog } from '../../../../packages/ai-sdk/dist/index.js';
 import {
@@ -528,7 +535,8 @@ export class FakeDesktop {
         const base: Record<string, unknown> = {};
         for (const method of invoke) {
           base[method] = (...args: unknown[]) => {
-            // Bytes cross as base64 (the page ↔ harness channel carries JSON).
+            // Bytes cross as base64 (the page ↔ harness channel carries JSON): a correction's
+            // `png`, and an import's `data`.
             const wire = args.map((arg) =>
               arg !== null &&
               typeof arg === 'object' &&
@@ -538,7 +546,17 @@ export class FakeDesktop {
                     ...(arg as object),
                     png: { base64: toBase64((arg as { png: Uint8Array }).png) },
                   }
-                : arg,
+                : arg !== null &&
+                    typeof arg === 'object' &&
+                    'data' in arg &&
+                    (arg as { data: unknown }).data instanceof ArrayBuffer
+                  ? {
+                      ...(arg as object),
+                      data: {
+                        base64: toBase64(new Uint8Array((arg as { data: ArrayBuffer }).data)),
+                      },
+                    }
+                  : arg,
             );
             return call(method, wire).then((result) => {
               if (
@@ -695,13 +713,15 @@ export class FakeDesktop {
     if (!file.startsWith(WORK_ROOT) || !existsSync(file)) return route.fulfill({ status: 404 });
     const type = file.endsWith('.mp4')
       ? 'video/mp4'
-      : file.endsWith('.json')
-        ? 'application/json'
-        : file.endsWith('.mkv')
-          ? 'video/x-matroska'
-          : file.endsWith('.webm')
-            ? 'video/webm'
-            : 'application/octet-stream';
+      : file.endsWith('.png')
+        ? 'image/png'
+        : file.endsWith('.json')
+          ? 'application/json'
+          : file.endsWith('.mkv')
+            ? 'video/x-matroska'
+            : file.endsWith('.webm')
+              ? 'video/webm'
+              : 'application/octet-stream';
     return route.fulfill({ path: file, headers: { 'content-type': type } });
   }
 
@@ -776,6 +796,58 @@ export class FakeDesktop {
     const result = await this.elements.materialize(request);
     if (!result.ok) return result;
     return { ...result, asset: { ...result.asset, path: this.rendererPath(result.asset.path) } };
+  }
+
+  /**
+   * `framepilot:media:import`: main's own `importMediaFile` writes the bytes into the project's
+   * media folder (the workspace's project folder stands in for the projects root, as it does for
+   * the sticker library), and the page gets the path as it reads it.
+   */
+  private async importMedia(request: {
+    projectId: string;
+    fileName: string;
+    data: Uint8Array;
+  }): Promise<unknown> {
+    const chunk = decodeMediaImportChunk(request.data);
+    if (chunk !== null && (chunk.header.offset !== 0 || !chunk.header.final)) {
+      throw new Error(
+        `The e2e host imports a file in one chunk; ${request.fileName} came in several.`,
+      );
+    }
+    const stored = await importMediaFile(
+      this.options.workspace.projectDir,
+      request.projectId,
+      request.fileName,
+      request.data,
+    );
+    return { ok: true, path: this.rendererPath(stored) };
+  }
+
+  /**
+   * `framepilot:media:import-asset`, the probe after an import: a PNG's size from its own header
+   * (see the header's SIMULATED list); anything else is "not probed", as a failed probe answers.
+   */
+  private async importAsset(request: { inputPath: string }): Promise<unknown> {
+    const bytes = await readFile(this.diskPath(request.inputPath));
+    const PNG_SIGNATURE = '89504e470d0a1a0a';
+    if (bytes.length < 24 || bytes.subarray(0, 8).toString('hex') !== PNG_SIGNATURE) {
+      return { ok: false, error: 'The e2e host probes PNG files only.' };
+    }
+    return {
+      ok: true,
+      durationSeconds: null,
+      kind: 'image',
+      media: { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) },
+    };
+  }
+
+  /** A path as the page holds it (a same-origin URL, or a stored path) as a file on disk. */
+  private diskPath(path: string): string {
+    const prefix = `${this.origin}${MEDIA_ROUTE}`;
+    if (path.startsWith(prefix)) {
+      return join(WORK_ROOT, decodeURIComponent(path.slice(prefix.length)));
+    }
+    return isAbsolute(path) ? path : join(this.options.workspace.projectDir, path);
   }
 
   private toRenderer(project: Project): Project {
@@ -970,19 +1042,19 @@ export class FakeDesktop {
 
   private async invoke(method: string, rawArgs: unknown[]): Promise<unknown> {
     // Bytes arrive as base64 (see the page stub); the host modules want Uint8Array.
-    const args = rawArgs.map((arg) =>
-      arg !== null &&
-      typeof arg === 'object' &&
-      'png' in arg &&
-      typeof (arg as { png: unknown }).png === 'object'
-        ? {
-            ...(arg as object),
-            png: new Uint8Array(
-              Buffer.from((arg as { png: { base64: string } }).png.base64, 'base64'),
-            ),
-          }
-        : arg,
-    );
+    const isWireBytes = (value: unknown): value is { base64: string } =>
+      value !== null &&
+      typeof value === 'object' &&
+      typeof (value as { base64?: unknown }).base64 === 'string';
+    const bytesOf = (wire: { base64: string }): Uint8Array =>
+      new Uint8Array(Buffer.from(wire.base64, 'base64'));
+    const args = rawArgs.map((arg) => {
+      if (arg === null || typeof arg !== 'object') return arg;
+      const { png, data } = arg as { png?: unknown; data?: unknown };
+      if (isWireBytes(png)) return { ...arg, png: bytesOf(png) };
+      if (isWireBytes(data)) return { ...arg, data: bytesOf(data) };
+      return arg;
+    });
     const channel = INVOKE_CHANNELS[method];
     const handler = channel === undefined ? undefined : this.ipc.handlers.get(channel);
     if (handler !== undefined) {
@@ -1061,6 +1133,12 @@ export class FakeDesktop {
         return this.textRaster(args[0] as Record<string, unknown>);
       case 'elementsMaterialize':
         return this.materializeElement(args[0] as { projectId: string; elementId: string });
+      case 'importMedia':
+        return this.importMedia(
+          args[0] as { projectId: string; fileName: string; data: Uint8Array },
+        );
+      case 'importAsset':
+        return this.importAsset(args[0] as { inputPath: string });
       case 'elementsThumbnail':
         return this.elementThumbnails(args[0] as { elementIds: string[] });
       case 'stockQuota':
