@@ -16,7 +16,8 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { expect, test } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+import { expect, test, type Page } from '@playwright/test';
 import {
   attachDiagnostics,
   clip,
@@ -37,6 +38,26 @@ const SECONDS = 3;
 const FIRE = 'element_fluent3d_fire';
 const HEART = 'element_fluent3d_red_heart';
 const SHIPPED = join(REPO, 'apps', 'web-editor', 'public', 'elements', 'stickers', 'full');
+
+/**
+ * The Elements panel is desktop-only, so the browser `accessibility.spec` never reaches it: it is
+ * scanned here, in both themes, with the same WCAG A/AA rules and none of that spec's owned
+ * exceptions (plan/elements 13 §1).
+ */
+async function expectPanelAxeClean(page: Page, label: string): Promise<void> {
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    const { violations } = await new AxeBuilder({ page })
+      .include('.elements-panel')
+      .withTags(['wcag2a', 'wcag2aa'])
+      .analyze();
+    expect(
+      violations.map(({ id }) => id),
+      `${label} (${colorScheme}): ${JSON.stringify(violations, null, 2)}`,
+    ).toEqual([]);
+  }
+  await page.emulateMedia({ colorScheme: null });
+}
 
 const stickersOf = (document: Project) =>
   [...clipsById(document).values()].filter((entry) => entry.assetId.startsWith('element_'));
@@ -105,6 +126,18 @@ test('Stickers: add the fire sticker, replace it with a heart, export, undo', as
 
   // --- add: one click on the tile; main copies the file in, one patch places it ----------------
   await page.getByRole('tab', { name: 'Elements', exact: true }).click();
+  await page
+    .getByRole('tablist', { name: 'Elements', exact: true })
+    .getByRole('tab', { name: 'Stickers', exact: true })
+    .click();
+  await expect(page.getByRole('button', { name: 'Add Fire', exact: true })).toBeVisible();
+  await expectPanelAxeClean(page, 'Stickers');
+  await page
+    .getByRole('tablist', { name: 'Elements', exact: true })
+    .getByRole('tab', { name: 'Shapes', exact: true })
+    .click();
+  await expect(page.getByRole('button', { name: 'Add Highlight box', exact: true })).toBeVisible();
+  await expectPanelAxeClean(page, 'Shapes');
   await page
     .getByRole('tablist', { name: 'Elements', exact: true })
     .getByRole('tab', { name: 'Stickers', exact: true })
