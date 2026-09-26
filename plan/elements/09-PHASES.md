@@ -663,11 +663,18 @@ reuses.
 
 ---
 
-## EL12 — Close-out `[~]`
+## EL12 — Close-out `[!]`
 
-- [ ] **EL12.1** `docs/guides/elements.md` complete; `docs/api` (schema v25–v26, raster route,
+- [x] **EL12.1** `docs/guides/elements.md` complete; `docs/api` (schema v25–v26, raster route,
       IPC); `mcp-server.md`; ADR index.
-- [ ] **EL12.2** `CHANGELOG.md` and the website changelog (`changelog-maintainer`).
+      _Done:_ the guide covers every sub-tab, animation, the assistant, keyboard routes and the
+      bin's Add as overlay; `docs/api/timeline-schema.md` (v24 → v25; v26 waits with EL10),
+      `python-engine-api.md` (`/preview/text-raster`), `architecture/system-map.md` (the elements
+      channels), `api/mcp-server.md` and the MCP guide; ADRs 0190–0193 with amendments, listed in
+      `docs/README.md`.
+- [x] **EL12.2** `CHANGELOG.md` and the website changelog (`changelog-maintainer`).
+      _Done:_ `CHANGELOG.md` [Unreleased] carries every Elements change; the site's
+      `content/changelog/2026-09-26-meet-elements.mdx` (its changelog test passes).
 - [!] **EL12.3** The remaining desktop evidence runs (10 §4) with committed reports. **Human steps**
       (real media on a desktop build; each report goes to `docs/reports/elements/run-<letter>.md`
       with the commit it ran on and the machine):
@@ -687,16 +694,28 @@ reuses.
         still's crop is now drawn). Then save a project with a
         shape (v25) and open it in that older release: it must refuse to open with its "Update
         FramePilot" message rather than open without the shapes.
-- [ ] **EL12.4** `plan/PLAN.md` and this plan's ledger reconciled; deferred items listed.
-- [ ] **EL12.5** Website: `src/content/features.ts`, `content/docs/{getting-started,the-ai-agent,
+- [x] **EL12.4** `plan/PLAN.md` and this plan's ledger reconciled; deferred items listed.
+      _Done:_ every phase's status agrees in 09, the README ledger and `plan/PLAN.md`; 11 §2 lists
+      the deferred items with what would reopen each.
+- [x] **EL12.5** Website: `src/content/features.ts`, `content/docs/{getting-started,the-ai-agent,
 keyboard-shortcuts,render-and-export}.mdx`; `MANUAL_TESTING.md` Elements section (macOS and
       Windows); `docs/runbooks/elements.md`; one line each in `README.md` and `PRD.md`;
       `DESIGN_SYSTEM.md` token.
-- [ ] **EL12.6** The release gate of 13 §10, every box checked with evidence. It includes the
+      _Done:_ all of them, plus `docs/README.md`; `DESIGN_SYSTEM.md` documents `--clip-graphic`
+      and the new `--surface-2`/`--surface-3`.
+- [!] **EL12.6** The release gate of 13 §10, every box checked with evidence. It includes the
       accessibility and UI passes moved from EL11.7, and **found in EL9:** `--surface-2` and
       `--surface-3` are used 28 times in `styles.css` and defined in neither token system, so the
       Elements tiles, chips, tabs and search boxes, the Sounds rows and the Photos/Videos tiles draw
       no background (a pressed chip shows only its ring); the UI pass defines them in both themes and
       refreshes the visual baselines it moves.
+      _Done by the agent:_ the 13 §9 passes — `ui-ux-critic` and `accessibility-responsive-auditor`
+      (every BLOCKER and SHOULD FIX fixed: the surface tokens, announcements on every add,
+      keyboard-operable handles, replace mode, Enter/Shift+Enter, first open on Stickers, the bin
+      card's More actions, contrast and targets), `security-reviewer` (PASS WITH FINDINGS, all
+      fixed; `docs/runbooks/security-hardening.md`), `performance-monitor` (every 02 §9 / 05 §7
+      budget guarded; the slowest shape raster fixed), `editing-skills-expert` (EL8.3). CI is green
+      on `c0bd695b`; the release workflow builds all four installers within budget on it (run 36251044811).
+      The gate's remaining boxes are human steps (13 §10).
 
 **Last updated:** 2026-09-26

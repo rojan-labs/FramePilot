@@ -10330,7 +10330,9 @@ stickers, CC BY 4.0 (EL10).
   sticker or shape on the monitor, record a dragged sticker as recent; skin tones, follow subject
   and the browser build deferred with reasons (`plan/elements/11-RISKS-AND-DEFERRED.md` §2);
   green on `8f6985ed`
-- [~] **EL12** Docs, changelogs, desktop evidence runs, close-out
+- [!] **EL12** Docs, changelogs, desktop evidence runs, close-out — done except the human release
+  steps (evidence runs A–E, the paid evaluation runs, the macOS and Windows manual script); CI
+  green on `c0bd695b` and all four installers built within budget (release run 36251044811)
 - [x] **Found in EL6a — the release workflow has never completed a build.** electron-builder
   rejected the Linux executable name (`@framepilotdesktop`), macOS stopped at "not a file", Windows
   failed building editor-core. **Fixed in EL12 (2026-09-26):** scripts import built modules by

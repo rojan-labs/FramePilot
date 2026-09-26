@@ -143,13 +143,23 @@ of all new strings; `editing-skills-expert` on the skill; `security-reviewer` on
 
 ## 10. Release gate (the programme)
 
-- [ ] Every shipped phase meets §1; the ledger (README §6) and `plan/PLAN.md` agree with the code.
-- [ ] CI fully green on the release commit, including `elements-e2e`, the oracle, perf, visual,
+- [x] Every shipped phase meets §1; the ledger (README §6) and `plan/PLAN.md` agree with the code.
+      _Evidence:_ 09 records each phase's tasks with what built them and the SHA CI was green on.
+- [x] CI fully green on the release commit, including `elements-e2e`, the oracle, perf, visual,
       licence and desktop-build jobs; installer within budget.
-- [ ] Desktop evidence runs A–E (10 §4) committed with the commit they ran on.
-- [ ] Agent bars (§7) met or explicitly waived by the maintainer in writing.
-- [ ] Manual script passed on macOS arm64 and Windows x64.
-- [ ] Docs, runbook, both changelogs and the website updated (12 §J–K).
-- [ ] Open maintainer decisions answered; deferred items listed (11 §2).
+      _Evidence:_ `c0bd695b` (CodeQL's failure is its diff-size artefact: the PR's 57 open alerts are
+      `main`'s 57); release run 36251044811 builds macOS arm64, macOS x64, Linux and Windows within
+      400 MiB, each with a verified `stable` feed.
+- [!] Desktop evidence runs A–E (10 §4) committed with the commit they ran on. **Human steps:**
+  09, EL12.3.
+- [!] Agent bars (§7) met or explicitly waived by the maintainer in writing. **Human step:** the
+  paid evaluation runs of cases 1–6 (09: EL4a, EL6a, EL7, EL8), 10 runs each, judged against
+  §7's bars; below a bar, the failure analysis goes to the maintainer.
+- [!] Manual script passed on macOS arm64 and Windows x64. **Human step:** `MANUAL_TESTING.md` §23,
+  one result line per platform.
+- [x] Docs, runbook, both changelogs and the website updated (12 §J–K).
+- [x] Open maintainer decisions answered; deferred items listed (11 §2). MD-E1 to MD-E7 are
+      recorded in README §1 (MD-E3's answer requires a licence read, the human step under EL10);
+      11 §2 lists every deferral.
 
 **Last updated:** 2026-09-26
