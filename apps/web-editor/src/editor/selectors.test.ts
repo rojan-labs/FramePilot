@@ -2252,6 +2252,17 @@ describe('minimapGeometry / minimapScrollLeft (overview strip, M2b-2)', () => {
     expect(geo.viewport.x).toBe(25);
     expect(geo.viewport.width).toBeCloseTo(50, 5);
   });
+  it('marks a shape clip as a graphic so it keeps its lane colour', () => {
+    const withShape: Timeline = {
+      tracks: [
+        { id: 'o', type: 'overlay', clips: [{ ...mc('s', 'o', 1, 3), assetId: '__shape__' }] },
+        ...tl.tracks,
+      ],
+    };
+    const geo = minimapGeometry(withShape, ['o', ...order], PPS, CONTENT, 0, 200, MINI);
+    expect(geo.blocks.find((b) => b.clipId === 's')!.graphic).toBe(true);
+    expect(geo.blocks.find((b) => b.clipId === 'c0')!.graphic).toBe(false);
+  });
   it('keeps a tiny clip at least the minimum block width', () => {
     const tiny: Timeline = { tracks: [{ id: 'a', type: 'video', clips: [mc('t', 'a', 0, 0.01)] }] };
     const geo = minimapGeometry(tiny, ['a'], PPS, CONTENT, 0, 200, MINI);

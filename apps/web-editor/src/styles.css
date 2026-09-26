@@ -6737,6 +6737,11 @@ g.mask-canvas-draft circle {
      box is unchanged); only the paint shrinks, and the strip stays a full-height target. */
   transform: scaleY(0.35);
 }
+/* Element graphics (shapes) keep their lane colour on the overview (plan/elements 02 §6). */
+.mm-block[data-graphic='true'] {
+  background: var(--clip-graphic-border);
+  opacity: 0.8;
+}
 
 /* The viewport window. It is a WINDOW: what matters is where its edges are, so
    the edges carry the weight and the pane stays faint enough that the blocks it

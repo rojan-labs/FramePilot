@@ -61,6 +61,12 @@ The timeline uses type-specific clip fills/borders, a dedicated playhead token,
 keyframe colors, transition colors, and lane/ruler tokens. These are editor data
 signals, not a second application palette.
 
+Element graphics (shapes, and stickers when they land) have their own clip family,
+`--clip-graphic`, `--clip-graphic-bar`, `--clip-graphic-border` and `--clip-graphic-edge`,
+in both themes of `packages/ui/src/tokens.css`: a rose apart from the footage blues and greens,
+the title tan and the AI violet, so a lane of callouts reads as graphics at a glance. The
+minimap draws graphic clips in `--clip-graphic-border` for the same reason.
+
 ## Typography
 
 The canonical families are `--font-sans` and `--font-mono`.

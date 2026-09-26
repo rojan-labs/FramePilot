@@ -33,6 +33,7 @@ import {
   hasTimeBasedSource,
   hidesWhatIsBehind,
   isFullFrameOpaque,
+  syntheticClipKind,
   type ShapedClip,
   type SourceShape,
   TRANSITION_OUT_EFFECT_TYPE,
@@ -2342,6 +2343,11 @@ export interface MinimapBlock {
   readonly width: number;
   /** Zero-based row index (visible track order), for vertical placement/colour. */
   readonly row: number;
+  /**
+   * An element graphic (a shape): drawn in `--clip-graphic` so callouts stand out on the
+   * overview the way they do on the lanes (plan/elements 02 §6).
+   */
+  readonly graphic: boolean;
 }
 
 /** The minimap's viewport window: where the lane viewport currently sits. */
@@ -2408,6 +2414,7 @@ export function minimapGeometry(
         x: blockLeft,
         width: Math.max(MINIMAP_MIN_BLOCK_PX, blockRight - blockLeft),
         row,
+        graphic: syntheticClipKind(clip.assetId) === 'shape',
       });
     }
   });

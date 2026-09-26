@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { SHORTCUTS } from '../editor/shortcuts.js';
+import { PANEL_KEYS, SHORTCUTS } from '../editor/shortcuts.js';
 import { GROUP_ORDER, ShortcutList } from './ShortcutList.js';
 
 describe('ShortcutList', () => {
@@ -20,5 +20,16 @@ describe('ShortcutList', () => {
     render(<ShortcutList />);
     expect(screen.getByRole('region', { name: 'Tools' })).toBeDefined();
     expect(screen.getByText('Blade tool')).toBeDefined();
+  });
+
+  it('lists the Elements panel keys after the global ones, and none of them runs globally', () => {
+    render(<ShortcutList />);
+    const panel = screen.getByRole('region', { name: 'Elements panel' });
+    expect(panel.textContent).toContain('Search shapes');
+    expect(panel.textContent).toContain('Add the tile at the playhead');
+    const global = new Set(SHORTCUTS.flatMap((shortcut) => shortcut.keys));
+    expect(
+      PANEL_KEYS.flatMap((key) => key.keys).filter((key) => key === '/' && global.has(key)),
+    ).toEqual([]);
   });
 });
