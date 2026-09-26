@@ -116,6 +116,14 @@ const DEFS = [
     transcriptFrom: 'labels/screen-demo.json',
   },
   {
+    id: 'mission-reaction-demo',
+    name: 'Mission reaction demo (a drawn talking head who says "this is fire")',
+    fps: 30,
+    resolution: { width: 1280, height: 720 },
+    media: [{ file: 'reaction-demo-12s.mp4', onTimeline: true }],
+    transcriptFrom: 'labels/reaction-demo.json',
+  },
+  {
     id: 'mission-photos',
     name: 'Mission photos (60 stills + music)',
     fps: 30,

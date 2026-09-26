@@ -29,7 +29,7 @@
  *                          `369e8c82`'s shape: because the picture track is gapless, every
  *                          placement on `b_roll` overlaps the picture beneath it — the shape ADR 0169 governs.
  */
-import type { CalloutTarget, MissionScenarioId } from './mission-rubric.js';
+import type { CalloutTarget, MissionScenarioId, StickerTarget } from './mission-rubric.js';
 
 export type GoldenCategory =
   | 'trim'
@@ -55,7 +55,9 @@ export type GoldenCategory =
   | 'duplicates'
   | 'question'
   // plan/elements 07 section 8: a shape placed on the thing the narration names.
-  | 'callout';
+  | 'callout'
+  // plan/elements 07 section 8: a sticker on the phrase, clear of the face and captions.
+  | 'sticker';
 
 /** The categories goal.md Phase 0 names; the shape test asserts each has a case. */
 export const REQUIRED_CATEGORIES: readonly GoldenCategory[] = [
@@ -104,6 +106,8 @@ export interface GoldenTurn {
   readonly captionStyle?: { readonly textTransform?: string; readonly position?: string };
   /** `callout-on-target`: where and when the callout must land (the fixture's labels). */
   readonly calloutTarget?: CalloutTarget;
+  /** `sticker-on-beat`: when the sticker lands and what it keeps clear of (fixture labels). */
+  readonly stickerTarget?: StickerTarget;
   /**
    * What the scripted operator answers if the agent asks.
    *
@@ -618,6 +622,31 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
         calloutTarget: {
           box: { x: 86.875, y: 2.2222, width: 11.25, height: 5.5556 },
           wordStart: 13.24,
+        },
+      },
+    ],
+  },
+  {
+    id: 'sticker-fire-on-beat',
+    category: 'sticker',
+    project: 'mission-reaction-demo',
+    why:
+      'Elements, case 2 (plan/elements 07 section 8): a reaction sticker on the phrase that ' +
+      'earns it. The model finds the fire sticker with search_elements, the phrase in the ' +
+      'transcript, and empty frame space with get_frame; nothing tells it where the face is. ' +
+      'The fixture is drawn, so the face box, the phrase time and the caption band are known ' +
+      'exactly; the metric is the hit rate over repeated runs.',
+    turns: [
+      {
+        prompt: "Add a fire emoji when I say 'this is fire'.",
+        rubric: 'sticker-on-beat',
+        intent: 'edit',
+        // tests/fixtures/mission/labels/reaction-demo.json, pinned by sticker-rubric.test.ts.
+        stickerTarget: {
+          face: { x: 31.25, y: 20.8333, width: 15.625, height: 34.7222 },
+          phraseStart: 4.64,
+          wordStart: 5.36,
+          captionBandTop: 77.7778,
         },
       },
     ],

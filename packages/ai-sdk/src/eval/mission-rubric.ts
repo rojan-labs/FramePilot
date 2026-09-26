@@ -15,6 +15,8 @@ import {
   TRANSITION_EFFECT_TYPE,
   TRANSITION_OUT_EFFECT_TYPE,
   coverageVerdict,
+  elementArtFraction,
+  isElementAsset,
   isSyntheticAssetId,
   repeatedSourcePairs,
   shapeClipParams,
@@ -97,7 +99,9 @@ export type MissionScenarioId =
   | 'broll-over-sentence'
   | 'remove-duplicate-takes'
   // plan/elements 07 section 8, case 1: a shape placed on a named UI element at the word.
-  | 'callout-on-target';
+  | 'callout-on-target'
+  // plan/elements 07 section 8, case 2: a sticker on the phrase, off the face and the captions.
+  | 'sticker-on-beat';
 
 export interface RubricContext {
   /** The project the run started from (needed for before/after checks). */
@@ -157,6 +161,27 @@ export interface RubricContext {
    * (`tests/fixtures/mission/labels/screen-demo.json`); nothing in the run can see it.
    */
   readonly calloutTarget?: CalloutTarget;
+  /**
+   * `sticker-on-beat`: when the sticker must land and what it must stay clear of. Ground truth
+   * from the fixture's labels (`tests/fixtures/mission/labels/reaction-demo.json`).
+   */
+  readonly stickerTarget?: StickerTarget;
+}
+
+/** When a sticker must land and what it must keep clear of (see `sticker-on-beat`). */
+export interface StickerTarget {
+  /** The face, in percent of each frame axis. */
+  readonly face: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
+  /** When the named phrase starts, and when its key word does (timeline seconds). */
+  readonly phraseStart: number;
+  readonly wordStart: number;
+  /** The top of the caption band, percent of the frame height. */
+  readonly captionBandTop: number;
 }
 
 /** Where and when a callout must land (see {@link RubricContext.calloutTarget}). */
@@ -169,6 +194,11 @@ export interface CalloutTarget {
   };
   readonly wordStart: number;
 }
+
+/** A sticker may start this far before the phrase or after its key word and still be "on" it. */
+export const STICKER_WORD_TOLERANCE_SECONDS = 0.3;
+/** A reaction sticker should be gone this long after it appears. */
+export const STICKER_MAX_SECONDS = 3;
 
 /** A callout may start this far either side of the word and still be "on" it. */
 export const CALLOUT_WORD_TOLERANCE_SECONDS = 0.3;
@@ -1876,7 +1906,102 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkContentPreserved(ctx),
         ...COMMON(ctx),
       ]);
+    case 'sticker-on-beat':
+      return scored(scenario, [
+        checkChanged(ctx),
+        ...checkSticker(ctx),
+        checkContentPreserved(ctx),
+        ...COMMON(ctx),
+      ]);
   }
+}
+
+/**
+ * Where a sticker clip's ART sits, in percent of each frame axis: the renderer's contain-fit of
+ * the file, times its base `scale`, moved by its base `x`/`y` (canvas pixels from the centre), and
+ * without the transparent margin every library sticker is padded with.
+ */
+export function stickerArtBox(
+  asset: Project['assets'][number],
+  clip: Clip,
+  frame: { readonly width: number; readonly height: number },
+): { readonly x: number; readonly y: number; readonly width: number; readonly height: number } {
+  const base = (property: string, fallback: number): number =>
+    clip.keyframes.find((k) => k.time === 0 && k.property === property)?.value ?? fallback;
+  const mediaWidth = asset.media?.width ?? frame.width;
+  const mediaHeight = asset.media?.height ?? frame.height;
+  const fit = Math.min(frame.width / mediaWidth, frame.height / mediaHeight);
+  const art = elementArtFraction(asset);
+  const width = mediaWidth * fit * base('scale', 1) * art;
+  const height = mediaHeight * fit * base('scale', 1) * art;
+  const cx = frame.width / 2 + base('x', 0);
+  const cy = frame.height / 2 + base('y', 0);
+  return {
+    x: ((cx - width / 2) / frame.width) * 100,
+    y: ((cy - height / 2) / frame.height) * 100,
+    width: (width / frame.width) * 100,
+    height: (height / frame.height) * 100,
+  };
+}
+
+function checkSticker(ctx: RubricContext): RubricCheck[] {
+  const target = ctx.stickerTarget;
+  const before = new Set(ctx.before.timeline.tracks.flatMap((t) => t.clips).map((c) => c.id));
+  const assets = new Map(ctx.after.assets.map((a) => [a.id, a]));
+  const stickers = ctx.after.timeline.tracks
+    .flatMap((t) => t.clips)
+    .filter((c) => !before.has(c.id) && isElementAsset(assets.get(c.assetId)))
+    .sort((a, b) => a.start - b.start);
+  const first = stickers[0];
+  if (target === undefined || first === undefined) {
+    return [
+      {
+        id: 'sticker-added',
+        ok: false,
+        detail: target === undefined ? 'no target supplied' : 'no sticker added',
+      },
+    ];
+  }
+  const box = stickerArtBox(assets.get(first.assetId)!, first, ctx.after.resolution);
+  const face = target.face;
+  const overlapsFace =
+    box.x < face.x + face.width &&
+    face.x < box.x + box.width &&
+    box.y < face.y + face.height &&
+    face.y < box.y + box.height;
+  const bottom = box.y + box.height;
+  const early = target.phraseStart - STICKER_WORD_TOLERANCE_SECONDS;
+  const late = target.wordStart + STICKER_WORD_TOLERANCE_SECONDS;
+  return [
+    {
+      id: 'sticker-added',
+      ok: stickers.length === 1,
+      detail: `${String(stickers.length)} sticker(s)`,
+    },
+    {
+      id: 'sticker-on-beat',
+      ok: first.start >= early && first.start <= late,
+      detail: `starts at ${first.start.toFixed(2)}s; the phrase runs ${target.phraseStart.toFixed(2)}s to its word at ${target.wordStart.toFixed(2)}s`,
+      facet: 'boundary',
+    },
+    {
+      id: 'sticker-off-face',
+      ok: !overlapsFace,
+      detail: `art ${box.x.toFixed(1)}–${(box.x + box.width).toFixed(1)}% × ${box.y.toFixed(1)}–${bottom.toFixed(1)}%`,
+      weight: 2,
+      facet: 'target',
+    },
+    {
+      id: 'sticker-clear-of-captions',
+      ok: bottom <= target.captionBandTop,
+      detail: `bottom at ${bottom.toFixed(1)}%, captions from ${target.captionBandTop.toFixed(1)}%`,
+    },
+    {
+      id: 'sticker-brief',
+      ok: first.end - first.start <= STICKER_MAX_SECONDS + FRAME_EPSILON,
+      detail: `${(first.end - first.start).toFixed(2)}s on screen`,
+    },
+  ];
 }
 
 /** The shapes a run added, earliest first. */
