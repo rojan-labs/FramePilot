@@ -204,20 +204,20 @@ jobs:
           sudo fallocate -l 24G /mnt/sm-swap && sudo chmod 600 /mnt/sm-swap
           sudo mkswap /mnt/sm-swap >/dev/null && sudo swapon /mnt/sm-swap
           free -g
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: sm-inputs
           path: workers/smart-mask/.cache
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: sm-graphs-sam
           path: workers/smart-mask/.cache/onnx
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         if: matrix.variant != 'fp32'
         with:
           name: sm-graphs-birefnet-${{ inputs.tile }}
           path: workers/smart-mask/.cache/onnx
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         if: matrix.variant == 'fp32'
         with:
           name: sm-graphs-birefnet-2048-fp32
@@ -262,7 +262,7 @@ jobs:
               status: ($status|tonumber), workerExit: $exit, maxRssKiB: $peak}' > ".cache/ci-meta/${VARIANT}__${CLIP}.json"
           cat ".cache/ci-meta/${VARIANT}__${CLIP}.json"
           exit 0
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         if: steps.run.outputs.fallback == '1024'
         with:
           name: sm-graphs-birefnet-1024
@@ -317,22 +317,22 @@ jobs:
           sudo swapoff -a || true
           sudo fallocate -l 24G /mnt/sm-swap && sudo chmod 600 /mnt/sm-swap
           sudo mkswap /mnt/sm-swap >/dev/null && sudo swapon /mnt/sm-swap
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: sm-inputs
           path: workers/smart-mask/.cache
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: run-auto-${{ matrix.clip }}
           path: workers/smart-mask/.cache
       - name: Which tile did the auto run use
         id: tile
         run: echo "tile=$(jq -r '.tileUsed' ".cache/ci-meta/auto__${CLIP}.json")" >> "$GITHUB_OUTPUT"
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: sm-graphs-sam
           path: workers/smart-mask/.cache/onnx
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: sm-graphs-birefnet-${{ steps.tile.outputs.tile }}
           path: workers/smart-mask/.cache/onnx
@@ -367,20 +367,20 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v7
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: sm-inputs
           path: workers/smart-mask/.cache
           run-id: ${{ inputs.rescore_run_id || github.run_id }}
           github-token: ${{ github.token }}
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: run-*
           merge-multiple: true
           path: workers/smart-mask/.cache
           run-id: ${{ inputs.rescore_run_id || github.run_id }}
           github-token: ${{ github.token }}
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: replay-*
           merge-multiple: true
