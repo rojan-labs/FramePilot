@@ -46,7 +46,9 @@ jobs:
           - name: macOS arm64
             os: macos-14
           - name: macOS x64
-            os: macos-13
+            # GitHub retired the macos-13 image; a job on it queues forever. macos-15-intel is the
+            # Intel image, and the frozen engine is native, so x64 needs an x64 machine.
+            os: macos-15-intel
           - name: Windows x64
             os: windows-2022
           - name: Linux x64
@@ -109,7 +111,20 @@ jobs:
         run: echo "PYTHON_PATH=$(which python3)" >> "$GITHUB_ENV"
 
       - name: Build installers
-        run: pnpm desktop:dist
+        shell: bash
+        # An unset secret still reaches the step as an empty variable, and electron-builder reads
+        # a set CSC_LINK as a certificate path: '' resolved to the project directory ("not a
+        # file") and failed every unsigned macOS build. Unset the empty ones, so a build without
+        # signing secrets is simply unsigned, and keep an unsigned Mac build from picking up an
+        # identity from the runner's keychain.
+        run: |
+          for var in CSC_NAME CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!var:-}" ]; then unset "$var"; fi
+          done
+          if [ "$RUNNER_OS" = "macOS" ] && [ -z "${CSC_NAME:-}" ] && [ -z "${MAC_CERT_P12:-}" ]; then
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
+          pnpm desktop:dist
         env:
           # macOS deep-sign + electron-builder identity (unsigned when unset).
           CSC_NAME: ${{ secrets.CSC_NAME }}

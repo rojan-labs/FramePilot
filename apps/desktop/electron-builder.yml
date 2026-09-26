@@ -84,9 +84,17 @@ win:
 linux:
   category: AudioVideo
   icon: build/icon.png
+  # The package is scoped (@framepilot/desktop), and on Linux electron-builder names the
+  # executable and the .deb after the package name, which "@" and "/" make unusable: every Linux
+  # release build failed on it. Name both, and give the .deb the maintainer it requires.
+  executableName: framepilot
+  maintainer: FramePilot <hello@framepilot.app>
   target:
     - AppImage # AppImage supports electron-updater auto-update
     - deb
+
+deb:
+  packageName: framepilot
 
 nsis:
   oneClick: false
