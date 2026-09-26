@@ -62,6 +62,8 @@ import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Browser, type Page, type TestInfo } from '@playwright/test';
 import { seekAndCompare, type PageCompare, type Rgb } from './parity-compare.js';
+import type { PreviewTextRasterRequest } from '../../../apps/desktop/dist/ipc/contract.js';
+import { previewTextWireBody } from '../../../apps/desktop/dist/render/preview-text-client.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..', '..');
@@ -417,24 +419,10 @@ async function oraclePage(browser: Browser): Promise<Page> {
       const response = await fetch(`${SIDECAR_URL}/preview/text-raster`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // The desktop bridge's wire body (`preview-text-client.ts`), styled captions included:
-        // the styles, words, span and frame time the engine builds the caption layer from.
-        body: JSON.stringify({
-          kind: req.kind,
-          ...(req.kind === 'text' || req.kind === 'shape'
-            ? { params: req.params }
-            : { text: req.text }),
-          // A shape on a rotating clip is drawn into the rotation-safe square (ADR 0190).
-          ...(req.kind === 'shape' ? { rotates: req.rotates === true } : {}),
-          frame_width: req.frameWidth,
-          frame_height: req.frameHeight,
-          ...(req.trackStyle === undefined ? {} : { track_style: req.trackStyle }),
-          ...(req.clipStyle === undefined ? {} : { clip_style: req.clipStyle }),
-          ...(req.words === undefined ? {} : { words: req.words }),
-          ...(req.clipStart === undefined ? {} : { clip_start: req.clipStart }),
-          ...(req.clipEnd === undefined ? {} : { clip_end: req.clipEnd }),
-          ...(req.frameTime === undefined ? {} : { frame_time: req.frameTime }),
-        }),
+        // The desktop bridge's own wire body, so the oracle asks for what the desktop asks for:
+        // styled captions' styles, words, span and frame time, and the rotation-safe square for a
+        // turning title or shape.
+        body: JSON.stringify(previewTextWireBody(req as unknown as PreviewTextRasterRequest)),
       });
       if (!response.ok) return { ok: false, error: `sidecar ${response.status}` };
       return { ok: true, ...(await response.json()) };

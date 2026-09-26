@@ -42,7 +42,10 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Page, Route } from '@playwright/test';
-import { IpcChannels } from '../../../../apps/desktop/dist/ipc/contract.js';
+import {
+  IpcChannels,
+  type PreviewTextRasterRequest,
+} from '../../../../apps/desktop/dist/ipc/contract.js';
 import {
   registerJobIpc,
   registerMatteIpc,
@@ -57,6 +60,7 @@ import { registerRelinkIpc } from '../../../../apps/desktop/dist/capability-pack
 import { DesktopMatteMediaInspector } from '../../../../apps/desktop/dist/capability-packs/matte-media-inspector.js';
 import { validateProjectMattes } from '../../../../apps/desktop/dist/capability-packs/matte-validation.js';
 import { ElementsLibrary } from '../../../../apps/desktop/dist/media/elements-library.js';
+import { previewTextWireBody } from '../../../../apps/desktop/dist/render/preview-text-client.js';
 import { loadStickerCatalog } from '../../../../packages/ai-sdk/dist/index.js';
 import {
   frameRange,
@@ -952,15 +956,8 @@ export class FakeDesktop {
     const response = await fetch(`${this.options.sidecarUrl}/preview/text-raster`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        kind: req.kind,
-        ...(req.kind === 'text' || req.kind === 'shape'
-          ? { params: req.params }
-          : { text: req.text }),
-        ...(req.kind === 'shape' ? { rotates: req.rotates === true } : {}),
-        frame_width: req.frameWidth,
-        frame_height: req.frameHeight,
-      }),
+      // What main sends, so a spec's monitor asks the engine for what the desktop's would.
+      body: JSON.stringify(previewTextWireBody(req as unknown as PreviewTextRasterRequest)),
     });
     if (!response.ok) return { ok: false, error: `sidecar ${response.status}` };
     const wire = (await response.json()) as {

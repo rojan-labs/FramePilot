@@ -66,8 +66,13 @@ function invalidStyled(r: Partial<PreviewTextRasterRequest>): string | null {
   return words.every(wordOk) ? null : 'Invalid caption words.';
 }
 
-/** The sidecar's wire body for a validated request (snake_case, only the fields it reads). */
-function wireBody(r: PreviewTextRasterRequest): Record<string, unknown> {
+/**
+ * The sidecar's wire body for a validated request (snake_case, only the fields it reads).
+ * Exported for the e2e hosts that stand in for main (the PX4 oracle, the fake desktop), so they
+ * send exactly what the desktop sends: a copy of this body drifted once, and the oracle compared
+ * a tight title raster with the export's rotation-safe one.
+ */
+export function previewTextWireBody(r: PreviewTextRasterRequest): Record<string, unknown> {
   const frame = { frame_width: r.frameWidth, frame_height: r.frameHeight };
   if (r.kind === 'text') {
     // EL2b.4: a turning title is drawn in the rotation-safe square the export turns it inside.
@@ -119,7 +124,7 @@ export async function previewTextRasterViaSidecar(
     response = await fetchFn(`${baseUrl}/preview/text-raster`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(wireBody(r)),
+      body: JSON.stringify(previewTextWireBody(r)),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
