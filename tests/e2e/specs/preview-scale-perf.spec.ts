@@ -134,6 +134,8 @@ const RUNS: readonly { variant: string; mode: MediaMode; gpuSync?: boolean }[] =
   { variant: 'scale-plain', mode: 'original' },
   // PX5.8: the row with a default soft matte, whose alpha the tier's alpha plane stands in for.
   { variant: 'scale-soft', mode: 'proxy' },
+  // plan/elements 02 §9 (EL6b): the plain row under 20 sticker layers, some outlined, some turning.
+  { variant: 'scale-elements', mode: 'proxy' },
 ];
 
 const fsUrl = (origin: string, file: string): string =>
