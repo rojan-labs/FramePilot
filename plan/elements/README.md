@@ -291,23 +291,23 @@ holds and every row of [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md) is d
 
 ## 6. Ledger
 
-| Phase | Status | Notes                                                                    |
-| ----- | ------ | ------------------------------------------------------------------------ |
-| EL0   | `[~]`  | Scope review done 2026-09-26 (§7); MD-E6, MD-E7 and spike A open         |
-| EL1   | `[~]`  | Rename + Photos/Videos sub-tabs on `feat/elements`; MD-E7 decided        |
-| EL2a  | `[~]`  | Export, plans, monitor, DOM overlay fixed on `feat/elements`; CI pending |
-| EL2b  | `[ ]`  | Lands with EL6b / EL7                                                    |
-| EL3   | `[~]`  | One helper per runtime + guards on `feat/elements`; CI pending           |
-| EL4a  | `[~]`  | Model (schema v25, `add_shape`) and engine raster on `feat/elements`     |
-| EL5   | `[ ]`  |                                                                          |
-| EL6a  | `[ ]`  |                                                                          |
-| EL6b  | `[ ]`  |                                                                          |
-| EL7   | `[ ]`  |                                                                          |
-| EL8   | `[ ]`  |                                                                          |
-| EL9   | `[ ]`  |                                                                          |
-| EL10  | `[ ]`  | Optional; gated on MD-E3                                                 |
-| EL11  | `[ ]`  |                                                                          |
-| EL12  | `[ ]`  |                                                                          |
+| Phase | Status | Notes                                                                     |
+| ----- | ------ | ------------------------------------------------------------------------- |
+| EL0   | `[x]`  | Scope review (§7); MD-E6, MD-E7 decided; spike A report with numbers      |
+| EL1   | `[x]`  | Rename + Photos/Videos sub-tabs; CI green on `9bbde591`                   |
+| EL2a  | `[x]`  | Export, plans, monitor, DOM overlay fixed; CI green on `9bbde591`         |
+| EL2b  | `[ ]`  | Lands with EL6b / EL7                                                     |
+| EL3   | `[x]`  | One helper per runtime + guards; CI green on `9bbde591`                   |
+| EL4a  | `[~]`  | Built, oracle + e2e green; eval run and desktop run are human steps `[!]` |
+| EL5   | `[~]`  | 106 shapes, 260 presets, 1,703 icons, search, badges; CI pending          |
+| EL6a  | `[ ]`  |                                                                           |
+| EL6b  | `[ ]`  |                                                                           |
+| EL7   | `[ ]`  |                                                                           |
+| EL8   | `[ ]`  |                                                                           |
+| EL9   | `[ ]`  |                                                                           |
+| EL10  | `[ ]`  | Optional; gated on MD-E3                                                  |
+| EL11  | `[ ]`  |                                                                           |
+| EL12  | `[ ]`  |                                                                           |
 
 ---
 

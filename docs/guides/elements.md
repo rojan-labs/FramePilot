@@ -30,7 +30,9 @@ main process. While they are the only sub-tabs, the whole Elements tab is absent
 
 ## Shapes
 
-Six shapes for pointing at things — the staples of a screen recording or a product demo:
+About a hundred shapes in nine groups, each in a few ready-made styles, plus every
+[Lucide](https://lucide.dev) icon (about 1,700). The tab opens on the six staples of a screen
+recording or a product demo:
 
 | Shape             | What it is for                                    |
 | ----------------- | ------------------------------------------------- |
@@ -41,15 +43,31 @@ Six shapes for pointing at things — the staples of a screen recording or a pro
 | **Arrow**         | A red arrow pointing at something                 |
 | **Underline**     | A yellow line under a word or a headline          |
 
+- **Browse:** the chips narrow the grid to Basic, Arrows, Lines, Callouts, Highlights, Stars &
+  badges, Frames, Symbols, Numbers or Icons. **Search** matches names and what a shape is for
+  ("box", "curved arrow", "speech bubble", "badge", "check") and reaches the icons too. Icons show
+  120 at a time; **Show more icons** adds more.
+- **Colour:** the colour row above the grid recolours every tile and becomes the colour of the
+  next shape you add; the split disc goes back to each shape's own colours. A colour you pick with
+  the picker joins the row. The row, the chip and your recent colours are remembered for you, not
+  saved in the project.
+- **Numbered badges** carry a number (or any label up to eight characters) inside the shape. The
+  Numbers chip has steps 1–5; change the label in the Inspector for any other.
+- **Keyboard:** the grid is one Tab stop — arrows move between tiles, Home and End jump to the
+  first and last, Enter adds. `/` jumps to the search while you are in the panel; Escape clears
+  it.
 - **Add one:** click its tile. It lands at the playhead for the default overlay length
   (Settings → Editing), on an overlay layer, and is selected. One click is one undo step; History
-  reads "Add shape “Highlight box”".
+  reads "Add shape “Highlight box”". Or **drag** the tile onto the timeline: it lands where you
+  drop it, on that layer if it is an overlay layer with room.
 - **Move and resize it on the monitor:** drag the box to move it, a side or corner to resize it.
   An arrow or underline has two round handles, one per end: drag the arrow's tip onto what it
   points at. Arrow keys nudge a selected shape (Shift for a bigger step). Double-click a shape on
   the monitor, or press Enter on it, to select it.
-- **Style it in the Inspector (Shape):** fill and stroke on or off, their colour and opacity,
-  stroke width and style (solid, dashed, dotted), corner rounding, arrow head size, the caps on a
+- **Style it in the Inspector (Shape):** the shape itself (swap a box for a star, an arrow for a
+  curved arrow — the colours and placement stay), fill and stroke on or off, their colour and
+  opacity, stroke width and style (solid, dashed, dotted), the shape's own settings (corner
+  rounding, star points, curve, tail position…), a badge's label and its colour, the caps on a
   line's ends, and the box or the ends as numbers. A change that would leave a shape invisible —
   turning off its only colour — is not made, and the Inspector says why.
 - **Everything else is ordinary clip editing:** trim, split, move and delete it on the timeline;
@@ -61,8 +79,11 @@ Six shapes for pointing at things — the staples of a screen recording or a pro
 - **What you see is what you export.** The render engine draws every shape, and the monitor shows
   those same pixels.
 - **Ask the assistant:** "put a box around the Export button when I say export", "arrow to the
-  price", "make the highlight boxes red" — it uses the same shapes (`add_shape`,
-  `set_shape_style`) and looks at the frame to place them.
+  price", "number each step", "make the highlight boxes red" — it searches the same catalogue
+  (`search_elements`), places the same shapes (`add_shape`, `set_shape_style`) and looks at the
+  frame to place them.
+- **On the timeline** shape clips have their own colour and a small picture of the shape beside
+  the name, on the lanes and on the minimap.
 
 Shapes need the desktop app: the render engine that draws them runs there. A project with shapes
 needs FramePilot with project format 25 or later; an older version refuses to open it rather than

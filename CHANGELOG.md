@@ -25,6 +25,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   I say export"). What the monitor shows is what the export draws. Projects with shapes use
   project format 25, which older versions refuse to open rather than lose the shapes.
 
+- **The whole shape library.** About a hundred shapes — stars, speech bubbles, frames, curved and
+  hand-drawn arrows, rings, numbered badges — and every Lucide icon, with category chips, search
+  and a colour row in the Shapes tab. Drag a tile onto the timeline to place it where you drop it;
+  swap one shape for another in the Inspector without losing its colours or place; number your
+  steps with badges. The assistant searches the same library ("number each step", "a speech
+  bubble over the host"). Shape clips now have their own colour on the timeline and the minimap.
+
 - **The caption check counts rows.** Checking whether captions read now also reports, for every
   caption, how many rows it wraps to and whether any is wider than the frame. When you ask for "no
   more than two lines", the assistant can check every caption, not just the two it looked at.

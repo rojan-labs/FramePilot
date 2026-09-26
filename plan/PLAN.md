@@ -23,7 +23,7 @@ gap is mostly *platform* defects that made the agent blind or dropped its work, 
 craft tools. No new subsystem; every fix reuses an existing seam.
 **Planned (2026-09-26, maintainer request):** Stock becomes **Elements** — Photos · Videos ·
 Stickers · Shapes, CapCut-style, with large sticker and shape libraries. Sub-plan
-[`plan/elements/`](./elements/README.md); not started; phases EL0–EL12 in the "Elements library"
+[`plan/elements/`](./elements/README.md); in progress on `feat/elements` (PR #131); phases EL0–EL12 in the "Elements library"
 section near the end of this file.
 - [x] **EQ1** Engine requests keep `asset.media` (`ai-sdk/engine-view.ts`). Since mask v22 a cut-out
   resolves against the media size; `toModelProject` stripped it, so every review, `get_frame` and
@@ -10256,7 +10256,7 @@ from AI, panel and templates; [ADR 0185](../docs/adr/0185-see-through-captions-a
 - [x] CT12 — AI: tool descriptions, units, discover payload, skill; legibility key draws solid
   letters (`e9739d26`)
 
-## Elements library — Photos · Videos · Stickers · Shapes — `[ ]` planned (2026-09-26)
+## Elements library — Photos · Videos · Stickers · Shapes — `[~]` in progress (2026-09-26)
 
 > **Sub-plan: [`plan/elements/README.md`](./elements/README.md)** (fourteen files: current state,
 > CapCut reference, UX spec, content library, data model, render/preview, desktop host, AI/MCP,
@@ -10290,7 +10290,7 @@ inside each category, one helper per runtime for synthetic asset ids (17 modules
 the engine as the only shape rasteriser, loops as keyframes (no new effect type), each maintainer
 decision asked when its phase is next. Details: `plan/elements/README.md` §7.
 
-**Open maintainer decisions:** MD-E7 Elements second in the rail (EL1) · MD-E6 schema v25 (EL4a) ·
+**Maintainer decisions** (MD-E6 and MD-E7 decided autonomously 2026-09-26, per the maintainer's instruction to take the recommended answer; the rest are decided when their phase is next): MD-E7 Elements second in the rail (EL1) · MD-E6 schema v25 (EL4a) ·
 MD-E4 agent may place stickers over footage; element assets never enter the cutaway placer (EL6a) ·
 MD-E2 commit the curated ~200 stickers + thumbnails (EL6a) · MD-E1 full 1,595 in the desktop
 installer (EL6b) · MD-E5 manual picture-in-picture for Pexels media (EL9) · MD-E3 animated Noto
@@ -10298,16 +10298,16 @@ stickers, CC BY 4.0 (EL10).
 
 **Minimum vertical slice:** EL2a → EL3 → EL4a (EL1 in parallel).
 
-- [~] **EL0** MD-E6/MD-E7 + shape-raster spike (the scope review is done)
-- [~] **EL1** Stock → Elements rename; Photos and Videos sub-tabs; stored `'stock'` tab aliased
-- [~] **EL2a** Stills and titles honour opacity, fades, crop and their own alpha; titles' In/Out
+- [x] **EL0** MD-E6/MD-E7 decided; shape-raster spike reported (`plan/elements/spikes/`)
+- [x] **EL1** Stock → Elements rename; Photos and Videos sub-tabs; stored `'stock'` tab aliased
+- [x] **EL2a** Stills and titles honour opacity, fades, crop and their own alpha; titles' In/Out
   presets render (fixes the three live bugs)
 - [ ] **EL2b** Masks, edge styles and geometry transitions for stills and titles, with their first
   consumers (EL6b, EL7)
-- [~] **EL3** One definition of synthetic asset ids and clip kind per runtime + guard tests
+- [x] **EL3** One definition of synthetic asset ids and clip kind per runtime + guard tests
 - [~] **EL4a** Shapes minimum slice, complete (desktop): six shapes, Inspector, box/endpoint handles,
   export, undo, `add_shape`/`set_shape_style`, one eval case with a measured hit rate, one real run
-- [ ] **EL5** Shapes breadth: ~105 shapes / ~200 presets, chips, search, drag, badges, ~1,600 icons
+- [~] **EL5** Shapes breadth: 106 shapes / 260 presets, chips, search, drag, badges, 1,703 icons
 - [ ] **EL6a** Stickers minimum slice, complete: curated ~200, materialise IPC, Stickers tab,
   credits, `add_sticker`, `add_clip` delegation for element assets, one eval case
 - [ ] **EL6b** The full 1,595 in the desktop installer, virtualised grid, outline and shadow

@@ -68,3 +68,25 @@ Option 3.
   EL2b, which owns geometry for stills and titles.
 - A considered alternative, a general `Clip.graphic` field unifying titles and shapes, was
   rejected: it would migrate every title for no user outcome today.
+
+## Amendment — the whole catalogue (EL5, 2026-09-26)
+
+- **Generators, not shapes, are what the rasteriser knows.** Nine: `rect`, `ellipse`, `segment`
+  (now optionally curved by a `curvature` knob), `polygon`, `star`, `ring` (even-odd hole),
+  `bubble`, `corners`, and `path` — an outline of absolute `M L C Z` on a 0–100 box. The catalogue
+  (106 shapes, 260 presets) is data over those nine; a new shape is a catalogue entry.
+- **Icons are path shapes.** `scripts/elements/build_icons.mjs` rewrites every Lucide icon (ISC,
+  already a web-editor dependency) into that path vocabulary — arcs become cubics, a subpath that
+  returns to its start closes — and writes the outlines beside both catalogue copies with the
+  licence. `icon/<name>` is a shape id; the validators check it against a names-only list, so
+  neither runtime loads 0.7 MB of outlines to validate.
+- **Badges add two optional v25 keys**, `label` (1–8 code points) and `labelColor`, accepted only
+  on shapes the catalogue marks `labelled`. No envelope bump: v25 has not shipped, so no v25
+  project without them exists to protect. The label is drawn with the title face through the
+  title rasteriser's font loader.
+- **One search ranking**, in `timeline-schema/shape-search.ts`, serves the Shapes tab and the
+  agent's `search_elements`; the engine's twin is pinned by `tests/fixtures/shape-search.json`.
+- **The canvas is no longer shifted by half a subpixel.** Pillow truncates float coordinates and
+  fills inclusively, so the shift biased every shape up and left and spilled coverage into the
+  top and left margin; a test now redraws every preset with a wide margin and checks nothing was
+  clipped.

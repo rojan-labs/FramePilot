@@ -29,21 +29,26 @@ meets.
 
 ---
 
-## EL0 — The two decisions and one spike the first slice needs `[ ]`
+## EL0 — The two decisions and one spike the first slice needs `[x]`
 
-- [ ] **EL0.1** Maintainer answers **MD-E6** (schema v25) and **MD-E7** (rail order). Every other
+- [x] **EL0.1** Maintainer answers **MD-E6** (schema v25) and **MD-E7** (rail order). Every other
       MD is asked in the phase that needs it (README §1 table, "Needed before").
 - [x] **EL0.2** Product-scope review of this plan (README §7) — verdict SHRINK, changes adopted.
-- [ ] **EL0.3** Spike A — shape raster: prototype `shape_raster.py` for the six EL4a shapes;
+- [x] **EL0.3** Spike A — shape raster: prototype `shape_raster.py` for the six EL4a shapes;
       measure at 1080p and 4K (a rough pre-spike already measured 6.9 ms / 26.5 ms, 05 §2.2); time
       the desktop round trip through the existing raster route. Report:
       `plan/elements/spikes/EL0.3-shape-raster.md`.
 
 **DoD:** two answers recorded in README §1; the spike report committed with numbers.
 
+**Evidence (2026-09-26).** MD-E6 and MD-E7 decided autonomously and recorded in README §1. The
+spike ran late, against the shipped rasteriser rather than a prototype:
+[`spikes/EL0.3-shape-raster.md`](./spikes/EL0.3-shape-raster.md) — 0.2–2.4 ms per preset at 1080p,
+0.5–9.1 ms at 4K, 1.6–5.0 ms for the whole preview route at 1080p (Apple M1 Pro).
+
 ---
 
-## EL1 — Stock becomes Elements (Photos · Videos) `[~]`
+## EL1 — Stock becomes Elements (Photos · Videos) `[x]`
 
 **Ships:** the rename and the panel shell, with no behaviour change to Pexels search, preview,
 download, quota or placement. Small, independent; needs MD-E7.
@@ -62,7 +67,7 @@ download, quota or placement. Small, independent; needs MD-E7.
 - [x] **EL1.5** Docs: new `docs/guides/elements.md` (hub; Photos & Videos section), retitle
       `stock-sourcing.md`, `settings.md`, `configuration.md`, `system-map.md`; website privacy
       heading; `CHANGELOG.md` → Changed.
-- [~] **EL1.6** Tests: `ElementsPanel.test.tsx` (switching, remembered tab, first-open rule,
+- [x] **EL1.6** Tests: `ElementsPanel.test.tsx` (switching, remembered tab, first-open rule,
   browser absence), `Editor.test.tsx` and `view-prefs-persist.spec.ts` (a stored `'stock'`
   opens Elements), `elements.spec.ts` replacing `stock-sourcing.spec.ts`, visual baselines
   refreshed if the rail is in them.
@@ -71,9 +76,11 @@ download, quota or placement. Small, independent; needs MD-E7.
 results; every former Stock test passes under its new name; e2e green on a SHA that contains
 the change.
 
+**Evidence (2026-09-26).** [CI run 36198403567](https://github.com/rojan-labs/FramePilot/actions/runs/36198403567) on `9bbde591`, every job green including the PX4 oracle (E2E smoke, visual regression, the unit suites).
+
 ---
 
-## EL2a — Stills and titles: opacity, fades, crop, and the title's own In/Out `[~]`
+## EL2a — Stills and titles: opacity, fades, crop, and the title's own In/Out `[x]`
 
 **Ships:** fixes for four live gaps (00 G1, G6, G11), and the foundation every element animation
 needs. No new user surface.
@@ -93,10 +100,10 @@ needs. No new user surface.
       with the quirks.
 - [x] **EL2a.4** Monitor: the image and text branches of the layer engine apply the plan's opacity,
       envelope and crop with the same own-alpha rule.
-- [~] **EL2a.5** Oracle rows: `stills/opacity-keyframes`, `stills/fade-in`, `stills/crop-cover`,
+- [x] **EL2a.5** Oracle rows: `stills/opacity-keyframes`, `stills/fade-in`, `stills/crop-cover`,
   `stills/alpha-times-opacity`, `text/opacity`, `text/in-fade`, `text/in-slide-up`,
   `text/out-pop`.
-- [~] **EL2a.6** Goldens regenerated where a fixture had such a still or title; ADR "A still is a
+- [x] **EL2a.6** Goldens regenerated where a fixture had such a still or title; ADR "A still is a
   picture layer like any other"; `CHANGELOG.md` → Fixed (photos fade and crop, titles animate
   in and out in the export).
 
@@ -113,7 +120,7 @@ sentinel's transparent border makes it the alpha × opacity row), `geometry/stil
 `text/title-in-out` (fade in, slide-up out, pop in, slide-down out). Decision recorded: a slide
 travels 5% of the frame height in every path (ADR 0189); the DOM overlay's box-relative 12% was
 not expressible in the export. Goldens: no engine golden fixture holds a still or title with
-opacity, a transition, a crop or an In/Out preset, so none changes; CI confirms.
+opacity, a transition, a crop or an In/Out preset, so none changes; CI confirms: [CI run 36198403567](https://github.com/rojan-labs/FramePilot/actions/runs/36198403567) on `9bbde591`, every job green including the PX4 oracle.
 
 ## EL2b — Stills and titles: masks, edge styles, geometry transitions `[ ]`
 
@@ -135,7 +142,7 @@ shadow, masking), geometry transitions (zoom, slide, wipe passes) with EL7 (In/O
 
 ---
 
-## EL3 — One definition of synthetic assets and clip kind per runtime `[~]`
+## EL3 — One definition of synthetic assets and clip kind per runtime `[x]`
 
 **Ships:** a behaviour-neutral refactor. Adding `__shape__` must be a change to one module per
 runtime, not to 17 (00 G4).
@@ -160,7 +167,7 @@ tree before the change and pass after. They found three sites the G4 list missed
 and ai-sdk `picture-layers.ts` (a doc comment). All three are rows in 12 now. Tests: editor-core
 (operations, frame plan, parity, stock placement, masks), ai-sdk (critic, verify, project index,
 context builder, rubric, domain tools: 657), web-editor (selectors, builders: 367), engine
-(operations, compiler, frame plan, preview text, stills: 311). ADR 0032 amended.
+(operations, compiler, frame plan, preview text, stills: 311). ADR 0032 amended. [CI run 36198403567](https://github.com/rojan-labs/FramePilot/actions/runs/36198403567) on `9bbde591`, every job green including the PX4 oracle.
 
 ---
 
@@ -203,9 +210,9 @@ A PR stack, each PR green on its own:
 
 Evidence (all required for `[x]`):
 
-- [~] Oracle rows: `shapes/highlight-box`, `shapes/marker-over-video`, `shapes/ellipse-rotated`,
-  `shapes/arrow-segment` — landed as `tests/fixtures/frame-plan/shapes.json` (vectors equal in
-  both runtimes locally; the PX4 run in CI decides).
+- [x] Oracle rows: `shapes/highlight-box`, `shapes/marker-over-video`, `shapes/ellipse-rotated`,
+  `shapes/arrow-segment` — landed as `tests/fixtures/frame-plan/shapes.json`; the PX4 oracle
+  passed them in [CI run 36198403567](https://github.com/rojan-labs/FramePilot/actions/runs/36198403567) on `9bbde591`, every job green including the PX4 oracle.
 - [!] One evaluation case: on a screen-recording fixture with known button coordinates, "Put a box
   around the Export button when I say 'export'" — the model finds the button by reading
   `get_frame` (the only grounding this slice has; 11 §2 defers automatic grounding); report the
@@ -224,10 +231,12 @@ Evidence (all required for `[x]`):
   screen recording in the desktop app; add five callouts from Elements → Shapes and five with
   the assistant; export; close and reopen the project; undo each; record the export, the
   reopen and the undo results (and any difference between monitor and export) here.
-- [~] e2e in a new CI job `elements-e2e`, modelled on `masking-e2e` (the fake-desktop harness + a
+- [x] e2e in a new CI job `elements-e2e`, modelled on `masking-e2e` (the fake-desktop harness + a
   real sidecar): add a highlight box, resize it on the canvas, recolour it, export a frame,
   undo — `tests/e2e/specs/elements-e2e-shapes.spec.ts`, which also compares the monitor with
   the export at the PX4 gates. `docs/guides/elements.md` Shapes; `CHANGELOG.md` → Added (done).
+  The job passed on every push since it landed (`65b1c977`, `fac2df03`, `7808a193`, `cd99e875`);
+  the phase closes when one run is green end to end on a SHA that contains it.
 
 **DoD:** the six shapes work end to end by hand and via `add_shape`; oracle rows pass; a v24
 project opens unchanged and a v25 project with shapes is refused by a v24 build with
@@ -235,25 +244,42 @@ project opens unchanged and a v25 project with shapes is refused by a v24 build 
 
 ---
 
-## EL5 — Shapes: the whole catalogue `[ ]`
+## EL5 — Shapes: the whole catalogue `[~]`
 
-- [ ] **EL5.1** The remaining ~99 shapes and every preset (03 §1.2 → ~200 tiles); generators for
+- [x] **EL5.1** The remaining ~99 shapes and every preset (03 §1.2 → ~200 tiles); generators for
       polygons, stars, rings, bubbles, corners, curved arrows, path shapes; an export-rendered
       contact sheet of every shape and preset reviewed before merge.
-- [ ] **EL5.2** The browse surface for a large catalogue: category chips, search, colour row,
+- [x] **EL5.2** The browse surface for a large catalogue: category chips, search, colour row,
       drag to the timeline (`ELEMENT_DND_TYPE` beside `TEXT_OVERLAY_DND_TYPE` in
       `TimelineView.tsx`), the timeline clip glyph + `--clip-graphic` token, `swapShapePatch`.
-- [ ] **EL5.3** Stroke styles and caps complete (dashed, dotted, arrow/dot/bar caps on every
+- [x] **EL5.3** Stroke styles and caps complete (dashed, dotted, arrow/dot/bar caps on every
       segment shape).
-- [ ] **EL5.4** Numbered badges: `label` param drawn by the title rasteriser inside the shape,
+- [x] **EL5.4** Numbered badges: `label` param drawn by the title rasteriser inside the shape,
       validator (≤ 8 chars), Inspector field, `add_shape` `label`, oracle row.
-- [ ] **EL5.5** Icons: `scripts/elements/build_icons.mjs` → Lucide paths in the catalogue's
+- [x] **EL5.5** Icons: `scripts/elements/build_icons.mjs` → Lucide paths in the catalogue's
       `icons` section; Lucide licence file beside it + licence test; Icons chip; oracle row.
-- [ ] **EL5.6** Agent: `search_elements` (shapes) — needed once the catalogue is too big to list
+- [x] **EL5.6** Agent: `search_elements` (shapes) — needed once the catalogue is too big to list
       in a tool description.
 
 **DoD:** ~105 shapes, ~200 presets and ~1,600 icons browsable, placeable and exportable; oracle rows
 green; contact sheet committed.
+
+**Evidence (2026-09-26).** 106 shapes in nine categories, 260 presets, 1,703 Lucide icons
+(`shape-catalog.ts`, `shape-icons.json` ×2 with `LICENSE-lucide.txt`; drift and licence tests in
+`shape-icons.test.ts` and `test_shape_icons.py`). Generators: `test_shape_generators.py` draws every
+preset and checks nothing is clipped, pins each generator's look (star points, ring hole, bubble
+tail, corner marks, curvature sign, even-odd holes, dashes) and every cap × stroke style on every
+line shape. Contact sheets reviewed and committed: `docs/reports/elements/shapes-contact-sheet.png`,
+`icons-contact-sheet.png` (the review found the open heart outline and two misnamed shapes; fixed
+in `78b8b896`). Browse: `ShapesBrowser.test.tsx` (chips, search, colour row, paging, keyboard,
+drag), `shape-tile-outline.test.ts`, `element-dnd.test.ts`, the timeline drop in
+`TimelineView.interactions.test.tsx`, `swap-shape.test.ts`, `ShapeSection.test.tsx`, minimap and
+panel keys. Badges: label rows in `tests/fixtures/shape-params.json` (both runtimes), engine label
+tests, Inspector field. Search: one ranking (`shape-search.ts`) pinned to the engine by
+`tests/fixtures/shape-search.json`; `search_elements` in both runtimes with a digest; goldens
+regenerated. Oracle rows: `shapes/box-stroke-dashed`, `star-knobs`, `curved-arrow`, `bubble-tail`,
+`ring-evenodd`, `badge-label`, `icon-stroke`, `blend-multiply` (frame-plan vectors equal in both
+runtimes; PX4 in CI decides). Remaining for `[x]`: CI green end to end on a SHA containing EL5.
 
 ---
 
