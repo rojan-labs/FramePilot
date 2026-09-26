@@ -694,6 +694,8 @@ describe('critique — shape', () => {
       'shot_rhythm',
       'marker_labels',
       'caption_verify',
+      // plan/elements EL7.2: an element loop its clip has outgrown (ADR 0192).
+      'loop_coverage',
     ]);
   });
 

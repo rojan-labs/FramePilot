@@ -19,6 +19,7 @@
  */
 import {
   buildTimelineMap,
+  clipLoop,
   isSyntheticAssetId,
   syntheticClipKind,
   listEditBoundaries,
@@ -81,7 +82,9 @@ export type CheckId =
   /** Every labelled marker sits where its words are spoken. */
   | 'marker_labels'
   /** The caption track passes `verify_captions` — timing AND the two look facts it computes. */
-  | 'caption_verify';
+  | 'caption_verify'
+  /** Every element loop still covers its clip (plan/elements EL7.2, ADR 0192). */
+  | 'loop_coverage';
 
 /** One check's verdict + a human-readable explanation. */
 export interface CriticCheck {
@@ -1885,6 +1888,31 @@ function markerToken(raw: string): string {
  * A label counts as placed when any of its content words — not the editorial vocabulary
  * ("hook", "payoff") it is described with — is spoken within a few seconds of it.
  */
+/**
+ * A loop is keyframes over its clip as it was when the loop was set (ADR 0192): a clip lengthened
+ * afterwards loops only part of the way and then holds still. A warning, not a failure — the edit
+ * is valid — with the fix, since only the agent or the Inspector can write the loop again.
+ */
+function checkLoopCoverage(project: Project): CriticCheck {
+  const label = 'Element loops run the length of their clips';
+  const loops = project.timeline.tracks
+    .flatMap((track) => track.clips)
+    .map((clip) => ({ clip, loop: clipLoop(clip) }))
+    .filter((entry) => entry.loop !== null);
+  if (loops.length === 0) return check('loop_coverage', label, 'skipped', 'No looping elements.');
+  const short = loops.filter((entry) => entry.loop?.coversClip === false);
+  if (short.length === 0) {
+    return check('loop_coverage', label, 'pass', 'Every loop covers its clip.');
+  }
+  const named = short.map((entry) => `"${entry.clip.id}"`).join(', ');
+  return check(
+    'loop_coverage',
+    label,
+    'warn',
+    `The loop on ${named} stops before the clip ends, because the clip was lengthened after the loop was set. Set the same loop again with set_element_animation to cover the whole clip.`,
+  );
+}
+
 function checkMarkerLabels(project: Project, loop: TranscriptLoop | undefined): CriticCheck {
   const labelled = project.markers.filter(
     (marker): marker is typeof marker & { readonly label: string } =>
@@ -2743,6 +2771,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
     checkShotRhythm(project, fps),
     checkMarkerLabels(project, loop),
     checkCaptionVerify(project),
+    checkLoopCoverage(project),
   ];
   const fails = checks.filter((c) => c.status === 'fail').length;
   const warns = checks.filter((c) => c.status === 'warn').length;
