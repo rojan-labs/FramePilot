@@ -409,7 +409,7 @@ Depends on EL6a, MD-E1, EL2b.1.
 
 ---
 
-## EL7 — Animation: In · Out · Loop `[ ]`
+## EL7 — Animation: In · Out · Loop `[~]`
 
 Depends on EL2b.2 (geometry transitions), and EL4a or EL6a.
 

@@ -302,7 +302,7 @@ holds and every row of [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md) is d
 | EL5   | `[x]`  | 106 shapes, 260 presets, 1,703 icons, search, badges; CI green `276b8827` |
 | EL6a  | `[!]`  | Green on `9633653c`; eval run and desktop run are human steps             |
 | EL6b  | `[~]`  | Packaged set built, verified and cached; the grid and Inspector next      |
-| EL7   | `[ ]`  |                                                                           |
+| EL7   | `[~]`  | In/Out on graphics layers; a moving exit plays its entrance backwards     |
 | EL8   | `[ ]`  |                                                                           |
 | EL9   | `[ ]`  |                                                                           |
 | EL10  | `[ ]`  | Optional; gated on MD-E3                                                  |

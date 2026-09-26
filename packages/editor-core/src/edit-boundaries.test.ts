@@ -484,24 +484,62 @@ describe('layerTransitionEligibility', () => {
     expect(verdict.detail).toContain('fromClipId "code" and toClipId "city"');
   });
 
-  it('refuses a geometric kind as an exit, where the insert would vanish at once', () => {
-    const verdict = layerTransitionEligibility(cutawayTimeline(), {
-      clipId: 'phone',
-      edge: 'out',
-      kind: 'zoom',
-      durationSeconds: 0.4,
-    });
-    expect(verdict.ok).toBe(false);
-    if (verdict.ok) return;
-    expect(verdict.reason).toBe('kind_cannot_exit');
+  it('takes a geometric kind as an exit, which leaves by playing its entrance backwards (EL7)', () => {
+    for (const kind of ['zoom', 'slide', 'cross-dissolve']) {
+      expect(
+        layerTransitionEligibility(cutawayTimeline(), {
+          clipId: 'phone',
+          edge: 'out',
+          kind,
+          durationSeconds: 0.4,
+        }),
+        kind,
+      ).toEqual({ ok: true, durationSeconds: 0.4 });
+    }
+  });
+
+  it('animates a graphic on an overlay layer in and out, but not a caption (EL7)', () => {
+    const graphics: Timeline = {
+      tracks: [
+        {
+          id: 'captions',
+          type: 'caption',
+          clips: [
+            clip({ id: 'cue', trackId: 'captions', start: 0, end: 2, assetId: '__caption__' }),
+          ],
+        },
+        {
+          id: 'overlay_1',
+          type: 'overlay',
+          clips: [clip({ id: 'sticker', trackId: 'overlay_1', start: 1, end: 4, assetId: 's1' })],
+        },
+        ...cutawayTimeline().tracks,
+      ],
+    };
     expect(
-      layerTransitionEligibility(cutawayTimeline(), {
-        clipId: 'phone',
+      layerTransitionEligibility(graphics, {
+        clipId: 'sticker',
+        edge: 'in',
+        kind: 'zoom-out',
+        durationSeconds: 0.5,
+      }),
+    ).toEqual({ ok: true, durationSeconds: 0.5 });
+    expect(
+      layerTransitionEligibility(graphics, {
+        clipId: 'sticker',
         edge: 'out',
+        kind: 'slide-left',
+        durationSeconds: 0.5,
+      }),
+    ).toEqual({ ok: true, durationSeconds: 0.5 });
+    expect(
+      layerTransitionEligibility(graphics, {
+        clipId: 'cue',
+        edge: 'in',
         kind: 'cross-dissolve',
         durationSeconds: 0.4,
-      }).ok,
-    ).toBe(true);
+      }),
+    ).toMatchObject({ ok: false, reason: 'no_such_clip' });
   });
 
   it('refuses an unknown kind and a clip that is not picture on a video layer', () => {

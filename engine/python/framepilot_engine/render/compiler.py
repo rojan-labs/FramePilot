@@ -133,6 +133,7 @@ from framepilot_engine.render.frame_plan import (
     back_to_front,
     caption_tracks,
     clips_in_sequence,
+    exit_plays_reversed,
     fit_scale,
     frame_plan_at,
     layer_matte_sources,
@@ -1394,6 +1395,12 @@ def _apply_catalog_transition(source: VideoClip, clip: Clip, use_legacy: bool) -
     duration = float(clip.end - clip.start)
     existing_mask = source.mask
     memo: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    # plan/elements EL7: a layer's exit of a kind that is not a closing mask plays the kind's
+    # entrance backwards (a slide leaves the way it came); its mask alone would hide the layer
+    # at once.
+    reversed_roles = {
+        role for role, tr in live if role == "out" and exit_plays_reversed(clip, tr.render_kind)
+    }
 
     def evaluate(t: float, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         key = round(t * 1_000_000)
@@ -1405,6 +1412,12 @@ def _apply_catalog_transition(source: VideoClip, clip: Clip, use_legacy: bool) -
         for role, tr in live:
             progress = transitions.progress_at(role, t, tr, duration)
             if progress is None:
+                continue
+            if role in reversed_roles:
+                # Backwards in time: the entrance as it was 1 - p of the way through.
+                eased = transitions.ease(tr, 1.0 - progress)
+                rgb, revealed = transition_passes.apply_transition_to_frame(rgb, tr, eased)
+                alpha = np.asarray((alpha * revealed).astype(np.float32))
                 continue
             eased = transitions.ease(tr, progress)
             if role == "out":

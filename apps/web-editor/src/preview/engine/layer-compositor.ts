@@ -1540,7 +1540,9 @@ export class LayerCompositor {
       Math.floor(Math.max(0, half.eased * t.duration) / TRANSITION_TIME_QUANTUM),
     );
     gl.uniform1fv(program.location('uParams'), transitionUniforms(t));
-    program.int('uRole', half.role === 'in' ? 0 : 1);
+    // plan/elements EL7: a reversed exit runs as the kind's entrance, at the eased progress the
+    // frame plan computed backwards in time (`compiler.py`).
+    program.int('uRole', half.role === 'in' || half.reversed === true ? 0 : 1);
     r.draw(out, out.width, out.height);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, source.texture);

@@ -39,7 +39,7 @@ from framepilot_engine.effects.transform import (
     animated_properties,
     evaluate_clip_transform,
 )
-from framepilot_engine.render import transitions
+from framepilot_engine.render import transition_catalog, transitions
 from framepilot_engine.render.captions import resolve_caption_cue
 from framepilot_engine.render.edge_styles import EdgeStyleRefusal, clip_edge_styles
 from framepilot_engine.render.shape_geometry import ShapeBounds, shape_bounds, shape_clip_params
@@ -129,6 +129,22 @@ def uses_legacy_transition_path(clip: Clip) -> bool:
 def legacy_transition(clip: Clip) -> transitions.Transition | None:
     """The envelope-path transition entering ``clip``; ``None`` when it takes the catalog path."""
     return transitions.transition_from_clip(clip) if uses_legacy_transition_path(clip) else None
+
+
+def exit_plays_reversed(clip: Clip, render_kind: str) -> bool:
+    """A layer's own exit (no partner clip after it) of a kind that is not a closing mask.
+
+    plan/elements EL7: the renderers play such a kind's entrance backwards, so a slide leaves the
+    way it came in. The outgoing half of a cut is not one: the next shot animates over it.
+    """
+    effect = next(
+        (e for e in clip.effects if e.type == transitions.TRANSITION_OUT_EFFECT_TYPE), None
+    )
+    return (
+        effect is not None
+        and "toClipId" not in effect.params
+        and not transition_catalog.exits_by_mask(render_kind)
+    )
 
 
 def live_catalog_transitions(
@@ -701,9 +717,12 @@ class TransitionState:
     render_kind: str
     progress: float
     eased: float
+    #: A layer exit played as its entrance backwards (plan/elements EL7): ``eased`` is then the
+    #: entrance's, at ``1 - progress``. Only written when true.
+    reversed: bool = False
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "role": self.role,
             "kind": self.kind,
             "path": self.path,
@@ -711,6 +730,9 @@ class TransitionState:
             "progress": self.progress,
             "eased": self.eased,
         }
+        if self.reversed:
+            out["reversed"] = True
+        return out
 
 
 @dataclass(frozen=True)
@@ -870,6 +892,7 @@ def _transition_states(clip: Clip, local: float) -> list[TransitionState]:
         progress = transitions.progress_at(role, local, tr, duration)
         if progress is None:
             continue
+        reversed_exit = role == "out" and exit_plays_reversed(clip, tr.render_kind)
         states.append(
             TransitionState(
                 role=role,
@@ -877,7 +900,9 @@ def _transition_states(clip: Clip, local: float) -> list[TransitionState]:
                 path="catalog",
                 render_kind=tr.render_kind,
                 progress=progress,
-                eased=transitions.ease(tr, progress),
+                # A reversed exit draws the entrance as it was 1 - p of the way through.
+                eased=transitions.ease(tr, 1.0 - progress if reversed_exit else progress),
+                reversed=reversed_exit,
             )
         )
     return states

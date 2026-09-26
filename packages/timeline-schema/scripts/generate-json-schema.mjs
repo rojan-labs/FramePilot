@@ -43,6 +43,7 @@ import { TRANSITION_CATALOG, TRANSITION_CATEGORIES } from '../dist/transition-ca
 import { FEATURED_SHAPE_PRESET_IDS, SHAPE_CATALOG } from '../dist/shape-catalog.js';
 import {
   TRANSITION_APPLY_PATH,
+  TRANSITION_EXIT_BY_MASK,
   TRANSITION_DIRECTIONS,
   TRANSITION_PARAMS,
 } from '../dist/transition-params.js';
@@ -185,6 +186,7 @@ const transitions = {
   params: TRANSITION_PARAMS,
   directions: TRANSITION_DIRECTIONS,
   applyPath: TRANSITION_APPLY_PATH,
+  exitByMask: TRANSITION_EXIT_BY_MASK,
   transitions: TRANSITION_CATALOG,
 };
 const transitionPaths = [

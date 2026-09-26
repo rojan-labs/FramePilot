@@ -185,6 +185,47 @@ describe('framePlanAt', () => {
     ]);
   });
 
+  it('marks a layer exit that plays its entrance backwards, and nothing else (EL7)', () => {
+    const exit = (id: string, kind: string, extra: Record<string, unknown> = {}) => ({
+      id: `${id}__transition_out`,
+      type: 'transition_out',
+      params: { kind, durationSeconds: 1, alignment: 'end', ...extra },
+      keyframes: [],
+    });
+    const png = (id: string, trackId: string, kind: string) =>
+      clip(id, trackId, 0, 4, { assetId: 'png', sourceStart: 0, effects: [exit(id, kind)] });
+    const timeline: Timeline = {
+      tracks: [
+        track('o1', 'overlay', [png('slides', 'o1', 'slide-left')]),
+        track('o2', 'overlay', [png('fades', 'o2', 'cross-dissolve')]),
+        track('v', 'video', [
+          clip('a', 'v', 0, 4, { effects: [exit('a', 'slide-left', { toClipId: 'b' })] }),
+          clip('b', 'v', 4, 8, {
+            effects: [
+              {
+                id: 'b__transition',
+                type: 'transition',
+                params: { kind: 'slide-left', durationSeconds: 1, fromClipId: 'a' },
+                keyframes: [],
+              },
+            ],
+          }),
+        ]),
+      ],
+    };
+    const plan = framePlanAt(timeline, ASSETS, 3.5, FRAME);
+    const halves = (clipId: string) =>
+      plan.layers.find((layer) => layer.clipId === clipId && layer.role === 'clip')?.transitions;
+    // A slide leaving a sticker plays its entrance backwards; a dissolve closes as a mask.
+    expect(halves('slides')).toEqual([
+      expect.objectContaining({ role: 'out', kind: 'slide-left', reversed: true }),
+    ]);
+    expect(halves('fades')?.[0]).not.toHaveProperty('reversed');
+    // The outgoing half of a cut is not a layer exit: the next shot slides over it.
+    expect(halves('a')?.[0]).toMatchObject({ role: 'out', kind: 'slide-left' });
+    expect(halves('a')?.[0]).not.toHaveProperty('reversed');
+  });
+
   it('maps constant speed, freeze and reverse as MoviePy does', () => {
     const base = { sourceStart: 4, sourceEnd: 8 };
     expect(videoSourceTime({ ...base }, 0.5, 30, 20)).toBe(0.5 + 4);

@@ -37,6 +37,7 @@ __all__ = [
     "clamp_params",
     "default_params",
     "directions_for_kind",
+    "exits_by_mask",
     "get_transition",
     "known_kinds",
     "load_catalog",
@@ -90,6 +91,9 @@ class TransitionCatalog:
     params: dict[str, tuple[TransitionParam, ...]]
     directions: dict[str, tuple[str, ...]]
     apply_path: dict[str, str]
+    #: The kinds a layer's exit draws as a closing mask; every other kind exits by playing its
+    #: entrance backwards (plan/elements EL7, ``TRANSITION_EXIT_BY_MASK`` in the TS catalogue).
+    exit_by_mask: frozenset[str]
     transitions: dict[str, CatalogTransition]
     categories: tuple[str, ...]
 
@@ -136,6 +140,7 @@ def load_catalog() -> TransitionCatalog:
         params={kind: tuple(_param(p) for p in params) for kind, params in raw["params"].items()},
         directions={kind: tuple(values) for kind, values in raw["directions"].items()},
         apply_path=dict(raw["applyPath"]),
+        exit_by_mask=frozenset(raw["exitByMask"]),
         transitions={entry["id"]: _transition(entry) for entry in raw["transitions"]},
         categories=tuple(category["id"] for category in raw["categories"]),
     )
@@ -165,6 +170,11 @@ def directions_for_kind(kind: str) -> tuple[str, ...]:
 def apply_path(kind: str) -> str:
     """How the compiler applies ``kind``: ``geometry``, ``mask`` or ``frame``."""
     return load_catalog().apply_path.get(kind, "frame")
+
+
+def exits_by_mask(kind: str) -> bool:
+    """Whether a layer's exit of render kind ``kind`` closes as a mask, not a reversed entrance."""
+    return kind in load_catalog().exit_by_mask
 
 
 def default_params(kind: str) -> dict[str, float]:

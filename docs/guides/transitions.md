@@ -92,9 +92,11 @@ A-roll and back out — stored on the insert itself.
 - The default is a hard cut on the word, the talking-head convention. Ask for a
   reason ("soften the b-roll", "make the inserts punchier") and the assistant treats
   every insert the same way (`add_transitions` with `includeCutaways`).
-- An exit is always a dissolve or a wipe. A slide or zoom only animates a shot coming
-  in; as an exit the insert would vanish at once, so a punchy entrance leaves on a
-  short cross-dissolve.
+- A b-roll exit the assistant chooses is always a dissolve or a wipe: a full-frame shot
+  sliding or shrinking back off the speaker reads as a rewind, so a punchy entrance leaves on
+  a short cross-dissolve. Any transition can be an exit, though: a slide or a zoom leaving
+  plays its entrance backwards, which is what stickers, shapes and titles use (see
+  [Elements](./elements.md)).
 - An insert can carry at most half its own length at each end.
 
 ## Audio

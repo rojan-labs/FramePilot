@@ -36,6 +36,7 @@ import {
   type TranscriptWord,
 } from '@framepilot/timeline-schema';
 import { getTransition } from '@framepilot/timeline-schema/transition-catalog';
+import { TRANSITION_EXIT_BY_MASK } from '@framepilot/timeline-schema/transition-params';
 import { resolveCaptionCue } from './captions/cue.js';
 import { assetDisplaySize } from './mask-geometry.js';
 import { applyEasing, evaluateKeyframes } from './keyframes.js';
@@ -91,6 +92,13 @@ export interface FramePlanTransition {
   readonly renderKind: string;
   readonly progress: number;
   readonly eased: number;
+  /**
+   * A layer's exit whose kind is not a closing mask (plan/elements EL7): the renderers play the
+   * kind's entrance backwards in time, so a slide leaves the way it came; `eased` is then the
+   * entrance's, at `1 - progress`. Present only when true, so plans without such an exit are
+   * unchanged.
+   */
+  readonly reversed?: true;
 }
 
 export interface FramePlanLayer {
@@ -868,16 +876,33 @@ function transitionStates(clip: Clip, local: number): readonly FramePlanTransiti
   for (const [role, tr] of liveCatalogTransitions(clip, useLegacy)) {
     const progress = catalogProgressAt(role, local, tr, duration);
     if (progress === null) continue;
+    const reversed = role === 'out' && exitPlaysReversed(clip, tr.renderKind);
+    // A reversed exit draws the entrance as it was 1 - p of the way through.
+    const along = Math.min(1, Math.max(0, reversed ? 1 - progress : progress));
     states.push({
       role,
       kind: tr.kind,
       path: 'catalog',
       renderKind: tr.renderKind,
       progress,
-      eased: applyEasing(tr.easing, Math.min(1, Math.max(0, progress))),
+      eased: applyEasing(tr.easing, along),
+      ...(reversed ? { reversed: true as const } : {}),
     });
   }
   return states;
+}
+
+const EXIT_BY_MASK: ReadonlySet<string> = new Set(TRANSITION_EXIT_BY_MASK);
+
+/**
+ * `exit_plays_reversed`: a layer's own exit (no partner clip after it) of a kind that is not a
+ * closing mask. The outgoing half of a cut is not one: the next shot animates over it.
+ */
+function exitPlaysReversed(clip: Clip, renderKind: string): boolean {
+  const effect = effectOfType(clip, TRANSITION_OUT_EFFECT_TYPE);
+  return (
+    effect !== undefined && effect.params.toClipId === undefined && !EXIT_BY_MASK.has(renderKind)
+  );
 }
 
 function baseLayer(

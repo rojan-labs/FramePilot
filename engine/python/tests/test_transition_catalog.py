@@ -77,6 +77,21 @@ def test_apply_path_is_declared_for_every_kind() -> None:
         assert catalog.apply_path(kind) in {"geometry", "mask", "frame"}
 
 
+def test_a_layer_exit_is_a_mask_only_for_the_kinds_the_catalogue_lists() -> None:
+    # plan/elements EL7: these keep their closing mask as an exit; every other kind plays its
+    # entrance backwards, so a slide leaves the way it came.
+    assert catalog.exits_by_mask("dissolve")
+    assert catalog.exits_by_mask("wipe-linear")
+    assert not catalog.exits_by_mask("slide")
+    assert not catalog.exits_by_mask("zoom")
+    for kind in load_catalog_exit_kinds():
+        assert kind in catalog.known_kinds()
+
+
+def load_catalog_exit_kinds() -> frozenset[str]:
+    return catalog.load_catalog().exit_by_mask
+
+
 def test_directions_use_one_vocabulary() -> None:
     for kind in catalog.known_kinds():
         for direction in catalog.directions_for_kind(kind):

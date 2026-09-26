@@ -146,6 +146,8 @@ export interface LayerTransition {
   readonly transition: ResolvedTransition;
   /** Eased progress, from the frame plan. */
   readonly eased: number;
+  /** A layer exit played as its entrance backwards (plan/elements EL7, from the frame plan). */
+  readonly reversed?: true;
 }
 
 /** Python's `int()` on a float. */
@@ -457,7 +459,12 @@ function layerAlphaWork(
     );
     const resolved = effect ? resolveTransitionParamsFor(effect.params ?? {}) : null;
     if (resolved === null || resolved.disabled || resolved.isCut) continue;
-    transitions.push({ role: state.role, transition: resolved, eased: state.eased });
+    transitions.push({
+      role: state.role,
+      transition: resolved,
+      eased: state.eased,
+      ...(state.reversed === true ? { reversed: true as const } : {}),
+    });
   }
   // The compiler walks the outgoing half first.
   transitions.sort((a, b) => (a.role === b.role ? 0 : a.role === 'out' ? -1 : 1));
