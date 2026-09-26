@@ -581,6 +581,75 @@ const audioCapabilities = [
   },
 ];
 
+/**
+ * Shapes and stickers (plan/elements EL4a, EL6a). Neither is an EditorCommand: a shape is a clip
+ * drawn from its params and a sticker is a library image, so each is advertised as what an
+ * editor sets, compiled by the builder the Elements panel uses too, so a shape or sticker the
+ * agent adds and one added by hand are the same data.
+ */
+const graphicsCapabilities = [
+  {
+    id: 'graphics.shape.add',
+    kind: 'property' as const,
+    domain: 'graphics' as const,
+    appliesTo: ['track'] as const,
+    value: { kind: 'enum' as const, unit: 'none' as const },
+    keyframeable: false,
+    inspectable: true,
+    editable: true,
+    tool: 'add_shape',
+    compiler: 'editor-core:buildAddShapeOps',
+    verifier: PATCH_VERIFIER,
+    inverter: PATCH_INVERTER,
+    operationTypes: ['add_layer', 'add_shape'] satisfies OperationType[],
+    description:
+      'Draw a catalogue shape (a box, arrow, line, badge or icon) on a graphics lane above the footage, so it is drawn by the engine and never covers what it points at.',
+    availability: { state: 'available' as const, reason: AVAILABLE_REASON },
+  },
+  {
+    id: 'graphics.shape.style',
+    kind: 'property' as const,
+    domain: 'graphics' as const,
+    appliesTo: ['clip', 'effect'] as const,
+    value: { kind: 'vector' as const, unit: 'none' as const },
+    keyframeable: false,
+    inspectable: true,
+    editable: true,
+    tool: 'set_shape_style',
+    compiler: 'editor-core:setShapeParamsOp',
+    verifier: 'timeline-schema:shapeParamsProblem',
+    inverter: PATCH_INVERTER,
+    operationTypes: ['set_effect_params'] satisfies OperationType[],
+    description:
+      "Restyle a shape in place (fill, stroke, corners, a badge's label, its box or its ends); only what is named changes, and a change that would draw nothing is refused.",
+    availability: { state: 'available' as const, reason: AVAILABLE_REASON },
+  },
+  {
+    id: 'graphics.sticker.add',
+    kind: 'property' as const,
+    domain: 'graphics' as const,
+    appliesTo: ['track'] as const,
+    value: { kind: 'enum' as const, unit: 'none' as const },
+    keyframeable: false,
+    inspectable: true,
+    editable: true,
+    tool: 'add_sticker',
+    compiler: 'editor-core:buildAddStickerOps',
+    verifier: PATCH_VERIFIER,
+    inverter: PATCH_INVERTER,
+    operationTypes: [
+      'create_folder',
+      'add_asset',
+      'add_layer',
+      'add_clip',
+      'add_keyframes',
+    ] satisfies OperationType[],
+    description:
+      'Copy a library sticker into the project and lay it over the footage at a third of the frame height, moved and sized by its transform like any overlay; desktop only.',
+    availability: { state: 'available' as const, reason: AVAILABLE_REASON },
+  },
+];
+
 const parsedRegistry = z
   .array(EditorCapabilitySchema)
   .parse([
@@ -589,6 +658,7 @@ const parsedRegistry = z
     ...colorCapabilities,
     ...trackingMaskCapabilities,
     ...audioCapabilities,
+    ...graphicsCapabilities,
   ]);
 
 /** The public editor manifest. It is derived only from implemented runtime contracts. */

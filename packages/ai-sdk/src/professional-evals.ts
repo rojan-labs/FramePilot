@@ -61,6 +61,9 @@ const COVERED_FIXTURES = {
   'audio.clip.eq': 'audio.eq.outcome',
   'audio.clip.compression': 'audio.compression.outcome',
   'audio.clip.gain_automation': 'audio.gain-automation.outcome',
+  'graphics.shape.add': 'graphics.shape-add.outcome',
+  'graphics.shape.style': 'graphics.shape-style.outcome',
+  'graphics.sticker.add': 'graphics.sticker-add.outcome',
 } as const satisfies Readonly<Record<string, string>>;
 
 export const ProfessionalEvalRowSchema = z

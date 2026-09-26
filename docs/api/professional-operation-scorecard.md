@@ -15,7 +15,8 @@ registration covering these required stages:
 | Color         |                        7 |                      0 |
 | Tracking/mask |                        2 |                      0 |
 | Audio         |                        8 |                      0 |
-| **Total**     |                   **34** |                  **0** |
+| Graphics      |                        3 |                      0 |
+| **Total**     |                   **37** |                  **0** |
 
 Automatic subject tracking is registered (2026-08): its executable case compiles a measured
 sample set — the exact payload a Capability Pack worker returns — into the same validated,
@@ -23,6 +24,12 @@ invertible tracked-mask patch as manual tracking, with the measuring pack's iden
 provenance. The capability runs through the on-demand Subject Intelligence / Tracking Lite packs;
 the user approves the exact signed install before anything downloads, and a missing pack fails
 honestly rather than degrading into manual interpolation.
+
+Graphics (plan/elements EL4a, EL6a) are shapes and stickers. Neither is an editor command, so
+each case compiles with the builder the Elements panel and the agent's tool share
+(`buildAddShapeOps`, `setShapeParamsOp`, `buildAddStickerOps`) rather than through a controller,
+and the rendered bridge stages the sticker as a still with alpha, the kind of file the library
+ships.
 
 ## Executable cases
 

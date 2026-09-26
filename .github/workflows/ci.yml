@@ -167,7 +167,7 @@ jobs:
 
   # ── Cross-runtime professional-operation proof ─────────────────────────────────────
   professional-rendered-evals:
-    name: Professional operations · 33 rendered proofs
+    name: Professional operations · rendered proofs
     runs-on: ubuntu-latest
     needs: [node-quality, python-engine]
     steps:
