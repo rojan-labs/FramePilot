@@ -56,13 +56,14 @@ main process. While they are the only sub-tabs, the whole Elements tab is absent
 A logo, a screenshot or a cut-out you imported goes over your footage the same way. In the
 **Assets** bin, hover an image and click its **Add as overlay** button (the picture-in-picture
 icon), or focus the card and press **⌘⇧Enter** (Ctrl+Shift+Enter on Windows and Linux). It lands
-exactly as a Pexels **Overlay** does: at the playhead, centred, at 40% of its fitted size, on a
-layer in front of your footage and under your titles, stickers and shapes, ending where your
-programme ends. It is selected when it lands, and a screen reader hears "Added logo.png as an
-overlay at 0:04". One undo takes it back; the image stays in the bin.
+as a Pexels **Overlay** does: at the playhead, centred, at 40% of its fitted size, on a layer in
+front of your footage and under your titles, stickers and shapes, for five seconds, or until your
+programme ends if that is sooner. It is selected when it lands, and a screen reader hears "Added
+logo.png as an overlay at 0:04". One undo takes it back; the image stays in the bin.
 
 The button is on image cards only. Stickers keep their own placement (the card's **Add**), sound
-has no picture, and your own videos are not offered as overlays yet.
+has no picture, and your own videos are not offered as overlays yet. On those cards **⌘⇧Enter**
+does nothing (it used to add the file as **⌘Enter** does); **⌘Enter** still adds it.
 
 ## Shapes
 

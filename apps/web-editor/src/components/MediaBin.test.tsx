@@ -7,10 +7,11 @@
  * derivation fails (engine down → skeleton, never a blocked import).
  */
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
-import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import type { Asset, AssetMedia, Clip, Folder, Project } from '@framepilot/timeline-schema';
 import { parseProject } from '@framepilot/timeline-schema';
 import { MediaBin } from './MediaBin.js';
+import { STOCK_PLACEMENT_REJECTED } from '../editor/stock-download.js';
 import { TimelineView } from './TimelineView.js';
 import { useEditor } from '../editor/useEditor.js';
 import { newProject } from '../editor/project.js';
@@ -231,7 +232,8 @@ describe('MediaBin → Source monitor wiring (H1.7, J3)', () => {
   it('clicking the "add to timeline" icon button does not also fire onOpenInSource', () => {
     const onOpenInSource = vi.fn();
     const view = renderBinWithTimeline(onOpenInSource);
-    fireEvent.click(view.getByLabelText(`add ${asset.id} to timeline`));
+    // Named by its file, as the card is, not by its id.
+    fireEvent.click(view.getByRole('button', { name: 'add interview.mp4 to timeline' }));
     expect(onOpenInSource).not.toHaveBeenCalled();
     expect(clipCount(view.container)).toBe(1);
   });
@@ -757,8 +759,11 @@ describe('MediaBin — Add as overlay on the user’s own images', () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => localStorage.clear());
 
-  /** The bin over a talking head, the playhead at 4 s; `live()` is the editor as last rendered. */
-  function renderOverlayBin(onAnnounce?: (message: string) => void) {
+  /**
+   * The bin over a talking head, the playhead at 4 s; `live()` is the editor as last rendered.
+   * `refuse` stands in for a timeline that refuses the patch (its checked apply says why).
+   */
+  function renderOverlayBin(onAnnounce?: (message: string) => void, refuse = false) {
     const project = parseProject({
       ...newProject('Overlay Test'),
       assets: [footage, logo, song, sticker],
@@ -770,7 +775,17 @@ describe('MediaBin — Add as overlay on the user’s own images', () => {
       current = editor;
       return (
         <MediaBin
-          editor={editor}
+          editor={
+            refuse
+              ? {
+                  ...editor,
+                  applyPatchChecked: () =>
+                    [
+                      { code: 'overlap', severity: 'error', message: "Clips 'a' and 'b' overlap" },
+                    ] as never,
+                }
+              : editor
+          }
           project={project}
           {...(onAnnounce ? { onAnnounce } : {})}
           onOpenInSource={() => undefined}
@@ -783,8 +798,9 @@ describe('MediaBin — Add as overlay on the user’s own images', () => {
     return { view, live };
   }
 
-  const overlayButton = (id: string): HTMLElement | null =>
-    screen.queryByRole('button', { name: `add ${id} as an overlay` });
+  /** A card's overlay button, by the file name the card shows. */
+  const overlayButton = (name: string): HTMLElement | null =>
+    screen.queryByRole('button', { name: `add ${name} as an overlay` });
   const opener = (id: string): HTMLElement =>
     screen.getByLabelText(`asset ${id}`).querySelector<HTMLElement>('.bin-card-open')!;
   const clipsOf = (editor: ReturnType<typeof useEditor>) =>
@@ -792,21 +808,23 @@ describe('MediaBin — Add as overlay on the user’s own images', () => {
 
   it('is offered on an image card, and not on video, audio or a sticker', () => {
     renderOverlayBin();
-    expect(overlayButton(logo.id)).not.toBeNull();
-    expect(overlayButton(footage.id)).toBeNull();
-    expect(overlayButton(song.id)).toBeNull();
-    expect(overlayButton(sticker.id)).toBeNull();
+    expect(overlayButton('logo.png')).not.toBeNull();
+    expect(overlayButton('cam.mp4')).toBeNull();
+    expect(overlayButton('song.mp3')).toBeNull();
+    expect(overlayButton('fire.webp')).toBeNull();
     // Out of the tab ring, like the card's other icon buttons: the grid is one tab stop.
-    expect(overlayButton(logo.id)?.getAttribute('tabindex')).toBe('-1');
+    expect(overlayButton('logo.png')?.getAttribute('tabindex')).toBe('-1');
+    // Its sibling Add is named by the file too, and the two names differ.
+    expect(screen.getByRole('button', { name: 'add logo.png to timeline' })).toBeTruthy();
   });
 
   it('lays the image over the footage at the playhead, selected and announced', () => {
     const onAnnounce = vi.fn();
     const { live } = renderOverlayBin(onAnnounce);
-    act(() => fireEvent.click(overlayButton(logo.id)!));
+    act(() => fireEvent.click(overlayButton('logo.png')!));
 
     const placed = clipsOf(live()).find((clip) => clip.assetId === logo.id);
-    // At the playhead, over the footage, capped to the programme's end.
+    // At the playhead, over the footage, for the image's five seconds.
     expect(placed).toMatchObject({ start: 4, end: 9 });
     expect(placed?.keyframes.map((k) => [k.property, k.value])).toEqual([
       ['scale', 0.4],
@@ -837,15 +855,66 @@ describe('MediaBin — Add as overlay on the user’s own images', () => {
     // A card with no overlay takes no overlay shortcut: nothing is placed.
     fireEvent.keyDown(opener(footage.id), { key: 'Enter', metaKey: true, shiftKey: true });
     expect(clipsOf(live())).toHaveLength(3);
-    // The shortcut is announced to assistive tech on the image card only.
-    expect(opener(logo.id).getAttribute('aria-keyshortcuts')).toContain('Meta+Shift+Enter');
-    expect(opener(footage.id).getAttribute('aria-keyshortcuts')).not.toContain('Shift');
+  });
+
+  it('names the shortcuts as the platform spells them: Control off a Mac, Meta on one', () => {
+    renderOverlayBin();
+    // jsdom is not a Mac: Control, and the title says Ctrl.
+    expect(opener(logo.id).getAttribute('aria-keyshortcuts')).toBe(
+      'Enter Control+Enter Control+Shift+Enter Delete',
+    );
+    expect(opener(logo.id).getAttribute('title')).toContain(
+      'Ctrl+Enter: add to timeline · Ctrl+Shift+Enter: add as overlay',
+    );
+    // The overlay shortcut only where there is an overlay.
+    expect(opener(footage.id).getAttribute('aria-keyshortcuts')).toBe('Enter Control+Enter Delete');
+    expect(opener(footage.id).getAttribute('title')).not.toContain('overlay');
+    cleanup();
+    const platform = vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+    try {
+      renderOverlayBin();
+      expect(opener(logo.id).getAttribute('aria-keyshortcuts')).toBe(
+        'Enter Meta+Enter Meta+Shift+Enter Delete',
+      );
+      expect(opener(logo.id).getAttribute('title')).toContain('⌘⇧↩: add as overlay');
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it('lasts the image’s five seconds, or until the programme ends if that is sooner', () => {
+    // The talking head runs 30 s, far past five: the image keeps its own length.
+    const { live } = renderOverlayBin();
+    act(() => fireEvent.click(overlayButton('logo.png')!));
+    // Near the end, it stops with the programme rather than running on over black.
+    act(() => live().seek(27));
+    act(() => fireEvent.click(overlayButton('logo.png')!));
+    expect(
+      clipsOf(live())
+        .filter((clip) => clip.assetId === logo.id)
+        .map((clip) => [clip.start, clip.end]),
+    ).toEqual([
+      [4, 9],
+      [27, 30],
+    ]);
+  });
+
+  it('says so in the bin when the timeline refuses it, and places nothing', () => {
+    const onAnnounce = vi.fn();
+    const { live } = renderOverlayBin(onAnnounce, true);
+    act(() => fireEvent.click(overlayButton('logo.png')!));
+    expect(screen.getByRole('status', { name: 'import status' }).textContent).toBe(
+      STOCK_PLACEMENT_REJECTED,
+    );
+    expect(clipsOf(live()).some((clip) => clip.assetId === logo.id)).toBe(false);
+    expect(live().state.selection).toBeNull();
+    expect(onAnnounce).not.toHaveBeenCalled();
   });
 
   it('comes off in one undo, and the image stays in the bin', () => {
     const { live } = renderOverlayBin();
     const lanesBefore = live().state.timeline.tracks.map((track) => track.id);
-    act(() => fireEvent.click(overlayButton(logo.id)!));
+    act(() => fireEvent.click(overlayButton('logo.png')!));
     expect(live().state.timeline.tracks).toHaveLength(lanesBefore.length + 1);
     act(() => live().undo());
     expect(live().state.timeline.tracks.map((track) => track.id)).toEqual(lanesBefore);

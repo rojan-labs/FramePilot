@@ -568,7 +568,7 @@ test('Bin image: a transparent PNG imported into the bin, Add as overlay, export
   // --- Add as overlay from the card: over the footage, at the playhead, selected, announced -------
   const card = page.getByLabel('asset asset_logo', { exact: true });
   await card.hover();
-  await card.getByRole('button', { name: 'add asset_logo as an overlay', exact: true }).click();
+  await card.getByRole('button', { name: 'add logo.png as an overlay', exact: true }).click();
   const added = await savedProject(
     desktop,
     (doc) => clipsOfAsset(doc, 'asset_logo').length === 1,

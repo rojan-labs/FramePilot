@@ -56,11 +56,11 @@ describe('MediaBin', () => {
     expect(within(screen.getByLabelText('media bin')).getByText('intro.mp4')).toBeDefined();
     expect(clipCount(container)).toBe(3); // demo: 2 video + 1 audio
 
-    fireEvent.click(screen.getByRole('button', { name: 'add asset_intro to timeline' }));
+    fireEvent.click(screen.getByRole('button', { name: 'add intro.mp4 to timeline' }));
     expect(clipCount(container)).toBe(4); // appended to the video lane
 
     // An audio asset lands on the audio lane (a different target track type).
-    fireEvent.click(screen.getByRole('button', { name: 'add asset_voiceover to timeline' }));
+    fireEvent.click(screen.getByRole('button', { name: 'add voiceover.wav to timeline' }));
     expect(clipCount(container)).toBe(5);
   });
 

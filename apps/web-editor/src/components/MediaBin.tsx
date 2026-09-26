@@ -47,6 +47,7 @@ import {
   renameFolderPatch,
 } from '../editor/patch-builders.js';
 import { applyStockPatch } from '../editor/stock-download.js';
+import { formatChord, isMacPlatform } from '../editor/shortcuts.js';
 import { assetDisplayName, assetKind, layerKind } from '../editor/selectors.js';
 import { useAssetThumbnail } from '../editor/useAssetThumbnail.js';
 import { mediaSrc } from '../editor/media.js';
@@ -417,6 +418,10 @@ const AssetCard = memo(function AssetCard({
   const isStill = asset.kind === 'image';
   const duration = isStill ? null : formatDuration(asset.durationSeconds);
   const addOverlay = offersImageOverlay(asset) ? actions.onAddOverlay : undefined;
+  // The platform modifier, as assistive tech and the tooltip should name it: the handler takes
+  // either, but a Windows user told "Meta+Enter" is told a key they do not have.
+  const isMac = isMacPlatform();
+  const modifier = isMac ? 'Meta' : 'Control';
 
   // Programmatic focus follows the arrow keys. Keyed on the counter so it fires
   // for a fresh move even when the card was already the tabbable one, and never
@@ -512,11 +517,13 @@ const AssetCard = memo(function AssetCard({
           aria-label={used ? `Open ${name} (on the timeline)` : `Open ${name}`}
           aria-keyshortcuts={
             addOverlay === undefined
-              ? 'Enter Meta+Enter Delete'
-              : 'Enter Meta+Enter Meta+Shift+Enter Delete'
+              ? `Enter ${modifier}+Enter Delete`
+              : `Enter ${modifier}+Enter ${modifier}+Shift+Enter Delete`
           }
-          title={`${name}\nEnter: open · ${'⌘'}Enter: add to timeline${
-            addOverlay === undefined ? '' : ` · ${'⌘⇧'}Enter: add as overlay`
+          title={`${name}\nEnter: open · ${formatChord('mod+enter', isMac)}: add to timeline${
+            addOverlay === undefined
+              ? ''
+              : ` · ${formatChord('mod+shift+enter', isMac)}: add as overlay`
           } · Delete: remove`}
           onFocus={() => actions.onFocused(asset.id)}
           onKeyDown={onKeyDown}
@@ -529,7 +536,8 @@ const AssetCard = memo(function AssetCard({
             // action has a keyboard shortcut on the focused card. Still in the
             // accessibility tree, still reachable by an AT virtual cursor.
             tabIndex={-1}
-            aria-label={`add ${asset.id} to timeline`}
+            // Named by the file, as the card is: an id means nothing to a listener.
+            aria-label={`add ${name} to timeline`}
             title="Add to timeline"
             onClick={(event) => {
               event.stopPropagation();
@@ -545,7 +553,7 @@ const AssetCard = memo(function AssetCard({
               // Out of the tab ring like Add: Cmd/Ctrl+Shift+Enter on the focused
               // card is its keyboard path.
               tabIndex={-1}
-              aria-label={`add ${asset.id} as an overlay`}
+              aria-label={`add ${name} as an overlay`}
               title="Add as overlay: a smaller picture over what is at the playhead"
               onClick={(event) => {
                 event.stopPropagation();
