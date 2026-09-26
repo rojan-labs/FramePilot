@@ -189,11 +189,12 @@ describe('MediaBin', () => {
     const { container } = render(<Host />);
     // asset_intro backs both video clips; removing it lifts them off the timeline.
     expect(clipCount(container)).toBe(3);
-    fireEvent.click(screen.getByRole('button', { name: 'remove asset_intro' }));
+    // Named by the file, as the card shows it; an id means nothing to a listener.
+    fireEvent.click(screen.getByRole('button', { name: 'remove intro.mp4' }));
     expect(clipCount(container)).toBe(1); // only the audio clip remains
     expect(screen.queryByLabelText('asset asset_intro')).toBeNull(); // gone from the bin
     expect(screen.getByLabelText('asset asset_voiceover')).toBeDefined();
-    expect(screen.getByLabelText('import status').textContent).toContain('Removed asset_intro');
+    expect(screen.getByLabelText('import status').textContent).toContain('Removed intro.mp4');
   });
 
   it('removing an unused asset leaves the timeline untouched', () => {
@@ -212,7 +213,7 @@ describe('MediaBin', () => {
       );
     }
     const { container } = render(<Host />);
-    fireEvent.click(screen.getByRole('button', { name: 'remove asset_solo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'remove blob:s' }));
     expect(clipCount(container)).toBe(0); // no clips existed to remove
     expect(screen.queryByLabelText('asset asset_solo')).toBeNull();
   });

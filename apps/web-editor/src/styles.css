@@ -2963,6 +2963,8 @@ g.mask-canvas-draft circle {
   position: relative;
   display: block;
   cursor: grab;
+  /* The card's width decides its action cluster (below), not the rail's. */
+  container: bin-card / inline-size;
 }
 
 .bin-card:active {
@@ -3173,6 +3175,31 @@ g.mask-canvas-draft circle {
 .bin-card:focus-within .bin-card-actions {
   opacity: 1;
   pointer-events: auto;
+}
+
+/* More actions is for narrow cards only; wide ones show Relink and Remove directly. */
+.bin-card-narrow-only {
+  display: none;
+}
+
+/* A narrow card (the S and M densities, 80–119 px) keeps ONE row of 24 px buttons: Add, Add as
+   overlay, then More actions holding Relink and Remove. Three buttons and two 2 px gaps are
+   76 px, which an 80 px card holds at a 2 px inset, so nothing wraps onto a second row the
+   thumbnail clips, or over the duration chip. */
+@container bin-card (max-width: 119px) {
+  .bin-card-actions {
+    top: 2px;
+    right: 2px;
+    flex-wrap: nowrap;
+    gap: 2px;
+    max-width: calc(100% - 4px);
+  }
+  .bin-card-wide-only {
+    display: none;
+  }
+  .bin-card-narrow-only {
+    display: grid;
+  }
 }
 
 .bin-card-icon-btn {

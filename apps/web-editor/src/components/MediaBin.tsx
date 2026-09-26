@@ -75,6 +75,7 @@ function coerceIdList(raw: unknown): readonly string[] | undefined {
     ? (raw as readonly string[])
     : undefined;
 }
+import { BinCardMenu, type BinCardMenuItem } from './BinCardMenu.js';
 import { FolderGlyph } from './FolderGlyph.js';
 import { Tooltip } from './Tooltip.js';
 import { Select, type SelectOption } from './Select.js';
@@ -88,6 +89,7 @@ import {
   Image,
   Link2,
   type LucideIcon,
+  MoreHorizontal,
   Pencil,
   PictureInPicture2,
   Play,
@@ -411,7 +413,21 @@ const AssetCard = memo(function AssetCard({
   actions,
 }: AssetCardProps): JSX.Element {
   const openRef = useRef<HTMLButtonElement>(null);
+  const thumbRef = useRef<HTMLSpanElement>(null);
   const name = assetDisplayName(asset, asset.id);
+  // The card's More actions menu, open at the thumbnail's place on screen, or closed.
+  const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
+  const openMenu = (): void => setMenuAnchor(thumbRef.current?.getBoundingClientRect() ?? null);
+  const closeMenu = useCallback((returnFocus: boolean) => {
+    setMenuAnchor(null);
+    if (returnFocus) openRef.current?.focus();
+  }, []);
+  const menuItems: readonly BinCardMenuItem[] = [
+    ...(actions.onRelink === undefined
+      ? []
+      : [{ id: 'relink', label: 'Relink media…', onSelect: () => actions.onRelink?.(asset) }]),
+    { id: 'remove', label: 'Remove from project', onSelect: () => actions.onRemove(asset) },
+  ];
   // A still image is not playable and has no intrinsic duration — its
   // `durationSeconds` is just the default timeline length. So it shows neither
   // the play overlay nor a duration badge (both are video/audio affordances).
@@ -464,6 +480,14 @@ const AssetCard = memo(function AssetCard({
       case 'Backspace':
         actions.onRemove(asset);
         break;
+      // The card's secondary actions (Relink, Remove), as any context menu opens.
+      case 'ContextMenu':
+        openMenu();
+        break;
+      case 'F10':
+        if (!event.shiftKey) return;
+        openMenu();
+        break;
       default:
         return;
     }
@@ -490,7 +514,7 @@ const AssetCard = memo(function AssetCard({
       onClick={() => actions.onOpen(asset)}
       onDoubleClick={() => actions.onAdd(asset)}
     >
-      <span className="bin-card-thumb">
+      <span className="bin-card-thumb" ref={thumbRef}>
         <AssetThumb asset={asset} />
         {used && (
           <span className="bin-card-used" aria-hidden="true" title="Already on the timeline" />
@@ -514,17 +538,20 @@ const AssetCard = memo(function AssetCard({
           type="button"
           className="bin-card-open"
           tabIndex={tabbable ? 0 : -1}
-          aria-label={used ? `Open ${name} (on the timeline)` : `Open ${name}`}
+          // What it is, when it is not footage: the badge on the picture is not in the name.
+          aria-label={`Open ${name}${isElementAsset(asset) ? ', sticker from Elements' : ''}${
+            used ? ' (on the timeline)' : ''
+          }`}
           aria-keyshortcuts={
             addOverlay === undefined
-              ? `Enter ${modifier}+Enter Delete`
-              : `Enter ${modifier}+Enter ${modifier}+Shift+Enter Delete`
+              ? `Enter ${modifier}+Enter Delete Shift+F10`
+              : `Enter ${modifier}+Enter ${modifier}+Shift+Enter Delete Shift+F10`
           }
           title={`${name}\nEnter: open · ${formatChord('mod+enter', isMac)}: add to timeline${
             addOverlay === undefined
               ? ''
               : ` · ${formatChord('mod+shift+enter', isMac)}: add as overlay`
-          } · Delete: remove`}
+          } · Delete: remove · Shift+F10: more actions`}
           onFocus={() => actions.onFocused(asset.id)}
           onKeyDown={onKeyDown}
         />
@@ -566,9 +593,9 @@ const AssetCard = memo(function AssetCard({
           {actions.onRelink !== undefined && (
             <button
               type="button"
-              className="bin-card-icon-btn bin-relink"
+              className="bin-card-icon-btn bin-relink bin-card-wide-only"
               tabIndex={-1}
-              aria-label={`relink ${asset.id}`}
+              aria-label={`relink ${name}`}
               title="Relink media…"
               onClick={(event) => {
                 event.stopPropagation();
@@ -580,9 +607,9 @@ const AssetCard = memo(function AssetCard({
           )}
           <button
             type="button"
-            className="bin-card-icon-btn bin-remove"
+            className="bin-card-icon-btn bin-remove bin-card-wide-only"
             tabIndex={-1}
-            aria-label={`remove ${asset.id}`}
+            aria-label={`remove ${name}`}
             title="Remove from project"
             onClick={(event) => {
               event.stopPropagation();
@@ -591,8 +618,35 @@ const AssetCard = memo(function AssetCard({
           >
             <X size={ICON_SIZE.sm} aria-hidden="true" />
           </button>
+          {/* On a narrow card (a container query shows it) Relink and Remove move in here,
+              so the cluster stays one row of 24 px buttons. Shift+F10 on the card opens it
+              at any width: Relink's keyboard path. */}
+          <button
+            type="button"
+            className="bin-card-icon-btn bin-card-more bin-card-narrow-only"
+            tabIndex={-1}
+            aria-label={`More actions for ${name}`}
+            aria-haspopup="menu"
+            aria-expanded={menuAnchor !== null}
+            title="More actions (Shift+F10)"
+            onClick={(event) => {
+              event.stopPropagation();
+              if (menuAnchor === null) openMenu();
+              else closeMenu(false);
+            }}
+          >
+            <MoreHorizontal size={ICON_SIZE.sm} aria-hidden="true" />
+          </button>
         </span>
       </span>
+      {menuAnchor !== null && (
+        <BinCardMenu
+          label={`More actions for ${name}`}
+          anchor={menuAnchor}
+          items={menuItems}
+          onClose={closeMenu}
+        />
+      )}
       <span className="bin-card-name" title={name}>
         {name}
       </span>
@@ -1172,7 +1226,7 @@ export function MediaBin({
       const removePatch = removeAssetPatch(asset.id);
       const operations = [...(clipsPatch?.operations ?? []), ...removePatch.operations];
       editor.applyPatch({ ...removePatch, operations });
-      setStatus(`Removed ${asset.id}.`);
+      setStatus(`Removed ${assetDisplayName(asset, asset.id)}.`);
     },
     [editor],
   );

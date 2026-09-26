@@ -81,6 +81,11 @@ The button is on image cards only. Stickers keep their own placement (the card's
 has no picture, and your own videos are not offered as overlays yet. On those cards **⌘⇧Enter**
 does nothing (it used to add the file as **⌘Enter** does); **⌘Enter** still adds it.
 
+At the smaller bin sizes a card is too narrow for four buttons, so it shows **Add**, **Add as
+overlay** (on images) and a **More actions** button (⋯) that holds **Relink media…** and **Remove
+from project**; a wider card shows those two directly. On any card, **Shift+F10** (or the
+context-menu key) opens More actions from the keyboard, then the arrows and Enter pick one.
+
 ## Shapes
 
 About a hundred shapes in nine groups, each in a few ready-made styles, plus every

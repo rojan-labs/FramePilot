@@ -861,20 +861,22 @@ describe('MediaBin — Add as overlay on the user’s own images', () => {
     renderOverlayBin();
     // jsdom is not a Mac: Control, and the title says Ctrl.
     expect(opener(logo.id).getAttribute('aria-keyshortcuts')).toBe(
-      'Enter Control+Enter Control+Shift+Enter Delete',
+      'Enter Control+Enter Control+Shift+Enter Delete Shift+F10',
     );
     expect(opener(logo.id).getAttribute('title')).toContain(
       'Ctrl+Enter: add to timeline · Ctrl+Shift+Enter: add as overlay',
     );
     // The overlay shortcut only where there is an overlay.
-    expect(opener(footage.id).getAttribute('aria-keyshortcuts')).toBe('Enter Control+Enter Delete');
+    expect(opener(footage.id).getAttribute('aria-keyshortcuts')).toBe(
+      'Enter Control+Enter Delete Shift+F10',
+    );
     expect(opener(footage.id).getAttribute('title')).not.toContain('overlay');
     cleanup();
     const platform = vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
     try {
       renderOverlayBin();
       expect(opener(logo.id).getAttribute('aria-keyshortcuts')).toBe(
-        'Enter Meta+Enter Meta+Shift+Enter Delete',
+        'Enter Meta+Enter Meta+Shift+Enter Delete Shift+F10',
       );
       expect(opener(logo.id).getAttribute('title')).toContain('⌘⇧↩: add as overlay');
     } finally {
@@ -921,5 +923,133 @@ describe('MediaBin — Add as overlay on the user’s own images', () => {
     expect(clipsOf(live()).some((clip) => clip.assetId === logo.id)).toBe(false);
     expect(live().state.assets.map((asset) => asset.id)).toContain(logo.id);
     expect(screen.getByLabelText(`asset ${logo.id}`)).toBeTruthy();
+  });
+});
+
+/**
+ * A card's secondary actions (the release-gate UI pass): Relink and Remove are named by the file
+ * and are also under **More actions**, which the focused card opens with Shift+F10 — the keyboard
+ * path Relink never had. At narrow card widths the menu is the only place they show (a container
+ * query hides the direct buttons, which jsdom does not evaluate).
+ */
+describe('MediaBin — a card’s More actions', () => {
+  const logo: Asset = {
+    id: 'asset_logo',
+    path: 'media/logo.png',
+    kind: 'image',
+    durationSeconds: 5,
+    media: { width: 400, height: 200 },
+  };
+  const sticker: Asset = {
+    id: 'element_fluent3d_fire',
+    path: 'media/p/elements/fluent3d/fire.webp',
+    kind: 'image',
+    media: { width: 318, height: 318 },
+    source: {
+      provider: 'fluent-emoji',
+      remoteId: 'fire',
+      license: 'mit',
+      attributionRequired: false,
+      attribution: 'Fluent Emoji by Microsoft (MIT)',
+      fetchedAt: '2026-09-26T00:00:00.000Z',
+    },
+  };
+
+  afterEach(() => {
+    delete (window as unknown as { framepilot?: unknown }).framepilot;
+    localStorage.clear();
+  });
+
+  function renderMenuBin(relink?: ReturnType<typeof vi.fn>) {
+    if (relink !== undefined) {
+      (window as unknown as { framepilot?: unknown }).framepilot = {
+        projectChooseRelinkFile: relink,
+      };
+    }
+    const project = parseProject({
+      ...newProject('Menu Test'),
+      assets: [logo, sticker],
+    });
+    const onOpenInSource = vi.fn();
+    let current: ReturnType<typeof useEditor> | null = null;
+    function Host(): JSX.Element {
+      const editor = useEditor(project.timeline, { assets: project.assets, folders: [] });
+      current = editor;
+      return <MediaBin editor={editor} project={project} onOpenInSource={onOpenInSource} />;
+    }
+    render(<Host />);
+    return { onOpenInSource, live: () => current! };
+  }
+
+  const opener = (id: string): HTMLElement =>
+    screen.getByLabelText(`asset ${id}`).querySelector<HTMLElement>('.bin-card-open')!;
+
+  it('names Relink and Remove by the file, and offers both again under More actions', () => {
+    renderMenuBin(vi.fn(async () => ({ ok: false, code: 'cancelled' })));
+    expect(screen.getByRole('button', { name: 'relink logo.png' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'remove logo.png' })).toBeTruthy();
+    const more = screen.getByRole('button', { name: 'More actions for logo.png' });
+    expect(more.getAttribute('aria-haspopup')).toBe('menu');
+    expect(more.getAttribute('tabindex')).toBe('-1');
+    expect(opener(logo.id).getAttribute('aria-keyshortcuts')).toContain('Shift+F10');
+    fireEvent.click(more);
+    const menu = screen.getByRole('menu', { name: 'More actions for logo.png' });
+    expect(
+      Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent),
+    ).toEqual(['Relink media…', 'Remove from project']);
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('opens from the focused card with Shift+F10, moves by arrow, and Escape gives focus back', () => {
+    renderMenuBin(vi.fn(async () => ({ ok: false, code: 'cancelled' })));
+    act(() => opener(logo.id).focus());
+    fireEvent.keyDown(opener(logo.id), { key: 'F10', shiftKey: true });
+    const items = screen.getAllByRole('menuitem');
+    expect(document.activeElement).toBe(items[0]);
+    fireEvent.keyDown(items[0]!, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(items[1]);
+    fireEvent.keyDown(items[1]!, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(items[0]);
+    fireEvent.keyDown(items[0]!, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(opener(logo.id));
+    // The context-menu key opens it as well.
+    fireEvent.keyDown(opener(logo.id), { key: 'ContextMenu' });
+    expect(screen.getByRole('menu', { name: 'More actions for logo.png' })).toBeTruthy();
+  });
+
+  it('removes from the menu without also opening the card in Source', () => {
+    const { onOpenInSource, live } = renderMenuBin();
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for logo.png' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove from project' }));
+    expect(live().state.assets.some((asset) => asset.id === logo.id)).toBe(false);
+    expect(onOpenInSource).not.toHaveBeenCalled();
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('relinks from the menu: Relink’s keyboard path', async () => {
+    const relink = vi.fn(async () => ({ ok: false, code: 'cancelled' }));
+    renderMenuBin(relink);
+    act(() => opener(logo.id).focus());
+    fireEvent.keyDown(opener(logo.id), { key: 'F10', shiftKey: true });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Relink media…' }));
+    });
+    expect(relink).toHaveBeenCalledWith(logo.id);
+  });
+
+  it('offers only Remove under More actions where there is no relink (the browser build)', () => {
+    renderMenuBin();
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for logo.png' }));
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Remove from project',
+    ]);
+  });
+
+  it('says a sticker card is a sticker from Elements', () => {
+    renderMenuBin();
+    expect(opener(sticker.id).getAttribute('aria-label')).toBe(
+      'Open fire.webp, sticker from Elements',
+    );
   });
 });
