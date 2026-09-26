@@ -22,10 +22,12 @@ export interface StockTarget {
   readonly assets: readonly Asset[];
 }
 
-/** A placed stock clip, for the caller that selects it afterwards. */
+/** A placed stock clip, for the caller that selects and announces it afterwards. */
 export interface AddedStock {
   readonly patch: Patch;
   readonly clipId: string;
+  /** Where it starts on the timeline, in seconds. */
+  readonly start: number;
 }
 
 /** A dropped stock clip, which also says whether it landed on the lane under the cursor. */
@@ -65,6 +67,7 @@ export function addStockOverlayPatch(
   const placement = buildAddStockOverlayOps(target.timeline, target.assets, asset, atStart);
   return {
     clipId: placement.clipId,
+    start: placement.start,
     patch: patchFor(
       placement,
       asset,
@@ -93,6 +96,7 @@ export function dropStockClipPatch(
   const where = placement.createdLayer ? ' on a new layer' : '';
   return {
     clipId: placement.clipId,
+    start: placement.start,
     onDroppedLane: placement.onDroppedLane,
     patch: patchFor(
       placement,
@@ -101,4 +105,30 @@ export function dropStockClipPatch(
       `Add stock ${placement.kind} "${asset.id}"${where} at ${placement.start.toFixed(2)}s`,
     ),
   };
+}
+
+/** `75` → `1:15`: a timeline position as a person reads it aloud. */
+function positionLabel(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+}
+
+/**
+ * What the editor's polite live region says once a Pexels clip lands (plan/elements 02 §3,
+ * "Added … at 0:12"), so a screen-reader user hears that the download finished and where it went.
+ *
+ * @param asset - The placed asset (its kind names it: photo or video).
+ * @param placement - An overlay (Add as overlay) or a drop on the timeline.
+ * @param atSeconds - Where it starts.
+ */
+export function stockAddedAnnouncement(
+  asset: Asset,
+  placement: 'overlay' | 'drop',
+  atSeconds: number,
+): string {
+  const noun = asset.kind === 'image' ? 'photo' : 'video';
+  const where = positionLabel(atSeconds);
+  return placement === 'overlay'
+    ? `Added the ${noun} as an overlay at ${where}`
+    : `Added the ${noun} at ${where}`;
 }

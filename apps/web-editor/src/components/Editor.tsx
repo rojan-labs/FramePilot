@@ -63,12 +63,14 @@ import {
   replaceStickerPatch,
   addStockClipPatch,
   addStockOverlayPatch,
+  stockAddedAnnouncement,
   stockPlacementBlockedReason,
 } from '../editor/patch-builders.js';
 import { elementsMaterialize, isDesktop, stockDownload } from '../editor/bridge.js';
 import { placeDroppedSticker } from '../editor/sticker-drop.js';
 import { stockDownloads } from '../editor/download-registry.js';
 import { placeDroppedStock } from '../editor/stock-drop.js';
+import { applyStockPatch } from '../editor/stock-download.js';
 import { Toasts, type ToastNotice } from './Toasts.js';
 import { HistoryPanel } from './HistoryPanel.js';
 import { JobsRail } from './JobsPanel.js';
@@ -565,6 +567,9 @@ export function Editor({
   liveEditor.current = editor;
   // A failure outside the patch path, raised as a toast (a dropped sticker main could not copy).
   const [notice, setNotice] = useState<ToastNotice | null>(null);
+  // What a Pexels clip that just landed says to a screen reader (plan/elements 02 §3): the
+  // download ends seconds after the click, so the arrival is announced, politely.
+  const [stockAnnouncement, setStockAnnouncement] = useState('');
   const dropSticker = useCallback(
     (elementId: string, atSeconds: number, trackId?: string): void => {
       void placeDroppedSticker(
@@ -602,18 +607,14 @@ export function Editor({
    * against the editor as it is when the bytes land.
    */
   const dropStock = useCallback(
-    (
-      remoteId: string,
-      _mediaKind: 'photo' | 'video',
-      atSeconds: number,
-      trackId?: string,
-    ): void => {
+    (remoteId: string, mediaKind: 'photo' | 'video', atSeconds: number, trackId?: string): void => {
       const atDrop = liveEditor.current.state;
       void placeDroppedStock(
         { download: stockDownload, registry: stockDownloads },
         {
           projectId: project.id,
           remoteId,
+          kind: mediaKind,
           targetHeight: project.resolution?.height ?? 1080,
           ...(project.fps ? { targetFps: project.fps } : {}),
           atSeconds,
@@ -622,6 +623,12 @@ export function Editor({
           target: () => {
             const live = liveEditor.current.state;
             return { timeline: live.timeline, assets: live.assets };
+          },
+          // Checked, so a patch the timeline refuses is said on the tile, not quietly dropped.
+          apply: (added) => {
+            const refusal = applyStockPatch(liveEditor.current.applyPatchChecked, added.patch);
+            if (refusal === null) liveEditor.current.select(added.clipId);
+            return refusal;
           },
         },
       ).then((placed) => {
@@ -632,8 +639,7 @@ export function Editor({
           if (placed.message !== '') say(placed.message);
           return;
         }
-        liveEditor.current.applyPatch(placed.added.patch);
-        liveEditor.current.select(placed.added.clipId);
+        setStockAnnouncement(stockAddedAnnouncement(placed.asset, 'drop', placed.added.start));
         if (placed.notice !== null) say(placed.notice);
       });
     },
@@ -848,8 +854,8 @@ export function Editor({
               ) ?? 'That spot is occupied — move the playhead and try again.'
             );
           }
-          editor.applyPatch(patch);
-          return null;
+          // Checked, so a patch the timeline refuses is said on the tile, not quietly dropped.
+          return applyStockPatch(editor.applyPatchChecked, patch);
         }}
         onAddStockOverlay={(asset) => {
           // A picture-in-picture at the playhead as it is when the download lands, over whatever
@@ -860,9 +866,11 @@ export function Editor({
             asset,
             live.playhead,
           );
-          editor.applyPatch(added.patch);
+          const refusal = applyStockPatch(editor.applyPatchChecked, added.patch);
+          if (refusal !== null) return refusal;
           // Selected, so the monitor shows its handles and the Inspector can resize it.
           editor.select(added.clipId);
+          setStockAnnouncement(stockAddedAnnouncement(asset, 'overlay', added.start));
           return null;
         }}
         {...(onOpenSettings ? { onOpenSettings: () => onOpenSettings('ai') } : {})}
@@ -1038,7 +1046,8 @@ export function Editor({
         onReplaceSticker={openStickerReplace}
         onAnimateClip={animateClip}
         onDropSticker={dropSticker}
-        onDropStock={dropStock}
+        // Photos and Videos come from main (desktop only), as the prop's doc says.
+        {...(isDesktop() ? { onDropStock: dropStock } : {})}
         onOpenTransitionLibrary={openTransitionLibrary}
         tool={tool}
         selectedEffectLayerIds={selectedEffectLayerIds}
@@ -1338,6 +1347,9 @@ export function Editor({
               this costs one subscription and never re-renders the editor. */}
           <AgentFab aiPanelVisible={rightTab === 'ai'} onOpenAi={() => setRightTab('ai')} />
           {toastsEl}
+          <p className="sr-only" role="status" aria-live="polite">
+            {stockAnnouncement}
+          </p>
           <HistoryPanel
             editor={editor}
             project={project}

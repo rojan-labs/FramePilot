@@ -480,6 +480,32 @@ describe('download', () => {
     );
   });
 
+  it('refuses a download named as the other kind, rather than fetching the wrong media', async () => {
+    // A Pexels photo and a video can share a numeric id, and this process knows an id by the last
+    // search that returned it. The panel says which kind its tile is; a mismatch is an item this
+    // process does not know, not a licence to fetch whatever holds the id now.
+    const fetchImpl = vi.fn().mockImplementation(() => bytesResponse(body));
+    const service = await seeded(fetchImpl);
+    const result = await service.download({
+      projectId: PROJECT_ID,
+      remoteId: VIDEO_ITEM.remoteId,
+      kind: 'photo',
+      operationId: 'op1',
+      targetHeight: 1080,
+    });
+    expect(result).toEqual({ ok: false, error: 'provider_unavailable', detail: 'unknown item' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    // Named as its own kind, it downloads as before.
+    const matching = await service.download({
+      projectId: PROJECT_ID,
+      remoteId: VIDEO_ITEM.remoteId,
+      kind: 'video',
+      operationId: 'op2',
+      targetHeight: 1080,
+    });
+    expect(matching.ok).toBe(true);
+  });
+
   it('honours an explicitly chosen rendition', async () => {
     const fetchImpl = vi.fn().mockImplementation(() => bytesResponse(body));
     const service = await seeded(fetchImpl);

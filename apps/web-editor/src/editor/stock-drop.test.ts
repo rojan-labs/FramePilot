@@ -15,7 +15,15 @@ import type {
 import type { Asset, Project, Timeline } from '@framepilot/timeline-schema';
 import { resetDownloadRegistriesForTests, stockDownloads } from './download-registry.js';
 import { placeDroppedStock, type StockDrop } from './stock-drop.js';
-import { stockErrorText } from './stock-download.js';
+import {
+  STOCK_PLACEMENT_REJECTED,
+  applyStockPatch,
+  stockDownloadKey,
+  stockErrorText,
+} from './stock-download.js';
+
+/** The tile's registry key: a Pexels photo and video can share an id, so the kind is in it. */
+const KEY = stockDownloadKey('video', '3129671');
 
 const CAMERA: Asset = { id: 'cam', path: 'media/p/cam.mp4', kind: 'video', durationSeconds: 60 };
 
@@ -87,6 +95,8 @@ function drop(overrides: Partial<StockDrop> = {}): StockDrop {
   return {
     projectId: 'p',
     remoteId: '3129671',
+    kind: 'video',
+    apply: () => null,
     atSeconds: 5,
     trackId: 'video_1',
     targetHeight: 1080,
@@ -104,10 +114,17 @@ describe('placeDroppedStock', () => {
     const d = deps({ ok: true, asset: downloaded });
     const placed = await placeDroppedStock(d, drop());
     expect(d.download).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 'p', remoteId: '3129671', targetHeight: 1080 }),
+      // The kind goes to main, which refuses an id that now names the other kind.
+      expect.objectContaining({
+        projectId: 'p',
+        remoteId: '3129671',
+        kind: 'video',
+        targetHeight: 1080,
+      }),
     );
     if (!placed.ok) throw new Error(placed.message);
     expect(placed.notice).toBeNull();
+    expect(placed.asset).toMatchObject({ id: 'stock_pexels_3129671', kind: 'video' });
     const { patch, clipId } = placed.added;
     const check = validatePatch(GAP, patch, { assetIds: [CAMERA.id], folders: [] });
     expect(check.valid, JSON.stringify(check.issues)).toBe(true);
@@ -125,7 +142,7 @@ describe('placeDroppedStock', () => {
     expect(undone.assets).toEqual(before.assets);
     expect(undone.timeline.tracks).toEqual(before.timeline.tracks);
     // The tile is idle again: nothing left in flight or failed.
-    expect(stockDownloads.getSnapshot()['3129671']).toBeUndefined();
+    expect(stockDownloads.getSnapshot()[KEY]).toBeUndefined();
   });
 
   it('still lands when the lane filled up during the download, and says so without numbers', async () => {
@@ -160,16 +177,18 @@ describe('placeDroppedStock', () => {
   it('shows a failed download on the tile as well as to the caller', async () => {
     const placed = await placeDroppedStock(deps({ ok: false, error: 'disk_full' }), drop());
     expect(placed).toEqual({ ok: false, message: stockErrorText('disk_full') });
-    expect(stockDownloads.getSnapshot()['3129671']).toEqual({
+    expect(stockDownloads.getSnapshot()[KEY]).toEqual({
       kind: 'failed',
       message: 'Not enough disk space to save this file.',
+      // A drop cannot be retried from the tile's buttons: it is dragged again.
+      action: 'drop',
     });
   });
 
   it('is silent when the user cancelled it from the tile', async () => {
     const placed = await placeDroppedStock(deps({ ok: false, error: 'cancelled' }), drop());
     expect(placed).toEqual({ ok: false, message: '' });
-    expect(stockDownloads.getSnapshot()['3129671']).toBeUndefined();
+    expect(stockDownloads.getSnapshot()[KEY]).toBeUndefined();
   });
 
   it('shows the download in flight on the tile, with the handle Cancel needs', async () => {
@@ -180,7 +199,7 @@ describe('placeDroppedStock', () => {
       }),
     );
     const pending = placeDroppedStock(d, drop());
-    const entry = stockDownloads.getSnapshot()['3129671'];
+    const entry = stockDownloads.getSnapshot()[KEY];
     expect(entry).toMatchObject({ kind: 'downloading' });
     expect(d.download.mock.calls[0]![0].operationId).toBe(
       entry?.kind === 'downloading' ? entry.operationId : undefined,
@@ -190,7 +209,7 @@ describe('placeDroppedStock', () => {
   });
 
   it('does not start a second download of a clip already downloading', async () => {
-    stockDownloads.start('3129671', 'first');
+    stockDownloads.start(KEY, 'first');
     const d = deps({ ok: true, asset: downloaded });
     const placed = await placeDroppedStock(d, drop());
     expect(d.download).not.toHaveBeenCalled();
@@ -198,6 +217,29 @@ describe('placeDroppedStock', () => {
       ok: false,
       message: 'That clip is already downloading. Wait for it to land, then drag it from Assets.',
     });
+  });
+
+  it('applies the placement itself, so a patch the timeline refuses is said on the tile', async () => {
+    const apply = vi.fn(() => STOCK_PLACEMENT_REJECTED);
+    const placed = await placeDroppedStock(deps({ ok: true, asset: downloaded }), drop({ apply }));
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(placed).toEqual({ ok: false, message: STOCK_PLACEMENT_REJECTED });
+    expect(STOCK_PLACEMENT_REJECTED).not.toMatch(/\d/);
+    expect(stockDownloads.getSnapshot()[KEY]).toEqual({
+      kind: 'failed',
+      message: STOCK_PLACEMENT_REJECTED,
+      action: 'drop',
+    });
+  });
+
+  it('keeps a photo and a video with the same id apart on their tiles', async () => {
+    // The video with this id is downloading; a photo with the same numeric id is a different item.
+    stockDownloads.start(KEY, 'the-video');
+    const d = deps({ ok: true, asset: { ...downloaded, kind: 'image' } });
+    const placed = await placeDroppedStock(d, drop({ kind: 'photo' }));
+    expect(placed.ok).toBe(true);
+    expect(d.download).toHaveBeenCalledWith(expect.objectContaining({ kind: 'photo' }));
+    expect(stockDownloads.getSnapshot()[KEY]).toMatchObject({ kind: 'downloading' });
   });
 
   it('says the download failed, rather than throwing, when main does not answer', async () => {
@@ -211,5 +253,26 @@ describe('placeDroppedStock', () => {
       drop(),
     );
     expect(placed).toEqual({ ok: false, message: stockErrorText('download_failed') });
+  });
+});
+
+describe('applyStockPatch', () => {
+  const patch = {
+    patchId: 'p1',
+    createdBy: 'user',
+    reason: 'Add stock',
+    operations: [],
+  } as unknown as Parameters<typeof applyStockPatch>[1];
+
+  it('is quiet once the timeline takes the patch', () => {
+    const applyChecked = vi.fn(() => []);
+    expect(applyStockPatch(applyChecked, patch)).toBeNull();
+    expect(applyChecked).toHaveBeenCalledWith(patch);
+  });
+
+  it('turns a refused patch into the sentence the tile shows, not the validator’s', () => {
+    const applyChecked = () =>
+      [{ code: 'overlap', severity: 'error', message: "Clips 'a' and 'b' overlap" }] as never;
+    expect(applyStockPatch(applyChecked, patch)).toBe(STOCK_PLACEMENT_REJECTED);
   });
 });

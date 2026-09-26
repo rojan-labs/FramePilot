@@ -688,11 +688,13 @@ describe('PexelsBrowser', () => {
     });
     unmount();
 
-    // Progress that arrives while the panel is away is still recorded.
+    // Progress that arrives while the panel is away is still recorded. It carries the operation
+    // id main was given, which is what ties it to this tile.
+    const { operationId } = bridge.download.mock.calls[0]![0] as { operationId: string };
     act(() => {
       for (const listener of bridge.progressListeners) {
         listener({
-          operationId: 'x',
+          operationId,
           remoteId: '3129671',
           phase: 'downloading',
           completedBytes: 30,
@@ -1383,15 +1385,71 @@ describe('PexelsBrowser — categories, orientation, drag and Add as overlay (EL
     expect(bridge.cancel).toHaveBeenCalled();
   });
 
-  it('keeps both actions after a failure, with the reason on the tile', async () => {
-    bridge.download.mockResolvedValue({ ok: false, error: 'offline' });
-    renderPanel();
+  it('offers the overlay again after an overlay failed, and retries that — not the cutaway', async () => {
+    bridge.download.mockResolvedValueOnce({ ok: false, error: 'offline' });
+    const { onAddStock, onAddStockOverlay } = renderPanel();
     await settle();
     fireEvent.click(screen.getByRole('button', { name: 'Add as overlay' }));
     await settle();
     expect(screen.getByRole('alert').textContent).toBe('No network connection.');
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeDefined();
+    // The action that failed is the one that says Retry; Add stays Add.
+    expect(screen.getByRole('button', { name: 'Add' })).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    bridge.download.mockResolvedValueOnce(downloadedCity());
+    fireEvent.click(screen.getByRole('button', { name: 'Retry overlay' }));
+    await settle();
+    expect(onAddStockOverlay).toHaveBeenCalledTimes(1);
+    expect(onAddStock).not.toHaveBeenCalled();
+  });
+
+  it('after a failed drop, offers both actions and the drag again, with the reason', async () => {
+    renderPanel();
+    await settle();
+    act(() =>
+      stockDownloads.fail('video:3129671', 'Not enough disk space to save this file.', 'drop'),
+    );
+    expect(screen.getByRole('alert').textContent).toBe('Not enough disk space to save this file.');
+    expect(screen.getByRole('button', { name: 'Add' })).toBeDefined();
     expect(screen.getByRole('button', { name: 'Add as overlay' })).toBeDefined();
+    expect(document.querySelector('.stock-tile')!.getAttribute('draggable')).toBe('true');
+  });
+
+  it('asks main for the kind the tile shows', async () => {
+    bridge.download.mockReturnValue(new Promise(() => undefined));
+    renderPanel({ kind: 'photo' });
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await settle();
+    // The search stub answers a video item: the kind sent is the item's own, not the tab's.
+    expect(bridge.download).toHaveBeenCalledWith(expect.objectContaining({ kind: 'video' }));
+  });
+
+  it('keeps a photo and a video with the same id apart', async () => {
+    // A Pexels photo with the video's numeric id: its download, and its place in the project,
+    // are not the video tile's.
+    const project = {
+      ...emptyProject,
+      assets: [
+        {
+          id: 'stock_pexels_3129671',
+          path: 'media/p1/rocks.jpg',
+          kind: 'image',
+          source: {
+            provider: 'pexels',
+            remoteId: '3129671',
+            license: 'pexels',
+            attributionRequired: false,
+            fetchedAt: '2026-08-24T12:00:00.000Z',
+          },
+        },
+      ],
+    } as unknown as Project;
+    renderPanel({ project });
+    await settle();
+    act(() => stockDownloads.start('photo:3129671', 'the-photo'));
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.queryByText('In this project')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add' })).toBeDefined();
   });
 
   it('is absent from a tile already in the project, and from a host with no overlay placement', async () => {

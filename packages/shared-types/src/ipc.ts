@@ -2141,6 +2141,12 @@ export interface StockDownloadRequest {
   readonly projectId: string;
   readonly remoteId: string;
   /**
+   * The kind the renderer's tile shows. A Pexels photo and video can share a numeric id, and main
+   * knows an id by the last search that returned it, so main refuses a download whose known item
+   * is the other kind. Absent (the agent's host), the id alone decides, as before.
+   */
+  readonly kind?: StockMediaKindWire;
+  /**
    * Which rendition to fetch. Absent ⇒ main chooses by the project’s own height,
    * which is the path the panel and the agent both take; naming one explicitly is
    * for a user who deliberately picked a size.

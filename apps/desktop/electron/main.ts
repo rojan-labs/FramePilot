@@ -1571,7 +1571,8 @@ function registerIpcHandlers(): void {
       if (
         typeof req?.projectId !== 'string' ||
         typeof req.remoteId !== 'string' ||
-        typeof req.operationId !== 'string'
+        typeof req.operationId !== 'string' ||
+        (req.kind !== undefined && !isStockKind(req.kind))
       ) {
         return { ok: false, error: 'download_failed', detail: 'invalid download request' };
       }

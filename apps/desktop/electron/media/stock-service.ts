@@ -581,7 +581,9 @@ export class StockService {
 
   public async download(request: StockDownloadRequest): Promise<StockDownloadResult> {
     const item = this.knownItems.get(request.remoteId);
-    if (!item) {
+    // Named as the other kind, this id now means another item (a photo and a video can share a
+    // numeric id, and the last search that returned it wins): not the item the tile showed.
+    if (!item || (request.kind !== undefined && item.kind !== request.kind)) {
       return { ok: false, error: 'provider_unavailable', detail: 'unknown item' };
     }
 

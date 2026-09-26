@@ -5,6 +5,7 @@
  * places it at the drop time: on the picture lane it was dropped on when that lane has room, else
  * on a new lane in front of the footage (`buildDropStockOps`).
  */
+import type { Asset } from '@framepilot/timeline-schema';
 import { downloadAndPlaceStock, type StockFetch, type StockFetchDeps } from './stock-download.js';
 import { dropStockClipPatch, type DroppedStock, type StockTarget } from './stock-builders.js';
 
@@ -24,12 +25,20 @@ export interface StockDrop extends StockFetch {
   readonly atDrop: StockTarget;
   /** The editor once main has answered: a download takes a while, and edits go on. */
   readonly target: () => StockTarget;
+  /**
+   * Put the placement on the timeline (a checked apply): the sentence saying why the timeline
+   * refused it, or `null` once it is there. Inside the flow, so a refusal reaches the tile.
+   */
+  readonly apply: (added: DroppedStock) => string | null;
 }
 
 export type PlacedStockDrop =
   | {
       readonly ok: true;
+      /** What was placed (already applied), for the caller that announces it. */
       readonly added: DroppedStock;
+      /** The asset it placed. */
+      readonly asset: Asset;
       /** A sentence to show when it landed somewhere other than the drop asked for. */
       readonly notice: string | null;
     }
@@ -37,8 +46,8 @@ export type PlacedStockDrop =
   | { readonly ok: false; readonly message: string };
 
 /**
- * Download the dropped item and build the patch that places it. The caller applies the patch and
- * selects the clip; the tile's state is already settled when this resolves.
+ * Download the dropped item and put it on the timeline through `drop.apply`. The tile's state is
+ * settled when this resolves: cleared once placed, or the failure sentence.
  *
  * @param deps - The download bridge and the tile registry.
  * @param drop - Where it was dropped, and how to read the editor now.
@@ -48,19 +57,33 @@ export async function placeDroppedStock(
   drop: StockDrop,
 ): Promise<PlacedStockDrop> {
   // Filled in by the placement callback, which runs once the bytes have landed.
-  const landing: { placed?: { readonly added: DroppedStock; readonly notice: string | null } } = {};
-  const outcome = await downloadAndPlaceStock(deps, drop, (asset) => {
-    const added = dropStockClipPatch(drop.target(), asset, drop.atSeconds, drop.trackId);
-    // Would it have landed on the lane at the moment it was dropped? If so and it no longer does,
-    // the timeline moved under the download, and the user is owed a sentence — not a clip
-    // quietly on a different lane from the one they aimed at.
-    const aimed = dropStockClipPatch(drop.atDrop, asset, drop.atSeconds, drop.trackId);
-    landing.placed = {
-      added,
-      notice: aimed.onDroppedLane && !added.onDroppedLane ? STOCK_DROP_MOVED_NOTICE : null,
+  const landing: {
+    placed?: {
+      readonly added: DroppedStock;
+      readonly asset: Asset;
+      readonly notice: string | null;
     };
-    return null;
-  });
+  } = {};
+  const outcome = await downloadAndPlaceStock(
+    deps,
+    drop,
+    (asset) => {
+      const added = dropStockClipPatch(drop.target(), asset, drop.atSeconds, drop.trackId);
+      // Would it have landed on the lane at the moment it was dropped? If so and it no longer does,
+      // the timeline moved under the download, and the user is owed a sentence — not a clip
+      // quietly on a different lane from the one they aimed at.
+      const aimed = dropStockClipPatch(drop.atDrop, asset, drop.atSeconds, drop.trackId);
+      const refusal = drop.apply(added);
+      if (refusal !== null) return refusal;
+      landing.placed = {
+        added,
+        asset,
+        notice: aimed.onDroppedLane && !added.onDroppedLane ? STOCK_DROP_MOVED_NOTICE : null,
+      };
+      return null;
+    },
+    'drop',
+  );
   if (!outcome.ok) return { ok: false, message: outcome.message };
   if (landing.placed === undefined) return { ok: false, message: STOCK_DROP_UNPLACED };
   return { ok: true, ...landing.placed };

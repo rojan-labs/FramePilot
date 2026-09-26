@@ -70,7 +70,9 @@ import { stockDownloads, useDownloads } from '../../editor/download-registry.js'
 import {
   downloadAndPlaceStock,
   stockAssetIdOf,
+  stockDownloadKey,
   stockErrorText,
+  type StockPlacementAction,
 } from '../../editor/stock-download.js';
 import {
   ICON_SIZE,
@@ -116,9 +118,6 @@ export const STOCK_CATEGORIES = [
   { id: 'textures', label: 'Textures', query: 'texture' },
 ] as const;
 export type StockCategoryId = (typeof STOCK_CATEGORIES)[number]['id'];
-
-/** Which of a tile's two placements the user chose. */
-type StockPlacementChoice = 'cutaway' | 'overlay';
 
 /** The orientation filter: Pexels' own three shapes, or no filter at all. */
 export type StockOrientationChoice = 'any' | StockOrientationWire;
@@ -202,7 +201,12 @@ export interface PexelsBrowserProps {
 type TileState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'downloading'; readonly operationId: string; readonly percent: number | null }
-  | { readonly kind: 'failed'; readonly message: string };
+  | {
+      readonly kind: 'failed';
+      readonly message: string;
+      /** Which placement failed (`StockPlacementAction`), so its own button says Retry. */
+      readonly action?: string;
+    };
 
 type SearchState =
   /** No key: there is nothing to browse and nothing to search. */
@@ -364,21 +368,30 @@ export function PexelsBrowser({
 
   const projectHeight = project.resolution?.height ?? 1080;
 
-  /** Items already downloaded into this project, so a tile can say so. */
-  const presentRemoteIds = useMemo(
+  /**
+   * Items already downloaded into this project, so a tile can say so — by kind and id, since a
+   * Pexels photo and video can share an id. The asset's own kind says which it is.
+   */
+  const presentKeys = useMemo(
     () =>
       new Set(
-        project.assets
-          .filter((asset) => asset.source?.provider === 'pexels')
-          .map((asset) => asset.source?.remoteId)
-          .filter((id): id is string => typeof id === 'string'),
+        project.assets.flatMap((asset) =>
+          asset.source?.provider === 'pexels' && typeof asset.source.remoteId === 'string'
+            ? [stockDownloadKey(asset.kind === 'image' ? 'photo' : 'video', asset.source.remoteId)]
+            : [],
+        ),
       ),
     [project.assets],
+  );
+  const inProject = useCallback(
+    (item: StockItemWire): boolean => presentKeys.has(stockDownloadKey(item.kind, item.remoteId)),
+    [presentKeys],
   );
 
   /** The tile's download state. Absent from the registry means nothing is going on. */
   const tileState = useCallback(
-    (remoteId: string): TileState => downloads[remoteId] ?? { kind: 'idle' },
+    (item: StockItemWire): TileState =>
+      downloads[stockDownloadKey(item.kind, item.remoteId)] ?? { kind: 'idle' },
     [downloads],
   );
 
@@ -518,20 +531,23 @@ export function PexelsBrowser({
    * because the tile's Enter shortcut reaches this too.
    */
   const add = useCallback(
-    async (item: StockItemWire, placement: StockPlacementChoice = 'cutaway'): Promise<void> => {
+    async (item: StockItemWire, placement: 'cutaway' | 'overlay' = 'cutaway'): Promise<void> => {
       // The verdict is the CALLER's, taken after the download with the timeline
       // as it is now — the playhead may have moved onto occupied ground while
       // the bytes were in flight. The flow shows a refusal on the tile.
-      const place = placement === 'overlay' && onAddStockOverlay ? onAddStockOverlay : onAddStock;
+      const overlay = placement === 'overlay' && onAddStockOverlay !== undefined;
+      const action: StockPlacementAction = overlay ? 'overlay' : 'cutaway';
       await downloadAndPlaceStock(
         { download: stockDownload, registry: stockDownloads },
         {
           projectId: project.id,
           remoteId: item.remoteId,
+          kind: item.kind,
           targetHeight: projectHeight,
           ...(project.fps ? { targetFps: project.fps } : {}),
         },
-        place,
+        overlay ? onAddStockOverlay : onAddStock,
+        action,
       );
     },
     [onAddStock, onAddStockOverlay, project.fps, project.id, projectHeight],
@@ -603,11 +619,7 @@ export function PexelsBrowser({
           move(items.length - 1);
           break;
         case 'Enter':
-          if (
-            onTileItself &&
-            blockedReasonFor(item) === null &&
-            !presentRemoteIds.has(item.remoteId)
-          ) {
+          if (onTileItself && blockedReasonFor(item) === null && !inProject(item)) {
             event.preventDefault();
             void add(item);
           }
@@ -616,7 +628,7 @@ export function PexelsBrowser({
           break;
       }
     },
-    [add, blockedReasonFor, items, presentRemoteIds],
+    [add, blockedReasonFor, items, inProject],
   );
 
   // Browser build: the sub-tab is absent entirely (see ElementsPanel). This is the
@@ -815,8 +827,8 @@ export function PexelsBrowser({
                     key={item.remoteId}
                     item={item}
                     index={index}
-                    state={tileState(item.remoteId)}
-                    inProject={presentRemoteIds.has(item.remoteId)}
+                    state={tileState(item)}
+                    inProject={inProject(item)}
                     blockedReason={blockedReasonFor(item)}
                     targetHeight={projectHeight}
                     tabbable={tabbableId === item.remoteId}
@@ -968,6 +980,17 @@ function StockTile({
   // A tile in flight is already on its way somewhere, and one in the project is in Assets,
   // where it can be dragged from: neither starts a second download by drag.
   const draggable = !downloading && !inProject;
+  /**
+   * The placement whose download failed, so its own button offers it again. A failed drop is
+   * retried by dragging again (the tile stays draggable), so neither button changes for it; a
+   * failure recorded with no action is Add's, as it always was.
+   */
+  const failedAction: StockPlacementAction | null =
+    state.kind !== 'failed'
+      ? null
+      : state.action === 'overlay' || state.action === 'drop'
+        ? state.action
+        : 'cutaway';
 
   return (
     <li
@@ -1087,20 +1110,21 @@ function StockTile({
               title={blockedReason ?? 'Add at the playhead as a cutaway'}
               onClick={onAdd}
             >
-              {state.kind === 'failed' ? 'Retry' : 'Add'}
+              {failedAction === 'cutaway' ? 'Retry' : 'Add'}
             </Button>
             {onAddOverlay !== undefined ? (
               // Never disabled for covering picture: sitting over footage is the point (ADR 0193).
+              // After its own download failed, it says Retry overlay (its name is its label).
               <Button
                 variant="ghost"
                 type="button"
                 className="stock-overlay-action"
-                aria-label="Add as overlay"
+                {...(failedAction === 'overlay' ? {} : { 'aria-label': 'Add as overlay' })}
                 title="Add as overlay: a smaller picture over what is at the playhead"
                 onClick={onAddOverlay}
               >
                 <PictureInPicture2 size={ICON_SIZE.sm} aria-hidden="true" />
-                Overlay
+                {failedAction === 'overlay' ? 'Retry overlay' : 'Overlay'}
               </Button>
             ) : null}
           </>

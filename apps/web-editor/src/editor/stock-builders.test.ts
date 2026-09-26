@@ -16,6 +16,7 @@ import {
   addStockClipPatch,
   addStockOverlayPatch,
   dropStockClipPatch,
+  stockAddedAnnouncement,
   stockPlacementBlockedReason,
 } from './patch-builders.js';
 import { applyUserPatch, createEditorState, redoEdit, undoEdit } from './store.js';
@@ -149,6 +150,17 @@ describe('addStockOverlayPatch', () => {
     expect(first.patch.reason).toMatch(/overlay/);
     expect(first.patch.createdBy).toBe('user');
     expect(addStockOverlayPatch(target, STOCK_PHOTO, 2).patch).toEqual(first.patch);
+  });
+});
+
+describe('stockAddedAnnouncement', () => {
+  it('says what landed and where, for a screen reader (02 §3: "Added … at 0:12")', () => {
+    const overlay = addStockOverlayPatch(target, STOCK_VIDEO, 12.7);
+    expect(overlay.start).toBe(12.7);
+    expect(stockAddedAnnouncement(STOCK_VIDEO, 'overlay', overlay.start)).toBe(
+      'Added the video as an overlay at 0:12',
+    );
+    expect(stockAddedAnnouncement(STOCK_PHOTO, 'drop', 75)).toBe('Added the photo at 1:15');
   });
 });
 
