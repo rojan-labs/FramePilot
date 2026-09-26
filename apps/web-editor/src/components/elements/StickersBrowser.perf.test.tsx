@@ -1,11 +1,13 @@
 /**
  * The Stickers tab's budgets (plan/elements 02 §9, EL6b.2) over the real 1,595-sticker catalogue:
- * a search keystroke's work fits one 60 Hz frame (16 ms), and a warm open draws its first tiles
- * within 100 ms, because the grid draws only the rows in view.
+ * a search keystroke's work fits one 60 Hz frame (16 ms), and a warm open draws only the rows in
+ * view — the reason it can paint its first tiles within 100 ms.
  *
- * Search is measured as the work itself (`searchStickers`, what each keystroke runs), since a DOM
- * without layout times React and jsdom, not the browser. The open is measured in jsdom, which is
- * slower than Chromium at the same work, so passing here is passing with room.
+ * Search is measured as the work itself (`searchStickers`, what each keystroke runs). The open's
+ * 100 ms is the app's budget and is measured in Chromium (`elements-e2e-budgets.spec.ts`): here a
+ * DOM without layout times React and jsdom, two to three times slower on a CI runner than on a
+ * laptop, and a wall-clock gate on it measured the runner (it failed at 108 ms on one). What jsdom
+ * judges exactly stays here: the open draws the rows in view, not the library.
  *
  * Runs only with FRAMEPILOT_RUN_PERF=1 (never under coverage; see `vite.config.ts`).
  */
@@ -22,8 +24,6 @@ vi.mock('../../editor/bridge.js', () => ({
 
 /** 02 §9: one frame at 60 Hz. */
 const SEARCH_BUDGET_MS = 16;
-/** 02 §9: Open Elements → first tiles painted (Stickers, warm). */
-const FIRST_TILES_BUDGET_MS = 100;
 /** Every prefix of a few real searches, typed a key at a time, plus a glyph. */
 const KEYSTROKES = ['fire', 'party popper', 'thumbs', 'heart', 'check', 'rocket', '🔥'].flatMap(
   (word) => Array.from(word, (_, index) => word.slice(0, index + 1)),
@@ -60,7 +60,7 @@ describe('Stickers tab budgets (02 §9)', () => {
     expect(p95).toBeLessThanOrEqual(SEARCH_BUDGET_MS);
   });
 
-  it('draws its first tiles within 100 ms of a warm open, and only the rows in view', async () => {
+  it('draws only the rows in view when it opens, never the library', async () => {
     await loadStickerCatalog();
     /** Mount the tab and wait for its first tile; the open's time and how many tiles it drew. */
     const open = async (): Promise<{ elapsed: number; drawn: number }> => {
@@ -86,10 +86,10 @@ describe('Stickers tab budgets (02 §9)', () => {
       warm.map((run) => run.elapsed),
       0.5,
     );
+    // Logged for comparison with the browser's number; the budget itself is asserted in Chromium.
     console.info(
-      `[EL6b stickers] cold open ${cold.elapsed.toFixed(1)} ms (not budgeted), warm ${elapsed.toFixed(1)} ms, ${String(cold.drawn)} tiles drawn of 1,595`,
+      `[EL6b stickers] jsdom cold open ${cold.elapsed.toFixed(1)} ms, warm ${elapsed.toFixed(1)} ms, ${String(cold.drawn)} tiles drawn of 1,595`,
     );
-    expect(elapsed).toBeLessThanOrEqual(FIRST_TILES_BUDGET_MS);
-    expect(Math.max(...warm.map((run) => run.drawn))).toBeLessThan(200);
+    expect(Math.max(cold.drawn, ...warm.map((run) => run.drawn))).toBeLessThan(200);
   });
 });
