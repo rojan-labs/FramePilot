@@ -46,6 +46,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   monitor shows what the export draws. The assistant does it too: "make the arrow pop in and the
   sticker pulse". A title's In and Out have moved there from the Text tab.
 
+- **Photos and Videos: categories, orientation, drag, and picture-in-picture.** Elements →
+  Photos and Videos gains category chips (Business, Technology, People, Nature, City, Abstract,
+  Backgrounds, Food, Travel, Textures; each is one search of your Pexels allowance, and a repeat
+  click spends nothing), an orientation filter that starts on your project's shape, and drag a
+  tile onto the timeline to place it where you drop it. Beside **Add**, which still places a
+  full-frame cutaway where there is room, **Add as overlay** puts the photo or video over your
+  footage at the playhead as a centred picture-in-picture at 40% of its fitted size, under your
+  titles, stickers and shapes; resize and move it on the monitor like any clip. The assistant
+  still places cutaways only.
+
 - **The assistant places elements like a careful editor.** It now knows each sticker and shape
   already on the timeline and where it sits, so "make all the highlight boxes red and thicker"
   restyles the boxes you have, in place, and "remove the stickers" removes only the stickers. Its
@@ -168,6 +178,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   MO-12), privacy and face-recognition consent.
 
 ### Fixed
+
+- **A photo or video added into empty time no longer covers your titles and stickers.** When
+  there was no picture layer with room, Add (and the assistant) opened a new layer at the very
+  front, above every title, sticker and shape; it now opens in front of the footage and under
+  them.
 
 - **A new sticker is sharp on vertical and 4K projects.** A sticker added without a size was a
   third of the frame high everywhere, which on a 1080×1920 short or a 4K export is more than twice
