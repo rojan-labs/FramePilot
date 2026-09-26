@@ -63,6 +63,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   monitor lands at the playhead exactly where you let go. A sticker dragged onto the timeline now
   counts as recent, as a click does.
 
+- **Elements works from the keyboard and reads well to a screen reader.** Every sticker, shape,
+  photo and video you add is selected and announced ("Added Fire at 0:12"). On a Photos or Videos
+  tile, Enter adds and Shift+Enter adds as an overlay; a sticker's box, corners and turn handle
+  move with the arrow keys; Escape or another tab leaves Replace mode. Elements opens on Stickers
+  until you add a Pexels key, and **Add Pexels key** takes you straight to the field. A narrow
+  media-bin card keeps Add and Add as overlay on one row, with Relink and Remove under **More
+  actions** (also Shift+F10). Tiles, chips and search boxes have visible surfaces in both themes,
+  shape handles show on light and dark footage, and failures say what happened and what to do.
+
 - **The assistant places elements like a careful editor.** It now knows each sticker and shape
   already on the timeline and where it sits, so "make all the highlight boxes red and thicker"
   restyles the boxes you have, in place, and "remove the stickers" removes only the stickers. Its
