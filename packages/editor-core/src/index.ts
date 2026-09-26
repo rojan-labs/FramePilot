@@ -13,6 +13,7 @@ export * from './project-operations.js';
 export * from './patch.js';
 export * from './history.js';
 export * from './validator.js';
+export { GEOMETRIC_MASK_KINDS } from './mask-validation.js';
 export * from './keyframes.js';
 // Which picture clips replay material another already plays — the one definition the agent's
 // clip rows, `get_clips` and the duplicate-takes rubric share (TRACKING Q5).

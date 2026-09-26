@@ -138,7 +138,7 @@ export interface ValidateOptions {
    * is stored in source pixels, and adding one to media nobody measured is refused with
    * "Measure this media first". Omitted, those size rules are skipped rather than guessed.
    */
-  readonly assets?: Iterable<Pick<Asset, 'id' | 'media'>>;
+  readonly assets?: Iterable<Pick<Asset, 'id' | 'media'> & { readonly kind?: Asset['kind'] }>;
 }
 
 const SUPPORTED_OPERATIONS: ReadonlySet<OperationType> = new Set<OperationType>([

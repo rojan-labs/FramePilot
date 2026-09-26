@@ -93,6 +93,42 @@ const codes = (result: ReturnType<typeof validate>) =>
   result.issues.map((issue) => `${issue.severity}:${issue.code}`);
 
 describe('mask validator rules', () => {
+  it('refuses what a still or a title cannot take, with the sentence the export uses (EL2b)', () => {
+    const photo: Asset[] = [
+      { id: 'a1', path: 'a.png', kind: 'image', media: { width: 1920, height: 1080 } },
+      ...measured.slice(1),
+    ];
+    const onStill = validate(timeline(), [{ type: 'add_mask', clipId: 'c1', mask: matte('bg') }], {
+      assets: photo,
+    });
+    expect(onStill.valid).toBe(false);
+    expect(onStill.issues.map((issue) => issue.message)).toContain(
+      "Background removal on clip 'c1' needs video, and this clip is a still image. Remove that mask, or draw a shape mask on the photo instead.",
+    );
+    // A shape drawn on a photo is what a still takes.
+    expect(
+      validate(timeline(), [{ type: 'add_mask', clipId: 'c1', mask: rect('m') }], {
+        assets: photo,
+      }).valid,
+    ).toBe(true);
+
+    const titled = timeline();
+    titled.tracks[0]!.clips[0] = { ...titled.tracks[0]!.clips[0]!, assetId: '__text__' };
+    const drawn = validate(titled, [{ type: 'add_mask', clipId: 'c1', mask: rect('m') }]);
+    expect(drawn.valid).toBe(false);
+    expect(drawn.issues.map((issue) => issue.message)).toContain(
+      "Mask 'm' on clip 'c1' is drawn on the title's own picture, which has no fixed size: set its space to Frame, or use a track matte.",
+    );
+    const onFrame = validate(titled, [
+      { type: 'add_mask', clipId: 'c1', mask: rect('m', { space: 'frame' }) },
+    ]);
+    expect(onFrame.valid).toBe(true);
+    const removal = validate(titled, [{ type: 'add_mask', clipId: 'c1', mask: matte('bg') }]);
+    expect(removal.issues.map((issue) => issue.message)).toContain(
+      "Background removal on clip 'c1' needs video, and this clip is a title. Remove that mask.",
+    );
+  });
+
   it('refuses a pixel mask on media nobody measured, and accepts it once measured', () => {
     const op = { type: 'add_mask', clipId: 'c1', mask: rect('m') };
     const refused = validate(timeline(), [op], { assets: unmeasured });

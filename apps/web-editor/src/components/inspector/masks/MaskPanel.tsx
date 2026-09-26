@@ -61,6 +61,7 @@ export function MaskPanel({ editor, clip, store = maskToolStore }: MaskPanelProp
   const measured = assetDisplaySize(media) !== null;
   // A title has no picture of its own to draw on (EL2b): it takes a track matte or an edge style.
   const isTitle = syntheticClipKind(clip.assetId) === 'text';
+  const isStill = editor.state.assets.find((asset) => asset.id === clip.assetId)?.kind === 'image';
 
   useEffect(() => {
     store.update({ panelClipId: clip.id });
@@ -95,7 +96,8 @@ export function MaskPanel({ editor, clip, store = maskToolStore }: MaskPanelProp
     <div className="inspector-subpanel mask-panel" aria-label="mask stack">
       {/* The Mask tab's first action row (plan 05 "Placement"): the preset that adds an AI
           subject matte, and the front door to every pack-backed tool's warnings. */}
-      <BackgroundRemovalRow editor={editor} clip={clip} store={store} />
+      {/* EL2b: a background removal is measured on video; a still or a title cannot take one. */}
+      {!isTitle && !isStill && <BackgroundRemovalRow editor={editor} clip={clip} store={store} />}
       <div className="mask-panel-tools" role="group" aria-label="Draw a mask">
         {DRAW_TOOLS.map(({ tool, label, Icon }) => (
           <button

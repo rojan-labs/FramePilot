@@ -28,6 +28,7 @@
  * `stack-clips.json` pins every float64 byte of this against the engine (`mask-stack.test.ts`).
  */
 import {
+  GEOMETRIC_MASK_KINDS,
   assetDisplaySize,
   evaluateSortedCurve,
   maskSourceTime,
@@ -257,22 +258,12 @@ function titleRefusalSentence(mask: MaskLayer): string | null {
     const what = mask.kind === 'matte' ? 'Background removal' : 'A tracked mask';
     return `${what} needs video, and this clip is a title. Remove that mask.`;
   }
-  const shaped = TITLE_SHAPED_KINDS.has(mask.kind);
+  const shaped = GEOMETRIC_MASK_KINDS.has(mask.kind);
   if (shaped && mask.space !== 'frame') {
     return "This mask is drawn on the title's own picture, which has no fixed size: set its space to Frame, or use a track matte.";
   }
   return null;
 }
-
-/** Mask kinds drawn from geometry (`SHAPE_KINDS` and `ANALYTIC_KINDS` of the engine). */
-const TITLE_SHAPED_KINDS: ReadonlySet<MaskLayer['kind']> = new Set([
-  'rectangle',
-  'ellipse',
-  'path',
-  'linear',
-  'band',
-  'gradient',
-]);
 
 const isLegacy = (mask: MaskLayer): boolean => mask.featherModel === 'gaussian-legacy';
 
