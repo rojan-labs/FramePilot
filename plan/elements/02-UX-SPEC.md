@@ -120,7 +120,9 @@ the same thing in the same place.
 
 **Default geometry:**
 
-- Sticker — centred, height = **30% of the frame height**, no rotation.
+- Sticker — centred, height = **30% of the frame height**, no rotation — capped at the largest
+  height the 256 px art stays sharp at (1.5×), so about 19% on a 1080×1920 vertical and 17% in
+  4K (found by the EL8 critic pass, 2026-09-26: 30% there exported every default sticker soft).
 - Shape — centred; box shapes take the preset's aspect with the longer side = 30% of frame height;
   line and arrow shapes run from 35% to 65% of the frame width at mid-height.
 

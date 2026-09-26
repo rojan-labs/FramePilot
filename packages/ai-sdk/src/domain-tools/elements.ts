@@ -314,9 +314,10 @@ export const ELEMENT_TOOLS: readonly ToolSpec[] = [
         'timeline range. elementId comes from search_elements (kind: sticker). start and end ' +
         'are timeline seconds (end defaults to 3 s after start). xPercent/yPercent place its ' +
         'centre in percent of the frame (50/50 is the middle); sizePercent is its height in ' +
-        'percent of the frame height (30 by default; 15–40 reads well). The app copies the ' +
-        'sticker into the project and it lands on a graphics layer with room, never as footage. ' +
-        'Keep it off faces and the caption band — look with get_frame.',
+        'percent of the frame height (30 by default, less on a tall or 4K frame so it stays ' +
+        'sharp). The app copies the sticker into the project and it lands on a graphics layer ' +
+        'with room, never as footage. Keep it off faces and the caption band — look with ' +
+        'get_frame.',
       // The file is copied by the desktop app's main process; the standalone MCP server has no
       // materialiser (plan/elements 06 §5), so it neither advertises nor accepts this.
       hostUiOnly: true,

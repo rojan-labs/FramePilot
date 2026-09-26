@@ -19,6 +19,7 @@ import { createLaneAllocator, nextLayerId } from './lane-placement.js';
 import { addClipId, shapeClipId, shapeEffectId, type Operation } from './operations.js';
 import type { ProjectOperation } from './project-operations.js';
 import { isElementAsset } from './element-assets.js';
+import { STICKER_SOFT_ENLARGEMENT } from './element-frame.js';
 import { syntheticClipKind } from './synthetic-assets.js';
 
 /** What {@link buildAddShapeOps} decided. */
@@ -131,8 +132,28 @@ export {
 export const ELEMENTS_FOLDER_ID = 'folder_elements';
 export const ELEMENTS_FOLDER_NAME = 'Elements';
 
-/** A new sticker's art height, as a share of the frame height (02 §3). */
+/** A new sticker's art height, as a share of the frame height (02 §3), where it stays sharp. */
 export const STICKER_DEFAULT_HEIGHT = 0.3;
+
+/**
+ * A new sticker's art height when none is asked for: {@link STICKER_DEFAULT_HEIGHT}, or less on a
+ * frame so tall that 30% would draw the art past {@link STICKER_SOFT_ENLARGEMENT} its pixel size.
+ * The art ships at one size (256 px), so 30% of a vertical short's 1920 rows or a 4K frame's 2160
+ * exports it soft — and vertical is where most stickers go. Rounded down to a whole percent, so
+ * the scale's own rounding cannot tip it over the line.
+ *
+ * @param frame - The project resolution.
+ * @param media - The sticker file's pixel size (the art plus its transparent margin).
+ * @param artFraction - The art's share of the file's height (`sharpSize / height`); 1 without one.
+ */
+export function stickerDefaultHeight(
+  frame: { readonly width: number; readonly height: number },
+  media: { readonly width: number; readonly height: number },
+  artFraction = 1,
+): number {
+  const sharp = (STICKER_SOFT_ENLARGEMENT * media.height * artFraction) / frame.height;
+  return Math.min(STICKER_DEFAULT_HEIGHT, Math.floor(sharp * 100 - 1e-9) / 100);
+}
 
 /**
  * The time-0 `scale` that makes a sticker's art `height` of the frame height after the renderer's
@@ -141,12 +162,13 @@ export const STICKER_DEFAULT_HEIGHT = 0.3;
  * @param frame - The project resolution.
  * @param media - The sticker file's pixel size (the art plus its transparent margin).
  * @param artFraction - The art's share of the file's height (`sharpSize / height`); 1 without one.
+ * @param height - The art's height as a share of the frame's; {@link stickerDefaultHeight} without.
  */
 export function stickerBaseScale(
   frame: { readonly width: number; readonly height: number },
   media: { readonly width: number; readonly height: number },
   artFraction = 1,
-  height = STICKER_DEFAULT_HEIGHT,
+  height = stickerDefaultHeight(frame, media, artFraction),
 ): number {
   const fit = Math.min(frame.width / media.width, frame.height / media.height);
   const fittedArt = (media.height * fit * artFraction) / frame.height;
@@ -204,7 +226,7 @@ export interface StickerPlacementOptions {
   readonly artFraction?: number;
   /** Where its centre lands, in canvas pixels from the frame centre (the handles' units). */
   readonly offset?: { readonly x: number; readonly y: number };
-  /** The art's height as a share of the frame height; {@link STICKER_DEFAULT_HEIGHT} without. */
+  /** The art's height as a share of the frame height; {@link stickerDefaultHeight} without. */
   readonly height?: number;
 }
 

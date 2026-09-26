@@ -2,7 +2,8 @@
  * Placing a sticker (plan/elements EL6a.4): one validated, reversible patch that brings the asset
  * and the Elements folder when the project lacks them, puts the clip on an overlay lane (never the
  * footage cutaway path), and writes the base transform the on-canvas handles would, so the art is
- * 30% of the frame height in any orientation.
+ * 30% of the frame height — or, on a frame so tall that 30% would draw it soft, as big as it stays
+ * sharp.
  */
 import { describe, expect, it } from 'vitest';
 import type { Asset, Project } from '@framepilot/timeline-schema';
@@ -12,7 +13,9 @@ import {
   elementAssetId,
   isElementAsset,
   stickerBaseScale,
+  stickerDefaultHeight,
 } from './element-placement.js';
+import { STICKER_SOFT_ENLARGEMENT, stickerEnlargement } from './element-frame.js';
 import { applyProjectPatch, invertProjectPatch, type Patch } from './patch.js';
 import { validatePatch } from './validator.js';
 
@@ -91,19 +94,63 @@ describe('isElementAsset and elementAssetId', () => {
 });
 
 describe('stickerBaseScale', () => {
-  it('makes the art 30% of the frame height after the contain fit, in either orientation', () => {
+  it('makes the art the height asked for after the contain fit, in either orientation', () => {
     const landscape = stickerBaseScale(
       { width: 1920, height: 1080 },
       { width: 318, height: 318 },
       ART,
+      0.3,
     );
     expect(318 * (1080 / 318) * ART * landscape).toBeCloseTo(0.3 * 1080, 0);
     const portrait = stickerBaseScale(
       { width: 1080, height: 1920 },
       { width: 318, height: 318 },
       ART,
+      0.3,
     );
     expect(318 * (1080 / 318) * ART * portrait).toBeCloseTo(0.3 * 1920, 0);
+  });
+
+  it('defaults to 30% of the frame, or as big as the art stays sharp on a tall or 4K frame', () => {
+    const file = { width: 318, height: 318 };
+    // 256 px of art: 30% of 1080 is 1.27× it; 30% of 1920 (a vertical short) or 2160 (4K) is
+    // over 2×, and the export draws it soft.
+    expect(stickerDefaultHeight({ width: 1920, height: 1080 }, file, ART)).toBe(0.3);
+    expect(stickerDefaultHeight({ width: 1080, height: 1920 }, file, ART)).toBe(0.19);
+    expect(stickerDefaultHeight({ width: 3840, height: 2160 }, file, ART)).toBe(0.17);
+    const portrait = stickerBaseScale({ width: 1080, height: 1920 }, file, ART);
+    expect(portrait).toBe(stickerBaseScale({ width: 1080, height: 1920 }, file, ART, 0.19));
+  });
+});
+
+describe('a sticker placed at its default size', () => {
+  it('is never drawn soft, in any orientation or at 4K', () => {
+    for (const resolution of [
+      { width: 1920, height: 1080 },
+      { width: 1080, height: 1920 },
+      { width: 1080, height: 1080 },
+      { width: 3840, height: 2160 },
+      { width: 2160, height: 3840 },
+    ]) {
+      const before = project({ resolution });
+      const placed = buildAddStickerOps(before, sticker('fire'), 1, 3, { artFraction: ART });
+      const after = applyProjectPatch(before, patchOf(placed.operations));
+      const enlargement = stickerEnlargement(after, placed.clipId)!;
+      expect(
+        enlargement,
+        `${String(resolution.width)}×${String(resolution.height)}`,
+      ).toBeLessThanOrEqual(STICKER_SOFT_ENLARGEMENT);
+    }
+  });
+
+  it('keeps a size that was asked for, soft or not: that choice is the editor’s', () => {
+    const before = project({ resolution: { width: 1080, height: 1920 } });
+    const placed = buildAddStickerOps(before, sticker('fire'), 1, 3, {
+      artFraction: ART,
+      height: 0.4,
+    });
+    const after = applyProjectPatch(before, patchOf(placed.operations));
+    expect(stickerEnlargement(after, placed.clipId)!).toBeGreaterThan(STICKER_SOFT_ENLARGEMENT);
   });
 });
 

@@ -4,7 +4,13 @@
  * validates and undoes.
  */
 import { describe, expect, it } from 'vitest';
-import { applyProjectPatch, invertProjectPatch } from '@framepilot/editor-core';
+import {
+  STICKER_SOFT_ENLARGEMENT,
+  applyProjectPatch,
+  invertProjectPatch,
+  stickerEnlargement,
+  type Patch,
+} from '@framepilot/editor-core';
 import type { Project } from '@framepilot/timeline-schema';
 import { assembleEdit } from './assemble.js';
 import { makeProject } from './__fixtures__/project.js';
@@ -61,6 +67,23 @@ describe('stickerOpsFromCall', () => {
     expect(base(placed.operations, 'y')).toBe(-270);
     // 20% of 1080 is 216 px of art; the art is 256/318 of a file fitted to 1080 px.
     expect(318 * (1080 / 318) * (256 / 318) * base(placed.operations, 'scale')).toBeCloseTo(216, 0);
+  });
+
+  it('without a size, places the sticker as big as it stays sharp on a vertical short', () => {
+    // 30% of a 1920-row frame is 2.25× the 256 px art; the export would draw it soft.
+    const vertical = makeProject({
+      resolution: { width: 1080, height: 1920 },
+      timeline: { tracks: [{ id: 'video_1', type: 'video', clips: [] }] },
+    } as never);
+    const placed = stickerOpsFromCall(vertical, payload, { start: 1 });
+    const patch: Patch = {
+      patchId: 'sticker' as Patch['patchId'],
+      createdBy: 'ai',
+      reason: 'Add sticker',
+      operations: [...placed.operations],
+    };
+    const after = applyProjectPatch(vertical, patch);
+    expect(stickerEnlargement(after, placed.clipId)!).toBeLessThanOrEqual(STICKER_SOFT_ENLARGEMENT);
   });
 
   it('adds a rotation, validates, and undoes to the same project', () => {

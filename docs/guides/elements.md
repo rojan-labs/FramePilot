@@ -115,8 +115,9 @@ build:elements` has built the rest.)
 - **Add one:** click its tile. FramePilot copies the sticker into the project folder (it appears
   in the bin's **Elements** folder, marked **Element**) and places it at the playhead for the
   default overlay length (Settings → Editing), on an overlay layer, centred, a third of the frame
-  high. It is selected, and one undo removes it; History reads "Add sticker “Fire”". The same
-  sticker added twice uses one copy of the file.
+  high — or, on a vertical or 4K project, as big as the sticker stays sharp (about a fifth of the
+  height), since the library art is drawn at one size. It is selected, and one undo removes it;
+  History reads "Add sticker “Fire”". The same sticker added twice uses one copy of the file.
 - **Drag one onto the timeline:** drop a tile on an overlay lane and it lands there at the drop
   time. Dropped on footage, it goes on a graphics layer of its own instead.
 - **Move, size and turn it** on the monitor like any other picture: drag it, drag a corner, or use

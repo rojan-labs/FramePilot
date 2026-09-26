@@ -229,7 +229,7 @@ function expectStickerAdded(persisted: Project): readonly string[] {
     { label: 'sticker lane type', actual: lane?.type, expected: 'overlay' },
     { label: 'sticker start', actual: clip?.start, expected: STICKER_START_SECONDS },
     {
-      label: 'sticker art at a third of the frame',
+      label: 'sticker art at its default height',
       actual: scale,
       expected: stickerBaseScale(
         persisted.resolution,

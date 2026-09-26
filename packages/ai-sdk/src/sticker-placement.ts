@@ -6,11 +6,7 @@
  * path, which would cover-crop a sticker to the full frame.
  */
 import { z } from 'zod';
-import {
-  buildAddStickerOps,
-  type AnyOperation,
-  STICKER_DEFAULT_HEIGHT,
-} from '@framepilot/editor-core';
+import { buildAddStickerOps, type AnyOperation } from '@framepilot/editor-core';
 import type { Asset, Project } from '@framepilot/timeline-schema';
 
 /** How long a sticker stays when the call gives no end. */
@@ -92,7 +88,8 @@ export function stickerOpsFromCall(
       : 1;
   const placed = buildAddStickerOps(project, asset, start, end, {
     artFraction,
-    height: args.sizePercent !== undefined ? args.sizePercent / 100 : STICKER_DEFAULT_HEIGHT,
+    // No size asked for: the builder's default, which stays sharp on a tall or 4K frame.
+    ...(args.sizePercent !== undefined ? { height: args.sizePercent / 100 } : {}),
     offset: {
       x: Math.round((((args.xPercent ?? 50) - 50) / 100) * width),
       y: Math.round((((args.yPercent ?? 50) - 50) / 100) * height),

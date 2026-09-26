@@ -128,12 +128,32 @@ describe('StickerInspector', () => {
   });
 
   it('says when the sticker is drawn beyond its sharp size at the export resolution', () => {
-    const sharp = stickerProject(1920, 1080);
-    const { unmount } = render(<Host project={sharp.project} clipId={sharp.clipId} />);
+    // Added from the tab, a sticker lands as big as it stays sharp, even in 4K.
+    const uhd = stickerProject(3840, 2160);
+    const { unmount } = render(<Host project={uhd.project} clipId={uhd.clipId} />);
     expect(screen.queryByText(/Enlarged beyond its sharp size/)).toBeNull();
     unmount();
-    const soft = stickerProject(3840, 2160);
-    render(<Host project={soft.project} clipId={soft.clipId} />);
+    // Pulled to twice that with the handles, the export draws it soft, and the section says so.
+    const enlarged: Project = {
+      ...uhd.project,
+      timeline: {
+        ...uhd.project.timeline,
+        tracks: uhd.project.timeline.tracks.map((track) => ({
+          ...track,
+          clips: track.clips.map((clip) =>
+            clip.id !== uhd.clipId
+              ? clip
+              : {
+                  ...clip,
+                  keyframes: clip.keyframes.map((k) =>
+                    k.property === 'scale' ? { ...k, value: k.value * 2 } : k,
+                  ),
+                },
+          ),
+        })),
+      },
+    };
+    render(<Host project={enlarged} clipId={uhd.clipId} />);
     expect(screen.getByRole('note').textContent).toContain('Enlarged beyond its sharp size');
   });
 });

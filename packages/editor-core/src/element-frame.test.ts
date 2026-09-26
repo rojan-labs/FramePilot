@@ -41,6 +41,7 @@ const patchOf = (operations: Patch['operations']): Patch => ({
   operations,
 });
 
+/** A 30%-high sticker and a highlight box, as the Stickers and Shapes tabs place them. */
 function project(width = 1920, height = 1080): Project {
   const empty = {
     id: 'p',
@@ -55,6 +56,7 @@ function project(width = 1920, height = 1080): Project {
   const sticker = buildAddStickerOps(empty, fire, 0, 4, {
     artFraction: 256 / 318,
     offset: { x: 400, y: -200 },
+    height: 0.3,
   });
   const withSticker = applyProjectPatch(empty, patchOf([...sticker.operations]));
   const shape = buildAddShapeOps(
@@ -129,7 +131,7 @@ describe('elementEverOnFrame', () => {
 });
 
 describe('stickerEnlargement', () => {
-  it('reads 1.27× for the default insert at 1080p and crosses the line in 4K', () => {
+  it('reads 1.27× for a 30% sticker at 1080p, and past the line for the same size in 4K', () => {
     const hd = project();
     const uhd = project(3840, 2160);
     const id = (p: Project) => idOf(p, (c) => c.assetId === fire.id);

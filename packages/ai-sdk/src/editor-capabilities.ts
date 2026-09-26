@@ -645,7 +645,7 @@ const graphicsCapabilities = [
       'add_keyframes',
     ] satisfies OperationType[],
     description:
-      'Copy a library sticker into the project and lay it over the footage at a third of the frame height, moved and sized by its transform like any overlay; desktop only.',
+      'Copy a library sticker into the project and lay it over the footage at a third of the frame height, or as big as it stays sharp on a tall or 4K frame, moved and sized by its transform like any overlay; desktop only.',
     availability: { state: 'available' as const, reason: AVAILABLE_REASON },
   },
   {
