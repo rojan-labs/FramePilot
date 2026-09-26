@@ -9,7 +9,7 @@
 import { useMemo } from 'react';
 import type { Asset, Clip } from '@framepilot/timeline-schema';
 import { mediaSrc } from '../../../editor/media.js';
-import { STICKER_SOFT_ENLARGEMENT, stickerEnlargement } from '../../../editor/sticker-sharpness.js';
+import { STICKER_SOFT_ENLARGEMENT, stickerEnlargement } from '@framepilot/editor-core';
 import type { UseEditor } from '../../../editor/useEditor.js';
 import { EdgeStyleControls } from '../masks/EdgeStylePanel.js';
 

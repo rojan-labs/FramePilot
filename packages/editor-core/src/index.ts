@@ -42,6 +42,8 @@ export * from './track-follow.js';
 export * from './loop-motion.js';
 // In / Out / Loop for stickers, shapes and titles, as one reversible request (plan/elements EL7).
 export * from './element-animation.js';
+// Where an element is on the frame, for the agent's checks and the Inspector (plan/elements EL8.1).
+export * from './element-frame.js';
 export * from './track-reframe.js';
 export * from './picture-occupancy.js';
 export * from './lane-placement.js';
