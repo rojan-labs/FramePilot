@@ -247,10 +247,9 @@ describe('agent mode', () => {
       run.steps.some((s) => /already in place|already done, and doing it again/.test(s.note)),
     ).toBe(true);
     expect(run.log.length).toBeGreaterThan(0);
-    // 24 since `cutaway_count` and `tracker_motion` joined the battery. `critic.test.ts` is
-    // what pins the set itself, by id and in order; this line only asserts the run carries a
-    // full report.
-    expect(run.critique.checks.length).toBe(26);
+    // 27 since `loop_coverage` joined the battery. `critic.test.ts` is what pins the set
+    // itself, by id and in order; this line only asserts the run carries a full report.
+    expect(run.critique.checks.length).toBe(27);
   });
 
   it('interleaves asset management and timeline editing in one project-scoped run', async () => {
@@ -2957,7 +2956,7 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
 describe('review mode', () => {
   it('returns a deterministic critic report + readable text', async () => {
     const review = await new Orchestrator(new MockProvider()).review(input);
-    expect(review.report.checks.length).toBe(26);
+    expect(review.report.checks.length).toBe(27);
     expect(review.text).toContain(review.report.summary);
     expect(review.text).toMatch(/\[(PASS|WARN|FAIL|SKIPPED)\]/);
   });
