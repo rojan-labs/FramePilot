@@ -8,6 +8,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  symlinkSync,
   writeFileSync,
   existsSync,
 } from 'node:fs';
@@ -185,6 +186,58 @@ describe('ElementsLibrary.materialize', () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
+  it('answers a media folder that leads outside the projects root with a code, never a path', async () => {
+    // media/p1 is a link to somewhere else (an external drive): the sandbox refuses it, and the
+    // refusal must not reach the renderer or the model as a thrown error carrying its paths.
+    const outside = mkdtempSync(path.join(tmpdir(), 'fp-elsewhere-'));
+    mkdirSync(path.join(root, 'projects', 'media'), { recursive: true });
+    symlinkSync(outside, path.join(root, 'projects', 'media', 'p1'), 'dir');
+    const result = await library([item('fire')]).materialize({
+      projectId: 'p1',
+      elementId: 'fire',
+    });
+    expect(result).toEqual({ ok: false, error: 'io_failed' });
+    expect(readdirSync(outside)).toEqual([]);
+  });
+
+  it('refuses a catalogue entry whose file is not the sticker’s own, reading nothing else', async () => {
+    writeFileSync(path.join(root, 'secret.webp'), FIRE);
+    const odd = library([item('fire', { file: '../secret.webp' })]);
+    expect(await odd.materialize({ projectId: 'p1', elementId: 'fire' })).toEqual({
+      ok: false,
+      error: 'library_missing',
+    });
+  });
+
+  it('replaces a copy in the project that is not the sticker any more', async () => {
+    const dir = path.join(root, 'projects', 'media', 'p1', 'elements', 'fluent3d');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'fire.webp'), Buffer.from('tampered, and not the same size'));
+    let reads = 0;
+    const lib = library([item('fire')], {
+      ...nodeElementsLibraryIO,
+      readFile: async (file) => {
+        // The target is realpath-resolved (/private/var on macOS), so match on the folder's tail.
+        if (file.includes(`${path.sep}elements${path.sep}fluent3d${path.sep}`)) reads += 1;
+        return nodeElementsLibraryIO.readFile(file);
+      },
+    });
+    const result = await lib.materialize({ projectId: 'p1', elementId: 'fire' });
+    expect(result.ok && result.asset.deduped).toBe(false);
+    expect(readFileSync(path.join(dir, 'fire.webp'))).toEqual(FIRE);
+    // A copy of the wrong size is replaced without being read.
+    expect(reads).toBe(0);
+  });
+
+  it('sweeps a temporary file an earlier, crashed copy left behind', async () => {
+    const dir = path.join(root, 'projects', 'media', 'p1', 'elements', 'fluent3d');
+    mkdirSync(dir, { recursive: true });
+    const stale = path.join(dir, `rocket.webp.${String(process.pid + 1)}.deadbeef.tmp`);
+    writeFileSync(stale, Buffer.from('half'));
+    await library([item('fire')]).materialize({ projectId: 'p1', elementId: 'fire' });
+    expect(readdirSync(dir)).toEqual(['fire.webp']);
+  });
+
   it('copies once when the same sticker is asked for twice at the same time', async () => {
     let writes = 0;
     const lib = library([item('fire')], {
@@ -268,6 +321,42 @@ describe('ElementsLibrary.heal', () => {
     expect(result).toEqual({
       healed: [],
       failed: ['element_fluent3d_fire', 'element_fluent3d_ghost'],
+    });
+    // Another project's path is the user's to relink: nothing was copied into this one.
+    expect(existsSync(path.join(root, 'projects', 'media', 'p2'))).toBe(false);
+  });
+
+  it('copies a sticker used by several assets once', async () => {
+    let writes = 0;
+    const lib = library([item('fire')], {
+      ...nodeElementsLibraryIO,
+      writeFile: async (file, data) => {
+        writes += 1;
+        await nodeElementsLibraryIO.writeFile(file, data);
+      },
+    });
+    const twin = { ...stickerAsset('p1'), id: 'element_fluent3d_fire_copy' };
+    const result = await lib.heal({ id: 'p1', assets: [stickerAsset('p1'), twin] });
+    expect(result.healed).toEqual(['element_fluent3d_fire', 'element_fluent3d_fire_copy']);
+    expect(writes).toBe(1);
+  });
+
+  it('never throws, so a sticker it cannot put back never stops a project opening', async () => {
+    const outside = mkdtempSync(path.join(tmpdir(), 'fp-elsewhere-'));
+    mkdirSync(path.join(root, 'projects', 'media'), { recursive: true });
+    symlinkSync(outside, path.join(root, 'projects', 'media', 'p1'), 'dir');
+    const result = await library([item('fire')]).heal({ id: 'p1', assets: [stickerAsset('p1')] });
+    expect(result).toEqual({ healed: [], failed: ['element_fluent3d_fire'] });
+    const unreadable = new ElementsLibrary({
+      projectsRoot: path.join(root, 'projects'),
+      bundledRoot: () => bundled,
+      catalog: async () => {
+        throw new Error('the catalogue chunk did not load');
+      },
+    });
+    expect(await unreadable.heal({ id: 'p1', assets: [stickerAsset('p1')] })).toEqual({
+      healed: [],
+      failed: ['element_fluent3d_fire'],
     });
   });
 });

@@ -948,6 +948,17 @@ function registerIpcHandlers(): void {
     // Counts only: whether it worked, the closed error code, and whether a copy was reused.
     onOutcome: (outcome) => appTelemetry?.recordEvent('element_materialize', { ...outcome }),
   });
+  // Healing never stops a project opening: `heal` reports what it could not put back rather than
+  // throwing, and this guard holds that even if a future change forgets to.
+  const healElements = async (project: Parameters<ElementsLibrary['heal']>[0]): Promise<void> => {
+    try {
+      await elementsLibrary.heal(project);
+    } catch (error) {
+      aiLog.warn('elements: healing sticker files failed; the project opens without them', {
+        error: String(error),
+      });
+    }
+  };
 
   capabilityPackService = capabilityPackLocation
     .resolve()
@@ -1586,7 +1597,7 @@ function registerIpcHandlers(): void {
       try {
         const project = await readProjectFile(guard.path);
         // A sticker file that went missing comes back from the library before anything reads it.
-        await elementsLibrary.heal(project);
+        await healElements(project);
         await recentFiles.add({ path: guard.path, name: project.name, openedAt: Date.now() });
         // Publish the open project so the MCP server edits this same file.
         await activeProject.record({
@@ -1623,7 +1634,7 @@ function registerIpcHandlers(): void {
     const selectedPath = filePaths[0]!;
     try {
       const project = await readProjectFile(selectedPath);
-      await elementsLibrary.heal(project);
+      await healElements(project);
       await recentFiles.add({ path: selectedPath, name: project.name, openedAt: Date.now() });
       // A file picked from outside the projects folder is still recorded; the
       // MCP server sandbox-rejects it safely if it later tries to open it.

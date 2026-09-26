@@ -11,7 +11,7 @@
  * A sticker is not footage: no derive (its shape is in the catalogue) and no footage enrolment.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@framepilot/shared-types';
 import type {
@@ -21,6 +21,7 @@ import type {
 } from '@framepilot/shared-types';
 import { resolveWithin } from '@framepilot/shared-types/safety';
 import { STICKER_ID_PATTERN, stickerSourceUrl, type StickerCatalog } from '@framepilot/ai-sdk';
+import { ELEMENT_PROVIDERS } from '@framepilot/editor-core';
 import { mediaRelativeDir } from '../projects/media-import.js';
 import { sourcedAssetId } from './sourced-asset-id.js';
 
@@ -34,6 +35,10 @@ export interface ElementsLibraryIO {
   readonly unlink: (file: string) => Promise<void>;
   readonly mkdir: (dir: string) => Promise<void>;
   readonly exists: (file: string) => Promise<boolean>;
+  /** The file's size in bytes, or `null` when there is no such file. */
+  readonly size: (file: string) => Promise<number | null>;
+  /** The names in a folder; empty when there is no such folder. */
+  readonly list: (dir: string) => Promise<readonly string[]>;
 }
 
 export const nodeElementsLibraryIO: ElementsLibraryIO = {
@@ -50,6 +55,20 @@ export const nodeElementsLibraryIO: ElementsLibraryIO = {
       return true;
     } catch {
       return false;
+    }
+  },
+  size: async (file) => {
+    try {
+      return (await stat(file)).size;
+    } catch {
+      return null;
+    }
+  },
+  list: async (dir) => {
+    try {
+      return await readdir(dir);
+    } catch {
+      return [];
     }
   },
 };
@@ -81,6 +100,8 @@ export class ElementsLibrary {
   private readonly io: ElementsLibraryIO;
   /** One copy per (project, element) at a time: a double-click or two agent calls copy once. */
   private readonly inFlight = new Map<string, Promise<ElementMaterializeResult>>();
+  /** Folders already swept of temporary files an earlier, crashed process left. */
+  private readonly swept = new Set<string>();
 
   constructor(private readonly options: ElementsLibraryOptions) {
     this.io = options.io ?? nodeElementsLibraryIO;
@@ -98,6 +119,14 @@ export class ElementsLibrary {
     const running = this.inFlight.get(key);
     if (running !== undefined) return running;
     const started = this.materializeUnshared(request)
+      // Nothing thrown reaches the renderer or the model: an error's text can carry paths.
+      .catch((error: unknown): ElementMaterializeResult => {
+        log.error('materialize: unexpected failure', {
+          elementId: request.elementId,
+          error: String(error),
+        });
+        return { ok: false, error: 'io_failed' };
+      })
       .then((result) => {
         this.options.onOutcome?.(
           result.ok
@@ -115,7 +144,9 @@ export class ElementsLibrary {
    * Put back the sticker files a project references but no longer has (auto-heal on open,
    * plan/elements EL6a.6b): each is re-copied from the library by its catalogue id to the path
    * the project already records, so it plays again without a relink. A file somewhere else (a
-   * project copied from another) is left for the user to relink.
+   * project copied from another) is left for the user to relink, and nothing is copied for it.
+   *
+   * Never throws: a sticker it cannot put back is reported, and the project still opens.
    *
    * @returns the asset ids healed, and those that could not be.
    */
@@ -127,22 +158,46 @@ export class ElementsLibrary {
       readonly source?: { readonly provider: string; readonly remoteId: string } | null | undefined;
     }[];
   }): Promise<{ readonly healed: readonly string[]; readonly failed: readonly string[] }> {
-    const catalog = await this.options.catalog();
     const healed: string[] = [];
     const failed: string[] = [];
+    let catalog: StickerCatalog | undefined;
+    try {
+      catalog = await this.options.catalog();
+    } catch (error) {
+      log.warn('heal: the sticker catalogue did not load', { error: String(error) });
+    }
+    // Which sticker files are missing, decided before any is copied back: two assets sharing a
+    // file are both missing, and both healed by the one copy.
+    const missing: { readonly id: string; readonly path: string; readonly remoteId: string }[] = [];
     for (const asset of project.assets) {
-      if (asset.source?.provider !== catalog.provider) continue;
-      let target: string;
+      const source = asset.source;
+      if (source === null || source === undefined) continue;
+      if (!ELEMENT_PROVIDERS.includes(source.provider)) continue;
       try {
-        target = resolveWithin(this.options.projectsRoot, asset.path);
-      } catch {
+        if (await this.io.exists(resolveWithin(this.options.projectsRoot, asset.path))) continue;
+        if (catalog === undefined || source.provider !== catalog.provider) failed.push(asset.id);
+        else missing.push({ id: asset.id, path: asset.path, remoteId: source.remoteId });
+      } catch (error) {
+        log.warn('heal: a sticker file could not be checked', {
+          assetId: asset.id,
+          error: String(error),
+        });
+        failed.push(asset.id);
+      }
+    }
+    const copies = new Map<string, Promise<ElementMaterializeResult>>();
+    for (const asset of missing) {
+      // Only the file's own place in this project is restored; any other is the user's to relink.
+      if (asset.path !== stickerPath(project.id, catalog!.library, asset.remoteId)) {
+        failed.push(asset.id);
         continue;
       }
-      if (await this.io.exists(target)) continue;
-      const result = await this.materialize({
-        projectId: project.id,
-        elementId: asset.source.remoteId,
-      });
+      let copy = copies.get(asset.remoteId);
+      if (copy === undefined) {
+        copy = this.materialize({ projectId: project.id, elementId: asset.remoteId });
+        copies.set(asset.remoteId, copy);
+      }
+      const result = await copy;
       if (result.ok && result.asset.path === asset.path) healed.push(asset.id);
       else failed.push(asset.id);
     }
@@ -159,20 +214,38 @@ export class ElementsLibrary {
     if (!STICKER_ID_PATTERN.test(request.elementId)) {
       return { ok: false, error: 'unknown_element' };
     }
-    const catalog = await this.options.catalog();
+    let catalog: StickerCatalog;
+    try {
+      catalog = await this.options.catalog();
+    } catch (error) {
+      log.error('materialize: the sticker catalogue did not load', { error: String(error) });
+      return { ok: false, error: 'library_missing' };
+    }
     const item = catalog.byId.get(request.elementId);
     if (item === undefined) return { ok: false, error: 'unknown_element' };
     if (item.availability !== 'bundled' || item.file === undefined || item.sha256 === undefined) {
       // A packaged sticker needs the desktop installer's set (EL6b), which this build lacks.
       return { ok: false, error: 'library_missing' };
     }
-    const relativePath = path.posix.join(
-      mediaRelativeDir(request.projectId),
-      'elements',
-      catalog.library,
-      `${item.id}.webp`,
-    );
-    const target = resolveWithin(this.options.projectsRoot, relativePath);
+    if (item.file !== bundledFile(item.id)) {
+      // The generator names every file after its id; anything else is not a file it wrote.
+      log.error('materialize: a catalogue entry names a file that is not its own', {
+        elementId: item.id,
+      });
+      return { ok: false, error: 'library_missing' };
+    }
+    const relativePath = stickerPath(request.projectId, catalog.library, item.id);
+    let target: string;
+    try {
+      target = resolveWithin(this.options.projectsRoot, relativePath);
+    } catch {
+      // The project's media folder leads outside the projects folder (a link to another drive).
+      // The sandbox's message names both paths, so it is logged here and never passed on.
+      log.warn('materialize: the project media folder is outside the projects folder', {
+        elementId: item.id,
+      });
+      return { ok: false, error: 'io_failed' };
+    }
     const asset = (deduped: boolean): ElementAssetWire => ({
       id: sourcedAssetId('element', catalog.library, item.id),
       path: relativePath,
@@ -194,7 +267,9 @@ export class ElementsLibrary {
     });
 
     try {
-      if (await this.io.exists(target)) {
+      // A copy of the wrong size is replaced without reading it.
+      const size = await this.io.size(target);
+      if (size !== null && (item.bytes === undefined || size === item.bytes)) {
         const present = await this.io.readFile(target);
         if (sha256(present) === item.sha256) {
           log.action('materialize', {
@@ -228,6 +303,7 @@ export class ElementsLibrary {
     const temp = `${target}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
     try {
       await this.io.mkdir(path.dirname(target));
+      await this.sweep(path.dirname(target));
       await this.io.writeFile(temp, bytes);
       await this.io.rename(temp, target);
     } catch (error) {
@@ -244,6 +320,32 @@ export class ElementsLibrary {
     });
     return { ok: true, asset: asset(false) };
   }
+
+  /**
+   * Remove the temporary files a crashed copy left in `dir`, once per folder: only another
+   * process's (the pid is in the name), so a copy this process is making is never touched.
+   */
+  private async sweep(dir: string): Promise<void> {
+    if (this.swept.has(dir)) return;
+    this.swept.add(dir);
+    for (const name of await this.io.list(dir)) {
+      const parts = name.split('.');
+      if (parts.at(-1) !== 'tmp' || parts.length < 4 || parts.at(-3) === String(process.pid)) {
+        continue;
+      }
+      await this.io.unlink(path.join(dir, name)).catch(() => undefined);
+    }
+  }
+}
+
+/** Where a library sticker lives in a project: `media/<project>/elements/<library>/<id>.webp`. */
+function stickerPath(projectId: string, library: string, itemId: string): string {
+  return path.posix.join(mediaRelativeDir(projectId), 'elements', library, `${itemId}.webp`);
+}
+
+/** The bundled file the library build writes for an item. */
+function bundledFile(itemId: string): string {
+  return `full/${itemId}.webp`;
 }
 
 /**
