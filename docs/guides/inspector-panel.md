@@ -27,6 +27,13 @@ on or off with colour and opacity, stroke width and style, its corners or arrow 
 a line's ends, and its box or ends. Adjust, Speed, Crop, Mask and Applied effects are not offered
 for a shape: the export draws it from those settings alone, and they would do nothing to it.
 
+## Stickers
+
+A selected sticker (Elements → Stickers) gets a **Sticker** section: its picture and name, where it
+comes from, and **Replace…**, which opens the Stickers tab to swap it for another while its
+timing, position, size and animation stay. Its place, size and turn are the ordinary **Position &
+size** section, as for a photo.
+
 ## Extension rules
 
 New inspector sections belong in `components/inspector/registry.ts` and should use the shared `InspectorSection`, `InspectorRow`, `LabeledSelect`, and existing patch builders. Keep section ids stable because disclosure preferences are persisted by id. New controls must retain explicit accessible names and must never mutate timeline data directly.

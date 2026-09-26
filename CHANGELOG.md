@@ -32,6 +32,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   steps with badges. The assistant searches the same library ("number each step", "a speech
   bubble over the host"). Shape clips now have their own colour on the timeline and the minimap.
 
+- **Stickers, in Elements.** A new **Stickers** sub-tab holds 251 stickers from Microsoft's
+  Fluent Emoji 3D set, in thirteen collections, shipped inside the app so they work offline.
+  Search by name or paste the emoji itself; click one to drop it at the playhead, a third of the
+  frame high, on its own layer. Move, size, turn and fade it like any picture; **Replace…** in the
+  Inspector, or **Replace sticker…** on a right-click, swaps it for another and keeps its timing,
+  place and animation. A sticker is never treated as footage, and a sticker file that goes missing
+  from a project comes back when you open it. The assistant can add them too ("add a fire emoji
+  when I say 'this is fire'"). What the monitor shows is what the export draws.
+
 - **The caption check counts rows.** Checking whether captions read now also reports, for every
   caption, how many rows it wraps to and whether any is wider than the frame. When you ask for "no
   more than two lines", the assistant can check every caption, not just the two it looked at.
@@ -127,6 +136,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   MO-12), privacy and face-recognition consent.
 
 ### Fixed
+
+- **A b-roll clip the assistant adds no longer covers your stickers, shapes or titles.** When a
+  cutaway needed a new layer, it was opened above every other layer, so graphics already on the
+  timeline disappeared behind it. It now goes in above the footage and under the graphics.
 
 - **Photos and titles fade, crop and animate in the export.** Opacity, opacity keyframes, fades,
   dissolves, wipes and the other transitions on a photo or a title used to do nothing, in the

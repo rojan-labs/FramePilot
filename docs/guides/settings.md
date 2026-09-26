@@ -53,7 +53,7 @@ layout.
 - **Display** controls System/Light/Dark theme, timecode versus seconds, and
   comfortable versus compact workspace density.
 - **Editing** controls timeline snapping, clip thumbnails, playhead following,
-  and the default duration for new elements (text overlays and shapes).
+  and the default duration for new elements (text overlays, shapes and stickers).
 - **Playback** controls loop, composition-grid and safe-area defaults, plus reduced
   motion. The program monitor uses the product preview path automatically, so
   preview-engine selection is not exposed as a preference.

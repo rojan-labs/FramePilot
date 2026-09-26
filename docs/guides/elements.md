@@ -3,11 +3,12 @@
 **Elements** is the left-rail tab for everything you put on or into the picture that you did not
 film. It sits second in the rail, right after **Assets**, and replaces the old **Stock** tab.
 
-| Sub-tab    | What it is               | Where it works | Guide                                    |
-| ---------- | ------------------------ | -------------- | ---------------------------------------- |
-| **Photos** | Stock photos from Pexels | Desktop        | [Photos and videos](./stock-sourcing.md) |
-| **Videos** | Stock video from Pexels  | Desktop        | [Photos and videos](./stock-sourcing.md) |
-| **Shapes** | Callouts you draw on top | Desktop        | [Shapes](#shapes), below                 |
+| Sub-tab      | What it is               | Where it works | Guide                                    |
+| ------------ | ------------------------ | -------------- | ---------------------------------------- |
+| **Photos**   | Stock photos from Pexels | Desktop        | [Photos and videos](./stock-sourcing.md) |
+| **Videos**   | Stock video from Pexels  | Desktop        | [Photos and videos](./stock-sourcing.md) |
+| **Shapes**   | Callouts you draw on top | Desktop        | [Shapes](#shapes), below                 |
+| **Stickers** | Emoji art, in 3D         | Desktop        | [Stickers](#stickers), below             |
 
 ## Finding your way around
 
@@ -88,6 +89,50 @@ recording or a product demo:
 Shapes need the desktop app: the render engine that draws them runs there. A project with shapes
 needs FramePilot with project format 25 or later; an older version refuses to open it rather than
 dropping the shapes.
+
+## Stickers
+
+251 stickers from Microsoft's [Fluent Emoji](https://github.com/microsoft/fluentui-emoji) 3D set,
+in thirteen collections: Reactions, Celebrate, Hands & gestures, Hearts, Tech & work, Arrows &
+pointers, Symbols & signs, Money, Food, Nature, Animals, Travel and Objects. They ship inside the
+app, so they work offline and nothing is downloaded when you add one. The rest of the Fluent
+Emoji set comes in a later update.
+
+- **Browse and search:** the chips narrow the grid to one collection. **Search** matches a
+  sticker's name and what it is for ("fire", "party", "thumbs", "check"), and you can paste the
+  emoji itself: 🔥 finds the fire sticker.
+- **Keyboard:** the grid is one Tab stop. Arrows move between tiles, Home and End jump to the ends,
+  Enter adds.
+- **Add one:** click its tile. FramePilot copies the sticker into the project folder (it appears
+  in the bin's **Elements** folder, marked **Element**) and places it at the playhead for the
+  default overlay length (Settings → Editing), on an overlay layer, centred, a third of the frame
+  high. It is selected, and one undo removes it; History reads "Add sticker “Fire”". The same
+  sticker added twice uses one copy of the file.
+- **Move, size and turn it** on the monitor like any other picture: drag it, drag a corner, or use
+  the rotate handle. **Position & size** in the Inspector sets the same values as numbers, and
+  keyframes animate them. Opacity, fades, transitions and blend modes work as they do on a photo.
+- **Replace it** without losing your work: in the Inspector's **Sticker** section press
+  **Replace…**, or right-click the clip and choose **Replace sticker…**. Elements opens on
+  Stickers; pick another and it takes the old one's place, with the same timing, position, size
+  and animation. **Cancel** leaves it as it was.
+- **From the bin:** double-click a sticker in the Elements folder, or drag it onto the timeline, and
+  it is placed exactly as the Stickers tab places it: never as full-frame footage.
+- **A sticker is not footage.** It is never analysed or indexed, it does not appear in Footage
+  understanding, and it is never treated as a repeated take. A b-roll cutaway the assistant adds
+  over it goes in underneath it, so the sticker stays on top.
+- **Credits:** the Export dialog's Credits list Fluent Emoji once, however many stickers you use.
+  The licence (MIT) does not require it, but it is right to say where the art came from.
+- **If a sticker's file goes missing** from the project folder, FramePilot copies it back from the
+  app when you open the project, before anything tries to read it.
+- **Ask the assistant:** "add a fire emoji when I say 'this is fire'", "put a thumbs-up at the
+  end". It searches the same library (`search_elements`), adds the sticker the way the tab does
+  (`add_sticker`), and looks at the frame to keep it clear of faces and captions.
+- **What you see is what you export.** The render engine draws the same file, at the same place,
+  size and transparency, as the monitor.
+
+If a sticker cannot be added, the tab says why: not enough disk space, a damaged or missing file
+in this install of FramePilot (reinstalling fixes it), or a project folder that cannot be written
+to. Stickers need the desktop app: in the browser the Stickers tab is not shown.
 
 ## What stays the same
 

@@ -110,6 +110,10 @@ nothing in a non-empty bin.
 | `add_clip`                          | Add a clip from an existing asset                              | write            | yes        |
 | `add_clips`                         | Place a whole sequence on one track in a single call           | write            | yes        |
 | `add_text_layer`                    | Add a text overlay (`add_text_overlay` op)                     | write            | yes        |
+| `search_elements`                   | Find shapes, icons or stickers by words (kind, collection)     | read             | yes        |
+| `add_shape`                         | Draw a catalogue shape or icon on an overlay (`add_shape`)     | write            | yes        |
+| `set_shape_style`                   | Restyle or move a shape (`set_effect_params`)                  | write            | yes        |
+| `add_sticker`                       | Copy a library sticker in and place it (desktop host)          | host (desktop)   | yes        |
 | `add_caption_layer`                 | Add one short mapped caption cue (never a full-song block)     | write            | yes        |
 | `auto_emphasize_captions`           | Ground AI-selected anchors and compose a caption track         | write            | yes        |
 | `set_track_caption_style`           | Set/clear the complete shared caption composition              | write            | yes        |
