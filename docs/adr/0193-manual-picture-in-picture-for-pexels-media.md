@@ -39,16 +39,22 @@ timeline. Only the manual placements change; the agent keeps its cutaway rule.**
   its contain-fit size (`STOCK_OVERLAY_SCALE`), written as the base `scale`, `x` and `y`
   keyframes at time 0 — the same keyframes the on-canvas handles write, so a placed overlay and a
   hand-sized one are the same data. It goes on a picture lane just in front of the front-most
-  picture lane, so it covers the footage and stays under stickers, shapes and titles (ADR 0191);
-  a second overlay joins that lane when it has room rather than opening a lane per clip. It is
-  never refused for covering picture: sitting over footage is what it is for. The new clip is
-  selected so its handles show.
+  picture lane, and never in front of a graphics lane — so it covers the footage and stays under
+  stickers, shapes, titles and captions (ADR 0191), even where an older project has a picture
+  lane stacked above them; a second overlay joins that lane when it has room rather than opening
+  a lane per clip. Started inside the programme, it ends with the last picture clip rather than
+  lengthening the export; started at or after the end, it keeps its own length. It is never
+  refused for covering picture: sitting over footage is what it is for. The new clip is selected
+  so its handles show.
 - **Dragging a tile to the timeline** places the media full frame at the drop time: on the picture
   lane it was dropped on when that lane has room, else on a new lane in front of the footage.
   ADR 0140 itself called the front-lane placement right for a file the user drags in by hand; a
-  drag is an explicit stack. The drag carries the provider id and the kind only, never a path or
-  URL. When the timeline changed during the download so the lane no longer has room, the clip
-  still lands in front and a sentence says so.
+  drag is an explicit stack. It keeps its full length even past the end of the programme, as any
+  clip dragged in from the bin does: a full-frame shot is new material, not a picture over the
+  footage, so the overlay's cap does not apply. The drag carries the provider id and the kind
+  only, never a path or URL; main refuses an id that now names the other kind (a Pexels photo and
+  video can share one). When the timeline changed during the download so the lane no longer has
+  room, the clip still lands in front and a sentence says so.
 - **One builder per placement, in `editor-core`** beside `buildAddStockOps`:
   `buildAddStockOverlayOps` and `buildDropStockOps`. The panel wraps them with a patch identity
   only, so a later agent path cannot drift from what the panel does. Each is one validated patch;
@@ -74,11 +80,16 @@ timeline. Only the manual placements change; the agent keeps its cutaway rule.**
   its contain-fit size (its base `scale` below 1) or it is empty; that is how a second overlay
   finds the first one's lane. A lane the user fills with full-frame footage stops qualifying, and
   the next overlay opens its own lane in front.
-- `buildAddStockOps` still opens its lane at index 0 when it creates one (only into empty time);
-  it is left as it is because the agent calls it and must not change here.
-- Evidence: `editor-core` builder tests (apply and invert, one undo, the lane rules), the web
-  editor's patch, drop and panel tests, the agent-unchanged test, and a desktop end-to-end spec
-  (Add as overlay → a front lane at 40%, centred → export and monitor parity → undo).
+- `buildAddStockOps`, which the agent's `add_stock` also calls, opens a new lane (only into empty
+  time) by the same rule, just in front of the front-most picture lane and under the graphics,
+  rather than at index 0 where it covered them. That moves where the agent's lane opens, on
+  purpose (ADR 0191: graphics stay on top); the agent's placement rule — cutaway first, no
+  picture-in-picture — is unchanged.
+- Evidence: `editor-core` builder tests (apply and invert, one undo, the lane rules, the length
+  cap), the web editor's patch, drop and panel tests, the agent-unchanged test, and a desktop
+  end-to-end spec: Add as overlay → a front lane at 40%, centred → undo and redo → export, with
+  the overlay's and the footage's colours read from an export frame and monitor parity → save,
+  close and reopen; and tiles dragged over and after the footage → undo.
 
 ## Alternatives considered
 

@@ -108,19 +108,26 @@ and you can also drag the tile:
 - **Add** — a **cutaway**: the shot replaces the picture for its length. Put the
   playhead where you want it and press **Add** (or Enter on a focused tile).
 - **Overlay** (Add as overlay) — a **picture-in-picture**: the shot sits on top of
-  whatever is at the playhead, centred, at 40% of full size, on its own layer in
-  front of your footage and under your titles, stickers and shapes. It's selected
-  when it lands, so you can drag it into a corner and resize it on the monitor
-  straight away. It works over footage, which is the point of it.
+  whatever is at the playhead, centred, at 40% of its fitted size, on its own layer
+  in front of your footage and under your titles, stickers and shapes. It's
+  selected when it lands, so you can drag it into a corner and resize it on the
+  monitor straight away. It works over footage, which is the point of it. A long
+  clip placed inside your programme stops where the programme ends, so an overlay
+  never makes your video longer. To lay a shot over your footage full frame from
+  the keyboard, press **Overlay**, then set **Scale** to 1 in the Inspector's
+  **Position & size** section.
 - **Drag the tile onto the timeline** — the shot lands full frame at the moment
   you drop it: on the video layer you dropped it on when that layer has room
-  there, otherwise on a new layer in front of your footage. If you edit the
-  timeline while it downloads and that layer fills up, the shot still lands, on a
-  new layer in front, and FramePilot tells you so.
+  there, otherwise on a new layer in front of your footage. It keeps its full
+  length, as any clip you drag in does. If you edit the timeline while it
+  downloads and that layer fills up, the shot still lands, on a new layer in
+  front, and FramePilot tells you so.
 
 Whichever you choose, the file downloads into your project first, with the same
-progress bar and **Cancel** on the tile. One undo removes everything the add
-created — the clip, any new layer, and the bin entry.
+progress bar and **Cancel** on the tile. If it fails, the tile says why, and the
+button you used says **Retry** (or **Retry overlay**); a failed drag is retried by
+dragging again. One undo removes everything the add created — the clip, any new
+layer, and the bin entry.
 
 FramePilot downloads the smallest rendition that still covers your project's
 resolution — a 1080p project gets the 1080p version, not the 4K one. That's

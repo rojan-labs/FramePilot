@@ -29,14 +29,17 @@ you type leave your computer.
   search of your Pexels allowance; clicking the same chip again costs nothing. Typing leaves the
   category, and **Curated** (Photos) or **Popular** (Videos) takes you back to Pexels' own feed.
 - **Orientation.** **Any**, **Landscape**, **Portrait** or **Square**, starting on your project's
-  shape — a vertical short is offered vertical shots first. Changing it searches again straight
-  away.
+  shape — a vertical short is offered vertical shots first. With a category or a search, changing
+  it searches again straight away. On the **Curated** / **Popular** feed, which Pexels can't filter
+  by shape, it narrows the page already loaded instead of searching again.
 - **Add** puts the shot in as a **cutaway** at the playhead: it replaces the picture for its
   length, so it is disabled over footage and says why.
 - **Overlay** (Add as overlay) puts it **on top** of whatever is at the playhead: a
-  picture-in-picture, centred, at 40% of full size, on a layer in front of your footage and under
-  your titles, stickers and shapes. It is selected when it lands, ready to move and resize on the
-  monitor.
+  picture-in-picture, centred, at 40% of its fitted size, on a layer in front of your footage and
+  under your titles, stickers and shapes. It is selected when it lands, ready to move and resize on
+  the monitor. Started inside your programme, it ends where the programme ends rather than making
+  the video longer. From the keyboard, a full-frame shot over your footage is **Overlay**, then
+  **Scale** 1 in the Inspector's **Position & size** section.
 - **Drag a tile onto the timeline** to put the shot full frame at the drop point — on the video
   layer you dropped it on when it has room there, else on a new layer in front of your footage.
 
