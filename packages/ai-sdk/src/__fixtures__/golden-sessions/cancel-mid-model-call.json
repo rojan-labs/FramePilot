@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 13140,
+      "usedTokens": 13145,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -172,7 +172,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1961,
+            "tokenEstimate": 1967,
             "included": true
           },
           {
@@ -200,7 +200,7 @@
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 5,
+            "tokenEstimate": 4,
             "included": true
           },
           {
@@ -215,9 +215,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 13140,
+          "estimatedInputTokensBeforeSend": 13145,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 178668,
+          "estimatedRemainingCapacity": 178663,
           "calculationSource": "local_estimate"
         },
         "compaction": {
