@@ -224,9 +224,15 @@ describe('the locked plan is actually closed to re-analysis', () => {
 
   it('finds and places elements in every stage: a sticker on a word is an edit', () => {
     // search_elements reads a catalogue, not the footage (guidance); add_sticker sources and
-    // places; the shape tools mutate. None is re-analysis, so no stage may withhold one
-    // (plan/elements 12 F).
-    for (const name of ['search_elements', 'add_sticker', 'add_shape', 'set_shape_style']) {
+    // places; the shape and animation tools mutate. None is re-analysis, so no stage may
+    // withhold one (plan/elements 12 F).
+    for (const name of [
+      'search_elements',
+      'add_sticker',
+      'add_shape',
+      'set_shape_style',
+      'set_element_animation',
+    ]) {
       const spec = getTool(name);
       expect(spec, `${name} must be a registered tool`).toBeDefined();
       for (const stage of RUN_STAGES) {

@@ -648,6 +648,30 @@ const graphicsCapabilities = [
       'Copy a library sticker into the project and lay it over the footage at a third of the frame height, moved and sized by its transform like any overlay; desktop only.',
     availability: { state: 'available' as const, reason: AVAILABLE_REASON },
   },
+  {
+    id: 'graphics.element.animation',
+    kind: 'property' as const,
+    domain: 'graphics' as const,
+    appliesTo: ['clip'] as const,
+    value: { kind: 'enum' as const, unit: 'none' as const },
+    keyframeable: false,
+    inspectable: true,
+    editable: true,
+    tool: 'set_element_animation',
+    compiler: 'editor-core:planElementAnimation',
+    verifier: PATCH_VERIFIER,
+    inverter: PATCH_INVERTER,
+    operationTypes: [
+      'add_layer_transition',
+      'restore_clips',
+      'set_effect_params',
+      'add_keyframes',
+      'remove_keyframes',
+    ] satisfies OperationType[],
+    description:
+      "Give a sticker, shape or title an entrance, an exit and a loop, the Animation section's own presets; the loop is keyframes, so it plays the same in the preview and the export.",
+    availability: { state: 'available' as const, reason: AVAILABLE_REASON },
+  },
 ];
 
 const parsedRegistry = z

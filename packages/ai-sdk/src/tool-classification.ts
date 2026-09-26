@@ -240,6 +240,7 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   // add the sticker it decided on after its first cut.
   add_sticker: { role: 'sourcing', scope: 'timeline_dependent' },
   set_shape_style: { role: 'mutation', scope: 'timeline_dependent' },
+  set_element_animation: { role: 'mutation', scope: 'timeline_dependent' },
   add_track: { role: 'mutation', scope: 'timeline_dependent' },
   add_transition: { role: 'mutation', scope: 'timeline_dependent' },
   add_transitions: { role: 'mutation', scope: 'timeline_dependent' },

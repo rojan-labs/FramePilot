@@ -89,6 +89,7 @@ const TOOL_VERBS: Record<string, string> = {
   add_sticker: 'Adding a sticker',
   add_shape: 'Adding a shape',
   set_shape_style: 'Restyling a shape',
+  set_element_animation: 'Animating an element',
   add_caption_layer: 'Adding captions',
   add_keyframes: 'Animating',
   punch_in: 'Punching in on',
