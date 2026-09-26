@@ -1238,6 +1238,8 @@ describe('no cue ends on a stranded function word when a clean break is in reach
     });
     const text = layoutLines(speak('and worked with billion dollar companies.'), config);
     expect(text).not.toMatch(/billion\ndollar/);
-    expect(text.replace('\n', ' ')).toBe('and worked with billion dollar companies.');
+    // A cue is at most two lines, and its words are the phrase's words in order.
+    expect(text.split('\n').length).toBeLessThanOrEqual(2);
+    expect(flat(text)).toBe('and worked with billion dollar companies.');
   });
 });
