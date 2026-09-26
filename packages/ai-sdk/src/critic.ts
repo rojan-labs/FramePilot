@@ -26,6 +26,7 @@ import {
   elementSampleTimes,
   isSyntheticAssetId,
   rectsOverlap,
+  shapeClipParams,
   stickerEnlargement,
   type FrameRect,
   syntheticClipKind,
@@ -1973,6 +1974,17 @@ function elementSamples(project: Project) {
 
 const quoted = (ids: readonly string[]): string => ids.map((id) => `"${id}"`).join(', ');
 
+/**
+ * Whether an element hides what is under it. A sticker does, and so does a shape with a fill; an
+ * outline, a line or an arrow is drawn around or towards its target and hides next to nothing, so
+ * a ring around a face or a box around a button at the frame's edge is where it should be.
+ */
+function hidesWhatItCovers(clip: Clip, kind: 'sticker' | 'shape'): boolean {
+  if (kind === 'sticker') return true;
+  const fill = shapeClipParams(clip)?.fill;
+  return typeof fill === 'string' && fill !== '';
+}
+
 function checkElementFaces(project: Project, options: CritiqueOptions): CriticCheck {
   const label = 'Elements stay off the faces';
   const elements = elementSamples(project);
@@ -1987,6 +1999,7 @@ function checkElementFaces(project: Project, options: CritiqueOptions): CriticCh
     );
   }
   const over = elements
+    .filter(({ clip, kind }) => hidesWhatItCovers(clip, kind))
     .filter(({ samples }) => {
       const covering = samples.filter(
         ({ time, rect }) =>
@@ -2020,11 +2033,14 @@ function checkElementSafeArea(project: Project, options: CritiqueOptions): Criti
   const edge: string[] = [];
   const band: string[] = [];
   const ui: string[] = [];
-  for (const { clip, samples } of elements) {
+  for (const { clip, kind, samples } of elements) {
     const on = samples.filter(
       (sample): sample is { time: number; rect: FrameRect } => sample.rect !== null,
     );
+    // The margin is for what is placed in free space: a callout sits where its target is, and
+    // a toolbar button at the top of a screen recording is still worth a box.
     if (
+      kind === 'sticker' &&
       on.some(
         ({ rect }) =>
           rect.x < SAFE_AREA_INSET ||
@@ -2058,7 +2074,7 @@ function checkElementSafeArea(project: Project, options: CritiqueOptions): Criti
     'element_safe_area',
     label,
     'warn',
-    `${findings.join('; ')}. Move each toward the middle of the frame, above the captions.`,
+    `${findings.join('; ')}. Move a sticker into free space above the captions; a callout stays on what it points at, so move the captions off it instead.`,
   );
 }
 

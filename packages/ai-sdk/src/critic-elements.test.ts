@@ -133,6 +133,31 @@ describe('element checks', () => {
     expect(find(rail, 'element_safe_area', { targetPlatform: 'linkedin' }).status).not.toBe('warn');
   });
 
+  it('leave a callout on its target: an outline at the frame’s edge or around a face is not moved', () => {
+    // A box framing a toolbar button sits where the button is, at the top of the frame, and a
+    // ring around a face is there to point at it. Neither is a mistake to correct.
+    const shaped = (preset: string, place: Record<string, number>) =>
+      applyProjectPatch(
+        base(),
+        patchOf(
+          buildAddShapeOps(
+            base().timeline,
+            { ...presetShapeParams(preset)!, ...place } as never,
+            0,
+            3,
+          ).operations,
+        ),
+      );
+    const toolbar = shaped('rounded-rect/highlight', { x: 92.5, y: 5, width: 24, height: 6.7 });
+    expect(find(toolbar, 'element_safe_area').status).toBe('pass');
+    const face = { start: 0, end: 5, face: { x: 0.4, y: 0.3, width: 0.2, height: 0.3 } };
+    const ring = shaped('ellipse/outline', { x: 50, y: 45, width: 50, height: 40 });
+    expect(find(ring, 'element_faces', { subjects: [face] }).status).toBe('pass');
+    // A solid shape hides what it covers, so over a face it is still worth a word.
+    const block = shaped('rounded-rect/filled', { x: 50, y: 45, width: 30, height: 30 });
+    expect(find(block, 'element_faces', { subjects: [face] }).status).toBe('warn');
+  });
+
   it('warn when more than three elements are on screen at once', () => {
     let busy = base();
     for (let n = 0; n < 4; n += 1) busy = withSticker(busy, 0, 3, { x: -600 + n * 400, y: 0 });
