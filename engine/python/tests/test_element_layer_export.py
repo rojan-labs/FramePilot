@@ -303,34 +303,59 @@ def test_no_layer_is_blended_over_the_whole_frame(
     assert max(width * height for width, height in sizes) < WIDTH * HEIGHT // 20
 
 
-#: plan/elements 05 §7 budgets the export with 20 element layers at 1.3x the export without them.
-#: Measured 2026-09-26 on an M1 Pro, median CPU of 15 frames, coverage paused: the row's 20
-#: stickers and title over a 4K still composite in 87-90 ms a frame, about 21 ms of which is the
-#: frame without them (its background, and the RGBA frame the first transparent layer makes).
-#: Through the old path the same frame took 262-269 ms. Gated at x2 until CI's headroom is known
-#: (docs/guides/performance-budgets.md), which the old path still fails.
-ELEMENT_FRAME_MEASURED_MS = 90.0
-CI_CEILING_FACTOR = 2.0
+#: plan/elements 05 §7 budgets the export with 20 element layers at 1.3x the export without them;
+#: the full-row workflow measures that ratio. This guard holds the per-frame work that got it
+#: there, against the definitions it replaced, on the same runner in the same process: measured
+#: 2026-09-26 on an M1 Pro, median CPU of 15 frames each, coverage paused, the row's 20 stickers
+#: and title over a 4K still composite in 87-90 ms a frame through the new path and 262-269 ms
+#: through the old one (0.34). An absolute ceiling (twice the Mac's 90 ms) failed on CI at 259 ms
+#: with nothing changed: the runner is about three times slower at this work, and its speed moves
+#: with what the other xdist workers run on the same cores. Timed in alternation, both paths see
+#: the same runner, so their ratio does not move with it. At 0.5 a return of the frame-sized blend
+#: (+5 ms a layer) or of the per-frame resize (+3.5 ms a sticker) fails it; the outline reuse is
+#: held exactly by the operation counts above.
+ELEMENT_FRAME_RATIO_CEILING = 0.5
 ELEMENT_FRAME_RUNS = 15
 
 
 # CPU time, not wall time: the composite is single-threaded Pillow and numpy work, while CI runs
 # the suite on several workers. Coverage is paused, as the app composites without a tracer.
 @pytest.mark.no_cover
-def test_the_twenty_element_layers_composite_a_4k_frame_inside_the_ceiling(
-    playing_row: Any,
+def test_the_twenty_element_layers_composite_a_4k_frame_at_a_third_of_the_old_cost(
+    media: Path, playing_row: Any
 ) -> None:
-    samples = []
-    for index in range(1, ELEMENT_FRAME_RUNS + 1):
+    with pytest.MonkeyPatch.context() as patch:
+        _old_definitions(patch)
+        old_row = _compile(_elements_project(edge_cases=False), media)
+
+    def old_frame(t: float) -> None:
+        # The old outline redraw is a frame-time switch; the other two were compiled in above.
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(compiler._StyledInputs, "matches", lambda *_: False)
+            old_row.get_frame(t)
+
+    def cpu_ms(draw: Any, t: float) -> float:
         start = time.process_time()
-        playing_row.get_frame(index * 0.13)
-        samples.append((time.process_time() - start) * 1000)
-    median = statistics.median(samples)
-    ceiling = ELEMENT_FRAME_MEASURED_MS * CI_CEILING_FACTOR
-    assert median < ceiling, (
-        f"20 element layers + title over a 4K frame: {median:.1f} ms median CPU over "
-        f"{ELEMENT_FRAME_RUNS} frames; measured {ELEMENT_FRAME_MEASURED_MS:.0f} ms, "
-        f"CI ceiling {ceiling:.0f} ms"
+        draw(t)
+        return (time.process_time() - start) * 1000
+
+    new_samples: list[float] = []
+    old_samples: list[float] = []
+    try:
+        old_frame(0.0)
+        for index in range(1, ELEMENT_FRAME_RUNS + 1):
+            t = index * 0.13
+            new_samples.append(cpu_ms(playing_row.get_frame, t))
+            old_samples.append(cpu_ms(old_frame, t))
+    finally:
+        close_clip_tree(old_row)
+    new_median = statistics.median(new_samples)
+    old_median = statistics.median(old_samples)
+    ratio = new_median / old_median
+    assert ratio <= ELEMENT_FRAME_RATIO_CEILING, (
+        f"20 element layers + title over a 4K frame: {new_median:.1f} ms median CPU against "
+        f"{old_median:.1f} ms through the old path ({ratio:.2f}), over the "
+        f"{ELEMENT_FRAME_RATIO_CEILING} ceiling: something made per-frame work come back"
     )
 
 

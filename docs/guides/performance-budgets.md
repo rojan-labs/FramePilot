@@ -496,7 +496,9 @@ peaks at 1.19 GB of heap instead of the 1.90 GB an entry per photo held (about 3
 7.3 GB at 100 photos). `test_element_layer_export.py` compares each with the definition it replaces,
 bit for bit, on the row and on the cases it lacks (off the frame's edges, a scale keyframe, a fade,
 an opaque still), and holds the result with operation counts (no resize or outline after a still's
-first frame, no frame-sized blend) and the timed ceiling, which the old path fails at 261 ms. The
+first frame, no frame-sized blend) and a timed ratio: the new path against the old one, frames
+alternated on the same runner, 0.35 on an M1 Pro and gated at 0.5 (an absolute ceiling of twice the
+Mac's time failed on CI with nothing changed; the runner is about three times slower here). The
 element work is now **66–69 ms a frame** (−72%): a static or outlined sticker 1.3–1.4 ms, a turning
 one 9.3 ms, 7.7 ms of it Pillow's bicubic rotation of its picture and alpha, which changes every
 frame and is the next lever. Scaled to the runner (308 ms × 0.28) that is ≈ 85–90 ms a frame, about
