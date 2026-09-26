@@ -10319,7 +10319,7 @@ stickers, CC BY 4.0 (EL10).
   each, skill pass, cases 4–6, MCP end to end); found and fixed: soft default sticker size on
   vertical/4K, callouts told to move off their targets, sticker ids offered over MCP; the MCP
   sticker materialiser deferred (decided autonomously); CI pending; eval runs are human steps
-- [ ] **EL9** Photos/Videos: category chips, orientation filter, drag to timeline, manual overlay
+- [~] **EL9** Photos/Videos: category chips, orientation filter, drag to timeline, manual overlay
 - [ ] **EL10** Animated stickers (optional, schema v26) — gated on MD-E3
 - [ ] **EL11** Favourites/recents, skin tones, "Add as sticker", drop on monitor, follow subject,
   the browser build

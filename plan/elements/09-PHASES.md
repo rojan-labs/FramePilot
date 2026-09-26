@@ -522,7 +522,7 @@ node packages/ai-sdk/scripts/mission-baseline.mjs --case <case> --runs 10 --yes`
 
 ---
 
-## EL9 — Photos and Videos grow up `[ ]`
+## EL9 — Photos and Videos grow up `[~]`
 
 - [ ] **EL9.1** Category chips as curated queries (cached; each chip is one request, stated in the
       quota strip).
