@@ -7125,7 +7125,6 @@ def create_app(
         as the analysis — the host copied the attachment under the project's media dir.
         """
         media_path = sandbox(req.input_path)
-        # codeql[py/path-injection]
         if not media_path.is_file():
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"Reference not found: {req.input_path}")
         if media_path.suffix.lower() not in _IMAGE_SUFFIXES:
@@ -7134,7 +7133,6 @@ def create_app(
                 f"Only image references have a still; {media_path.name} is not an image.",
             )
         try:
-            # codeql[py/path-injection]
             still = reference_still(media_path, max_dimension=req.max_dimension)
         except (OSError, ValueError) as exc:
             raise HTTPException(
@@ -7158,15 +7156,12 @@ def create_app(
         under the project's media dir). The result is cached beside the file, keyed by
         the file's content hash, so re-attaching or re-asking never re-analyzes.
         """
-        # `media_path` is `sandbox()`-resolved above (PRD §18.1 boundary — see its
-        # docstring): every use below is a file already proven to live inside the
-        # projects root, not the raw `req.input_path`. CodeQL cannot model that
-        # cross-function barrier, so this documented suppression stands in for its
-        # taint analysis on each read/stat that follows.
+        # `media_path` is `sandbox()`-resolved (PRD §18.1 boundary — see its docstring):
+        # every use below is a file already proven to live inside the projects root, not
+        # the raw `req.input_path`.
         media_path = sandbox(req.input_path)
         if not media_path.is_file():
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"Reference not found: {req.input_path}")
-        # codeql[py/path-injection]
         content_hash = _sha256_file(media_path)
         cache_path = media_path.with_name(f"{media_path.name}.reference.json")
         # The sandbox proved the MEDIA path lives inside the root, not its sibling: a
@@ -7178,7 +7173,6 @@ def create_app(
                 "reference cache for %s is a symlink; ignoring it and re-analyzing",
                 media_path.name,
             )
-        # codeql[py/path-injection]
         if not req.refresh and not cache_is_link and cache_path.is_file():
             try:
                 cached = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -7201,10 +7195,8 @@ def create_app(
                     kind="video", content_hash=content_hash, video=payload, cached=False
                 )
         except (FFmpegError, OSError, ValueError) as exc:
-            # codeql[py/path-injection]
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         try:
-            # codeql[py/path-injection]
             _replace_file_text(
                 cache_path, json.dumps(response.model_dump(by_alias=True, exclude_none=True))
             )

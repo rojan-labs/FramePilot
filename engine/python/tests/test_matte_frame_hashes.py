@@ -149,6 +149,17 @@ def test_routes_refuse_escapes_other_files_and_oversized_requests(tmp_path: Path
     )
 
 
+def test_a_nul_byte_in_the_path_is_a_bad_request_not_a_server_error(tmp_path: Path) -> None:
+    """JSON can carry ``\\u0000``; no file name can. The sandbox refuses it like any other
+    bad path (400) instead of letting the OS layer's ``ValueError`` become a 500."""
+    client = TestClient(create_app(Settings(projects_root=tmp_path)), raise_server_exceptions=False)
+    response = client.post(
+        "/mattes/frame-hashes", json={"input_path": str(tmp_path / "a\u0000b.mp4"), "pts": [0]}
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "The file is outside the projects folder."
+
+
 def test_routes_refuse_without_a_projects_root(tmp_path: Path) -> None:
     matte = _matte(tmp_path)
     client = TestClient(create_app(Settings(projects_root=None)))
