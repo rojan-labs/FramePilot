@@ -7,6 +7,12 @@
  * The handle layer sits inside the clip's transform at the playhead (translated, turned and scaled
  * about the shape's centre, as the export places the raster), and the geometry lives in
  * `preview/shape-handles.ts`.
+ *
+ * **Keyboard.** The shape's body is one stop, named by what the shape is ("Move Arrow"); the
+ * arrows move it. The resize and endpoint handles are pointer-only and hidden from assistive tech:
+ * activated, they would do nothing, and the Inspector's Box and Ends fields are the keyboard route
+ * to the same edits. (Shift to keep the aspect, Alt to resize from the centre, snapping and a
+ * rotation handle — which the sticker box has — are not offered for shapes yet.)
  */
 import { useRef, useState } from 'react';
 import {
@@ -34,6 +40,8 @@ export interface ShapeHandleTransform {
 
 export interface PreviewShapeEditorProps {
   readonly clipId: string;
+  /** What the shape is, as the catalogue names it ("Arrow"): its handles' accessible name. */
+  readonly name: string;
   readonly params: Params;
   /** The project frame, in output pixels. */
   readonly resolution: { readonly width: number; readonly height: number };
@@ -49,6 +57,9 @@ interface Drag {
   readonly frame: DOMRect;
 }
 
+/** The arrows the body answers, for `aria-keyshortcuts`. */
+const NUDGE_KEYS = 'ArrowUp ArrowDown ArrowLeft ArrowRight';
+
 const num = (params: Params, key: string): number => {
   const value = params[key];
   return typeof value === 'number' ? value : 0;
@@ -56,6 +67,7 @@ const num = (params: Params, key: string): number => {
 
 export function PreviewShapeEditor({
   clipId,
+  name,
   params,
   resolution,
   transform,
@@ -115,6 +127,8 @@ export function PreviewShapeEditor({
     const d = delta[event.key];
     if (d === undefined) return;
     event.preventDefault();
+    // The arrows are this shape's now, not the editor's frame steps as well.
+    event.stopPropagation();
     onCommit(
       segment
         ? segmentDragChanges(params, 'move', d[0], d[1])
@@ -140,7 +154,7 @@ export function PreviewShapeEditor({
       number,
     ];
     return (
-      <div ref={layerRef} className="preview-shape-editor" style={layerStyle}>
+      <div ref={layerRef} className="preview-shape-editor" data-clip-id={clipId} style={layerStyle}>
         <svg className="preview-shape-editor-line" viewBox="0 0 100 100" preserveAspectRatio="none">
           <line
             x1={x1}
@@ -149,7 +163,8 @@ export function PreviewShapeEditor({
             y2={y2}
             role="button"
             tabIndex={0}
-            aria-label={`move shape ${clipId}`}
+            aria-label={`Move ${name}`}
+            aria-keyshortcuts={NUDGE_KEYS}
             onPointerDown={begin('move')}
             onKeyDown={nudge}
             {...handlers}
@@ -164,10 +179,9 @@ export function PreviewShapeEditor({
           <span
             key={handle}
             className="preview-shape-handle is-end"
+            data-end={handle}
             style={{ left: `${x}%`, top: `${y}%` }}
-            role="button"
-            tabIndex={-1}
-            aria-label={`drag the ${handle} of shape ${clipId}`}
+            aria-hidden="true"
             onPointerDown={begin(handle)}
             {...handlers}
           />
@@ -178,7 +192,7 @@ export function PreviewShapeEditor({
 
   const rect = boxRect(shown, aspect);
   return (
-    <div ref={layerRef} className="preview-shape-editor" style={layerStyle}>
+    <div ref={layerRef} className="preview-shape-editor" data-clip-id={clipId} style={layerStyle}>
       <div
         className="preview-shape-box"
         style={{
@@ -189,7 +203,8 @@ export function PreviewShapeEditor({
         }}
         role="button"
         tabIndex={0}
-        aria-label={`move shape ${clipId}`}
+        aria-label={`Move ${name}`}
+        aria-keyshortcuts={NUDGE_KEYS}
         onPointerDown={begin('move')}
         onKeyDown={nudge}
         {...handlers}
@@ -198,9 +213,7 @@ export function PreviewShapeEditor({
           <span
             key={handle}
             className={`preview-shape-handle is-${handle}`}
-            role="button"
-            tabIndex={-1}
-            aria-label={`resize shape ${clipId} from ${handle}`}
+            aria-hidden="true"
             onPointerDown={begin(handle)}
             {...handlers}
           />

@@ -93,10 +93,14 @@ test('Shapes: add a highlight box, resize it on the monitor, recolour it, export
   });
 
   // --- resize on the monitor: one drag of a corner handle, one patch ----------------------------
-  const corner = page.getByRole('button', {
-    name: `resize shape ${shape.id} from se`,
-    exact: true,
-  });
+  // The corner is pointer-only (hidden from assistive tech; the Inspector's Box fields are the
+  // keyboard route), so it is found by its place on this shape's handle layer, not by a role.
+  await expect(
+    page.getByRole('button', { name: 'Move Rounded rectangle', exact: true }),
+  ).toBeVisible();
+  const corner = page.locator(
+    `.preview-shape-editor[data-clip-id="${shape.id}"] .preview-shape-handle.is-se`,
+  );
   await expect(corner).toBeVisible();
   const start = (await corner.boundingBox())!;
   await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);

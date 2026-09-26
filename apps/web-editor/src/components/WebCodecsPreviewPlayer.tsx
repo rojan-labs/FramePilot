@@ -12,6 +12,7 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Asset, CaptionStyle, TranscriptWord } from '@framepilot/timeline-schema';
+import { shapeDescriptor } from '@framepilot/timeline-schema';
 import { createLogger } from '@framepilot/shared-types';
 import {
   effectLayerMaskOwner,
@@ -1126,11 +1127,17 @@ export function WebCodecsPreviewPlayer({
                 value('scale', 1),
                 value('rotation', 0),
               ];
+              // By what it is, as the catalogue names it: a clip id means nothing to a listener.
+              const shapeName =
+                (typeof params.shape === 'string'
+                  ? shapeDescriptor(params.shape)?.name
+                  : undefined) ?? 'shape';
               if (selectedShape?.id === clip.id) {
                 return (
                   <PreviewShapeEditor
                     key={clip.id}
                     clipId={clip.id}
+                    name={shapeName}
                     params={params}
                     resolution={resolution}
                     transform={{ x, y, scale, rotation }}
@@ -1161,7 +1168,7 @@ export function WebCodecsPreviewPlayer({
                     }}
                     role="button"
                     tabIndex={0}
-                    aria-label={`select shape ${clip.id} in preview`}
+                    aria-label={`Select ${shapeName}`}
                     onClick={(event) => {
                       event.stopPropagation();
                       editor.select(shownPicture?.id ?? null);

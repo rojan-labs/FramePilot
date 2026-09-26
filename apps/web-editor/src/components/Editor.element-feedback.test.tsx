@@ -16,6 +16,12 @@ import { demoProject } from '../editor/demo.js';
 import { resetDownloadRegistriesForTests } from '../editor/download-registry.js';
 import { Editor } from './Editor.js';
 
+// The layer compositor's monitor, the desktop default, which draws the shape handles.
+vi.mock('../preview/compositor-flag.js', () => ({
+  layerCompositorEnabled: () => true,
+  previewCompositor: () => 'layers',
+}));
+
 const stickerAsset = (id: string): ElementAssetWire => ({
   id: `element_fluent3d_${id}`,
   path: `media/p/elements/fluent3d/${id}.webp`,
@@ -104,6 +110,9 @@ describe('Editor — feedback after every element add', () => {
         .filter((candidate) => candidate.assetId === '__shape__')
         .map((candidate) => candidate.id);
     expect(selected(shapes()[0]!)).toBe('true');
+    // Its handles are on the monitor, named by what the shape is (as the Inspector's Shape field
+    // names it), not by a clip id.
+    expect(screen.getByRole('button', { name: 'Move Rounded rectangle' })).toBeDefined();
 
     // The same message again is read again: the region empties first.
     fireEvent.click(tile);

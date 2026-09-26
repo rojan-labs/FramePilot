@@ -26,6 +26,12 @@
  * **Modifiers.** `Shift` constrains — a move locks to the dominant axis, a rotation
  * steps in 15° increments. `Alt` defeats snapping mid-drag (the same convention as
  * timeline snapping and the Phase 2 scrub bar).
+ *
+ * **Keyboard.** Every handle works from the keys, one committed patch per press (the
+ * shape handles' rule): the arrows on the box nudge the clip a canvas pixel (Shift, ten);
+ * on a corner they scale it a percent (Shift, ten); on the rotation handle they turn it a
+ * degree (Shift, fifteen). Only the arrows are taken — every other key still reaches the
+ * editor's shortcuts from a focused handle.
  */
 import { useRef, useState } from 'react';
 import { rotationToCssDegrees } from '../preview/picture-transform.js';
@@ -83,6 +89,32 @@ const SNAP_TOLERANCE_FRACTION = 0.015;
 
 /** Rotation increment while the constrain modifier is held. */
 const ROTATION_SNAP_DEGREES = 15;
+
+/** One arrow press on the box: canvas pixels moved, plain and with Shift. */
+const KEY_NUDGE_PX = { fine: 1, coarse: 10 } as const;
+/** One arrow press on a corner: scale change in percent points, plain and with Shift. */
+const KEY_SCALE_PERCENT = { fine: 1, coarse: 10 } as const;
+/** One arrow press on the rotation handle: degrees, plain and with Shift. */
+const KEY_ROTATE_DEGREES = { fine: 1, coarse: ROTATION_SNAP_DEGREES } as const;
+
+/** The arrows a handle answers, for `aria-keyshortcuts`. */
+const ARROW_KEYS = 'ArrowUp ArrowDown ArrowLeft ArrowRight';
+
+/** An arrow as a step along a slider: Up and Right increase, Down and Left decrease. */
+const SLIDER_STEP: Readonly<Record<string, 1 | -1>> = {
+  ArrowUp: 1,
+  ArrowRight: 1,
+  ArrowDown: -1,
+  ArrowLeft: -1,
+};
+
+/** An arrow as a move on the picture, in screen directions (y grows downward). */
+const NUDGE_DIRECTION: Readonly<Record<string, readonly [number, number]>> = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+};
 
 /**
  * How far a move must travel before axis-constrain picks a direction. Below this
@@ -323,6 +355,48 @@ export function PreviewTransform({
     if (transformChanged(active.latest, active.base)) onCommit(active.latest);
   };
 
+  /**
+   * Commit one key press's change: the arrows belong to this handle, so neither the page
+   * nor the editor's own arrow shortcuts also act on it.
+   */
+  const commitKey = (event: React.KeyboardEvent, next: ClipTransformValues): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (transformChanged(next, value)) onCommit(next);
+  };
+
+  const onBoxKeyDown = (event: React.KeyboardEvent<HTMLElement>): void => {
+    // A handle or Reset inside the box handles its own keys.
+    if (event.target !== event.currentTarget) return;
+    const direction = NUDGE_DIRECTION[event.key];
+    if (direction === undefined) return;
+    const step = event.shiftKey ? KEY_NUDGE_PX.coarse : KEY_NUDGE_PX.fine;
+    commitKey(event, {
+      ...value,
+      x: value.x + direction[0] * step,
+      y: value.y + direction[1] * step,
+    });
+  };
+
+  const onCornerKeyDown = (event: React.KeyboardEvent<HTMLElement>): void => {
+    const sign = SLIDER_STEP[event.key];
+    if (sign === undefined) return;
+    const step = event.shiftKey ? KEY_SCALE_PERCENT.coarse : KEY_SCALE_PERCENT.fine;
+    // Whole percent points: a keyboard user steps 100 → 101 → 111, never 100.9999.
+    const percent = Math.round(value.scale * 100) + sign * step;
+    commitKey(event, { ...value, scale: clampScale(percent / 100) });
+  };
+
+  const onRotateKeyDown = (event: React.KeyboardEvent<HTMLElement>): void => {
+    const sign = SLIDER_STEP[event.key];
+    if (sign === undefined) return;
+    const step = event.shiftKey ? KEY_ROTATE_DEGREES.coarse : KEY_ROTATE_DEGREES.fine;
+    commitKey(event, {
+      ...value,
+      rotation: normalizeRotation((value.rotation ?? 0) + sign * step),
+    });
+  };
+
   /** Back to the engine's identity transform, as one committed patch. */
   const resetTransform = (): void => {
     if (!transformChanged(value, { scale: 1, x: 0, y: 0, rotation: 0 })) return;
@@ -355,7 +429,11 @@ export function PreviewTransform({
         className="preview-transform"
         role="group"
         aria-label="Transform selected clip"
+        // Focusable, so its arrows move the clip: the keyboard's drag of the box.
+        tabIndex={0}
+        aria-keyshortcuts={ARROW_KEYS}
         style={{ ...transformBoxStyle(shown, resolution), transform: transformBoxRotation(shown) }}
+        onKeyDown={onBoxKeyDown}
         onPointerDown={(event) => beginGesture(event, 'move', event.currentTarget)}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -368,8 +446,10 @@ export function PreviewTransform({
             aria-valuenow={Math.round(shown.scale * 100)}
             aria-valuemin={TRANSFORM_SCALE_BOUNDS.min * 100}
             aria-valuemax={TRANSFORM_SCALE_BOUNDS.max * 100}
+            aria-valuetext={`${Math.round(shown.scale * 100)}%`}
             tabIndex={0}
             className={`preview-transform-handle preview-transform-handle--${corner}`}
+            onKeyDown={onCornerKeyDown}
             onPointerDown={(event) => {
               const box = event.currentTarget.parentElement;
               if (box) beginGesture(event, 'corner', box);
@@ -389,6 +469,7 @@ export function PreviewTransform({
           aria-valuetext={`${Math.round(rotationDeg)}°`}
           tabIndex={0}
           className="preview-transform-rotate"
+          onKeyDown={onRotateKeyDown}
           onPointerDown={(event) => {
             const box = event.currentTarget.parentElement;
             if (box) beginGesture(event, 'rotate', box);

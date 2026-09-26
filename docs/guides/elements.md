@@ -120,7 +120,12 @@ recording or a product demo:
 - **Move and resize it on the monitor:** drag the box to move it, a side or corner to resize it.
   An arrow or underline has two round handles, one per end: drag the arrow's tip onto what it
   points at. Arrow keys nudge a selected shape (Shift for a bigger step). Double-click a shape on
-  the monitor, or press Enter on it, to select it.
+  the monitor, or press Enter on it, to select it. The box and handles are white on a dark edge,
+  so they show over any footage in either theme; a screen reader names the shape ("Move Arrow").
+  The resize and end handles are for the pointer only; from the keyboard, size a shape with its
+  **Box** or **Ends** numbers in the Inspector. Holding Shift to keep a shape's proportions, Alt
+  to resize from the centre, snapping and a rotate handle are not offered for shapes yet; turn one
+  with **Position & size** in the Inspector.
 - **Style it in the Inspector (Shape):** the shape itself (swap a box for a star, an arrow for a
   curved arrow — the colours and placement stay), fill and stroke on or off, their colour and
   opacity, stroke width and style (solid, dashed, dotted), the shape's own settings (corner
@@ -182,8 +187,11 @@ build:elements` has built the rest.)
   result is Enter on the tile, then **Position & size** in the Inspector. (Photos and videos go
   on the timeline, not the monitor, for now.)
 - **Move, size and turn it** on the monitor like any other picture: drag it, drag a corner, or use
-  the rotate handle. **Position & size** in the Inspector sets the same values as numbers, and
-  keyframes animate them. Opacity, fades, transitions and blend modes work as they do on a photo.
+  the rotate handle. From the keyboard, Tab to the box and use the arrows to move it a pixel at a
+  time (Shift, ten); on a corner the arrows scale it by 1% (Shift, 10%), and on the rotate handle
+  they turn it by 1° (Shift, 15°). Each press is one undo step. **Position & size** in the
+  Inspector sets the same values as numbers, and keyframes animate them. Opacity, fades,
+  transitions and blend modes work as they do on a photo.
 - **Outline it or give it a shadow:** the Inspector's **Sticker** section has **Outline** (colour
   and width) and **Shadow** (a preset). They trace the sticker's art, not its square. For a glow,
   or every setting, use **Inspector → Mask → Edge style**; a mask you draw on the sticker narrows

@@ -982,6 +982,10 @@ input[type='checkbox']:focus-visible {
   z-index: 3;
   touch-action: none;
 }
+.preview-transform:focus-visible {
+  outline: 2px solid var(--tl-select);
+  outline-offset: 2px;
+}
 .preview-transform-handle {
   position: absolute;
   width: 9px;
@@ -4232,19 +4236,25 @@ g.mask-canvas-draft circle {
   pointer-events: auto;
   cursor: pointer;
 }
+/* The monitor is dark in both themes and the footage under a shape can be anything, so the shape
+   chrome is the sticker box's two-tone (white over a dark halo), never the theme accent — which is
+   near-black in the light theme and vanished on the stage. Focus is the timeline's selection
+   orange, as the monitor's drop ring is. */
 .preview-shape-hit:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--tl-select);
+  outline-offset: 1px;
 }
 .preview-shape-box {
   position: absolute;
   pointer-events: auto;
   cursor: move;
-  outline: 1px dashed var(--accent);
+  outline: 1px dashed rgba(255, 255, 255, 0.98);
   outline-offset: 0;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.72);
 }
 .preview-shape-box:focus-visible {
-  outline-style: solid;
-  outline-width: 2px;
+  outline: 2px solid var(--tl-select);
+  outline-offset: 1px;
 }
 .preview-shape-handle {
   position: absolute;
@@ -4252,8 +4262,8 @@ g.mask-canvas-draft circle {
   height: 10px;
   margin: -5px 0 0 -5px;
   pointer-events: auto;
-  background: var(--bg-app);
-  border: 1.5px solid var(--accent);
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.82);
   border-radius: 2px;
 }
 .preview-shape-handle.is-end {
@@ -4314,14 +4324,14 @@ g.mask-canvas-draft circle {
 .preview-shape-editor-line line {
   pointer-events: stroke;
   cursor: move;
-  stroke: var(--accent);
+  stroke: var(--tl-select);
   stroke-dasharray: 4 3;
   stroke-width: 12px;
-  stroke-opacity: 0.35;
+  stroke-opacity: 0.45;
   vector-effect: non-scaling-stroke;
 }
 .preview-shape-editor-line line:focus-visible {
-  stroke-opacity: 0.8;
+  stroke-opacity: 1;
   outline: none;
 }
 
