@@ -47,6 +47,7 @@ export type ToolDomain =
   | 'color'
   | 'motion'
   | 'effects'
+  | 'elements'
   | 'footage'
   | 'sourcing'
   | 'tracking'
@@ -73,6 +74,9 @@ export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string
     'grade the picture — the colour and look pass of a professional edit: match shots to each other, even out exposure, apply a cinematic look, grade directly; measure what is on screen now',
   motion: 'keyframes, punch-ins, camera moves and speed ramps',
   effects: 'effects, transitions and on-screen text; browse what is available; verify fit',
+  // Plan/elements: the words a screen-recording or product-demo request uses.
+  elements:
+    'stickers and emoji, and shapes over the picture — highlight boxes, arrows, circles, markers, underlines, callouts, numbered badges, stars, icons; find, place, restyle and move them, and animate them in, out and on a loop',
   footage:
     'understand the raw material: scenes, shots, what is visually in it, where each moment lives',
   sourcing: 'find and place stock footage and music from the libraries',
@@ -213,6 +217,13 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'discover_transitions',
     'verify_transitions',
   ],
+  elements: [
+    'search_elements',
+    'add_sticker',
+    'add_shape',
+    'set_shape_style',
+    'set_element_animation',
+  ],
   footage: [
     'detect_scenes',
     'search_media',
@@ -339,7 +350,10 @@ const DOMAIN_REQUEST_WORDS: Readonly<Record<Exclude<ToolDomain, 'core'>, RegExp>
   captions: /\b(captions?|subtitles?)\b/gi,
   audio: /\b(silences?|dead air|fillers?|filler words|duck\w*|loudness|beats?)\b/gi,
   motion: /\b(punch[- ]?ins?|keyframes?|zooms?|speed ramps?|reframe\w*|crops?)\b/gi,
-  effects: /\b(transitions?|effects?|titles?|text layers?|graphics?|callouts?)\b/gi,
+  effects: /\b(transitions?|effects?|titles?|text layers?|graphics?)\b/gi,
+  // Plan/elements 07 §2: the callout words live here now; stickers and emoji join with EL6a.
+  elements:
+    /\b(stickers?|emojis?|shapes?|arrows?|circl(?:e|es|ing)|highlight(?:ed)? box(?:es)?|highlight (?:the|a|an)|underlin\w*|callouts?|badges?|speech bubbles?|box(?:es)? around|point(?:ing)? (?:at|to)|pops? (?:in|out)|puls(?:e|es|ing)|wiggl\w*)\b/gi,
   footage:
     /\b(index(?:ed|ing)?|index_media|map_footage|describe_footage|search_visual|detect_scenes|footage map|scene detection|shot list)\b/gi,
   tracking: /\b(who is on screen|detect (?:the )?(?:faces?|people|subjects?)|tracker)\b/gi,
@@ -354,12 +368,13 @@ const DOMAIN_REQUEST_WORDS: Readonly<Record<Exclude<ToolDomain, 'core'>, RegExp>
  * the editor. A domain id ("sourcing") and a tool list were written there before.
  */
 export const DOMAIN_LABEL: Readonly<Record<Exclude<ToolDomain, 'core'>, string>> = {
-  sourcing: 'Stock footage and music',
+  sourcing: 'Photos, videos and music',
   color: 'Colour',
   captions: 'Captions',
   audio: 'Audio clean-up',
   motion: 'Motion and reframing',
   effects: 'Transitions, titles and effects',
+  elements: 'Stickers and shapes',
   footage: 'Footage search',
   tracking: 'Tracking',
   masking: 'Masks and cut-outs',

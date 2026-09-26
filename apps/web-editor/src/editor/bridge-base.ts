@@ -45,6 +45,10 @@ import type {
   StockSearchResult,
   StockBytesResult,
   StockDownloadRequest,
+  ElementMaterializeRequest,
+  ElementMaterializeResult,
+  ElementThumbnailRequest,
+  ElementThumbnailResult,
   StockDownloadResult,
   StockDownloadProgressWire,
   StockQuotaSnapshot,
@@ -450,6 +454,38 @@ export async function musicDownload(
   return bridge.musicDownload(request);
 }
 
+/**
+ * Copy a catalogue sticker into the open project (plan/elements EL6a). Desktop only: the browser
+ * build has no project folder to copy into, so it hears `library_missing` with the reason.
+ */
+export async function elementsMaterialize(
+  request: ElementMaterializeRequest,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<ElementMaterializeResult> {
+  if (!bridge?.elementsMaterialize) {
+    return {
+      ok: false,
+      error: 'library_missing',
+      detail: 'Stickers are only available in the desktop app.',
+    };
+  }
+  return bridge.elementsMaterialize(request);
+}
+
+/**
+ * Tiles of packaged stickers, which the desktop installer ships outside the renderer's own files
+ * (plan/elements EL6b). An empty request asks only whether this build has the packaged set; a
+ * build without the channel (the browser, an older desktop) has none, so the panel lists the
+ * curated stickers alone.
+ */
+export async function elementsThumbnail(
+  request: ElementThumbnailRequest,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<ElementThumbnailResult> {
+  if (!bridge?.elementsThumbnail) return { ok: true, packaged: false, thumbs: [] };
+  return bridge.elementsThumbnail(request);
+}
+
 /** Cancel an in-flight download. No-op without a bridge. */
 export function musicDownloadCancel(
   operationId: string,
@@ -478,13 +514,13 @@ export function onMusicDownloadProgress(
  * The "this is desktop-only" answer, shared by every stock helper.
  *
  * Reaching a provider needs the main process — the renderer's CSP forbids it,
- * deliberately. In the browser the Stock tab is absent rather than
+ * deliberately. In the browser the Photos and Videos sub-tabs are absent rather than
  * present-and-broken, so this is a backstop, not the user-facing path.
  */
 const STOCK_DESKTOP_ONLY = {
   ok: false,
   error: 'provider_unavailable',
-  detail: 'Stock search is only available in the desktop app.',
+  detail: 'Photo and video search is only available in the desktop app.',
 } as const;
 
 /** Search the stock provider through the main process. */

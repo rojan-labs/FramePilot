@@ -3,12 +3,17 @@
  * and caption segmentation. See plan/PLAN.md Phase 1.2–1.4.
  */
 export * from './operations.js';
+// Synthetic asset ids and clip kind: the one definition (plan/elements EL3).
+export * from './synthetic-assets.js';
+// Where a shape's engine raster sits: the plan's placement and the monitor's hit-test (EL4a).
+export * from './shape-geometry.js';
 export * from './operation-contract.js';
 export * from './edit-value-contracts.js';
 export * from './project-operations.js';
 export * from './patch.js';
 export * from './history.js';
 export * from './validator.js';
+export { GEOMETRIC_MASK_KINDS } from './mask-validation.js';
 export * from './keyframes.js';
 // Which picture clips replay material another already plays — the one definition the agent's
 // clip rows, `get_clips` and the duplicate-takes rubric share (TRACKING Q5).
@@ -33,12 +38,20 @@ export * from './motion-commands.js';
 export * from './color-commands.js';
 export * from './clip-blur.js';
 export * from './track-follow.js';
+// Loop motion for stickers, shapes and titles as keyframes (plan/elements EL7.2).
+export * from './loop-motion.js';
+// In / Out / Loop for stickers, shapes and titles, as one reversible request (plan/elements EL7).
+export * from './element-animation.js';
+// Where an element is on the frame, for the agent's checks and the Inspector (plan/elements EL8.1).
+export * from './element-frame.js';
 export * from './track-reframe.js';
 export * from './picture-occupancy.js';
 export * from './lane-placement.js';
 // The one shape of "a fetched stock clip on the timeline", shared by the Stock
 // panel and the agent's `add_stock` so the two paths cannot drift (ADR 0140).
 export * from './stock-placement.js';
+// Where a shape (and, later, a sticker) lands: shared by the Elements tab and the agent (EL4a).
+export * from './element-placement.js';
 // The audio twin: shared by the Sounds panel and the agent's `add_music`.
 export * from './music-placement.js';
 // The v22 mask stack's display-corrected source space and compact path storage (ADR 0178).

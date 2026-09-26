@@ -84,6 +84,6 @@ export function describeUnresolvableAssets(problems: readonly UnresolvableAsset[
     .join(', ');
   return (
     `This edit references media that is not in this project: ${named}. Nothing was changed. ` +
-    `Stock and music have to be downloaded through the app before they can be used.`
+    `Stock, music and stickers have to be added through the app before they can be used.`
   );
 }

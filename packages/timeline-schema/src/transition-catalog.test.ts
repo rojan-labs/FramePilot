@@ -24,6 +24,7 @@ import {
 import {
   TRANSITION_ALIGNMENTS,
   TRANSITION_APPLY_PATH,
+  TRANSITION_EXIT_BY_MASK,
   TRANSITION_DIRECTIONS,
   TRANSITION_PARAMS,
   TRANSITION_RENDER_KINDS,
@@ -286,6 +287,7 @@ describe('committed schema/transition-catalog.json (cross-language contract)', (
       params: TRANSITION_PARAMS,
       directions: TRANSITION_DIRECTIONS,
       applyPath: TRANSITION_APPLY_PATH,
+      exitByMask: TRANSITION_EXIT_BY_MASK,
       transitions: TRANSITION_CATALOG,
     }).toEqual(committed);
   });

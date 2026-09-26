@@ -127,6 +127,31 @@ describe('createDownloadRegistry', () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
+  it('finds a download by its operation id when its key is not the provider id', () => {
+    // Stock keys a download by kind and id (a Pexels photo and video can share an id); main's
+    // progress names the id alone, and the operation id is what ties it to the right tile.
+    const feed = fakeFeed();
+    const registry = createDownloadRegistry(feed.subscribe);
+    registry.start('photo:9', 'op-photo');
+    registry.start('video:9', 'op-video');
+
+    feed.emit(progress({ remoteId: '9', operationId: 'op-video', completedBytes: 50 }));
+
+    expect(registry.getSnapshot()['video:9']).toMatchObject({ percent: 50 });
+    expect(registry.getSnapshot()['photo:9']).toMatchObject({ percent: null });
+  });
+
+  it('keeps which action failed, so that action is the one offered again', () => {
+    const registry = createDownloadRegistry(fakeFeed().subscribe);
+    registry.start('a', 'op-1');
+    registry.fail('a', 'No network connection.', 'overlay');
+    expect(registry.getSnapshot()['a']).toEqual({
+      kind: 'failed',
+      message: 'No network connection.',
+      action: 'overlay',
+    });
+  });
+
   it('replaces a download with the sentence explaining why it failed', () => {
     const feed = fakeFeed();
     const registry = createDownloadRegistry(feed.subscribe);

@@ -7,6 +7,11 @@
  * keyed to the immutable source clip instead of serializing all styling payloads.
  */
 export * from './patch-builders-base.js';
+// Shapes (plan/elements EL4a): add from a preset, restyle, move.
+export * from './shape-builders.js';
+export * from './sticker-builders.js';
+// Photos and Videos (plan/elements EL9): Add as overlay, and a tile dropped on the timeline.
+export * from './stock-builders.js';
 
 import type { Asset, Timeline } from '@framepilot/timeline-schema';
 import {

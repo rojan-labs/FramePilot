@@ -53,15 +53,15 @@ layout.
 - **Display** controls System/Light/Dark theme, timecode versus seconds, and
   comfortable versus compact workspace density.
 - **Editing** controls timeline snapping, clip thumbnails, playhead following,
-  and the default duration for new overlays.
+  and the default duration for new elements (text overlays, shapes and stickers).
 - **Playback** controls loop, composition-grid and safe-area defaults, plus reduced
   motion. The program monitor uses the product preview path automatically, so
   preview-engine selection is not exposed as a preference.
 - **AI** configures the active reasoning provider and each provider's key/model
   fields. It also configures local or TwelveLabs speech-to-text, TwelveLabs media
-  understanding, project preparation status, the Pexels key for stock photo and
-  video search, and the optional AI usage-details diagnostic.
-  - **Stock media** is the one key field that never shows its value back. It is
+  understanding, project preparation status, the Pexels key behind Elements → Photos
+  and Videos, and the optional AI usage-details diagnostic.
+  - **Photos & videos (Pexels)** is the one key field that never shows its value back. It is
     used only by the app's main process, so once saved it reads **Configured**
     with Replace/Clear rather than round-tripping to the editor window. Beneath
     it, the monthly provider quota is shown as last observed — see

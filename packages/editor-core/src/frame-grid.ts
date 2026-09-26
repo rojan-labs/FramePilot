@@ -182,6 +182,7 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
     case 'move_clip':
       return { ...op, toStart: snapSecondsToFrame(op.toStart, fps) };
     case 'add_text_overlay':
+    case 'add_shape':
     case 'add_caption_layer':
       return {
         ...op,

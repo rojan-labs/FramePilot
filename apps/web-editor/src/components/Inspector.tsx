@@ -31,9 +31,12 @@ import {
   Palette,
   RotateCcw,
   Scan,
+  Shapes,
+  Smile,
   SlidersHorizontal,
   Sparkles,
   Type,
+  Orbit,
   type LucideIcon,
 } from './icons.js';
 import { Tooltip } from './Tooltip.js';
@@ -56,6 +59,9 @@ import { CropPanel } from './inspector/sections/CropSection.js';
 import { BlendModePanel } from './inspector/sections/BlendSection.js';
 import { TransitionPanel } from './inspector/sections/TransitionSection.js';
 import { TextOverlayInspector } from './inspector/sections/TextSection.js';
+import { ShapeInspector } from './inspector/sections/ShapeSection.js';
+import { StickerInspector } from './inspector/sections/StickerSection.js';
+import { AnimationInspector } from './inspector/sections/AnimationSection.js';
 import { TransformPanel } from './inspector/sections/TransformSection.js';
 import { ClipEffectList } from './inspector/sections/ClipEffectList.js';
 import { oneOf, useViewPreference } from '../editor/useViewPreference.js';
@@ -68,7 +74,19 @@ export interface InspectorProps {
   /** Selected effect layers take precedence over clip selection. */
   readonly selectedEffectLayerIds?: readonly string[];
   readonly onClearEffectLayers?: () => void;
+  /** Open Elements → Stickers to replace the selected sticker (plan/elements 02 §4.1). */
+  readonly onReplaceSticker?: (clipId: string, name: string) => void;
+  /** The export frame size, for the Sticker section's sharpness note (plan/elements EL6b.3). */
+  readonly resolution?: { readonly width: number; readonly height: number };
+  /**
+   * A section to bring into view (its tab chosen, opened, scrolled to): the clip menu's
+   * "Animation…" asks for `animation`. A new `nonce` asks again.
+   */
+  readonly focusSection?: { readonly id: string; readonly nonce: number } | null;
 }
+
+/** The frame a host that passes none (tests, stories) is taken to export at. */
+const DEFAULT_RESOLUTION = { width: 1920, height: 1080 } as const;
 
 const INSPECTOR_TAB_IDS = [
   'basic',
@@ -114,6 +132,9 @@ const SECTION_TABS: Readonly<Record<string, InspectorTabId>> = {
   crop: 'basic',
   blend: 'basic',
   text: 'text',
+  shape: 'basic',
+  sticker: 'basic',
+  animation: 'basic',
   audio: 'audio',
   color: 'color',
   mask: 'mask',
@@ -124,6 +145,10 @@ const SECTION_TABS: Readonly<Record<string, InspectorTabId>> = {
 const SECTION_ICONS: Readonly<Record<string, LucideIcon>> = {
   transform: SlidersHorizontal,
   text: Type,
+  shape: Shapes,
+  sticker: Smile,
+  // Motion, not the AI rail's wand: an element's animation is not an AI feature.
+  animation: Orbit,
   color: Palette,
   speed: Gauge,
   audio: AudioLines,
@@ -132,6 +157,14 @@ const SECTION_ICONS: Readonly<Record<string, LucideIcon>> = {
   transition: ArrowLeftRight,
   mask: Scan,
   effects: Sparkles,
+};
+
+/**
+ * The control a section asked for by name ("Animation…" in the clip menu) takes focus on: the
+ * first thing a person sets there.
+ */
+const SECTION_FIRST_CONTROL: Readonly<Record<string, string>> = {
+  animation: '[role="combobox"][aria-label="In animation"]',
 };
 
 /** What reset-all writes. Timing, transitions, fades, and ducking remain edit decisions. */
@@ -170,11 +203,15 @@ export function Inspector({
   fps = 30,
   selectedEffectLayerIds = [],
   onClearEffectLayers = () => {},
+  onReplaceSticker,
+  resolution = DEFAULT_RESOLUTION,
+  focusSection = null,
 }: InspectorProps): JSX.Element {
-  const { selection: selectionId, selectedIds, timeline, playhead } = editor.state;
+  const { selection: selectionId, selectedIds, timeline, playhead, assets } = editor.state;
   const selection = useMemo(
-    () => resolveInspectorSelection(timeline, selectionId, selectedIds, selectedEffectLayerIds),
-    [timeline, selectionId, selectedIds, selectedEffectLayerIds],
+    () =>
+      resolveInspectorSelection(timeline, selectionId, selectedIds, selectedEffectLayerIds, assets),
+    [timeline, selectionId, selectedIds, selectedEffectLayerIds, assets],
   );
   // RD2.1: with the mask stack UI turned off the Mask tab is hidden; saved masks still render.
   const [maskToolsOn] = useState(maskToolsEnabled);
@@ -207,6 +244,23 @@ export function Inspector({
   useEffect(() => {
     if (reviewRequest !== null) setPreferredTab('mask');
   }, [reviewRequest, setPreferredTab]);
+  // "Animation…" in the clip menu: its tab, opened, in view.
+  const focusNonce = focusSection?.nonce;
+  useEffect(() => {
+    if (focusSection === null) return;
+    setPreferredTab(tabForSection(focusSection.id));
+    if (!sectionState.isOpen(focusSection.id)) sectionState.setOpen(focusSection.id, true);
+    requestAnimationFrame(() => {
+      const section = document.querySelector<HTMLElement>(
+        `[data-inspector-section="${focusSection.id}"]`,
+      );
+      section?.scrollIntoView?.({ block: 'nearest' });
+      // And the keyboard with it: the next key edits the section, not what was focused before.
+      const first = SECTION_FIRST_CONTROL[focusSection.id];
+      if (first !== undefined) section?.querySelector<HTMLElement>(first)?.focus();
+    });
+    // Once per request: the nonce, not the section state, says when to act.
+  }, [focusNonce]);
 
   if (selection.kind === 'effect-layer' && selection.effectLayer !== null) {
     const { layer } = selection.effectLayer;
@@ -247,27 +301,27 @@ export function Inspector({
             <EffectLayerMaskPanel key={`${layer.id}-masks`} editor={editor} layer={layer} />
           </div>
         ) : (
-        <div className="inspector-tab-page inspector-effect-page">
-          <EffectInspector
-            layer={layer}
-            onPreview={(params) => {
-              void params;
-            }}
-            onCommit={(params, intensity) => {
-              const patch = setEffectLayerParamsPatch(timeline, layer.id, params, intensity);
-              if (patch) editor.applyPatch(patch);
-            }}
-            onToggleEnabled={(enabled) => {
-              const patch = setEffectLayerEnabledPatch(timeline, layer.id, enabled);
-              if (patch) editor.applyPatch(patch);
-            }}
-            onRemove={() => {
-              const patch = removeEffectLayerPatch(timeline, layer.id);
-              if (patch) editor.applyPatch(patch);
-              onClearEffectLayers();
-            }}
-          />
-        </div>
+          <div className="inspector-tab-page inspector-effect-page">
+            <EffectInspector
+              layer={layer}
+              onPreview={(params) => {
+                void params;
+              }}
+              onCommit={(params, intensity) => {
+                const patch = setEffectLayerParamsPatch(timeline, layer.id, params, intensity);
+                if (patch) editor.applyPatch(patch);
+              }}
+              onToggleEnabled={(enabled) => {
+                const patch = setEffectLayerEnabledPatch(timeline, layer.id, enabled);
+                if (patch) editor.applyPatch(patch);
+              }}
+              onRemove={() => {
+                const patch = removeEffectLayerPatch(timeline, layer.id);
+                if (patch) editor.applyPatch(patch);
+                onClearEffectLayers();
+              }}
+            />
+          </div>
         )}
       </section>
     );
@@ -324,6 +378,28 @@ export function Inspector({
         );
       case 'text':
         return <TextOverlayInspector key={`text-${clip.id}`} editor={editor} clip={clip} />;
+      case 'shape':
+        return <ShapeInspector key={`shape-${clip.id}`} editor={editor} clip={clip} />;
+      case 'animation':
+        return (
+          <AnimationInspector
+            key={`animation-${clip.id}`}
+            editor={editor}
+            clip={clip}
+            resolution={resolution}
+          />
+        );
+      case 'sticker':
+        return (
+          <StickerInspector
+            key={`sticker-${clip.id}`}
+            editor={editor}
+            clip={clip}
+            asset={clipAsset}
+            resolution={resolution}
+            {...(onReplaceSticker ? { onReplace: onReplaceSticker } : {})}
+          />
+        );
       case 'color':
         return <ColorPanel key={clip.id} editor={editor} clip={clip} />;
       case 'speed':
@@ -479,6 +555,7 @@ export function Inspector({
             <div
               key={section.id}
               className="inspector-section-slot"
+              data-inspector-section={section.id}
               hidden={tabForSection(section.id) !== activeTab}
             >
               <InspectorSection
@@ -494,7 +571,6 @@ export function Inspector({
           ))}
         </div>
       </div>
-
     </section>
   );
 }

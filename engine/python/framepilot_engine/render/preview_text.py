@@ -21,7 +21,10 @@ from typing import Any
 import numpy as np
 
 from framepilot_engine.render.captions import render_caption_image
+from framepilot_engine.render.shape_catalog import shape_params_problem
+from framepilot_engine.render.shape_raster import rasterize_shape
 from framepilot_engine.render.text_overlay import rasterize_text_overlay
+from framepilot_engine.timeline.synthetic_assets import CAPTION_ASSET_ID
 
 #: Largest output frame edge the route rasterises for (the export's own 8K ceiling).
 MAX_FRAME_EDGE = 8192
@@ -85,20 +88,38 @@ def _check_text(text: str) -> None:
 
 
 def text_overlay_raster(
-    params: Mapping[str, Any], frame_width: int, frame_height: int
+    params: Mapping[str, Any], frame_width: int, frame_height: int, *, rotates: bool = False
 ) -> PreviewTextRaster:
     """A text clip's raster (its ``text`` effect params) for a ``frame_width`` x ``frame_height``
     output. Placement stays with the frame plan: the layer is centred at ``xPercent/yPercent``
     and transformed like any picture.
 
+    :param rotates: the clip animates rotation: the rotation-safe square the export draws.
     :raises PreviewTextError: If the text is empty or too long, or the frame size is invalid.
     """
     _check_frame(frame_width, frame_height)
     raw = params.get("text")
     text = "" if raw is None else str(raw)
     _check_text(text)
-    rgba = rasterize_text_overlay(text, params, frame_width, frame_height)
+    rgba = rasterize_text_overlay(text, params, frame_width, frame_height, rotates=rotates)
     return PreviewTextRaster(rgba=rgba, x=None, y=None)
+
+
+def shape_raster(
+    params: Mapping[str, Any], frame_width: int, frame_height: int, *, rotates: bool = False
+) -> PreviewTextRaster:
+    """A shape's raster (its ``shape`` effect params) and the frame pixel its top-left sits at
+    before the clip's transform: exactly what the export composites (plan/elements EL4a).
+
+    :param rotates: the clip animates ``rotation`` (the raster is then the rotation-safe square).
+    :raises PreviewTextError: If the params cannot be drawn, or the frame size is invalid.
+    """
+    _check_frame(frame_width, frame_height)
+    problem = shape_params_problem(params)
+    if problem is not None:
+        raise PreviewTextError(problem)
+    image, bounds = rasterize_shape(params, frame_width, frame_height, rotates=rotates)
+    return PreviewTextRaster(rgba=np.asarray(image, dtype=np.uint8), x=bounds.x, y=bounds.y)
 
 
 def baseline_caption_raster(text: str, frame_width: int, frame_height: int) -> PreviewTextRaster:
@@ -176,7 +197,7 @@ def styled_caption_raster(
         clip = Clip.model_validate(
             {
                 "id": "preview_caption",
-                "assetId": "__caption__",
+                "assetId": CAPTION_ASSET_ID,
                 "trackId": "preview_captions",
                 "start": clip_start,
                 "end": clip_end,

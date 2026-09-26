@@ -101,6 +101,11 @@
   --clip-ai: #3a3350;
   --clip-ai-bar: #4a4167;
   --clip-ai-border: #8b7ac0;
+  /* Element graphics — shapes and stickers (plan/elements 02 §6): a rose apart from the
+     footage blues and greens, the title tan and the AI violet. */
+  --clip-graphic: #4a2c40;
+  --clip-graphic-bar: #5e3852;
+  --clip-graphic-border: #c47aa6;
   --clip-indicator-ink: rgba(255, 255, 255, 0.82);
   --clip-indicator-chip: rgba(0, 0, 0, 0.34);
   --clip-keyframe: #f0c45a;
@@ -126,6 +131,7 @@
   --clip-audio-edge: #3f6650;
   --clip-text-edge: #6b5942;
   --clip-ai-edge: #554a77;
+  --clip-graphic-edge: #6e4560;
   /* The vertical rule the lanes carry at each labelled ruler tick. It is what
      makes a stack of bars read as a *time*line; it must stay under the clips. */
   --tl-grid: rgba(255, 255, 255, 0.045);
@@ -136,6 +142,14 @@
   --panel: var(--bg-panel);
   --panel-2: var(--bg-surface);
   --surface: var(--bg-surface);
+  /* A control well on a panel (search box, tile, chip strip), and the pressed step above it:
+     the panel colour moved toward the text colour. Declared once, here, as a mix rather than a
+     value: each theme overrides `--bg-surface`/`--text-primary` on `:root` itself, so the mix
+     resolves against whichever theme wins there, in both token systems. The fills sit only
+     1.1–1.4:1 from the panel — decoration — so an "on" state drawn on them must also carry a
+     ring, an underline or a weight change. */
+  --surface-2: color-mix(in srgb, var(--text-primary) 6%, var(--bg-surface));
+  --surface-3: color-mix(in srgb, var(--text-primary) 12%, var(--bg-surface));
   --line: var(--border-default);
   --line-soft: var(--border-subtle);
   --muted: var(--text-secondary);
@@ -305,6 +319,9 @@
     --clip-ai: #dbd5ec;
     --clip-ai-bar: #c4bade;
     --clip-ai-border: #6d5aa8;
+    --clip-graphic: #ecd4e2;
+    --clip-graphic-bar: #dfb8cd;
+    --clip-graphic-border: #a24d7d;
     --clip-indicator-ink: rgba(0, 0, 0, 0.72);
     --clip-indicator-chip: rgba(255, 255, 255, 0.55);
     --clip-keyframe: #b8791a;
@@ -322,6 +339,7 @@
     --clip-audio-edge: #8bb79c;
     --clip-text-edge: #bda88a;
     --clip-ai-edge: #a89ccb;
+    --clip-graphic-edge: #c99bb4;
     --tl-grid: rgba(0, 0, 0, 0.05);
 
     --bg-raised: #eef0f2;
@@ -390,6 +408,9 @@
   --clip-ai: #dbd5ec;
   --clip-ai-bar: #c4bade;
   --clip-ai-border: #6d5aa8;
+  --clip-graphic: #ecd4e2;
+  --clip-graphic-bar: #dfb8cd;
+  --clip-graphic-border: #a24d7d;
   --clip-indicator-ink: rgba(0, 0, 0, 0.72);
   --clip-indicator-chip: rgba(255, 255, 255, 0.55);
   --clip-keyframe: #b8791a;
@@ -407,6 +428,7 @@
   --clip-audio-edge: #8bb79c;
   --clip-text-edge: #bda88a;
   --clip-ai-edge: #a89ccb;
+  --clip-graphic-edge: #c99bb4;
   --tl-grid: rgba(0, 0, 0, 0.05);
 
   --bg-raised: #eef0f2;

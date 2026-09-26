@@ -21,6 +21,10 @@ conversations behind them, the project file + its undo history, its `brain.sqlit
 exported MP4 frame by frame. Scope gate: user outcome = a finished edit that looks authored; the
 gap is mostly *platform* defects that made the agent blind or dropped its work, then a handful of
 craft tools. No new subsystem; every fix reuses an existing seam.
+**Planned (2026-09-26, maintainer request):** Stock becomes **Elements** — Photos · Videos ·
+Stickers · Shapes, CapCut-style, with large sticker and shape libraries. Sub-plan
+[`plan/elements/`](./elements/README.md); in progress on `feat/elements` (PR #131); phases EL0–EL12 in the "Elements library"
+section near the end of this file.
 - [x] **EQ1** Engine requests keep `asset.media` (`ai-sdk/engine-view.ts`). Since mask v22 a cut-out
   resolves against the media size; `toModelProject` stripped it, so every review, `get_frame` and
   `measure_color` after `remove_background` 422/500'd ("media size is unknown" — 7 of 7 reviews
@@ -10251,6 +10255,117 @@ from AI, panel and templates; [ADR 0185](../docs/adr/0185-see-through-captions-a
 - [x] CT11 — caption panel "Transparency and glass" controls (`6f76c23c`)
 - [x] CT12 — AI: tool descriptions, units, discover payload, skill; legibility key draws solid
   letters (`e9739d26`)
+
+## Elements library — Photos · Videos · Stickers · Shapes — `[~]` in progress (2026-09-26)
+
+> **Sub-plan: [`plan/elements/README.md`](./elements/README.md)** (fourteen files: current state,
+> CapCut reference, UX spec, content library, data model, render/preview, desktop host, AI/MCP,
+> rename matrix, phases, tests/evidence, risks, **a coverage matrix of every surface touched**
+> (`12-SURFACE-COVERAGE.md`) and **the production-readiness gate** (`13-PRODUCTION-READINESS.md`)). Maintainer request 2026-09-26: rename Stock to
+> **Elements** with photos, videos, stickers and shapes, following CapCut, with "lots of shapes and
+> stickers loaded up", planned end to end, structural changes allowed. Recorded as decision D1 —
+> an explicit breadth decision under `product-discipline.mdc` §10; finish-before-expand still
+> applies (each category ships complete: UI, engine, preview = export, undo, failure states, agent
+> tool, tests).
+
+**What it is.** Photos and Videos are the existing Pexels library (service, key, quota and
+provenance reused unchanged). Stickers: Microsoft Fluent Emoji (MIT, 1,595 at a pinned commit; a
+curated ~200 in every build, the full set in the desktop installer), materialised into the project
+as ordinary `image` assets and placed as overlays. Shapes:
+~105 recolourable vector shapes and ~200 presets (boxes, circles, arrows, lines, callouts,
+highlight marks, badges; ~1,600 Lucide line icons later), a synthetic `__shape__` clip drawn by the
+engine for both the export and the desktop monitor (the text-raster pattern). Overlays are honest
+now that the monitor composites every timeline in every build (ADR 0180 amendment).
+
+**Verified gaps that come first (EL2a).** On `98ea829a` a still image and a title ignore opacity
+keyframes and transitions at export and in both frame plans (reproduced with `grab_frame`;
+`frame_plan.py:21-23` documents it as a quirk). Two more live bugs found by the scope review: a
+title's In/Out control does nothing on the desktop monitor or in the export, and a landscape photo
+the agent places in a portrait project gets a cover crop (`autoReframeCrop`) that neither the monitor
+nor the export draws while the coverage check believes it — so the footage behind shows through the
+bars. CapCut-style In/Out/Loop animation of any element is impossible until these are fixed.
+
+**Product-scope review (2026-09-26): SHRINK**, adopted — small first slices, the agent path proven
+inside each category, one helper per runtime for synthetic asset ids (17 modules compare them today),
+the engine as the only shape rasteriser, loops as keyframes (no new effect type), each maintainer
+decision asked when its phase is next. Details: `plan/elements/README.md` §7.
+
+**Maintainer decisions** (MD-E6 and MD-E7 decided autonomously 2026-09-26, per the maintainer's instruction to take the recommended answer; the rest are decided when their phase is next): MD-E7 Elements second in the rail (EL1) · MD-E6 schema v25 (EL4a) ·
+MD-E4 agent may place stickers over footage; element assets never enter the cutaway placer (EL6a) ·
+MD-E2 commit the curated ~200 stickers + thumbnails (EL6a) · MD-E1 full 1,595 in the desktop
+installer (EL6b) · MD-E5 manual picture-in-picture for Pexels media (EL9) · MD-E3 animated Noto
+stickers, CC BY 4.0 (EL10).
+
+**Minimum vertical slice:** EL2a → EL3 → EL4a (EL1 in parallel).
+
+- [x] **EL0** MD-E6/MD-E7 decided; shape-raster spike reported (`plan/elements/spikes/`)
+- [x] **EL1** Stock → Elements rename; Photos and Videos sub-tabs; stored `'stock'` tab aliased
+- [x] **EL2a** Stills and titles honour opacity, fades, crop and their own alpha; titles' In/Out
+  presets render (fixes the three live bugs)
+- [x] **EL2b** Masks, edge styles and geometry transitions for stills and titles, with their first
+  consumers (EL6b, EL7); a turning title keeps its letters
+- [x] **EL3** One definition of synthetic asset ids and clip kind per runtime + guard tests
+- [!] **EL4a** Shapes minimum slice, complete (desktop): six shapes, Inspector, box/endpoint handles,
+  export, undo, `add_shape`/`set_shape_style`, one eval case with a measured hit rate, one real run
+- [x] **EL5** Shapes breadth: 106 shapes / 260 presets, chips, search, drag, badges, 1,703 icons
+- [!] **EL6a** Stickers minimum slice, complete: 251 curated, materialise IPC, Stickers tab,
+  credits, `add_sticker`, `add_clip` delegation for element assets, one eval case; green on
+  `9633653c`; the eval run and one desktop run are human steps (`plan/elements/09-PHASES.md`)
+- [!] **EL6b** The full 1,595 in the desktop installer, virtualised grid, outline and shadow —
+  green on `8f6985ed`; run D (scale on real hardware) is a human step
+- [!] **EL7** Animation In/Out (layer transitions) and Loop (keyframes from a builder);
+  `set_element_animation` — green on `8f6985ed`; the eval run and run C are human steps
+- [!] **EL8** Agent quality: critic checks, digest, skill craft pass, remaining eval cases, MCP —
+  built (element advisories and `elements_placed`, off-frame refusal, element rows at 15 tokens
+  each, skill pass, cases 4–6, MCP end to end); found and fixed: soft default sticker size on
+  vertical/4K, callouts told to move off their targets, sticker ids offered over MCP; the MCP
+  sticker materialiser deferred (decided autonomously); green on `8f6985ed`; eval runs are human steps
+- [x] **EL9** Photos/Videos: category chips, orientation filter, drag to timeline, manual overlay
+  — built with Add as overlay (ADR 0193); found and fixed: new picture lanes covered graphics;
+  green on `8f6985ed`
+- [!] **EL10** Animated stickers (optional, schema v26) — gated on MD-E3, whose recommended answer
+  needs a licence read of Noto Emoji Animation (CC BY 4.0): a human step, instructions in
+  `plan/elements/09-PHASES.md` EL10
+- [x] **EL11** Polish, shrunk by its scope review: "Add as overlay" for the user's own images, drop a
+  sticker or shape on the monitor, record a dragged sticker as recent; skin tones, follow subject
+  and the browser build deferred with reasons (`plan/elements/11-RISKS-AND-DEFERRED.md` §2);
+  green on `8f6985ed`
+- [!] **EL12** Docs, changelogs, desktop evidence runs, close-out — done except the human release
+  steps (evidence runs A–E, the paid evaluation runs, the macOS and Windows manual script); CI
+  green on `c0bd695b` and all four installers built within budget (release run 36251044811)
+- [x] **Found in EL6a — the release workflow has never completed a build.** electron-builder
+  rejected the Linux executable name (`@framepilotdesktop`), macOS stopped at "not a file", Windows
+  failed building editor-core. **Fixed in EL12 (2026-09-26):** scripts import built modules by
+  file URL and text checks out with LF (Windows); empty signing variables are unset (macOS);
+  Linux names its executable and .deb, carries a homepage and drops the SDK's musl binary; the
+  Intel job runs on macos-15-intel; the feed check and uploads take the `stable` channel's feed;
+  the asar no longer carries workspace sources or the web editor twice; the AppImage is xz.
+  Release run 36243262914 on `8f6985ed` passes all four: macOS arm64 DMG 340.3 MiB, macOS x64
+  372.6 MiB, Linux AppImage 327.8 MiB / .deb 330.6 MiB, Windows ~350 MiB (budget 400), each with
+  a verified feed.
+- [x] **Found in EL12 — the slowest shape raster had little headroom.** `icon/grape` rasterised in
+  14.2 ms at 1080p (budget 15) and 36–41 ms at 4K (budget 50) on an M1 Pro, and 44.8 / 100.4 ms on
+  the CI runner, failing the new budget ×2 guard; most of it was the curved-joint stroke (one
+  pieslice per vertex). **Fixed** (`performance-optimizer`): a round join is one disc, the
+  composite is a table lookup, and broken strokes and fill pieces share one mask — grape now 3.0 /
+  8.7 ms, the slowest shape (`burst-label/new`) 3.8 / 13.7 ms; the joins also fill hairline cracks
+  the old ones left in wide curved strokes (0.37% of covered pixels move, all at joints).
+- [ ] **Found in EL6a — the CodeQL alert backlog (separate PR).** 57 alerts are open on `main`
+  (path and command-line injection in the sidecar's matte, PTS and service routes; ReDoS in
+  caption segmentation and eval metrics; an e2e request-forgery). PR #131 adds none (its set equals
+  `main`'s), but a PR over 300 files cannot be diffed by GitHub, so CodeQL attributes them all to
+  it. Every Python flow passes through `safety.resolve_within`: rewriting its containment check as
+  the normalise-then-`startswith` guard CodeQL recognises should clear most of them; triage the
+  rest one by one.
+- [ ] **Found in EL6b — the packaged sticker set's only trust root is outside the archive
+  (accepted risk, separate PR).** Its `manifest.json` catches corruption and a mismatched build,
+  not a rewrite by someone who can write the install folder, who could rewrite `app.asar` as well:
+  the asar-integrity fuses (`EnableEmbeddedAsarIntegrityValidation`, `OnlyLoadAppFromAsar`) are
+  off. Enable them with signing (EL12 or the signing work), and compile the manifest's digest into
+  the archive at packaging so main checks the set against it
+  (`docs/runbooks/security-hardening.md`, 2026-09-26 packaged set review).
+
+**Last updated:** 2026-09-26
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)

@@ -96,6 +96,8 @@ the prose must be corrected.
 - [`guides/transcription.md`](guides/transcription.md)
 - [`guides/captions.md`](guides/captions.md)
 - [`guides/transitions.md`](guides/transitions.md)
+- [`guides/elements.md`](guides/elements.md)
+- [`guides/stock-sourcing.md`](guides/stock-sourcing.md)
 - [`guides/project-brain.md`](guides/project-brain.md)
 - [`guides/media-intelligence.md`](guides/media-intelligence.md)
 
@@ -125,6 +127,8 @@ follow its supersession notes. Important current boundaries include:
 - Catalog-driven effects and transitions.
 - Keyframe and Bezier schema behavior.
 - Model vision through export-compiler frame inspection.
+- Elements: shapes are drawn by the engine (0190), an element is an overlay (0191), loops are
+  keyframes (0192), and Pexels media may be a manual picture-in-picture (0193).
 
 ADRs are historical records. Do not silently rewrite an accepted decision to describe a new
 architecture. Add or supersede an ADR when the decision changes.
@@ -137,6 +141,7 @@ architecture. Add or supersede an ADR when the decision changes.
 | [`runbooks/security-hardening.md`](runbooks/security-hardening.md) | Sandbox, IPC, secrets, local services, and security review. |
 | [`runbooks/ci-cd.md`](runbooks/ci-cd.md) | CI gates, reports, and failure investigation. |
 | [`runbooks/release.md`](runbooks/release.md) | Packaging, signing, release artifacts, SemVer, and changelog workflow. |
+| [`runbooks/elements.md`](runbooks/elements.md) | Missing or soft stickers, element placement, and what the release checks guarantee. |
 
 ## Reports
 

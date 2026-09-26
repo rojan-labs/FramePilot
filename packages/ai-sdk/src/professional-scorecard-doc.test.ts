@@ -20,6 +20,7 @@ const DOMAIN_LABELS: Readonly<Record<string, string>> = {
   Color: 'color',
   'Tracking/mask': 'tracking_mask',
   Audio: 'audio',
+  Graphics: 'graphics',
 };
 
 interface DocumentedCounts {

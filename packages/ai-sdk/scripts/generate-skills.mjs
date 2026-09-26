@@ -37,9 +37,11 @@ const files = readdirSync(skillsDir)
   .filter((f) => f.endsWith('.md'))
   .sort();
 
+// Line endings are normalised so the generated modules are the same bytes from any checkout: a
+// Windows clone without the repo's .gitattributes has CRLF, and the frontmatter parse expects LF.
 const entries = files.map((file) => ({
   file,
-  raw: readFileSync(join(skillsDir, file), 'utf8'),
+  raw: readFileSync(join(skillsDir, file), 'utf8').replace(/\r\n/g, '\n'),
 }));
 
 // --- TS output: raw text, parsed at module init by src/skills.ts -----------

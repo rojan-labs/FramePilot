@@ -235,16 +235,6 @@ function divergences(vector: VectorCase, project: Project, renderer: ProgramRend
         : 'clip mask: canvas paints the stack raster (paintMaskRaster); pixel agreement unmeasured',
     );
   }
-  const stillQuirk = pictures.some(
-    (clip) =>
-      assetKind.get(clip.assetId) === 'image' &&
-      (clip.crop !== undefined || clip.keyframes.some((k) => k.property === 'opacity')),
-  );
-  if (stillQuirk) {
-    found.push(
-      'still image: export ignores its crop and opacity keyframes (_compile_image_clip); preview crops it (crop-fill.ts)',
-    );
-  }
   if (!pictures.length && plans.some((plan) => plan.layers.some((l) => l.kind === 'text'))) {
     found.push(
       'no picture clip: canvas gate refuses overlay-only timelines, DOM draws text on black',

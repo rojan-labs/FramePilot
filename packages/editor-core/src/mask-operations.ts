@@ -56,6 +56,7 @@ import {
   type Track,
 } from '@framepilot/timeline-schema';
 import { MASK_PATH_STRIDE } from './mask-geometry.js';
+import { TEXT_OVERLAY_ASSET_ID } from './synthetic-assets.js';
 
 // ---------------------------------------------------------------------------
 // Operation shapes
@@ -1387,7 +1388,7 @@ function titleClip(
 ): Clip {
   return {
     id,
-    assetId: '__text__',
+    assetId: TEXT_OVERLAY_ASSET_ID,
     trackId,
     start: range.start,
     end: range.end,

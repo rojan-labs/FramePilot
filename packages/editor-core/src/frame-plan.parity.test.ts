@@ -90,7 +90,21 @@ const VECTORS = loadVectors();
 describe('frame plan parity vectors', () => {
   it('cover every feature-matrix area with engine-written expectations', () => {
     expect(VECTORS.map((file) => file.area).sort()).toEqual(
-      ['Alpha', 'Colour', 'Effects', 'Geometry', 'Layering', 'Text', 'Time', 'Transitions'].sort(),
+      [
+        'Alpha',
+        'Colour',
+        'Effects',
+        'Geometry',
+        'Layering',
+        // Elements' loop motion as keyframes from the loop builder (plan/elements EL7).
+        'Loop',
+        // Elements' shapes (schema v25, ADR 0190) and stickers (plan/elements EL6a).
+        'Shapes',
+        'Stickers',
+        'Text',
+        'Time',
+        'Transitions',
+      ].sort(),
     );
     const cases = VECTORS.flatMap((file) => file.cases);
     expect(cases.length).toBeGreaterThanOrEqual(40);

@@ -35,6 +35,22 @@ Under every AI action is a single reliability loop:
 
 The result: a probabilistic AI proposes ideas, but a deterministic engine decides what is legal and produces the final file. See [render and export](/docs/render-and-export) for the render side of this loop.
 
+## Callouts and stickers
+
+In the desktop app the agent places the same elements you would from the Elements tab. It finds
+the moment in the transcript, looks at the frame, and places by what it sees:
+
+```txt
+Put a box around the Export button when I say "export".
+Add a fire emoji when I say "this is fire".
+Make all the highlight boxes red and thicker, and make the arrow pop in.
+Remove the stickers.
+```
+
+It reads each sticker and shape already on the timeline, so a restyle changes the ones you have
+in place. Its review of an edit notes an element over a face, under the captions or under a
+platform's own buttons, and it will not place one entirely outside the frame.
+
 ## Bring your own key
 
 The AI runs on a provider key you supply, so your usage stays under your own account. Supported providers:

@@ -136,8 +136,8 @@ function carriesPicture(track: Track): boolean {
  * Touching edges do not count: butting a cutaway against the clip before it is
  * exactly what an editor does.
  *
- * A non-picture candidate — a text overlay (`__text__`), a caption
- * (`__caption__`), an audio bed — conflicts with nothing here by construction,
+ * A non-picture candidate — a text overlay, a caption, an audio bed —
+ * conflicts with nothing here by construction,
  * because those composite outside the picture chain and stacking them is the
  * whole reason layers exist.
  *
@@ -353,8 +353,10 @@ export function createPicturePlacer(project: Project): {
 } {
   /** Spans booked during this call, per lane id, on top of what the timeline holds. */
   const booked = new Map<string, { start: number; end: number }[]>();
-  /** Front layers opened during this call, newest first (each went in at index 0). */
+  /** Front layers opened during this call, newest first (each went in at `frontPictureIndex`). */
   const opened: string[] = [];
+  /** Where a new front layer opens: just in front of the front-most picture lane. */
+  const frontPictureIndex = Math.max(0, project.timeline.tracks.findIndex(carriesPicture));
   /**
    * Picture handed out by THIS call, in order.
    *
@@ -478,17 +480,23 @@ export function createPicturePlacer(project: Project): {
         take(existing.id, true);
         return withCrop({ trackId: existing.id, setupOps: [] });
       }
-      // Nothing usable: open a video layer at the visual front (index 0). `video`
+      // Nothing usable: open a video layer in front of every picture lane. `video`
       // rather than `overlay` deliberately — a clip's kind comes from its asset,
       // so an `overlay` lane holding picture would still composite as picture at
       // export while this module's own occupancy scan stopped counting it, and the
       // next placement would be told the time was free.
+      //
+      // In front of the PICTURE, not in front of everything: a sticker, shape or title on
+      // a graphics lane above the footage sits above a cutaway too. Index 0 put the b-roll
+      // over them, and the export and the preview both stack by index (plan/elements 12 F).
+      // Every conflict is on a picture lane, so this index is still in front of them all,
+      // and each layer opened later in the call goes in front of the one before, as before.
       const layerId = nextCutawayLayerId(project, opened);
       opened.unshift(layerId);
       take(layerId, true);
       return withCrop({
         trackId: layerId,
-        setupOps: [{ type: 'add_layer', layerId, layerType: 'video', atIndex: 0 }],
+        setupOps: [{ type: 'add_layer', layerId, layerType: 'video', atIndex: frontPictureIndex }],
       });
     },
   };

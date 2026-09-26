@@ -13,6 +13,7 @@
  */
 import {
   readAlignment,
+  titleEnvelopeAnimates,
   type FramePlanEdgeStyle,
   type FramePlanLayer,
   type TrackArtifact,
@@ -27,6 +28,7 @@ import {
   wipeProgressAt,
   wipeSoftness,
 } from '../transition-envelope.js';
+import { edgeDistanceScale } from '../masks/edge-styles.js';
 import { clipMaskStack, type ClipMaskStack, type MaskPreviewRefusal } from '../masks/mask-stack.js';
 import {
   resolveTransitionParamsFor,
@@ -113,9 +115,16 @@ export interface PictureRasterStep {
   readonly effects: FramePlanLayer['effects'];
   /**
    * MK9.2: the clip's cut-out edge styles, bottom first, drawn under the picture after its alpha
-   * stack is attached (`_apply_edge_styles`). Empty unless the clip cuts its alpha.
+   * stack is attached (`_apply_edge_styles`). Empty unless the clip cuts its alpha or, for a
+   * still, has an alpha of its own to trace.
    */
   readonly edgeStyles: readonly FramePlanEdgeStyle[];
+  /**
+   * EL2b: a still's edge styles trace its own alpha (times its stack, when it has one), and a
+   * style's lengths are `scale` raster pixels per source pixel. `null` for a video, whose styles
+   * trace its stack alone.
+   */
+  readonly ownAlphaEdges: { readonly scale: number } | null;
 }
 
 export interface LayerMaskStack {
@@ -137,6 +146,8 @@ export interface LayerTransition {
   readonly transition: ResolvedTransition;
   /** Eased progress, from the frame plan. */
   readonly eased: number;
+  /** A layer exit played as its entrance backwards (plan/elements EL7, from the frame plan). */
+  readonly reversed?: true;
 }
 
 /** Python's `int()` on a float. */
@@ -258,7 +269,9 @@ export function cropRect(clip: Clip, decoded: PixelSize): PixelRect | null {
 
 /** Whether `_attach_mask` wraps this clip in a mask at all (v21 opacity/fade/wipe inputs). */
 function attachesOpacityMask(clip: Clip, layer: FramePlanLayer): boolean {
-  const opacityAnimated = clip.keyframes.some((keyframe) => keyframe.property === 'opacity');
+  const opacityAnimated =
+    clip.keyframes.some((keyframe) => keyframe.property === 'opacity') ||
+    titleEnvelopeAnimates(clip);
   const legacyFade = layer.transitions.some(
     (t) => t.path === 'legacy' && (t.kind === 'fade' || t.kind === 'cross-dissolve'),
   );
@@ -307,52 +320,32 @@ export function pictureRasterStep(
       )
     : { kind: 'native' };
   const decoded = decode.kind === 'scaled' ? decode : size;
-  // A still is placed without its crop (the plan's own quirk note), and so is its mask.
-  const crop = isVideo ? cropRect(clip, decoded) : null;
+  // A still is cropped exactly as a video is (`_apply_crop` runs on both).
+  const crop = cropRect(clip, decoded);
   const placed: PixelSize = crop ?? decoded;
   if (placed.width <= 0 || placed.height <= 0) return null;
 
-  const legacy = isVideo && layer.role === 'clip' ? legacyEnvelope(clip) : null;
-  const wiping = legacy !== null && affectsWipe(legacy);
-  // Only a video clip draws its stack: stills are placed without crop or mask (the export's rule).
-  const stack = isVideo && layer.role === 'clip' ? clipMaskStack(clip, asset.media, tracks) : null;
+  // A still draws its mask stack in its own pixels, as a video does in its frame's (EL2b).
+  const stack =
+    layer.role === 'clip' ? clipMaskStack(clip, asset.media, tracks, { still: !isVideo }) : null;
   const drawable = stack !== null && stack.refusal === null ? stack : null;
   const mask: LayerMaskStack | null =
     drawable === null ? null : { stack: drawable, clipTime: layer.localTime };
   const alphaStack = drawable !== null && drawable.alpha.length > 0;
-  const opacity =
-    isVideo && layer.role === 'clip' && (attachesOpacityMask(clip, layer) || wiping || alphaStack)
-      ? Math.min(1, Math.max(0, layer.opacity))
+  // EL2b: a still traces its own alpha (× its stack); lengths in its own pixels, as a mask's.
+  const ownAlphaEdges =
+    !isVideo &&
+    layer.role === 'clip' &&
+    (layer.edgeStyles?.length ?? 0) > 0 &&
+    stack?.refusal == null
+      ? { scale: edgeDistanceScale(clip.crop, size, placed.width, placed.height) }
       : null;
-  const blurRadius =
-    legacy !== null && legacy.kind === 'blur'
-      ? blurRadiusAt(legacy, layer.localTime, Math.min(placed.width, placed.height))
-      : 0;
-  let wipe: LayerWipe | null = null;
-  if (wiping && legacy !== null) {
-    const [axis, inverted] = wipeAxis(legacy);
-    const feather = wipeSoftness(legacy);
-    wipe = {
-      axis,
-      inverted,
-      edge: wipeEdge(wipeProgressAt(legacy, layer.localTime), feather),
-      feather,
-    };
-  }
-  const transitions: LayerTransition[] = [];
-  if (isVideo && layer.role === 'clip') {
-    for (const state of layer.transitions) {
-      if (state.path !== 'catalog') continue;
-      const effect = clip.effects.find(
-        (candidate) => candidate.type === (state.role === 'in' ? 'transition' : 'transition_out'),
-      );
-      const resolved = effect ? resolveTransitionParamsFor(effect.params ?? {}) : null;
-      if (resolved === null || resolved.disabled || resolved.isCut) continue;
-      transitions.push({ role: state.role, transition: resolved, eased: state.eased });
-    }
-    // The compiler walks the outgoing half first.
-    transitions.sort((a, b) => (a.role === b.role ? 0 : a.role === 'out' ? -1 : 1));
-  }
+  const { opacity, blurRadius, wipe, transitions } = layerAlphaWork(
+    layer,
+    clip,
+    placed,
+    alphaStack,
+  );
 
   const base = Math.min(target.width / placed.width, target.height / placed.height);
   // The plan's `scale` is its own base × the authored scale × a geometry transition's zoom; the
@@ -417,8 +410,65 @@ export function pictureRasterStep(
     y,
     blendMode: layer.blendMode,
     effects: layer.effects,
-    edgeStyles: alphaStack ? (layer.edgeStyles ?? []) : [],
+    edgeStyles: alphaStack || ownAlphaEdges !== null ? (layer.edgeStyles ?? []) : [],
+    ownAlphaEdges,
   };
+}
+
+/**
+ * `_attach_mask`, `_apply_transition_blur` and `_apply_catalog_transition` for one clip layer:
+ * the alpha, legacy blur/wipe and catalog transitions the export applies before placement. The
+ * same for a video, a still and a title (plan/elements EL2a); an under-layer takes none of them.
+ *
+ * @param placed - The layer's size at this stage (after crop), which the blur radius scales with.
+ * @param alphaStack - Whether an alpha-target mask stack draws, which forces the alpha step.
+ */
+function layerAlphaWork(
+  layer: FramePlanLayer,
+  clip: Clip,
+  placed: PixelSize,
+  alphaStack: boolean,
+): Pick<PictureRasterStep, 'opacity' | 'blurRadius' | 'wipe' | 'transitions'> {
+  if (layer.role !== 'clip') return { opacity: null, blurRadius: 0, wipe: null, transitions: [] };
+  const legacy = legacyEnvelope(clip);
+  const wiping = legacy !== null && affectsWipe(legacy);
+  const opacity =
+    attachesOpacityMask(clip, layer) || wiping || alphaStack
+      ? Math.min(1, Math.max(0, layer.opacity))
+      : null;
+  const blurRadius =
+    legacy !== null && legacy.kind === 'blur'
+      ? blurRadiusAt(legacy, layer.localTime, Math.min(placed.width, placed.height))
+      : 0;
+  let wipe: LayerWipe | null = null;
+  if (wiping && legacy !== null) {
+    const [axis, inverted] = wipeAxis(legacy);
+    const feather = wipeSoftness(legacy);
+    wipe = {
+      axis,
+      inverted,
+      edge: wipeEdge(wipeProgressAt(legacy, layer.localTime), feather),
+      feather,
+    };
+  }
+  const transitions: LayerTransition[] = [];
+  for (const state of layer.transitions) {
+    if (state.path !== 'catalog') continue;
+    const effect = clip.effects.find(
+      (candidate) => candidate.type === (state.role === 'in' ? 'transition' : 'transition_out'),
+    );
+    const resolved = effect ? resolveTransitionParamsFor(effect.params ?? {}) : null;
+    if (resolved === null || resolved.disabled || resolved.isCut) continue;
+    transitions.push({
+      role: state.role,
+      transition: resolved,
+      eased: state.eased,
+      ...(state.reversed === true ? { reversed: true as const } : {}),
+    });
+  }
+  // The compiler walks the outgoing half first.
+  transitions.sort((a, b) => (a.role === b.role ? 0 : a.role === 'out' ? -1 : 1));
+  return { opacity, blurRadius, wipe, transitions };
 }
 
 /** The clip's `transition` envelope when it takes the legacy compiler path, else `null`. */
@@ -443,8 +493,9 @@ function legacyGeometryTransition(clip: Clip): boolean {
 }
 
 /**
- * A text overlay's raster placed as `_compile_text_clip` places it: `fit_to_frame=False` (base
- * scale 1) around the layout centre, the clip's own transform applied when it animates.
+ * A text overlay's (or a shape's) raster placed as `_compile_text_clip` (`_compile_shape_clip`)
+ * places it: `fit_to_frame=False` (base scale 1) around the layout centre (the shape's bounds
+ * centre), the clip's own transform applied when it animates.
  *
  * @param layer - A `text` layer of `framePlanAt` computed at `target`.
  * @param clip - The text clip.
@@ -456,16 +507,37 @@ export function textRasterStep(
   clip: Clip,
   raster: PixelSize,
   centre: { readonly x: number; readonly y: number },
+  title?: { readonly frameScale: number },
 ): PictureRasterStep | null {
   const geometry = layer.geometry;
   if (geometry === null || raster.width <= 0 || raster.height <= 0) return null;
   const transformed = clip.keyframes.some((keyframe) =>
     RENDERED_TRANSFORM_PROPERTIES.has(keyframe.property),
   );
+  // `_place_video_clip`'s `animated`: a transform, a legacy geometry transition, or an In/Out.
+  const animated = transformed || legacyGeometryTransition(clip) || titleEnvelopeAnimates(clip);
+  // EL2b: a title's masks (a track matte, a Frame-space shape, a key), sized by its raster, and
+  // its edge styles, which trace its glyphs in frame pixels (`_compile_text_clip`).
+  const stack =
+    title === undefined
+      ? null
+      : clipMaskStack(clip, { width: raster.width, height: raster.height }, undefined, {
+          title: true,
+        });
+  const drawable = stack !== null && stack.refusal === null ? stack : null;
+  const alphaStack = drawable !== null && drawable.alpha.length > 0;
+  const traced =
+    title !== undefined && (layer.edgeStyles?.length ?? 0) > 0 && stack?.refusal == null;
+  const { opacity, blurRadius, wipe, transitions } = layerAlphaWork(
+    layer,
+    clip,
+    raster,
+    alphaStack,
+  );
   let resize: PixelSize | null = null;
   let x: number;
   let y: number;
-  if (!transformed) {
+  if (!animated) {
     x = pyInt(centre.x - raster.width / 2);
     y = pyInt(centre.y - raster.height / 2);
   } else {
@@ -483,13 +555,16 @@ export function textRasterStep(
     frame: null,
     decode: { kind: 'native' },
     crop: null,
-    opacity: null,
-    mask: null,
-    maskRefusal: null,
+    opacity,
+    mask:
+      drawable !== null && (alphaStack || drawable.byEffect.size > 0)
+        ? { stack: drawable, clipTime: layer.localTime }
+        : null,
+    maskRefusal: stack?.refusal ?? null,
     effectIds: [],
-    blurRadius: 0,
-    wipe: null,
-    transitions: [],
+    blurRadius,
+    wipe,
+    transitions,
     resize,
     rotation: clip.keyframes.some((keyframe) => keyframe.property === 'rotation')
       ? geometry.rotation
@@ -498,6 +573,7 @@ export function textRasterStep(
     y,
     blendMode: layer.blendMode,
     effects: [],
-    edgeStyles: [],
+    edgeStyles: traced ? (layer.edgeStyles ?? []) : [],
+    ownAlphaEdges: traced ? { scale: title.frameScale } : null,
   };
 }

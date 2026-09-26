@@ -15,7 +15,7 @@ import {
 } from './references/images.js';
 import { createLogger, type Seconds } from '@framepilot/shared-types';
 import type { Clip, Project, Timeline } from '@framepilot/timeline-schema';
-import { repeatedSourceOf } from '@framepilot/editor-core';
+import { clipRenderKind, isElementAsset, repeatedSourceOf } from '@framepilot/editor-core';
 import type { AiImage, AiMessage } from './providers/types.js';
 import type { ContextBudget, ContextTier } from './reliability/types.js';
 import { readMemory } from './memory-store.js';
@@ -39,6 +39,7 @@ import {
 import { detectTranscriptLoop, type TranscriptLoop } from './transcript-loop.js';
 import type { LedgerSnapshot } from './ledger.js';
 import { pictureFor, type PictureSlice } from './kernel/semantic-index/picture.js';
+import { withElementFacts } from './element-row-facts.js';
 import { withMaskFacts } from './masking/mask-row-facts.js';
 import { shotWords } from './kernel/context/shot-words.js';
 import { summarizePictureDigest } from './kernel/context/picture-digest.js';
@@ -244,19 +245,12 @@ export { SYSTEM_PROMPT } from './prompts.js';
 
 const round = (n: number): string => (Math.round(n * 1000) / 1000).toString();
 
-// Synthetic asset ids for clips with no media source (Phase 2, ADR 0032). A clip's
-// kind is derived from its content, never from its layer — layers are type-agnostic.
-const TEXT_OVERLAY_ASSET_ID = '__text__';
-const CAPTION_ASSET_ID = '__caption__';
-
-/** Derive a clip's kind from its asset (or synthetic id). Mirrors the engine. */
+/**
+ * Derive a clip's kind from its asset (or synthetic id, ADR 0032) — from its content, never
+ * from its layer, since layers are type-agnostic. editor-core's one definition.
+ */
 function deriveClipKind(clip: Clip, assetKinds: ReadonlyMap<string, string | undefined>): string {
-  if (clip.assetId === TEXT_OVERLAY_ASSET_ID) return 'text';
-  if (clip.assetId === CAPTION_ASSET_ID) return 'caption';
-  const kind = assetKinds.get(clip.assetId);
-  if (kind === 'audio') return 'audio';
-  if (kind === 'image') return 'image';
-  return 'video';
+  return clipRenderKind(clip.assetId, assetKinds.get(clip.assetId));
 }
 
 /** The dominant kind of a layer's clips (by count), or 'empty'. */
@@ -656,7 +650,9 @@ export function summarizeMediaBin(project: Project): string {
       typeof asset.durationSeconds === 'number' ? ` ${round(asset.durationSeconds)}s` : '';
     // The per-line "· placed" marks the minority case. With nothing left to place the
     // header has already said so for every line, and repeating it is pure per-turn weight.
-    const line = `- ${asset.id} [${asset.kind}]${duration}${unplaced > 0 && placed.has(asset.id) ? ' · placed' : ''}`;
+    // A sticker is an image the agent must never treat as footage (plan/elements G9).
+    const kind = isElementAsset(asset) ? 'sticker' : asset.kind;
+    const line = `- ${asset.id} [${kind}]${duration}${unplaced > 0 && placed.has(asset.id) ? ' · placed' : ''}`;
     if (used + line.length > MEDIA_BIN_CHARS) {
       // Say what was left out and how to get it, never trail off. A run told "+37 more"
       // with no route to them is a run that invents ids.
@@ -705,7 +701,10 @@ export function summarizeSourceMedia(project: Project): string {
     const width = asset.media?.width ?? null;
     const height = asset.media?.height ?? null;
     let shape = '';
-    if (asset.kind !== 'audio' && width !== null && height !== null) {
+    if (isElementAsset(asset)) {
+      // Its square canvas says nothing about letterboxing: it is placed over the picture.
+      shape = ' · sticker, drawn over the picture (not footage)';
+    } else if (asset.kind !== 'audio' && width !== null && height !== null) {
       const orientation = orientationOf(width, height);
       const fit =
         orientation === sequence
@@ -1171,13 +1170,17 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // budgeter's repeated re-renders cost one derivation), and the digest reads asset rows
   // only. With no ledger, `pictureRowFacts` is empty and the digest is omitted — the
   // assembled prompt is then byte-identical to what it has always been.
-  // Masked clips say so on their row (AM4.1); a project without masks gets `facts` back
+  // Masked clips say so on their row (AM4.1), and stickers and shapes say what they are, where
+  // they sit and how they move (plan/elements EL8.2); a project with neither gets `facts` back
   // untouched, so its prompt does not move by a byte either.
-  const rowFacts = withMaskFacts(
+  const rowFacts = withElementFacts(
     project,
-    withRepeatedSourceFacts(
+    withMaskFacts(
       project,
-      input.ledger ? pictureRowFacts(pictureFor(project, projectIndex, input.ledger)) : undefined,
+      withRepeatedSourceFacts(
+        project,
+        input.ledger ? pictureRowFacts(pictureFor(project, projectIndex, input.ledger)) : undefined,
+      ),
     ),
   );
   const pictureDigest = summarizePictureDigest(input.ledger) ?? '';

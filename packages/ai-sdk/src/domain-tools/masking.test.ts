@@ -1002,4 +1002,66 @@ describe('style_cutout_edge (MK9.2)', () => {
       build({ clipId: 'shot', style: 'glow', remove: true }, ctxOf(project(cut))),
     ).toThrow(/no glow to remove/);
   });
+
+  it('styles a sticker or a title with no mask: its own alpha is the cut-out (EL2b)', () => {
+    const graphics = parseProject({
+      id: 'graphics',
+      name: 'Graphics',
+      version: 1,
+      fps: 24,
+      resolution: { width: 1920, height: 1080 },
+      assets: [
+        {
+          id: 'fire',
+          path: 'elements/fire.webp',
+          kind: 'image',
+          media: { width: 318, height: 318 },
+        },
+      ],
+      timeline: {
+        revision: 1,
+        tracks: [
+          {
+            id: 'o1',
+            type: 'overlay',
+            clips: [
+              {
+                id: 'sticker',
+                assetId: 'fire',
+                trackId: 'o1',
+                start: 0,
+                end: 3,
+                sourceStart: 0,
+                sourceEnd: 3,
+                effects: [],
+                keyframes: [],
+              },
+              {
+                id: 'title',
+                assetId: '__text__',
+                trackId: 'o1',
+                start: 3,
+                end: 6,
+                sourceStart: 0,
+                sourceEnd: 3,
+                effects: [
+                  { id: 'title__text', type: 'text', params: { text: 'Hi' }, keyframes: [] },
+                ],
+                keyframes: [],
+              },
+            ],
+          },
+        ],
+      },
+      transcript: [],
+      aiMemory: {},
+      history: [],
+    });
+    const build = tool('style_cutout_edge').buildOps!;
+    for (const clipId of ['sticker', 'title']) {
+      expect(build({ clipId, style: 'outline' }, ctxOf(graphics))).toMatchObject([
+        { type: 'set_clip_edge_style', clipId, kind: 'stroke' },
+      ]);
+    }
+  });
 });

@@ -945,6 +945,18 @@
     "perspective-3d": "frame",
     "page-turn": "frame"
   },
+  "exitByMask": [
+    "dissolve",
+    "blur-dissolve",
+    "noise-dissolve",
+    "luma-fade",
+    "wipe-linear",
+    "wipe-radial",
+    "wipe-split",
+    "wipe-shape",
+    "wipe-clock",
+    "wipe-bars"
+  ],
   "transitions": [
     {
       "id": "cut",

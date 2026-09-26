@@ -47,6 +47,7 @@
  */
 import type { Asset, Clip, CropRect, Timeline } from '@framepilot/timeline-schema';
 import { TRANSITION_OUT_EFFECT_TYPE } from './transitions.js';
+import { isElementAsset } from './element-assets.js';
 
 // ---------------------------------------------------------------------------
 // Full-frame opacity — the predicate that decides whether a stacked picture
@@ -421,6 +422,9 @@ interface PictureSpan {
  */
 function mergedPictureSpans(timeline: Timeline, assets: readonly Asset[]): readonly PictureSpan[] {
   const kindById = new Map(assets.map((asset) => [asset.id, asset.kind]));
+  // A sticker composites over the picture wherever it sits, like a title (plan/elements EL6a):
+  // it neither blocks a cutaway nor fills a gap in the picture chain.
+  const elements = new Set(assets.filter(isElementAsset).map((asset) => asset.id));
   const spans: PictureSpan[] = [];
 
   for (const track of timeline.tracks) {
@@ -435,6 +439,7 @@ function mergedPictureSpans(timeline: Timeline, assets: readonly Asset[]): reado
       // repositioning, wrongly allowing one ships an export that does not match
       // the preview.
       if (kind !== undefined && !PICTURE_ASSET_KINDS.has(kind)) continue;
+      if (elements.has(clip.assetId)) continue;
       if (clip.end > clip.start) spans.push({ start: clip.start, end: clip.end });
     }
   }

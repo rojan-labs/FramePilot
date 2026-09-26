@@ -15,7 +15,6 @@ import {
   buildAddMusicOps,
   buildAddStockOps,
   clipBlurEffect,
-  firstFreePictureStart,
   createLaneAllocator,
   nextLayerId as coreNextLayerId,
   trackHasRoomFor,
@@ -31,6 +30,7 @@ import {
   punchInKeyframes,
   resolveCaptionCue,
   splitClipRightId,
+  laneTypeForKind,
 } from '@framepilot/editor-core';
 import type {
   Asset,
@@ -50,7 +50,6 @@ import { findEffect, resolveParams } from '@framepilot/timeline-schema/effect-ca
 import { clampParamsForKind } from '@framepilot/timeline-schema/effect-params';
 import {
   assetKind,
-  type ClipKind,
   clipKind,
   downstreamClips,
   findClip,
@@ -1579,14 +1578,6 @@ export function moveLayerPatch(timeline: Timeline, layerId: string, toIndex: num
   };
 }
 
-/** Map a {@link ClipKind} to the advisory `track.type` of a layer that hosts it. */
-function layerTypeForKind(kind: ClipKind): Track['type'] {
-  if (kind === 'audio') return 'audio';
-  if (kind === 'caption') return 'caption';
-  if (kind === 'text') return 'overlay';
-  return 'video'; // video + image are picture layers
-}
-
 // One of three copies of this test lived here; it now uses the shared rule (and the
 // shared epsilon) from `@framepilot/editor-core`.
 const hasRoomFor = trackHasRoomFor;
@@ -1630,7 +1621,7 @@ export function placeAssetPatch(
 
   // No compatible layer → create a new one at the front and seed the clip onto it
   // as a two-op patch (add_layer then add_clip). Both ops invert together on undo.
-  const layerType = layerTypeForKind(kind);
+  const layerType = laneTypeForKind(kind);
   const layerId = nextLayerId(timeline, layerType);
   return {
     patchId: patchId(`place_${asset.id}_${layerId}_${ms(start)}`),
@@ -1726,17 +1717,26 @@ export function addStockClipPatch(
 }
 
 /**
- * Why {@link addStockClipPatch} would refuse, in a form the UI can render.
+ * What the Photos and Videos panel says when **Add** is blocked: one fixed sentence for every
+ * tile. Add is a cutaway — it replaces the picture — and over footage the placement that works is
+ * **Overlay**, so the sentence names that first.
+ */
+export const STOCK_ADD_BLOCKED =
+  "Add replaces the picture, and there's footage at the playhead. " +
+  'Use Overlay to put it on top, or move the playhead to a gap.';
+
+/**
+ * Why {@link addStockClipPatch} would refuse, in a form the panel can render.
  *
  * Split out so the panel can disable **Add** with a reason *before* the user
  * clicks, rather than letting them click and then explaining. Shares the
  * predicate with the builder, so the two cannot disagree.
  *
- * Keeps the panel's own framing — the user is placing at the playhead and that
- * is what they can move — but names the SAME free moment the agent's refusal
- * names, from the same helper. "Make a gap" was true and useless; a person
- * still had to scrub for the spot, and the agent, which cannot scrub, re-asked
- * for the occupied one four times.
+ * The panel's sentence is fixed ({@link STOCK_ADD_BLOCKED}). It used to name the first free
+ * moment in raw seconds, which differed per tile (each clip's own length), read as a number
+ * changing inside an error, and on a screen recording or a talking head — a timeline full of
+ * footage, the common case — pointed at the end of the programme. The agent's own refusal
+ * (editor-core, `add_stock`) still names the free moment: it cannot scrub, and it can use one.
  */
 export function stockPlacementBlockedReason(
   timeline: Timeline,
@@ -1746,11 +1746,7 @@ export function stockPlacementBlockedReason(
 ): string | null {
   const start = atStart < 0 ? 0 : atStart;
   if (!picturePlacementConflict(timeline, assetById, start, start + durationSeconds)) return null;
-  const free = firstFreePictureStart(timeline, [...assetById.values()], durationSeconds, start);
-  return (
-    `There's already footage at the playhead — move it to ${free.toFixed(1)}s, ` +
-    `the first gap long enough for this clip.`
-  );
+  return STOCK_ADD_BLOCKED;
 }
 
 // ---------------------------------------------------------------------------

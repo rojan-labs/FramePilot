@@ -150,3 +150,22 @@ def test_audio_assets_still_stage(tmp_path: Path) -> None:
     _stage_asset(ffmpeg, tmp_path, _asset("music", kind="audio"), _project())
 
     assert (tmp_path / "music.wav").stat().st_size > 1_000
+
+
+def test_a_still_is_staged_as_an_image_with_alpha(tmp_path: Path) -> None:
+    """A sticker is a still with a transparent margin (plan/elements EL6a).
+
+    Staged as the H.264 file every other asset gets, a ``.webp`` path held a video the
+    renderer's image path cannot open, so a graphics proof could never render.
+    """
+    from PIL import Image
+
+    asset = {"id": "element_fluent3d_fire", "path": "elements/fire.webp", "kind": "image"}
+    _stage_asset(find_ffmpeg(), tmp_path, asset, _project())
+    with Image.open(tmp_path / "elements" / "fire.webp") as staged:
+        assert staged.format == "WEBP"
+        assert staged.mode == "RGBA"
+        alpha = staged.getchannel("A")
+        # Transparent at the corner, opaque at the centre: there is art and a margin.
+        assert alpha.getpixel((0, 0)) == 0
+        assert alpha.getpixel((staged.width // 2, staged.height // 2)) == 255

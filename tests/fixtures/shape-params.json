@@ -1,0 +1,1021 @@
+{
+  "spec": "shapeParamsProblem (TS, packages/timeline-schema/src/shape-params.ts) and shape_params_problem (engine, render/shape_catalog.py) must return exactly `problem` for every `params`. Generated from the TS side; both runtimes read it.",
+  "cases": [
+    {
+      "name": "a highlight box",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": null
+    },
+    {
+      "name": "an arrow",
+      "params": {
+        "shape": "line-arrow",
+        "x1": 38,
+        "y1": 38,
+        "x2": 50,
+        "y2": 50,
+        "fill": null,
+        "stroke": "#FF3B30",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "startCap": "none",
+        "endCap": "arrow",
+        "headSize": 4
+      },
+      "problem": null
+    },
+    {
+      "name": "a marker",
+      "params": {
+        "shape": "marker-highlight",
+        "x": 20,
+        "y": 80,
+        "width": 60,
+        "height": 10,
+        "fill": "#FFD40066",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 8
+      },
+      "problem": null
+    },
+    {
+      "name": "an underline",
+      "params": {
+        "shape": "underline-marker",
+        "x1": 35,
+        "y1": 90,
+        "x2": 65,
+        "y2": 90,
+        "fill": null,
+        "stroke": "#FFD400CC",
+        "strokeWidth": 1.2,
+        "strokeStyle": "solid",
+        "startCap": "none",
+        "endCap": "none"
+      },
+      "problem": null
+    },
+    {
+      "name": "an ellipse",
+      "params": {
+        "shape": "ellipse",
+        "x": 10,
+        "y": 10,
+        "width": 40,
+        "height": 28,
+        "fill": null,
+        "stroke": "#FF3B30",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid"
+      },
+      "problem": null
+    },
+    {
+      "name": "no shape id",
+      "params": {
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": "A shape needs a shape id. Pick one with search_elements (kind: shape) or from the Shapes tab."
+    },
+    {
+      "name": "an empty shape id",
+      "params": {
+        "shape": "",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": "A shape needs a shape id. Pick one with search_elements (kind: shape) or from the Shapes tab."
+    },
+    {
+      "name": "an unknown shape",
+      "params": {
+        "shape": "dodecahedron",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": "There is no shape called 'dodecahedron'. Pick one with search_elements (kind: shape) or from the Shapes tab."
+    },
+    {
+      "name": "a knob the shape lacks",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12,
+        "headSize": 3
+      },
+      "problem": "Shape parameter 'headSize' is not one this shape has. Its parameters are: shape, x, y, width, height, fill, stroke, strokeWidth, strokeStyle, cornerRadius."
+    },
+    {
+      "name": "an unknown key on a segment",
+      "params": {
+        "shape": "line-arrow",
+        "x1": 38,
+        "y1": 38,
+        "x2": 50,
+        "y2": 50,
+        "fill": null,
+        "stroke": "#FF3B30",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "startCap": "none",
+        "endCap": "arrow",
+        "headSize": 4,
+        "wobble": 1
+      },
+      "problem": "Shape parameter 'wobble' is not one this shape has. Its parameters are: shape, x1, y1, x2, y2, fill, stroke, strokeWidth, strokeStyle, startCap, endCap, headSize."
+    },
+    {
+      "name": "segment ends on a box",
+      "params": {
+        "shape": "rounded-rect",
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12,
+        "x1": 1,
+        "y1": 1,
+        "x2": 2,
+        "y2": 2
+      },
+      "problem": "'rounded-rect' is placed by a box (x, y, width, height), not by two ends."
+    },
+    {
+      "name": "a box centre on a segment",
+      "params": {
+        "shape": "line-arrow",
+        "x1": 38,
+        "y1": 38,
+        "x2": 50,
+        "y2": 50,
+        "fill": null,
+        "stroke": "#FF3B30",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "startCap": "none",
+        "endCap": "arrow",
+        "headSize": 4,
+        "x": 50
+      },
+      "problem": "'line-arrow' is placed by its two ends (x1, y1, x2, y2), not a box."
+    },
+    {
+      "name": "a box missing its width",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": "'rounded-rect' needs its box: x, y, width and height."
+    },
+    {
+      "name": "a segment missing an end",
+      "params": {
+        "shape": "line-arrow",
+        "x1": 38,
+        "y1": 38,
+        "x2": 50,
+        "fill": null,
+        "stroke": "#FF3B30",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "startCap": "none",
+        "endCap": "arrow",
+        "headSize": 4
+      },
+      "problem": "'line-arrow' needs both ends: x1, y1, x2 and y2."
+    },
+    {
+      "name": "caps on a box",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12,
+        "endCap": "arrow"
+      },
+      "problem": "'rounded-rect' has no ends to cap; startCap and endCap are for lines and arrows."
+    },
+    {
+      "name": "a knob above its range",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 80
+      },
+      "problem": "cornerRadius must be between 0 and 50."
+    },
+    {
+      "name": "a knob below its range",
+      "params": {
+        "shape": "line-arrow",
+        "x1": 38,
+        "y1": 38,
+        "x2": 50,
+        "y2": 50,
+        "fill": null,
+        "stroke": "#FF3B30",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "startCap": "none",
+        "endCap": "arrow",
+        "headSize": 1
+      },
+      "problem": "headSize must be between 2 and 8."
+    },
+    {
+      "name": "a knob that is not a number",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": "round"
+      },
+      "problem": "cornerRadius must be between 0 and 50."
+    },
+    {
+      "name": "a named colour",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "yellow",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": "Shape parameter 'stroke' is out of range or the wrong type. A colour is #rrggbb or #rrggbbaa, or null for none."
+    },
+    {
+      "name": "a box centre off the frame",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 120,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": "Shape parameter 'x' is out of range or the wrong type. A box centre is a percent of the frame, 0 to 100."
+    },
+    {
+      "name": "a box too small",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 0.01,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": "Shape parameter 'height' is out of range or the wrong type. A box size is a percent of the frame height, 0.1 to 400."
+    },
+    {
+      "name": "an end too far off the frame",
+      "params": {
+        "shape": "line-arrow",
+        "x1": -60,
+        "y1": 38,
+        "x2": 50,
+        "y2": 50,
+        "fill": null,
+        "stroke": "#FF3B30",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "startCap": "none",
+        "endCap": "arrow",
+        "headSize": 4
+      },
+      "problem": "Shape parameter 'x1' is out of range or the wrong type. An end is a percent of the frame, -50 to 150."
+    },
+    {
+      "name": "a stroke too thick",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 12,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": "Shape parameter 'strokeWidth' is out of range or the wrong type. A stroke width is a percent of the frame height, 0.05 to 10."
+    },
+    {
+      "name": "an unknown stroke style",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "wavy",
+        "cornerRadius": 12
+      },
+      "problem": "Shape parameter 'strokeStyle' is out of range or the wrong type. It is solid, dashed or dotted."
+    },
+    {
+      "name": "an unknown cap",
+      "params": {
+        "shape": "line-arrow",
+        "x1": 38,
+        "y1": 38,
+        "x2": 50,
+        "y2": 50,
+        "fill": null,
+        "stroke": "#FF3B30",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "startCap": "none",
+        "endCap": "star",
+        "headSize": 4
+      },
+      "problem": "Shape parameter 'endCap' is out of range or the wrong type. A cap is none, arrow, dot or bar."
+    },
+    {
+      "name": "a box with neither fill nor stroke",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": "A shape needs a fill or a stroke — with both off it draws nothing."
+    },
+    {
+      "name": "a segment without a stroke",
+      "params": {
+        "shape": "line-arrow",
+        "x1": 38,
+        "y1": 38,
+        "x2": 50,
+        "y2": 50,
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "startCap": "none",
+        "endCap": "arrow",
+        "headSize": 4
+      },
+      "problem": "'line-arrow' is drawn by its stroke — with the stroke off it draws nothing. Set a stroke colour."
+    },
+    {
+      "name": "a filled box without a stroke",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": "#FFFFFF80",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": null
+    },
+    {
+      "name": "a missing stroke width",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": "Shape parameter 'strokeWidth' is out of range or the wrong type. A stroke width is a percent of the frame height, 0.05 to 10."
+    },
+    {
+      "name": "a null stroke on a filled box",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": "#FFFFFF",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": null
+    },
+    {
+      "name": "an absent stroke on a filled box",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": "#FFFFFF",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": null
+    },
+    {
+      "name": "a null knob the shape lacks",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12,
+        "headSize": null
+      },
+      "problem": null
+    },
+    {
+      "name": "a null cap on an arrow",
+      "params": {
+        "shape": "line-arrow",
+        "x1": 38,
+        "y1": 38,
+        "x2": 50,
+        "y2": 50,
+        "fill": null,
+        "stroke": "#FF3B30",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "startCap": "none",
+        "endCap": null,
+        "headSize": 4
+      },
+      "problem": null
+    },
+    {
+      "name": "a null cap on a box",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12,
+        "endCap": null
+      },
+      "problem": null
+    },
+    {
+      "name": "a null box centre",
+      "params": {
+        "shape": "rounded-rect",
+        "x": null,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": "'rounded-rect' needs its box: x, y, width and height."
+    },
+    {
+      "name": "a null knob",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": null
+      },
+      "problem": null
+    },
+    {
+      "name": "a null stroke width",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": null,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": "Shape parameter 'strokeWidth' is out of range or the wrong type. A stroke width is a percent of the frame height, 0.05 to 10."
+    },
+    {
+      "name": "a null shape id",
+      "params": {
+        "shape": null,
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": "A shape needs a shape id. Pick one with search_elements (kind: shape) or from the Shapes tab."
+    },
+    {
+      "name": "a boolean where a number goes",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": true,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12
+      },
+      "problem": "Shape parameter 'width' is out of range or the wrong type. A box size is a percent of the frame height, 0.1 to 400."
+    },
+    {
+      "name": "an icon",
+      "params": {
+        "shape": "icon/check",
+        "x": 70,
+        "y": 30,
+        "width": 24,
+        "height": 24,
+        "fill": null,
+        "stroke": "#FFFFFF",
+        "strokeWidth": 1,
+        "strokeStyle": "solid"
+      },
+      "problem": null
+    },
+    {
+      "name": "an unknown icon",
+      "params": {
+        "shape": "icon/not-an-icon",
+        "x": 50,
+        "y": 50,
+        "width": 24,
+        "height": 24,
+        "fill": null,
+        "stroke": "#FFFFFF",
+        "strokeWidth": 1,
+        "strokeStyle": "solid"
+      },
+      "problem": "There is no shape called 'icon/not-an-icon'. Pick one with search_elements (kind: shape) or from the Shapes tab."
+    },
+    {
+      "name": "a knob on an icon",
+      "params": {
+        "shape": "icon/check",
+        "x": 50,
+        "y": 50,
+        "width": 24,
+        "height": 24,
+        "fill": null,
+        "stroke": "#FFFFFF",
+        "strokeWidth": 1,
+        "strokeStyle": "solid",
+        "cornerRadius": 10
+      },
+      "problem": "Shape parameter 'cornerRadius' is not one this shape has. Its parameters are: shape, x, y, width, height, fill, stroke, strokeWidth, strokeStyle."
+    },
+    {
+      "name": "a star",
+      "params": {
+        "shape": "star-5",
+        "x": 50,
+        "y": 50,
+        "width": 24,
+        "height": 24,
+        "fill": "#FFFFFF",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "points": 5,
+        "innerRadius": 45
+      },
+      "problem": null
+    },
+    {
+      "name": "a star with too few points",
+      "params": {
+        "shape": "star-5",
+        "x": 50,
+        "y": 50,
+        "width": 24,
+        "height": 24,
+        "fill": "#FFFFFF",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "points": 2,
+        "innerRadius": 45
+      },
+      "problem": "points must be between 3 and 24."
+    },
+    {
+      "name": "a curved arrow bent the other way",
+      "params": {
+        "shape": "curved-arrow",
+        "x1": 38,
+        "y1": 38,
+        "x2": 50,
+        "y2": 50,
+        "fill": null,
+        "stroke": "#FF3B30",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "startCap": "none",
+        "endCap": "arrow",
+        "headSize": 4,
+        "curvature": -30
+      },
+      "problem": null
+    },
+    {
+      "name": "a curve too bent",
+      "params": {
+        "shape": "curved-arrow",
+        "x1": 38,
+        "y1": 38,
+        "x2": 50,
+        "y2": 50,
+        "fill": null,
+        "stroke": "#FF3B30",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "startCap": "none",
+        "endCap": "arrow",
+        "headSize": 4,
+        "curvature": 140
+      },
+      "problem": "curvature must be between -100 and 100."
+    },
+    {
+      "name": "a speech bubble with its tail right",
+      "params": {
+        "shape": "speech-bubble",
+        "x": 50,
+        "y": 50,
+        "width": 40,
+        "height": 30,
+        "fill": "#FFFFFF",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 25,
+        "tailX": 80,
+        "tailSize": 22
+      },
+      "problem": null
+    },
+    {
+      "name": "a ring",
+      "params": {
+        "shape": "spotlight-ring",
+        "x": 50,
+        "y": 50,
+        "width": 24,
+        "height": 24,
+        "fill": "#FFD400CC",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "thickness": 10
+      },
+      "problem": null
+    },
+    {
+      "name": "a path shape",
+      "params": {
+        "shape": "hand-drawn-circle",
+        "x": 50,
+        "y": 50,
+        "width": 36,
+        "height": 24,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 1,
+        "strokeStyle": "solid"
+      },
+      "problem": null
+    },
+    {
+      "name": "a catalogue icon shape",
+      "params": {
+        "shape": "check",
+        "x": 50,
+        "y": 50,
+        "width": 24,
+        "height": 24,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 1,
+        "strokeStyle": "solid"
+      },
+      "problem": null
+    },
+    {
+      "name": "a numbered badge",
+      "params": {
+        "shape": "numbered-circle",
+        "x": 50,
+        "y": 50,
+        "width": 9,
+        "height": 9,
+        "fill": "#FF3B30",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "label": "2",
+        "labelColor": "#FFFFFF"
+      },
+      "problem": null
+    },
+    {
+      "name": "a burst label",
+      "params": {
+        "shape": "burst-label",
+        "x": 50,
+        "y": 50,
+        "width": 18,
+        "height": 18,
+        "fill": "#FFD400",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "label": "SALE",
+        "labelColor": "#111111",
+        "points": 12,
+        "innerRadius": 78
+      },
+      "problem": null
+    },
+    {
+      "name": "a badge label of eight characters",
+      "params": {
+        "shape": "numbered-pill",
+        "x": 50,
+        "y": 50,
+        "width": 14,
+        "height": 8,
+        "fill": "#FF3B30",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "label": "STEP 10!",
+        "labelColor": "#FFFFFF",
+        "cornerRadius": 50
+      },
+      "problem": null
+    },
+    {
+      "name": "a badge label too long",
+      "params": {
+        "shape": "numbered-pill",
+        "x": 50,
+        "y": 50,
+        "width": 14,
+        "height": 8,
+        "fill": "#FF3B30",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "label": "STEP 100!",
+        "labelColor": "#FFFFFF",
+        "cornerRadius": 50
+      },
+      "problem": "Shape parameter 'label' is out of range or the wrong type. A label is 1 to 8 characters on one line."
+    },
+    {
+      "name": "a blank badge label",
+      "params": {
+        "shape": "numbered-circle",
+        "x": 50,
+        "y": 50,
+        "width": 9,
+        "height": 9,
+        "fill": "#FF3B30",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "label": "   ",
+        "labelColor": "#FFFFFF"
+      },
+      "problem": "Shape parameter 'label' is out of range or the wrong type. A label is 1 to 8 characters on one line."
+    },
+    {
+      "name": "a badge label on two lines",
+      "params": {
+        "shape": "numbered-circle",
+        "x": 50,
+        "y": 50,
+        "width": 9,
+        "height": 9,
+        "fill": "#FF3B30",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "label": "a\nb",
+        "labelColor": "#FFFFFF"
+      },
+      "problem": "Shape parameter 'label' is out of range or the wrong type. A label is 1 to 8 characters on one line."
+    },
+    {
+      "name": "an emoji badge label",
+      "params": {
+        "shape": "numbered-circle",
+        "x": 50,
+        "y": 50,
+        "width": 9,
+        "height": 9,
+        "fill": "#FF3B30",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "label": "⭐",
+        "labelColor": "#FFFFFF"
+      },
+      "problem": null
+    },
+    {
+      "name": "a badge label colour by name",
+      "params": {
+        "shape": "numbered-circle",
+        "x": 50,
+        "y": 50,
+        "width": 9,
+        "height": 9,
+        "fill": "#FF3B30",
+        "stroke": null,
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "label": "1",
+        "labelColor": "white"
+      },
+      "problem": "Shape parameter 'labelColor' is out of range or the wrong type. A colour is #rrggbb or #rrggbbaa, or null for none."
+    },
+    {
+      "name": "a label on a shape without one",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12,
+        "label": "1"
+      },
+      "problem": "'rounded-rect' has no label; label and labelColor are for numbered badges and burst labels."
+    },
+    {
+      "name": "a label colour on a shape without one",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12,
+        "labelColor": "#FFFFFF"
+      },
+      "problem": "'rounded-rect' has no label; label and labelColor are for numbered badges and burst labels."
+    },
+    {
+      "name": "a null label on a box",
+      "params": {
+        "shape": "rounded-rect",
+        "x": 50,
+        "y": 50,
+        "width": 48,
+        "height": 27,
+        "fill": null,
+        "stroke": "#FFD400",
+        "strokeWidth": 0.8,
+        "strokeStyle": "solid",
+        "cornerRadius": 12,
+        "label": null
+      },
+      "problem": null
+    }
+  ]
+}

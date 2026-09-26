@@ -6,7 +6,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { MaskLayerSchema, type Asset, type Timeline } from '@framepilot/timeline-schema';
 import { useEditor, type UseEditor } from '../../../editor/useEditor.js';
-import { EdgeStylePanel } from './EdgeStylePanel.js';
+import { EdgeStylePanel, showsEdgeStyles } from './EdgeStylePanel.js';
 
 const ASSETS: Asset[] = [
   {
@@ -73,6 +73,18 @@ describe('edge style panel', () => {
     expect(screen.queryByRole('group', { name: 'Edge style' })).toBeNull();
   });
 
+  it('shows for a photo, a sticker or a title with no mask: its own alpha is the cut-out', () => {
+    expect(showsEdgeStyles(timeline(false).tracks[0]!.clips[0]!, false)).toBe(false);
+    expect(showsEdgeStyles(timeline(false).tracks[0]!.clips[0]!, true)).toBe(true);
+    const still = [{ ...ASSETS[0]!, id: 'a1', kind: 'image', path: 'media/a1.webp' } as Asset];
+    function StillHost(): JSX.Element {
+      editor = useEditor(timeline(false), { assets: still });
+      return <EdgeStylePanel editor={editor} clip={editor.state.timeline.tracks[0]!.clips[0]!} />;
+    }
+    render(<StillHost />);
+    expect(screen.getByRole('group', { name: 'Edge style' })).toBeTruthy();
+  });
+
   it('turns an outline on, edits it and turns it off, one undo step each', () => {
     render(<Host initial={timeline(true)} />);
     fireEvent.click(screen.getByRole('switch', { name: 'Outline around the cut-out' }));
@@ -96,5 +108,24 @@ describe('edge style panel', () => {
     fireEvent.click(screen.getByRole('combobox', { name: 'Shadow preset' }));
     fireEvent.click(screen.getByRole('option', { name: 'Hard Shadow' }));
     expect(styles()[0]!.params).toMatchObject({ kind: 'shadow', softnessPx: 0, opacity: 0.85 });
+  });
+
+  it('says so when the timeline refuses a style, rather than only logging it', () => {
+    function RefusingHost(): JSX.Element {
+      editor = useEditor(timeline(true), { assets: ASSETS });
+      const refusing = {
+        ...editor,
+        applyPatchChecked: () =>
+          [{ code: 'invalid_style', severity: 'error', message: 'Clip c1: width' }] as never,
+      };
+      return <EdgeStylePanel editor={refusing} clip={editor.state.timeline.tracks[0]!.clips[0]!} />;
+    }
+    render(<RefusingHost />);
+    fireEvent.click(screen.getByRole('switch', { name: 'Outline around the cut-out' }));
+    // A sentence with a way forward; the validator's own words name clip ids and stay in the log.
+    expect(
+      screen.getByText('The outline was not changed. Pick a preset, or turn it off and on.'),
+    ).toBeDefined();
+    expect(screen.queryByText(/Clip c1/)).toBeNull();
   });
 });

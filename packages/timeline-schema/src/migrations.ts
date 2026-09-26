@@ -316,6 +316,17 @@ export const MIGRATIONS: readonly Migration[] = [
       'whose glass and see-through captions it would otherwise flatten on save (ADR 0185).',
     migrate: (raw) => raw,
   },
+  {
+    from: 24,
+    to: 25,
+    describe:
+      'Shapes (plan/elements, ADR 0190): a clip whose asset id is the shape sentinel carries ' +
+      'one `shape` effect whose params draw a box, an ellipse, a marker, an arrow or an ' +
+      'underline. Purely additive — no v24 project contains a shape, so nothing is rewritten. ' +
+      'The step stamps the envelope so an older app refuses a project with shapes instead of ' +
+      'opening it with every shape missing and dropping them on save.',
+    migrate: (raw) => raw,
+  },
 ];
 
 /**

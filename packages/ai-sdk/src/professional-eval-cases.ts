@@ -7,6 +7,7 @@
 import type { ProfessionalEvalCase } from './professional-eval-runner.js';
 import { AUDIO_EVAL_CASES } from './professional-eval-cases.audio.js';
 import { COLOR_EVAL_CASES } from './professional-eval-cases.color.js';
+import { GRAPHICS_EVAL_CASES } from './professional-eval-cases.graphics.js';
 import { MOTION_EVAL_CASES } from './professional-eval-cases.motion.js';
 import { TIMELINE_EVAL_CASES } from './professional-eval-cases.timeline.js';
 import { TRACKING_MASK_EVAL_CASES } from './professional-eval-cases.tracking-mask.js';
@@ -17,6 +18,7 @@ export const PROFESSIONAL_EVAL_CASES: readonly ProfessionalEvalCase[] = [
   ...COLOR_EVAL_CASES,
   ...TRACKING_MASK_EVAL_CASES,
   ...AUDIO_EVAL_CASES,
+  ...GRAPHICS_EVAL_CASES,
 ];
 
 export {
@@ -25,4 +27,5 @@ export {
   COLOR_EVAL_CASES,
   TRACKING_MASK_EVAL_CASES,
   AUDIO_EVAL_CASES,
+  GRAPHICS_EVAL_CASES,
 };

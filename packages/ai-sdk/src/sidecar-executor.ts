@@ -274,6 +274,16 @@ export interface SidecarExecutorOptions {
     },
     signal?: AbortSignal,
   ) => Promise<HostToolOutcome>;
+  /**
+   * Host-side `add_sticker` (plan/elements EL6a.7): copy the catalogue sticker into the project
+   * and hand back its asset. The orchestrator places it with the builder the Stickers tab uses —
+   * the host does the side effect, never the edit.
+   */
+  readonly hostAddSticker?: (
+    project: Project,
+    args: { readonly elementId: string },
+    signal?: AbortSignal,
+  ) => Promise<HostToolOutcome>;
 }
 
 /**
@@ -1871,6 +1881,22 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
           { remoteId, kind, ...(atSeconds === undefined ? {} : { atSeconds }) },
           signal,
         );
+      }
+      if (call.name === 'add_sticker') {
+        if (!options.hostAddSticker) {
+          return {
+            status: 'failed',
+            summary: desktopOnlyCapability(
+              'Adding stickers',
+              'use add_shape for a callout instead, and tell the editor stickers need the ' +
+                'desktop app.',
+            ),
+          };
+        }
+        const elementId =
+          typeof call.arguments?.elementId === 'string' ? call.arguments.elementId : '';
+        log.action('run → host sticker', { tool: call.name, elementId });
+        return await options.hostAddSticker(ctx.project, { elementId }, signal);
       }
       if (call.name === 'measure_color') {
         const clipId = typeof call.arguments.clipId === 'string' ? call.arguments.clipId : '';

@@ -16,6 +16,7 @@ import {
   explicitCutawayCount,
   checkableAcceptance,
   explicitCoverage,
+  explicitElements,
   explicitMinShotCount,
   hasCheckableAcceptance,
   mentionsUnreadableShotCount,
@@ -613,5 +614,35 @@ describe('acceptance from a measured reference (P3.4)', () => {
     const acceptance = checkableAcceptance('make it feel like this', undefined);
     expect(acceptance.medianShotSeconds).toBeUndefined();
     expect(hasCheckableAcceptance(acceptance)).toBe(false);
+  });
+});
+
+describe('explicitElements (plan/elements EL8.1)', () => {
+  it('reads a sticker or a callout the request asks to be placed', () => {
+    expect(explicitElements("Add a fire emoji when I say 'this is fire'.")).toEqual(['sticker']);
+    expect(explicitElements('Put a box around the Export button when I say export.')).toEqual([
+      'callout',
+    ]);
+    expect(
+      explicitElements('Underline the headline and put an arrow pointing at the price.'),
+    ).toEqual(['callout']);
+    expect(explicitElements('Add a thumbs-up sticker and circle the logo.')).toEqual([
+      'sticker',
+      'callout',
+    ]);
+  });
+
+  it('asks for nothing when the request removes, restyles or animates what is there', () => {
+    expect(explicitElements('Remove the stickers.')).toEqual([]);
+    expect(explicitElements('Make all the highlight boxes red and thicker.')).toEqual([]);
+    expect(explicitElements('Make the arrow pop in and the sticker pulse.')).toEqual([]);
+    expect(explicitElements('Cut the pauses and add captions.')).toEqual([]);
+  });
+
+  it('records the elements as a criterion the run is held to', () => {
+    const acceptance = checkableAcceptance('Add a fire emoji on the punchline.', undefined);
+    expect(acceptance.elements).toEqual(['sticker']);
+    expect(hasCheckableAcceptance(acceptance)).toBe(true);
+    expect(acceptanceCriteria(acceptance)).toContain('A sticker is on the timeline.');
   });
 });

@@ -982,6 +982,10 @@ input[type='checkbox']:focus-visible {
   z-index: 3;
   touch-action: none;
 }
+.preview-transform:focus-visible {
+  outline: 2px solid var(--tl-select);
+  outline-offset: 2px;
+}
 .preview-transform-handle {
   position: absolute;
   width: 9px;
@@ -2401,9 +2405,29 @@ g.mask-canvas-draft circle {
 /* ---- Overlays panel (master-prompt §3.4) -------------------------------- */
 .ov-types {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: var(--space-1);
   margin-bottom: var(--space-3);
+}
+
+/* Shapes and stickers moved to Elements (plan/elements EL4a): one line points there. */
+.ov-elements-link {
+  margin: 0 0 var(--space-3);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.ov-elements-link .link-button {
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  text-decoration: underline;
+}
+.ov-elements-link .link-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .ov-type-wrap {
@@ -2939,6 +2963,8 @@ g.mask-canvas-draft circle {
   position: relative;
   display: block;
   cursor: grab;
+  /* The card's width decides its action cluster (below), not the rail's. */
+  container: bin-card / inline-size;
 }
 
 .bin-card:active {
@@ -3106,16 +3132,41 @@ g.mask-canvas-draft circle {
   pointer-events: none;
 }
 
-/* Hover action cluster, top-right of the tile — two compact icon buttons that
-   never overlap the play badge or each other (fits a half-rail card). */
+/* A sticker in the bin says it is an element, not footage (plan/elements EL6a), in the graphic
+   clip colour it has on the timeline. */
+.bin-card-element {
+  position: absolute;
+  left: var(--space-1);
+  bottom: var(--space-1);
+  z-index: 2;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  /* The clip bar's fill and ink, ringed in the clip's border colour: white on the border rose
+     was 3.1:1 for 11 px text; bar and ink are about 9.7:1, and pass in the light theme too. */
+  background: var(--clip-graphic-bar);
+  box-shadow: inset 0 0 0 1px var(--clip-graphic-border);
+  color: var(--clip-bar-ink);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+/* Hover action cluster, top-right of the tile — compact icon buttons (add, and on
+   an image add as overlay; relink; remove) that never overlap the play badge or
+   each other. An image card on the desktop carries four, wider than a half-rail
+   card at the small densities, so the cluster wraps onto a second row inside the
+   tile rather than pushing Add off its left edge, where the thumbnail clips it. */
 .bin-card-actions {
   position: absolute;
   top: var(--space-1);
   right: var(--space-1);
   z-index: 2;
   display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: var(--space-1);
+  max-width: calc(100% - 2 * var(--space-1));
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--dur-fast) var(--ease);
@@ -3127,6 +3178,31 @@ g.mask-canvas-draft circle {
 .bin-card:focus-within .bin-card-actions {
   opacity: 1;
   pointer-events: auto;
+}
+
+/* More actions is for narrow cards only; wide ones show Relink and Remove directly. */
+.bin-card-narrow-only {
+  display: none;
+}
+
+/* A narrow card (the S and M densities, 80–119 px) keeps ONE row of 24 px buttons: Add, Add as
+   overlay, then More actions holding Relink and Remove. Three buttons and two 2 px gaps are
+   76 px, which an 80 px card holds at a 2 px inset, so nothing wraps onto a second row the
+   thumbnail clips, or over the duration chip. */
+@container bin-card (max-width: 119px) {
+  .bin-card-actions {
+    top: 2px;
+    right: 2px;
+    flex-wrap: nowrap;
+    gap: 2px;
+    max-width: calc(100% - 4px);
+  }
+  .bin-card-wide-only {
+    display: none;
+  }
+  .bin-card-narrow-only {
+    display: grid;
+  }
 }
 
 .bin-card-icon-btn {
@@ -3146,7 +3222,8 @@ g.mask-canvas-draft circle {
     color var(--dur-fast) var(--ease);
 }
 
-.bin-card-add:hover {
+.bin-card-add:hover,
+.bin-card-overlay:hover {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-text);
@@ -3807,6 +3884,20 @@ g.mask-canvas-draft circle {
 /* UX-14: how the picture meets the frame, said in the monitor instead of only in
    the export. Top-left over the void the frame floats on, not over the picture —
    it is a note about the frame, and it must never cover the shot it is about. */
+.preview-elements-note {
+  position: absolute;
+  z-index: 2;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  max-width: 60%;
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.72rem;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+}
 .preview-fit-chip {
   position: absolute;
   z-index: 2;
@@ -3882,6 +3973,17 @@ g.mask-canvas-draft circle {
   /* Size container so text overlays can size their font in `cqh` (a fraction of
      the frame height) — text scales with the frame at any panel size (#5). */
   container-type: size;
+}
+
+/* A sticker or shape tile held over the picture (plan/elements EL11): the canvas edge takes the
+   timeline's drop-target colour, so the frame reads as where the drop will land — the picture,
+   not the letterbox around it. `--tl-select` rather than `--accent`: the stage is dark in both
+   themes, and the minimal theme's near-black accent would vanish against it. A ring, not a fill,
+   so the picture under the pointer stays visible for aiming; no transition of its own. */
+.preview-frame.is-element-drop {
+  box-shadow:
+    0 0 0 2px var(--tl-select),
+    0 8px 32px rgba(0, 0, 0, 0.45);
 }
 
 .preview-video {
@@ -4146,6 +4248,123 @@ g.mask-canvas-draft circle {
 
 /* Overlay layer spans the whole frame; each text overlay positions itself within
    it by percent via an inline style (see textOverlayStyle, #5). */
+/* Shapes (plan/elements EL4a): hit targets and the selected shape's handles. Each shape's layer
+   covers the frame and carries the clip's transform, so handles sit where the engine drew it. */
+.preview-shapes {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+.preview-shape-editor {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.preview-shape-hit {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+}
+/* The monitor is dark in both themes and the footage under a shape can be anything, so the shape
+   chrome is the sticker box's two-tone (white over a dark halo), never the theme accent — which is
+   near-black in the light theme and vanished on the stage. Focus is the timeline's selection
+   orange, as the monitor's drop ring is. */
+.preview-shape-hit:focus-visible {
+  outline: 2px solid var(--tl-select);
+  outline-offset: 1px;
+}
+.preview-shape-box {
+  position: absolute;
+  pointer-events: auto;
+  cursor: move;
+  outline: 1px dashed rgba(255, 255, 255, 0.98);
+  outline-offset: 0;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.72);
+}
+.preview-shape-box:focus-visible {
+  outline: 2px solid var(--tl-select);
+  outline-offset: 1px;
+}
+.preview-shape-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  pointer-events: auto;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.82);
+  border-radius: 2px;
+}
+.preview-shape-handle.is-end {
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  cursor: crosshair;
+  border-radius: 50%;
+}
+.preview-shape-handle.is-nw {
+  left: 0;
+  top: 0;
+  cursor: nwse-resize;
+}
+.preview-shape-handle.is-n {
+  left: 50%;
+  top: 0;
+  cursor: ns-resize;
+}
+.preview-shape-handle.is-ne {
+  left: 100%;
+  top: 0;
+  cursor: nesw-resize;
+}
+.preview-shape-handle.is-e {
+  left: 100%;
+  top: 50%;
+  cursor: ew-resize;
+}
+.preview-shape-handle.is-se {
+  left: 100%;
+  top: 100%;
+  cursor: nwse-resize;
+}
+.preview-shape-handle.is-s {
+  left: 50%;
+  top: 100%;
+  cursor: ns-resize;
+}
+.preview-shape-handle.is-sw {
+  left: 0;
+  top: 100%;
+  cursor: nesw-resize;
+}
+.preview-shape-handle.is-w {
+  left: 0;
+  top: 50%;
+  cursor: ew-resize;
+}
+.preview-shape-editor-line {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.preview-shape-editor-line line {
+  pointer-events: stroke;
+  cursor: move;
+  stroke: var(--tl-select);
+  stroke-dasharray: 4 3;
+  stroke-width: 12px;
+  stroke-opacity: 0.45;
+  vector-effect: non-scaling-stroke;
+}
+.preview-shape-editor-line line:focus-visible {
+  stroke-opacity: 1;
+  outline: none;
+}
+
 .preview-overlays {
   position: absolute;
   inset: 0;
@@ -4908,6 +5127,9 @@ g.mask-canvas-draft circle {
 }
 .track-head.is-overlay .track-glyph {
   color: var(--clip-ai-border);
+}
+.track-head.is-graphic .track-glyph {
+  color: var(--clip-graphic-border);
 }
 
 /* Per-layer z-order nudge (Phase 2, ADR 0032): two stacked chevrons that appear
@@ -5724,6 +5946,22 @@ g.mask-canvas-draft circle {
   --clip-edge-strong: var(--clip-ai-border);
   --clip-bar: var(--clip-ai-bar);
   background: var(--clip-ai);
+}
+.clip-block.is-graphic {
+  --clip-edge: var(--clip-graphic-edge);
+  --clip-edge-strong: var(--clip-graphic-border);
+  --clip-bar: var(--clip-graphic-bar);
+  background: var(--clip-graphic);
+}
+/* A shape clip's glyph beside its name (plan/elements 02 §6), on the mid-tone the tiles use so a
+   white or a yellow shape both read. */
+.clip-shape-glyph {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  background: #5b5f6b;
+  border-radius: 3px;
 }
 
 /* Selection = one accent ring (never a different fill), so the per-kind clip
@@ -6573,6 +6811,11 @@ g.mask-canvas-draft circle {
      box is unchanged); only the paint shrinks, and the strip stays a full-height target. */
   transform: scaleY(0.35);
 }
+/* Element graphics (shapes) keep their lane colour on the overview (plan/elements 02 §6). */
+.mm-block[data-graphic='true'] {
+  background: var(--clip-graphic-border);
+  opacity: 0.8;
+}
 
 /* The viewport window. It is a WINDOW: what matters is where its edges are, so
    the edges carry the weight and the pane stays faint enough that the blocks it
@@ -7376,7 +7619,7 @@ details.inspector-panel[open] > .inspector-section-head::before {
   padding: 0.5rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-2, 6px);
-  background: var(--surface-2, rgba(255, 255, 255, 0.02));
+  background: var(--surface-2);
 }
 
 .inspector-subpanel h4 {
@@ -9086,7 +9329,8 @@ details.inspector-panel[open] > .inspector-section-head::before {
   gap: var(--space-2);
   align-items: center;
   font-size: 0.72rem;
-  color: var(--muted-2);
+  /* --muted, not --muted-2: small text on the --surface-2 row fill needs 4.5:1. */
+  color: var(--muted);
 }
 .sounds-duration {
   font-variant-numeric: tabular-nums;
@@ -9103,7 +9347,7 @@ details.inspector-panel[open] > .inspector-section-head::before {
   color: var(--accent);
 }
 .sounds-badge--free {
-  color: var(--muted-2);
+  color: var(--muted);
 }
 
 .sounds-row-error {
@@ -9121,7 +9365,7 @@ details.inspector-panel[open] > .inspector-section-head::before {
   width: 72px;
   height: 4px;
   overflow: hidden;
-  background: var(--surface-3, var(--surface-2));
+  background: var(--surface-3);
   border-radius: 2px;
 }
 .sounds-progress-fill {
@@ -9195,6 +9439,12 @@ details.inspector-panel[open] > .inspector-section-head::before {
   /* A credit line is a fixed legal string, so it wraps rather than truncating —
      an ellipsis here would hide part of the obligation. */
   overflow-wrap: anywhere;
+}
+/* How many assets share a grouped credit line (plan/elements G10). */
+.export-credits-count {
+  flex: none;
+  font-size: 0.75rem;
+  color: var(--text-secondary, var(--text));
 }
 .export-credits-license {
   font-size: 0.74rem;
@@ -15087,6 +15337,481 @@ a.export-credits-license {
 }
 
 /* ---------------------------------------------------------------------------
+   Elements — the shelf of things placed on or into the picture (plan/elements):
+   a segmented sub-tab strip over the sub-tab's own browser. Token-driven, like
+   every panel here (ADR 0028); no parallel component language.
+   --------------------------------------------------------------------------- */
+.elements-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  min-height: 0;
+}
+.elements-tabs {
+  display: flex;
+  flex-shrink: 0;
+  /* At the narrowest rail the four labels do not fit on one row: they wrap two by two rather
+     than truncate to "Sti…". */
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+.elements-tab {
+  flex: 1 0 auto;
+  min-height: 28px;
+  padding: 0 var(--space-2);
+  font-size: 0.76rem;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: calc(var(--radius-sm, 6px) - 2px);
+  transition:
+    color 0.12s ease,
+    background-color 0.12s ease;
+}
+.elements-tab:hover {
+  color: var(--text);
+}
+.elements-tab[aria-selected='true'] {
+  /* Not colour alone: a raised fill, a strong ring and the rail tabs' orange underline, so the
+     selected segment reads in both themes and on the strip's own fill. */
+  color: var(--text);
+  font-weight: var(--font-weight-medium);
+  background: var(--bg-elevated);
+  box-shadow:
+    0 0 0 1px var(--border-strong),
+    inset 0 -2px 0 var(--tl-select);
+}
+.elements-tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.elements-tabpanel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Shapes sub-tab (plan/elements EL4a): a grid of preset tiles. The tiles sit on a mid-tone so
+   a white fill and a yellow outline both read, as they would over footage. */
+.shapes-browser {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+}
+/* Only the grid scrolls; the search, the chips and the colour row above it stay put, as on
+   Stickers and Photos. */
+.shapes-scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.shapes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: var(--space-2);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.shapes-grid-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: center;
+  width: 100%;
+  padding: var(--space-2);
+  color: var(--text);
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+.shapes-grid-tile:hover {
+  background: var(--surface-3);
+  border-color: var(--accent);
+}
+.shapes-grid-tile:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.shape-tile {
+  width: 100%;
+  max-width: 64px;
+  aspect-ratio: 1;
+  background: #5b5f6b;
+  border-radius: calc(var(--radius-sm, 6px) - 2px);
+}
+.shapes-grid-name {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The search box of every Elements sub-tab: the app's one input (`[data-ui='input']`, small),
+   so the four sub-tabs share a height, a surface and the theme's focus treatment. */
+.elements-search {
+  flex-shrink: 0;
+  width: 100%;
+  min-width: 0;
+}
+/* The category chips of every sub-tab: ONE row that scrolls sideways, pinned above the grid. */
+.shapes-chips,
+.stickers-chips,
+.stock-chips {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-1);
+  padding-bottom: 2px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.shapes-chips .shapes-chip,
+.stickers-chips .shapes-chip,
+.stock-chips .shapes-chip {
+  flex: none;
+  white-space: nowrap;
+}
+.shapes-chip {
+  min-height: var(--control-h-xs, 24px);
+  padding: 2px var(--space-2);
+  font-size: 0.72rem;
+  color: var(--text-secondary, var(--text));
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.shapes-chip[aria-pressed='true'] {
+  /* A 2 px ring (border plus inset), so pressed is a thickness change and not colour alone. */
+  color: var(--text);
+  background: var(--surface-3);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.shapes-chip:focus-visible,
+.shapes-swatch:focus-visible,
+.shapes-more:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.shapes-colours {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+}
+.shapes-swatch {
+  display: grid;
+  place-items: center;
+  width: var(--control-h-xs, 24px);
+  height: var(--control-h-xs, 24px);
+  padding: 0;
+  cursor: pointer;
+  /* A border that shows white on the light panel and near-black on the dark one. */
+  border: 1px solid var(--text-tertiary);
+  border-radius: 50%;
+}
+.shapes-swatch.is-preset {
+  /* "Each shape in its own colours": a split disc rather than one colour. */
+  background: conic-gradient(#ffd400 0 25%, #ff3b30 0 50%, #ffffff 0 75%, #0a84ff 0);
+}
+.shapes-swatch[aria-pressed='true'] {
+  /* Chosen: a gap and a ring in the text colour, plus a check (the markup's); focus keeps the
+     outline, so the two never look the same. */
+  box-shadow:
+    0 0 0 2px var(--bg-surface),
+    0 0 0 4px var(--text);
+}
+.shapes-swatch-check {
+  color: #fff;
+  filter: drop-shadow(0 0 1px rgb(0 0 0 / 90%));
+}
+/* Each shape in its own colours: the picker shows a spectrum, not a colour nobody chose. */
+.shapes-swatch-picker[data-unset]::-webkit-color-swatch {
+  background-image: conic-gradient(#ff3b30, #ffd400, #34c759, #0a84ff, #af52de, #ff3b30);
+}
+.shapes-swatch-picker {
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+/* A badge's label in the Inspector's Shape section: short text, so a short field. */
+.inspector-text-input {
+  width: 7em;
+  min-width: 0;
+  padding: 2px var(--space-1);
+  color: var(--text);
+  /* The Inspector's subpanel is itself on --surface-2; the field sits back on the panel colour. */
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+.shapes-more {
+  align-self: center;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text);
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+
+/* Stickers sub-tab (plan/elements EL6a): square tiles, ~72 px at the default rail width. The
+   same search and chips as Shapes; tiles show the sticker on the panel background. */
+/* The Stickers sub-tab (plan/elements EL6b.2): the search and chips stay put while the grid
+   scrolls, and the grid draws only the rows in view — each tile is placed by the virtualiser
+   (`transform`), so the list itself is just the height of the whole library. */
+.stickers-browser {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+}
+.stickers-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.stickers-grid {
+  position: relative;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.stickers-grid-cell {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+.stickers-grid-tile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: var(--space-1);
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+.stickers-grid-tile:hover {
+  background: var(--surface-3);
+  border-color: var(--accent);
+}
+.stickers-grid-tile:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+/* The adding state (02 §2.2): the sticker dims and a spinner turns over it while main copies the
+   file into the project. The tile itself stays at full strength, so the spinner reads. */
+.stickers-grid-tile[aria-busy='true'] {
+  cursor: progress;
+}
+.stickers-grid-tile[aria-busy='true'] img,
+.stickers-grid-tile[aria-busy='true'] .stickers-grid-glyph {
+  opacity: 0.45;
+}
+.stickers-grid-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  border: 2px solid var(--text);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: btn-spin 0.6s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stickers-grid-spinner {
+    animation-duration: 1.4s;
+  }
+}
+/* The failed state: a danger ring on the tile, and over its lower half the reason in a few words
+   and Retry. Only Retry takes the pointer; the rest of the tile still adds on a click. */
+.stickers-grid-cell[data-state='failed'] .stickers-grid-tile {
+  border-color: var(--danger);
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+.stickers-grid-failed {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  left: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  padding: 2px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  border-radius: var(--radius-xs);
+}
+.stickers-grid-failed-reason {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.64rem;
+  line-height: 1.2;
+  color: var(--danger);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stickers-grid-retry {
+  min-height: var(--control-h-xs);
+  padding: 0 var(--space-2);
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--text);
+  cursor: pointer;
+  pointer-events: auto;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+.stickers-grid-retry:hover {
+  border-color: var(--danger);
+}
+.stickers-grid-retry:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.stickers-grid-tile:disabled:not([aria-busy='true']) {
+  cursor: default;
+}
+.stickers-grid-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+/* A packaged tile still on its way from main: the emoji itself holds the place. */
+.stickers-grid-glyph {
+  font-size: 1.75rem;
+  line-height: 1;
+}
+/* The project already holds this sticker; a click still adds another (02 §2.2). */
+.stickers-grid-held {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  border-radius: 50%;
+}
+/* The favourite star shows on hover and focus, and stays on a favourite. */
+.stickers-grid-star {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: grid;
+  place-items: center;
+  min-width: var(--control-h-xs, 24px);
+  min-height: var(--control-h-xs, 24px);
+  padding: 2px;
+  color: var(--text-secondary, var(--text));
+  cursor: pointer;
+  background: var(--surface);
+  border: 0;
+  border-radius: var(--radius-sm, 6px);
+  opacity: 0;
+}
+.stickers-grid-cell:hover .stickers-grid-star,
+.stickers-grid-cell:focus-within .stickers-grid-star,
+.stickers-grid-star[aria-pressed='true'] {
+  opacity: 1;
+}
+.stickers-grid-star[aria-pressed='true'] {
+  color: var(--accent);
+}
+.stickers-grid-star:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  opacity: 1;
+}
+.stickers-replace {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.8rem;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm, 6px);
+}
+.stickers-replace-cancel,
+.sticker-section-replace,
+.animation-reapply {
+  min-height: var(--control-h-xs, 24px);
+  padding: 2px var(--space-2);
+  color: var(--text);
+  cursor: pointer;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+.stickers-credit {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--text-secondary, var(--text));
+}
+.sticker-section-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.sticker-section-thumb {
+  flex: none;
+  object-fit: contain;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm, 6px);
+}
+.sticker-section-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Outline and Shadow (plan/elements EL6b.3): the Mask tab's edge-style rows, fewer of them. */
+.sticker-section-look {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+/* ---------------------------------------------------------------------------
    Stock panel — third-party photo & video search
    (plan/3rd-party-sourcing/photo-video). Token-driven, reusing the existing
    palette and Button variants (ADR 0028). No parallel component language.
@@ -15099,8 +15824,8 @@ a.export-credits-license {
   min-height: 0;
 }
 
-/* One row: search, kind, attribution. Everything that is not a result lives
-   here, so the space below the row belongs entirely to the grid. */
+/* One row: search and attribution (the kind is the Elements sub-tab). Everything
+   that is not a result lives here, so the space below the row belongs to the grid. */
 .stock-controls {
   display: flex;
   flex-wrap: wrap;
@@ -15111,53 +15836,19 @@ a.export-credits-license {
   flex: 1 1 120px;
   min-width: 0;
 }
-.stock-search-input {
-  width: 100%;
-  padding: var(--space-2);
-  font-size: 0.85rem;
-  color: var(--text);
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm, 6px);
-}
-.stock-search-input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-.stock-search-input:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
 
-/* The kind filter. A select, so it costs one control's width in a sidebar that
-   has none to spare, and states the current kind without a second chip. */
-.stock-kind-select {
-  display: inline-flex;
-  gap: var(--space-1);
-  align-items: center;
-  padding: 0 var(--space-2);
-  color: var(--muted);
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm, 6px);
-}
-.stock-kind-select select {
-  padding: var(--space-2) 0;
-  font-size: 0.76rem;
-  color: var(--text);
-  cursor: pointer;
-  background: none;
+/* A status line mounted empty and filled later, so a screen reader hears it (a region that
+   mounts already holding its text is often skipped). Empty, it takes no room and no gap. */
+.live-slot:empty {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
   border: 0;
 }
-.stock-kind-select select:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-.stock-kind-select:has(select:disabled) {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
 .stock-note {
   margin: 0;
   font-size: 0.8rem;
@@ -15168,6 +15859,13 @@ a.export-credits-license {
   margin: 0;
   font-size: 0.8rem;
   color: var(--danger);
+}
+/* A failed search and the button that runs it again, side by side. */
+.stock-error-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
 }
 .stock-hint {
   display: flex;
@@ -15215,7 +15913,8 @@ a.export-credits-license {
   flex: 1 1 auto;
   flex-direction: column;
   gap: var(--space-2);
-  min-height: 0;
+  /* Never squeezed to nothing: at 200% zoom on a short screen the header must not take it all. */
+  min-height: 120px;
   overflow-y: auto;
 }
 
@@ -15250,13 +15949,31 @@ a.export-credits-license {
   background: var(--surface-2);
   border-radius: var(--radius-sm, 6px);
 }
-.stock-tile:focus-visible {
-  outline: 2px solid var(--accent);
+/* The tile's stop is the button over its picture; the ring is drawn on the tile, outside the
+   picture, where the meta scrim and the actions cannot cover it. */
+.stock-tile:has(.stock-tile-main:focus-visible) {
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+}
+.stock-tile-main {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: inherit;
+}
+.stock-tile-main:focus-visible {
+  outline: none;
 }
 .stock-tile--skeleton {
   aspect-ratio: 3 / 2;
-  opacity: 0.6;
+  /* A step above the tile well, so the first search shows its shape rather than nothing. */
+  background: var(--surface-3);
 }
 
 .stock-thumb {
@@ -15279,9 +15996,12 @@ a.export-credits-license {
   height: 100%;
   object-fit: cover;
   opacity: 0;
+  /* Over the tile's button, never in its way: a click on the picture is the button's. */
+  pointer-events: none;
   transition: opacity 140ms ease-out;
 }
-.stock-tile:hover .stock-preview {
+.stock-tile:hover .stock-preview,
+.stock-tile:focus-within .stock-preview {
   opacity: 1;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -15314,10 +16034,35 @@ a.export-credits-license {
   flex-direction: column;
   gap: 1px;
   padding: var(--space-2);
-  /* Legible over any photograph, without dimming the whole tile. */
-  background: linear-gradient(to top, rgb(0 0 0 / 72%), transparent);
+  /* Legible over any photograph (the title keeps 4.5:1 over a bright one), without dimming
+     the whole tile. */
+  background: linear-gradient(to top, rgb(0 0 0 / 82%), rgb(0 0 0 / 60%) 60%, transparent);
   opacity: 0;
+  pointer-events: none;
   transition: opacity 140ms ease-out;
+}
+/* Room for the duration chip, which stays in the corner while the scrim is up. */
+.stock-tile[data-has-duration] .stock-tile-meta {
+  padding-right: 44px;
+}
+/* The credit link is the one thing in the scrim a pointer can use, once the scrim shows. */
+.stock-tile:hover .stock-tile-creator a,
+.stock-tile:focus-within .stock-tile-creator a {
+  pointer-events: auto;
+}
+/* The duration, at rest: the first thing an editor reads on a clip. */
+.stock-tile-dur {
+  position: absolute;
+  right: var(--space-1);
+  bottom: var(--space-1);
+  z-index: 1;
+  padding: 1px 5px;
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+  color: #fff;
+  pointer-events: none;
+  background: rgb(17 17 17 / 72%);
+  border-radius: var(--radius-xs);
 }
 .stock-tile:hover .stock-tile-meta,
 .stock-tile:focus-visible .stock-tile-meta,
@@ -15346,31 +16091,60 @@ a.export-credits-license {
 .stock-tile-creator {
   overflow: hidden;
   font-size: 0.68rem;
-  color: rgb(255 255 255 / 62%);
+  color: rgb(255 255 255 / 78%);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .stock-tile-creator a {
   color: inherit;
 }
+/* The active tile's own controls are Tab stops: each shows where the keyboard is. */
+.stock-tile-creator a:focus-visible,
+.stock-cancel:focus-visible,
+.stock-present:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
 
 .stock-tile-action {
   position: absolute;
   top: var(--space-1);
   right: var(--space-1);
+  left: var(--space-1);
   display: flex;
+  /* One row: two small buttons (Add, Overlay) fit the narrowest column, ~99 px of ~122. */
+  flex-wrap: nowrap;
   gap: var(--space-1);
   align-items: center;
+  justify-content: flex-end;
+  /* Above the meta scrim, which follows it in the DOM (the actions come first in Tab order). */
+  z-index: 2;
   opacity: 0;
+  /* An invisible control must never take a click meant for the picture beneath it. */
+  pointer-events: none;
   transition: opacity 140ms ease-out;
 }
+/* Add and Add as overlay sit on the photograph itself, so they carry the same dark backdrop as
+   the tile's other controls: legible over any picture, in either theme. */
+.stock-tile-action [data-variant] {
+  color: #fff;
+  background: rgb(0 0 0 / 55%);
+}
+.stock-tile-action [data-variant]:hover:not(:disabled) {
+  color: #fff;
+  background: rgb(0 0 0 / 72%);
+}
+.stock-tile-action [data-variant][aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 .stock-tile:hover .stock-tile-action,
-.stock-tile:focus-visible .stock-tile-action,
 .stock-tile:focus-within .stock-tile-action,
 /* A download in flight stays visible without a hover: the user needs to be able
    to find its Cancel after moving the mouse away. */
 .stock-tile:has(.stock-progress) .stock-tile-action {
   opacity: 1;
+  pointer-events: auto;
 }
 @media (prefers-reduced-motion: reduce) {
   .stock-tile-action {
@@ -15380,10 +16154,18 @@ a.export-credits-license {
 
 .stock-present {
   padding: 2px var(--space-1);
+  font: inherit;
   font-size: 0.68rem;
   color: #fff;
   background: rgb(0 0 0 / 55%);
+  border: 0;
   border-radius: 4px;
+}
+button.stock-present {
+  cursor: pointer;
+}
+button.stock-present:hover {
+  background: rgb(0 0 0 / 72%);
 }
 
 .stock-progress {
@@ -15407,6 +16189,9 @@ a.export-credits-license {
 .stock-cancel {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: var(--control-h-xs, 24px);
+  min-height: var(--control-h-xs, 24px);
   padding: 2px;
   color: #fff;
   cursor: pointer;
@@ -15423,8 +16208,44 @@ a.export-credits-license {
   padding: 2px var(--space-1);
   font-size: 0.68rem;
   color: #fff;
-  background: var(--danger);
+  /* Darkened: white on the dark theme's --danger was 3.35:1; this is about 6:1, 9:1 in light. */
+  background: color-mix(in srgb, var(--danger) 70%, #000);
   border-radius: 4px;
+}
+
+/* The orientation filter (plan/elements EL9): four toggles in one small box, the three shapes
+   drawn as boxes of that shape. It starts on the project's own shape. */
+.stock-orientation {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+.stock-orientation-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 var(--space-1);
+  font-size: 0.72rem;
+  color: var(--muted);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+}
+.stock-orientation-option[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.stock-orientation-option:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }
 
 /* Required by the Pexels API guidelines, and rendered in every panel state
@@ -15640,7 +16461,7 @@ a.export-credits-license {
 .jobs-progress {
   height: 4px;
   overflow: hidden;
-  background: var(--surface-3, var(--surface-2));
+  background: var(--surface-3);
   border-radius: 2px;
 }
 .jobs-progress-fill {

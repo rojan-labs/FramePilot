@@ -17245,5 +17245,208 @@
     "aiMemory",
     "history"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "ShapeParams": {
+      "type": "object",
+      "properties": {
+        "shape": {
+          "type": "string",
+          "minLength": 1
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 400
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "height": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 400
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "x1": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": -50,
+              "maximum": 150
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "y1": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": -50,
+              "maximum": 150
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "x2": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": -50,
+              "maximum": 150
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "y2": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": -50,
+              "maximum": 150
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fill": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stroke": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "strokeWidth": {
+          "type": "number",
+          "minimum": 0.05,
+          "maximum": 10
+        },
+        "strokeStyle": {
+          "type": "string",
+          "enum": [
+            "solid",
+            "dashed",
+            "dotted"
+          ]
+        },
+        "startCap": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "none",
+                "arrow",
+                "dot",
+                "bar"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "endCap": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "none",
+                "arrow",
+                "dot",
+                "bar"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "labelColor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "shape",
+        "strokeWidth",
+        "strokeStyle"
+      ],
+      "additionalProperties": {
+        "type": "number"
+      }
+    }
+  }
 }

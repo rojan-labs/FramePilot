@@ -1,0 +1,4 @@
+# Text is stored and checked out with LF on every platform. Generators embed file contents (the
+# agent's skills, tool descriptions) and tests compare them byte for byte; a Windows checkout's
+# CRLF stopped the release build at the skill generator.
+* text=auto eol=lf

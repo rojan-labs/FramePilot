@@ -16,12 +16,12 @@
  */
 import { appendFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const pkgRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
 const { runFoundationRealEval } = await import(
-  join(pkgRoot, 'dist', 'eval', 'foundation-real-eval.js')
+  pathToFileURL(join(pkgRoot, 'dist', 'eval', 'foundation-real-eval.js')).href
 ).catch((error) => {
   console.error(
     '\n[foundation-real-eval] Could not load @framepilot/ai-sdk dist/eval/foundation-real-eval.js. ' +

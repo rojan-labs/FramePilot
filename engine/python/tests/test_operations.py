@@ -21,8 +21,6 @@ from framepilot_engine.timeline.models import (
     TrackType,
 )
 from framepilot_engine.timeline.operations import (
-    CAPTION_ASSET_ID,
-    TEXT_OVERLAY_ASSET_ID,
     AddCaptionLayer,
     AddClip,
     AddKeyframes,
@@ -57,6 +55,7 @@ from framepilot_engine.timeline.operations import (
     apply_operation,
     invert_operation,
 )
+from framepilot_engine.timeline.synthetic_assets import CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID
 
 
 def _clip(cid: str, track: str, start: float, end: float, **extra: object) -> Clip:

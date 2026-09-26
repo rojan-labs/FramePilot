@@ -13,14 +13,14 @@
  * Exits non-zero if any ERROR-severity issue is found (warnings do not fail).
  */
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const enginePath = resolve(here, '../packages/editor-core/dist/speed-curve.js');
 let clipTimelineDuration;
 try {
-  ({ clipTimelineDuration } = await import(enginePath));
+  ({ clipTimelineDuration } = await import(pathToFileURL(enginePath).href));
 } catch {
   console.error(
     `Cannot load the timeline engine from ${enginePath}.\n` +

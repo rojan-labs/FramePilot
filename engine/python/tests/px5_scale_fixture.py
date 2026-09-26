@@ -74,6 +74,37 @@ VERTICES = 200
 #: Each source is `testsrc2` with its own hue rotation, so the four layers are told apart by eye.
 _HUES = {"a": 0, "b": 90, "c": 180, "d": 270}
 
+#: plan/elements 02 §9 (EL6b): the elements budget's 20 layers, as curated stickers every build
+#: ships (``apps/web-editor/public/elements/stickers``), copied beside the sources.
+ELEMENT_STICKERS = (
+    "fire",
+    "red_heart",
+    "thumbs_up",
+    "grinning_face",
+    "party_popper",
+    "rocket",
+    "glowing_star",
+    "check_mark_button",
+    "hundred_points",
+    "clapping_hands",
+    "eyes",
+    "face_with_tears_of_joy",
+    "sparkles",
+    "light_bulb",
+    "money_bag",
+    "trophy",
+    "crown",
+    "smiling_face_with_sunglasses",
+    "warning",
+    "laptop",
+)
+ELEMENT_LAYERS = len(ELEMENT_STICKERS)
+#: The sticker file's own size (the art plus its transparent margin), as the library records it.
+_STICKER_FILE_PX = 318
+#: Each sticker drawn about 400 px high on the 4K frame (a contain-fit makes the file 2160 high).
+_STICKER_SCALE = 400 / HEIGHT
+_SHIPPED_STICKERS = REPO_ROOT / "apps" / "web-editor" / "public" / "elements" / "stickers" / "full"
+
 
 def _run(argv: list[str], **kwargs: Any) -> None:
     result = subprocess.run(argv, capture_output=True, check=False, **kwargs)
@@ -522,6 +553,8 @@ def scale_project(seconds: int, artifact: dict[str, Any], variant: str) -> dict[
     * ``scale-key-nofinesse`` - plain + the same key with finesse at its defaults.
     * ``scale-soft`` - the row with the matte at its default soft edge instead of ``sharp``: the
       matte whose alpha the tier's alpha plane stands in for (PX5.8).
+    * ``scale-elements`` - plain + 20 sticker layers over the footage, a 5 x 4 grid under the
+      title, five outlined and five turning (plan/elements 02 §9, EL6b).
     """
     matte = {
         "id": "subject",
@@ -604,8 +637,10 @@ def scale_project(seconds: int, artifact: dict[str, Any], variant: str) -> dict[
     # every layer is visible in every variant.
     tracks = [
         {"id": "words", "type": "overlay", "clips": [text]},
+        *(_element_tracks(seconds) if variant == "scale-elements" else []),
         *({"id": f"v-{n}", "type": "video", "clips": [clips[n]]} for n in ("c", "b", "d", "a")),
     ]
+    element_assets = _element_assets() if variant == "scale-elements" else []
     return {
         "id": f"fp-px5-{variant}",
         "name": f"px5-{variant}",
@@ -621,10 +656,98 @@ def scale_project(seconds: int, artifact: dict[str, Any], variant: str) -> dict[
                 "durationSeconds": float(seconds),
             }
             for n in SOURCES
-        ],
+        ]
+        + element_assets,
         "timeline": {"tracks": tracks},
         "transcript": [],
     }
+
+
+def _element_asset_id(sticker: str) -> str:
+    return f"element_fluent3d_{sticker}"
+
+
+def _element_assets() -> list[dict[str, Any]]:
+    """The 20 stickers as the Stickers tab adds them: images with element provenance."""
+    return [
+        {
+            "id": _element_asset_id(sticker),
+            "path": f"media/elements/fluent3d/{sticker}.webp",
+            "kind": "image",
+            "media": {"width": _STICKER_FILE_PX, "height": _STICKER_FILE_PX},
+            "source": {
+                "provider": "fluent-emoji",
+                "remoteId": sticker,
+                "license": "mit",
+                "licenseUrl": "https://github.com/microsoft/fluentui-emoji/blob/main/LICENSE",
+                "attributionRequired": False,
+                "attribution": "Fluent Emoji by Microsoft (MIT)",
+                "creator": "Microsoft",
+                "sourceUrl": "https://github.com/microsoft/fluentui-emoji",
+                "fetchedAt": "2026-09-26T00:00:00.000Z",
+            },
+        }
+        for sticker in ELEMENT_STICKERS
+    ]
+
+
+def _element_tracks(seconds: int) -> list[dict[str, Any]]:
+    """One lane per sticker, a 5 x 4 grid across the frame; every fourth outlined, every fourth
+    (offset by two) turning a full circle over the row."""
+    tracks: list[dict[str, Any]] = []
+    for index, sticker in enumerate(ELEMENT_STICKERS):
+        column, row = index % 5, index // 5
+        prefix = f"el{index}"
+        keyframes = _inset(prefix, _STICKER_SCALE, -1400.0 + column * 700.0, -750.0 + row * 500.0)
+        if index % 4 == 2:
+            keyframes += [
+                {"id": f"{prefix}-r0", "property": "rotation", "time": 0.0, "value": 0.0},
+                {
+                    "id": f"{prefix}-r1",
+                    "property": "rotation",
+                    "time": float(seconds),
+                    "value": 360.0,
+                },
+            ]
+        effects = (
+            [
+                {
+                    "id": f"{prefix}-outline",
+                    "type": "edge_style",
+                    "params": {
+                        "kind": "stroke",
+                        "widthPx": 8,
+                        "red": 255,
+                        "green": 255,
+                        "blue": 255,
+                    },
+                }
+            ]
+            if index % 4 == 0
+            else []
+        )
+        clip = {
+            "id": f"clip-{prefix}",
+            "assetId": _element_asset_id(sticker),
+            "trackId": f"el-{index}",
+            "start": 0.0,
+            "end": float(seconds),
+            "sourceStart": 0.0,
+            "sourceEnd": float(seconds),
+            "effects": effects,
+            "keyframes": keyframes,
+        }
+        tracks.append({"id": f"el-{index}", "type": "overlay", "clips": [clip]})
+    return tracks
+
+
+def write_elements(out_dir: Path) -> list[str]:
+    """Copy the 20 stickers beside the sources; cheap, so it runs every time."""
+    directory = out_dir / "media" / "elements" / "fluent3d"
+    directory.mkdir(parents=True, exist_ok=True)
+    for sticker in ELEMENT_STICKERS:
+        shutil.copyfile(_SHIPPED_STICKERS / f"{sticker}.webp", directory / f"{sticker}.webp")
+    return [f"media/elements/fluent3d/{sticker}.webp" for sticker in ELEMENT_STICKERS]
 
 
 VARIANTS = (
@@ -635,6 +758,7 @@ VARIANTS = (
     "scale-key",
     "scale-key-nofinesse",
     "scale-soft",
+    "scale-elements",
 )
 
 
@@ -666,6 +790,7 @@ def generate(out_dir: Path, seconds: int) -> dict[str, Any]:
         encode_source(ffmpeg, out_dir, name, seconds)
     artifact = write_matte(ffmpeg, out_dir, seconds)
     tier = write_matte_tier(ffmpeg, out_dir, seconds, artifact)
+    write_elements(out_dir)
     projects = write_projects(out_dir, seconds, artifact)
     files = sorted(p for p in out_dir.rglob("*") if p.is_file() and p.name != "manifest.json")
     manifest = {

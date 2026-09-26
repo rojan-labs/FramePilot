@@ -27,6 +27,7 @@ import {
   mapTranscript,
   speechAssetIdsFor,
   readTransitionAt,
+  syntheticClipKind,
   transitionEligibility,
   type MappedRun,
   type MappedWord,
@@ -95,7 +96,8 @@ const captionTracks = (project: Project): readonly Track[] =>
  * cross-version discriminator used by preview and export.
  */
 const isCaptionClip = (clip: Clip): boolean =>
-  clip.assetId === '__caption__' || clip.effects.some((effect) => effect.type === 'caption');
+  syntheticClipKind(clip.assetId) === 'caption' ||
+  clip.effects.some((effect) => effect.type === 'caption');
 
 /**
  * A readable cue should never be a paragraph. The bar is the segmenter's own widest preset

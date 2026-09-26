@@ -23,6 +23,7 @@ import {
   type AnyOperation,
   type ValidationIssue,
   applyProjectPatch,
+  isElementAsset,
   pictureOccupancySignature,
   projectChanged,
 } from '@framepilot/editor-core';
@@ -36,6 +37,11 @@ import {
   musicDuckSidechainIssue,
 } from './music-placement.js';
 import { StockAssetPayloadSchema, stockOpsFromPayload } from './stock-placement.js';
+import {
+  StickerAssetPayloadSchema,
+  stickerOpsFromCall,
+  type StickerCallArgs,
+} from './sticker-placement.js';
 import {
   AUTOMATIC_TRACKING_TOOL_NAME,
   AutomaticTrackingMeasurementSchema,
@@ -81,6 +87,7 @@ import {
 } from './context-builder.js';
 import {
   type CritiqueOptions,
+  type MeasuredSubject,
   type CritiqueReport,
   critique,
   explicitDurationTarget,
@@ -1522,6 +1529,9 @@ function turnSignature(calls: readonly ToolCall[], revision: number): string {
  */
 const WINDOW_ARG_KEYS = new Set(['start', 'end']);
 
+/** Nothing dropped: every argument is part of what the call asks. */
+const NO_ARG_KEYS: ReadonlySet<string> = new Set();
+
 /**
  * Analysis arguments that TUNE a call without changing the question it asks: how many
  * results to return, how sensitive the detector is, which slice of an asset to look at,
@@ -1734,6 +1744,10 @@ function askQuestionFor(
 
 export function callNoveltyKey(call: ToolCall): string {
   const tool = getTool(call.name);
+  // `add_sticker` is analysis-KIND only because the desktop host runs it; it PLACES a sticker,
+  // and its `start`/`end` say where, not how closely to look. Dropped as tuning arguments, the
+  // same emoji at two moments keyed as one call and the second placement "learned nothing".
+  if (call.name === 'add_sticker') return `${call.name}:${identifyingArgs(call, NO_ARG_KEYS)}`;
   if (tool?.kind === 'analysis') {
     const assetId = (call.arguments as { assetId?: unknown }).assetId;
     // An asseted analysis keys on the asset alone — see the doc above: re-running
@@ -1788,6 +1802,11 @@ export { ToolInvocationError };
 
 /** Optional collaborators the host injects into an {@link Orchestrator}. */
 export interface OrchestratorOptions {
+  /**
+   * The host ships the whole sticker library (the desktop installer's packaged set, plan/elements
+   * EL6b): `search_elements` then offers every sticker `add_sticker` can place here.
+   */
+  readonly packagedStickers?: boolean;
   /**
    * Runs analysis/action tools on the host (engine sidecar). Without it such
    * calls fail honestly — the orchestrator NEVER fabricates a host result.
@@ -2168,7 +2187,8 @@ const round4 = (n: number): string => (Math.round(n * 10_000) / 10_000).toString
 
 /** One line per asset: id + kind + duration + folder + filename. Ids are never elided. */
 function assetLine(a: Asset): string {
-  const parts = [a.id, a.kind];
+  // A sticker is an image the agent must never treat as footage (plan/elements G9).
+  const parts = [a.id, isElementAsset(a) ? 'sticker' : a.kind];
   if (typeof a.durationSeconds === 'number') parts.push(`${round2(a.durationSeconds)}s`);
   if (a.folderId) parts.push(`in:${a.folderId}`);
   return `${parts.join(' ')} (${baseName(a.path)})`;
@@ -2299,6 +2319,46 @@ function verificationDigest(obj: Record<string, unknown>, subject: string): stri
  * to refuse to guess. This is the same defect ADR 0128 fixed for
  * `discover_caption_styles`, on the two sibling catalogs it did not reach.
  */
+/**
+ * `search_elements` rows as one line each (plan/elements EL5.6): the id add_shape takes, how it
+ * is placed, its knobs with ranges and its styles — every id survives, tags do not. The generic
+ * JSON preview cut twelve rows off mid-record.
+ */
+function elementSearchDigest(obj: Record<string, unknown>): string | undefined {
+  if (!Array.isArray(obj.results)) return undefined;
+  const rows = obj.results as Record<string, unknown>[];
+  if (rows.length === 0) {
+    return (
+      `nothing matches "${String(obj.query ?? '')}" — try a plainer word (fire, party, check, ` +
+      'box, arrow, star, bubble) or list a collection or category with an empty query'
+    );
+  }
+  const lines = rows.map((row) => {
+    if (row.kind === 'sticker') {
+      return `- ${String(row.elementId)} ${String(row.glyph ?? '')} "${String(row.name)}" (sticker, ${String(row.category)})`;
+    }
+    const knobs = Array.isArray(row.knobs)
+      ? (row.knobs as Record<string, unknown>[])
+          .map((k) => `${String(k.name)} ${String(k.min)}–${String(k.max)}`)
+          .join(', ')
+      : '';
+    const styles = Array.isArray(row.styles)
+      ? (row.styles as Record<string, unknown>[]).map((style) => String(style.id)).join(', ')
+      : '';
+    return `- ${String(row.elementId)} "${String(row.name)}" (${String(row.category)}, ${String(
+      row.frame,
+    )}${knobs ? `; knobs ${knobs}` : ''}${row.labelled === true ? '; takes a label' : ''})${
+      styles ? ` styles: ${styles}` : ''
+    }`;
+  });
+  return [
+    `${String(obj.returned ?? rows.length)} of ${String(obj.total ?? rows.length)} ${
+      obj.kind === 'shape' ? 'shapes' : obj.kind === 'sticker' ? 'stickers' : 'elements'
+    }`,
+    ...lines,
+  ].join('\n');
+}
+
 function catalogDigest(
   obj: Record<string, unknown>,
   key: string,
@@ -3199,6 +3259,8 @@ export function summarizeReadResult(
         catalogDigest(obj, 'transitions', 'kind', 'transitions') ??
         previewJson(value, ANALYSIS_PREVIEW_MAX)
       );
+    case 'search_elements':
+      return elementSearchDigest(obj) ?? previewJson(value, ANALYSIS_PREVIEW_MAX);
     case 'detect_subjects': {
       // Detections are evidence the model reasons over (who is on screen, when),
       // so the digest names counts and frame coverage instead of slicing raw JSON.
@@ -3568,6 +3630,41 @@ function earliestTouchedSecond(project: Project, region: TouchedRegion): number 
  * Only `analyze_silence` payloads are read, and only their `ranges`. A store scan that
  * guessed at shapes would be a second, undeclared contract with every analysis tool.
  */
+/**
+ * The faces the run measured (`measure_subject`), for the critic's element-over-a-face advisory
+ * (plan/elements EL8.1): each payload's subject box between the top of the head and the
+ * shoulder line — "text above the shoulders and below the head top is on the face" — over the
+ * span it was measured for. A payload without both lines names no face and is skipped.
+ */
+function measuredSubjects(evidence: EvidenceStore): Pick<CritiqueOptions, 'subjects'> {
+  const subjects: MeasuredSubject[] = [];
+  for (const entry of evidence.entries()) {
+    if (entry.source !== 'measure_subject') continue;
+    const data = (entry.data ?? {}) as Record<string, unknown>;
+    const box = data.box;
+    const { start, end, headTop, shoulders } = data;
+    if (
+      !Array.isArray(box) ||
+      box.length !== 4 ||
+      !box.every((value) => typeof value === 'number') ||
+      typeof start !== 'number' ||
+      typeof end !== 'number' ||
+      typeof headTop !== 'number' ||
+      typeof shoulders !== 'number' ||
+      shoulders <= headTop
+    ) {
+      continue;
+    }
+    const [x0, , x1] = box as [number, number, number, number];
+    subjects.push({
+      start,
+      end,
+      face: { x: x0, y: headTop, width: x1 - x0, height: shoulders - headTop },
+    });
+  }
+  return subjects.length === 0 ? {} : { subjects };
+}
+
 function measuredSilences(evidence: EvidenceStore): Pick<CritiqueOptions, 'silences'> {
   for (const entry of [...evidence.entries()].reverse()) {
     if (entry.source !== 'analyze_silence') continue;
@@ -3619,6 +3716,8 @@ export class Orchestrator {
   private readonly effectObserver: EffectRuntimeObserver | undefined;
   /** See {@link OrchestratorOptions.tierProviders}. Empty unless the host opted in. */
   private readonly tierProviders: Partial<Record<ModelTier, AiProvider>>;
+  /** See {@link OrchestratorOptions.packagedStickers}. */
+  private readonly packagedStickers: boolean;
 
   public constructor(
     private readonly provider: AiProvider,
@@ -3631,6 +3730,7 @@ export class Orchestrator {
     this.replayRuntime = options.replayRuntime;
     this.effectObserver = options.effectObserver;
     this.tierProviders = options.tierProviders ?? {};
+    this.packagedStickers = options.packagedStickers === true;
   }
 
   /**
@@ -3789,6 +3889,7 @@ export class Orchestrator {
       userNumbers: geometryNumbersIn(input.userPrompt),
       userPickedCandidateIds: candidateIdsIn(editorWords(input)),
       ...(cap === undefined ? {} : { stockCutawayCap: cap }),
+      ...(this.packagedStickers ? { packagedStickers: true } : {}),
       ...(input.projectRevision === undefined ? {} : { projectRevision: input.projectRevision }),
       // The turn number is the conversation's own clock: the user's messages so far
       // plus the one being answered. Derived rather than plumbed, so every caller
@@ -3905,7 +4006,7 @@ export class Orchestrator {
     // The conditions the request stated in checkable terms (see `acceptance.ts`). The same
     // reading is recorded on the run's objective, so the criterion the ledger reports against
     // and the check that settles it can never be two different things.
-    const { minShotCount, coverage, maxStockCutaways } = checkableAcceptance(
+    const { minShotCount, coverage, maxStockCutaways, elements } = checkableAcceptance(
       objectiveText,
       durationTargetSeconds,
     );
@@ -3933,9 +4034,11 @@ export class Orchestrator {
         ? { medianShotSource: `${medianShotSource.profileId}: ${medianShotSource.line}` }
         : {}),
       ...(coverage !== undefined ? { coverage } : {}),
+      ...(elements !== undefined ? { requiredElements: elements } : {}),
       ...(options.targetPlatform !== undefined ? { targetPlatform: options.targetPlatform } : {}),
       ...(options.render !== undefined ? { render: options.render } : {}),
       ...(evidence ? measuredSilences(evidence) : {}),
+      ...(evidence ? measuredSubjects(evidence) : {}),
     };
   }
 
@@ -5129,6 +5232,36 @@ export class Orchestrator {
           data: outcome.data,
         };
       }
+      // `add_sticker` (plan/elements EL6a.7): the host copied the sticker's file into the
+      // project; the placement is the Stickers tab's own (`buildAddStickerOps`), never the stock
+      // cutaway path, which would cover-crop a sticker to the full frame.
+      if (call.name === 'add_sticker' && outcome.status === 'completed') {
+        const parsed = StickerAssetPayloadSchema.safeParse(outcome.data);
+        if (!parsed.success) {
+          const note = unusableHostPayload('add_sticker');
+          return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
+        }
+        const placed = stickerOpsFromCall(
+          ctx.project,
+          parsed.data,
+          call.arguments as unknown as StickerCallArgs,
+        );
+        const ops = [...placed.operations];
+        const probe = assembleEdit(ctx.project, ops, 'Add sticker', 'agent');
+        if (!probe.validation.valid) {
+          return hostBackedValidatorRejection('add_sticker', probe.validation.issues, ops);
+        }
+        return {
+          ops,
+          note:
+            `${outcome.summary} Placed as clip "${placed.clipId}" on ${placed.trackId} from ` +
+            `${placed.start.toFixed(1)}s to ${placed.end.toFixed(1)}s. Stickers need no credit.`,
+          summary: outcome.summary,
+          status: 'completed',
+          project: applyProjectPatch(ctx.project, probe.patch),
+          data: outcome.data,
+        };
+      }
       // `add_stock` is the picture twin of `add_music`: the host downloaded the
       // rendition and materialized the file, and the orchestrator turns what came
       // back into the SAME reversible operations the Stock panel builds by hand
@@ -5484,7 +5617,8 @@ export class Orchestrator {
         // now — retryably, and unbanked.
         let value: unknown;
         try {
-          value = tool.read(sanitizeToolArgs(tool, call.arguments), ctx);
+          // Awaited: a read may load shipped data on first use (the sticker catalogue).
+          value = await tool.read(sanitizeToolArgs(tool, call.arguments), ctx);
         } catch (cause) {
           // A refusal from the registered, contracted tool boundary IS the model's to fix —
           // a bad window, an unknown id, the wrong kind of clip — so it keeps the argument

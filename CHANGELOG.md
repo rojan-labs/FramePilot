@@ -6,7 +6,98 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **Stock is now Elements.** The left-rail tab that searched Pexels is called **Elements** and
+  sits second, right after Assets — the shelf for everything you put on or into the picture that
+  you did not film. Photos and videos are its **Photos** and **Videos** sub-tabs instead of a kind
+  drop-down; they share one search box, so switching re-searches the same words. If you left the
+  rail on Stock, it reopens on Elements. The Settings group is now **Photos & videos (Pexels)**.
+  Saved projects, credits and the agent's photo and video tools are unchanged.
+
 ### Added
+
+- **Shapes, in Elements.** A new **Shapes** sub-tab adds the six callouts a screen recording or
+  a product demo needs: a highlight box, a filled box, an ellipse, a translucent marker, an arrow
+  and an underline. Click one to drop it at the playhead; drag it on the monitor to move or resize
+  it, or drag an arrow's tip onto what it points at; style its fill, stroke, corners and arrow
+  head in the Inspector. The assistant can add and restyle them too ("box the Export button when
+  I say export"). What the monitor shows is what the export draws. Projects with shapes use
+  project format 25, which older versions refuse to open rather than lose the shapes.
+
+- **The whole shape library.** About a hundred shapes — stars, speech bubbles, frames, curved and
+  hand-drawn arrows, rings, numbered badges — and every Lucide icon, with category chips, search
+  and a colour row in the Shapes tab. Drag a tile onto the timeline to place it where you drop it;
+  swap one shape for another in the Inspector without losing its colours or place; number your
+  steps with badges. The assistant searches the same library ("number each step", "a speech
+  bubble over the host"). Shape clips now have their own colour on the timeline and the minimap.
+
+- **Masks and outlines on photos, stickers and titles.** A mask drawn on a photo or a sticker, an
+  outline, glow or drop shadow, and a track matte on a title now show on the monitor and in the
+  export; before, they were saved and silently ignored. A sticker or a photo can be outlined or
+  shadowed without a mask (an outline on a photo is a border), and a title's outline follows its
+  letters. The assistant's "outline this sticker" works the same way.
+
+- **Animation for stickers, shapes and titles.** Each can now come in, go out and loop: Fade, Pop,
+  four slides, Wipe or Blur on the way in and out, with a length; Pulse, Float, Wiggle, Bounce,
+  Spin or Blink while it is on screen, with a speed and an amount. Find it in the Inspector's new
+  **Animation** section, or right-click a graphic and choose **Animation…**. A moving exit plays
+  its entrance backwards, so a slide leaves the way it came. Every change is one undo, and the
+  monitor shows what the export draws. The assistant does it too: "make the arrow pop in and the
+  sticker pulse". A title's In and Out have moved there from the Text tab.
+
+- **Photos and Videos: categories, orientation, drag, and picture-in-picture.** Elements →
+  Photos and Videos gains category chips (Business, Technology, People, Nature, City, Abstract,
+  Backgrounds, Food, Travel, Textures; each is one search of your Pexels allowance, and a repeat
+  click spends nothing), an orientation filter that starts on your project's shape, and drag a
+  tile onto the timeline to place it where you drop it. Beside **Add**, which still places a
+  full-frame cutaway where there is room, **Add as overlay** puts the photo or video over your
+  footage at the playhead as a centred picture-in-picture at 40% of its fitted size, under your
+  titles, stickers and shapes; resize and move it on the monitor like any clip. The assistant
+  still places cutaways only.
+
+- **Lay your own image over the footage, and drop elements where you want them.** An image in
+  the media bin (a logo, a screenshot, a cut-out) has an **Add as overlay** button (or
+  ⌘/Ctrl+Shift+Enter on the focused card) that puts it over the footage at the playhead, centred at
+  40% of its fitted size, keeping its transparency. A sticker or shape tile dragged onto the
+  monitor lands at the playhead exactly where you let go. A sticker dragged onto the timeline now
+  counts as recent, as a click does.
+
+- **Elements works from the keyboard and reads well to a screen reader.** Every sticker, shape,
+  photo and video you add is selected and announced ("Added Fire at 0:12"). On a Photos or Videos
+  tile, Enter adds and Shift+Enter adds as an overlay; a sticker's box, corners and turn handle
+  move with the arrow keys; Escape or another tab leaves Replace mode. Elements opens on Stickers
+  until you add a Pexels key, and **Add Pexels key** takes you straight to the field. A narrow
+  media-bin card keeps Add and Add as overlay on one row, with Relink and Remove under **More
+  actions** (also Shift+F10). Tiles, chips and search boxes have visible surfaces in both themes,
+  shape handles show on light and dark footage, and failures say what happened and what to do.
+
+- **The assistant places elements like a careful editor.** It now knows each sticker and shape
+  already on the timeline and where it sits, so "make all the highlight boxes red and thicker"
+  restyles the boxes you have, in place, and "remove the stickers" removes only the stickers. Its
+  review of an edit notes a sticker over a face, an element under the captions or under
+  TikTok's, Reels' or Shorts' own buttons, more than three elements at once, a sticker blown up
+  past its sharp size, and a loop that no longer covers its clip — and leaves a callout on what
+  it points at. A request for a sticker or a callout is not finished until one is placed, and an
+  edit that would put an element entirely outside the frame is refused. Other AI apps connected
+  over MCP can find, draw, restyle and animate shapes; stickers are added in the FramePilot app.
+
+- **All 1,595 stickers, in the desktop app.** The Stickers tab now lists the whole Fluent Emoji
+  set, shipped inside the installer so every sticker works offline. Chips for **Recent**,
+  **Favourites** (a star, or **F**) and the set's nine groups sit beside the collections; a dot
+  marks a sticker the project already has; drag a tile onto a lane to place it where you drop it.
+  The grid stays quick however far you scroll. A sticker's Inspector section now has **Outline**
+  and **Shadow**, and says **Enlarged beyond its sharp size** when a sticker would export soft.
+  The assistant searches the whole set too.
+
+- **Stickers, in Elements.** A new **Stickers** sub-tab holds 251 stickers from Microsoft's
+  Fluent Emoji 3D set, in thirteen collections, shipped inside the app so they work offline.
+  Search by name or paste the emoji itself; click one to drop it at the playhead, a third of the
+  frame high, on its own layer. Move, size, turn and fade it like any picture; **Replace…** in the
+  Inspector, or **Replace sticker…** on a right-click, swaps it for another and keeps its timing,
+  place and animation. A sticker is never treated as footage, and a sticker file that goes missing
+  from a project comes back when you open it. The assistant can add them too ("add a fire emoji
+  when I say 'this is fire'"). What the monitor shows is what the export draws.
 
 - **The caption check counts rows.** Checking whether captions read now also reports, for every
   caption, how many rows it wraps to and whether any is wider than the frame. When you ask for "no
@@ -103,6 +194,32 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   MO-12), privacy and face-recognition consent.
 
 ### Fixed
+
+- **A photo or video added into empty time no longer covers your titles and stickers.** When
+  there was no picture layer with room, Add (and the assistant) opened a new layer at the very
+  front, above every title, sticker and shape; it now opens in front of the footage and under
+  them.
+
+- **A new sticker is sharp on vertical and 4K projects.** A sticker added without a size was a
+  third of the frame high everywhere, which on a 1080×1920 short or a 4K export is more than twice
+  its art and exported soft. It is now as big as it stays sharp there (about a fifth of the
+  height); on a 1080p landscape project nothing changes, and a size you set is kept.
+
+- **A title that turns keeps all its letters.** A title rotating through a right angle lost most
+  of its word, on the monitor and in the export, because it was turned inside a box as tight as
+  its text. It now turns in a square wide enough for it.
+
+- **A b-roll clip the assistant adds no longer covers your stickers, shapes or titles.** When a
+  cutaway needed a new layer, it was opened above every other layer, so graphics already on the
+  timeline disappeared behind it. It now goes in above the footage and under the graphics.
+
+- **Photos and titles fade, crop and animate in the export.** Opacity, opacity keyframes, fades,
+  dissolves, wipes and the other transitions on a photo or a title used to do nothing, in the
+  export and on the desktop monitor. A photo's crop was ignored, so an auto-reframed landscape
+  photo in a portrait project showed bars. A title's In/Out animation (fade, slide up, slide down,
+  pop) only played in the browser preview. All of them now play and export the same way. A title's
+  slide now moves a fixed share of the frame height (5%) whatever its length, so the monitor and
+  the export agree. A transparent PNG keeps its see-through edges while it fades.
 
 - **The preview plays the mix the export writes.** The editor's preview played each clip's sound
   flat: muting a clip, fading it, ducking music under speech or soloing a track changed the

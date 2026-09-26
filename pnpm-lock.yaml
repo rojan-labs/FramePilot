@@ -64,9 +64,6 @@ importers:
       '@framepilot/timeline-schema':
         specifier: workspace:*
         version: link:../../packages/timeline-schema
-      '@framepilot/web-editor':
-        specifier: workspace:*
-        version: link:../web-editor
       electron-updater:
         specifier: ^6.8.9
         version: 6.8.9
@@ -77,6 +74,9 @@ importers:
       '@ffprobe-installer/ffprobe':
         specifier: ^2.1.2
         version: 2.1.2
+      '@framepilot/web-editor':
+        specifier: workspace:*
+        version: link:../web-editor
       '@types/node':
         specifier: ^20.14.0
         version: 20.19.43

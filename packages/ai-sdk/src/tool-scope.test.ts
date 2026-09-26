@@ -93,6 +93,8 @@ describe('selectTools', () => {
         'add_music',
         'search_stock',
         'add_stock',
+        // Host-copied then placed, like `add_stock` (plan/elements EL6a.7).
+        'add_sticker',
         'remove_silences',
       ].sort(),
     );

@@ -133,7 +133,9 @@ from framepilot_engine.render.frame_plan import (
     back_to_front,
     caption_tracks,
     clips_in_sequence,
+    exit_plays_reversed,
     fit_scale,
+    frame_plan_at,
     layer_matte_sources,
     layer_opacity_at,
     layer_position_at,
@@ -142,6 +144,7 @@ from framepilot_engine.render.frame_plan import (
     live_catalog_transitions,
     picture_effects,
     text_overlay_text,
+    title_envelope_animates,
     transition_underlays,
     underlay_material,
     uses_legacy_transition_path,
@@ -162,6 +165,8 @@ from framepilot_engine.render.layer_mattes import (
     assert_layer_sources,
 )
 from framepilot_engine.render.mask_stack import (
+    ANALYTIC_KINDS,
+    SHAPE_KINDS,
     ClipMaskStacks,
     MaskStackRefusal,
     clip_mask_stacks,
@@ -186,6 +191,9 @@ from framepilot_engine.render.pts_reader import (
     video_timing,
 )
 from framepilot_engine.render.resources import close_clip_tree
+from framepilot_engine.render.shape_catalog import shape_descriptor
+from framepilot_engine.render.shape_geometry import shape_clip_params
+from framepilot_engine.render.shape_raster import rasterize_shape
 from framepilot_engine.render.text_overlay import rasterize_text_overlay, text_overlay_layout
 from framepilot_engine.render.tracks import TrackArtifact, TrackRefusal, prepare_track
 from framepilot_engine.safety import PathTraversalError, resolve_within
@@ -374,7 +382,9 @@ def unsupported_track_types(
     burn_captions: bool = False,
 ) -> list[str]:
     kinds = asset_kinds or {}
-    rendered = {"video", "image", "audio", "text"} | ({"caption"} if burn_captions else set())
+    rendered = {"video", "image", "audio", "text", "shape"} | (
+        {"caption"} if burn_captions else set()
+    )
     deferred = {
         clip_kind(clip, kinds)
         for track in timeline.tracks
@@ -406,7 +416,51 @@ def expected_render(project: Project, preset: ExportPreset) -> ExpectedRender:
         # Sound that stops before the picture is the edit, not a defect; only a timeline
         # whose sound reaches the end is held to "no silent tail".
         expect_audio_to_end=audio_end >= duration - _AUDIO_END_SLACK_SECONDS,
+        **_element_expectations(project, (preset.width, preset.height)),
     )
+
+
+def _element_expectations(project: Project, target: tuple[int, int]) -> dict[str, Any]:
+    """How many shapes the export draws, and a sentence for each one drawn off-frame.
+
+    A shape is checked at its midpoint, placed as the frame plan places it (bounds, transform,
+    transitions); it is off-frame when even the circle around its turned rectangle misses the
+    frame, so a rotated shape is never wrongly flagged. The validator refuses a shape that would
+    draw nothing by its params; this catches the one moved or aimed entirely out of the picture.
+    """
+    count = 0
+    offscreen: list[str] = []
+    for track in project.timeline.tracks:
+        if track.hidden:
+            continue
+        for clip in track.clips:
+            params = shape_clip_params(clip)
+            if params is None:
+                continue
+            count += 1
+            midpoint = (clip.start + clip.end) / 2
+            plan = frame_plan_at(project, midpoint, target=target)
+            layer = next((layer for layer in plan.layers if layer.clip_id == clip.id), None)
+            if layer is None or layer.geometry is None or layer.geometry.width is None:
+                continue
+            geometry = layer.geometry
+            radius = math.hypot(geometry.width or 0.0, geometry.height or 0.0) / 2
+            outside = (
+                geometry.anchor_x + radius < 0
+                or geometry.anchor_y + radius < 0
+                or geometry.anchor_x - radius > target[0]
+                or geometry.anchor_y - radius > target[1]
+            )
+            if outside:
+                descriptor = shape_descriptor(str(params.get("shape")))
+                name = descriptor.name if descriptor is not None else "shape"
+                # No time or magnitude in the sentence: the agent's repeated-failure guard keys
+                # on the text, and the remedy is the same wherever the shape went.
+                offscreen.append(
+                    f"A {name.lower()} is entirely outside the frame, so the export does not show "
+                    "it. Move it back in (Inspector, Shape) or delete it."
+                )
+    return {"element_count": count, "offscreen_elements": offscreen}
 
 
 #: Sound may end this close to the picture's end and still count as "to the end" — a
@@ -442,15 +496,57 @@ def unsupported_animated_properties(timeline: Timeline) -> list[str]:
 
 
 def _compile_image_clip(
-    image_clip_cls: Any, path: str, clip: Clip, target: tuple[int, int], lut_base_dir: Path
+    image_clip_cls: Any,
+    path: str,
+    clip: Clip,
+    target: tuple[int, int],
+    lut_base_dir: Path,
+    media_size: tuple[float, float] | None = None,
+    layer_mattes: LayerMatteResolver | None = None,
 ) -> Any:
+    """A still through the picture pipeline, in the video path's order (plan/elements EL2a, EL2b).
+
+    Crop, the mask stack, grade (an effect-target mask limits it), the legacy transition's blur,
+    the alpha (stack * opacity * a fade * a wipe, multiplied into the image's own transparency),
+    a key's despill, the edge styles, the catalog transitions, then placement with any geometry
+    transition. A still's masks are in its own pixels, as a video's are in its frame's; its edge
+    styles trace the stack times its own alpha, so a sticker with no mask is outlined around its
+    art. A still borrows no under-layer.
+    """
     source = image_clip_cls(path).with_duration(clip.end - clip.start)
-    source = _apply_color_grade(source, clip, lut_base_dir)
-    placed = _place_video_clip(source, clip, target, None)
+    decoded = (int(source.size[0]), int(source.size[1]))
+    source = _apply_crop(source, clip)
+    use_legacy = _uses_legacy_transition_path(clip)
+    transition = legacy_transition(clip)
+    stacks = _clip_mask_stacks(
+        clip,
+        media_size,
+        None,
+        decoded,
+        None,
+        None
+        if layer_mattes is None
+        else _layer_matte_binding(layer_mattes, clip, target, transition),
+        _frame_placement_binding(clip, target, transition),
+    )
+    source = _apply_color_grade(source, clip, lut_base_dir, stacks)
+    source = _apply_transition_blur(source, transition)
+    own_alpha = source.mask
+    source = _attach_mask(source, clip, transition, media_size, stacks)
+    source = _apply_key_despill(source, stacks)
+    source = _apply_edge_styles(source, clip, stacks, media_size, transition, own_alpha)
+    source = _apply_catalog_transition(source, clip, use_legacy)
+    placed = _place_video_clip(source, clip, target, transition)
     return placed.with_start(clip.start)
 
 
-def _compile_text_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int]) -> Any | None:
+def _compile_text_clip(
+    image_clip_cls: Any,
+    clip: Clip,
+    target: tuple[int, int],
+    project_size: tuple[int, int] | None = None,
+    layer_mattes: LayerMatteResolver | None = None,
+) -> Any | None:
     """Rasterize a text overlay and place it, honouring the clip's own transform.
 
     The transform is why this goes through :func:`_place_video_clip` rather than a bare
@@ -459,16 +555,94 @@ def _compile_text_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int])
     the floor, so a run could add fifteen animated text cards, be told fifteen times that
     it had, and render fifteen static ones. An operation that lands in the timeline and
     renders as nothing is the "never fake success" invariant broken from the far end.
+
+    EL2b: its mask stack (the kinds a title can take: a track matte, a Frame-space shape, a key)
+    and its edge styles, which trace its glyphs. A title has no source picture, so a style's
+    lengths are frame pixels at the project's own size (``project_size``), scaled with the frame.
     """
     content = text_overlay_text(clip)
     if content is None:
         return None
     text, style_params = content
     layout = text_overlay_layout(style_params, target[0], target[1])
-    image = rasterize_text_overlay(text, style_params, target[0], target[1])
+    rotates = ROTATION in animated_properties(clip)
+    image = rasterize_text_overlay(text, style_params, target[0], target[1], rotates=rotates)
     layer = image_clip_cls(image, transparent=True).with_duration(clip.end - clip.start)
+    # EL2a: a title's opacity, In/Out envelope and transitions render, as the frame plan says.
+    use_legacy = _uses_legacy_transition_path(clip)
+    transition = legacy_transition(clip)
+    centre = (layout.centre_x, layout.centre_y)
+    raster = (int(layer.size[0]), int(layer.size[1]))
+    stacks = _clip_mask_stacks(
+        clip,
+        (float(raster[0]), float(raster[1])),
+        None,
+        raster,
+        None,
+        None
+        if layer_mattes is None
+        else _layer_matte_binding(layer_mattes, clip, target, transition, centre),
+        _frame_placement_binding(clip, target, transition, centre),
+    )
+    layer = _apply_transition_blur(layer, transition)
+    own_alpha = layer.mask
+    layer = _attach_mask(layer, clip, transition, None, stacks)
+    layer = _apply_key_despill(layer, stacks)
+    layer = _apply_edge_styles(
+        layer, clip, stacks, _title_edge_size(raster, target, project_size), transition, own_alpha
+    )
+    layer = _apply_catalog_transition(layer, clip, use_legacy)
     placed = _place_video_clip(
-        layer, clip, target, None, fit_to_frame=False, centre=(layout.centre_x, layout.centre_y)
+        layer,
+        clip,
+        target,
+        transition,
+        fit_to_frame=False,
+        centre=(layout.centre_x, layout.centre_y),
+    )
+    return placed.with_start(clip.start)
+
+
+#: The size a title's masks and edge styles are checked against before rendering: they need
+#: one, and any will do, because the only masks a title takes are drawn on the frame or read
+#: the picture, and its edge lengths are frame pixels (see :func:`_title_edge_size`).
+_TITLE_CHECK_SIZE = (1.0, 1.0)
+
+
+def _title_edge_size(
+    raster: tuple[int, int], target: tuple[int, int], project_size: tuple[int, int] | None
+) -> tuple[float, float]:
+    """The "source" size a title's edge-style lengths are measured against (EL2b).
+
+    Its raster at the project's own frame size, so ``edge_distance_scale`` comes out as the
+    target's size over the project's: a 4 px outline is 4 px at the project's resolution and
+    scales with an export at another one, as the text itself does.
+    """
+    if project_size is None:
+        return float(raster[0]), float(raster[1])
+    factor = min(project_size[0] / target[0], project_size[1] / target[1])
+    return raster[0] * factor, raster[1] * factor
+
+
+def _compile_shape_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int]) -> Any | None:
+    """Rasterise a shape and place it: the title's pipeline around the raster's own centre.
+
+    The engine is the only shape rasteriser (``render/shape_raster.py``); the desktop monitor draws
+    this same raster, placed by the bounds the frame plans compute (plan/elements EL4a, ADR 0190).
+    """
+    params = shape_clip_params(clip)
+    if params is None:
+        return None
+    rotates = ROTATION in animated_properties(clip)
+    image, bounds = rasterize_shape(params, target[0], target[1], rotates=rotates)
+    layer = image_clip_cls(np.asarray(image), transparent=True).with_duration(clip.end - clip.start)
+    use_legacy = _uses_legacy_transition_path(clip)
+    transition = legacy_transition(clip)
+    layer = _apply_transition_blur(layer, transition)
+    layer = _attach_mask(layer, clip, transition, with_stack=False)
+    layer = _apply_catalog_transition(layer, clip, use_legacy)
+    placed = _place_video_clip(
+        layer, clip, target, transition, fit_to_frame=False, centre=bounds.centre
     )
     return placed.with_start(clip.start)
 
@@ -499,7 +673,8 @@ def _place_video_clip(
     base_scale = fit_scale((clip_w, clip_h), target, fit_to_frame=fit_to_frame)
     centre_x, centre_y = centre if centre is not None else (target_w / 2, target_h / 2)
     geo_transition = transition is not None and transitions.affects_geometry(transition)
-    if not has_rendered_transform(clip) and not geo_transition:
+    animated = has_rendered_transform(clip) or geo_transition or title_envelope_animates(clip)
+    if not animated:
         placed = source if base_scale == 1.0 else source.resized(base_scale)
         if centre is None:
             return placed.with_position("center")
@@ -654,6 +829,9 @@ def picture_placement_at(
     size: tuple[int, int],
     target: tuple[int, int],
     transition: transitions.Transition | None,
+    *,
+    fit_to_frame: bool = True,
+    centre: tuple[float, float] | None = None,
 ) -> PicturePlacement:
     """Where :func:`_place_video_clip` lands a clip's ``size`` picture at clip-local ``t``.
 
@@ -661,29 +839,31 @@ def picture_placement_at(
     ``compute_position`` truncates the position (``"center"`` is ``(W - w) / 2``), and rotation is
     PIL's counter-clockwise angle, applied only when the clip animates rotation. A track matte
     (MK8.2) needs this to know which frame pixel each of the clip's pixels lands on.
+
+    :param fit_to_frame: ``False`` and ``centre`` for a layer drawn at its finished size around
+        its own centre, as a title is (EL2b): the arguments ``_place_video_clip`` takes.
     """
     clip_w, clip_h = size
     target_w, target_h = target
-    base_scale = fit_scale((clip_w, clip_h), target, fit_to_frame=True)
+    base_scale = fit_scale((clip_w, clip_h), target, fit_to_frame=fit_to_frame)
     geo_transition = transition is not None and transitions.affects_geometry(transition)
-    if not has_rendered_transform(clip) and not geo_transition:
+    animated = has_rendered_transform(clip) or geo_transition or title_envelope_animates(clip)
+    if not animated:
         width, height = (
             (clip_w, clip_h)
             if base_scale == 1.0
             else (int(clip_w * base_scale), int(clip_h * base_scale))
         )
-        return PicturePlacement(
-            clip_w,
-            clip_h,
-            width,
-            height,
-            0.0,
-            int((target_w - width) / 2),
-            int((target_h - height) / 2),
-        )
+        if centre is None:
+            x, y = int((target_w - width) / 2), int((target_h - height) / 2)
+        else:
+            x = int(centre[0] - clip_w * base_scale / 2)
+            y = int(centre[1] - clip_h * base_scale / 2)
+        return PicturePlacement(clip_w, clip_h, width, height, 0.0, x, y)
     scale = base_scale * layer_scale_at(clip, t, transition)
-    x, y = layer_position_at(
-        clip, t, (clip_w, clip_h), base_scale, target, (target_w / 2, target_h / 2), transition
+    centre_xy = centre if centre is not None else (target_w / 2, target_h / 2)
+    left, top = layer_position_at(
+        clip, t, (clip_w, clip_h), base_scale, target, centre_xy, transition
     )
     rotation = (
         float(evaluate_clip_transform(clip, t).rotation)
@@ -691,7 +871,7 @@ def picture_placement_at(
         else 0.0
     )
     return PicturePlacement(
-        clip_w, clip_h, int(clip_w * scale), int(clip_h * scale), rotation, int(x), int(y)
+        clip_w, clip_h, int(clip_w * scale), int(clip_h * scale), rotation, int(left), int(top)
     )
 
 
@@ -699,15 +879,26 @@ def _frame_placement_binding(
     clip: Clip,
     target: tuple[int, int],
     transition: transitions.Transition | None,
+    centre: tuple[float, float] | None = None,
 ) -> Callable[[float, int, int], tuple[PicturePlacement, tuple[int, int]]]:
     """Where a clip's raster lands on the frame at clip-local ``t``, and the frame's size (MK9.1).
 
     A frame-space clip mask is drawn on the output frame and read back through this placement,
-    the same one a track matte uses, so it stays fixed on the frame as the picture moves.
+    the same one a track matte uses, so it stays fixed on the frame as the picture moves. With
+    ``centre`` the raster is a title's, placed unfitted around it (EL2b).
     """
 
     def placement_at(t: float, width: int, height: int) -> tuple[PicturePlacement, tuple[int, int]]:
-        return picture_placement_at(clip, t, (width, height), target, transition), target
+        placement = picture_placement_at(
+            clip,
+            t,
+            (width, height),
+            target,
+            transition,
+            fit_to_frame=centre is None,
+            centre=centre,
+        )
+        return placement, target
 
     return placement_at
 
@@ -717,14 +908,27 @@ def _layer_matte_binding(
     clip: Clip,
     target: tuple[int, int],
     transition: transitions.Transition | None,
+    centre: tuple[float, float] | None = None,
 ) -> Callable[[Any, float, int, int], tuple[LayerMatteFrame, PicturePlacement]]:
-    """A clip's track mattes at clip-local ``t``: the source frame and this clip's placement."""
+    """A clip's track mattes at clip-local ``t``: the source frame and this clip's placement.
+
+    With ``centre`` the clip is a title, placed unfitted around it (EL2b).
+    """
 
     def matte_at(
         mask: Any, t: float, width: int, height: int
     ) -> tuple[LayerMatteFrame, PicturePlacement]:
         frame = resolver.frame_at(mask.source, clip.start + t)
-        return frame, picture_placement_at(clip, t, (width, height), target, transition)
+        placement = picture_placement_at(
+            clip,
+            t,
+            (width, height),
+            target,
+            transition,
+            fit_to_frame=centre is None,
+            centre=centre,
+        )
+        return frame, placement
 
     return matte_at
 
@@ -895,6 +1099,47 @@ def _apply_key_despill(source: VideoClip, stacks: ClipMaskStacks | None) -> Vide
     return source.transform(cleaned, keep_duration=True)
 
 
+def _refuse_still_only_video_masks(clip: Clip) -> None:
+    """Refuse a background removal or a tracked mask on a still: both are measured on video.
+
+    Without this a matte mask on a photo would fail mid-render with a message about missing
+    decoded frames, which says nothing true about a photo (plan/elements EL2b).
+    """
+    for mask in clip.masks or []:
+        if not mask.enabled:
+            continue
+        if mask.kind == "matte" or getattr(mask, "tracking", None) is not None:
+            what = "Background removal" if mask.kind == "matte" else "A tracked mask"
+            raise CompileError(
+                f"{what} on clip {clip.id!r} needs video, and this clip is a still image. "
+                "Remove that mask, or draw a shape mask on the photo instead."
+            )
+
+
+def _refuse_masks_a_title_cannot_take(clip: Clip) -> None:
+    """Refuse the masks a title cannot take (plan/elements EL2b).
+
+    A title has no source picture of a fixed size (its raster follows the frame and the text),
+    so a shape drawn on the title's own picture has nothing stable to be measured against; on the
+    frame it does. A background removal and a tracked mask are measured on video.
+    """
+    for mask in clip.masks or []:
+        if not mask.enabled:
+            continue
+        if mask.kind == "matte" or getattr(mask, "tracking", None) is not None:
+            what = "Background removal" if mask.kind == "matte" else "A tracked mask"
+            raise CompileError(
+                f"{what} on clip {clip.id!r} needs video, and this clip is a title. "
+                "Remove that mask."
+            )
+        shaped = mask.kind in SHAPE_KINDS or mask.kind in ANALYTIC_KINDS
+        if shaped and str(mask.space.value) != "frame":
+            raise CompileError(
+                f"Mask {mask.id!r} on title {clip.id!r} is drawn on the title's own picture, "
+                "which has no fixed size: set its space to Frame, or use a track matte."
+            )
+
+
 def _refuse_unrenderable_edge_styles(clip: Clip, media_size: tuple[float, float] | None) -> None:
     """Refuse a malformed edge style, or one whose lengths cannot be scaled (MK9.2)."""
     try:
@@ -914,23 +1159,30 @@ def _apply_edge_styles(
     stacks: ClipMaskStacks | None,
     media_size: tuple[float, float] | None,
     transition: transitions.Transition | None,
+    own_alpha: Any | None = None,
 ) -> VideoClip:
     """Draw the clip's cut-out edge styles (outline, glow, shadow) under its picture (MK9.2).
 
-    After the stack is attached and despilled: the styles read the alpha-target stack (the
-    cut-out) and the picture goes over them, so the picture keeps every pixel it had. A static
-    stack is evaluated once and reused.
+    After the stack is attached and despilled: the styles read the cut-out and the picture goes
+    over them, so the picture keeps every pixel it had. The cut-out is the alpha-target stack
+    times the layer's own alpha (``own_alpha``, a still's transparency, EL2b): a video with no
+    stack has nothing to trace, and a sticker with none is traced around its art. A static
+    cut-out is evaluated once and reused.
     """
     styles = clip_edge_styles(clip)
-    if not styles or stacks is None or not stacks.alpha or media_size is None:
+    if not styles or media_size is None:
+        return source
+    alpha_stack = stacks if stacks is not None and stacks.alpha else None
+    if alpha_stack is None and own_alpha is None:
         return source
     width, height = source.size
     scale = edge_distance_scale(clip, media_size, width, height)
     existing_mask = source.mask
-    keyed = stacks.alpha_needs_picture
+    keyed = alpha_stack is not None and alpha_stack.alpha_needs_picture
     memo: dict[int, tuple[np.ndarray, np.ndarray]] = {}
-    # The cut-out is reused when the stack does not move; opacity is read per instant anyway.
-    static = not stacks.alpha_animated
+    # The cut-out is reused when the stack does not move (a still's own alpha never does);
+    # opacity is read per instant anyway.
+    static = alpha_stack is None or not alpha_stack.alpha_animated
     static_cut: list[Any] = []
 
     def evaluate(t: float, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -947,7 +1199,10 @@ def _apply_edge_styles(
             cut = static_cut[0]
         else:
             picture = (lambda: source.get_frame(t)) if keyed else None
-            cut = stacks.alpha_at(t, width, height, picture)
+            cut = None if alpha_stack is None else alpha_stack.alpha_at(t, width, height, picture)
+            if own_alpha is not None:
+                own = np.asarray(own_alpha.get_frame(t), dtype=np.float64)
+                cut = own if cut is None else cut * own
             if static:
                 static_cut.append(cut)
         result = apply_edge_styles(
@@ -1003,10 +1258,24 @@ def _refuse_unrenderable_masks(
                 layer_mask_stack(layer)
             except MaskStackRefusal as exc:
                 raise CompileError(str(exc)) from exc
-        if track.type != TrackType.VIDEO or track.hidden:
+        if track.type not in (TrackType.VIDEO, TrackType.OVERLAY) or track.hidden:
             continue
         for clip in track.clips:
-            # Only video clips draw their stack (stills are placed without crop or mask).
+            # EL2b: a title draws the masks it can take and traces its glyphs.
+            if clip_kind(clip, kinds) == "text" and (clip.masks or clip_edge_styles(clip)):
+                _refuse_masks_a_title_cannot_take(clip)
+                # Its stack is sized by its raster at compile time; any size checks it here.
+                _clip_mask_stacks(clip, _TITLE_CHECK_SIZE)
+                _refuse_unrenderable_edge_styles(clip, _TITLE_CHECK_SIZE)
+                continue
+            # EL2b: a still draws its stack and its edge styles too, on any picture lane.
+            if kinds.get(clip.asset_id) == "image" and (clip.masks or clip_edge_styles(clip)):
+                _refuse_still_only_video_masks(clip)
+                _clip_mask_stacks(clip, _asset_media_size(project, clip))
+                _refuse_unrenderable_edge_styles(clip, _asset_media_size(project, clip))
+                continue
+            if track.type != TrackType.VIDEO:
+                continue
             if clip.masks and kinds.get(clip.asset_id) == "video":
                 _clip_mask_stacks(clip, _asset_media_size(project, clip))
                 _refuse_unrenderable_edge_styles(clip, _asset_media_size(project, clip))
@@ -1026,15 +1295,26 @@ def _attach_mask(
     transition: transitions.Transition | None,
     media_size: tuple[float, float] | None = None,
     stacks: ClipMaskStacks | None = None,
+    *,
+    with_stack: bool = True,
 ) -> VideoClip:
+    """Wrap ``source`` in its alpha: opacity * fade * wipe * the alpha-target mask stack.
+
+    A layer that already carries transparency — a still's PNG/WebP alpha, a title's glyph
+    coverage — keeps it: the alpha computed here MULTIPLIES the existing mask instead of
+    replacing it, or a sticker would turn into an opaque square the moment it fades.
+
+    :param with_stack: ``False`` for layers whose mask stack the export does not draw yet
+        (stills and titles, plan/elements EL2a); the stack is then neither computed nor applied.
+    """
     width, height = source.size
     # Schema v22: the clip's alpha-target mask stack, drawn by the exact rasteriser
     # (render/mask_stack.py, ADR 0178); a stack export cannot draw refuses before rendering.
-    if stacks is None:
+    if stacks is None and with_stack:
         stacks = _clip_mask_stacks(clip, media_size)
     alpha_stack = stacks if stacks is not None and stacks.alpha else None
     geometry_animated = alpha_stack is not None and alpha_stack.alpha_animated
-    opacity_animated = OPACITY in animated_properties(clip)
+    opacity_animated = OPACITY in animated_properties(clip) or title_envelope_animates(clip)
     fade_transition = transition is not None and transitions.affects_opacity(transition)
     wipe_transition = transition is not None and transitions.affects_wipe(transition)
     static_opacity = evaluate_clip_transform(clip, 0.0).opacity
@@ -1082,17 +1362,25 @@ def _attach_mask(
             alpha = alpha * wipe_band
         return alpha
 
+    own = source.mask
+
+    def combined_alpha_at(t: float) -> Any:
+        alpha = alpha_at(t)
+        return alpha if own is None else alpha * own.get_frame(t)
+
     time_varying = (
         geometry_animated or opacity_animated or fade_transition or wipe_transition or keyed
     )
     if time_varying:
         from moviepy import VideoClip as _VideoClip
 
-        mask = _VideoClip(frame_function=alpha_at, is_mask=True).with_duration(source.duration)
+        mask = _VideoClip(frame_function=combined_alpha_at, is_mask=True).with_duration(
+            source.duration
+        )
     else:
         from moviepy import ImageClip
 
-        mask = ImageClip(alpha_at(0.0), is_mask=True).with_duration(source.duration)
+        mask = ImageClip(combined_alpha_at(0.0), is_mask=True).with_duration(source.duration)
     return source.with_mask(mask)
 
 
@@ -1107,6 +1395,12 @@ def _apply_catalog_transition(source: VideoClip, clip: Clip, use_legacy: bool) -
     duration = float(clip.end - clip.start)
     existing_mask = source.mask
     memo: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    # plan/elements EL7: a layer's exit of a kind that is not a closing mask plays the kind's
+    # entrance backwards (a slide leaves the way it came); its mask alone would hide the layer
+    # at once.
+    reversed_roles = {
+        role for role, tr in live if role == "out" and exit_plays_reversed(clip, tr.render_kind)
+    }
 
     def evaluate(t: float, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         key = round(t * 1_000_000)
@@ -1118,6 +1412,12 @@ def _apply_catalog_transition(source: VideoClip, clip: Clip, use_legacy: bool) -
         for role, tr in live:
             progress = transitions.progress_at(role, t, tr, duration)
             if progress is None:
+                continue
+            if role in reversed_roles:
+                # Backwards in time: the entrance as it was 1 - p of the way through.
+                eased = transitions.ease(tr, 1.0 - progress)
+                rgb, revealed = transition_passes.apply_transition_to_frame(rgb, tr, eased)
+                alpha = np.asarray((alpha * revealed).astype(np.float32))
                 continue
             eased = transitions.ease(tr, progress)
             if role == "out":
@@ -1454,7 +1754,15 @@ def compile_timeline(
                         continue
                     path = _resolve_clip_asset(clip, asset_index)
                     if kind == "image":
-                        picture = _compile_image_clip(ImageClip, path, clip, target, lut_base_dir)
+                        picture = _compile_image_clip(
+                            ImageClip,
+                            path,
+                            clip,
+                            target,
+                            lut_base_dir,
+                            _asset_media_size(project, clip),
+                            layer_mattes,
+                        )
                         opened.append(picture)
                         if matte_sources.consumes(track.id, clip.id, None):
                             layer_mattes.add(track.id, clip.id, picture)
@@ -1556,16 +1864,26 @@ def compile_timeline(
                     source = _apply_speed(source, clip)
                     source = _apply_audio_effects(source, clip, project.timeline)
                     audio_layers.append(source.with_start(clip.start))
-                elif kind == "text":
+                elif kind in ("text", "shape"):
                     if track.hidden:
                         continue
-                    text_layer = _compile_text_clip(ImageClip, clip, target)
-                    if text_layer is not None:
-                        opened.append(text_layer)
+                    graphic = (
+                        _compile_text_clip(
+                            ImageClip,
+                            clip,
+                            target,
+                            (project.resolution.width, project.resolution.height),
+                            layer_mattes,
+                        )
+                        if kind == "text"
+                        else _compile_shape_clip(ImageClip, clip, target)
+                    )
+                    if graphic is not None:
+                        opened.append(graphic)
                         if matte_sources.consumes(track.id, clip.id, None):
-                            layer_mattes.add(track.id, clip.id, text_layer)
+                            layer_mattes.add(track.id, clip.id, graphic)
                         else:
-                            track_pictures.append((text_layer, clip.blend_mode))
+                            track_pictures.append((graphic, clip.blend_mode))
             picture_by_track.append(track_pictures)
 
         video_layers: list[tuple[Any, str | None]] = []

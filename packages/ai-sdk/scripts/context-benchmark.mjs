@@ -26,14 +26,16 @@
  */
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 process.env.FRAMEPILOT_LOG_LEVEL ??= 'silent';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const sdk = await import(join(HERE, '..', 'dist', 'index.js'));
+const sdk = await import(pathToFileURL(join(HERE, '..', 'dist', 'index.js')).href);
 const { parseProject } = await import('@framepilot/timeline-schema');
-const { classifyTool } = await import(join(HERE, '..', 'dist', 'tool-classification.js'));
+const { classifyTool } = await import(
+  pathToFileURL(join(HERE, '..', 'dist', 'tool-classification.js')).href
+);
 
 const {
   Orchestrator,
@@ -497,7 +499,9 @@ console.log();
 // What a READ tool actually hands back to the model. `summarizeReadResult` has a
 // hand-written digest per tool that preserves whole records; tools with no case fall
 // through to `previewJson(value, 1200)` — a character slice of the raw JSON.
-const { summarizeReadResult } = await import(join(HERE, '..', 'dist', 'orchestrator.js'));
+const { summarizeReadResult } = await import(
+  pathToFileURL(join(HERE, '..', 'dist', 'orchestrator.js')).href
+);
 
 const transcript1500 = [];
 for (let i = 0; i < 1_500; i += 1)

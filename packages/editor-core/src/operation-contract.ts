@@ -257,6 +257,7 @@ export function assertOperationContract(timeline: Timeline, op: Operation): void
       }
       return;
     case 'add_text_overlay':
+    case 'add_shape':
     case 'add_caption_layer':
       assertUnlocked(findTrack(timeline, op.trackId), op.type);
       positiveRange(op.start, op.end, op.type);

@@ -30,6 +30,7 @@ import {
   isValidAssetPath,
   wouldCreateFolderCycle,
   type ProjectOperation,
+  reservedAssetIdProblem,
 } from './project-operations.js';
 import { clipTimelineDuration, hasSpeedRamp } from './speed-curve.js';
 import { TRANSITION_OUT_EFFECT_TYPE } from './transitions.js';
@@ -100,7 +101,12 @@ export type ValidationCode =
   /** An enabled matte does not cover the source range its clip plays. */
   | 'matte_out_of_coverage'
   /** An apply path threw something the operations layer did not raise deliberately. */
-  | 'invalid_operation';
+  | 'invalid_operation'
+  /**
+   * An element (a sticker or a shape) would be off the frame for its whole span, so the edit
+   * renders as nothing (plan/elements EL8.1). Raised where the agent's edits are assembled.
+   */
+  | 'element_off_frame';
 
 export type ValidationSeverity = 'error' | 'warning';
 
@@ -137,7 +143,7 @@ export interface ValidateOptions {
    * is stored in source pixels, and adding one to media nobody measured is refused with
    * "Measure this media first". Omitted, those size rules are skipped rather than guessed.
    */
-  readonly assets?: Iterable<Pick<Asset, 'id' | 'media'>>;
+  readonly assets?: Iterable<Pick<Asset, 'id' | 'media'> & { readonly kind?: Asset['kind'] }>;
 }
 
 const SUPPORTED_OPERATIONS: ReadonlySet<OperationType> = new Set<OperationType>([
@@ -151,6 +157,7 @@ const SUPPORTED_OPERATIONS: ReadonlySet<OperationType> = new Set<OperationType>(
   'ripple_delete',
   'add_clip',
   'add_text_overlay',
+  'add_shape',
   'add_caption_layer',
   'add_keyframes',
   'remove_keyframes',
@@ -613,13 +620,16 @@ function projectChecks(
     !markers || markers.some((marker) => marker.id === id);
 
   switch (op.type) {
-    case 'add_asset':
-      if (assetIds?.has(op.asset.id))
+    case 'add_asset': {
+      const reserved = reservedAssetIdProblem(op.asset.id);
+      if (reserved !== null) issue('duplicate_asset', reserved);
+      else if (assetIds?.has(op.asset.id))
         issue('duplicate_asset', `Asset id already exists: ${op.asset.id}`);
       if (op.asset.folderId !== undefined && !folderExists(op.asset.folderId)) {
         issue('missing_folder', `add_asset targets unknown folder '${op.asset.folderId}'.`);
       }
       break;
+    }
     case 'remove_asset':
       if (!assetExists(op.assetId)) issue('missing_asset', `Unknown asset '${op.assetId}'.`);
       else if (assetIsInUse(timeline, op.assetId)) {

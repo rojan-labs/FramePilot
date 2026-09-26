@@ -49,6 +49,8 @@ interface CreditRow {
   readonly line: string;
   readonly license: string;
   readonly licenseUrl?: string | undefined;
+  /** How many assets share this exact line (a library's stickers all do). */
+  readonly count: number;
 }
 
 /**
@@ -75,12 +77,28 @@ function toRow(asset: Asset): CreditRow {
     line: creditLine(asset),
     license: asset.source?.license ?? '',
     licenseUrl: asset.source?.licenseUrl ?? undefined,
+    count: 1,
   };
+}
+
+/**
+ * Identical lines as one row with a count, in first-appearance order (plan/elements G10): ten
+ * stickers from one library owe one line, and a pasted description with that line ten times
+ * would be noise.
+ */
+function grouped(rows: readonly CreditRow[]): CreditRow[] {
+  const byLine = new Map<string, CreditRow>();
+  for (const row of rows) {
+    const key = `${row.line}\u0000${row.license}`;
+    const seen = byLine.get(key);
+    byLine.set(key, seen === undefined ? row : { ...seen, count: seen.count + 1 });
+  }
+  return [...byLine.values()];
 }
 
 /** Rows for every asset whose **licence** obliges a credit, in bin order. */
 export function creditRows(assets: readonly Asset[]): CreditRow[] {
-  return assets.filter((asset) => asset.source?.attributionRequired === true).map(toRow);
+  return grouped(assets.filter((asset) => asset.source?.attributionRequired === true).map(toRow));
 }
 
 /**
@@ -91,7 +109,7 @@ export function creditRows(assets: readonly Asset[]): CreditRow[] {
  * the user would paste into their description.
  */
 export function suggestedCreditRows(assets: readonly Asset[]): CreditRow[] {
-  return assets
+  const rows = assets
     .filter(
       (asset) =>
         asset.source !== undefined &&
@@ -100,6 +118,7 @@ export function suggestedCreditRows(assets: readonly Asset[]): CreditRow[] {
         (Boolean(asset.source.attribution) || Boolean(asset.source.creator)),
     )
     .map(toRow);
+  return grouped(rows);
 }
 
 /** Every required credit as one plain-text block, ready to paste. */
@@ -231,6 +250,9 @@ function CreditGroup({
         {rows.map((row) => (
           <li key={row.assetId} className="export-credits-item">
             <span className="export-credits-line">{row.line}</span>
+            {row.count > 1 ? (
+              <span className="export-credits-count">{`×${String(row.count)}`}</span>
+            ) : null}
             {row.licenseUrl ? (
               <a
                 className="export-credits-license"

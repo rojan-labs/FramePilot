@@ -311,6 +311,7 @@ from framepilot_engine.render.preview_text import (
 from framepilot_engine.render.preview_text import (
     PreviewTextError,
     baseline_caption_raster,
+    shape_raster,
     styled_caption_raster,
     text_overlay_raster,
 )
@@ -334,6 +335,7 @@ from framepilot_engine.validation.temporal_evidence import (
 from framepilot_engine.visual_indexing import (
     FrameExtractionError,
     extract_keyframe_jpeg,
+    is_element_asset_id,
     keyframe_dhashes,
     sample_asset,
 )
@@ -1213,11 +1215,21 @@ class PreviewTextRasterRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["text", "caption"] = Field(
-        description="'text': a text clip's `text` effect params; 'caption': an unstyled cue."
+    kind: Literal["text", "caption", "shape"] = Field(
+        description=(
+            "'text': a text clip's `text` effect params; 'caption': an unstyled cue; "
+            "'shape': a shape clip's `shape` effect params (schema v25)."
+        )
     )
     params: dict[str, Any] | None = Field(
-        default=None, description="The text effect's params (kind 'text')."
+        default=None, description="The text or shape effect's params (kinds 'text', 'shape')."
+    )
+    rotates: bool = Field(
+        default=False,
+        description=(
+            "Kinds 'text' and 'shape': the clip animates rotation, so draw the rotation-safe "
+            "square."
+        ),
     )
     text: str | None = Field(
         default=None, max_length=2000, description="The caption cue text (kind 'caption')."
@@ -1249,8 +1261,14 @@ class PreviewTextRasterResponse(BaseModel):
     width: int
     height: int
     rgba_base64: str = Field(description="width x height x 4 bytes, base64-encoded.")
-    x: int | None = Field(default=None, description="Caption paste x; None for a text clip.")
-    y: int | None = Field(default=None, description="Caption paste y; None for a text clip.")
+    x: int | None = Field(
+        default=None,
+        description="Caption paste x, or a shape's untransformed left; None for a text clip.",
+    )
+    y: int | None = Field(
+        default=None,
+        description="Caption paste y, or a shape's untransformed top; None for a text clip.",
+    )
     animated: bool = Field(
         default=False, description="True when the raster changes with the frame time."
     )
@@ -3061,9 +3079,10 @@ def create_app(
         """Whether a brain asset has video frames to sample (video or still image).
 
         Classified from the stored ffprobe result; an asset with no probe (or an
-        audio-only one) is not part of the visual worklist.
+        audio-only one) is not part of the visual worklist. Neither is a sticker: it
+        is an element laid over footage, not footage (plan/elements EL6a.6).
         """
-        if asset.probe is None:
+        if asset.probe is None or is_element_asset_id(asset.id):
             return False
         try:
             return MediaInfo.model_validate(asset.probe).has_video
@@ -4151,7 +4170,8 @@ def create_app(
                 return existing
         explicit = req.asset_ids is not None
         if req.asset_ids is not None:
-            asset_ids = list(dict.fromkeys(req.asset_ids))
+            # Named ids too: a sticker the agent asks for is still not footage.
+            asset_ids = [a for a in dict.fromkeys(req.asset_ids) if not is_element_asset_id(a)]
         else:
             asset_ids = [a.id for a in store.list_assets() if _asset_is_visual(a)]
         asset_ids = _prioritise_worklist(store, asset_ids, req)
@@ -6778,7 +6798,13 @@ def create_app(
         """
         try:
             if req.kind == "text":
-                raster = text_overlay_raster(req.params or {}, req.frame_width, req.frame_height)
+                raster = text_overlay_raster(
+                    req.params or {}, req.frame_width, req.frame_height, rotates=req.rotates
+                )
+            elif req.kind == "shape":
+                raster = shape_raster(
+                    req.params or {}, req.frame_width, req.frame_height, rotates=req.rotates
+                )
             elif req.track_style or req.clip_style:
                 if req.clip_start is None or req.clip_end is None:
                     raise PreviewTextError("A styled caption needs its clip_start and clip_end.")
@@ -7779,11 +7805,16 @@ def create_app(
                         f"Job {req.job_id!r} exists but is not an {BATCH_JOB_KIND} job.",
                     )
                 return existing
+        # Stickers are elements, not footage: there is nothing in one to analyse (EL6a.6).
         if req.asset_ids is not None:
-            asset_ids = list(dict.fromkeys(req.asset_ids))
+            asset_ids = [a for a in dict.fromkeys(req.asset_ids) if not is_element_asset_id(a)]
         else:
             project = load_project_document(req.project_path, req.project)
-            asset_ids = [a.id for a in project.assets if a.kind in ANALYZABLE_ASSET_KINDS]
+            asset_ids = [
+                a.id
+                for a in project.assets
+                if a.kind in ANALYZABLE_ASSET_KINDS and not is_element_asset_id(a.id)
+            ]
         job_id = req.job_id or f"{BATCH_JOB_KIND}-{uuid4().hex}"
         return store.create_job(
             job_id,

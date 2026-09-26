@@ -54,6 +54,17 @@ export interface ToolContext {
    */
   readonly stockCutawayCap?: number;
   /**
+   * The host ships the whole sticker library (the desktop installer's packaged set, plan/elements
+   * EL6b), so `search_elements` offers every sticker, not only the curated ones every build has.
+   */
+  readonly packagedStickers?: boolean;
+  /**
+   * `false` where the host cannot copy a sticker into the project — the MCP server has no
+   * materialiser (plan/elements 07 §7) — so `search_elements` offers shapes only and says why,
+   * rather than ids no call there can use. Absent means it can.
+   */
+  readonly placesStickers?: boolean;
+  /**
    * The numbers the editor's CURRENT request binds to a size or position — a unit (`20%`,
    * `200px`) or a shape word (`width 0.5`, `20 from the left`) attached to each
    * (`masking/geometry-provenance.ts#geometryNumbersIn`, AM1.6). Numbers from earlier messages,

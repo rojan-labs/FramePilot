@@ -102,6 +102,7 @@ import {
   type AiProvider,
   type ModelTier,
   type ProviderConfig,
+  loadStickerCatalog,
 } from '@framepilot/ai-sdk';
 import { createAutomaticTrackingExecutor } from './ai/automatic-tracking-executor.js';
 import { createMaskingExecutor, MASKING_EXECUTOR_TOOLS } from './ai/masking-executor.js';
@@ -145,6 +146,8 @@ import {
   type StockBytesResult,
   type StockDownloadRequest,
   type StockDownloadResult,
+  type ElementMaterializeResult,
+  type ElementThumbnailResult,
   type StockQuotaSnapshot,
   type AnalyzeReferenceRequest,
   type AnalyzeReferenceResult,
@@ -255,6 +258,14 @@ import { previewTextRasterViaSidecar } from './render/preview-text-client.js';
 import { cacheDerivedMedia, sidecarDerive } from './media/derived-media-cache.js';
 import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
+import {
+  ElementsLibrary,
+  bundledStickersRoot,
+  materializeRequest,
+  packagedStickersRoot,
+  thumbnailRequestIds,
+} from './media/elements-library.js';
+import { createStickerHost } from './ai/sticker-host.js';
 
 import { StockQuotaStore } from './media/stock-quota.js';
 import {
@@ -936,6 +947,37 @@ function registerIpcHandlers(): void {
     },
   });
 
+  // Stickers (plan/elements EL6a): catalogue ids in, verified files copied into the project.
+  const elementsLibrary = new ElementsLibrary({
+    projectsRoot,
+    bundledRoot: () => bundledStickersRoot(dirname, app.isPackaged),
+    // EL6b: the installer's packaged set, or the dev build's when `pnpm build:elements` made one.
+    packagedRoot: () => {
+      const root = packagedStickersRoot(dirname, app.isPackaged, process.resourcesPath);
+      return existsSync(root) ? root : null;
+    },
+    catalog: loadStickerCatalog,
+    // Counts only: whether it worked, the closed error code, and whether a copy was reused.
+    onOutcome: (outcome) => appTelemetry?.recordEvent('element_materialize', { ...outcome }),
+  });
+  // EL6b: whether this build ships the packaged set, so the agent's search offers every sticker
+  // add_sticker can place here. Asked once; an empty thumbnail request answers exactly that.
+  let packagedStickers = false;
+  void elementsLibrary.thumbnails([]).then((answer) => {
+    packagedStickers = answer.ok && answer.packaged;
+  });
+  // Healing never stops a project opening: `heal` reports what it could not put back rather than
+  // throwing, and this guard holds that even if a future change forgets to.
+  const healElements = async (project: Parameters<ElementsLibrary['heal']>[0]): Promise<void> => {
+    try {
+      await elementsLibrary.heal(project);
+    } catch (error) {
+      aiLog.warn('elements: healing sticker files failed; the project opens without them', {
+        error: String(error),
+      });
+    }
+  };
+
   capabilityPackService = capabilityPackLocation
     .resolve()
     .then(({ activeRoot }) => createCapabilityPackService(activeRoot));
@@ -1530,7 +1572,8 @@ function registerIpcHandlers(): void {
       if (
         typeof req?.projectId !== 'string' ||
         typeof req.remoteId !== 'string' ||
-        typeof req.operationId !== 'string'
+        typeof req.operationId !== 'string' ||
+        (req.kind !== undefined && !isStockKind(req.kind))
       ) {
         return { ok: false, error: 'download_failed', detail: 'invalid download request' };
       }
@@ -1541,6 +1584,27 @@ function registerIpcHandlers(): void {
     if (typeof operationId !== 'string') return;
     stockService.cancelDownload(operationId);
   });
+  ipcMain.handle(
+    IpcChannels.elementsMaterialize,
+    async (_event, request: unknown): Promise<ElementMaterializeResult> => {
+      requireLicense();
+      // Two strings, and a project id no longer than the cap before it reaches a path.
+      const parsed = materializeRequest(request);
+      if (!parsed.ok) return parsed;
+      return await elementsLibrary.materialize(parsed.request);
+    },
+  );
+  ipcMain.handle(
+    IpcChannels.elementsThumbnail,
+    async (_event, request: unknown): Promise<ElementThumbnailResult> => {
+      requireLicense();
+      // Ids only, strings only, one request's worth: the library skips anything that is not a
+      // packaged id.
+      const ids = thumbnailRequestIds(request);
+      if (ids === null) return { ok: false, error: 'unknown_element' };
+      return await elementsLibrary.thumbnails(ids);
+    },
+  );
   ipcMain.handle(IpcChannels.stockQuota, async (): Promise<StockQuotaSnapshot> => {
     requireLicense();
     // Reads the last observation. Never triggers a provider request — a Settings
@@ -1558,6 +1622,8 @@ function registerIpcHandlers(): void {
       if (!guard.ok) return guard;
       try {
         const project = await readProjectFile(guard.path);
+        // A sticker file that went missing comes back from the library before anything reads it.
+        await healElements(project);
         await recentFiles.add({ path: guard.path, name: project.name, openedAt: Date.now() });
         // Publish the open project so the MCP server edits this same file.
         await activeProject.record({
@@ -1594,6 +1660,7 @@ function registerIpcHandlers(): void {
     const selectedPath = filePaths[0]!;
     try {
       const project = await readProjectFile(selectedPath);
+      await healElements(project);
       await recentFiles.add({ path: selectedPath, name: project.name, openedAt: Date.now() });
       // A file picked from outside the projects folder is still recorded; the
       // MCP server sandbox-rejects it safely if it later tries to open it.
@@ -2841,6 +2908,12 @@ function registerIpcHandlers(): void {
     download: downloadStockAsset,
   });
 
+  /**
+   * `add_sticker` for the agent: copy the catalogue sticker into the project and hand back its
+   * asset (`ai/sticker-host.ts`); the orchestrator places it with the Stickers tab's builder.
+   */
+  const hostAddSticker = createStickerHost(elementsLibrary);
+
   const sidecarToolExecutor = createSidecarExecutor({
     baseUrl: engineBaseUrl,
     // Holds a visual pack's lease for the round trip of any call whose body names it
@@ -2853,6 +2926,7 @@ function registerIpcHandlers(): void {
     hostAddMusic,
     hostStockSearch,
     hostAddStock,
+    hostAddSticker,
   });
   // The agent's route into the Capability Pack tracking worker. Same authority
   // the renderer IPC path uses — one hub, leases and install proposals included.
@@ -2982,6 +3056,7 @@ function registerIpcHandlers(): void {
     const orchestratorOptions = {
       executor: toolExecutor,
       disabledTools: aiMaskingOff,
+      ...(packagedStickers ? { packagedStickers } : {}),
       ...(effectObserver === undefined ? {} : { effectObserver }),
       ...(name === 'mock' ? {} : buildTierProviders(name)),
     };
@@ -3209,8 +3284,8 @@ function registerIpcHandlers(): void {
     // (`LedgerClient` never throws), and the client caches per asset content hash, so a
     // ten-turn run costs one read and a second run on the same project costs none.
     shotLedgerFor: async (project) => {
-      // Only ids the BIN holds. A clip's `assetId` may be a pseudo-asset — `__caption__`,
-      // `__text__` — which resolves to no rows and is then cached as an empty entry: noise
+      // Only ids the BIN holds. A clip's `assetId` may be a synthetic id — a caption, a
+      // title — which resolves to no rows and is then cached as an empty entry: noise
       // in the request, and a cache slot spent on an asset that can never have facts.
       const inBin = new Set(project.assets.map((asset) => asset.id));
       const assetIds = [
@@ -3952,6 +4027,12 @@ function hardenRendererSession(): void {
 }
 
 /**
+ * The opt-in local telemetry, once {@link setupTelemetry} has run; services that count their own
+ * events (sticker adds and failures) read it lazily. A no-op while telemetry is off.
+ */
+let appTelemetry: LocalTelemetry | null = null;
+
+/**
  * Wire opt-in, local-first crash telemetry (plan Phase 8). Disabled unless
  * `FRAMEPILOT_TELEMETRY=1`; when enabled, crash records are appended as JSON
  * lines to `telemetry.log` under the app's userData dir. No network, ever.
@@ -3964,6 +4045,7 @@ function setupTelemetry(): void {
     now: () => Date.now(),
     sink: (line) => appendFileSync(logPath, `${line}\n`),
   });
+  appTelemetry = telemetry;
   if (!enabled) return;
   process.on('uncaughtException', (error) => telemetry.recordCrash(error));
   process.on('unhandledRejection', (reason) => telemetry.recordCrash(reason));

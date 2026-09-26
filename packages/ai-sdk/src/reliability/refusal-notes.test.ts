@@ -40,6 +40,7 @@ describe('unusableHostPayload', () => {
       'remove_silences',
       'add_music',
       'add_stock',
+      'add_sticker',
       'create_mask',
       'remove_background',
       'track_mask',

@@ -1,0 +1,228 @@
+{
+  "spec": "searchShapes (TS, packages/timeline-schema/src/shape-search.ts) and search_shapes (engine, render/shape_catalog.py) must return exactly `ids` and `total` for each row. Written by shape-search.test.ts with FRAMEPILOT_FIXTURE_UPDATE=1.",
+  "cases": [
+    {
+      "query": "box",
+      "scope": null,
+      "limit": 12,
+      "ids": [
+        "rounded-rect/highlight",
+        "rounded-rect/filled",
+        "rounded-rect/red",
+        "rounded-rect/translucent",
+        "hand-drawn-box/yellow",
+        "hand-drawn-box/red",
+        "rectangle/white",
+        "rectangle/outline",
+        "rectangle/translucent",
+        "square/white",
+        "square/outline",
+        "square/translucent"
+      ],
+      "total": 23
+    },
+    {
+      "query": "arrow",
+      "scope": null,
+      "limit": 12,
+      "ids": [
+        "line-arrow/red",
+        "line-arrow/white",
+        "arrow-head/white",
+        "arrow-head/outline",
+        "arrow-head/translucent",
+        "block-arrow/white",
+        "block-arrow/outline",
+        "block-arrow/translucent",
+        "double-arrow/white",
+        "double-arrow/red",
+        "curved-arrow/white",
+        "curved-arrow/red"
+      ],
+      "total": 120
+    },
+    {
+      "query": "curved arr",
+      "scope": null,
+      "limit": 12,
+      "ids": [
+        "curved-arrow/white",
+        "curved-arrow/red"
+      ],
+      "total": 2
+    },
+    {
+      "query": "star",
+      "scope": null,
+      "limit": 12,
+      "ids": [
+        "star-5/white",
+        "star-5/outline",
+        "star-5/translucent",
+        "starburst-16/white",
+        "starburst-16/outline",
+        "starburst-16/translucent",
+        "star-outline/white",
+        "star-outline/yellow",
+        "star-4/white",
+        "star-4/outline",
+        "star-4/translucent",
+        "star-6/white"
+      ],
+      "total": 55
+    },
+    {
+      "query": "check",
+      "scope": null,
+      "limit": 12,
+      "ids": [
+        "check/white",
+        "check/yellow",
+        "check-circle/white",
+        "check-circle/yellow",
+        "icon/check",
+        "icon/check-check",
+        "icon/check-line",
+        "icon/alarm-clock-check",
+        "icon/badge-check",
+        "icon/book-check",
+        "icon/book-open-check",
+        "icon/bookmark-check"
+      ],
+      "total": 44
+    },
+    {
+      "query": "speech bubble",
+      "scope": null,
+      "limit": 12,
+      "ids": [
+        "speech-bubble/white",
+        "speech-bubble/outline",
+        "speech-bubble/translucent",
+        "speech-bubble-square/white",
+        "speech-bubble-square/outline",
+        "speech-bubble-square/translucent"
+      ],
+      "total": 6
+    },
+    {
+      "query": "badge",
+      "scope": null,
+      "limit": 12,
+      "ids": [
+        "ribbon-corner/white",
+        "ribbon-corner/yellow",
+        "starburst-16/white",
+        "starburst-16/outline",
+        "starburst-16/translucent",
+        "starburst-24/white",
+        "starburst-24/outline",
+        "starburst-24/translucent",
+        "seal/white",
+        "seal/outline",
+        "seal/translucent",
+        "shield/blue"
+      ],
+      "total": 48
+    },
+    {
+      "query": "circle",
+      "scope": "highlights",
+      "limit": 12,
+      "ids": [
+        "highlight-circle/yellow",
+        "highlight-circle/red",
+        "hand-drawn-circle/yellow",
+        "hand-drawn-circle/red"
+      ],
+      "total": 4
+    },
+    {
+      "query": "heart",
+      "scope": "icons",
+      "limit": 12,
+      "ids": [
+        "icon/heart",
+        "icon/heart-crack",
+        "icon/heart-handshake",
+        "icon/heart-minus",
+        "icon/heart-off",
+        "icon/heart-plus",
+        "icon/heart-pulse",
+        "icon/book-heart",
+        "icon/calendar-heart",
+        "icon/file-heart",
+        "icon/folder-heart",
+        "icon/hand-heart"
+      ],
+      "total": 16
+    },
+    {
+      "query": "",
+      "scope": "numbers",
+      "limit": 12,
+      "ids": [
+        "numbered-circle/red-1",
+        "numbered-circle/red-2",
+        "numbered-circle/red-3",
+        "numbered-circle/red-4",
+        "numbered-circle/red-5",
+        "numbered-circle/white-1",
+        "numbered-circle/white-2",
+        "numbered-circle/white-3",
+        "numbered-circle/white-4",
+        "numbered-circle/white-5",
+        "numbered-square/red-1",
+        "numbered-square/white-1"
+      ],
+      "total": 14
+    },
+    {
+      "query": "",
+      "scope": "arrows",
+      "limit": 12,
+      "ids": [
+        "line-arrow/red",
+        "line-arrow/white",
+        "block-arrow/white",
+        "block-arrow/outline",
+        "block-arrow/translucent",
+        "double-arrow/white",
+        "double-arrow/red",
+        "curved-arrow/white",
+        "curved-arrow/red",
+        "u-turn-arrow/white",
+        "u-turn-arrow/red",
+        "circular-arrow/white"
+      ],
+      "total": 34
+    },
+    {
+      "query": "zzz",
+      "scope": null,
+      "limit": 12,
+      "ids": [],
+      "total": 0
+    },
+    {
+      "query": "BOX",
+      "scope": null,
+      "limit": 12,
+      "ids": [
+        "rounded-rect/highlight",
+        "rounded-rect/filled",
+        "rounded-rect/red",
+        "rounded-rect/translucent",
+        "hand-drawn-box/yellow",
+        "hand-drawn-box/red",
+        "rectangle/white",
+        "rectangle/outline",
+        "rectangle/translucent",
+        "square/white",
+        "square/outline",
+        "square/translucent"
+      ],
+      "total": 23
+    }
+  ]
+}

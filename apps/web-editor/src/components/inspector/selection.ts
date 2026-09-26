@@ -16,7 +16,7 @@
  *
  * Pure: a projection of editor state, no React and no DOM.
  */
-import type { Clip, Track } from '@framepilot/timeline-schema';
+import type { Asset, Clip, Track } from '@framepilot/timeline-schema';
 import {
   type EffectLayerLocation,
   clipTransition,
@@ -24,6 +24,7 @@ import {
   findEffectLayer,
 } from '../../editor/selectors.js';
 import { textEffectOf } from '../../editor/patch-builders.js';
+import { isElementAsset, syntheticClipKind } from '@framepilot/editor-core';
 import type { Timeline } from '@framepilot/timeline-schema';
 
 /** A clip plus the track it sits on — what every section actually needs. */
@@ -58,10 +59,28 @@ export interface InspectorSelection {
   readonly effectLayer: EffectLayerLocation | null;
   /** True when EVERY selected clip carries a text/caption effect. */
   readonly hasText: boolean;
+  /** True when EVERY selected clip is a shape (schema v25): the Shape section edits them. */
+  readonly hasShape: boolean;
+  /**
+   * True when ANY selected clip is a shape. The export draws a shape from its params alone, so
+   * the grade, speed, crop, mask and effect-list sections would do nothing to it and are not
+   * offered (a present-and-broken control is worse than an absent one).
+   */
+  readonly anyShape: boolean;
+  /** True when the selection is ONE sticker (an element asset): the Sticker section shows it. */
+  readonly hasSticker: boolean;
   /** True when EVERY selected clip sits on a track that can carry audio. */
   readonly hasAudio: boolean;
-  /** True when the primary clip has a transition on its incoming edge. */
+  /**
+   * True when the primary clip has a transition on its incoming edge that the Transition section
+   * edits: a cut's, or a cutaway's entrance. A graphic's own entrance is the Animation section's.
+   */
   readonly hasTransition: boolean;
+  /**
+   * True when the selection is ONE clip on a graphics lane — a sticker, shape, title or picture
+   * over the footage: the Animation section (In, Out, Loop; plan/elements EL7) edits it.
+   */
+  readonly hasAnimation: boolean;
 }
 
 const EMPTY: InspectorSelection = {
@@ -71,8 +90,12 @@ const EMPTY: InspectorSelection = {
   effectLayerIds: [],
   effectLayer: null,
   hasText: false,
+  hasShape: false,
+  anyShape: false,
+  hasSticker: false,
   hasAudio: false,
   hasTransition: false,
+  hasAnimation: false,
 };
 
 /** A track that can carry audio — the gate the Audio section has always used. */
@@ -85,12 +108,14 @@ const audioBearing = (track: Track): boolean => track.type === 'audio' || track.
  * @param selection - The PRIMARY selected clip id (`editor.state.selection`).
  * @param selectedIds - The whole clip selection (`editor.state.selectedIds`).
  * @param effectLayerIds - Selected effect layer ids (view state, held by `Editor`).
+ * @param assets - The project's assets, to tell a sticker from a photo.
  */
 export function resolveInspectorSelection(
   timeline: Timeline,
   selection: string | null,
   selectedIds: readonly string[],
   effectLayerIds: readonly string[] = [],
+  assets: readonly Asset[] = [],
 ): InspectorSelection {
   // An effect layer wins, and is resolved before any clip lookup — see the type note.
   const primaryLayerId = effectLayerIds[0];
@@ -121,10 +146,25 @@ export function resolveInspectorSelection(
     // EVERY, not SOME: a section that only some of the selection can accept would
     // silently no-op on the rest, which is worse than not offering it.
     hasText: clips.every((location) => textEffectOf(location.clip) !== undefined),
+    hasShape: clips.every((location) => isShape(location.clip)),
+    anyShape: clips.some((location) => isShape(location.clip)),
+    hasSticker:
+      clips.length === 1 &&
+      isElementAsset(assets.find((asset) => asset.id === primary.clip.assetId)),
     hasAudio: clips.every((location) => audioBearing(location.track)),
-    hasTransition: clipTransition(primary.clip) !== undefined,
+    hasTransition: transitionSectionApplies(primary),
+    hasAnimation: clips.length === 1 && primary.track.type === 'overlay',
   };
 }
+
+/** A transition the Transition section edits: anything but a graphic's own entrance. */
+function transitionSectionApplies({ clip, track }: ClipLocation): boolean {
+  const transition = clipTransition(clip);
+  if (transition === undefined) return false;
+  return !(track.type === 'overlay' && transition.params.fromClipId === undefined);
+}
+
+const isShape = (clip: Clip): boolean => syntheticClipKind(clip.assetId) === 'shape';
 
 /** Whether the selection has at least one clip (single or multi). */
 export function hasClipSelection(selection: InspectorSelection): boolean {

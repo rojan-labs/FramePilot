@@ -8,8 +8,10 @@
  */
 import { useMemo, useState } from 'react';
 import {
+  type PanelKey,
   type Shortcut,
   type ShortcutGroup,
+  PANEL_KEYS,
   SHORTCUTS,
   formatChord,
   isMacPlatform,
@@ -37,11 +39,11 @@ export const GROUP_ORDER: readonly ShortcutGroup[] = [
 ];
 
 /** Does a shortcut match the search query (over label, group, and key glyphs)? */
-function matches(shortcut: Shortcut, query: string, isMac: boolean): boolean {
+function matches(shortcut: Shortcut | PanelKey, query: string, isMac: boolean): boolean {
   if (query === '') return true;
   const haystack = [
     shortcut.label,
-    shortcut.group,
+    'group' in shortcut ? shortcut.group : shortcut.panel,
     ...shortcut.keys.map((chord) => formatChord(chord, isMac)),
   ]
     .join(' ')
@@ -59,10 +61,18 @@ export function ShortcutList({ searchRef }: ShortcutListProps): JSX.Element {
   const isMac = useMemo(() => isMacPlatform(), []);
 
   const grouped = useMemo(() => {
-    return GROUP_ORDER.map((group) => ({
-      group,
-      items: SHORTCUTS.filter((s) => s.group === group && matches(s, query, isMac)),
-    })).filter((section) => section.items.length > 0);
+    const global = GROUP_ORDER.map(
+      (group): { group: string; items: readonly (Shortcut | PanelKey)[] } => ({
+        group,
+        items: SHORTCUTS.filter((s) => s.group === group && matches(s, query, isMac)),
+      }),
+    );
+    // Panel keys after the global ones: they work only with focus inside their panel.
+    const panels = [...new Set(PANEL_KEYS.map((key) => key.panel))].map((panel) => ({
+      group: panel,
+      items: PANEL_KEYS.filter((key) => key.panel === panel && matches(key, query, isMac)),
+    }));
+    return [...global, ...panels].filter((section) => section.items.length > 0);
   }, [query, isMac]);
 
   return (

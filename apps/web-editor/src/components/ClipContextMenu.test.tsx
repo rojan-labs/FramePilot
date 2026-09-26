@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { Timeline } from '@framepilot/timeline-schema';
+import type { Asset, Timeline } from '@framepilot/timeline-schema';
 import type { UseEditor } from '../editor/useEditor.js';
 import { ClipContextMenu, type ClipMenuTarget } from './ClipContextMenu.js';
 
@@ -32,14 +32,16 @@ const pairTimeline: Timeline = {
   tracks: [{ id: 'v', type: 'video', clips: [clip('c1', 0, 4), clip('c2', 4, 8)] }],
 };
 
-function fakeEditor(over: { timeline?: Timeline; playhead?: number } = {}): UseEditor {
+function fakeEditor(
+  over: { timeline?: Timeline; playhead?: number; assets?: readonly Asset[] } = {},
+): UseEditor {
   const activeTimeline = over.timeline ?? timeline;
   const playhead = over.playhead ?? 2;
   return {
     state: {
       timeline: activeTimeline,
       history: { past: [], future: [] } as never,
-      assets: [],
+      assets: over.assets ?? [],
       folders: [],
       assetIds: ['a'],
       issues: [],
@@ -77,6 +79,109 @@ function fakeEditor(over: { timeline?: Timeline; playhead?: number } = {}): UseE
 const target: ClipMenuTarget = { clipId: 'c1', x: 10, y: 10 };
 
 describe('ClipContextMenu', () => {
+  it('offers Edit shape on a shape, selecting it, and no speed presets it would ignore', () => {
+    const shapeTimeline: Timeline = {
+      tracks: [
+        {
+          id: 'o',
+          type: 'overlay',
+          clips: [{ ...clip('s1', 0, 4), assetId: '__shape__', trackId: 'o' }],
+        },
+      ],
+    };
+    const editor = fakeEditor({ timeline: shapeTimeline });
+    const onClose = vi.fn();
+    render(
+      <ClipContextMenu editor={editor} target={{ clipId: 's1', x: 0, y: 0 }} onClose={onClose} />,
+    );
+    expect(screen.queryByRole('group', { name: 'Speed' })).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit shape' }));
+    expect(editor.select).toHaveBeenCalledWith('s1');
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('offers Replace sticker on a sticker, naming it, and no speed presets a still ignores', () => {
+    const fire = {
+      id: 'element_fluent3d_fire',
+      path: 'media/p/elements/fluent3d/fire.webp',
+      kind: 'image',
+      source: { provider: 'fluent-emoji', remoteId: 'fire' },
+    } as unknown as Asset;
+    const stickerTimeline: Timeline = {
+      tracks: [
+        {
+          id: 'o',
+          type: 'overlay',
+          clips: [{ ...clip('k1', 0, 3), assetId: fire.id, trackId: 'o' }],
+        },
+      ],
+    };
+    const onReplaceSticker = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <ClipContextMenu
+        editor={fakeEditor({ timeline: stickerTimeline, assets: [fire] })}
+        target={{ clipId: 'k1', x: 0, y: 0 }}
+        onClose={onClose}
+        onReplaceSticker={onReplaceSticker}
+      />,
+    );
+    expect(screen.queryByRole('group', { name: 'Speed' })).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Replace sticker…' }));
+    expect(onReplaceSticker).toHaveBeenCalledWith('k1', 'Fire');
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('offers Animation… on a graphic, and not on footage (EL7)', () => {
+    const graphics: Timeline = {
+      tracks: [
+        { id: 'o', type: 'overlay', clips: [{ ...clip('k1', 0, 3), trackId: 'o' }] },
+        { id: 'v', type: 'video', clips: [clip('c1', 0, 3)] },
+      ],
+    };
+    const onAnimate = vi.fn();
+    const onClose = vi.fn();
+    const { unmount } = render(
+      <ClipContextMenu
+        editor={fakeEditor({ timeline: graphics })}
+        target={{ clipId: 'k1', x: 0, y: 0 }}
+        onClose={onClose}
+        onAnimate={onAnimate}
+      />,
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Animation…' }));
+    expect(onAnimate).toHaveBeenCalledWith('k1');
+    expect(onClose).toHaveBeenCalled();
+    unmount();
+    render(
+      <ClipContextMenu
+        editor={fakeEditor({ timeline: graphics })}
+        target={{ clipId: 'c1', x: 0, y: 0 }}
+        onClose={() => {}}
+        onAnimate={onAnimate}
+      />,
+    );
+    expect(screen.queryByRole('menuitem', { name: 'Animation…' })).toBeNull();
+  });
+
+  it('offers no Replace sticker on footage, or where there is no Stickers panel', () => {
+    render(
+      <ClipContextMenu
+        editor={fakeEditor()}
+        target={target}
+        onClose={() => {}}
+        onReplaceSticker={() => {}}
+      />,
+    );
+    expect(screen.queryByRole('menuitem', { name: 'Replace sticker…' })).toBeNull();
+  });
+
+  it('offers no Edit shape on footage', () => {
+    render(<ClipContextMenu editor={fakeEditor()} target={target} onClose={() => {}} />);
+    expect(screen.queryByRole('menuitem', { name: 'Edit shape' })).toBeNull();
+    expect(screen.getByRole('group', { name: 'Speed' })).toBeDefined();
+  });
+
   it('does not render the Ask AI item when no handler is wired', () => {
     render(<ClipContextMenu editor={fakeEditor()} target={target} onClose={vi.fn()} />);
     expect(screen.queryByRole('menuitem', { name: /Ask AI/ })).toBeNull();

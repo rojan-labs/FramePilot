@@ -12,8 +12,15 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Asset, CaptionStyle, TranscriptWord } from '@framepilot/timeline-schema';
+import { shapeDescriptor } from '@framepilot/timeline-schema';
 import { createLogger } from '@framepilot/shared-types';
-import { effectLayerMaskOwner, framePlanAt, resolveCaptionCue } from '@framepilot/editor-core';
+import {
+  effectLayerMaskOwner,
+  evaluateKeyframes,
+  framePlanAt,
+  resolveCaptionCue,
+  shapeClipParams,
+} from '@framepilot/editor-core';
 import { useFramePlayhead, type UseEditor } from '../editor/useEditor.js';
 import { previewMediaSrc } from '../editor/media.js';
 import {
@@ -31,6 +38,7 @@ import {
   setCaptionCuePatch,
   setCaptionStylePatch,
   setClipTransformPatch,
+  setShapeParamsPatch,
   setTextParamsPatch,
   type TextOverlayParams,
 } from '../editor/patch-builders.js';
@@ -63,7 +71,16 @@ import { PreviewAudioMixer } from './PreviewAudioMixer.js';
 import { PreviewViewControls, type PreviewZoom } from './PreviewViewControls.js';
 import { PreviewTransport } from './PreviewTransport.js';
 import { PreviewTextEditor } from './PreviewTextEditor.js';
+import { PreviewShapeEditor } from './PreviewShapeEditor.js';
+import { shapeHitRect, shapePivot } from '../preview/shape-handles.js';
 import { PreviewCaptionEditor } from './PreviewCaptionEditor.js';
+import type { MonitorDropItem } from '../editor/monitor-drop.js';
+import { clientPointToFrame, type FramePoint } from '../preview/frame-point.js';
+import {
+  ELEMENT_DND_TYPE,
+  decodeElementDrag,
+  dragCarriesElementKind,
+} from './elements/element-dnd.js';
 import {
   PreviewTransform,
   type ClipTransformValues,
@@ -74,6 +91,12 @@ const log = createLogger('web-editor:webcodecs-preview');
 
 /** No tracks soloed — the default when the caller doesn't pass any (mirrors PreviewPlayer). */
 const NO_SOLO: ReadonlySet<string> = new Set();
+
+/**
+ * The Elements tiles the monitor takes (plan/elements 02 §3). Photos, videos and bin assets on the
+ * monitor are deferred: their drags do not read as droppable here.
+ */
+const MONITOR_DROP_KINDS = ['sticker', 'shape'] as const;
 
 export interface WebCodecsPreviewPlayerProps {
   readonly editor: UseEditor;
@@ -96,6 +119,12 @@ export interface WebCodecsPreviewPlayerProps {
    * inside the canvas compositor. Absent = captions don't preview.
    */
   readonly transcript?: readonly TranscriptWord[];
+  /**
+   * A sticker or shape tile dropped on the picture (plan/elements EL11): what it is and where on
+   * the frame it was let go, for the host to place at the playhead. Only the layer compositor's
+   * monitor takes drops; absent, the monitor takes none.
+   */
+  readonly onDropElement?: (item: MonitorDropItem, point: FramePoint) => void;
 }
 
 const DEFAULT_RESOLUTION = { width: 1280, height: 720 } as const;
@@ -127,6 +156,7 @@ export function WebCodecsPreviewPlayer({
   headerControlsHost,
   soloedTrackIds = NO_SOLO,
   transcript,
+  onDropElement,
 }: WebCodecsPreviewPlayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewRef = useRef<HTMLElement>(null);
@@ -277,6 +307,55 @@ export function WebCodecsPreviewPlayer({
     if (patch) editor.applyPatch(patch);
   };
 
+  // --- A sticker or shape dropped on the picture (plan/elements EL11, 02 §3) ------------------
+  // The stage is the drop zone — the picture and the letterbox around it — so a drop in the black
+  // beside a 9:16 picture still lands, on the picture's nearest edge. Where it lands is measured
+  // against the frame's own box: the picture itself, after any zoom or pan. The legacy engine
+  // (kill switch) is not a drop target: it previews one picture layer, and a drop there could not
+  // be shown as placed.
+  const takesElementDrops = layered && onDropElement !== undefined;
+  const [elementDropOver, setElementDropOver] = useState(false);
+  // Enters minus leaves: crossing the frame, the handles or a caption fires a leave on what the
+  // pointer left, and a plain flag would flicker the ring off while it is still over the monitor.
+  const elementDropDepth = useRef(0);
+  // Only the types are readable before the drop; the tile names its kind among them.
+  const carriesDroppable = (event: React.DragEvent<HTMLDivElement>): boolean =>
+    dragCarriesElementKind(event.dataTransfer.types, MONITOR_DROP_KINDS);
+  const onStageDragEnter = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (!carriesDroppable(event)) return;
+    event.preventDefault();
+    elementDropDepth.current += 1;
+    setElementDropOver(true);
+  };
+  const onStageDragOver = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (!carriesDroppable(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setElementDropOver(true);
+  };
+  const onStageDragLeave = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (!carriesDroppable(event)) return;
+    elementDropDepth.current = Math.max(0, elementDropDepth.current - 1);
+    if (elementDropDepth.current === 0) setElementDropOver(false);
+  };
+  const onStageDrop = (event: React.DragEvent<HTMLDivElement>): void => {
+    elementDropDepth.current = 0;
+    setElementDropOver(false);
+    const item = decodeElementDrag(event.dataTransfer.getData(ELEMENT_DND_TYPE));
+    const frame = frameRef.current;
+    if (item === null || item.kind === 'stock' || onDropElement === undefined || frame === null) {
+      return;
+    }
+    event.preventDefault();
+    const point = clientPointToFrame(
+      { x: event.clientX, y: event.clientY },
+      frame.getBoundingClientRect(),
+    );
+    if (point === null) return;
+    log.action('element dropped on the monitor', { kind: item.kind, x: point.x, y: point.y });
+    onDropElement(item, point);
+  };
+
   const edl: EngineSegment[] = useMemo(
     () =>
       segments.map((seg): EngineSegment => {
@@ -393,6 +472,32 @@ export function WebCodecsPreviewPlayer({
 
   const commitTextParams = (clipId: string, params: Partial<TextOverlayParams>): void => {
     const patch = setTextParamsPatch(editor.state.timeline, clipId, params);
+    if (patch) editor.applyPatch(patch);
+  };
+
+  // Shapes at the playhead (plan/elements EL4a), back to front so the front one's hit target is
+  // on top. The engine draws them into the canvas; here they only need selecting and handles.
+  const activeShapes = useMemo(() => {
+    const at = editor.state.playhead;
+    return [...editor.state.timeline.tracks]
+      .reverse()
+      .filter((track) => track.hidden !== true)
+      .flatMap((track) =>
+        track.clips.filter(
+          (clip) => clip.start <= at && at < clip.end && shapeClipParams(clip) !== null,
+        ),
+      );
+  }, [editor.state.timeline, editor.state.playhead]);
+  const selectedShape =
+    [...activeShapes].reverse().find((clip) => editor.state.selectedIds.includes(clip.id)) ?? null;
+  const commitShapeParams = (clipId: string, changes: Record<string, number>): void => {
+    const segment = 'x1' in changes || 'x2' in changes;
+    const patch = setShapeParamsPatch(
+      editor.state.timeline,
+      clipId,
+      changes,
+      segment ? 'ends' : 'box',
+    );
     if (patch) editor.applyPatch(patch);
   };
 
@@ -876,9 +981,20 @@ export function WebCodecsPreviewPlayer({
           monitorVolume={monitorGain}
         />
       )}
-      <div className="preview-stage" ref={setStageHost}>
+      <div
+        className="preview-stage"
+        ref={setStageHost}
+        {...(takesElementDrops
+          ? {
+              onDragEnter: onStageDragEnter,
+              onDragOver: onStageDragOver,
+              onDragLeave: onStageDragLeave,
+              onDrop: onStageDrop,
+            }
+          : {})}
+      >
         <div
-          className="preview-frame"
+          className={`preview-frame${elementDropOver ? ' is-element-drop' : ''}`}
           ref={frameRef}
           style={{
             ['--aspect' as string]: String(aspect),
@@ -997,6 +1113,80 @@ export function WebCodecsPreviewPlayer({
               to the background picture, while a double-click selects the topmost
               object under the pointer. Keyboard activation selects the object
               directly because there is no keyboard equivalent of double-click. */}
+          {/* Shapes: a transparent target per shape at the playhead (double-click or Enter
+              selects it, like a text object), and the selected one's handles. */}
+          <div className="preview-shapes" aria-label="preview shapes">
+            {activeShapes.map((clip) => {
+              const params = shapeClipParams(clip)!;
+              const local = editor.state.playhead - clip.start;
+              const value = (property: string, fallback: number): number =>
+                evaluateKeyframes(clip.keyframes, property, local) ?? fallback;
+              const [x, y, scale, rotation] = [
+                value('x', 0),
+                value('y', 0),
+                value('scale', 1),
+                value('rotation', 0),
+              ];
+              // By what it is, as the catalogue names it: a clip id means nothing to a listener.
+              const shapeName =
+                (typeof params.shape === 'string'
+                  ? shapeDescriptor(params.shape)?.name
+                  : undefined) ?? 'shape';
+              if (selectedShape?.id === clip.id) {
+                return (
+                  <PreviewShapeEditor
+                    key={clip.id}
+                    clipId={clip.id}
+                    name={shapeName}
+                    params={params}
+                    resolution={resolution}
+                    transform={{ x, y, scale, rotation }}
+                    onCommit={(changes) => commitShapeParams(clip.id, changes)}
+                  />
+                );
+              }
+              const pivot = shapePivot(params);
+              const hit = shapeHitRect(params, resolution.width / resolution.height);
+              return (
+                <div
+                  key={clip.id}
+                  className="preview-shape-editor"
+                  style={{
+                    transformOrigin: `${pivot.x}% ${pivot.y}%`,
+                    transform:
+                      `translate(${(x / resolution.width) * 100}%, ` +
+                      `${(y / resolution.height) * 100}%) rotate(${-rotation}deg) scale(${scale})`,
+                  }}
+                >
+                  <span
+                    className="preview-shape-hit"
+                    style={{
+                      left: `${hit.left}%`,
+                      top: `${hit.top}%`,
+                      width: `${hit.width}%`,
+                      height: `${hit.height}%`,
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Select ${shapeName}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      editor.select(shownPicture?.id ?? null);
+                    }}
+                    onDoubleClick={(event) => {
+                      event.stopPropagation();
+                      editor.select(clip.id);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      event.preventDefault();
+                      editor.select(clip.id);
+                    }}
+                  />
+                </div>
+              );
+            })}
+          </div>
           <div className="preview-overlays" aria-label="preview objects">
             {activeOverlays.map((overlay) =>
               selectedOverlay?.id === overlay.id ? (

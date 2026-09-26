@@ -18,11 +18,9 @@
  * So {@link describeTransitionPlan} names **every** cut left hard and why, and that
  * sentence is the tool's result. It is not decoration.
  */
-import {
-  layerTransitionEligibility,
-  listCutawayEdges,
-  listEditBoundaries,
-} from '@framepilot/editor-core';
+import { listCutawayEdges, listEditBoundaries } from '@framepilot/editor-core';
+import { getTransition } from '@framepilot/timeline-schema/transition-catalog';
+import { TRANSITION_EXIT_BY_MASK } from '@framepilot/timeline-schema/transition-params';
 import type { EditBoundary, MeasuredCut, TransitionChoice } from '@framepilot/editor-core';
 import { TRANSITION_REASONS, chooseTransition } from '@framepilot/editor-core';
 import type { TransitionReason } from '@framepilot/editor-core';
@@ -271,8 +269,14 @@ export interface CutawayTransitionDecision {
   readonly existingKind?: string;
 }
 
-/** The exit a cutaway takes when the reason's kind only animates the incoming side. */
+/**
+ * The exit a cutaway takes when the reason's kind would leave by moving. Any kind can exit
+ * (plan/elements EL7: a slide or a zoom plays its entrance backwards), but a full-frame shot
+ * sliding or shrinking back off the speaker reads as a rewind, so b-roll leaves on a dissolve
+ * or a wipe; moving exits are for graphics.
+ */
 const CUTAWAY_EXIT_FALLBACK = 'cross-dissolve';
+const EXITS_BY_MASK: ReadonlySet<string> = new Set(TRANSITION_EXIT_BY_MASK);
 /** How long that fallback exit is at most: a quick dissolve back to the speaker. */
 const CUTAWAY_EXIT_SECONDS = 0.25;
 
@@ -282,9 +286,9 @@ const CUTAWAY_EXIT_SECONDS = 0.25;
  * `'auto'` keeps them as hard cuts: an insert over continuous narration that cuts in and
  * out on the word is the talking-head convention, and a pass must be allowed to decide
  * that. A named reason treats every edge in scope: the entrance takes what the policy
- * chooses for that reason; the exit takes the same kind when it can leave (a dissolve or a
- * wipe), otherwise a short cross-dissolve back to the picture beneath — a slide or zoom as
- * an exit would make the insert vanish at once (`layerTransitionEligibility`).
+ * chooses for that reason; the exit takes the same kind when it closes as a mask (a dissolve
+ * or a wipe), otherwise a short cross-dissolve back to the picture beneath — a full-frame
+ * shot sliding or shrinking back off the speaker reads as a rewind (`CUTAWAY_EXIT_FALLBACK`).
  */
 export function planCutawayTransitions(
   ctx: ToolContext,
@@ -318,19 +322,15 @@ export function planCutawayTransitions(
       { jumpCut: false, isFirstCut: false, index },
       pacingOf(slice, edge.trackId),
     );
-    if (choice !== null && edge.edge === 'out') {
-      const exit = layerTransitionEligibility(ctx.project.timeline, {
-        clipId: edge.clipId,
-        edge: 'out',
-        kind: choice.kind,
-        durationSeconds: choice.durationSeconds,
-      });
-      if (!exit.ok && exit.reason === 'kind_cannot_exit') {
-        choice = {
-          kind: CUTAWAY_EXIT_FALLBACK,
-          durationSeconds: Math.min(choice.durationSeconds, CUTAWAY_EXIT_SECONDS),
-        };
-      }
+    if (
+      choice !== null &&
+      edge.edge === 'out' &&
+      !EXITS_BY_MASK.has(getTransition(choice.kind)?.renderKind ?? '')
+    ) {
+      choice = {
+        kind: CUTAWAY_EXIT_FALLBACK,
+        durationSeconds: Math.min(choice.durationSeconds, CUTAWAY_EXIT_SECONDS),
+      };
     }
     if (choice !== null) {
       choice = {

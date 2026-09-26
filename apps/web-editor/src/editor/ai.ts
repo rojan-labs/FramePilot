@@ -524,8 +524,8 @@ export class BrowserAiSession implements AiSession {
   private async readShotLedger(input: AiSessionInput): Promise<LedgerSnapshot | undefined> {
     const baseUrl = configuredEngineBaseUrl();
     if (!baseUrl) return undefined;
-    // Bin ids only, like the desktop's: a clip may carry a pseudo-asset (`__caption__`,
-    // `__text__`) that resolves to no rows and is cached as an empty entry.
+    // Bin ids only, like the desktop's: a clip may carry a synthetic asset id (a caption, a
+    // title) that resolves to no rows and is cached as an empty entry.
     const inBin = new Set(input.project.assets.map((asset) => asset.id));
     const assetIds = [
       ...new Set(

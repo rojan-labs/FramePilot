@@ -247,10 +247,9 @@ describe('agent mode', () => {
       run.steps.some((s) => /already in place|already done, and doing it again/.test(s.note)),
     ).toBe(true);
     expect(run.log.length).toBeGreaterThan(0);
-    // 24 since `cutaway_count` and `tracker_motion` joined the battery. `critic.test.ts` is
-    // what pins the set itself, by id and in order; this line only asserts the run carries a
-    // full report.
-    expect(run.critique.checks.length).toBe(26);
+    // 32 since the five element checks joined the battery. `critic.test.ts` is what pins the
+    // set itself, by id and in order; this line only asserts the run carries a full report.
+    expect(run.critique.checks.length).toBe(32);
   });
 
   it('interleaves asset management and timeline editing in one project-scoped run', async () => {
@@ -1483,6 +1482,27 @@ describe('callNoveltyKey (reconnaissance vs the analysis spin)', () => {
     );
   });
 
+  it('keys a sticker placement on where it goes, not just which sticker', () => {
+    // add_sticker is analysis-KIND (a host tool) but it places something: the same fire
+    // emoji at two moments is two edits, not one question asked twice. Dropping `start` as a
+    // tuning argument made the second placement score as learning nothing (plan/elements 12 F).
+    const at = (start: number): string =>
+      callNoveltyKey(c('add_sticker', { elementId: 'fire', start }));
+    expect(at(2)).not.toBe(at(8));
+    expect(at(2)).toBe(at(2));
+  });
+
+  it('keys an element search on its query and kind', () => {
+    const search = (args: Record<string, unknown>): string =>
+      callNoveltyKey(c('search_elements', args));
+    expect(search({ query: 'fire', kind: 'sticker' })).not.toBe(
+      search({ query: 'heart', kind: 'sticker' }),
+    );
+    expect(search({ query: 'arrow', kind: 'shape' })).not.toBe(
+      search({ query: 'arrow', kind: 'sticker' }),
+    );
+  });
+
   it('keys non-read, non-analysis calls on their full arguments', () => {
     // For load_skill, a changed argument really is a different question.
     expect(callNoveltyKey(c('load_skill', { name: 'beat-synced-editing' }))).not.toBe(
@@ -1936,6 +1956,58 @@ describe('summarizeReadResult carries a verification report the run can act on',
   it('hands the subject reading through whole — the band list and the title answer', () => {
     const reading = 'Subject on talk_1…\n- top of the head at 2%\n- title at size 11%';
     expect(summarizeReadResult('measure_subject', { clipId: 'talk_1', reading })).toBe(reading);
+  });
+
+  it('lists every shape search_elements found with the id, knobs and styles add_shape takes', () => {
+    const note = summarizeReadResult('search_elements', {
+      query: 'star',
+      kind: 'shape',
+      returned: 2,
+      total: 9,
+      results: [
+        {
+          elementId: 'star-5',
+          name: 'Star',
+          category: 'stars',
+          frame: 'box',
+          knobs: [
+            { name: 'points', min: 3, max: 24 },
+            { name: 'innerRadius', min: 10, max: 95 },
+          ],
+          labelled: false,
+          styles: [{ id: 'star-5/white' }, { id: 'star-5/outline' }],
+        },
+        {
+          elementId: 'numbered-circle',
+          name: 'Numbered circle',
+          category: 'numbers',
+          frame: 'box',
+          knobs: [],
+          labelled: true,
+          styles: [{ id: 'numbered-circle/red-1' }],
+        },
+      ],
+    });
+    expect(note).toBe(
+      [
+        '2 of 9 shapes',
+        '- star-5 "Star" (stars, box; knobs points 3–24, innerRadius 10–95) styles: star-5/white, star-5/outline',
+        '- numbered-circle "Numbered circle" (numbers, box; takes a label) styles: numbered-circle/red-1',
+      ].join('\n'),
+    );
+    expect(
+      summarizeReadResult('search_elements', { query: 'zzz', results: [], total: 0 }),
+    ).toContain('nothing matches "zzz"');
+    expect(
+      summarizeReadResult('search_elements', {
+        query: 'fire',
+        returned: 1,
+        total: 1,
+        results: [
+          { elementId: 'fire', kind: 'sticker', glyph: '🔥', name: 'Fire', category: 'reactions' },
+        ],
+      }),
+    ).toBe('1 of 1 elements\n- fire 🔥 "Fire" (sticker, reactions)');
   });
 
   it('lists every effect id, grouped, because the ids ARE the deliverable', () => {
@@ -2884,7 +2956,7 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
 describe('review mode', () => {
   it('returns a deterministic critic report + readable text', async () => {
     const review = await new Orchestrator(new MockProvider()).review(input);
-    expect(review.report.checks.length).toBe(26);
+    expect(review.report.checks.length).toBe(32);
     expect(review.text).toContain(review.report.summary);
     expect(review.text).toMatch(/\[(PASS|WARN|FAIL|SKIPPED)\]/);
   });

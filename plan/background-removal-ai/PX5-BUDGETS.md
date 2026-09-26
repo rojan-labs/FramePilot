@@ -64,7 +64,10 @@ committed):
 - the timeline and its A/B variants. `scale` is the row. Every other variant is `scale-plain`
   (no masks) plus exactly one feature, so its difference from `scale-plain` is that feature:
   `scale-path` / `scale-path-full` (animated feathered 200-vertex path), `scale-key` (key mask
-  with the whole finesse chain), `scale-key-nofinesse`.
+  with the whole finesse chain), `scale-key-nofinesse`, and `scale-elements` (20 sticker layers
+  in a grid under the title, five outlined and five turning: the elements budget of
+  `plan/elements/02-UX-SPEC.md` §9, EL6b). The stickers are the curated files every build ships,
+  copied beside the sources.
 
 ## The instrument (PX5.1)
 

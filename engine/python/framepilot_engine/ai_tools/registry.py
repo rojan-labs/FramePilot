@@ -32,12 +32,17 @@ from __future__ import annotations
 
 import logging
 import re
+from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
 from framepilot_engine.ai_tools.tool_descriptions_generated import TOOL_DESCRIPTIONS
 from framepilot_engine.render.caption_templates import load_catalog
+from framepilot_engine.render.shape_catalog import (
+    featured_shape_preset_ids,
+    resolve_shape_preset_id,
+)
 from framepilot_engine.timeline.models import AudioRole, BlendMode, CaptionStyle, CropRect
 
 _log = logging.getLogger(__name__)
@@ -247,6 +252,139 @@ class AddTextLayerArgs(BaseModel):
     box_width_percent: float | None = Field(default=None, alias="boxWidthPercent", gt=0.0, le=100.0)
     x_percent: float | None = Field(default=None, alias="xPercent", ge=0.0, le=100.0)
     y_percent: float | None = Field(default=None, alias="yPercent", ge=0.0, le=100.0)
+
+
+class ShapeBoxArg(BaseModel):
+    """A box shape's centre (percent of each frame axis) and size (percent of frame height)."""
+
+    model_config = _STRICT
+    x: float = Field(ge=0.0, le=100.0)
+    y: float = Field(ge=0.0, le=100.0)
+    width: float = Field(ge=0.1, le=400.0)
+    height: float = Field(ge=0.1, le=400.0)
+
+
+class ShapeEndsArg(BaseModel):
+    """A line or arrow's ends, in percent of each frame axis (off-frame allowed)."""
+
+    model_config = _STRICT
+    x1: float = Field(ge=-50.0, le=150.0)
+    y1: float = Field(ge=-50.0, le=150.0)
+    x2: float = Field(ge=-50.0, le=150.0)
+    y2: float = Field(ge=-50.0, le=150.0)
+
+
+class _ShapeStyleArgs(BaseModel):
+    """The style keys ``add_shape`` and ``set_shape_style`` share (TS ``styleArgs``)."""
+
+    model_config = _STRICT
+    box: ShapeBoxArg | None = None
+    ends: ShapeEndsArg | None = None
+    fill: str | None = None
+    stroke: str | None = None
+    stroke_width: float | None = Field(default=None, alias="strokeWidth", ge=0.05, le=10.0)
+    stroke_style: Literal["solid", "dashed", "dotted"] | None = Field(
+        default=None, alias="strokeStyle"
+    )
+    start_cap: Literal["none", "arrow", "dot", "bar"] | None = Field(default=None, alias="startCap")
+    end_cap: Literal["none", "arrow", "dot", "bar"] | None = Field(default=None, alias="endCap")
+    corner_radius: float | None = Field(default=None, alias="cornerRadius", ge=0.0, le=50.0)
+    head_size: float | None = Field(default=None, alias="headSize", ge=2.0, le=8.0)
+    label: str | None = None
+    label_color: str | None = Field(default=None, alias="labelColor")
+    knobs: dict[str, float] | None = None
+
+
+class AddShapeArgs(_ShapeStyleArgs):
+    """Place a shape (plan/elements EL4a, EL5); mirrors the TS ``add_shape`` schema."""
+
+    shape: str = Field(min_length=1)
+    start: float = Field(ge=0.0)
+    end: float = Field(ge=0.0)
+    rotation: float | None = Field(default=None, ge=-360.0, le=360.0)
+    track_id: str | None = Field(default=None, alias="trackId", min_length=1)
+
+    @field_validator("shape")
+    @classmethod
+    def _known_shape(cls, value: str) -> str:
+        # No echo of the id: the repeated-failure guard keys on this text (TS twin).
+        if resolve_shape_preset_id(value) is None:
+            raise ValueError(
+                "That shape is not in the catalogue. Find one with search_elements, or use a "
+                f"staple: {', '.join(featured_shape_preset_ids())}."
+            )
+        return value
+
+
+class ElementKind(StrEnum):
+    """What search_elements looks for (plan/elements EL5.6, EL6a)."""
+
+    SHAPE = "shape"
+    STICKER = "sticker"
+
+
+class SearchElementsArgs(BaseModel):
+    """Search the shape catalogue and icons (plan/elements EL5.6); TS ``search_elements``."""
+
+    model_config = _STRICT
+    query: str
+    kind: ElementKind | None = None
+    category: (
+        Literal[
+            "basic",
+            "arrows",
+            "lines",
+            "callouts",
+            "highlights",
+            "stars",
+            "frames",
+            "symbols",
+            "numbers",
+            "icons",
+        ]
+        | None
+    ) = None
+    collection: str | None = Field(default=None, min_length=1)
+    limit: int | None = Field(default=None, ge=1, le=30)
+
+
+class SetShapeStyleArgs(_ShapeStyleArgs):
+    """Restyle one shape; mirrors the TS ``set_shape_style`` schema."""
+
+    clip_id: str = Field(alias="clipId", min_length=1)
+
+
+AnimationKindName = Literal[
+    "fade", "pop", "slide-left", "slide-right", "slide-up", "slide-down", "wipe", "blur"
+]
+LoopPresetName = Literal["pulse", "float", "wiggle", "bounce", "spin", "blink"]
+
+
+class AnimationEdgeArg(BaseModel):
+    """One end of an element's animation (TS ``animationEdge``)."""
+
+    model_config = _STRICT
+    kind: AnimationKindName
+    seconds: float | None = Field(default=None, gt=0)
+
+
+class LoopArg(BaseModel):
+    """An element's loop (TS ``set_element_animation.loop``)."""
+
+    model_config = _STRICT
+    preset: LoopPresetName
+    period: float | None = Field(default=None, gt=0)
+    amount: float | None = None
+
+
+class SetElementAnimationArgs(BaseModel):
+    """In, Out and Loop for one element; mirrors the TS ``set_element_animation`` schema."""
+
+    model_config = _STRICT
+    clip_id: str = Field(alias="clipId", min_length=1)
+    in_: AnimationEdgeArg | None = Field(default=None, alias="in")
+    out: AnimationEdgeArg | None = None
+    loop: LoopArg | None = None
 
 
 class AddCaptionLayerArgs(BaseModel):
@@ -1501,6 +1639,33 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "shows it. For motion, follow this with punch_in on the clip it creates.",
         kind="mutate",
         input_model=AddTextLayerArgs,
+        mutating=True,
+    ),
+    "search_elements": _spec(
+        "search_elements",
+        "Find shapes for add_shape by what they look like or are for (plan/elements EL5.6).",
+        kind="read",
+        input_model=SearchElementsArgs,
+    ),
+    "add_shape": _spec(
+        "add_shape",
+        "Add a shape over the picture for a timeline range (plan/elements EL4a).",
+        kind="mutate",
+        input_model=AddShapeArgs,
+        mutating=True,
+    ),
+    "set_shape_style": _spec(
+        "set_shape_style",
+        "Restyle or move one shape added with add_shape.",
+        kind="mutate",
+        input_model=SetShapeStyleArgs,
+        mutating=True,
+    ),
+    "set_element_animation": _spec(
+        "set_element_animation",
+        "Animate one sticker, shape or title in, out and on a loop (plan/elements EL7).",
+        kind="mutate",
+        input_model=SetElementAnimationArgs,
         mutating=True,
     ),
     "add_caption_layer": _spec(

@@ -11,13 +11,28 @@
  *   FRAMEPILOT_PYTHON_API_URL=http://127.0.0.1:8799 node scripts/mission-fixture-projects.mjs
  * Requires a sidecar started with FRAMEPILOT_PROJECTS_ROOT=tests/fixtures/mission/projects.
  */
-import { existsSync, linkSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { parseProject, SCHEMA_VERSION } from '@framepilot/timeline-schema';
-import { normalizeOperationTime } from '@framepilot/editor-core';
+import { parseProject, presetShapeParams, SCHEMA_VERSION } from '@framepilot/timeline-schema';
+import {
+  applyProjectPatch,
+  buildAddShapeOps,
+  buildAddStickerOps,
+  elementArtFraction,
+  normalizeOperationTime,
+} from '@framepilot/editor-core';
 import { detectTranscriptLoop } from '../dist/critic.js';
+import { loadStickerCatalog, stickerSourceUrl } from '../dist/index.js';
 
 process.env.FRAMEPILOT_LOG_LEVEL ??= 'silent';
 
@@ -30,7 +45,13 @@ const BASE_URL = process.env.FRAMEPILOT_PYTHON_API_URL ?? 'http://127.0.0.1:8799
 const VIDEO_EXT = new Set(['.mp4', '.mov']);
 const AUDIO_EXT = new Set(['.wav', '.mp3']);
 
-/** @typedef {{ id: string, name: string, fps: number, resolution: {width:number,height:number}, media: {file: string, onTimeline?: boolean}[], transcribe?: string, overlayTrackId?: string }} Def */
+/** @typedef {{ id: string, name: string, fps: number, resolution: {width:number,height:number}, media: {file: string, onTimeline?: boolean}[], transcribe?: string, transcriptFrom?: string, overlayTrackId?: string, graphics?: Graphics }} Def */
+/** Elements already on the timeline, placed as the Shapes and Stickers tabs place them. */
+/**
+ * @typedef {{ shapes?: { preset: string, start: number, end: number, box?: { x: number, y: number, width: number, height: number } }[], stickers?: { id: string, start: number, end: number, offset?: { x: number, y: number } }[] }} Graphics
+ * `box` is add_shape's (centre in percent of the frame, size in percent of its height); `offset`
+ * is the sticker's centre in canvas pixels from the frame's.
+ */
 
 /** @type {Def[]} */
 const DEFS = [
@@ -102,6 +123,100 @@ const DEFS = [
       { file: 'broll/b3-1080p60-15s.mov' },
     ],
     transcribe: 'speech-9min-b.mp4',
+  },
+  {
+    // Elements, case 1 (plan/elements 07 section 8): a drawn screen recording whose Export
+    // button box and narration are known exactly (`tests/screen_demo_fixture.py`). The
+    // transcript is the labels' words, not whisper's: there is no speech in the file, and the
+    // case scores placement on the word, which only a known word time can measure.
+    id: 'mission-screen-demo',
+    name: 'Mission screen demo (a drawn app with an Export button)',
+    fps: 30,
+    resolution: { width: 1280, height: 720 },
+    media: [{ file: 'screen-demo-20s.mp4', onTimeline: true }],
+    transcriptFrom: 'labels/screen-demo.json',
+  },
+  {
+    id: 'mission-reaction-demo',
+    name: 'Mission reaction demo (a drawn talking head who says "this is fire")',
+    fps: 30,
+    resolution: { width: 1280, height: 720 },
+    media: [{ file: 'reaction-demo-12s.mp4', onTimeline: true }],
+    transcriptFrom: 'labels/reaction-demo.json',
+  },
+  {
+    // plan/elements 07 section 8, case 3: the two elements "make the arrow pop in and the
+    // sticker pulse" names, already on screen, so the case scores only the animation.
+    id: 'mission-animate-demo',
+    name: 'Mission animate demo (the reaction demo with an arrow and a sticker on it)',
+    fps: 30,
+    resolution: { width: 1280, height: 720 },
+    media: [{ file: 'reaction-demo-12s.mp4', onTimeline: true }],
+    transcriptFrom: 'labels/reaction-demo.json',
+    graphics: {
+      shapes: [{ preset: 'line-arrow/red', start: 2, end: 6 }],
+      stickers: [{ id: 'fire', start: 3, end: 7 }],
+    },
+  },
+  {
+    // plan/elements 07 section 8, case 4: a drawn product card whose headline and price boxes
+    // are known exactly (`tests/product_still_fixture.py`). No narration: the case is placement.
+    id: 'mission-product-still',
+    name: 'Mission product still (a drawn product card with a headline and a price)',
+    fps: 30,
+    resolution: { width: 1280, height: 720 },
+    media: [{ file: 'product-still-8s.mp4', onTimeline: true }],
+  },
+  {
+    // Case 5: the screen demo with a highlight box on each toolbar button, one after another,
+    // and an arrow the request does not name, so restyling "all the highlight boxes" has three
+    // targets and one thing to leave alone.
+    id: 'mission-restyle-demo',
+    name: 'Mission restyle demo (the screen demo with three highlight boxes and an arrow)',
+    fps: 30,
+    resolution: { width: 1280, height: 720 },
+    media: [{ file: 'screen-demo-20s.mp4', onTimeline: true }],
+    transcriptFrom: 'labels/screen-demo.json',
+    graphics: {
+      shapes: [
+        {
+          preset: 'rounded-rect/highlight',
+          start: 2,
+          end: 4,
+          box: { x: 6.5625, y: 5, width: 20, height: 6.6667 },
+        },
+        {
+          preset: 'rounded-rect/highlight',
+          start: 7,
+          end: 9,
+          box: { x: 17.1875, y: 5, width: 20, height: 6.6667 },
+        },
+        {
+          preset: 'rounded-rect/highlight',
+          start: 12,
+          end: 14,
+          box: { x: 92.5, y: 5, width: 24, height: 6.6667 },
+        },
+        { preset: 'line-arrow/red', start: 15, end: 17 },
+      ],
+    },
+  },
+  {
+    // Case 6: the reaction demo with two stickers in the empty frame beside the face and an
+    // arrow, so "remove the stickers" has two targets and one thing to leave alone.
+    id: 'mission-sticker-cleanup',
+    name: 'Mission sticker cleanup (the reaction demo with two stickers and an arrow)',
+    fps: 30,
+    resolution: { width: 1280, height: 720 },
+    media: [{ file: 'reaction-demo-12s.mp4', onTimeline: true }],
+    transcriptFrom: 'labels/reaction-demo.json',
+    graphics: {
+      shapes: [{ preset: 'line-arrow/red', start: 2, end: 6 }],
+      stickers: [
+        { id: 'fire', start: 4.5, end: 6.5, offset: { x: 360, y: -160 } },
+        { id: 'party_popper', start: 7, end: 9, offset: { x: 360, y: -160 } },
+      ],
+    },
   },
   {
     id: 'mission-photos',
@@ -219,6 +334,11 @@ async function buildProject(def) {
     }
   }
   let transcript = [];
+  if (def.transcriptFrom) {
+    const labels = JSON.parse(readFileSync(join(FIXTURES, def.transcriptFrom), 'utf8'));
+    const asset = assets.find((a) => a.kind === 'video');
+    transcript = labels.transcript.map((w) => ({ ...w, assetId: asset.id }));
+  }
   if (def.transcribe) {
     const asset = assets.find((a) => a.path.endsWith(basename(def.transcribe)));
     const draft = { id: def.id, name: def.name, version: 1, fps: def.fps, resolution: def.resolution, assets, timeline: { tracks: tracksOf(def, clips) } };
@@ -242,21 +362,85 @@ async function buildProject(def) {
       );
     }
   }
-  const project = parseProject({
-    id: def.id,
-    name: def.name,
-    version: 1,
-    fps: def.fps,
-    resolution: def.resolution,
-    assets,
-    timeline: { tracks: tracksOf(def, clips) },
-    transcript,
-    aiMemory: {},
-    history: [],
-  });
+  const project = await withGraphics(
+    def,
+    mediaDir,
+    parseProject({
+      id: def.id,
+      name: def.name,
+      version: 1,
+      fps: def.fps,
+      resolution: def.resolution,
+      assets,
+      timeline: { tracks: tracksOf(def, clips) },
+      transcript,
+      aiMemory: {},
+      history: [],
+    }),
+  );
   const out = join(ROOT, `${def.id}.fp.json`);
   writeFileSync(out, JSON.stringify({ schemaVersion: SCHEMA_VERSION, ...project }, null, 2));
   return { out, assets: assets.length, clips: clips.length, words: transcript.length, durationSeconds: cursor };
+}
+
+/**
+ * Place a def's elements with the builders the Shapes and Stickers tabs use, so the project is
+ * one the product can make: a shape on a graphics lane, and a curated sticker copied into the
+ * project's media folder with its provenance.
+ *
+ * @param {Def} def
+ * @param {string} mediaDir
+ * @param {import('@framepilot/timeline-schema').Project} project
+ */
+async function withGraphics(def, mediaDir, project) {
+  if (!def.graphics) return project;
+  const patch = (operations) => ({
+    patchId: `fixture_${def.id}_${operations.length}`,
+    createdBy: 'user',
+    reason: 'Fixture graphics',
+    operations: [...operations],
+  });
+  let next = project;
+  for (const shape of def.graphics.shapes ?? []) {
+    const params = { ...presetShapeParams(shape.preset), ...(shape.box ?? {}) };
+    const placed = buildAddShapeOps(next.timeline, params, shape.start, shape.end);
+    next = applyProjectPatch(next, patch(placed.operations));
+  }
+  const stickers = def.graphics.stickers ?? [];
+  const catalog = stickers.length === 0 ? null : await loadStickerCatalog();
+  for (const sticker of stickers) {
+    const item = catalog.byId.get(sticker.id);
+    if (!item?.file) throw new Error(`${def.id}: ${sticker.id} is not a curated sticker`);
+    const dir = join(mediaDir, 'elements', catalog.library);
+    mkdirSync(dir, { recursive: true });
+    copyFileSync(
+      join(REPO, 'apps', 'web-editor', 'public', 'elements', 'stickers', item.file),
+      join(dir, `${item.id}.webp`),
+    );
+    const asset = {
+      id: `element_${catalog.library}_${item.id}`,
+      path: `media/${def.id}/elements/${catalog.library}/${item.id}.webp`,
+      kind: 'image',
+      media: { width: item.width, height: item.height },
+      source: {
+        provider: catalog.provider,
+        remoteId: item.id,
+        license: catalog.license,
+        licenseUrl: catalog.licenseUrl,
+        attributionRequired: catalog.attributionRequired,
+        attribution: catalog.attribution,
+        creator: catalog.creator,
+        sourceUrl: stickerSourceUrl(catalog, item),
+        fetchedAt: '2026-09-26T00:00:00.000Z',
+      },
+    };
+    const placed = buildAddStickerOps(next, asset, sticker.start, sticker.end, {
+      artFraction: elementArtFraction(asset),
+      ...(sticker.offset ? { offset: sticker.offset } : {}),
+    });
+    next = applyProjectPatch(next, patch(placed.operations));
+  }
+  return parseProject(next);
 }
 
 // `--only <id>` rebuilds one project. Whisper is content-hash cached and the derived media

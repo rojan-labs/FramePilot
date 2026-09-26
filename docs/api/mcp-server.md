@@ -23,13 +23,13 @@ see the [MCP server guide](../guides/mcp-server.md); for the rationale see
 
    **The `hostUiOnly` boundary, stated in full.** It is not one rule but three, and they
    are worth separating because they fail differently and would be lifted differently.
-   Of the 13 tools currently withheld:
+   The tools withheld, by reason:
 
-   | Reason                                                                                                        | Tools                                                                                                    | Could MCP ever have these?                                                                                                                                              |
-   | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-   | **No authoritative live editor state** — no selection, playhead, source-monitor, effect, or keyframe snapshot | the five `professional_*` controllers, `measure_color`, `track_subject_automatically`, `detect_subjects` | Only with a way to carry an explicit target instead of "what the human has selected". Explicit-target registry operations are already portable and stay on the surface. |
-   | **Provider network and API keys live in the Electron main process** — the sidecar has no route for them       | `search_music`, `search_stock`, `add_music`, `add_stock`                                                 | Yes in principle: this is a wiring boundary, not a semantic one. It needs a keyed egress path outside main before it is safe, so it is deferred rather than impossible. |
-   | **No human to answer**                                                                                        | `ask_user` (ADR 0059)                                                                                    | No — the tool's whole contract is a round trip to a person looking at the editor.                                                                                       |
+   | Reason                                                                                                        | Tools                                                                                                                       | Could MCP ever have these?                                                                                                                                              |
+   | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | **No authoritative live editor state** — no selection, playhead, source-monitor, effect, or keyframe snapshot | the five `professional_*` controllers, `measure_color`, `track_subject_automatically`, `detect_subjects`                    | Only with a way to carry an explicit target instead of "what the human has selected". Explicit-target registry operations are already portable and stay on the surface. |
+   | **Provider network and API keys live in the Electron main process** — the sidecar has no route for them       | `search_music`, `search_stock`, `add_music`, `add_stock`, and `add_sticker` (the sticker library is in the desktop install) | Yes in principle: this is a wiring boundary, not a semantic one. It needs a keyed egress path outside main before it is safe, so it is deferred rather than impossible. |
+   | **No human to answer**                                                                                        | `ask_user` (ADR 0059)                                                                                                       | No — the tool's whole contract is a round trip to a person looking at the editor.                                                                                       |
 
    Treat this table as the product position, not an implementation note: an external agent
    driving FramePilot over MCP gets the full deterministic editing surface and none of the
@@ -60,16 +60,19 @@ tools edit `project.fp.json` directly and bypass validation/undo.
 ### Registry tools (summary)
 
 - **read** (`get_project_state`, `get_timeline`, `get_timeline_summary`, `get_clips`,
-  `get_clip`, `get_transcript`, `get_selected_range`, `list_assets`) → `result` is the
-  requested project data. `get_timeline_summary` / `get_clips` / `get_clip` are the
+  `get_clip`, `get_transcript`, `get_selected_range`, `list_assets`, `search_elements`) →
+  `result` is the requested project data. Over MCP, `search_elements` returns shapes only, with a
+  `note` saying stickers are placed in the desktop app (`placesStickers: false` in the tool
+  context; plan/elements EL8.5). `get_timeline_summary` / `get_clips` / `get_clip` are the
   compact, windowed reads for long-form projects; `get_transcript` accepts an optional
   `start`/`end` window. `get_project_state` returns the media bin as `assetSummary`
   (`{ total, byKind, note }`); the `assets` array is **not** included — call `list_assets`
   for asset ids.
 - **mutate** (`trim_clip`, `split_clip`, `delete_range`, `ripple_delete`,
   `delete_clip`, `delete_clips`, `move_clip`, `add_clip`, `add_clips`, `add_track`, `remove_track`,
-  `move_track`, `add_text_layer`, `add_caption_layer`, `add_keyframes`,
-  `apply_color_grade`, `adjust_audio`, `add_transition`, `track_object`)
+  `move_track`, `add_text_layer`, `add_shape`, `set_shape_style`, `set_element_animation`,
+  `add_caption_layer`, `add_keyframes`, `apply_color_grade`, `adjust_audio`, `add_transition`,
+  `track_object`)
   → `result` is `{ applied, patch, validation, diff }`. When `applied` is `false`
   the patch failed validation and the timeline is unchanged (`validation.issues`
   explains why). See [patch-format.md](patch-format.md) and [ai-tools.md](ai-tools.md)

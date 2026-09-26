@@ -212,6 +212,20 @@ describe('search', () => {
     expect(provider.calls).toBe(1);
   });
 
+  it('spends one request per category and shape: a second look is served from cache', async () => {
+    // Elements → Photos and Videos (plan/elements EL9): a category chip is a curated query and the
+    // orientation filter is Pexels' own parameter, so both are part of the cache key. Coming back
+    // to a chip in the same shape costs nothing; the same chip in another shape is a new search.
+    const provider = stubProvider(page([VIDEO_ITEM]));
+    const service = makeService({ provider });
+    await service.search({ text: 'nature', kind: 'photo', orientation: 'portrait' });
+    await service.search({ text: 'city', kind: 'photo', orientation: 'portrait' });
+    await service.search({ text: 'nature', kind: 'photo', orientation: 'portrait' });
+    expect(provider.calls).toBe(2);
+    await service.search({ text: 'nature', kind: 'photo', orientation: 'landscape' });
+    expect(provider.calls).toBe(3);
+  });
+
   it('regression: parallel agent searches do not cancel each other', async () => {
     // The agent batches concurrency-safe calls four at a time, so four DELIBERATE
     // queries arrive together. Under the panel's supersede rule each aborted the one
@@ -464,6 +478,32 @@ describe('download', () => {
       'https://player.vimeo.com/external/hd.mp4',
       expect.anything(),
     );
+  });
+
+  it('refuses a download named as the other kind, rather than fetching the wrong media', async () => {
+    // A Pexels photo and a video can share a numeric id, and this process knows an id by the last
+    // search that returned it. The panel says which kind its tile is; a mismatch is an item this
+    // process does not know, not a licence to fetch whatever holds the id now.
+    const fetchImpl = vi.fn().mockImplementation(() => bytesResponse(body));
+    const service = await seeded(fetchImpl);
+    const result = await service.download({
+      projectId: PROJECT_ID,
+      remoteId: VIDEO_ITEM.remoteId,
+      kind: 'photo',
+      operationId: 'op1',
+      targetHeight: 1080,
+    });
+    expect(result).toEqual({ ok: false, error: 'provider_unavailable', detail: 'unknown item' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    // Named as its own kind, it downloads as before.
+    const matching = await service.download({
+      projectId: PROJECT_ID,
+      remoteId: VIDEO_ITEM.remoteId,
+      kind: 'video',
+      operationId: 'op2',
+      targetHeight: 1080,
+    });
+    expect(matching.ok).toBe(true);
   });
 
   it('honours an explicitly chosen rendition', async () => {

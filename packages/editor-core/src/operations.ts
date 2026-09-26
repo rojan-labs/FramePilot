@@ -47,6 +47,13 @@ import {
 import { frameToSeconds, secondsToFrame } from './frame-grid.js';
 import { evaluateKeyframes } from './keyframes.js';
 import {
+  CAPTION_ASSET_ID,
+  SHAPE_ASSET_ID,
+  TEXT_OVERLAY_ASSET_ID,
+  hasTimeBasedSource,
+  syntheticClipKind,
+} from './synthetic-assets.js';
+import {
   DEFAULT_TRANSITION_ALIGNMENT,
   TRANSITION_EFFECT_TYPE,
   TRANSITION_OUT_EFFECT_TYPE,
@@ -62,6 +69,8 @@ import {
   CropRectSchema,
   EDGE_STYLE_EFFECT_TYPE,
   EffectLayerSchema,
+  SHAPE_EFFECT_TYPE,
+  shapeParamsProblem,
   SpeedPointSchema,
   clampEdgeStyleParams,
   edgeStyleParamsIssue,
@@ -204,6 +213,19 @@ export interface AddTextOverlayOp {
   readonly text: string;
   readonly start: Seconds;
   readonly end: Seconds;
+  readonly clipId?: string;
+}
+
+/**
+ * Add a shape (schema v25, plan/elements EL4a): a synthetic clip carrying one `shape` effect
+ * whose params are a complete `ShapeParams`. Refused before apply when the params cannot be drawn.
+ */
+export interface AddShapeOp {
+  readonly type: 'add_shape';
+  readonly trackId: string;
+  readonly start: Seconds;
+  readonly end: Seconds;
+  readonly params: Readonly<Record<string, unknown>>;
   readonly clipId?: string;
 }
 
@@ -423,7 +445,7 @@ export interface TrackObjectOp {
  * null` clears any existing style back to unstyled; a value replaces it wholesale
  * (not merged) — mirrors `set_track_flags`'s "whole value, single axis" shape, so
  * the inverse is the same-shape op carrying the clip's prior style. Meaningful on
- * caption clips (`assetId === CAPTION_ASSET_ID`) but not restricted to them at the
+ * caption clips (`syntheticClipKind(assetId) === 'caption'`) but not restricted to them at the
  * op level, since the field lives on `Clip` generically (see schema v5 doc note).
  */
 export interface SetCaptionStyleOp {
@@ -443,7 +465,7 @@ export interface SetCaptionStyleOp {
  * merged), mirroring `set_caption_style`/`set_clip_crop`'s "whole value, single
  * axis" shape, so the inverse is the same-shape op carrying the prior cue.
  *
- * Meaningful on caption clips (`assetId === CAPTION_ASSET_ID`) but, like
+ * Meaningful on caption clips (`syntheticClipKind(assetId) === 'caption'`) but, like
  * `captionStyle`, not restricted to them at the op level since the field lives on
  * `Clip` generically.
  */
@@ -772,6 +794,7 @@ export type Operation =
   | RippleDeleteOp
   | AddClipOp
   | AddTextOverlayOp
+  | AddShapeOp
   | AddCaptionLayerOp
   | AddKeyframesOp
   | RemoveKeyframesOp
@@ -810,29 +833,6 @@ export type OperationType = Operation['type'];
  * (`blur` is the clip blur of `clip-blur.ts`, which a mask can limit like a grade).
  */
 export const SUPPORTED_COLOR_GRADE_EFFECTS = ['color_grade', 'lut', 'transform', 'blur'] as const;
-
-/** Synthetic asset ids used for clips that have no media source. */
-export const TEXT_OVERLAY_ASSET_ID = '__text__';
-export const CAPTION_ASSET_ID = '__caption__';
-
-/**
- * Does this clip draw from a real, time-based source?
- *
- * A video or an audio file has a timeline of its own, and a clip on it is a
- * WINDOW onto that timeline: `sourceStart` says where the window begins, and the
- * window cannot be dragged before the file starts. That constraint is what stops a
- * left-edge trim from asking for footage that does not exist.
- *
- * Text overlays and caption cues have no such source. They are generated at render
- * time from their own parameters, so every instant of them is as available as every
- * other, and `sourceStart: 0` on one of them means "nothing to say" rather than
- * "the file starts here". Treating that 0 as a real in-point is what made a text
- * overlay extendable forwards and immovable backwards: its earliest possible start
- * computed to exactly where it already was.
- */
-export function hasTimeBasedSource(clip: Clip): boolean {
-  return clip.assetId !== TEXT_OVERLAY_ASSET_ID && clip.assetId !== CAPTION_ASSET_ID;
-}
 
 /** Runtime type guard for a given operation kind. */
 export const isOperationOfType = <T extends OperationType>(
@@ -932,6 +932,17 @@ export const textOverlayClipId = (trackId: string, start: number): string =>
 
 /** The id of the `text` effect on a text overlay clip. */
 export const textEffectId = (clipId: string): string => `${clipId}__text`;
+
+/** The id `add_clip` gives a clip of `assetId` it creates on `trackId` at `start` without one. */
+export const addClipId = (trackId: string, assetId: string, start: number): string =>
+  deriveClipId('clip', trackId, assetId, start);
+
+/** The id `add_shape` gives a shape it creates on `trackId` at `start` without an explicit id. */
+export const shapeClipId = (trackId: string, start: number): string =>
+  deriveClipId('shape', trackId, start);
+
+/** The id of the `shape` effect on a shape clip. */
+export const shapeEffectId = (clipId: string): string => `${clipId}__shape`;
 
 /**
  * The id `split_clip` will give the right-hand piece when it splits `clipId` at
@@ -1132,6 +1143,8 @@ function applyOperationInner(
       return applyAddClip(timeline, op);
     case 'add_text_overlay':
       return applyAddTextOverlay(timeline, op);
+    case 'add_shape':
+      return applyAddShape(timeline, op);
     case 'add_caption_layer':
       return applyAddCaptionLayer(timeline, op);
     case 'add_keyframes':
@@ -2166,6 +2179,27 @@ function applyAddTextOverlay(timeline: Timeline, op: AddTextOverlayOp): Timeline
   return insertClip(timeline, op.trackId, clip);
 }
 
+function applyAddShape(timeline: Timeline, op: AddShapeOp): Timeline {
+  assertPositiveRange(op.start, op.end, 'add_shape');
+  const problem = shapeParamsProblem(op.params);
+  if (problem !== null) throw new OperationError('invalid_style', problem);
+  const id = op.clipId ?? shapeClipId(op.trackId, op.start);
+  const clip: Clip = {
+    id,
+    assetId: SHAPE_ASSET_ID,
+    trackId: op.trackId,
+    start: op.start,
+    end: op.end,
+    sourceStart: 0,
+    sourceEnd: op.end - op.start,
+    effects: [
+      { id: shapeEffectId(id), type: SHAPE_EFFECT_TYPE, params: clone(op.params), keyframes: [] },
+    ],
+    keyframes: [],
+  };
+  return insertClip(timeline, op.trackId, clip);
+}
+
 /**
  * Refuse a caption cue on a track that is not a caption track.
  *
@@ -2179,7 +2213,7 @@ function applyAddTextOverlay(timeline: Timeline, op: AddTextOverlayOp): Timeline
  * still opens.
  */
 function assertCaptionTrack(assetId: string, track: Track, operation: string): void {
-  if (assetId !== CAPTION_ASSET_ID || track.type === 'caption') return;
+  if (syntheticClipKind(assetId) !== 'caption' || track.type === 'caption') return;
   throw new OperationError(
     'invalid_track',
     `${operation}: '${track.id}' is a ${track.type} track, and a caption cue only renders on a ` +
@@ -2302,6 +2336,12 @@ function applySetEffectParams(timeline: Timeline, op: SetEffectParamsOp): Timeli
   for (const [key, value] of Object.entries(op.params)) {
     if (value === undefined) delete mergedParams[key];
     else mergedParams[key] = value;
+  }
+  // A shape's params are re-validated whole: a merge that leaves an arrow without a stroke, or a
+  // box with an arrow cap, would otherwise land and draw nothing (ADR 0144).
+  if (existing.type === SHAPE_EFFECT_TYPE) {
+    const problem = shapeParamsProblem(mergedParams);
+    if (problem !== null) throw new OperationError('invalid_style', problem);
   }
   const effects = loc.clip.effects.slice();
   effects[index] = { ...clone(existing), params: mergedParams };
@@ -3415,6 +3455,7 @@ export function invertOperation(
     case 'ripple_delete':
     case 'add_clip':
     case 'add_text_overlay':
+    case 'add_shape':
     case 'add_caption_layer':
     case 'restore_clips':
       return [restoreFor(findTrack(timelineBefore, op.trackId).track)];

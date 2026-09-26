@@ -32,6 +32,7 @@ import {
   undoProject,
 } from './history.js';
 import { validatePatch } from './validator.js';
+import { SHAPE_ASSET_ID } from './synthetic-assets.js';
 
 const asset = (id: string, folderId?: string): Asset => ({
   id,
@@ -750,6 +751,17 @@ describe('validatePatch — project ops', () => {
       ctx(p),
     );
     expect(dup.issues.some((i) => i.code === 'duplicate_asset')).toBe(true);
+
+    // A bin asset may never take a title's, caption's or shape's sentinel id (schema v25).
+    const reserved = validatePatch(
+      p.timeline,
+      patchOf([{ type: 'add_asset', asset: asset(SHAPE_ASSET_ID) }]),
+      ctx(p),
+    );
+    expect(reserved.issues.some((i) => i.code === 'duplicate_asset')).toBe(true);
+    expect(() =>
+      applyProjectOperation(p, { type: 'add_asset', asset: asset(SHAPE_ASSET_ID) }),
+    ).toThrow(/reserved for titles, captions and shapes/);
 
     const missing = validatePatch(
       p.timeline,

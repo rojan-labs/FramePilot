@@ -18,6 +18,7 @@
  * Closes on action, outside click, or Escape.
  */
 import { useEffect, useRef, type JSX } from 'react';
+import { isElementAsset, syntheticClipKind } from '@framepilot/editor-core';
 import type { UseEditor } from '../editor/useEditor.js';
 import {
   addTransitionPatch,
@@ -41,7 +42,11 @@ import {
   Search,
   Sparkles,
   Trash2,
+  Shapes,
+  Smile,
+  Orbit,
 } from './icons.js';
+import { stickerName } from './inspector/sections/StickerSection.js';
 import { MenuShortcut } from './Menu.js';
 
 /** Where the menu opened, and on which clip. */
@@ -79,6 +84,16 @@ export interface ClipContextMenuProps {
    * is no bin (the AI review player, tests that render the timeline alone).
    */
   readonly onRevealInBin?: (assetId: string) => void;
+  /**
+   * Open Elements → Stickers to swap this sticker for another (plan/elements EL6a.5), keeping its
+   * timing and transform. Absent where there is no Stickers panel (the browser build).
+   */
+  readonly onReplaceSticker?: (clipId: string, name: string) => void;
+  /**
+   * Bring the Inspector's Animation section up for this clip (plan/elements EL7): offered on a
+   * graphic — a sticker, shape, title or picture on a graphics lane.
+   */
+  readonly onAnimate?: (clipId: string) => void;
 }
 
 export function ClipContextMenu({
@@ -88,6 +103,8 @@ export function ClipContextMenu({
   onAskAi,
   onAddTransition,
   onRevealInBin,
+  onReplaceSticker,
+  onAnimate,
 }: ClipContextMenuProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const { timeline, playhead } = editor.state;
@@ -132,6 +149,17 @@ export function ClipContextMenu({
   const playheadInside = clip !== undefined && playhead > clip.start && playhead < clip.end;
   const canTransition = addTransitionPatch(timeline, target.clipId, 'crossfade') !== null;
   const speed = clip?.speed ?? 1;
+  // A shape draws from its params alone (ADR 0190): it is edited in the Inspector and on the
+  // monitor, and speed does nothing to it, so the menu offers the one and not the other.
+  const isShape = clip !== undefined && syntheticClipKind(clip.assetId) === 'shape';
+  // A sticker is a still, so speed does nothing to it either; what it offers is a swap.
+  const stickerAsset =
+    clip === undefined ? undefined : editor.state.assets.find((a) => a.id === clip.assetId);
+  const isSticker = isElementAsset(stickerAsset);
+  const hasSpeed = !isShape && !isSticker;
+  const onGraphicsLane = timeline.tracks.some(
+    (track) => track.type === 'overlay' && track.clips.some((c) => c.id === target.clipId),
+  );
   // Reordering is a different question from dragging: a drag puts a clip at a TIME, this
   // puts it at a PLACE in the running order. Gated on the builder, so "move earlier" is
   // never offered on the first clip (ADR 0173).
@@ -147,6 +175,52 @@ export function ClipContextMenu({
       tabIndex={-1}
       style={{ left: target.x, top: target.y }}
     >
+      {isShape && (
+        <>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              // Selecting a shape opens its Shape section and its handles on the monitor.
+              editor.select(target.clipId);
+              onClose();
+            }}
+          >
+            <Shapes size={ICON_SIZE.sm} aria-hidden="true" /> Edit shape
+          </button>
+          <div className="context-menu-sep" role="separator" />
+        </>
+      )}
+      {onGraphicsLane && onAnimate && (
+        <>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onAnimate(target.clipId);
+              onClose();
+            }}
+          >
+            <Orbit size={ICON_SIZE.sm} aria-hidden="true" /> Animation…
+          </button>
+          <div className="context-menu-sep" role="separator" />
+        </>
+      )}
+      {isSticker && onReplaceSticker && (
+        <>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onReplaceSticker(target.clipId, stickerName(stickerAsset));
+              onClose();
+            }}
+          >
+            <Smile size={ICON_SIZE.sm} aria-hidden="true" /> Replace sticker…
+          </button>
+          <div className="context-menu-sep" role="separator" />
+        </>
+      )}
       <button
         type="button"
         role="menuitem"
@@ -186,27 +260,29 @@ export function ClipContextMenu({
       <button type="button" role="menuitem" disabled={later === null} onClick={() => act(later)}>
         <ChevronRight size={ICON_SIZE.sm} aria-hidden="true" /> Move later in sequence
       </button>
-      <div className="context-menu-sep" role="separator" />
-      <div className="context-menu-group" role="group" aria-label="Speed">
-        <span className="context-menu-group-label">
-          <Gauge size={ICON_SIZE.sm} aria-hidden="true" /> Speed
-        </span>
-        <div className="context-menu-choices">
-          {SPEED_PRESETS.map((preset) => (
-            <button
-              key={preset}
-              type="button"
-              role="menuitemradio"
-              aria-checked={speed === preset}
-              onClick={() =>
-                act(setClipSpeedPatch(timeline, target.clipId, preset === 1 ? null : preset))
-              }
-            >
-              {`${String(preset)}×`}
-            </button>
-          ))}
+      {hasSpeed && <div className="context-menu-sep" role="separator" />}
+      {hasSpeed && (
+        <div className="context-menu-group" role="group" aria-label="Speed">
+          <span className="context-menu-group-label">
+            <Gauge size={ICON_SIZE.sm} aria-hidden="true" /> Speed
+          </span>
+          <div className="context-menu-choices">
+            {SPEED_PRESETS.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                role="menuitemradio"
+                aria-checked={speed === preset}
+                onClick={() =>
+                  act(setClipSpeedPatch(timeline, target.clipId, preset === 1 ? null : preset))
+                }
+              >
+                {`${String(preset)}×`}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
       {onAddTransition && (
         <button
           type="button"
