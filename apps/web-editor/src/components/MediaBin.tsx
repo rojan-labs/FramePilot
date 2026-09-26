@@ -1141,7 +1141,7 @@ export function MediaBin({
         editor.getPlayhead(),
       );
       // Checked, so a patch the timeline refuses is said here, not quietly dropped.
-      const refusal = applyStockPatch(editor.applyPatchChecked, added.patch);
+      const refusal = applyStockPatch(editor.applyPatchChecked, added.patch, 'bin image overlay');
       if (refusal !== null) {
         setStatus(refusal);
         return;

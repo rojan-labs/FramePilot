@@ -77,20 +77,25 @@ export const STOCK_PLACEMENT_REJECTED =
   "The timeline couldn't take this clip, so nothing was added. Try again at another moment.";
 
 /**
- * Put a placement's patch on the timeline through the editor's checked apply: `null` once it is
- * there, else {@link STOCK_PLACEMENT_REJECTED} — the validator's reasons are logged, not shown,
- * because they name clip ids an editor never sees.
+ * Put a manual placement's patch on the timeline through the editor's checked apply: `null` once
+ * it is there, else {@link STOCK_PLACEMENT_REJECTED} — the validator's reasons are logged, not
+ * shown, because they name clip ids an editor never sees. Shared by the Pexels placements, a bin
+ * image laid over the footage and a sticker or shape dropped on the monitor, so the log names
+ * which one was refused.
  *
  * @param applyChecked - The editor's `applyPatchChecked`: the error issues, empty when applied.
  * @param patch - The placement.
+ * @param placement - What was being placed, for the log ("Pexels overlay", "bin image overlay").
  */
 export function applyStockPatch(
   applyChecked: (patch: Patch) => readonly ValidationIssue[],
   patch: Patch,
+  placement: string,
 ): string | null {
   const issues = applyChecked(patch);
   if (issues.length === 0) return null;
-  log.warn('stock placement refused by the timeline', {
+  log.warn('placement refused by the timeline', {
+    placement,
     patchId: patch.patchId,
     issues: issues.map((issue) => issue.message),
   });

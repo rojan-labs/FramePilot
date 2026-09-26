@@ -632,7 +632,11 @@ export function Editor({
           say(placed.message);
           return;
         }
-        const refusal = applyStockPatch(liveEditor.current.applyPatchChecked, placed.added.patch);
+        const refusal = applyStockPatch(
+          liveEditor.current.applyPatchChecked,
+          placed.added.patch,
+          `${item.kind} dropped on the monitor`,
+        );
         if (refusal !== null) {
           say(refusal);
           return;
@@ -669,7 +673,11 @@ export function Editor({
           },
           // Checked, so a patch the timeline refuses is said on the tile, not quietly dropped.
           apply: (added) => {
-            const refusal = applyStockPatch(liveEditor.current.applyPatchChecked, added.patch);
+            const refusal = applyStockPatch(
+              liveEditor.current.applyPatchChecked,
+              added.patch,
+              'Pexels drop',
+            );
             if (refusal === null) liveEditor.current.select(added.clipId);
             return refusal;
           },
@@ -901,7 +909,7 @@ export function Editor({
             );
           }
           // Checked, so a patch the timeline refuses is said on the tile, not quietly dropped.
-          return applyStockPatch(editor.applyPatchChecked, patch);
+          return applyStockPatch(editor.applyPatchChecked, patch, 'Pexels cutaway');
         }}
         onAddStockOverlay={(asset) => {
           // A picture-in-picture at the playhead as it is when the download lands, over whatever
@@ -912,7 +920,7 @@ export function Editor({
             asset,
             live.playhead,
           );
-          const refusal = applyStockPatch(editor.applyPatchChecked, added.patch);
+          const refusal = applyStockPatch(editor.applyPatchChecked, added.patch, 'Pexels overlay');
           if (refusal !== null) return refusal;
           // Selected, so the monitor shows its handles and the Inspector can resize it.
           editor.select(added.clipId);

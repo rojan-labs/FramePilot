@@ -266,13 +266,13 @@ describe('applyStockPatch', () => {
 
   it('is quiet once the timeline takes the patch', () => {
     const applyChecked = vi.fn(() => []);
-    expect(applyStockPatch(applyChecked, patch)).toBeNull();
+    expect(applyStockPatch(applyChecked, patch, 'Pexels drop')).toBeNull();
     expect(applyChecked).toHaveBeenCalledWith(patch);
   });
 
   it('turns a refused patch into the sentence the tile shows, not the validator’s', () => {
     const applyChecked = () =>
       [{ code: 'overlap', severity: 'error', message: "Clips 'a' and 'b' overlap" }] as never;
-    expect(applyStockPatch(applyChecked, patch)).toBe(STOCK_PLACEMENT_REJECTED);
+    expect(applyStockPatch(applyChecked, patch, 'Pexels drop')).toBe(STOCK_PLACEMENT_REJECTED);
   });
 });
