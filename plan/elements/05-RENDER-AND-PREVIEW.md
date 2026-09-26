@@ -245,7 +245,11 @@ reaches the monitor as an engine raster composited exactly like a sticker's text
 budget itself is run D on an M-series Mac, which should also record peak GPU memory and composite
 p95. The export ratio is logged by `px5_export_ratio.py` (`scale-elements` against `scale-plain`)
 in CI and measured on real footage in run D. The animated-sticker decode budget belongs to EL10's
-Definition of Done and is not claimed while EL10 waits on its licence read.
+Definition of Done and is not claimed while EL10 waits on its licence read. The first full-row
+export ratio (run 36250136566) was **1.613×**, over budget; the element layers' per-frame work has
+since been cut 72% without moving a pixel (a bounded composite, a reused still resize and outline;
+`test_element_layer_export.py`), projecting ≈ 1.17×. The full row is re-measured by dispatching
+`preview-perf-full.yml` after push, and that number, not the projection, is the evidence.
 
 ---
 

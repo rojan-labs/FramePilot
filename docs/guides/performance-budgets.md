@@ -445,7 +445,7 @@ cannot judge (a real display, a GPU, real camera footage) is a human release ste
 | Click a shape → clip on the timeline **≤ 50 ms**                                 | one patch and the redraw; five different shape tiles                                                                                  | `elements-e2e-budgets.spec.ts`: median of 5 ≤ 100 ms (×2)                                                                                                                                                                                     | new: logged first                                                                                                                                 |
 | Monitor, 4K footage + 20 element layers: **≤ 1% dropped, seek ≤ 100 ms p95**     | the PX5 `scale-elements` row: 20 stickers over the 4K row, five outlined, five turning                                                | `preview-scale-perf.spec.ts` (`preview-perf` job): invariants only (every layer drawn, one composite per frame, caches bounded, GL pools flat); timings logged — the runner has no GPU                                                        | budget: run D                                                                                                                                     |
 | Shape raster **≤ 15 ms at 1080p, ≤ 50 ms at 4K**                                 | `render/shape_raster.py` at the budget's size, a box 60% × 30% of the frame height                                                    | `test_shape_raster.py`: median CPU time of 20, coverage paused, ≤ 30 / 100 ms (×2) for the budgeted highlight box, the slowest shape in the catalogue (the “NEW” burst label) and the heaviest stroke (the grape icon)                        | M1 Pro: burst label 3.8 / 13.7 ms; grape 3.0 / 8.7 ms (was 14.2 / 36–41, and 44.8 / 100.4 on CI); the budgeted box 2.1 / 8.7 ms (was 4.4 / 19–20) |
-| Export with 20 element layers **≤ 1.3×** the same timeline without               | `scale-elements` against `scale-plain`, 4K, the real `export_video` path                                                              | `px5_export_ratio.py` in the `preview-perf` job, 4-second window: **logged in the job summary, not gated**. The whole row on demand: `gh workflow run preview-perf-full.yml -f variant=scale-elements`                                        | new; real footage: run D                                                                                                                          |
+| Export with 20 element layers **≤ 1.3×** the same timeline without               | `scale-elements` against `scale-plain`, 4K, the real `export_video` path                                                              | `px5_export_ratio.py` in the `preview-perf` job, 4-second window: **logged in the job summary, not gated**. Whole row on demand: `gh workflow run preview-perf-full.yml -f variant=scale-elements`. Per frame: `test_element_layer_export.py` | CI full row (run 36250136566): **1.613×**, over budget; the element work per frame since cut by 72%, not yet re-run (below). Real footage: run D  |
 | Animated sticker decode **≤ 150 ms** first frame                                 | EL10                                                                                                                                  | none: EL10 has not shipped, and the budget is not claimed                                                                                                                                                                                     | —                                                                                                                                                 |
 
 **How the raster's worst case was found.** Every preset and all 1,703 icons were timed at the
@@ -474,6 +474,32 @@ evidence, but a 4-second window reads high: an export's fixed costs (opening eve
 sticker, starting the encoder) weigh more against 4 seconds of frames. The matte's ratio is
 1.32–1.45× on CI's windows against 1.32× on the whole row (PX5.11). One plain export is the
 baseline for both comparisons, each held to its own budget (the matte keeps P13's 1.5×).
+
+**What 20 element layers cost an export, and what was removed.** The dispatch-only full row
+(`preview-perf-full.yml`, run 36250136566, a 4-vCPU `ubuntu-latest`, 5,400 4K frames, libx264
+medium) exported `scale-plain` in 2,717 s wall / 4,687 s CPU and `scale-elements` in 4,382 s /
+6,339 s: **1.613× wall** (1.352× CPU) against the 1.3× budget. The elements added ≈ 308 ms wall and
+≈ 306 ms CPU a frame, so their work ran serially on the frame path, not beside the encoder; 1.3× on
+that runner needs ≈ 150 ms or less. Timed on the M1 Pro (the row's 20 lanes and its title over a 4K
+still, median CPU of 15 frames), they cost 235–244 ms a frame, spent on three wastes. MoviePy's
+`compose_on` blended each transparent layer over a frame-sized canvas: a 4K `Image.new` and an
+`alpha_composite` over 8.3 M pixels to place a 400 px sticker (≈ 5 ms a layer). Each still was
+LANCZOS-resized again every frame, picture and mask (≈ 3.5 ms a sticker). Each outline was redrawn
+from unchanged inputs (≈ 4.4 ms). All three are gone and no pixel moved:
+`render/bounded_composite.py` blends a layer over only the pixels it covers (Pillow's
+`alpha_composite` copies the destination wherever the source alpha is 0, so the rest of the frame
+never changed), and `render/still_resize.py` and `_apply_edge_styles` reuse their last result while
+its inputs are equal element for element. `test_element_layer_export.py` compares each with the
+definition it replaces, bit for bit, on the row and on the cases it lacks (off the frame's edges, a
+scale keyframe, a fade, an opaque still), and holds the result with operation counts (no resize or
+outline after a still's first frame, no frame-sized blend) and the timed ceiling, which the old path
+fails at 261 ms. The element work is now **66–69 ms a frame** (−72%): a static or outlined sticker
+1.3–1.4 ms, a turning one 9.3 ms, 7.7 ms of it Pillow's bicubic rotation of its picture and alpha,
+which changes every frame and is the next lever. Scaled to the runner (308 ms × 0.28) that is
+≈ 85–90 ms a frame, about **1.17×** on the full row; the plain arm's title is composited the bounded
+way too, about 5 ms of its ~500 ms frame. That is a projection, not the evidence: the row is
+re-measured by dispatching `gh workflow run preview-perf-full.yml -f variant=scale-elements` after
+this lands, and its number replaces this one.
 
 **Human release steps** (run D, plan/elements 09; what no CI runner can judge):
 
