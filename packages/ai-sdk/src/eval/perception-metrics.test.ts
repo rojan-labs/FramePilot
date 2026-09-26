@@ -62,6 +62,23 @@ describe('measurePerceptionTurn — frames', () => {
     const events = [...call('get_timeline'), ...call('get_clips')];
     expect(measurePerceptionTurn(events).framesSeen).toBe(0);
   });
+
+  it('reads a frame count written against the word', () => {
+    expect(
+      measurePerceptionTurn(call('get_frame', { argsSummary: 'at 4s, 12frames' })).framesSeen,
+    ).toBe(12);
+  });
+
+  it('reads an args summary of one long digit run in linear time', () => {
+    // An args summary is host-recorded text. The old count pattern restarted at every digit
+    // of a long run, ran to its end and backed off (quadratic: seconds for 40,000 digits);
+    // the anchored one takes well under a millisecond, so this ceiling is loose for a loaded
+    // CI box and still far below the quadratic time.
+    const events = call('get_frame', { argsSummary: '0'.repeat(40_000) });
+    const started = performance.now();
+    expect(measurePerceptionTurn(events).framesSeen).toBe(1);
+    expect(performance.now() - started).toBeLessThan(200);
+  });
 });
 
 describe('measurePerceptionTurn — perception calls', () => {
@@ -150,6 +167,24 @@ describe('pictureFactsInPrompt', () => {
 
   it('reports null rather than a rate when nothing was shown', () => {
     expect(pictureFactsInPrompt('(no clips)').rate).toBeNull();
+  });
+
+  it('reads rows after a track label and an omitted-clips note', () => {
+    const text =
+      'V1: c12[0–4.2s] · MS man at desk · static, c13[4.2–9s], …(+2 more clip(s) over 9–20s; get_clips lists them)';
+    expect(pictureFactsInPrompt(text)).toEqual({ rows: 2, withFacts: 1, rate: 0.5 });
+  });
+
+  it('scans hostile text in linear time', () => {
+    // The old row pattern restarted inside every run of id characters, and its bracket body
+    // could run past a later `[` to the end of the text: both quadratic, seconds at this size.
+    // The fixed pattern takes well under a millisecond; the ceiling is loose for a loaded CI
+    // box and still far below the quadratic time.
+    for (const text of ['!'.repeat(40_000), '!['.repeat(20_000)]) {
+      const started = performance.now();
+      expect(pictureFactsInPrompt(text).rows).toBe(0);
+      expect(performance.now() - started).toBeLessThan(200);
+    }
   });
 });
 
