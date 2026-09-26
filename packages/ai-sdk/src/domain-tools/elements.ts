@@ -52,6 +52,11 @@ const FEATURED = SHAPE_PRESETS.filter(({ preset }) =>
   FEATURED_SHAPE_PRESET_IDS.includes(preset.id),
 );
 
+/** What `search_elements` says where the host cannot place a sticker; one fixed sentence. */
+const NO_STICKERS_HERE =
+  'Stickers are copied into the project by the FramePilot desktop app, and this connection ' +
+  'cannot place one. Use a shape instead: add_shape takes the callouts and icons listed here.';
+
 /** Colour names models use, mapped to the catalogue palette (plan/elements 03 §1.3). */
 const NAMED_COLOURS: Readonly<Record<string, string>> = {
   white: '#FFFFFF',
@@ -281,6 +286,11 @@ export const ELEMENT_TOOLS: readonly ToolSpec[] = [
       if (a.kind === 'shape') {
         const results = shapes.rows.slice(0, limit);
         return { ...head, results, returned: results.length, total: shapes.total };
+      }
+      if (ctx.placesStickers === false) {
+        const results = a.kind === 'sticker' ? [] : shapes.rows.slice(0, limit);
+        const total = a.kind === 'sticker' ? 0 : shapes.total;
+        return { ...head, results, returned: results.length, total, note: NO_STICKERS_HERE };
       }
       // The sticker catalogue is loaded on first use; a shape-only search never pays for it.
       return loadStickerCatalog().then((catalog) => {

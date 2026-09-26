@@ -256,6 +256,29 @@ describe('search_elements for stickers, and add_sticker', () => {
     expect((await find(true)).results.map((row) => row.elementId)).toContain('dragon');
   });
 
+  it('offers only shapes, and says why, where the host cannot place a sticker', async () => {
+    // The MCP server has no way to copy a sticker into the project, so a sticker row there
+    // is an id no call can use (plan/elements 07 §7).
+    const tool = getTool('search_elements');
+    if (!tool || tool.kind !== 'read') throw new Error('search_elements is not a read tool');
+    const find = async (args: Record<string, unknown>) =>
+      (await tool.read(args, { project: project(), placesStickers: false })) as {
+        results: { kind: string }[];
+        returned: number;
+        note?: string;
+      };
+    const both = await find({ query: 'heart' });
+    expect(both.results.length).toBeGreaterThan(0);
+    expect(both.results.every((row) => row.kind === 'shape')).toBe(true);
+    expect(both.note).toMatch(/desktop app/u);
+    const stickers = await find({ query: 'fire', kind: 'sticker' });
+    expect(stickers.returned).toBe(0);
+    expect(stickers.note).toMatch(/add_shape/u);
+    // The note is the same sentence every time, so the loop guards read it as one refusal.
+    expect(both.note).toBe(stickers.note);
+    expect(stickers.note).not.toMatch(/\d/u);
+  });
+
   it('keeps a shape-only search free of the sticker catalogue', () => {
     const tool = getTool('search_elements');
     if (!tool || tool.kind !== 'read') throw new Error('search_elements is not a read tool');
