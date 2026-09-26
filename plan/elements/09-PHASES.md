@@ -171,7 +171,7 @@ context builder, rubric, domain tools: 657), web-editor (selectors, builders: 36
 
 ---
 
-## EL4a — Shapes: the minimum vertical slice, complete `[~]`
+## EL4a — Shapes: the minimum vertical slice, complete `[!]`
 
 **Ships (desktop):** six shapes — **highlight box, filled box, ellipse, marker, arrow, underline** —
 added at the playhead, styled in the Inspector, moved and resized on the canvas (box handles for
@@ -235,8 +235,11 @@ Evidence (all required for `[x]`):
   real sidecar): add a highlight box, resize it on the canvas, recolour it, export a frame,
   undo — `tests/e2e/specs/elements-e2e-shapes.spec.ts`, which also compares the monitor with
   the export at the PX4 gates. `docs/guides/elements.md` Shapes; `CHANGELOG.md` → Added (done).
-  The job passed on every push since it landed (`65b1c977`, `fac2df03`, `7808a193`, `cd99e875`);
-  the phase closes when one run is green end to end on a SHA that contains it.
+  The job passed on every push since it landed, and [CI run 36203550932](https://github.com/rojan-labs/FramePilot/actions/runs/36203550932) on `276b8827`, every job green including PX4 and `elements-e2e`.
+
+**Status (2026-09-26): `[!]`.** Everything a machine can prove is done and green ([CI run 36203550932](https://github.com/rojan-labs/FramePilot/actions/runs/36203550932) on `276b8827`, every job green including PX4 and `elements-e2e`); the two
+`[!]` items above are the measured eval hit rate and the desktop run on real footage, which only a
+person can do, with the steps written beside each.
 
 **DoD:** the six shapes work end to end by hand and via `add_shape`; oracle rows pass; a v24
 project opens unchanged and a v25 project with shapes is refused by a v24 build with
@@ -244,7 +247,7 @@ project opens unchanged and a v25 project with shapes is refused by a v24 build 
 
 ---
 
-## EL5 — Shapes: the whole catalogue `[~]`
+## EL5 — Shapes: the whole catalogue `[x]`
 
 - [x] **EL5.1** The remaining ~99 shapes and every preset (03 §1.2 → ~200 tiles); generators for
       polygons, stars, rings, bubbles, corners, curved arrows, path shapes; an export-rendered
@@ -279,11 +282,11 @@ tests, Inspector field. Search: one ranking (`shape-search.ts`) pinned to the en
 `tests/fixtures/shape-search.json`; `search_elements` in both runtimes with a digest; goldens
 regenerated. Oracle rows: `shapes/box-stroke-dashed`, `star-knobs`, `curved-arrow`, `bubble-tail`,
 `ring-evenodd`, `badge-label`, `icon-stroke`, `blend-multiply` (frame-plan vectors equal in both
-runtimes; PX4 in CI decides). Remaining for `[x]`: CI green end to end on a SHA containing EL5.
+runtimes), and [CI run 36203550932](https://github.com/rojan-labs/FramePilot/actions/runs/36203550932) on `276b8827`, every job green including PX4 and `elements-e2e`.
 
 ---
 
-## EL6a — Stickers: the minimum vertical slice, complete `[ ]`
+## EL6a — Stickers: the minimum vertical slice, complete `[~]`
 
 **Ships:** a curated set of ~200 stickers (≈ 4 MB, committed), placeable by hand and by the agent.
 Depends on EL2a, MD-E4.

@@ -298,9 +298,9 @@ holds and every row of [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md) is d
 | EL2a  | `[x]`  | Export, plans, monitor, DOM overlay fixed; CI green on `9bbde591`         |
 | EL2b  | `[ ]`  | Lands with EL6b / EL7                                                     |
 | EL3   | `[x]`  | One helper per runtime + guards; CI green on `9bbde591`                   |
-| EL4a  | `[~]`  | Built, oracle + e2e green; eval run and desktop run are human steps `[!]` |
-| EL5   | `[~]`  | 106 shapes, 260 presets, 1,703 icons, search, badges; CI pending          |
-| EL6a  | `[ ]`  |                                                                           |
+| EL4a  | `[!]`  | Built and green on `276b8827`; eval run and desktop run are human steps   |
+| EL5   | `[x]`  | 106 shapes, 260 presets, 1,703 icons, search, badges; CI green `276b8827` |
+| EL6a  | `[~]`  | Library, materialiser, Stickers tab, not-footage rules on `feat/elements` |
 | EL6b  | `[ ]`  |                                                                           |
 | EL7   | `[ ]`  |                                                                           |
 | EL8   | `[ ]`  |                                                                           |
