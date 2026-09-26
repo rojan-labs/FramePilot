@@ -63,6 +63,39 @@ describe('buildAddStockOps', () => {
     });
   });
 
+  it('opens its layer under the graphics lanes, so stickers, shapes and titles stay on top', () => {
+    // A shape over the programme and no picture lane with room: the photo's new lane must open
+    // behind the shape's lane (ADR 0191), not at the visual front where it would cover it.
+    const withShape: Timeline = {
+      ...EMPTY,
+      tracks: [
+        {
+          id: 'overlay_1',
+          type: 'overlay',
+          clips: [
+            {
+              id: 'shape__overlay_1_0',
+              assetId: '__shape__',
+              trackId: 'overlay_1',
+              start: 0,
+              end: 5,
+              sourceStart: 0,
+              sourceEnd: 5,
+              effects: [],
+              keyframes: [],
+            },
+          ],
+        },
+        { id: 'audio_1', type: 'audio', clips: [] },
+      ],
+    } as unknown as Timeline;
+    const placement = buildAddStockOps(withShape, [], stockPhoto, 1)!;
+    expect(placement.createdLayer).toBe(true);
+    expect(placement.operations.find((op) => op.type === 'add_layer')).toMatchObject({
+      atIndex: 1,
+    });
+  });
+
   it('reuses an existing picture layer that has room, rather than stacking layers', () => {
     const tl = timeline([{ id: 'video_1', type: 'video', clips: [clip('cam', 0, 5)] }]);
     const placement = buildAddStockOps(tl, [existingVideo], stockVideo, 5)!;

@@ -229,7 +229,9 @@ export function buildAddStockOps(
   return {
     operations: [
       addAsset,
-      { type: 'add_layer', layerId, layerType: 'video', atIndex: 0 },
+      // In front of the footage, under every graphics lane (ADR 0191): at index 0 a photo placed
+      // into empty time covered the stickers, shapes and titles above it.
+      { type: 'add_layer', layerId, layerType: 'video', atIndex: frontPictureLaneIndex(timeline) },
       {
         type: 'add_clip',
         trackId: layerId,
