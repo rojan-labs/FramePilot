@@ -1,0 +1,1121 @@
+{
+  "area": "Loop",
+  "spec": "plan/elements/05-RENDER-AND-PREVIEW.md",
+  "cases": [
+    {
+      "id": "pulse",
+      "row": "Loop: a sticker pulsing (EL7)",
+      "description": "A sticker with the Pulse loop: its size keyframed around the placement by the loop builder, sampled at the peak, the trough and between.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-loop-pulse",
+        "name": "loop-pulse",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60
+          },
+          {
+            "id": "element_fluent3d_fire",
+            "path": "media/elements/fluent3d/fire.webp",
+            "kind": "image",
+            "media": {
+              "width": 318,
+              "height": 318
+            },
+            "folderId": "folder_elements",
+            "source": {
+              "provider": "fluent-emoji",
+              "remoteId": "fire",
+              "license": "mit",
+              "licenseUrl": "https://github.com/microsoft/fluentui-emoji/blob/1ffb34c752ecf5d402f04cfb4b392c77f57c54bc/LICENSE",
+              "attributionRequired": false,
+              "attribution": "Fluent Emoji by Microsoft (MIT)",
+              "creator": "Microsoft",
+              "sourceUrl": "https://raw.githubusercontent.com/microsoft/fluentui-emoji/1ffb34c752ecf5d402f04cfb4b392c77f57c54bc/assets/Fire/3D/fire_3d.png",
+              "fetchedAt": "2026-09-26T00:00:00.000Z"
+            }
+          }
+        ],
+        "folders": [
+          {
+            "id": "folder_elements",
+            "name": "Elements",
+            "parentId": null
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "o1",
+              "type": "overlay",
+              "clips": [
+                {
+                  "id": "st",
+                  "assetId": "element_fluent3d_fire",
+                  "trackId": "o1",
+                  "start": 0,
+                  "end": 4,
+                  "sourceStart": 0,
+                  "sourceEnd": 4,
+                  "effects": [],
+                  "keyframes": [
+                    {
+                      "id": "kf_st_x_base",
+                      "time": 0,
+                      "property": "x",
+                      "value": 0,
+                      "easing": "linear"
+                    },
+                    {
+                      "id": "kf_st_y_base",
+                      "time": 0,
+                      "property": "y",
+                      "value": 0,
+                      "easing": "linear"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__0",
+                      "time": 0,
+                      "property": "scale",
+                      "value": 0.3727,
+                      "easing": "ease-out"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__1",
+                      "time": 0.25,
+                      "property": "scale",
+                      "value": 0.417424,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__2",
+                      "time": 0.5,
+                      "property": "scale",
+                      "value": 0.3727,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__3",
+                      "time": 0.75,
+                      "property": "scale",
+                      "value": 0.327976,
+                      "easing": "ease-in"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__4",
+                      "time": 1,
+                      "property": "scale",
+                      "value": 0.3727,
+                      "easing": "ease-out"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__5",
+                      "time": 1.25,
+                      "property": "scale",
+                      "value": 0.417424,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__6",
+                      "time": 1.5,
+                      "property": "scale",
+                      "value": 0.3727,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__7",
+                      "time": 1.75,
+                      "property": "scale",
+                      "value": 0.327976,
+                      "easing": "ease-in"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__8",
+                      "time": 2,
+                      "property": "scale",
+                      "value": 0.3727,
+                      "easing": "ease-out"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__9",
+                      "time": 2.25,
+                      "property": "scale",
+                      "value": 0.417424,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__10",
+                      "time": 2.5,
+                      "property": "scale",
+                      "value": 0.3727,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__11",
+                      "time": 2.75,
+                      "property": "scale",
+                      "value": 0.327976,
+                      "easing": "ease-in"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__12",
+                      "time": 3,
+                      "property": "scale",
+                      "value": 0.3727,
+                      "easing": "ease-out"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__13",
+                      "time": 3.25,
+                      "property": "scale",
+                      "value": 0.417424,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__14",
+                      "time": 3.5,
+                      "property": "scale",
+                      "value": 0.3727,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__15",
+                      "time": 3.75,
+                      "property": "scale",
+                      "value": 0.327976,
+                      "easing": "ease-in"
+                    },
+                    {
+                      "id": "loop__pulse__1000__120__16",
+                      "time": 4,
+                      "property": "scale",
+                      "value": 0.3727,
+                      "easing": "ease-out"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0,
+                  "end": 4,
+                  "sourceStart": 0,
+                  "sourceEnd": 4,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.25,
+        0.6,
+        0.75,
+        2.25
+      ],
+      "expected": [
+        {
+          "time": 0.25,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 0.25,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 0.25,
+                "frame": 7
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "o1",
+              "clipId": "st",
+              "forClipId": null,
+              "localTime": 0.25,
+              "source": {
+                "assetId": "element_fluent3d_fire",
+                "assetKind": "image",
+                "time": null,
+                "frame": null
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 2.2641509433962264,
+                "scale": 0.9451109433962265,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 489.72736,
+                "top": 209.72735999999998,
+                "width": 300.54528000000005,
+                "height": 300.54528000000005
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        },
+        {
+          "time": 0.6,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 0.6,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 0.6,
+                "frame": 18
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "o1",
+              "clipId": "st",
+              "forClipId": null,
+              "localTime": 0.6,
+              "source": {
+                "assetId": "element_fluent3d_fire",
+                "assetKind": "image",
+                "time": null,
+                "frame": null
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 2.2641509433962264,
+                "scale": 0.8114452528301886,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 510.9802048,
+                "top": 230.9802048,
+                "width": 258.0395904,
+                "height": 258.0395904
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        },
+        {
+          "time": 0.75,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 0.75,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 0.75,
+                "frame": 22
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "o1",
+              "clipId": "st",
+              "forClipId": null,
+              "localTime": 0.75,
+              "source": {
+                "assetId": "element_fluent3d_fire",
+                "assetKind": "image",
+                "time": null,
+                "frame": null
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 2.2641509433962264,
+                "scale": 0.7425871698113207,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 521.92864,
+                "top": 241.92864000000003,
+                "width": 236.14271999999997,
+                "height": 236.14271999999997
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        },
+        {
+          "time": 2.25,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 2.25,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 2.25,
+                "frame": 67
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "o1",
+              "clipId": "st",
+              "forClipId": null,
+              "localTime": 2.25,
+              "source": {
+                "assetId": "element_fluent3d_fire",
+                "assetKind": "image",
+                "time": null,
+                "frame": null
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 2.2641509433962264,
+                "scale": 0.9451109433962265,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 489.72736,
+                "top": 209.72735999999998,
+                "width": 300.54528000000005,
+                "height": 300.54528000000005
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        }
+      ]
+    },
+    {
+      "id": "wiggle",
+      "row": "Loop: a shape wiggling (EL7)",
+      "description": "A highlight box with the Wiggle loop: its rotation keyframed by the loop builder, drawn in the rotation-safe raster, sampled at both extremes.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-loop-wiggle",
+        "name": "loop-wiggle",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "s1",
+              "type": "overlay",
+              "clips": [
+                {
+                  "id": "hb",
+                  "assetId": "__shape__",
+                  "trackId": "s1",
+                  "start": 0,
+                  "end": 4,
+                  "sourceStart": 0,
+                  "sourceEnd": 4,
+                  "effects": [
+                    {
+                      "id": "hb__shape",
+                      "type": "shape",
+                      "params": {
+                        "shape": "rounded-rect",
+                        "x": 42,
+                        "y": 40,
+                        "width": 48,
+                        "height": 27,
+                        "fill": null,
+                        "stroke": "#FFD400",
+                        "strokeWidth": 0.8,
+                        "strokeStyle": "solid",
+                        "cornerRadius": 12
+                      },
+                      "keyframes": []
+                    }
+                  ],
+                  "keyframes": [
+                    {
+                      "id": "loop__wiggle__500__10000__0",
+                      "time": 0,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__1",
+                      "time": 0.125,
+                      "property": "rotation",
+                      "value": 10,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__2",
+                      "time": 0.25,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__3",
+                      "time": 0.375,
+                      "property": "rotation",
+                      "value": -10,
+                      "easing": "ease-in"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__4",
+                      "time": 0.5,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__5",
+                      "time": 0.625,
+                      "property": "rotation",
+                      "value": 10,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__6",
+                      "time": 0.75,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__7",
+                      "time": 0.875,
+                      "property": "rotation",
+                      "value": -10,
+                      "easing": "ease-in"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__8",
+                      "time": 1,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__9",
+                      "time": 1.125,
+                      "property": "rotation",
+                      "value": 10,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__10",
+                      "time": 1.25,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__11",
+                      "time": 1.375,
+                      "property": "rotation",
+                      "value": -10,
+                      "easing": "ease-in"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__12",
+                      "time": 1.5,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__13",
+                      "time": 1.625,
+                      "property": "rotation",
+                      "value": 10,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__14",
+                      "time": 1.75,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__15",
+                      "time": 1.875,
+                      "property": "rotation",
+                      "value": -10,
+                      "easing": "ease-in"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__16",
+                      "time": 2,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__17",
+                      "time": 2.125,
+                      "property": "rotation",
+                      "value": 10,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__18",
+                      "time": 2.25,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__19",
+                      "time": 2.375,
+                      "property": "rotation",
+                      "value": -10,
+                      "easing": "ease-in"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__20",
+                      "time": 2.5,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__21",
+                      "time": 2.625,
+                      "property": "rotation",
+                      "value": 10,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__22",
+                      "time": 2.75,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__23",
+                      "time": 2.875,
+                      "property": "rotation",
+                      "value": -10,
+                      "easing": "ease-in"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__24",
+                      "time": 3,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__25",
+                      "time": 3.125,
+                      "property": "rotation",
+                      "value": 10,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__26",
+                      "time": 3.25,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__27",
+                      "time": 3.375,
+                      "property": "rotation",
+                      "value": -10,
+                      "easing": "ease-in"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__28",
+                      "time": 3.5,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__29",
+                      "time": 3.625,
+                      "property": "rotation",
+                      "value": 10,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__30",
+                      "time": 3.75,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__31",
+                      "time": 3.875,
+                      "property": "rotation",
+                      "value": -10,
+                      "easing": "ease-in"
+                    },
+                    {
+                      "id": "loop__wiggle__500__10000__32",
+                      "time": 4,
+                      "property": "rotation",
+                      "value": 0,
+                      "easing": "ease-out"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0,
+                  "end": 4,
+                  "sourceStart": 0,
+                  "sourceEnd": 4,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.125,
+        0.375,
+        1.2
+      ],
+      "expected": [
+        {
+          "time": 0.125,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 0.125,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 0.125,
+                "frame": 3
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "shape": {
+                "x": 334,
+                "y": 84,
+                "width": 408,
+                "height": 408
+              },
+              "kind": "shape",
+              "role": "clip",
+              "trackId": "s1",
+              "clipId": "hb",
+              "forClipId": null,
+              "localTime": 0.125,
+              "source": null,
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 538.0,
+                "anchorY": 288.0,
+                "rotation": 10.0,
+                "left": 334.0,
+                "top": 84.0,
+                "width": 408.0,
+                "height": 408.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        },
+        {
+          "time": 0.375,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 0.375,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 0.375,
+                "frame": 11
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "shape": {
+                "x": 334,
+                "y": 84,
+                "width": 408,
+                "height": 408
+              },
+              "kind": "shape",
+              "role": "clip",
+              "trackId": "s1",
+              "clipId": "hb",
+              "forClipId": null,
+              "localTime": 0.375,
+              "source": null,
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 538.0,
+                "anchorY": 288.0,
+                "rotation": -10.0,
+                "left": 334.0,
+                "top": 84.0,
+                "width": 408.0,
+                "height": 408.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        },
+        {
+          "time": 1.2,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 1.2,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 1.2,
+                "frame": 36
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "shape": {
+                "x": 334,
+                "y": 84,
+                "width": 408,
+                "height": 408
+              },
+              "kind": "shape",
+              "role": "clip",
+              "trackId": "s1",
+              "clipId": "hb",
+              "forClipId": null,
+              "localTime": 1.2,
+              "source": null,
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 538.0,
+                "anchorY": 288.0,
+                "rotation": 3.2000000000000046,
+                "left": 334.0,
+                "top": 84.0,
+                "width": 408.0,
+                "height": 408.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        }
+      ]
+    }
+  ]
+}

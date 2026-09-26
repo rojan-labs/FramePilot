@@ -38,6 +38,8 @@ export * from './motion-commands.js';
 export * from './color-commands.js';
 export * from './clip-blur.js';
 export * from './track-follow.js';
+// Loop motion for stickers, shapes and titles as keyframes (plan/elements EL7.2).
+export * from './loop-motion.js';
 export * from './track-reframe.js';
 export * from './picture-occupancy.js';
 export * from './lane-placement.js';

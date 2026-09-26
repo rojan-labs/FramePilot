@@ -96,6 +96,8 @@ describe('frame plan parity vectors', () => {
         'Effects',
         'Geometry',
         'Layering',
+        // Elements' loop motion as keyframes from the loop builder (plan/elements EL7).
+        'Loop',
         // Elements' shapes (schema v25, ADR 0190) and stickers (plan/elements EL6a).
         'Shapes',
         'Stickers',
