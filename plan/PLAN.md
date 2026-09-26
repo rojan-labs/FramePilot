@@ -10329,10 +10329,16 @@ stickers, CC BY 4.0 (EL10).
   sticker or shape on the monitor, record a dragged sticker as recent; skin tones, follow subject
   and the browser build deferred with reasons (`plan/elements/11-RISKS-AND-DEFERRED.md` §2)
 - [~] **EL12** Docs, changelogs, desktop evidence runs, close-out
-- [ ] **Found in EL6a — the release workflow has never completed a build.** electron-builder
-  rejects the Linux executable name (`@framepilotdesktop`), macOS stops at "not a file", Windows
-  fails building editor-core. The release gate (EL12, "installer within budget") fixes it; the
-  WebP smoke it held now also runs in the PR lane (`frozen-engine-webp`).
+- [x] **Found in EL6a — the release workflow has never completed a build.** electron-builder
+  rejected the Linux executable name (`@framepilotdesktop`), macOS stopped at "not a file", Windows
+  failed building editor-core. **Fixed in EL12 (2026-09-26):** scripts import built modules by
+  file URL and text checks out with LF (Windows); empty signing variables are unset (macOS);
+  Linux names its executable and .deb, carries a homepage and drops the SDK's musl binary; the
+  Intel job runs on macos-15-intel; the feed check and uploads take the `stable` channel's feed;
+  the asar no longer carries workspace sources or the web editor twice; the AppImage is xz.
+  Release run 36243262914 on `8f6985ed` passes all four: macOS arm64 DMG 340.3 MiB, macOS x64
+  372.6 MiB, Linux AppImage 327.8 MiB / .deb 330.6 MiB, Windows ~350 MiB (budget 400), each with
+  a verified feed.
 - [ ] **Found in EL6a — the CodeQL alert backlog (separate PR).** 57 alerts are open on `main`
   (path and command-line injection in the sidecar's matte, PTS and service routes; ReDoS in
   caption segmentation and eval metrics; an e2e request-forgery). PR #131 adds none (its set equals

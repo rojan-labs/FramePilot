@@ -16,7 +16,7 @@ artifact told it.
 
 | | Update feed | Pack catalog |
 | --- | --- | --- |
-| Serves | Desktop installers + `latest*.yml` | Signed pack releases + artifacts |
+| Serves | Desktop installers + `stable*.yml` | Signed pack releases + artifacts |
 | Trusted via | HTTPS + electron-updater's sha512 | HTTPS + **Ed25519 catalog signature** |
 | Client reads | The `generic` URL baked into `electron-builder.yml` | `FRAMEPILOT_CAPABILITY_PACK_CATALOG_URL` |
 | Outage impact | No updates; installed app unaffected | No new pack installs; installed packs unaffected |
@@ -46,7 +46,7 @@ Any S3-compatible bucket behind an HTTPS hostname works — Cloudflare R2, AWS S
    `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`.
 
 Cache headers are set by the publish step and matter: installers are immutable
-for a year, `latest*.yml` for 60 seconds. A long-cached feed is how "we shipped
+for a year, the feed (`stable*.yml`, the channel `electron-builder.yml` publishes) for 60 seconds. A long-cached feed is how "we shipped
 the fix" becomes "nobody got the fix for a day".
 
 ### Verifying before you publish
@@ -126,7 +126,7 @@ update.
 2. CI runs the installer-payload check and the feed check on each target.
 3. Artifacts land on a **draft** GitHub Release for human review.
 4. Smoke-test per [`../guides/release-checklist-v1.md`](../guides/release-checklist-v1.md).
-5. The publish step uploads installers first and `latest*.yml` last, so the feed
+5. The publish step uploads installers first and the feed (`stable*.yml`) last, so the feed
    never points at a file that is still uploading. Do not reorder this.
 6. Publish the GitHub Release for the humans.
 
@@ -171,7 +171,7 @@ matter:
 | Symptom | Likely cause | Action |
 | --- | --- | --- |
 | Clients report update failures | Feed names a file that failed to upload | Re-run publish; `pnpm release:check-feed` locally against the release dir |
-| "Update available" loops | `latest*.yml` cached too long, or version mismatch | Check CDN cache headers on the feed object only |
+| "Update available" loops | the feed (`stable*.yml`) cached too long, or version mismatch | Check CDN cache headers on the feed object only |
 | Packs stop installing, app fine | Catalog expired, or delegated key expired | Publish a fresh root-signed catalog |
 | `catalog_invalid` / `signature_invalid` | Catalog signed by an untrusted key | Confirm the build's packaged root keys match the signing key |
 | A pack must be pulled | Bad weights, licence issue, security | `rollback` to the last good digests; installed copies keep working |
