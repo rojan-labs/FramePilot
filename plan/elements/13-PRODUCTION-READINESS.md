@@ -147,8 +147,10 @@ of all new strings; `editing-skills-expert` on the skill; `security-reviewer` on
       _Evidence:_ 09 records each phase's tasks with what built them and the SHA CI was green on.
 - [x] CI fully green on the release commit, including `elements-e2e`, the oracle, perf, visual,
       licence and desktop-build jobs; installer within budget.
-      _Evidence:_ `c0bd695b` (CodeQL's failure is its diff-size artefact: the PR's 57 open alerts are
-      `main`'s 57); release run 36251044811 builds macOS arm64, macOS x64, Linux and Windows within
+      _Evidence:_ `92b33b7e`, every check green, CodeQL included: the 57 alerts it attributed to the
+      PR (all `main`'s, shown because the PR is over GitHub's diff limit) were fixed here, with the
+      symlink write they hid (`plan/PLAN.md`, 2026-09-26); the full export row is 1.165× (run
+      36259741558). Release run 36251044811 builds macOS arm64, macOS x64, Linux and Windows within
       400 MiB, each with a verified `stable` feed.
 - [!] Desktop evidence runs A–E (10 §4) committed with the commit they ran on. **Human steps:**
   09, EL12.3.
