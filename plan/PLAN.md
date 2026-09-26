@@ -10341,11 +10341,13 @@ stickers, CC BY 4.0 (EL10).
   Release run 36243262914 on `8f6985ed` passes all four: macOS arm64 DMG 340.3 MiB, macOS x64
   372.6 MiB, Linux AppImage 327.8 MiB / .deb 330.6 MiB, Windows ~350 MiB (budget 400), each with
   a verified feed.
-- [ ] **Found in EL12 — the slowest shape raster has little headroom (follow-up for
-  `performance-optimizer`).** `icon/grape` rasterises in 14.2 ms at 1080p (budget 15) and 36–41
-  ms at 4K (budget 50) on an M1 Pro, now guarded at budget ×2 in `test_shape_raster.py`; most of
-  it is the curved-joint stroke (`ImageDraw.line(joint="curve")`, one pieslice per vertex, ~737
-  per raster). Not a release blocker; the fix is in the stroke, never a raised ceiling.
+- [x] **Found in EL12 — the slowest shape raster had little headroom.** `icon/grape` rasterised in
+  14.2 ms at 1080p (budget 15) and 36–41 ms at 4K (budget 50) on an M1 Pro, and 44.8 / 100.4 ms on
+  the CI runner, failing the new budget ×2 guard; most of it was the curved-joint stroke (one
+  pieslice per vertex). **Fixed** (`performance-optimizer`): a round join is one disc, the
+  composite is a table lookup, and broken strokes and fill pieces share one mask — grape now 3.0 /
+  8.7 ms, the slowest shape (`burst-label/new`) 3.8 / 13.7 ms; the joins also fill hairline cracks
+  the old ones left in wide curved strokes (0.37% of covered pixels move, all at joints).
 - [ ] **Found in EL6a — the CodeQL alert backlog (separate PR).** 57 alerts are open on `main`
   (path and command-line injection in the sidecar's matte, PTS and service routes; ReDoS in
   caption segmentation and eval metrics; an e2e request-forgery). PR #131 adds none (its set equals
