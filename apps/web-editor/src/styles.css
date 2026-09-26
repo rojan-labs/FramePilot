@@ -15630,9 +15630,80 @@ a.export-credits-license {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
+/* The adding state (02 §2.2): the sticker dims and a spinner turns over it while main copies the
+   file into the project. The tile itself stays at full strength, so the spinner reads. */
 .stickers-grid-tile[aria-busy='true'] {
-  opacity: 0.6;
   cursor: progress;
+}
+.stickers-grid-tile[aria-busy='true'] img,
+.stickers-grid-tile[aria-busy='true'] .stickers-grid-glyph {
+  opacity: 0.45;
+}
+.stickers-grid-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  border: 2px solid var(--text);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: btn-spin 0.6s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stickers-grid-spinner {
+    animation-duration: 1.4s;
+  }
+}
+/* The failed state: a danger ring on the tile, and over its lower half the reason in a few words
+   and Retry. Only Retry takes the pointer; the rest of the tile still adds on a click. */
+.stickers-grid-cell[data-state='failed'] .stickers-grid-tile {
+  border-color: var(--danger);
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+.stickers-grid-failed {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  left: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  padding: 2px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  border-radius: var(--radius-xs);
+}
+.stickers-grid-failed-reason {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.64rem;
+  line-height: 1.2;
+  color: var(--danger);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stickers-grid-retry {
+  min-height: var(--control-h-xs);
+  padding: 0 var(--space-2);
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--text);
+  cursor: pointer;
+  pointer-events: auto;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+.stickers-grid-retry:hover {
+  border-color: var(--danger);
+}
+.stickers-grid-retry:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }
 .stickers-grid-tile:disabled:not([aria-busy='true']) {
   cursor: default;

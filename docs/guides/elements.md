@@ -190,6 +190,10 @@ build:elements` has built the rest.)
   the keyboard moves to the next tile rather than off the grid.
 - **Already in the project:** a small dot marks a sticker the project holds. Clicking it still adds
   another.
+- **While it is added** the tile shows a spinner (the file is being copied into your project). If
+  that fails, the tile says why in a few words ("No disk space") with a **Retry** button, and the
+  whole reason, with what to do about it, shows above the grid; a screen reader hears it once.
+  Retry, or Enter on the tile, tries again.
 - **Add one:** click its tile. FramePilot copies the sticker into the project folder (it appears
   in the bin's **Elements** folder, marked **Sticker**) and places it at the playhead for the
   default overlay length (Settings → Editing), on an overlay layer, centred, a third of the frame

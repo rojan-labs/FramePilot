@@ -236,6 +236,83 @@ describe('StickersBrowser', () => {
     expect(alert.textContent).toBe('');
   });
 
+  it('shows a spinner on the tile while the sticker is copied in (the adding state)', async () => {
+    let land: (result: ElementMaterializeResult) => void = () => undefined;
+    bridge.materialize.mockImplementation(
+      () =>
+        new Promise<ElementMaterializeResult>((resolve) => {
+          land = resolve;
+        }),
+    );
+    const { onAddSticker } = await open();
+    const fire = screen.getByRole('button', { name: 'Fire, sticker' });
+    await act(async () => {
+      fireEvent.click(fire);
+    });
+    expect(fire.getAttribute('aria-busy')).toBe('true');
+    expect(fire.querySelector('.stickers-grid-spinner')).not.toBeNull();
+    // One copy at a time: the other tiles wait.
+    expect(
+      screen.getByRole('button', { name: 'Red heart, sticker' }).hasAttribute('disabled'),
+    ).toBe(true);
+    await act(async () => {
+      land({ ok: true, asset: asset('fire') });
+    });
+    await waitFor(() => expect(onAddSticker).toHaveBeenCalledTimes(1));
+    expect(fire.getAttribute('aria-busy')).toBe('false');
+    expect(fire.querySelector('.stickers-grid-spinner')).toBeNull();
+  });
+
+  it('shows a failure on its tile, with a Retry that adds it again', async () => {
+    bridge.materialize
+      .mockResolvedValueOnce({ ok: false, error: 'disk_full' } satisfies ElementMaterializeResult)
+      .mockResolvedValueOnce({ ok: true, asset: asset('fire') });
+    const { onAddSticker } = await open();
+    const fire = screen.getByRole('button', { name: 'Fire, sticker' });
+    act(() => fire.focus());
+    await act(async () => {
+      fireEvent.click(fire);
+    });
+    const sentence = "Couldn't add this sticker: there isn't enough disk space.";
+    const retry = await screen.findByRole('button', { name: 'Retry adding Fire' });
+    const cell = retry.closest('.stickers-grid-cell') as HTMLElement;
+    // On the tile that failed: a short reason and Retry. The whole sentence, with its remedy, is
+    // the alert above the grid, said once; the tile and its Retry point at it too.
+    expect(cell.contains(fire)).toBe(true);
+    expect(cell.getAttribute('data-state')).toBe('failed');
+    expect(within(cell).getByText('No disk space')).toBeDefined();
+    expect(screen.getByRole('alert').textContent).toBe(sentence);
+    expect(retry.getAttribute('title')).toBe(sentence);
+    expect(description(fire)).toContain(`${sentence} Enter tries again.`);
+    // Reachable from the keyboard: the active tile's Retry follows it in the Tab order.
+    expect(retry.getAttribute('tabindex')).toBe('0');
+    // Only the tile that failed says so.
+    const heartCell = screen
+      .getByRole('button', { name: 'Red heart, sticker' })
+      .closest('.stickers-grid-cell') as HTMLElement;
+    expect(heartCell.hasAttribute('data-state')).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(retry);
+    });
+    await waitFor(() => expect(onAddSticker).toHaveBeenCalledTimes(1));
+    expect(bridge.materialize).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('button', { name: 'Retry adding Fire' })).toBeNull();
+    expect(screen.getByRole('alert').textContent).toBe('');
+  });
+
+  it('marks a placement the editor refused on its tile as well', async () => {
+    bridge.materialize.mockResolvedValue({ ok: true, asset: asset('fire') });
+    await open({ onAddSticker: vi.fn(() => 'That sticker could not be added. Try another.') });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Fire, sticker' }));
+    });
+    const retry = await screen.findByRole('button', { name: 'Retry adding Fire' });
+    expect(
+      within(retry.closest('.stickers-grid-cell') as HTMLElement).getByText('Not added'),
+    ).toBeDefined();
+  });
+
   it('says the copy failed, rather than throwing, when main does not answer', async () => {
     bridge.materialize.mockRejectedValue(new Error('the licence lapsed'));
     const { onAddSticker } = await open();

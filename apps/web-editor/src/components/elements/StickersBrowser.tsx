@@ -20,7 +20,11 @@ import {
   type StickerItem,
 } from '@framepilot/ai-sdk';
 import { elementAssetId } from '@framepilot/editor-core';
-import type { ElementAssetWire, ElementMaterializeResult } from '@framepilot/shared-types';
+import type {
+  ElementAssetWire,
+  ElementErrorCodeWire,
+  ElementMaterializeResult,
+} from '@framepilot/shared-types';
 import { elementsMaterialize } from '../../editor/bridge.js';
 import { stickerErrorSentence } from '../../editor/sticker-builders.js';
 import { useLiveAnnouncement } from '../../editor/useLiveAnnouncement.js';
@@ -77,6 +81,27 @@ const FALLBACK_TILE_PX = 72;
 const FALLBACK_VIEWPORT_PX = 480;
 /** Rows drawn beyond the view each way, so a quick scroll does not show empty rows. */
 const OVERSCAN_ROWS = 3;
+
+/**
+ * What a failed tile says on itself (02 §2.2): the reason in a few words, since a 72 px tile holds
+ * no sentence. The whole sentence, with its remedy, is the alert above the grid.
+ */
+const FAILURE_LABELS: Readonly<Record<ElementErrorCodeWire, string>> = {
+  disk_full: 'No disk space',
+  library_missing: 'File missing',
+  integrity_failed: 'File damaged',
+  unknown_element: 'Not available',
+  io_failed: 'Copy failed',
+};
+/** On the tile, when the copy landed but the editor would not place it. */
+const REFUSED_LABEL = 'Not added';
+
+/** The last pick that failed: which tile, the sentence, and the tile's few words. */
+interface TileFailure {
+  readonly id: string;
+  readonly message: string;
+  readonly label: string;
+}
 
 /** A stored list of sticker ids: a view preference, so anything malformed reads as empty. */
 const idList =
@@ -162,10 +187,11 @@ export function StickersBrowser({
     setQueryState(next);
     onQueryChange?.(next);
     // A failure is about the last pick; the next thing the person does moves on from it.
-    setRefusal(null);
+    setFailure(null);
   };
+  /** The sticker being copied in (its tile shows the adding state), or `null`. */
   const [busy, setBusy] = useState<string | null>(null);
-  const [refusal, setRefusal] = useState<string | null>(null);
+  const [failure, setFailure] = useState<TileFailure | null>(null);
   const [, setTilesLoaded] = useState(0);
   const [chip, setChip] = useViewPreference<string>('stickersChip', ALL, (raw) =>
     typeof raw === 'string' ? raw : undefined,
@@ -183,6 +209,7 @@ export function StickersBrowser({
   const searchRef = useRef<HTMLInputElement>(null);
   const [scrollArea, setScrollArea] = useState<HTMLDivElement | null>(null);
   const inProjectNoteId = useId();
+  const failedNoteId = useId();
   const replaceNoteId = useId();
   // What Enter and F do on a tile, read after its name.
   const actionHintId = useId();
@@ -348,24 +375,29 @@ export function StickersBrowser({
     if (found.items.length > 0) focusTile(Math.min(index, found.items.length - 1));
   }, [found.items, focusTile]);
 
+  /** Copy the sticker in and place it: a click, Enter, or the failed tile's Retry. */
   const pick = async (item: StickerItem): Promise<void> => {
     if (busy !== null) return;
     setBusy(item.id);
-    setRefusal(null);
+    setFailure(null);
     try {
       // Main may not answer at all (the licence lapsed, the window is closing): a failed copy.
       const result = await elementsMaterialize({ projectId: project.id, elementId: item.id }).catch(
         (): ElementMaterializeResult => ({ ok: false, error: 'io_failed' }),
       );
       if (!result.ok) {
-        setRefusal(stickerErrorSentence(result.error, result.detail));
+        setFailure({
+          id: item.id,
+          message: stickerErrorSentence(result.error, result.detail),
+          label: FAILURE_LABELS[result.error],
+        });
         return;
       }
       const place =
         replaceTarget !== null && onReplaceSticker !== undefined ? onReplaceSticker : onAddSticker;
       const refused = place(result.asset, item);
-      setRefusal(refused);
       if (refused === null) recordRecent(item);
+      else setFailure({ id: item.id, message: refused, label: REFUSED_LABEL });
     } finally {
       setBusy(null);
     }
@@ -448,7 +480,7 @@ export function StickersBrowser({
             aria-pressed={scope === id}
             onClick={() => {
               setChip(id);
-              setRefusal(null);
+              setFailure(null);
               setActive(0);
               if (scrollArea !== null) scrollArea.scrollTop = 0;
             }}
@@ -460,10 +492,11 @@ export function StickersBrowser({
       <p className="sr-only" aria-live="polite">
         {`${String(found.total)} stickers`}
       </p>
-      {/* A failed pick, above the grid where the eye is; cleared by the next pick, search or
-          chip. Mounted empty, so the alert region exists before it has anything to say. */}
+      {/* A failed pick's whole sentence, above the grid where the eye is and said once by a
+          screen reader; the tile that failed shows a short reason and Retry. Cleared by the next
+          pick, search or chip. Mounted empty, so the alert exists before it has anything to say. */}
       <p className="stock-error live-slot" role="alert">
-        {refusal ?? ''}
+        {failure?.message ?? ''}
       </p>
       {found.items.length === 0 ? (
         <p className="stock-note">
@@ -500,10 +533,17 @@ export function StickersBrowser({
               const favourite = favouriteSet.has(item.id);
               const held = inProject.has(elementAssetId(catalog.library, item.id));
               const source = tileSource(item);
+              const adding = busy === item.id;
+              const failed = failure !== null && failure.id === item.id ? failure : null;
               return (
                 <li
                   key={item.id}
                   className="stickers-grid-cell"
+                  {...(adding
+                    ? { 'data-state': 'adding' }
+                    : failed !== null
+                      ? { 'data-state': 'failed' }
+                      : {})}
                   aria-setsize={found.total}
                   aria-posinset={index + 1}
                   style={{
@@ -523,11 +563,12 @@ export function StickersBrowser({
                     }
                     aria-keyshortcuts="Enter F"
                     aria-describedby={[
+                      ...(failed !== null ? [failedNoteId] : []),
                       actionHintId,
                       favourite ? favouriteOnHintId : favouriteOffHintId,
                       ...(held ? [inProjectNoteId] : []),
                     ].join(' ')}
-                    aria-busy={busy === item.id}
+                    aria-busy={adding}
                     title={
                       replaceTarget !== null
                         ? `Use ${item.name} instead`
@@ -568,6 +609,8 @@ export function StickersBrowser({
                         title="Already in this project"
                       />
                     )}
+                    {/* The adding state: the file is being copied into the project. */}
+                    {adding && <span className="stickers-grid-spinner" aria-hidden="true" />}
                   </button>
                   <button
                     type="button"
@@ -584,6 +627,30 @@ export function StickersBrowser({
                       fill={favourite ? 'currentColor' : 'none'}
                     />
                   </button>
+                  {failed !== null && (
+                    // The failed state: why, in a few words, and the same add again. Retry is a
+                    // Tab stop on the active tile (Enter on the tile retries too).
+                    <div className="stickers-grid-failed">
+                      <span className="stickers-grid-failed-reason" aria-hidden="true">
+                        {failed.label}
+                      </span>
+                      <button
+                        type="button"
+                        className="stickers-grid-retry"
+                        tabIndex={index === focusIndex ? 0 : -1}
+                        aria-label={
+                          replaceTarget !== null
+                            ? `Retry using ${item.name}`
+                            : `Retry adding ${item.name}`
+                        }
+                        aria-describedby={failedNoteId}
+                        title={failed.message}
+                        onClick={() => void pick(item)}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  )}
                 </li>
               );
             })}
@@ -592,6 +659,9 @@ export function StickersBrowser({
       )}
       <p id={inProjectNoteId} hidden>
         Already in this project
+      </p>
+      <p id={failedNoteId} hidden>
+        {failure !== null ? `${failure.message} Enter tries again.` : ''}
       </p>
       <p id={actionHintId} hidden>
         {replaceTarget !== null ? 'Enter uses it instead.' : 'Enter adds it at the playhead.'}
