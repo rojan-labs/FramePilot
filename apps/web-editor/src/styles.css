@@ -15638,6 +15638,13 @@ a.export-credits-license {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Outline and Shadow (plan/elements EL6b.3): the Mask tab's edge-style rows, fewer of them. */
+.sticker-section-look {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
 
 /* ---------------------------------------------------------------------------
    Stock panel — third-party photo & video search

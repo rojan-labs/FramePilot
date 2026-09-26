@@ -1126,6 +1126,7 @@ export function Editor({
                 <Inspector
                   editor={editor}
                   fps={project.fps}
+                  resolution={project.resolution}
                   onReplaceSticker={openStickerReplace}
                   selectedEffectLayerIds={selectedEffectLayerIds}
                   onClearEffectLayers={() => setSelectedEffectLayerIds([])}

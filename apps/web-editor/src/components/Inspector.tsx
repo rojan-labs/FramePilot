@@ -74,7 +74,12 @@ export interface InspectorProps {
   readonly onClearEffectLayers?: () => void;
   /** Open Elements → Stickers to replace the selected sticker (plan/elements 02 §4.1). */
   readonly onReplaceSticker?: (clipId: string, name: string) => void;
+  /** The export frame size, for the Sticker section's sharpness note (plan/elements EL6b.3). */
+  readonly resolution?: { readonly width: number; readonly height: number };
 }
+
+/** The frame a host that passes none (tests, stories) is taken to export at. */
+const DEFAULT_RESOLUTION = { width: 1920, height: 1080 } as const;
 
 const INSPECTOR_TAB_IDS = [
   'basic',
@@ -181,6 +186,7 @@ export function Inspector({
   selectedEffectLayerIds = [],
   onClearEffectLayers = () => {},
   onReplaceSticker,
+  resolution = DEFAULT_RESOLUTION,
 }: InspectorProps): JSX.Element {
   const { selection: selectionId, selectedIds, timeline, playhead, assets } = editor.state;
   const selection = useMemo(
@@ -259,27 +265,27 @@ export function Inspector({
             <EffectLayerMaskPanel key={`${layer.id}-masks`} editor={editor} layer={layer} />
           </div>
         ) : (
-        <div className="inspector-tab-page inspector-effect-page">
-          <EffectInspector
-            layer={layer}
-            onPreview={(params) => {
-              void params;
-            }}
-            onCommit={(params, intensity) => {
-              const patch = setEffectLayerParamsPatch(timeline, layer.id, params, intensity);
-              if (patch) editor.applyPatch(patch);
-            }}
-            onToggleEnabled={(enabled) => {
-              const patch = setEffectLayerEnabledPatch(timeline, layer.id, enabled);
-              if (patch) editor.applyPatch(patch);
-            }}
-            onRemove={() => {
-              const patch = removeEffectLayerPatch(timeline, layer.id);
-              if (patch) editor.applyPatch(patch);
-              onClearEffectLayers();
-            }}
-          />
-        </div>
+          <div className="inspector-tab-page inspector-effect-page">
+            <EffectInspector
+              layer={layer}
+              onPreview={(params) => {
+                void params;
+              }}
+              onCommit={(params, intensity) => {
+                const patch = setEffectLayerParamsPatch(timeline, layer.id, params, intensity);
+                if (patch) editor.applyPatch(patch);
+              }}
+              onToggleEnabled={(enabled) => {
+                const patch = setEffectLayerEnabledPatch(timeline, layer.id, enabled);
+                if (patch) editor.applyPatch(patch);
+              }}
+              onRemove={() => {
+                const patch = removeEffectLayerPatch(timeline, layer.id);
+                if (patch) editor.applyPatch(patch);
+                onClearEffectLayers();
+              }}
+            />
+          </div>
         )}
       </section>
     );
@@ -342,8 +348,10 @@ export function Inspector({
         return (
           <StickerInspector
             key={`sticker-${clip.id}`}
+            editor={editor}
             clip={clip}
             asset={clipAsset}
+            resolution={resolution}
             {...(onReplaceSticker ? { onReplace: onReplaceSticker } : {})}
           />
         );
@@ -517,7 +525,6 @@ export function Inspector({
           ))}
         </div>
       </div>
-
     </section>
   );
 }
