@@ -90,7 +90,8 @@ import { Tooltip } from './Tooltip.js';
 import { CommandPalette } from './CommandPalette.js';
 import { useMatteJobCommits } from './inspector/masks/useMatteJob.js';
 import { useMaskToolValue } from './inspector/masks/useMaskTools.js';
-import type { SettingsSection } from './SettingsDialog.js';
+import type { SettingsFocusField, SettingsSection } from './SettingsDialog.js';
+import { useAiConfig } from '../editor/useAiConfig.js';
 import {
   Captions,
   ChevronLeft,
@@ -124,8 +125,11 @@ export interface EditorProps {
   readonly helpOpen?: boolean;
   /** Toggle the keyboard-help overlay (`?`). */
   readonly onToggleHelp?: () => void;
-  /** Open the Settings dialog (`⌘,`), optionally deep-linked to a tab (H2). */
-  readonly onOpenSettings?: (section?: SettingsSection) => void;
+  /**
+   * Open the Settings dialog (`⌘,`), optionally deep-linked to a tab (H2) and to a control in it,
+   * scrolled into view and focused.
+   */
+  readonly onOpenSettings?: (section?: SettingsSection, focusField?: SettingsFocusField) => void;
   /**
    * The Topbar's centre box (owned by {@link App}), where the Source/Program
    * switch and the monitor's view controls render.
@@ -583,6 +587,8 @@ export function Editor({
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const { settings, update } = useSettings();
+  // Whether Photos and Videos can browse: Elements opens on Stickers until they can.
+  const pexelsKeyConfigured = useAiConfig().config.pexelsReady === true;
   // The editor as of the latest render, for work that finishes after an await (a sticker drop
   // waits for main's copy while edits go on).
   const liveEditor = useRef(editor);
@@ -980,7 +986,9 @@ export function Editor({
           announceAdded(stockAddedAnnouncement(asset, 'overlay', added.start));
           return null;
         }}
-        {...(onOpenSettings ? { onOpenSettings: () => onOpenSettings('ai') } : {})}
+        // Straight to the key field: the Pexels group sits below the AI provider accordions.
+        {...(onOpenSettings ? { onOpenSettings: () => onOpenSettings('ai', 'pexels-key') } : {})}
+        pexelsKeyConfigured={pexelsKeyConfigured}
         onShowInAssets={revealAssetInBin}
         onAddShape={(presetId, colour) => {
           const at = liveEditor.current.getPlayhead();
@@ -1053,6 +1061,7 @@ export function Editor({
     announceAdded,
     liveElementTarget,
     endStickerReplace,
+    pexelsKeyConfigured,
   ]);
   const openTransitionLibrary = useCallback(() => setLeftTab('transitions'), []);
   const aiFacingProject = useMemo(

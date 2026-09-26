@@ -14,7 +14,9 @@ film. It sits second in the rail, right after **Assets**, and replaces the old *
 
 - The sub-tab strip sits at the top of the panel. Click a sub-tab, or focus the strip and use
   **←** / **→** (Home and End jump to the ends).
-- Elements remembers which sub-tab you were on, and reopens there.
+- Elements remembers which sub-tab you were on, and reopens there. The first time, it opens on
+  **Photos** if you have added a Pexels key, and on **Stickers** if not: they work offline with no
+  setup.
 - If you left the rail on the old **Stock** tab, FramePilot opens **Elements** in its place.
 - **Photos** and **Videos** share one search box: type "city skyline" in Photos, switch to
   Videos, and the same words are searched there.
@@ -25,7 +27,8 @@ film. It sits second in the rail, right after **Assets**, and replaces the old *
 ## Photos and Videos
 
 These need a free Pexels API key (Settings → AI → **Photos & videos (Pexels)**). Only the words
-you type leave your computer.
+you type leave your computer. Without a key, the tab explains this and offers **Add Pexels key**,
+which opens Settings with the key field in view and the cursor in it.
 
 - **Categories.** A row of chips under the search box — Business, Technology, People, Nature,
   City, Abstract, Backgrounds, Food, Travel, Textures — each a ready-made search. One click is one

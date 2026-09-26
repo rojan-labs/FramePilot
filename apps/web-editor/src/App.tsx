@@ -52,7 +52,11 @@ import { Editor } from './components/Editor.js';
 import { HomeScreen } from './components/HomeScreen.js';
 import { Topbar, type SaveState } from './components/Topbar.js';
 import { ShortcutHelp } from './components/ShortcutHelp.js';
-import { SettingsDialog, type SettingsSection } from './components/SettingsDialog.js';
+import {
+  SettingsDialog,
+  type SettingsFocusField,
+  type SettingsSection,
+} from './components/SettingsDialog.js';
 import { NewProjectDialog } from './components/NewProjectDialog.js';
 import { CapabilityPackDependencyDialog } from './components/CapabilityPackDependencyDialog.js';
 
@@ -84,6 +88,7 @@ export function App(): JSX.Element {
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('display');
+  const [settingsFocus, setSettingsFocus] = useState<SettingsFocusField | undefined>(undefined);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   /** Why the last open attempt failed. Cleared when the user starts another one. */
   const [openError, setOpenError] = useState<string | null>(null);
@@ -652,6 +657,7 @@ export function App(): JSX.Element {
                 onOpenShortcuts={() => setHelpOpen(true)}
                 onOpenSettings={() => {
                   setSettingsSection('display');
+                  setSettingsFocus(undefined);
                   setSettingsOpen(true);
                 }}
                 onMonitorSlotRef={setTopbarMonitorSlot}
@@ -675,8 +681,9 @@ export function App(): JSX.Element {
                 onCloseUnderstanding={() => setUnderstandingOpen(false)}
                 transcriptionOpen={transcriptionOpen}
                 onCloseTranscription={() => setTranscriptionOpen(false)}
-                onOpenSettings={(section) => {
+                onOpenSettings={(section, focusField) => {
                   setSettingsSection(section ?? 'display');
+                  setSettingsFocus(focusField);
                   setSettingsOpen(true);
                 }}
               />
@@ -692,6 +699,7 @@ export function App(): JSX.Element {
           <SettingsDialog
             open={settingsOpen}
             initialSection={settingsSection}
+            {...(settingsFocus ? { focusField: settingsFocus } : {})}
             onClose={() => setSettingsOpen(false)}
             {...(project
               ? { projectId: project.id, project, onApplyPatch: applySettingsPatch }

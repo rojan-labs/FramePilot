@@ -721,49 +721,44 @@ export function PexelsBrowser({
     <div className="stock-panel">
       {/* One row holds everything that is not a result: what to search for, the
           shape to search in, and who the media comes from. The kind is the
-          Elements sub-tab, so it needs no control here. */}
-      <div className="stock-controls">
-        <label className="stock-search" htmlFor="stock-search-input">
-          <span className="sr-only">{kind === 'video' ? 'Search videos' : 'Search photos'}</span>
-          <input
-            id="stock-search-input"
-            type="search"
-            className="stock-search-input"
-            placeholder={kind === 'video' ? 'Search videos' : 'Search photos'}
-            value={query}
-            disabled={noKey}
-            onChange={(event) => typeQuery(event.target.value)}
-          />
-        </label>
-        {/* Starts on the project's own shape, so a vertical short is offered
-            vertical footage first. Plain toggle buttons, like the chips. */}
-        <div className="stock-orientation" role="group" aria-label="Orientation">
-          {ORIENTATION_CHOICES.map(({ id, label }) => (
-            <button
-              key={id}
-              type="button"
-              className="stock-orientation-option"
-              aria-pressed={orientation === id}
-              {...(id === 'any' ? {} : { 'aria-label': label })}
-              title={id === 'any' ? `${label} shape` : `${label} ${kindNoun} only`}
-              disabled={noKey}
-              onClick={() => chooseOrientation(id)}
-            >
-              {id === 'any' ? label : <OrientationGlyph shape={id} />}
-            </button>
-          ))}
+          Elements sub-tab, so it needs no control here. Without a key there is
+          nothing to search or filter, so the row is not shown at all: a disabled
+          box above the explanation reads as broken. */}
+      {noKey ? null : (
+        <div className="stock-controls">
+          <label className="stock-search" htmlFor="stock-search-input">
+            <span className="sr-only">{kind === 'video' ? 'Search videos' : 'Search photos'}</span>
+            <input
+              id="stock-search-input"
+              type="search"
+              className="stock-search-input"
+              placeholder={kind === 'video' ? 'Search videos' : 'Search photos'}
+              value={query}
+              onChange={(event) => typeQuery(event.target.value)}
+            />
+          </label>
+          {/* Starts on the project's own shape, so a vertical short is offered
+              vertical footage first. Plain toggle buttons, like the chips. */}
+          <div className="stock-orientation" role="group" aria-label="Orientation">
+            {ORIENTATION_CHOICES.map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                className="stock-orientation-option"
+                aria-pressed={orientation === id}
+                {...(id === 'any' ? {} : { 'aria-label': label })}
+                title={id === 'any' ? `${label} shape` : `${label} ${kindNoun} only`}
+                onClick={() => chooseOrientation(id)}
+              >
+                {id === 'any' ? label : <OrientationGlyph shape={id} />}
+              </button>
+            ))}
+          </div>
+          {/* Required by the Pexels API guidelines. It lives in this row for the
+              same reason everything else does — it is not a result. */}
+          <PexelsCredit />
         </div>
-        {/* Required by the Pexels API guidelines. It lives in this row for the
-            same reason everything else does — it is not a result. */}
-        <a
-          className="stock-credit"
-          href="https://www.pexels.com"
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          Pexels
-        </a>
-      </div>
+      )}
 
       {noKey ? null : (
         <div
@@ -821,9 +816,12 @@ export function PexelsBrowser({
             Photos and videos need a free Pexels API key. It takes about a minute to get one, and
             the only thing that leaves your machine is the words you type.
           </p>
+          {/* The credit the guidelines ask for, in every state: here, with the note. */}
+          <PexelsCredit />
           {onOpenSettings ? (
-            <Button variant="ghost" type="button" onClick={onOpenSettings}>
-              Open Settings
+            // The one thing to do here, so the loud button; it opens Settings on the key field.
+            <Button variant="primary" type="button" onClick={onOpenSettings}>
+              Add Pexels key
             </Button>
           ) : null}
         </div>
@@ -928,6 +926,20 @@ export function PexelsBrowser({
         </>
       )}
     </div>
+  );
+}
+
+/** The credit the Pexels API guidelines require: a prominent link, in the spec's words. */
+function PexelsCredit(): JSX.Element {
+  return (
+    <a
+      className="stock-credit"
+      href="https://www.pexels.com"
+      target="_blank"
+      rel="noreferrer noopener"
+    >
+      Photos and videos from Pexels
+    </a>
   );
 }
 

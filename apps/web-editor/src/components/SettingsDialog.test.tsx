@@ -1400,6 +1400,24 @@ describe('SettingsDialog', () => {
       );
     });
 
+    it('opens with the key field in view and focused when asked for it', async () => {
+      stubStockHost({ kind: 'no_key' });
+      const scrolled = vi.fn();
+      const scrollIntoView = HTMLElement.prototype.scrollIntoView;
+      HTMLElement.prototype.scrollIntoView = scrolled;
+      render(
+        <SettingsProvider>
+          <AiConfigProvider>
+            <SettingsDialog open initialSection="ai" focusField="pexels-key" onClose={() => {}} />
+          </AiConfigProvider>
+        </SettingsProvider>,
+      );
+      const field = await screen.findByLabelText('Pexels API key');
+      await waitFor(() => expect(document.activeElement).toBe(field));
+      expect(scrolled).toHaveBeenCalled();
+      HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    });
+
     it('never renders the key back, because it is write-only', async () => {
       stubStockHost({ kind: 'measured', monthly: MONTHLY }, { pexelsReady: true });
       openWithAiConfig();

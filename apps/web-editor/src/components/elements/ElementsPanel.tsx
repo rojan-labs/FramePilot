@@ -66,8 +66,14 @@ export interface ElementsPanelProps {
   readonly onAddStock: (asset: Asset) => string | null;
   /** Place a downloaded Pexels asset as a picture-in-picture (**Add as overlay**, ADR 0193). */
   readonly onAddStockOverlay?: (asset: Asset) => string | null;
-  /** Opens Settings → Photos & videos (Pexels). */
+  /** Opens Settings → Photos & videos (Pexels), on the key field. */
   readonly onOpenSettings?: () => void;
+  /**
+   * A Pexels key is saved, so Photos and Videos can browse. Decides the first open: Photos with a
+   * key, Stickers without one — they work offline with no setup, and a first look at Elements
+   * should show something to use rather than a key form (02 §2).
+   */
+  readonly pexelsKeyConfigured?: boolean;
   /** Show an asset in Assets: a Photos or Videos tile already in the project. */
   readonly onShowInAssets?: (assetId: string) => void;
   /** Add a shape preset at the playhead; returns the refusal sentence, or `null`. */
@@ -90,6 +96,7 @@ export function ElementsPanel({
   onAddStock,
   onAddStockOverlay,
   onOpenSettings,
+  pexelsKeyConfigured = false,
   onShowInAssets,
   onAddShape,
   onAddSticker,
@@ -99,12 +106,16 @@ export function ElementsPanel({
 }: ElementsPanelProps): JSX.Element {
   const available = useMemo(() => availableElementsTabs(), []);
   const coerce = useCallback((raw: unknown) => coerceElementsTab(raw, available), [available]);
-  const [storedTab, setTab] = useViewPreference<ElementsTab | null>(
-    'elementsTab',
-    available[0] ?? null,
-    coerce,
-  );
-  const remembered = storedTab !== null && available.includes(storedTab) ? storedTab : available[0];
+  // `null` until the person picks a tab: the first open follows whether a key is saved, so a key
+  // added later opens on Photos rather than on a default remembered from before it existed.
+  const [storedTab, setTab] = useViewPreference<ElementsTab | null>('elementsTab', null, coerce);
+  const firstOpen: ElementsTab | undefined =
+    pexelsKeyConfigured && available.includes('photos')
+      ? 'photos'
+      : available.includes('stickers')
+        ? 'stickers'
+        : available[0];
+  const remembered = storedTab !== null && available.includes(storedTab) ? storedTab : firstOpen;
   // Replacing a sticker needs the sticker grid, whatever tab was open.
   const tab =
     stickerReplaceTarget !== null && available.includes('stickers') ? 'stickers' : remembered;

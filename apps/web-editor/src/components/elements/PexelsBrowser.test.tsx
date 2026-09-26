@@ -272,7 +272,16 @@ describe('PexelsBrowser', () => {
     // Not an alert: having no key on first run is expected, not a failure.
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByText(/free Pexels API key/i)).toBeDefined();
-    fireEvent.click(screen.getByRole('button', { name: 'Open Settings' }));
+    // No dead controls above the explanation: nothing can be searched or filtered yet.
+    expect(screen.queryByRole('searchbox')).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Orientation' })).toBeNull();
+    // The credit stays, inside the note.
+    const hint = document.querySelector('.stock-hint') as HTMLElement;
+    expect(within(hint).getByRole('link', { name: 'Photos and videos from Pexels' })).toBeDefined();
+    // One clear, primary way forward.
+    const addKey = screen.getByRole('button', { name: 'Add Pexels key' });
+    expect(addKey.getAttribute('data-variant')).toBe('primary');
+    fireEvent.click(addKey);
     expect(onOpenSettings).toHaveBeenCalled();
   });
 
@@ -325,13 +334,13 @@ describe('PexelsBrowser', () => {
 
   it('renders the Pexels credit in every state, including errors', async () => {
     renderPanel();
-    expect(screen.getByRole('link', { name: 'Pexels' })).toBeDefined();
+    expect(screen.getByRole('link', { name: 'Photos and videos from Pexels' })).toBeDefined();
 
     bridge.search.mockResolvedValue({ ok: false, error: 'offline' });
     await typeQuery('skyline');
     // A compliance requirement, not a styling detail: the API guidelines ask for
     // a prominent link, and an error state is exactly where a lazier build drops it.
-    expect(screen.getByRole('link', { name: 'Pexels' })).toBeDefined();
+    expect(screen.getByRole('link', { name: 'Photos and videos from Pexels' })).toBeDefined();
   });
 
   // -------------------------------------------------------------------------

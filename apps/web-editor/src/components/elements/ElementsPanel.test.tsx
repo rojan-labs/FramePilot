@@ -60,12 +60,14 @@ const project = {
   resolution: { width: 1920, height: 1080 },
 } as unknown as Project;
 
-function renderPanel(): void {
+/** The panel with a Pexels key configured (Photos and Videos can browse), unless told otherwise. */
+function renderPanel(options: { readonly keyed?: boolean } = {}): void {
   render(
     <ElementsPanel
       project={project}
       placementBlockedReasonFor={() => null}
       onAddStock={() => null}
+      pexelsKeyConfigured={options.keyed ?? true}
     />,
   );
 }
@@ -86,10 +88,26 @@ describe('ElementsPanel', () => {
     expect(screen.getByRole('tablist', { name: 'Elements' })).toBeDefined();
   });
 
-  it('opens on Photos the first time and shows the photo library', () => {
+  it('opens on Photos the first time when a Pexels key is configured', () => {
     renderPanel();
     expect(screen.getByRole('tab', { name: 'Photos' }).getAttribute('aria-selected')).toBe('true');
     expect(screen.getByTestId('pexels').dataset.kind).toBe('photo');
+  });
+
+  it('opens on Stickers the first time without a key: something useful, not a key form', () => {
+    renderPanel({ keyed: false });
+    expect(screen.getByRole('tab', { name: 'Stickers' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    expect(screen.getByTestId('stickers')).toBeDefined();
+    // Nothing is remembered until the person chooses: a key added later opens on Photos.
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it('keeps a remembered Photos over the no-key default', () => {
+    localStorage.setItem(STORAGE_KEY, '"photos"');
+    renderPanel({ keyed: false });
+    expect(screen.getByRole('tab', { name: 'Photos' }).getAttribute('aria-selected')).toBe('true');
   });
 
   it('switches to Videos on click and remembers the choice', () => {
@@ -231,6 +249,7 @@ describe('ElementsPanel', () => {
         placementBlockedReasonFor={() => null}
         onAddStock={() => null}
         onAddStockOverlay={() => null}
+        pexelsKeyConfigured
       />,
     );
     expect(screen.getByTestId('pexels').dataset.overlay).toBe('yes');

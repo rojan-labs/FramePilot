@@ -103,10 +103,17 @@ export type SettingsSection =
   | 'memory'
   | 'shortcuts';
 
+/**
+ * A control a deep link opens Settings on, scrolled into view and focused — "Add Pexels key" in
+ * Elements → Photos lands on the key field, not at the top of a long AI section.
+ */
+export type SettingsFocusField = 'pexels-key';
+
 export interface SettingsDialogProps {
   readonly open: boolean;
   readonly onClose: () => void;
   readonly initialSection?: SettingsSection;
+  readonly focusField?: SettingsFocusField;
   readonly projectId?: string;
   /** The open project, for the Memory section's per-project view and resets. */
   readonly project?: Project;
@@ -1314,6 +1321,9 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
  * values, not live ones — so the panel says when it saw them
  * (`plan/3rd-party-sourcing/photo-video/PEXELS-API.md` §3).
  */
+/** The Pexels group's title, which is also its accessible name (a deep link finds it by that). */
+const PEXELS_GROUP_TITLE = 'Photos & videos (Pexels)';
+
 function StockMediaSettings(): JSX.Element {
   const { config, setPexelsApiKey } = useAiConfig();
   const [quota, setQuota] = useState<StockQuotaSnapshot>({ kind: 'no_key' });
@@ -1340,7 +1350,7 @@ function StockMediaSettings(): JSX.Element {
 
   return (
     <SettingGroup
-      title="Photos & videos (Pexels)"
+      title={PEXELS_GROUP_TITLE}
       description={
         'Your Pexels key powers Elements → Photos and Videos. Only the words you search for ' +
         'leave your computer.'
@@ -2020,6 +2030,7 @@ export function SettingsDialog({
   open,
   onClose,
   initialSection,
+  focusField,
   projectId,
   project,
   onApplyPatch,
@@ -2029,6 +2040,7 @@ export function SettingsDialog({
     <SettingsDialogContent
       onClose={onClose}
       initialSection={initialSection ?? 'display'}
+      {...(focusField ? { focusField } : {})}
       {...(projectId ? { projectId } : {})}
       {...(project ? { project } : {})}
       {...(onApplyPatch ? { onApplyPatch } : {})}
@@ -2039,12 +2051,14 @@ export function SettingsDialog({
 function SettingsDialogContent({
   onClose,
   initialSection,
+  focusField,
   projectId,
   project,
   onApplyPatch,
 }: {
   readonly onClose: () => void;
   readonly initialSection: Section;
+  readonly focusField?: SettingsFocusField;
   readonly projectId?: string;
   readonly project?: Project;
   readonly onApplyPatch?: (patch: Patch) => void;
@@ -2053,6 +2067,18 @@ function SettingsDialogContent({
   const { config } = useAiConfig();
   const [section, setSection] = useState<Section>(initialSection);
   const dialogRef = useModalFocusTrap<HTMLDivElement>();
+  // After the trap's own first focus (effects run in order): the control the deep link named.
+  useEffect(() => {
+    if (focusField !== 'pexels-key') return;
+    const dialog = dialogRef.current;
+    const target =
+      dialog?.querySelector<HTMLElement>('#stock-pexels-key') ??
+      // A key already saved shows Replace and Clear instead of the field.
+      dialog?.querySelector<HTMLElement>(`section[aria-label="${PEXELS_GROUP_TITLE}"] button`);
+    target?.scrollIntoView?.({ block: 'center' });
+    target?.focus();
+    // Once per open: the dialog remounts for the next one.
+  }, []);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const activeProvider = config.providers.find(({ name }) => name === config.activeProvider);
   // Re-read on every open: a run in the sidebar can prove the provider between opens.
