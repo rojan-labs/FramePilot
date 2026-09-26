@@ -10320,7 +10320,9 @@ stickers, CC BY 4.0 (EL10).
   vertical/4K, callouts told to move off their targets, sticker ids offered over MCP; the MCP
   sticker materialiser deferred (decided autonomously); CI pending; eval runs are human steps
 - [~] **EL9** Photos/Videos: category chips, orientation filter, drag to timeline, manual overlay
-- [ ] **EL10** Animated stickers (optional, schema v26) — gated on MD-E3
+- [!] **EL10** Animated stickers (optional, schema v26) — gated on MD-E3, whose recommended answer
+  needs a licence read of Noto Emoji Animation (CC BY 4.0): a human step, instructions in
+  `plan/elements/09-PHASES.md` EL10
 - [ ] **EL11** Favourites/recents, skin tones, "Add as sticker", drop on monitor, follow subject,
   the browser build
 - [ ] **EL12** Docs, changelogs, desktop evidence runs, close-out

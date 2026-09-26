@@ -535,7 +535,18 @@ node packages/ai-sdk/scripts/mission-baseline.mjs --case <case> --runs 10 --yes`
 
 ---
 
-## EL10 — Animated stickers (optional pack) `[ ]` — gated on MD-E3
+## EL10 — Animated stickers (optional pack) `[!]` — gated on MD-E3
+
+- [!] **The licence read MD-E3 requires.** MD-E3 took the plan's recommended answer (decided
+      autonomously, 2026-09-26): yes, as EL10, **after a licence read** — and that read is a person's
+      call, not the agent's. **Human step:** read the CC BY 4.0 terms of Google's Noto Emoji
+      Animation (`https://github.com/googlefonts/noto-emoji-animation`, its LICENSE and
+      `data/api.json`) against three uses: FramePilot pinning the 881 animated WebPs by SHA-256 and
+      downloading them on demand from an allow-listed host; editors rendering them into commercial
+      videos; and the credit FramePilot shows in Export → Credits under **Required** ("Noto Emoji
+      Animation by Google, CC BY 4.0") as what the editor must publish with the video. Record the
+      answer, the date and who read it in README §1 (MD-E3). If yes, build EL10 as written below,
+      the spike first; if no, move EL10 to 11 §2 with the reason.
 
 - [ ] **EL10.0** Spike B (moved here): decode Noto `1f600` with Pillow and with Chromium's
       `ImageDecoder`; compare frames, durations and loop; memory at display size.

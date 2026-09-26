@@ -153,7 +153,7 @@ new renderer.
 | **MD-E2** | Commit the curated ~200 stickers and their thumbnails (≈ 5 MB); never commit the rest                                                  | **Yes — decided autonomously, 2026-09-26**: the repo pack is 80 MB; the full set would add ~40% (the curated 251 are 6.3 MB with tiles)                                                                                                                                      | EL6a          |
 | **MD-E1** | Ship the other ~1,395 stickers in the **desktop installer** (≈ 33 MB with thumbnails, fetched from the pinned commit at packaging)     | **Yes — decided autonomously, 2026-09-26** (the recommended answer: offline and instant, like the caption fonts). The packaging step ships a manifest of the files it encoded, which the library verifies, because a lossless WebP's bytes can differ between build machines | EL6b          |
 | **MD-E5** | Relax the cutaway-only placement of Pexels photos/videos for **manual** placement (picture-in-picture from the panel)                  | **Yes — decided autonomously, 2026-09-26** (the recommended answer: manual only first — **Add** stays a cutaway, **Add as overlay** is a picture-in-picture; the agent keeps cutaway-first until measured)                                                                   | EL9           |
-| **MD-E3** | Ship Noto Animated Emoji (CC BY 4.0, credit required in the video description) as on-demand downloads                                  | **Yes, as EL10**, after a licence read (same class of question as MO-6/MO-11)                                                                                                                                                                                                | EL10          |
+| **MD-E3** | Ship Noto Animated Emoji (CC BY 4.0, credit required in the video description) as on-demand downloads                                  | **Yes, as EL10, after a licence read — decided autonomously, 2026-09-26**; the licence read is a human step, so EL10 waits on it (09, EL10)                                                                                                                                  | EL10          |
 
 Each is asked when its phase is next, not all at once (EL0.1).
 
@@ -305,7 +305,7 @@ holds and every row of [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md) is d
 | EL7   | `[~]`  | Built: In/Out/Loop, tool, rows, e2e; CI pending; eval and run C human     |
 | EL8   | `[~]`  | Built: checks, rows, skill, cases 4–6, MCP; CI pending; evals human       |
 | EL9   | `[~]`  | MD-E5 decided (manual picture-in-picture only); in progress               |
-| EL10  | `[ ]`  | Optional; gated on MD-E3                                                  |
+| EL10  | `[!]`  | Optional; waits on the MD-E3 licence read (a human step, see 09)          |
 | EL11  | `[ ]`  |                                                                           |
 | EL12  | `[ ]`  |                                                                           |
 
