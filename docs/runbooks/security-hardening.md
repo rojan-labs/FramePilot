@@ -73,6 +73,27 @@ When a security issue is found or reported (see disclosure process in
 root cause, fix + PR link, and the regression test added. Treat a sandbox escape or
 original-asset loss as **critical**.
 
+### 2026-09-26 — Sticker library review (plan/elements EL6a, PASS WITH FINDINGS)
+
+- **Surface:** `framepilot:elements:materialize` and heal-on-open
+  (`apps/desktop/electron/media/elements-library.ts`), the agent's `add_sticker` host
+  (`electron/ai/sticker-host.ts`), reviewed against plan/elements 06 §5 by `security-reviewer`.
+- **Held:** only a catalogue id (`^[a-z0-9_]{1,96}$`) and a project id cross the boundary; the
+  project id is reduced to a safe segment; every write goes through `resolveWithin` as a temp
+  file then a rename; each bundled file's SHA-256 is checked before it is copied, and an existing
+  copy's before it is reused; the CSP and Electron hardening are unchanged; `add_sticker` takes no
+  project id and is `hostUiOnly`, so MCP cannot reach it; telemetry carries no id or path.
+- **Fixed (medium):** a project media folder linked outside the projects root made the sandbox
+  throw a message naming both paths, which reached the renderer and the model, and an unguarded
+  heal stopped the project opening. Every failure is now a closed code, heal never throws, and
+  main guards it.
+- **Fixed (low, info):** heal copied a sticker for an asset recorded elsewhere; it now restores only
+  the file's own path and copies a shared sticker once. A catalogue entry must name its own
+  file; a wrong-size copy is replaced unread; a crashed copy's temp files are swept.
+- **Tests:** `elements-library.test.ts` (traversal-shaped ids and project ids, a symlinked media
+  folder, a path-shaped catalogue file, tampered reuse, stale temp files, heal's no-write and
+  never-throw cases) and `model-facing-failure.gate.test.ts` (the sentences the model sees).
+
 ### 2026-06-26 — Sidecar accepted arbitrary filesystem paths (CRITICAL, finding 1.2)
 
 - **Summary:** The Python FastAPI sidecar routes accepted arbitrary caller-supplied
