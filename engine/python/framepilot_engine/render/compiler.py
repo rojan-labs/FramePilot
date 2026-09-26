@@ -534,9 +534,9 @@ def _compile_image_clip(
     own_alpha = source.mask
     source = _attach_mask(source, clip, transition, media_size, stacks)
     source = _apply_key_despill(source, stacks)
-    source = _apply_edge_styles(source, clip, stacks, media_size, transition, own_alpha)
+    source = _apply_edge_styles(source, clip, stacks, media_size, transition, own_alpha, still=True)
     source = _apply_catalog_transition(source, clip, use_legacy)
-    placed = _place_video_clip(source, clip, target, transition)
+    placed = _place_video_clip(source, clip, target, transition, still=True)
     return placed.with_start(clip.start)
 
 
@@ -589,7 +589,13 @@ def _compile_text_clip(
     layer = _attach_mask(layer, clip, transition, None, stacks)
     layer = _apply_key_despill(layer, stacks)
     layer = _apply_edge_styles(
-        layer, clip, stacks, _title_edge_size(raster, target, project_size), transition, own_alpha
+        layer,
+        clip,
+        stacks,
+        _title_edge_size(raster, target, project_size),
+        transition,
+        own_alpha,
+        still=True,
     )
     layer = _apply_catalog_transition(layer, clip, use_legacy)
     placed = _place_video_clip(
@@ -599,6 +605,7 @@ def _compile_text_clip(
         transition,
         fit_to_frame=False,
         centre=(layout.centre_x, layout.centre_y),
+        still=True,
     )
     return placed.with_start(clip.start)
 
@@ -642,7 +649,7 @@ def _compile_shape_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int]
     layer = _attach_mask(layer, clip, transition, with_stack=False)
     layer = _apply_catalog_transition(layer, clip, use_legacy)
     placed = _place_video_clip(
-        layer, clip, target, transition, fit_to_frame=False, centre=bounds.centre
+        layer, clip, target, transition, fit_to_frame=False, centre=bounds.centre, still=True
     )
     return placed.with_start(clip.start)
 
@@ -655,6 +662,7 @@ def _place_video_clip(
     *,
     fit_to_frame: bool = True,
     centre: tuple[float, float] | None = None,
+    still: bool = False,
 ) -> VideoClip:
     """Scale, animate and position one picture layer inside the target frame.
 
@@ -667,6 +675,8 @@ def _place_video_clip(
         frame centre. A text overlay authors this as ``xPercent``/``yPercent``, and the
         preview has honored it since the Inspector could set it — the render did not, so
         every overlay exported dead centre whatever the editor had positioned.
+    :param still: ``True`` for a layer made from one picture (a still, a title, a shape): its
+        resize is reused while its picture and size repeat (:func:`_resized`).
     """
     target_w, target_h = target
     clip_w, clip_h = source.size
@@ -675,7 +685,7 @@ def _place_video_clip(
     geo_transition = transition is not None and transitions.affects_geometry(transition)
     animated = has_rendered_transform(clip) or geo_transition or title_envelope_animates(clip)
     if not animated:
-        placed = source if base_scale == 1.0 else source.resized(base_scale)
+        placed = source if base_scale == 1.0 else _resized(source, base_scale, still)
         if centre is None:
             return placed.with_position("center")
         width = clip_w * base_scale
@@ -692,10 +702,25 @@ def _place_video_clip(
             clip, t, (clip_w, clip_h), base_scale, target, (centre_x, centre_y), transition
         )
 
-    placed = source.resized(scale_at)
+    placed = _resized(source, scale_at, still)
     if ROTATION in animated_properties(clip):
         placed = placed.rotated(lambda t: evaluate_clip_transform(clip, t).rotation, expand=False)
     return placed.with_position(position_at)
+
+
+def _resized(source: VideoClip, new_size: float | Callable[[float], float], still: bool) -> Any:
+    """``source.resized(new_size)``; for a still, the same resize, reused while nothing changes.
+
+    MoviePy resizes a layer again on every frame, and a still's picture is usually the same
+    picture every frame; :class:`~framepilot_engine.render.still_resize.ReusingResize` returns
+    the previous result when its input and size are equal to the previous ones, so the pixels
+    are the ones a fresh resize gives (``test_element_layer_export.py``).
+    """
+    if not still:
+        return source.resized(new_size)
+    from framepilot_engine.render.still_resize import ReusingResize
+
+    return source.with_effects([ReusingResize(new_size)])
 
 
 # The cut-adjacency tolerance, under-layer windows, neighbour lookup and handle slack live
@@ -1153,6 +1178,39 @@ def _refuse_unrenderable_edge_styles(clip: Clip, media_size: tuple[float, float]
         )
 
 
+@dataclass(frozen=True)
+class _StyledInputs:
+    """A still's last edge-styled frame and the inputs it was drawn from (copies, never shared)."""
+
+    picture: np.ndarray
+    alpha: np.ndarray
+    opacity: float
+    result: tuple[np.ndarray, np.ndarray]
+
+    @classmethod
+    def keep(
+        cls,
+        picture: np.ndarray,
+        alpha: np.ndarray,
+        opacity: float,
+        result: tuple[np.ndarray, np.ndarray],
+    ) -> _StyledInputs:
+        return cls(picture.copy(), alpha.copy(), opacity, (result[0].copy(), result[1].copy()))
+
+    def matches(self, picture: np.ndarray, alpha: np.ndarray, opacity: float) -> bool:
+        return (
+            opacity == self.opacity
+            and picture.shape == self.picture.shape
+            and alpha.shape == self.alpha.shape
+            and alpha.dtype == self.alpha.dtype
+            and bool(np.array_equal(picture, self.picture))
+            and bool(np.array_equal(alpha, self.alpha))
+        )
+
+    def styled(self) -> tuple[np.ndarray, np.ndarray]:
+        return self.result[0].copy(), self.result[1].copy()
+
+
 def _apply_edge_styles(
     source: VideoClip,
     clip: Clip,
@@ -1160,6 +1218,7 @@ def _apply_edge_styles(
     media_size: tuple[float, float] | None,
     transition: transitions.Transition | None,
     own_alpha: Any | None = None,
+    still: bool = False,
 ) -> VideoClip:
     """Draw the clip's cut-out edge styles (outline, glow, shadow) under its picture (MK9.2).
 
@@ -1168,6 +1227,12 @@ def _apply_edge_styles(
     times the layer's own alpha (``own_alpha``, a still's transparency, EL2b): a video with no
     stack has nothing to trace, and a sticker with none is traced around its art. A static
     cut-out is evaluated once and reused.
+
+    :param still: ``True`` for a layer made from one picture (a still, a title). With a static
+        cut-out its styled result is reused while its picture, alpha and opacity equal the
+        previous frame's: ``apply_edge_styles`` is a pure function of them, so the reused result
+        is the one it would compute (``test_element_layer_export.py``). A video's frames differ
+        every frame, so it never compares them.
     """
     styles = clip_edge_styles(clip)
     if not styles or media_size is None:
@@ -1184,6 +1249,8 @@ def _apply_edge_styles(
     # opacity is read per instant anyway.
     static = alpha_stack is None or not alpha_stack.alpha_animated
     static_cut: list[Any] = []
+    reuse = still and static
+    styled_last: list[_StyledInputs] = []
 
     def evaluate(t: float, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         key = round(t * 1_000_000)
@@ -1205,14 +1272,14 @@ def _apply_edge_styles(
                 cut = own if cut is None else cut * own
             if static:
                 static_cut.append(cut)
-        result = apply_edge_styles(
-            np.asarray(frame, dtype=np.uint8),
-            alpha,
-            cut,
-            styles,
-            scale,
-            layer_opacity_at(clip, t, transition),
-        )
+        pixels = np.asarray(frame, dtype=np.uint8)
+        opacity = layer_opacity_at(clip, t, transition)
+        if reuse and styled_last and styled_last[0].matches(pixels, alpha, opacity):
+            result = styled_last[0].styled()
+        else:
+            result = apply_edge_styles(pixels, alpha, cut, styles, scale, opacity)
+            if reuse:
+                styled_last[:] = [_StyledInputs.keep(pixels, alpha, opacity, result)]
         if len(memo) > 2:
             memo.clear()
         memo[key] = result
@@ -1714,10 +1781,13 @@ def compile_timeline(
         AudioFileClip,
         ColorClip,
         CompositeAudioClip,
-        CompositeVideoClip,
         ImageClip,
         VideoFileClip,
     )
+
+    # MoviePy's composite, blending each transparent layer over only the pixels it covers:
+    # the same pixels, without a full-frame blend per sticker (render/bounded_composite.py).
+    from framepilot_engine.render.bounded_composite import BoundedCompositeVideoClip
 
     target = (preset.width, preset.height)
     fps = preset.fps or project.fps
@@ -1910,7 +1980,7 @@ def compile_timeline(
         if has_blend_mode:
             composite = _composite_with_blend_modes(video_layers, target, fps)
         else:
-            composite = CompositeVideoClip(
+            composite = BoundedCompositeVideoClip(
                 [layer for layer, _ in video_layers], size=target, bg_color=(0, 0, 0)
             ).with_fps(fps)
         composite = apply_effect_layers(composite, project.timeline, fps=fps)
@@ -1933,7 +2003,7 @@ def compile_timeline(
                     fps,
                 )
             elif captions:
-                composite = CompositeVideoClip(
+                composite = BoundedCompositeVideoClip(
                     [composite, *(caption.picture for caption in captions)],
                     size=target,
                     bg_color=(0, 0, 0),
@@ -1954,13 +2024,13 @@ def compile_timeline(
 def _composite_with_blend_modes(
     video_layers: list[tuple[Any, str | None]], target: tuple[int, int], fps: float
 ) -> VideoClip:
-    from moviepy import CompositeVideoClip as _CompositeVideoClip
+    from framepilot_engine.render.bounded_composite import BoundedCompositeVideoClip
 
     first_layer, _ = video_layers[0]
-    running: VideoClip = _CompositeVideoClip([first_layer], size=target, bg_color=(0, 0, 0))
+    running: VideoClip = BoundedCompositeVideoClip([first_layer], size=target, bg_color=(0, 0, 0))
     for layer, mode in video_layers[1:]:
         if mode is None or mode == "normal":
-            running = _CompositeVideoClip([running, layer], size=target, bg_color=(0, 0, 0))
+            running = BoundedCompositeVideoClip([running, layer], size=target, bg_color=(0, 0, 0))
         else:
             running = _blend_layer_over(running, layer, mode, target)
     return running.with_fps(fps)
