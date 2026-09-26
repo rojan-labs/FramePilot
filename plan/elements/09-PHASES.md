@@ -462,19 +462,63 @@ agent.
 
 ---
 
-## EL8 — Agent quality and MCP `[ ]`
+## EL8 — Agent quality and MCP `[~]`
 
-- [ ] **EL8.1** Critic/verification checks (07 §4 table) with tests; `acceptance.ts` does not accept
+- [~] **EL8.1** Critic/verification checks (07 §4 table) with tests; `acceptance.ts` does not accept
       a run whose request named callouts or stickers while none was placed (ADR 0153);
       `temporal-review.ts` never calls a sticker foreign footage.
-- [ ] **EL8.2** Context digest names element clips compactly (07 §5); token delta measured.
-- [ ] **EL8.3** `editing-skills-expert` craft pass on `stickers-and-callouts.md`; description under
+      _Built:_ `element_faces`, `element_safe_area` (caption band, vertical platform chrome, a
+      sticker's safe margin), `element_busy_frame`, `sticker_sharp` as advisories and
+      `elements_placed` as a failure (`critic-elements.test.ts`, 9 tests); `explicitElements` in
+      `acceptance.ts`; `element_off_frame` refused in `assembleEdit`; the temporal review probes a
+      sticker's entry and exit and asks nothing that treats it as footage. The failure gate walks
+      every one of these sentences, each naming the tool that fixes it. **Found and fixed:** scoring
+      the new cases against their fixtures showed the first safe-area check telling the agent to
+      move callouts off toolbar buttons at the frame's top; the edge margin now judges stickers only
+      and the face check only what hides what it covers (ADR 0191 amendment).
+- [~] **EL8.2** Context digest names element clips compactly (07 §5); token delta measured.
+      _Built:_ `element-row-facts.ts` — rows such as `sticker "Fire" at 75%, 25%, 30% high`
+      and `shape line-arrow · outline #FF3B30 · ends 38, 38 → 50, 50`, plus In/Out/Loop — in each
+      tool's own units. Measured: a timeline with two shapes and an animated sticker goes from 101
+      to 146 tokens, **15 tokens an element**; a project without elements does not move by a byte
+      (the goldens did not change).
+- [~] **EL8.3** `editing-skills-expert` craft pass on `stickers-and-callouts.md`; description under
       the 300-character cap (test).
-- [ ] **EL8.4** The remaining evaluation cases (07 §8) in the golden set, with expected timeline
+      _Built:_ description 296 characters, routing restyle/move/remove/animate requests; reading
+      rows, where an element may sit (the critic's numbers), sharp sizes, and recipes for cases
+      4–6; 7 tests pin every tool, preset, animation kind and loop the body names. The manifest
+      grew by 6 tokens (goldens: counts only). **Found and fixed:** the default sticker size (30%)
+      exported soft on vertical and 4K frames; it is now capped at the sharp size.
+- [~] **EL8.4** The remaining evaluation cases (07 §8) in the golden set, with expected timeline
       outcomes; results read from recorded reports.
-- [ ] **EL8.5** MCP: verify the element tools end to end; optional MCP sticker materialiser with
+      _Built:_ `underline-and-arrow-on-product` (a new drawn fixture,
+      `engine/python/tests/product_still_fixture.py`, labels committed), `restyle-highlight-boxes`
+      and `remove-the-stickers` on builder-made fixture projects; rubrics `underline-and-arrow`,
+      `restyle-highlight-boxes`, `remove-stickers` (12 tests), each 1.0 on its real fixture with
+      the intended edit applied.
+- [~] **EL8.5** MCP: verify the element tools end to end; optional MCP sticker materialiser with
       `FRAMEPILOT_ELEMENTS_ROOT` (`.env.example` + `turbo.json` `globalEnv` in the same commit);
       `docs/api/mcp-server.md`.
+      _Built:_ `packages/mcp-server/src/elements.test.ts` drives `search_elements`, `add_shape`,
+      `set_shape_style`, `set_element_animation`, save and undo through the real dispatch and file
+      IO. **Found and fixed:** over MCP the search offered sticker ids nothing there could place; a
+      host without stickers now gets shapes and a note, and `add_sticker` a refusal with the same
+      remedy. **The materialiser is deferred, decided autonomously 2026-09-26:** it would give the
+      MCP sandbox a second read root (a maintainer decision, CLAUDE.md §5) and no MCP client needs
+      stickers yet; no env var was added (11 §2).
+- [!] **Evaluation cases 4–6** (`underline-and-arrow-on-product`, `restyle-highlight-boxes`,
+      `remove-the-stickers`). **Human step (model runs are paid and not run by the agent):** with a
+      sidecar rooted at the fixtures (in `engine/python`,
+      `FRAMEPILOT_PROJECTS_ROOT=../../tests/fixtures/mission/projects uv run framepilot serve --port 8799`),
+      draw the still (`uv run python -m tests.product_still_fixture`) and build the three projects
+      (`node packages/ai-sdk/scripts/mission-fixture-projects.mjs --only <project>` for
+      `mission-product-still`, `mission-restyle-demo`, `mission-sticker-cleanup`); then, detached
+      on an idle machine, `FRAMEPILOT_AI_PROVIDER=claude-agent-sdk
+FRAMEPILOT_CLAUDE_AGENT_SDK_MODEL=claude-sonnet-5 FRAMEPILOT_PYTHON_API_URL=http://127.0.0.1:8799
+node packages/ai-sdk/scripts/mission-baseline.mjs --case <case> --runs 10 --yes` for each case,
+      and record here the hit rate of `underline-under-headline` and `arrow-on-price`, and the pass
+      rates of `boxes-red`/`boxes-thicker`/`only-boxes-restyled` and
+      `stickers-removed`/`others-kept`.
 
 ---
 

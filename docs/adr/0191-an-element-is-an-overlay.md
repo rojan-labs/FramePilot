@@ -83,3 +83,35 @@ The other 1,344 stickers ship in the desktop installer, not the repository and n
 - Rejected: committing the full set (MD-E2: +40% repository size), fetching it in the web build (a
   network fetch in every web build), and downloading stickers on demand (offline editing would
   lose them).
+
+## Amendment — 2026-09-26: what the agent is held to (EL8, 07 §4)
+
+The placement policy's second half, as built. An element over footage is fine; these are the
+limits on where the agent leaves one.
+
+- **Refused: an element off the frame for its whole span.** `assembleEdit` checks every element
+  clip the edit adds or changes at its start, its quarters, its end and each keyframe; one that is
+  never on the picture is refused (`element_off_frame`), because it would export as nothing. The
+  message names `add_keyframes` and `set_shape_style`.
+- **Advisories, in the critic.** A sticker or a filled shape over a face the run measured
+  (`measure_subject`) for most of its span; an element under the caption band while captions show,
+  or under a vertical platform's button rail and caption block for a TikTok, Reels or Shorts
+  export; a sticker within the frame's safe margin; more than three elements on screen at once; a
+  sticker drawn past 1.5× its pixels. Each names the element by id and the tool that fixes it, and
+  carries no magnitude, so the repeated-failure guard can key on it.
+- **Callouts stay on their targets.** The edge margin judges stickers only, and the face check
+  counts only what hides what it covers. A box around a toolbar button at the top of a screen
+  recording, or a ring around a face, is where it should be — found by scoring the evaluation
+  fixtures, where the first version of the check told the agent to move exactly those boxes.
+- **A named element is required.** A request that asked for a sticker or a callout fails the run
+  (`elements_placed`) while none is on the timeline (the ADR 0153 acceptance rule).
+- **The default is sharp.** A sticker placed without a size is 30% of the frame height where that
+  stays within 1.5× the art, otherwise the largest whole percent that does (about 19% on a
+  1080×1920 vertical, 17% in 4K): the old flat 30% exported every default sticker soft on the
+  format stickers are most used in. A size asked for is kept.
+- **The model reads what is there.** Each element's timeline row names it and where it sits, in
+  the units its tool takes, so it can restyle, move or remove one without a lookup.
+- **MCP places no stickers.** With no materialiser there, `search_elements` offers shapes only
+  and says so, and `add_sticker` is refused with the same advice. The optional
+  `FRAMEPILOT_ELEMENTS_ROOT` materialiser is deferred: it would give the MCP sandbox a second read
+  root, which is the maintainer's call (CLAUDE.md §5), and no MCP client needs it yet.

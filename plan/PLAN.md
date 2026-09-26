@@ -10314,7 +10314,11 @@ stickers, CC BY 4.0 (EL10).
 - [~] **EL6b** The full 1,595 in the desktop installer, virtualised grid, outline and shadow
 - [~] **EL7** Animation In/Out (layer transitions) and Loop (keyframes from a builder);
   `set_element_animation`
-- [ ] **EL8** Agent quality: critic checks, digest, skill craft pass, remaining eval cases, MCP
+- [~] **EL8** Agent quality: critic checks, digest, skill craft pass, remaining eval cases, MCP —
+  built (element advisories and `elements_placed`, off-frame refusal, element rows at 15 tokens
+  each, skill pass, cases 4–6, MCP end to end); found and fixed: soft default sticker size on
+  vertical/4K, callouts told to move off their targets, sticker ids offered over MCP; the MCP
+  sticker materialiser deferred (decided autonomously); CI pending; eval runs are human steps
 - [ ] **EL9** Photos/Videos: category chips, orientation filter, drag to timeline, manual overlay
 - [ ] **EL10** Animated stickers (optional, schema v26) — gated on MD-E3
 - [ ] **EL11** Favourites/recents, skin tones, "Add as sticker", drop on monitor, follow subject,

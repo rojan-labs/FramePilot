@@ -303,7 +303,7 @@ holds and every row of [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md) is d
 | EL6a  | `[!]`  | Green on `9633653c`; eval run and desktop run are human steps             |
 | EL6b  | `[~]`  | Built: installer set, grid, Inspector, rows; CI pending; run D human      |
 | EL7   | `[~]`  | Built: In/Out/Loop, tool, rows, e2e; CI pending; eval and run C human     |
-| EL8   | `[ ]`  |                                                                           |
+| EL8   | `[~]`  | Built: checks, rows, skill, cases 4–6, MCP; CI pending; evals human       |
 | EL9   | `[ ]`  |                                                                           |
 | EL10  | `[ ]`  | Optional; gated on MD-E3                                                  |
 | EL11  | `[ ]`  |                                                                           |

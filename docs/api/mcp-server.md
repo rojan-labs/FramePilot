@@ -60,16 +60,19 @@ tools edit `project.fp.json` directly and bypass validation/undo.
 ### Registry tools (summary)
 
 - **read** (`get_project_state`, `get_timeline`, `get_timeline_summary`, `get_clips`,
-  `get_clip`, `get_transcript`, `get_selected_range`, `list_assets`) → `result` is the
-  requested project data. `get_timeline_summary` / `get_clips` / `get_clip` are the
+  `get_clip`, `get_transcript`, `get_selected_range`, `list_assets`, `search_elements`) →
+  `result` is the requested project data. Over MCP, `search_elements` returns shapes only, with a
+  `note` saying stickers are placed in the desktop app (`placesStickers: false` in the tool
+  context; plan/elements EL8.5). `get_timeline_summary` / `get_clips` / `get_clip` are the
   compact, windowed reads for long-form projects; `get_transcript` accepts an optional
   `start`/`end` window. `get_project_state` returns the media bin as `assetSummary`
   (`{ total, byKind, note }`); the `assets` array is **not** included — call `list_assets`
   for asset ids.
 - **mutate** (`trim_clip`, `split_clip`, `delete_range`, `ripple_delete`,
   `delete_clip`, `delete_clips`, `move_clip`, `add_clip`, `add_clips`, `add_track`, `remove_track`,
-  `move_track`, `add_text_layer`, `add_caption_layer`, `add_keyframes`,
-  `apply_color_grade`, `adjust_audio`, `add_transition`, `track_object`)
+  `move_track`, `add_text_layer`, `add_shape`, `set_shape_style`, `set_element_animation`,
+  `add_caption_layer`, `add_keyframes`, `apply_color_grade`, `adjust_audio`, `add_transition`,
+  `track_object`)
   → `result` is `{ applied, patch, validation, diff }`. When `applied` is `false`
   the patch failed validation and the timeline is unchanged (`validation.issues`
   explains why). See [patch-format.md](patch-format.md) and [ai-tools.md](ai-tools.md)

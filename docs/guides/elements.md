@@ -176,6 +176,32 @@ Inspector's Basic tab.
   and Loop (`set_element_animation`), and keeps to one entrance and at most one slow loop unless
   you ask for more.
 
+## The assistant and elements
+
+The assistant places, changes and removes elements the way you do, and holds itself to the same
+standards a careful editor would:
+
+- **It knows what is already there.** Each sticker and shape on the timeline is described to it
+  in a few words — "sticker "Fire" at 75%, 25%, 30% high · in: pop", "shape rounded-rect ·
+  outline #FFD400 · box 50, 50, 48×27" — in the same numbers its tools take. So "make all the
+  highlight boxes red and thicker" restyles the boxes you have, in place, and "remove the
+  stickers" removes the stickers and nothing else.
+- **It reviews what it placed.** After an edit, its review notes a sticker over a face it
+  measured, an element under the captions or, on a TikTok, Reels or Shorts export, under the
+  app's own buttons, more than three elements on screen at once, a sticker drawn larger than
+  its art stays sharp, and a loop that no longer covers its clip. These are notes, not refusals,
+  and a callout that points at something stays on it — a box around a button at the top of a
+  screen recording is where it should be.
+- **It finishes what you asked for.** A request for a sticker or a callout is not done until one
+  is on the timeline.
+- **It will not place an element nowhere.** An edit that would leave a sticker or shape outside
+  the frame for its whole time on screen is refused, since it would export as nothing.
+- **A new sticker is sharp.** Added without a size, a sticker is a third of the frame high, or on
+  a vertical or 4K project as big as its art stays sharp. A size you or the assistant ask for is
+  kept.
+- **Other AI apps (MCP)** can find, draw, restyle and animate shapes in a project. Stickers are
+  added in the FramePilot app: over MCP the search offers shapes only and says so.
+
 ## What stays the same
 
 Saved projects are untouched by the rename: a clip you added from the Stock tab keeps its asset,

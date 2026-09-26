@@ -46,6 +46,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   monitor shows what the export draws. The assistant does it too: "make the arrow pop in and the
   sticker pulse". A title's In and Out have moved there from the Text tab.
 
+- **The assistant places elements like a careful editor.** It now knows each sticker and shape
+  already on the timeline and where it sits, so "make all the highlight boxes red and thicker"
+  restyles the boxes you have, in place, and "remove the stickers" removes only the stickers. Its
+  review of an edit notes a sticker over a face, an element under the captions or under
+  TikTok's, Reels' or Shorts' own buttons, more than three elements at once, a sticker blown up
+  past its sharp size, and a loop that no longer covers its clip — and leaves a callout on what
+  it points at. A request for a sticker or a callout is not finished until one is placed, and an
+  edit that would put an element entirely outside the frame is refused. Other AI apps connected
+  over MCP can find, draw, restyle and animate shapes; stickers are added in the FramePilot app.
+
 - **All 1,595 stickers, in the desktop app.** The Stickers tab now lists the whole Fluent Emoji
   set, shipped inside the installer so every sticker works offline. Chips for **Recent**,
   **Favourites** (a star, or **F**) and the set's nine groups sit beside the collections; a dot
@@ -158,6 +168,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   MO-12), privacy and face-recognition consent.
 
 ### Fixed
+
+- **A new sticker is sharp on vertical and 4K projects.** A sticker added without a size was a
+  third of the frame high everywhere, which on a 1080×1920 short or a 4K export is more than twice
+  its art and exported soft. It is now as big as it stays sharp there (about a fifth of the
+  height); on a 1080p landscape project nothing changes, and a size you set is kept.
 
 - **A title that turns keeps all its letters.** A title rotating through a right angle lost most
   of its word, on the monitor and in the export, because it was turned inside a box as tight as

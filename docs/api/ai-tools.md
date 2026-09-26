@@ -132,6 +132,17 @@ nothing in a non-empty bin.
 | `detect_subjects`                   | Detect people/objects in frames (Subject Intelligence pack)    | analysis         | yes        |
 | `find_mask_targets` … `delete_mask` | The masking domain — see [ai-masking.md](./ai-masking.md)      | analysis / write | yes        |
 
+**Elements** (`plan/elements`, EL8). Each sticker and shape row in the timeline the model reads
+names the element and where it sits in its own tool's units (`sticker "Fire" at 75%, 25%, 30% high
+· in: pop`, `shape rounded-rect · outline #FFD400 · box 50, 50, 48×27`), about fifteen tokens an
+element. `add_sticker` without `sizePercent` places the art at 30% of the frame height, or at the
+largest whole percent that stays within 1.5× its pixels on a tall or 4K frame. An edit that
+leaves an element off the frame for its whole span is refused (`element_off_frame`). The critic
+adds `element_faces`, `element_safe_area`, `element_busy_frame`, `sticker_sharp` (advisories)
+and `elements_placed` (a failure when the request named a sticker or a callout and none was
+placed). Where the host cannot place stickers (`placesStickers: false`, the MCP server),
+`search_elements` returns shapes only with a `note`.
+
 `get_project_state` returns the media bin as a **tally**, not a listing:
 
 ```jsonc

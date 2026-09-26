@@ -48,8 +48,12 @@ Tools whose engine does not exist yet are **not** exposed until their capability
 server never fakes a result. The masking tools (`create_mask`, `remove_background`, …) are
 desktop-only: they run in Capability Pack workers the standalone server has no route to. So is
 `add_sticker`: the sticker library ships inside the desktop app, and the standalone server has
-nothing to copy a sticker from. `search_elements` still finds stickers, and shapes are placed over
-MCP like any other edit.
+nothing to copy a sticker from. Over MCP, `search_elements` offers shapes only and says so in a
+`note`, because a sticker id there is one no call could place; calling `add_sticker` anyway is
+refused with the same advice — draw a callout or an icon with `add_shape`, or add the sticker in
+the app. Shapes are found, drawn, restyled (`set_shape_style`) and animated
+(`set_element_animation`) over MCP like any other edit, saved with `save_project` and undone with
+`undo`.
 
 ## Prerequisites
 
