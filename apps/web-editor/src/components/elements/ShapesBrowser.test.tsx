@@ -124,4 +124,47 @@ describe('ShapesBrowser', () => {
       colour: '#FF3B30',
     });
   });
+
+  it('pins its search, chips and colours, and scrolls only the grid', () => {
+    render(<ShapesBrowser onAddShape={() => null} />);
+    const scroll = document.querySelector('.shapes-scroll') as HTMLElement;
+    expect(scroll.contains(screen.getByRole('list', { name: 'Shapes' }))).toBe(true);
+    for (const pinned of [
+      screen.getByRole('searchbox', { name: 'Search shapes' }),
+      screen.getByRole('group', { name: 'Shape categories' }),
+      screen.getByRole('group', { name: 'Shape colour' }),
+    ]) {
+      expect(scroll.contains(pinned)).toBe(false);
+    }
+  });
+
+  it('uses the app’s one input style for its search', () => {
+    render(<ShapesBrowser onAddShape={() => null} />);
+    const search = screen.getByRole('searchbox', { name: 'Search shapes' });
+    expect(search.getAttribute('data-ui')).toBe('input');
+    expect(search.classList.contains('elements-search')).toBe(true);
+  });
+
+  it('starts from the search and scroll it is handed, and reports both as they change', () => {
+    const onQueryChange = vi.fn();
+    const onScrollTopChange = vi.fn();
+    render(
+      <ShapesBrowser
+        onAddShape={() => null}
+        initialQuery="arrow"
+        onQueryChange={onQueryChange}
+        initialScrollTop={120}
+        onScrollTopChange={onScrollTopChange}
+      />,
+    );
+    const search = screen.getByRole('searchbox', { name: 'Search shapes' }) as HTMLInputElement;
+    expect(search.value).toBe('arrow');
+    const scroll = document.querySelector('.shapes-scroll') as HTMLElement;
+    expect(scroll.scrollTop).toBe(120);
+    fireEvent.change(search, { target: { value: 'star' } });
+    expect(onQueryChange).toHaveBeenLastCalledWith('star');
+    scroll.scrollTop = 40;
+    fireEvent.scroll(scroll);
+    expect(onScrollTopChange).toHaveBeenLastCalledWith(40);
+  });
 });

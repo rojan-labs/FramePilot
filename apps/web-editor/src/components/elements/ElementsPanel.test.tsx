@@ -49,8 +49,27 @@ vi.mock('./PexelsBrowser.js', () => ({
 
 // The Stickers browser has its own suite; here it only shows whether it is replacing a sticker.
 vi.mock('./StickersBrowser.js', () => ({
-  StickersBrowser: (props: { replaceTarget?: { name: string } | null }) => (
-    <div data-testid="stickers" data-replacing={props.replaceTarget?.name ?? ''} />
+  StickersBrowser: (props: {
+    replaceTarget?: { name: string } | null;
+    initialQuery?: string;
+    onQueryChange?: (query: string) => void;
+    initialScrollTop?: number;
+    onScrollTopChange?: (top: number) => void;
+  }) => (
+    <div
+      data-testid="stickers"
+      data-replacing={props.replaceTarget?.name ?? ''}
+      data-scroll={String(props.initialScrollTop ?? 0)}
+    >
+      <input
+        aria-label="sticker query"
+        defaultValue={props.initialQuery ?? ''}
+        onChange={(event) => props.onQueryChange?.(event.target.value)}
+      />
+      <button type="button" onClick={() => props.onScrollTopChange?.(240)}>
+        scroll stickers
+      </button>
+    </div>
   ),
 }));
 
@@ -237,6 +256,25 @@ describe('ElementsPanel', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Videos' }));
     expect(screen.getByTestId('pexels').dataset.category).toBe('nature');
     expect(screen.getByTestId('pexels').dataset.orientation).toBe('portrait');
+  });
+
+  it('keeps the Stickers and Shapes searches, and the Stickers scroll, across sub-tab switches', () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('tab', { name: 'Stickers' }));
+    fireEvent.change(screen.getByLabelText('sticker query'), { target: { value: 'party' } });
+    fireEvent.click(screen.getByRole('button', { name: 'scroll stickers' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Shapes' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search shapes' }), {
+      target: { value: 'arrow' },
+    });
+    fireEvent.click(screen.getByRole('tab', { name: 'Photos' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Stickers' }));
+    expect((screen.getByLabelText('sticker query') as HTMLInputElement).value).toBe('party');
+    expect(screen.getByTestId('stickers').dataset.scroll).toBe('240');
+    fireEvent.click(screen.getByRole('tab', { name: 'Shapes' }));
+    expect(
+      (screen.getByRole('searchbox', { name: 'Search shapes' }) as HTMLInputElement).value,
+    ).toBe('arrow');
   });
 
   it('hands Add as overlay down to Photos and Videos when the editor offers it', () => {

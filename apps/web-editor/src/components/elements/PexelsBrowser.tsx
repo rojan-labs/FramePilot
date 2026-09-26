@@ -731,7 +731,9 @@ export function PexelsBrowser({
             <input
               id="stock-search-input"
               type="search"
-              className="stock-search-input"
+              className="elements-search"
+              data-ui="input"
+              data-size="sm"
               placeholder={kind === 'video' ? 'Search videos' : 'Search photos'}
               value={query}
               onChange={(event) => typeQuery(event.target.value)}

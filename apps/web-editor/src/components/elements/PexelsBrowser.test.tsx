@@ -326,6 +326,8 @@ describe('PexelsBrowser', () => {
     // kind control in the row at all.
     const controls = document.querySelector('.stock-controls');
     expect(controls?.querySelector('#stock-search-input')).not.toBeNull();
+    // The one search style every Elements sub-tab shares.
+    expect(controls?.querySelector('#stock-search-input')?.getAttribute('data-ui')).toBe('input');
     expect(controls?.querySelector('select')).toBeNull();
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(controls?.querySelector('.stock-credit')).not.toBeNull();

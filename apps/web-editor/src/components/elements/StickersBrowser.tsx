@@ -10,7 +10,7 @@
  * library; those tiles come from main (`packaged-tiles.ts`), only for the rows on screen. The grid
  * draws only the rows in view, so 1,595 stickers cost what one screenful does.
  */
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { observeElementRect, useVirtualizer } from '@tanstack/react-virtual';
 import {
   STICKER_ID_PATTERN,
@@ -47,6 +47,12 @@ export interface StickersBrowserProps {
   /** Swap the replace target's sticker for this one; returns the refusal sentence, or `null`. */
   readonly onReplaceSticker?: (asset: ElementAssetWire, item: StickerItem) => string | null;
   readonly onCancelReplace?: () => void;
+  /** The search to start with, so a sub-tab round trip keeps it (02 §2: kept for the session). */
+  readonly initialQuery?: string;
+  readonly onQueryChange?: (query: string) => void;
+  /** Where the grid was scrolled to, so a round trip comes back to the same stickers. */
+  readonly initialScrollTop?: number;
+  readonly onScrollTopChange?: (scrollTop: number) => void;
   /** Tests pass a catalogue; the app loads the generated one. */
   readonly loadCatalog?: () => Promise<StickerCatalog>;
   /** Tests pass their own; the app asks main. */
@@ -140,13 +146,21 @@ export function StickersBrowser({
   replaceTarget = null,
   onReplaceSticker,
   onCancelReplace,
+  initialQuery = '',
+  onQueryChange,
+  initialScrollTop = 0,
+  onScrollTopChange,
   loadCatalog = loadStickerCatalog,
   packagedTiles = appPackagedTiles(),
 }: StickersBrowserProps): JSX.Element {
   const [catalog, setCatalog] = useState<StickerCatalog | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [packaged, setPackaged] = useState(false);
-  const [query, setQuery] = useState('');
+  const [query, setQueryState] = useState(initialQuery);
+  const setQuery = (next: string): void => {
+    setQueryState(next);
+    onQueryChange?.(next);
+  };
   const [busy, setBusy] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [, setTilesLoaded] = useState(0);
@@ -254,8 +268,17 @@ export function StickersBrowser({
     estimateSize: () => rowHeight,
     overscan: OVERSCAN_ROWS,
     initialRect: { width: 0, height: FALLBACK_VIEWPORT_PX },
+    // Draw the rows a round trip left in view, not the top ones and then jump.
+    initialOffset: initialScrollTop,
     observeElementRect: observeRectWithFallback,
   });
+  // Back to where the grid was, once its scroll area exists (after the catalogue loads).
+  const restoredScroll = useRef(false);
+  useLayoutEffect(() => {
+    if (scrollArea === null || restoredScroll.current) return;
+    restoredScroll.current = true;
+    scrollArea.scrollTop = initialScrollTop;
+  }, [scrollArea, initialScrollTop]);
   useEffect(() => virtualizer.measure(), [virtualizer, rowHeight]);
 
   const { gridRef, focusIndex, setActive, onGridKey } = useTileGrid(
@@ -370,7 +393,9 @@ export function StickersBrowser({
       <input
         ref={searchRef}
         type="search"
-        className="shapes-search"
+        className="elements-search"
+        data-ui="input"
+        data-size="sm"
         aria-label="Search stickers"
         aria-describedby={replaceTarget !== null ? replaceNoteId : undefined}
         placeholder="Search stickers — try 🔥 or “party”"
@@ -413,7 +438,11 @@ export function StickersBrowser({
             : `Nothing matched “${query.trim()}”. Try a simpler word — “fire”, “party”, “check”.`}
         </p>
       ) : (
-        <div ref={setScrollArea} className="stickers-scroll">
+        <div
+          ref={setScrollArea}
+          className="stickers-scroll"
+          onScroll={(event) => onScrollTopChange?.(event.currentTarget.scrollTop)}
+        >
           <ul
             ref={gridRef}
             className="stickers-grid"

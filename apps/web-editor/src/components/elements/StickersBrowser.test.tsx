@@ -305,6 +305,34 @@ describe('StickersBrowser', () => {
     expect(onWindowKey).toHaveBeenCalledTimes(1);
   });
 
+  it('uses the app’s one input style for its search', async () => {
+    await open();
+    const search = screen.getByRole('searchbox', { name: 'Search stickers' });
+    expect(search.getAttribute('data-ui')).toBe('input');
+    expect(search.classList.contains('elements-search')).toBe(true);
+  });
+
+  it('starts from the search and scroll it is handed, and reports both as they change', async () => {
+    const onQueryChange = vi.fn();
+    const onScrollTopChange = vi.fn();
+    await open({
+      initialQuery: 'fire',
+      onQueryChange,
+      initialScrollTop: 80,
+      onScrollTopChange,
+    });
+    const search = screen.getByRole('searchbox', { name: 'Search stickers' }) as HTMLInputElement;
+    expect(search.value).toBe('fire');
+    expect(names()).toEqual(['Add Fire']);
+    fireEvent.change(search, { target: { value: '' } });
+    expect(onQueryChange).toHaveBeenLastCalledWith('');
+    const scroll = document.querySelector('.stickers-scroll') as HTMLElement;
+    await waitFor(() => expect(scroll.scrollTop).toBe(80));
+    scroll.scrollTop = 30;
+    fireEvent.scroll(scroll);
+    expect(onScrollTopChange).toHaveBeenLastCalledWith(30);
+  });
+
   it('narrows to one of the upstream groups', async () => {
     await open();
     fireEvent.click(screen.getByRole('button', { name: 'Symbols' }));

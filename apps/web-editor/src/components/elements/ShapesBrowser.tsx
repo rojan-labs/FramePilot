@@ -8,7 +8,7 @@
  * drawing: the engine rasterises every shape (ADR 0190), so a tile is a picture of the preset,
  * deliberately not pinned to the engine's pixels.
  */
-import { useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   searchShapes,
   type ShapeCategory,
@@ -29,6 +29,12 @@ export interface ShapesBrowserProps {
    * preset's own); returns the sentence to show when it cannot, else `null`.
    */
   readonly onAddShape: (presetId: string, colour: string | null) => string | null;
+  /** The search to start with, so a sub-tab round trip keeps it (02 §2: kept for the session). */
+  readonly initialQuery?: string;
+  readonly onQueryChange?: (query: string) => void;
+  /** Where the grid was scrolled to, so a round trip comes back to the same tiles. */
+  readonly initialScrollTop?: number;
+  readonly onScrollTopChange?: (scrollTop: number) => void;
 }
 
 /** The SVG colour for a `#rrggbb[aa]` value, or `none`. */
@@ -226,9 +232,25 @@ const coerceColours = (raw: unknown): readonly string[] | undefined =>
     ? raw.filter((value): value is string => typeof value === 'string' && HEX.test(value))
     : undefined;
 
-export function ShapesBrowser({ onAddShape }: ShapesBrowserProps): JSX.Element {
+export function ShapesBrowser({
+  onAddShape,
+  initialQuery = '',
+  onQueryChange,
+  initialScrollTop = 0,
+  onScrollTopChange,
+}: ShapesBrowserProps): JSX.Element {
   const [refusal, setRefusal] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
+  const [query, setQueryState] = useState(initialQuery);
+  const setQuery = (next: string): void => {
+    setQueryState(next);
+    onQueryChange?.(next);
+  };
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Back to where the grid was, before the first paint.
+  useLayoutEffect(() => {
+    if (scrollRef.current !== null) scrollRef.current.scrollTop = initialScrollTop;
+    // Once, on mount: afterwards the grid's own scroll is the truth.
+  }, []);
   const [iconLimit, setIconLimit] = useState(ICON_PAGE);
   // View state, never project state: the chip, the chosen colour and the recent colours are
   // how this person browses, and change no frame of the output.
@@ -274,7 +296,9 @@ export function ShapesBrowser({ onAddShape }: ShapesBrowserProps): JSX.Element {
       <input
         ref={searchRef}
         type="search"
-        className="shapes-search"
+        className="elements-search"
+        data-ui="input"
+        data-size="sm"
         aria-label="Search shapes"
         placeholder="Search shapes and icons"
         value={query}
@@ -339,49 +363,57 @@ export function ShapesBrowser({ onAddShape }: ShapesBrowserProps): JSX.Element {
       <p className="sr-only" aria-live="polite">
         {`${String(matches.length)} shapes`}
       </p>
-      {shown.length === 0 ? (
-        <p className="stock-note">No shapes match “{query.trim()}”. Try another word.</p>
-      ) : (
-        <ul ref={gridRef} className="shapes-grid" aria-label="Shapes" onKeyDown={onGridKey}>
-          {shown.map((entry, index) => {
-            const style = recolourPreset(entry.preset, colour);
-            return (
-              <li key={entry.preset.id}>
-                <button
-                  type="button"
-                  className="shapes-grid-tile"
-                  tabIndex={index === focusIndex ? 0 : -1}
-                  aria-label={`Add ${entry.preset.name}`}
-                  title={`Add ${entry.preset.name} at the playhead, or drag it onto a lane or the monitor`}
-                  draggable
-                  onDragStart={(event) => {
-                    event.dataTransfer.effectAllowed = 'copy';
-                    writeElementDrag(event.dataTransfer, {
-                      kind: 'shape',
-                      presetId: entry.preset.id,
-                      colour,
-                    });
-                  }}
-                  onFocus={() => setActive(index)}
-                  onClick={() => add(entry)}
-                >
-                  <ShapeTile shape={entry.shape} preset={style} iconPaths={iconPaths} />
-                  <span className="shapes-grid-name">{entry.preset.name}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {hidden > 0 && (
-        <button
-          type="button"
-          className="shapes-more"
-          onClick={() => setIconLimit((limit) => limit + ICON_PAGE * 2)}
-        >
-          {`Show more icons (${String(hidden)} more)`}
-        </button>
-      )}
+      {/* Only the grid scrolls: the search, the chips and the colours stay put, as they do on
+          Stickers and Photos. */}
+      <div
+        ref={scrollRef}
+        className="shapes-scroll"
+        onScroll={(event) => onScrollTopChange?.(event.currentTarget.scrollTop)}
+      >
+        {shown.length === 0 ? (
+          <p className="stock-note">No shapes match “{query.trim()}”. Try another word.</p>
+        ) : (
+          <ul ref={gridRef} className="shapes-grid" aria-label="Shapes" onKeyDown={onGridKey}>
+            {shown.map((entry, index) => {
+              const style = recolourPreset(entry.preset, colour);
+              return (
+                <li key={entry.preset.id}>
+                  <button
+                    type="button"
+                    className="shapes-grid-tile"
+                    tabIndex={index === focusIndex ? 0 : -1}
+                    aria-label={`Add ${entry.preset.name}`}
+                    title={`Add ${entry.preset.name} at the playhead, or drag it onto a lane or the monitor`}
+                    draggable
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = 'copy';
+                      writeElementDrag(event.dataTransfer, {
+                        kind: 'shape',
+                        presetId: entry.preset.id,
+                        colour,
+                      });
+                    }}
+                    onFocus={() => setActive(index)}
+                    onClick={() => add(entry)}
+                  >
+                    <ShapeTile shape={entry.shape} preset={style} iconPaths={iconPaths} />
+                    <span className="shapes-grid-name">{entry.preset.name}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {hidden > 0 && (
+          <button
+            type="button"
+            className="shapes-more"
+            onClick={() => setIconLimit((limit) => limit + ICON_PAGE * 2)}
+          >
+            {`Show more icons (${String(hidden)} more)`}
+          </button>
+        )}
+      </div>
       {refusal !== null && (
         <p className="stock-note" role="status">
           {refusal}

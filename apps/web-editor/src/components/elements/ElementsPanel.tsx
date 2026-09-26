@@ -12,6 +12,12 @@
  * empty panel in the browser.
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
+
+/** What a sub-tab leaves behind when another is chosen: its words and where it was scrolled. */
+interface SubTabMemory {
+  query: string;
+  scrollTop: number;
+}
 import type { StickerItem } from '@framepilot/ai-sdk';
 import type { ElementAssetWire } from '@framepilot/shared-types';
 import type { Asset, Project } from '@framepilot/timeline-schema';
@@ -130,6 +136,13 @@ export function ElementsPanel({
   const [pexelsOrientation, setPexelsOrientation] = useState<StockOrientationChoice | undefined>(
     undefined,
   );
+  // Stickers and Shapes keep their search and scroll across sub-tab switches (02 §2). Held in a
+  // ref, not state: a scroll writes it many times a second and nothing here renders from it
+  // until the sub-tab mounts again.
+  const memory = useRef<Record<'stickers' | 'shapes', SubTabMemory>>({
+    stickers: { query: '', scrollTop: 0 },
+    shapes: { query: '', scrollTop: 0 },
+  });
 
   /**
    * Show a sub-tab. Replacing a sticker holds the panel on Stickers; choosing any other tab is
@@ -240,6 +253,14 @@ export function ElementsPanel({
               onAddSticker ?? (() => 'Stickers are added from the editor. Open a project first.')
             }
             replaceTarget={stickerReplaceTarget}
+            initialQuery={memory.current.stickers.query}
+            onQueryChange={(query) => {
+              memory.current.stickers.query = query;
+            }}
+            initialScrollTop={memory.current.stickers.scrollTop}
+            onScrollTopChange={(scrollTop) => {
+              memory.current.stickers.scrollTop = scrollTop;
+            }}
             {...(onReplaceSticker ? { onReplaceSticker } : {})}
             {...(onCancelStickerReplace
               ? { onCancelReplace: () => onCancelStickerReplace(true) }
@@ -251,6 +272,14 @@ export function ElementsPanel({
             onAddShape={
               onAddShape ?? (() => 'Shapes are added from the editor. Open a project first.')
             }
+            initialQuery={memory.current.shapes.query}
+            onQueryChange={(query) => {
+              memory.current.shapes.query = query;
+            }}
+            initialScrollTop={memory.current.shapes.scrollTop}
+            onScrollTopChange={(scrollTop) => {
+              memory.current.shapes.scrollTop = scrollTop;
+            }}
           />
         )}
       </div>
