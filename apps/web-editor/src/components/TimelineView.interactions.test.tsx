@@ -534,6 +534,47 @@ describe('TimelineView direct manipulation', () => {
     expect(container.querySelectorAll('.clip-block')).toHaveLength(1);
   });
 
+  it('hands a photo or video tile dropped on a lane to the host, by provider id, at the drop time', () => {
+    const onDropStock = vi.fn();
+    function StockHost(): JSX.Element {
+      const editor = useEditor(
+        {
+          tracks: [
+            ...timeline.tracks,
+            { id: 'o', type: 'overlay', clips: [] },
+            { id: 'locked', type: 'video', locked: true, clips: [] },
+          ],
+        },
+        ['a'],
+      );
+      return <TimelineView editor={editor} assets={[]} fps={30} onDropStock={onDropStock} />;
+    }
+    const { container } = render(<StockHost />);
+    const drop = (trackId: string): void => {
+      const lane = container.querySelector(`[data-track-id="${trackId}"]`) as HTMLElement;
+      const payload = encodeElementDrag({ kind: 'stock', mediaKind: 'video', remoteId: '3129671' });
+      const dataTransfer = {
+        getData: (type: string) => (type === ELEMENT_DND_TYPE ? payload : ''),
+        types: [ELEMENT_DND_TYPE],
+      };
+      const dropEvent = new MouseEvent('drop', { bubbles: true, clientX: 300 });
+      Object.defineProperty(dropEvent, 'dataTransfer', { value: dataTransfer });
+      fireEvent(lane, dropEvent);
+    };
+    // A picture lane is named; a graphics lane or a locked one leaves the lane to the placer.
+    drop('v');
+    drop('o');
+    drop('locked');
+    expect(onDropStock.mock.calls).toEqual([
+      ['3129671', 'video', expect.any(Number), 'v'],
+      ['3129671', 'video', expect.any(Number), undefined],
+      ['3129671', 'video', expect.any(Number), undefined],
+    ]);
+    expect(onDropStock.mock.calls[0]![2]).toBeGreaterThan(0);
+    // Nothing is placed until main has downloaded it: the host does both.
+    expect(container.querySelectorAll('.clip-block')).toHaveLength(1);
+  });
+
   it('adds a new layer at the front via the Add-track menu (Phase 2 / TIMELINE-TOOLBAR-REORG)', () => {
     const { container } = render(<Host />);
     const before = container.querySelectorAll('[aria-label^="track "]').length;

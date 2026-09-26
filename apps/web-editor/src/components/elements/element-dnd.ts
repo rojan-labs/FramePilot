@@ -1,6 +1,7 @@
 /**
- * Dragging an element from Elements onto the timeline (plan/elements EL5.2, EL6b): the payload a
- * tile puts on the drag and the timeline reads back on drop, beside `TEXT_OVERLAY_DND_TYPE`.
+ * Dragging an element from Elements onto the timeline (plan/elements EL5.2, EL6b, EL9): the
+ * payload a tile puts on the drag and the timeline reads back on drop, beside
+ * `TEXT_OVERLAY_DND_TYPE`.
  */
 import { STICKER_ID_PATTERN } from '@framepilot/ai-sdk';
 
@@ -23,7 +24,25 @@ export interface StickerDragPayload {
   readonly elementId: string;
 }
 
-export type ElementDragPayload = ShapeDragPayload | StickerDragPayload;
+/**
+ * A Photos or Videos tile's payload (plan/elements EL9): the provider's id for the item and its
+ * kind, and nothing else. The drop asks main to download that item, exactly as **Add** does; main
+ * resolves the id against what it fetched itself this session, so no URL or path ever rides on a
+ * drag.
+ */
+export interface StockDragPayload {
+  readonly kind: 'stock';
+  readonly mediaKind: 'photo' | 'video';
+  readonly remoteId: string;
+}
+
+/**
+ * What a provider id may look like on a drag: letters, digits, `_` and `-` (Pexels ids are
+ * digits). Strict on purpose — nothing path- or URL-shaped gets through.
+ */
+export const STOCK_REMOTE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+export type ElementDragPayload = ShapeDragPayload | StickerDragPayload | StockDragPayload;
 
 export function encodeElementDrag(payload: ElementDragPayload): string {
   return JSON.stringify(payload);
@@ -36,6 +55,13 @@ export function encodeElementDrag(payload: ElementDragPayload): string {
 export function decodeElementDrag(raw: string): ElementDragPayload | null {
   try {
     const value = JSON.parse(raw) as Record<string, unknown>;
+    if (value.kind === 'stock') {
+      return (value.mediaKind === 'photo' || value.mediaKind === 'video') &&
+        typeof value.remoteId === 'string' &&
+        STOCK_REMOTE_ID_PATTERN.test(value.remoteId)
+        ? { kind: 'stock', mediaKind: value.mediaKind, remoteId: value.remoteId }
+        : null;
+    }
     if (value.kind === 'sticker') {
       return typeof value.elementId === 'string' && STICKER_ID_PATTERN.test(value.elementId)
         ? { kind: 'sticker', elementId: value.elementId }

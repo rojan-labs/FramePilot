@@ -225,6 +225,17 @@ export interface TimelineViewProps {
    */
   readonly onDropSticker?: (elementId: string, atSeconds: number, trackId?: string) => void;
   /**
+   * A Photos or Videos tile dropped on a lane (plan/elements EL9): the host downloads the item by
+   * its provider id, as **Add** does, then places it at `atSeconds` — on `trackId` when it is a
+   * picture lane with room, else on a new lane in front. Absent outside the desktop app.
+   */
+  readonly onDropStock?: (
+    remoteId: string,
+    mediaKind: 'photo' | 'video',
+    atSeconds: number,
+    trackId?: string,
+  ) => void;
+  /**
    * Switch the left rail to the transitions library. Offered by the on-cut
    * popover as its "there is more than this" escape hatch; absent means this
    * host has no such rail (the timeline is embedded in tests and in the AI
@@ -1334,6 +1345,7 @@ export function TimelineView({
   onReplaceSticker,
   onAnimateClip,
   onDropSticker,
+  onDropStock,
   onOpenTransitionLibrary,
   tool = 'select',
   onItemActivate,
@@ -2620,6 +2632,12 @@ export function TimelineView({
         onDropSticker?.(payload.elementId, Math.max(0, atSeconds), graphicsLane);
         return;
       }
+      if (payload.kind === 'stock') {
+        // A photo or video is picture: the lane under the cursor counts when it is a picture lane.
+        const pictureLane = track.type === 'video' && !track.locked ? track.id : undefined;
+        onDropStock?.(payload.remoteId, payload.mediaKind, Math.max(0, atSeconds), pictureLane);
+        return;
+      }
       const added = addShapePatch(
         timeline,
         payload.presetId,
@@ -2634,7 +2652,7 @@ export function TimelineView({
       applyPatch(added.patch);
       select(added.clipId);
     },
-    [timeline, applyPatch, select, settings.defaultOverlaySeconds, onDropSticker],
+    [timeline, applyPatch, select, settings.defaultOverlaySeconds, onDropSticker, onDropStock],
   );
 
   // --- On-cut transitions (M3b) ---------------------------------------------
@@ -3052,7 +3070,8 @@ export function TimelineView({
               }
               // A shape or sticker tile dragged from Elements lands at the drop time: on this
               // lane when it is a graphics lane with room, else where a click would put it
-              // (EL5.2, EL6b).
+              // (EL5.2, EL6b). A photo or video lands on this lane when it is a picture lane
+              // with room, else on a new lane in front of the footage (EL9).
               if (event.dataTransfer.types.includes(ELEMENT_DND_TYPE)) {
                 event.preventDefault();
                 onDropElement(track, event.dataTransfer.getData(ELEMENT_DND_TYPE), value);

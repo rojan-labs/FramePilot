@@ -26,4 +26,32 @@ describe('element drag payload', () => {
       expect(decodeElementDrag(JSON.stringify({ kind: 'sticker', elementId }))).toBeNull();
     }
   });
+
+  it('round-trips a photo or video drag, which carries a provider id and a kind only', () => {
+    const photo = { kind: 'stock', mediaKind: 'photo', remoteId: '2014422' } as const;
+    const video = { kind: 'stock', mediaKind: 'video', remoteId: '3129671' } as const;
+    expect(decodeElementDrag(encodeElementDrag(photo))).toEqual(photo);
+    expect(decodeElementDrag(encodeElementDrag(video))).toEqual(video);
+  });
+
+  it('refuses a photo or video drag with anything path- or URL-shaped in it', () => {
+    // The id only indexes what main itself fetched this session; a drop from another window can
+    // still put anything on the drag, so everything is checked.
+    for (const remoteId of ['../x', 'a/b', 'https://x.test/1', 'a b', '', 'x'.repeat(65), 42]) {
+      expect(
+        decodeElementDrag(JSON.stringify({ kind: 'stock', mediaKind: 'photo', remoteId })),
+      ).toBeNull();
+    }
+    for (const mediaKind of ['audio', 'image', undefined]) {
+      expect(
+        decodeElementDrag(JSON.stringify({ kind: 'stock', mediaKind, remoteId: '1' })),
+      ).toBeNull();
+    }
+    // Extra fields are dropped, never passed through.
+    expect(
+      decodeElementDrag(
+        JSON.stringify({ kind: 'stock', mediaKind: 'video', remoteId: '1', path: '/etc/passwd' }),
+      ),
+    ).toEqual({ kind: 'stock', mediaKind: 'video', remoteId: '1' });
+  });
 });
