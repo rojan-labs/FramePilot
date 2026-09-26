@@ -58,3 +58,28 @@ An element is an image asset whose provenance says so, placed as an overlay, by 
   lockfile of hashes, so what ships is reviewable like a dependency.
 - Rejected: a `Clip.element` field (a migration for data the provenance already carries), and
   drawing stickers in the engine like shapes (they are raster art, not geometry).
+
+## Amendment — 2026-09-26: the whole library, in the installer (EL6b, MD-E1)
+
+The other 1,344 stickers ship in the desktop installer, not the repository and not the web build.
+
+- **Encoded at packaging.** `apps/desktop` `dist` runs `build:elements`, which encodes them from the
+  pinned upstream commit into `elements-packaged/` (electron-builder `extraResources` →
+  `<resources>/elements/stickers`), with the licence and a `manifest.json` of what it wrote: the
+  library commit and each file's SHA-256 and size. CI (`desktop-build`) and the release job build
+  it the same way, cached by the lockfile, and check every catalogued sticker is placeable within
+  a 40 MB budget (`check:elements`).
+- **Verified against the manifest, not a committed hash.** A lossless WebP's bytes can differ
+  between encoder builds, so the catalogue cannot pin the packaged files. Main reads the manifest
+  once, ignores a set built for another library commit, and checks a packaged copy's SHA-256
+  against its entry, whose file must be the sticker's own (`full/<id>.webp`).
+- **Tiles by id, as bytes.** The renderer cannot reach the installer's resources, so packaged tiles
+  come over `framepilot:elements:thumbnail`: ids in (at most 96 per request), WebP bytes out, which
+  the renderer shows as `blob:` URLs and keeps for the session. An empty request answers only
+  whether the set is present, and the Stickers tab lists the whole library only then.
+- **The agent sees what the host ships.** `search_elements` includes packaged stickers only when
+  the host says the set is present (`packagedStickers`), so the agent never offers a sticker this
+  install cannot place.
+- Rejected: committing the full set (MD-E2: +40% repository size), fetching it in the web build (a
+  network fetch in every web build), and downloading stickers on demand (offline editing would
+  lose them).

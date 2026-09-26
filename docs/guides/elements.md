@@ -92,28 +92,44 @@ dropping the shapes.
 
 ## Stickers
 
-251 stickers from Microsoft's [Fluent Emoji](https://github.com/microsoft/fluentui-emoji) 3D set,
-in thirteen collections: Reactions, Celebrate, Hands & gestures, Hearts, Tech & work, Arrows &
-pointers, Symbols & signs, Money, Food, Nature, Animals, Travel and Objects. They ship inside the
-app, so they work offline and nothing is downloaded when you add one. The rest of the Fluent
-Emoji set comes in a later update.
+All 1,595 stickers of Microsoft's [Fluent Emoji](https://github.com/microsoft/fluentui-emoji) 3D
+set. 251 of them are picked into thirteen collections: Reactions, Celebrate, Hands & gestures,
+Hearts, Tech & work, Arrows & pointers, Symbols & signs, Money, Food, Nature, Animals, Travel and
+Objects. They all ship inside the desktop app, so they work offline and nothing is downloaded when
+you add one. (A development build lists the 251 until `pnpm --filter @framepilot/desktop
+build:elements` has built the rest.)
 
-- **Browse and search:** the chips narrow the grid to one collection. **Search** matches a
-  sticker's name and what it is for ("fire", "party", "thumbs", "check"), and you can paste the
-  emoji itself: 🔥 finds the fire sticker.
+- **Browse:** the chips along the top narrow the grid: **All**, **Recent** (what you added
+  lately), **Favourites**, the thirteen collections, then the nine groups of the whole set
+  (Smileys & Emotion, People & Body, Animals & Nature, Food & Drink, Travel & Places, Activities,
+  Objects, Symbols, Flags). A group named like a collection says "(all)": "Objects (all)" is every
+  object, "Objects" the picked few. The chip strip scrolls sideways.
+- **Search** matches a sticker's name and what it is for ("fire", "party", "thumbs", "check"),
+  and you can paste the emoji itself: 🔥 finds the fire sticker.
+- **Favourites:** hover a tile and click its star, or press **F** on it. They stay across projects
+  and restarts.
 - **Keyboard:** the grid is one Tab stop. Arrows move between tiles, Home and End jump to the ends,
-  Enter adds.
+  Enter adds, F stars.
+- **Already in the project:** a small dot marks a sticker the project holds. Clicking it still adds
+  another.
 - **Add one:** click its tile. FramePilot copies the sticker into the project folder (it appears
   in the bin's **Elements** folder, marked **Element**) and places it at the playhead for the
   default overlay length (Settings → Editing), on an overlay layer, centred, a third of the frame
   high. It is selected, and one undo removes it; History reads "Add sticker “Fire”". The same
   sticker added twice uses one copy of the file.
+- **Drag one onto the timeline:** drop a tile on an overlay lane and it lands there at the drop
+  time. Dropped on footage, it goes on a graphics layer of its own instead.
 - **Move, size and turn it** on the monitor like any other picture: drag it, drag a corner, or use
   the rotate handle. **Position & size** in the Inspector sets the same values as numbers, and
   keyframes animate them. Opacity, fades, transitions and blend modes work as they do on a photo.
-- **Outline it, give it a glow or a drop shadow:** **Inspector → Mask → Edge style**. The styles
-  trace the sticker's art (its transparent margin is there so they are not clipped), and a mask
-  you draw on it narrows what they trace.
+- **Outline it or give it a shadow:** the Inspector's **Sticker** section has **Outline** (colour
+  and width) and **Shadow** (a preset). They trace the sticker's art, not its square. For a glow,
+  or every setting, use **Inspector → Mask → Edge style**; a mask you draw on the sticker narrows
+  what the styles trace.
+- **Soft when enlarged:** a sticker is drawn from a 256-pixel image. Drawn more than one and a half
+  times that at your export size, it exports soft, and the Sticker section says **Enlarged beyond
+  its sharp size**. The default size is under the line at 1080p; in a 4K project, make stickers
+  smaller or accept a softer look.
 - **Replace it** without losing your work: in the Inspector's **Sticker** section press
   **Replace…**, or right-click the clip and choose **Replace sticker…**. Elements opens on
   Stickers; pick another and it takes the old one's place, with the same timing, position, size

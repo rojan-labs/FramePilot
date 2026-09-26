@@ -63,6 +63,15 @@ ADR 0114 line, checked mechanically because a leak is otherwise silent.
 
 Both run in CI on every build, including manual ones.
 
+The installer also carries the **packaged sticker set** (plan/elements EL6b, ADR 0191):
+`desktop:dist` runs `build:elements`, which encodes the 1,344 stickers the renderer does not ship
+from the pinned Fluent Emoji commit into `apps/desktop/elements-packaged` (about 32 MiB, with a
+`manifest.json` of what it wrote), and `check:elements`, which refuses a set missing a sticker,
+holding a file that does not match its manifest, lacking the licence, or over its 40 MB budget.
+The first build downloads the pinned upstream files into `~/.cache/framepilot/elements/<commit>`
+and takes a few minutes; CI caches both folders by the lockfile's hash. A local unsigned macOS
+arm64 DMG with the set measured 374.0 MiB (2026-09-26), inside the 400 MiB budget.
+
 > **How the payload check earns its keep.** The engine is a PyInstaller bundle,
 > and PyInstaller absorbs whatever is importable in the environment it builds
 > in — not only what is declared. A developer who installs a pack's `cv` extra

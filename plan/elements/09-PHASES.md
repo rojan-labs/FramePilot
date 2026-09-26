@@ -364,19 +364,46 @@ FRAMEPILOT_PYTHON_API_URL=http://127.0.0.1:8799 node packages/ai-sdk/scripts/mis
 
 Depends on EL6a, MD-E1, EL2b.1.
 
-- [ ] **EL6b.1** All 1,595 full files fetched from the pinned commit **when packaging the desktop
-      app** (an electron-builder `extraResources` step, cached by the lock hash), not in
-      `web-editor#build`; `elementsRoot()` prefers the packaged set and falls back to the curated
-      set (06 §4); CI size budget.
-- [ ] **EL6b.2** Virtualised grid, collection chips, glyph search, favourites star; packaged tiles
-      through `framepilot:elements:thumbnail`; perf test for 02 §9.
-- [ ] **EL6b.4** `apps/desktop` `dist` runs `build:elements` before `electron-builder`;
-      `release.yml` and the `desktop-build` job cache it; `scripts/check-installer-budget.mjs`
-      re-checked (raised in the same PR only if needed, with the reason); release checklist and
-      runbooks updated.
-- [ ] **EL6b.3** Inspector Outline and Shadow (edge styles on the sticker's own alpha, from EL2b);
-      the "Enlarged beyond its sharp size" hint; oracle rows `stickers/outline-shadow`,
-      `stickers/masked`.
+- [~] **EL6b.1** All 1,595 full files fetched from the pinned commit **when packaging the desktop
+  app** (an electron-builder `extraResources` step, cached by the lock hash), not in
+  `web-editor#build`; `elementsRoot()` prefers the packaged set and falls back to the curated
+  set (06 §4); CI size budget.
+  _Built:_ `build_library.py --packaged` (1,344 files, 32.2 MiB, parallel, byte-stable
+  reruns; 8 tests), a `manifest.json` main verifies copies against (MD-E1 note), `sourceOf`
+  per item, `check:elements` (every sticker placeable, licence, 40 MB) in `desktop-build`.
+- [~] **EL6b.2** Virtualised grid, collection chips, glyph search, favourites star; packaged tiles
+  through `framepilot:elements:thumbnail`; perf test for 02 §9.
+  _Built:_ `@tanstack/react-virtual` grid (40 of 1,595 tiles drawn), Recent / Favourites /
+  nine group chips, star + F, in-project dot, drag onto a lane (`onDropSticker`); tiles from
+  main in batches of ≤ 96, kept for the session; `StickersBrowser.perf.test.tsx`: search p95
+  2.4 ms (≤ 16), warm first tiles 45 ms (≤ 100) in jsdom; the agent's search reaches the
+  packaged set only where the host ships it.
+- [~] **EL6b.4** `apps/desktop` `dist` runs `build:elements` before `electron-builder`;
+  `release.yml` and the `desktop-build` job cache it; `scripts/check-installer-budget.mjs`
+  re-checked (raised in the same PR only if needed, with the reason); release checklist and
+  runbooks updated.
+  _Built:_ both jobs cache `~/.cache/framepilot/elements` and the set by the lock's hash; a
+  local unsigned macOS arm64 DMG with the set is 374.0 MiB (budget 400, not raised), and its
+  own resources pass `check:elements`; `distribution.md` and the v1 release checklist say so.
+- [~] **EL6b.3** Inspector Outline and Shadow (edge styles on the sticker's own alpha, from EL2b);
+  the "Enlarged beyond its sharp size" hint; oracle rows `stickers/outline-shadow`,
+  `stickers/masked`.
+  _Built:_ `EdgeStyleControls` shared with the Mask tab (Outline: colour, width; Shadow:
+  preset), each one undoable edit; `stickerEnlargement` reads the frame plan's displayed
+  size at the clip's largest (1.27× default at 1080p; > 1.5× says so); rows
+  `stickers/stickers-outline-shadow` (EL2b) and `stickers/stickers-masked` (TS and Python
+  vectors equal).
+- [!] **Run D — Scale** (10 §4, a human step; CI measures the synthetic row, `scale-elements`,
+  without a GPU, so only a workstation can hold it to the budget). On an M-series Mac:
+  - `pnpm px5:fixture`, then
+    `python3 tests/e2e/scripts/px5-local-run.py scale-elements/proxy --budgets`: 20 sticker layers
+    over the 4K row against ≤ 1% dropped frames and seek-to-present p95 ≤ 100 ms. Keep the line
+    it appends to `tests/e2e/.tmp-px5-scale/results/local-runs.jsonl`.
+  - In the desktop app, a 3-minute timeline of real 4K camera footage with 20 stickers (five
+    outlined, five turning, some over faces): play it through twice, noting any stutter; export
+    it, then hide the stickers' layers and export again. Record both export times (the budget:
+    with stickers ≤ 1.3× without).
+  - Commit both results as `docs/reports/elements/run-d-scale.md`, with the commit they ran on.
 
 **DoD:** every catalogued sticker is placeable in a packaged build (CI check); budgets met.
 

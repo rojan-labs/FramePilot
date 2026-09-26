@@ -38,6 +38,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   shadowed without a mask (an outline on a photo is a border), and a title's outline follows its
   letters. The assistant's "outline this sticker" works the same way.
 
+- **All 1,595 stickers, in the desktop app.** The Stickers tab now lists the whole Fluent Emoji
+  set, shipped inside the installer so every sticker works offline. Chips for **Recent**,
+  **Favourites** (a star, or **F**) and the set's nine groups sit beside the collections; a dot
+  marks a sticker the project already has; drag a tile onto a lane to place it where you drop it.
+  The grid stays quick however far you scroll. A sticker's Inspector section now has **Outline**
+  and **Shadow**, and says **Enlarged beyond its sharp size** when a sticker would export soft.
+  The assistant searches the whole set too.
+
 - **Stickers, in Elements.** A new **Stickers** sub-tab holds 251 stickers from Microsoft's
   Fluent Emoji 3D set, in thirteen collections, shipped inside the app so they work offline.
   Search by name or paste the emoji itself; click one to drop it at the playhead, a third of the
