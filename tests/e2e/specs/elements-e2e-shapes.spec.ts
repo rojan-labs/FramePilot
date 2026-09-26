@@ -12,9 +12,10 @@
  *
  * SIMULATED, and why: Electron and `fp-media://` (see `masking/fake-desktop.ts`); the Photos tab's
  * Pexels calls, which this spec never makes, are not served by the fake host. The drop onto the
- * monitor is dispatched with a real `DataTransfer`: the tile's own `dragstart` writes the payload
- * and the monitor's own `dragover` and `drop` read it (headless Chromium has no pointer-driven
- * HTML5 drag to replay).
+ * monitor is a real pointer drag — Chromium drives HTML5 drag from the mouse — so the tile's own
+ * `dragstart` and the monitor's own `dragenter`, `dragover` and `drop` run as they do for a person.
+ * (A `DataTransfer` built in the page cannot stand in for that check: Chromium makes it a
+ * copy-and-paste transfer, whose drop effect stays "none" whatever a handler sets.)
  *
  * CI ONLY (`elements-e2e` job): it renders.
  */
@@ -295,33 +296,36 @@ test('Monitor drop: a highlight box let go over the picture lands centred there,
     .getByRole('tab', { name: 'Shapes', exact: true })
     .click();
 
-  // --- drag the tile onto the monitor, letting go 30% across and 40% down the picture -----------
-  const DROP = { x: 0.3, y: 0.4 } as const;
+  // --- drag the tile onto the monitor with the pointer, letting go about 30% across and 40% down
+  // the picture (on a whole client pixel, which is where a drag event reports the pointer) ------
   const frame = page.locator('.preview-stage .preview-frame');
   const frameBox = (await frame.boundingBox())!;
-  const at = {
-    clientX: frameBox.x + frameBox.width * DROP.x,
-    clientY: frameBox.y + frameBox.height * DROP.y,
+  const target = {
+    x: Math.round(frameBox.x + frameBox.width * 0.3),
+    y: Math.round(frameBox.y + frameBox.height * 0.4),
   };
-  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
-  await page
-    .getByRole('button', { name: 'Add Highlight box', exact: true })
-    .dispatchEvent('dragstart', { dataTransfer });
-  await frame.dispatchEvent('dragover', { dataTransfer, ...at });
-  // The monitor took the drag: a copy, and its edge lit while the tile is over it.
-  expect(await dataTransfer.evaluate((transfer) => transfer.dropEffect)).toBe('copy');
+  /** Where on the picture the pointer lets go, as fractions of the frame. */
+  const DROP = {
+    x: (target.x - frameBox.x) / frameBox.width,
+    y: (target.y - frameBox.y) / frameBox.height,
+  };
+  await page.getByRole('button', { name: 'Add Highlight box', exact: true }).hover();
+  await page.mouse.down();
+  await page.mouse.move(target.x, target.y, { steps: 8 });
+  // The monitor takes it: the picture's edge lights while the tile is over it.
   await expect(frame).toHaveClass(/is-element-drop/);
-  await frame.dispatchEvent('drop', { dataTransfer, ...at });
+  await page.mouse.up();
   await expect(frame).not.toHaveClass(/is-element-drop/);
 
-  // --- one shape at the playhead, its box centred where it was dropped, selected ------------------
+  // --- one shape at the playhead, its box centred where it was dropped, selected, announced -------
   const dropped = await savedProject(desktop, (doc) => shapesOf(doc).length === 1, 'one shape');
   const shape = shapesOf(dropped)[0]!;
   expect(shape.start).toBe(0);
   const params = paramsOf(dropped, shape.id)!;
   expect(params).toMatchObject({ shape: 'rounded-rect', stroke: '#FFD400' });
-  expect(Number(params.x)).toBeCloseTo(DROP.x * 100, 1);
-  expect(Number(params.y)).toBeCloseTo(DROP.y * 100, 1);
+  expect(Math.abs(Number(params.x) - DROP.x * 100)).toBeLessThanOrEqual(0.2);
+  expect(Math.abs(Number(params.y) - DROP.y * 100)).toBeLessThanOrEqual(0.2);
+  await expect(page.getByText('Added the highlight box at 0:00', { exact: true })).toBeAttached();
   await expect(page.getByRole('button', { name: `clip ${shape.id}`, exact: true })).toHaveAttribute(
     'data-selected',
     'true',

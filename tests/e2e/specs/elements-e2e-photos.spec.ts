@@ -22,10 +22,13 @@
  * SIMULATED, and why: Electron and `fp-media://` (see `masking/fake-desktop.ts`), and Pexels itself —
  * a search answers two items and a download copies a sentinel clip into the project's media folder,
  * answering as main's service does. The service's cache, quota and download are unit-tested in
- * `apps/desktop` (`stock-service.test.ts`). The drag is dispatched with a real `DataTransfer`: the
- * tile's own `dragstart` writes the payload and the lane's own `drop` reads it (headless Chromium
- * has no pointer-driven HTML5 drag to replay). The import's probe reads the PNG's own header (see
- * the fake host); the bytes are written by main's own `importMediaFile`.
+ * `apps/desktop` (`stock-service.test.ts`). The drag is dispatched with a `DataTransfer` built in
+ * the page: the tile's own `dragstart` writes the payload and the lane's own `drop` reads it, at an
+ * exact point on the lane. Chromium does drive a real HTML5 drag from the pointer (the Stickers
+ * spec drags a sticker onto the monitor that way); a page-built `DataTransfer` only cannot report a
+ * drop effect — Chromium makes it a copy-and-paste transfer — so these rows check what the drop
+ * placed, not the cursor. The import's probe reads the PNG's own header (see the fake host); the
+ * bytes are written by main's own `importMediaFile`.
  *
  * CI ONLY (`elements-e2e` job): it renders.
  */

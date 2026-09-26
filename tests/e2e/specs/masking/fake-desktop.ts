@@ -40,8 +40,10 @@
  *    answers the spec's items and a download copies the spec's local file into the project's media
  *    folder, answering as main's service does. The main-process service itself (cache, quota,
  *    download, sizing) is covered by `apps/desktop` `stock-service.test.ts`, not here.
- *  - **The import probe** (Assets → Import). The bytes are written by main's own
- *    `importMediaFile`, in one chunk (a spec's files are far smaller than one); the sidecar's
+ *  - **The import path and probe** (Assets → Import). This host offers no `importMediaChunk`, so
+ *    the renderer takes its single-request fallback — `importMedia` with one framed chunk — rather
+ *    than production's chunked IPC; both end in main's `importMediaChunk`, reached here through
+ *    main's own `importMediaFile` (a spec's files are far smaller than one chunk). The sidecar's
  *    `/asset-media` probe that follows is stood in for by reading a PNG's own header for its size,
  *    the one kind of file a spec imports. Anything else answers "not probed", which the app treats
  *    as the real probe failing: the asset is kept without media.

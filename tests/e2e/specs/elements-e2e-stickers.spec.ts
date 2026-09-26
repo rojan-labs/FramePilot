@@ -1,9 +1,10 @@
 /**
- * Elements · Stickers end to end (plan/elements EL6a, EL6b): add the fire sticker from the Stickers
- * tab, replace it with a heart from the Inspector, export, check the monitor draws what the export
- * draws, undo it all; open a project whose sticker file went missing to find it back; and, with
- * the installer's packaged set, list and place a sticker from the whole library, star it, and drag
- * one onto a lane.
+ * Elements · Stickers end to end (plan/elements EL6a, EL6b, EL11): add the fire sticker from the
+ * Stickers tab, replace it with a heart from the Inspector, export, check the monitor draws what
+ * the export draws, undo it all; open a project whose sticker file went missing to find it back;
+ * with the installer's packaged set, list and place a sticker from the whole library, star it, and
+ * drag one onto a lane; and drag one onto the monitor with the pointer, where it lands centred
+ * where it was let go and joins Recent.
  *
  * What is real: the editor (Elements → Stickers, the Inspector's Sticker section, History, the
  * timeline's drop), main's own `ElementsLibrary` copying a sticker into the project folder by id
@@ -13,8 +14,11 @@
  * SIMULATED, and why: Electron and `fp-media://` (see `masking/fake-desktop.ts`). The packaged set
  * is one sticker's files standing in for the 1,344 packaging encodes (the `desktop-build` job
  * builds and checks the real set); its manifest is written as `build:elements` writes one. The
- * drag is dispatched with a real `DataTransfer`: the tile's own `dragstart` writes the payload and
- * the lane's own `drop` reads it (headless Chromium has no pointer-driven HTML5 drag to replay).
+ * drag onto a lane is dispatched with a `DataTransfer` built in the page, so it lands at an exact
+ * point on the lane; the drag onto the monitor is a real pointer drag (`dragTo` — Chromium drives
+ * HTML5 drag from the mouse), which is also what ends the tile's drag in a copy, the signal the
+ * Stickers tab records a Recent from. A page-built `DataTransfer` could not give that signal:
+ * Chromium makes it a copy-and-paste transfer, whose drop effect stays "none".
  *
  * CI ONLY (`elements-e2e` job): it renders.
  */
@@ -36,7 +40,7 @@ import {
   video,
   type OpenedEditor,
 } from './masking/session.js';
-import { expectPreviewMatchesExport } from './masking/parity.js';
+import { expectPreviewMatchesExport, waitForMonitor } from './masking/parity.js';
 import { REPO, Workspace } from './masking/workspace.js';
 import type { Project } from '../../../packages/timeline-schema/dist/index.js';
 import { loadStickerCatalog } from '../../../packages/ai-sdk/dist/index.js';
@@ -352,4 +356,78 @@ test('Stickers: the whole library where the installer ships it — list, place, 
     .getByRole('button', { name: 'Undo', exact: true });
   for (let step = 0; step < 2; step += 1) await undo.click();
   await savedProject(desktop, (doc) => stickersOf(doc).length === 0, 'both stickers undone');
+});
+
+test('Monitor drop: a sticker dragged onto the picture with the pointer lands there and joins Recent (EL11)', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(5 * 60_000);
+  const workspace = await workspaceWith('elements-stickers-monitor-drop', 'elements_monitor_drop');
+  opened = await openInDesktop(
+    page,
+    testInfo,
+    { workspace, sidecarUrl: sidecarUrl() },
+    'Elements stickers',
+  );
+  const { desktop } = opened;
+  await waitForMonitor(page);
+
+  await page.getByRole('tab', { name: 'Elements', exact: true }).click();
+  await page
+    .getByRole('tablist', { name: 'Elements', exact: true })
+    .getByRole('tab', { name: 'Stickers', exact: true })
+    .click();
+  // Nothing added yet in this browser, so there is no Recent chip.
+  await expect(page.getByRole('button', { name: 'Recent', exact: true })).toHaveCount(0);
+  const search = page.getByRole('searchbox', { name: 'Search stickers', exact: true });
+  await search.fill('fire');
+
+  // --- the pointer drags the tile onto the picture, letting go a quarter across, 30% down ---------
+  const frame = page.locator('.preview-stage .preview-frame');
+  const frameBox = (await frame.boundingBox())!;
+  // On whole pixels of the frame's box: where a drag event reports the pointer.
+  const targetPosition = {
+    x: Math.round(frameBox.width * 0.25),
+    y: Math.round(frameBox.height * 0.3),
+  };
+  await page
+    .getByRole('button', { name: 'Add Fire', exact: true })
+    .dragTo(frame, { targetPosition });
+
+  // --- at the playhead, centred where it was let go: its base offset in the project's pixels ------
+  const dropped = await savedProject(desktop, (doc) => stickersOf(doc).length === 1, 'one sticker');
+  const sticker = stickersOf(dropped)[0]!;
+  expect(sticker).toMatchObject({ assetId: FIRE, start: 0, end: SECONDS });
+  const base = (property: string): number =>
+    sticker.keyframes.find((key) => key.property === property && key.time === 0)!.value;
+  const resolution = dropped.resolution;
+  const expected = {
+    x: (targetPosition.x / frameBox.width - 0.5) * resolution.width,
+    y: (targetPosition.y / frameBox.height - 0.5) * resolution.height,
+  };
+  // Within about a project pixel: the frame is shown near its own size here.
+  expect(Math.abs(base('x') - expected.x)).toBeLessThanOrEqual(1.5);
+  expect(Math.abs(base('y') - expected.y)).toBeLessThanOrEqual(1.5);
+  await expect(
+    page.getByRole('button', { name: `clip ${sticker.id}`, exact: true }),
+  ).toHaveAttribute('data-selected', 'true');
+  await expect(page.getByText('Added Fire at 0:00', { exact: true })).toBeAttached();
+
+  // --- the drag ended in a copy, so the Stickers tab lists it under Recent -------------------------
+  await search.fill('');
+  await page.getByRole('button', { name: 'Recent', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Add Fire', exact: true })).toBeVisible();
+  await expect(page.locator('.stickers-grid-tile')).toHaveCount(1);
+
+  // --- one undo takes it back ---------------------------------------------------------------------
+  await page
+    .getByRole('toolbar', { name: 'editor tools', exact: true })
+    .getByRole('button', { name: 'Undo', exact: true })
+    .click();
+  const undone = await savedProject(
+    desktop,
+    (doc) => stickersOf(doc).length === 0,
+    'the dropped sticker undone',
+  );
+  expect(clipsById(undone).get('clip_bg')).toMatchObject({ start: 0, end: SECONDS });
 });
