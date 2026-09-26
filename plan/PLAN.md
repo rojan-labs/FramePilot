@@ -10350,13 +10350,37 @@ stickers, CC BY 4.0 (EL10).
   composite is a table lookup, and broken strokes and fill pieces share one mask — grape now 3.0 /
   8.7 ms, the slowest shape (`burst-label/new`) 3.8 / 13.7 ms; the joins also fill hairline cracks
   the old ones left in wide curved strokes (0.37% of covered pixels move, all at joints).
-- [ ] **Found in EL6a — the CodeQL alert backlog (separate PR).** 57 alerts are open on `main`
-  (path and command-line injection in the sidecar's matte, PTS and service routes; ReDoS in
-  caption segmentation and eval metrics; an e2e request-forgery). PR #131 adds none (its set equals
-  `main`'s), but a PR over 300 files cannot be diffed by GitHub, so CodeQL attributes them all to
-  it. Every Python flow passes through `safety.resolve_within`: rewriting its containment check as
-  the normalise-then-`startswith` guard CodeQL recognises should clear most of them; triage the
-  rest one by one.
+- [~] **Found in EL6a — the CodeQL alert backlog (fixed on PR #131, 2026-09-26; closure is
+  confirmed by the next CodeQL run after push).** 57 alerts were open (42 path injection, 9
+  command-line injection, 3 ReDoS, 2 incomplete escapes in tests, 1 URL substring test). PR #131
+  adds none (its set equals `main`'s), but a PR over 300 files cannot be diffed by GitHub, so
+  CodeQL attributes them all to it. Fixed in code, nothing suppressed or dismissed:
+  `resolve_within` checks containment with `os.path.realpath` + one `startswith` on a
+  separator-terminated prefix, the idiom CodeQL recognises, and a NUL byte is a 400 not a 500
+  (`01b453ff`); the probes that carry a sandboxed path launch through
+  `subprocess_safety.run_argv`/`popen_argv`, whose literal `[binary, *operands]` keeps the trusted
+  binary as the command (`b144d2a4`); the caption trailing-closer and perception-metric patterns
+  are linear (`f5db5f54`, `659ddd8f`); the two test escapes and the model fetcher's host check
+  (`78de42fb`, `0a0b83f5`, `92dbcfc7`). The ~40 path alerts dismissed earlier pass through the
+  same `resolve_within` and should auto-close as fixed. Left as they were: the dismissed
+  whole-argv runners (`media/ffmpeg.run`, ASR, audio filters; their callers pass a whole vector,
+  so the same shape change would reach every caller) and five dismissed results inside
+  `tests/test_asr.py`. Why the idioms: `docs/runbooks/security-hardening.md` (2026-09-26).
+- [x] **Found triaging CodeQL (2026-09-26) — a reference cache was written through a symlink.**
+      `/references/analyze` wrote `<ref>.reference.json` with `write_text`, so a link planted in a
+      project folder overwrote (or, dangling, created) a file outside the projects root; reproduced
+      with a 200 and an overwritten outside file. A linked cache is now a miss and the cache is
+      swapped in with `os.replace` (`0ab4bcd1`, four regression tests).
+- [ ] **Found triaging CodeQL (2026-09-26) — the audio mastering pass writes through a planted
+      link the same way.** `render/pipeline.py` masters into `<export>.master.tmp` with `ffmpeg -y`,
+      a predictable sibling nobody checks, so a link at that name in a project's exports folder
+      receives the render. Write to an exclusive temp name (or refuse a link) as `0ab4bcd1` did;
+      render path, so a separate change.
+- [ ] **Info (2026-09-26) — matte artifact files are checked through links.** `prepare_matte`
+      (`render/mattes.py`) checks each artifact file with `is_file()` and hashes it, which follows a
+      linked file (the pinned digest must still match, so this reads, never writes). The regular-file
+      check `_regular_file` lives in `matte_tier_job.py`, which imports `mattes.py`, so reusing it
+      needs moving it into `mattes.py` first.
 - [ ] **Found in EL6b — the packaged sticker set's only trust root is outside the archive
   (accepted risk, separate PR).** Its `manifest.json` catches corruption and a mismatched build,
   not a rewrite by someone who can write the install folder, who could rewrite `app.asar` as well:

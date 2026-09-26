@@ -22,6 +22,10 @@ Companion: the `security-hardening` skill (`.agents/skills/security-hardening/`)
       Unicode/encoding tricks.
 - [ ] **Atomic saves** for `project.fp.json` (temp file → fsync → rename); see
       [../architecture/desktop-shell.md](../architecture/desktop-shell.md).
+- [ ] **Never write through a link beside user media.** The sandbox proves the path it was
+      given, not a sibling derived from it: write a derived file (a cache, a temp) to a fresh
+      file in the same folder and swap it in with `os.replace`, and treat a symlink at the name
+      as a miss on read. See the 2026-09-26 reference-cache note below.
 
 ## Agent sandbox (PRD §18.2)
 
@@ -73,7 +77,49 @@ When a security issue is found or reported (see disclosure process in
 root cause, fix + PR link, and the regression test added. Treat a sandbox escape or
 original-asset loss as **critical**.
 
-### 2026-09-26 — Elements release-gate review (plan/elements EL12, PASS WITH FINDINGS)
+### 2026-09-26 — Reference cache written through a symlink; the CodeQL backlog on PR #131 (HIGH, fixed)
+
+- **Summary:** `POST /references/analyze` caches its measurement beside the reference as
+  `<ref>.reference.json`, written with `Path.write_text`, which follows a symlink. A link planted
+  in a project folder (a shared zip, a git clone) made the engine overwrite any file it could
+  reach outside the projects root, and a dangling link created its target there. Reproduced: the
+  route answered 200 and overwrote an outside `victim.txt`. The read side served whatever JSON the
+  link pointed at as a cache hit. Found while triaging the 57 CodeQL alerts on PR #131 (the two
+  alerts on those lines had been dismissed as false positives).
+- **Affected component:** `engine/python/framepilot_engine/service.py` (`/references/analyze`).
+- **Root cause:** `sandbox()` proved the media path is inside the root; the cache path was derived
+  from it with `with_name` and never checked, and the write followed the link.
+- **Fix (`0ab4bcd1`):** a symlinked cache is a miss (logged); the cache is written to an exclusive
+  temp file in the same folder and swapped in with `os.replace`, which replaces the directory
+  entry instead of writing through it; the temp file is removed if the swap fails. No other write
+  beside user media exists in `service.py`.
+- **Regression tests:** `engine/python/tests/test_service_references.py` — a live link to an
+  outside file (unchanged, and replaced by a real cache), a dangling link (target not created), a
+  forged linked cache carrying the real hash (not served), a cache name taken by a folder (no temp
+  file left behind).
+- **The sandbox idiom, and why (`01b453ff`):** every path route resolves through
+  `safety.resolve_within`. It was correct, but CodeQL's `py/path-injection` does not model
+  `Path.resolve()` as normalisation (it treats it as a file access) nor
+  `base not in path.parents` as a guard, so ~40 downstream routes read as unchecked. The check is now
+  `os.path.realpath` on both sides and one `startswith` on the value returned, with a trailing
+  separator on both sides: that makes "inside or equal to the root" a single prefix test and rules
+  out the sibling-prefix bug (`/projects` vs `/projects-evil`). Never compare against a bare root,
+  never return a different variable from the one the guard checked, and never split the guard
+  into `a == root or a.startswith(...)` (not recognised). A NUL byte is now a
+  `PathTraversalError` (400), not the OS layer's `ValueError` (500).
+- **The subprocess idiom, and why (`b144d2a4`):** CodeQL's command-line-injection query narrows
+  "the command" to element 0 only when `subprocess` receives a list literal; a variable holding the
+  whole validated vector reads as a tainted command. Probes that carry a sandboxed path now launch
+  through `subprocess_safety.run_argv` / `popen_argv(binary, operands)`: the binary comes from the
+  resolvers and is the literal first element, `shell` is fixed, `executable=` is refused.
+- **Also fixed:** three polynomial regexes (caption trailing closers `f5db5f54`, perception-metric
+  frame count and clip rows `659ddd8f`), two incomplete escapes in tests, and a substring URL test
+  in the visual-describe model fetcher (`92dbcfc7`).
+- **Open (tracked in `plan/PLAN.md`):** the render's audio mastering pass writes its predictable
+  `<export>.master.tmp` sibling with `ffmpeg -y`, which follows a planted link the same way;
+  matte artifact files are checked with `is_file()`, which follows a linked file (info: the pinned
+  digest must still match); the already-dismissed whole-argv runners (`media/ffmpeg.run`, the ASR
+  and audio-filter runners) keep their shape.
 
 - **Surface:** everything Elements added across the IPC and agent boundaries — materialise and
   thumbnails, the Pexels download's new `kind`, the renderer drag payloads and the monitor and

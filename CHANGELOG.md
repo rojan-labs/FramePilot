@@ -587,6 +587,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   it stopped if the app quits mid-job. It is not downloadable yet: a licence question about one
   model and the minimum hardware are still being decided.
 
+### Security
+
+- **A link planted in a project folder can no longer make the engine write outside it.** The
+  engine saves a reference's measurement beside the file; a symlink at that name (in a project
+  shared as a zip, or cloned) made it overwrite or create the file the link pointed at. The link
+  is now ignored and replaced by a real cache file.
+
 ### Performance
 
 - **Stickers, titles and shapes slow an export far less.** Each one used to be blended across the
