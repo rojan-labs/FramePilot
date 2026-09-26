@@ -17,7 +17,11 @@ import type { ElementAssetWire } from '@framepilot/shared-types';
 import type { Asset, Project } from '@framepilot/timeline-schema';
 import { isDesktop } from '../../editor/bridge.js';
 import { useViewPreference } from '../../editor/useViewPreference.js';
-import { PexelsBrowser } from './PexelsBrowser.js';
+import {
+  PexelsBrowser,
+  type StockCategoryId,
+  type StockOrientationChoice,
+} from './PexelsBrowser.js';
 import { ShapesBrowser } from './ShapesBrowser.js';
 import { StickersBrowser, type StickerReplaceTarget } from './StickersBrowser.js';
 
@@ -60,6 +64,8 @@ export interface ElementsPanelProps {
   readonly placementBlockedReasonFor: (durationSeconds: number) => string | null;
   /** Place a downloaded Pexels asset; returns the refusal sentence, or `null` on success. */
   readonly onAddStock: (asset: Asset) => string | null;
+  /** Place a downloaded Pexels asset as a picture-in-picture (**Add as overlay**, ADR 0193). */
+  readonly onAddStockOverlay?: (asset: Asset) => string | null;
   /** Opens Settings → Photos & videos (Pexels). */
   readonly onOpenSettings?: () => void;
   /** Add a shape preset at the playhead; returns the refusal sentence, or `null`. */
@@ -76,6 +82,7 @@ export function ElementsPanel({
   project,
   placementBlockedReasonFor,
   onAddStock,
+  onAddStockOverlay,
   onOpenSettings,
   onAddShape,
   onAddSticker,
@@ -98,6 +105,13 @@ export function ElementsPanel({
   // Photos and Videos share one query: switching between them re-searches the same
   // words in the other kind. Held here so a round trip through another sub-tab keeps it.
   const [pexelsQuery, setPexelsQuery] = useState('');
+  // The category chip and the shape travel with the words: the same search in the other kind.
+  // The shape starts unset, so the browser opens on the project's own; nothing is persisted, so
+  // another project opens on its own shape too.
+  const [pexelsCategory, setPexelsCategory] = useState<StockCategoryId | null>(null);
+  const [pexelsOrientation, setPexelsOrientation] = useState<StockOrientationChoice | undefined>(
+    undefined,
+  );
 
   const onTabKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLButtonElement>, index: number): void => {
@@ -176,9 +190,14 @@ export function ElementsPanel({
             kind={tab === 'photos' ? 'photo' : 'video'}
             initialQuery={pexelsQuery}
             onQueryChange={setPexelsQuery}
+            initialCategory={pexelsCategory}
+            onCategoryChange={setPexelsCategory}
+            {...(pexelsOrientation === undefined ? {} : { initialOrientation: pexelsOrientation })}
+            onOrientationChange={setPexelsOrientation}
             project={project}
             placementBlockedReasonFor={placementBlockedReasonFor}
             onAddStock={onAddStock}
+            {...(onAddStockOverlay ? { onAddStockOverlay } : {})}
             {...(onOpenSettings ? { onOpenSettings } : {})}
           />
         )}

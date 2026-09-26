@@ -23,13 +23,23 @@
  * is kept: scrubbing is motion the user is actively driving, which is the
  * distinction that setting is about.
  *
- * ## Placement can be refused, on purpose
+ * ## Two ways to place, and a drag
  *
- * The preview flattens picture clips from every track while the export
- * composites them, so a stock clip stacked over existing footage would preview
- * differently from how it renders. Add is therefore disabled — with the reason
- * visible before the click — whenever the playhead is over picture media. See
- * `addStockClipPatch` and `plan/3rd-party-sourcing/photo-video/README.md` §2.
+ * **Add** is a cutaway: it is disabled — with the reason visible before the
+ * click — whenever the playhead is over picture media (ADR 0140, see
+ * `addStockClipPatch`). **Add as overlay** lays the media over whatever is there
+ * as a centred picture-in-picture at 40% size, and is never refused for covering
+ * picture: that is what it is for (ADR 0193). Dragging a tile onto a lane places
+ * it at the drop time. All three download through one flow
+ * (`editor/stock-download.ts`), so the tile shows the same progress, Cancel and
+ * failure whichever the user chose.
+ *
+ * ## Categories and shape
+ *
+ * A category chip is one curated search, and the orientation filter starts on
+ * the project's own shape and travels with the search as Pexels' own parameter.
+ * The curated and popular feeds take no orientation, so an empty box filters the
+ * page Pexels already sent instead of buying it again.
  *
  * ## No provider URL is in this file
  *
@@ -53,10 +63,27 @@ import {
   type StockErrorCodeWire,
   type StockItemWire,
   type StockMediaKindWire,
+  type StockOrientationWire,
   type StockQuotaSnapshot,
 } from '../../editor/bridge.js';
 import { stockDownloads, useDownloads } from '../../editor/download-registry.js';
-import { ICON_SIZE, X } from '../icons.js';
+import {
+  downloadAndPlaceStock,
+  stockAssetIdOf,
+  stockErrorText,
+} from '../../editor/stock-download.js';
+import {
+  ICON_SIZE,
+  PictureInPicture2,
+  RectangleHorizontal,
+  RectangleVertical,
+  Square,
+  X,
+} from '../icons.js';
+import { ELEMENT_DND_TYPE, encodeElementDrag } from './element-dnd.js';
+
+// The sentences live with the download flow the drop shares; re-exported for the panel's callers.
+export { stockErrorText };
 
 /** Typing pause before a search fires. Long enough not to bill every keystroke. */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -66,6 +93,65 @@ const SKELETON_TILES = 8;
 const SCRUB_THRESHOLD_PX = 3;
 /** Warn below this share of the monthly allowance. */
 const LOW_QUOTA_RATIO = 0.1;
+/**
+ * How far from 1:1 a frame may be and still read as square. A pixel or two off square (1081×1080)
+ * is square to anyone looking at it; a 4:5 portrait (0.8) is not.
+ */
+const SQUARE_ASPECT_TOLERANCE = 0.05;
+
+/**
+ * The curated categories (plan/elements 02 §2.1). Each chip is ONE search of its query — the
+ * words a person would type for it — cached like any other search.
+ */
+export const STOCK_CATEGORIES = [
+  { id: 'business', label: 'Business', query: 'business' },
+  { id: 'technology', label: 'Technology', query: 'technology' },
+  { id: 'people', label: 'People', query: 'people' },
+  { id: 'nature', label: 'Nature', query: 'nature' },
+  { id: 'city', label: 'City', query: 'city' },
+  { id: 'abstract', label: 'Abstract', query: 'abstract' },
+  { id: 'backgrounds', label: 'Backgrounds', query: 'background' },
+  { id: 'food', label: 'Food', query: 'food' },
+  { id: 'travel', label: 'Travel', query: 'travel' },
+  { id: 'textures', label: 'Textures', query: 'texture' },
+] as const;
+export type StockCategoryId = (typeof STOCK_CATEGORIES)[number]['id'];
+
+/** Which of a tile's two placements the user chose. */
+type StockPlacementChoice = 'cutaway' | 'overlay';
+
+/** The orientation filter: Pexels' own three shapes, or no filter at all. */
+export type StockOrientationChoice = 'any' | StockOrientationWire;
+
+const ORIENTATION_CHOICES: readonly {
+  readonly id: StockOrientationChoice;
+  readonly label: string;
+}[] = [
+  { id: 'any', label: 'Any' },
+  { id: 'landscape', label: 'Landscape' },
+  { id: 'portrait', label: 'Portrait' },
+  { id: 'square', label: 'Square' },
+];
+
+/** The shape of a `width × height` frame, as the orientation filter names it. */
+export function orientationOf(width: number, height: number): StockOrientationWire {
+  const ratio = width / height;
+  if (Math.abs(ratio - 1) <= SQUARE_ASPECT_TOLERANCE) return 'square';
+  return ratio > 1 ? 'landscape' : 'portrait';
+}
+
+/**
+ * The filter a project starts on: its own shape (1920×1080 → landscape, 1080×1920 → portrait).
+ * A project with no frame size yet has no shape to match, so it filters nothing.
+ */
+export function projectOrientation(
+  resolution: { readonly width: number; readonly height: number } | undefined,
+): StockOrientationChoice {
+  if (resolution === undefined || !(resolution.width > 0) || !(resolution.height > 0)) {
+    return 'any';
+  }
+  return orientationOf(resolution.width, resolution.height);
+}
 
 export interface PexelsBrowserProps {
   /** Which Pexels library this instance searches — the Elements sub-tab. */
@@ -90,6 +176,17 @@ export interface PexelsBrowserProps {
    * dropped clip must be *said*, not swallowed: the user watched it download.
    */
   readonly onAddStock: (asset: Asset) => string | null;
+  /**
+   * Place the downloaded asset as a picture-in-picture at the playhead (**Add as overlay**,
+   * ADR 0193). Returns a refusal sentence or `null`. Absent, the tiles offer Add only.
+   */
+  readonly onAddStockOverlay?: (asset: Asset) => string | null;
+  /** The category to start with, so a remount (a sub-tab round trip) keeps it. */
+  readonly initialCategory?: StockCategoryId | null;
+  readonly onCategoryChange?: (category: StockCategoryId | null) => void;
+  /** The orientation to start with; absent, the project's own. */
+  readonly initialOrientation?: StockOrientationChoice;
+  readonly onOrientationChange?: (orientation: StockOrientationChoice) => void;
   /** Opens Settings → Photos & videos (Pexels), for the no-key and quota states. */
   readonly onOpenSettings?: () => void;
 }
@@ -121,38 +218,6 @@ type SearchState =
   | { readonly kind: 'noResults'; readonly query: string }
   | { readonly kind: 'error'; readonly code: StockErrorCodeWire; readonly message: string };
 
-/** The sentence for each failure. No generic "something went wrong". */
-export function stockErrorText(code: StockErrorCodeWire, detail?: string): string {
-  switch (code) {
-    case 'no_key':
-      return 'Add your Pexels API key in Settings to search.';
-    case 'unauthorized':
-      return 'Pexels rejected this key. Check it in Settings.';
-    case 'rate_limited':
-      return detail
-        ? `You've hit the hourly limit of about 200 requests (${detail}).`
-        : "You've hit the hourly limit of about 200 requests. It clears within the hour.";
-    case 'quota_exhausted':
-      return "You've used this month's request allowance.";
-    case 'provider_unavailable':
-      return 'Pexels is not responding. Try again shortly.';
-    case 'offline':
-      return 'No network connection.';
-    case 'timeout':
-      return 'Pexels took too long to answer.';
-    case 'cancelled':
-      return '';
-    case 'too_large':
-      return 'That file is larger than the 2 GB limit. Pick a smaller size.';
-    case 'disk_full':
-      return 'Not enough disk space to save this file.';
-    case 'download_failed':
-      return "The download didn't finish. Nothing was added.";
-    case 'derive_failed':
-      return "Saved the file, but couldn't read its thumbnails.";
-  }
-}
-
 /** `92` → `1:32`. Duration is the first thing an editor reads on a clip. */
 export function formatClipLength(seconds: number): string {
   const total = Math.max(0, Math.round(seconds));
@@ -180,7 +245,7 @@ export function variantLabel(variant: StockItemWire['variants'][number]): string
 
 /** A stable asset id, so re-adding the same rendition is detectable. */
 export function stockAssetId(item: StockItemWire): string {
-  return `stock_${item.provider}_${item.remoteId}`.replace(/[^a-zA-Z0-9_]/g, '_');
+  return stockAssetIdOf(item.provider, item.remoteId);
 }
 
 /** The rendition main would pick: smallest that covers the project height. */
@@ -199,15 +264,70 @@ export function PexelsBrowser({
   project,
   placementBlockedReasonFor,
   onAddStock,
+  onAddStockOverlay,
+  initialCategory = null,
+  onCategoryChange,
+  initialOrientation,
+  onOrientationChange,
   onOpenSettings,
 }: PexelsBrowserProps): JSX.Element {
   const [query, setQueryState] = useState(initialQuery);
+  const [category, setCategoryState] = useState<StockCategoryId | null>(initialCategory);
+  const [orientation, setOrientationState] = useState<StockOrientationChoice>(
+    () => initialOrientation ?? projectOrientation(project.resolution),
+  );
+  const setCategory = useCallback(
+    (next: StockCategoryId | null): void => {
+      setCategoryState(next);
+      onCategoryChange?.(next);
+    },
+    [onCategoryChange],
+  );
   const setQuery = useCallback(
     (next: string): void => {
       setQueryState(next);
       onQueryChange?.(next);
     },
     [onQueryChange],
+  );
+  const setOrientation = useCallback(
+    (next: StockOrientationChoice): void => {
+      setOrientationState(next);
+      onOrientationChange?.(next);
+    },
+    [onOrientationChange],
+  );
+  /**
+   * Whether the next search waits for typing to pause. Only keystrokes are debounced — that is
+   * what stops billing a request per keystroke. A chip or a shape is one deliberate click, and
+   * makes the user wait for nothing.
+   */
+  const debounceNextSearchRef = useRef(false);
+  /** Typing is its own search: it leaves the category, whose chip no longer describes the grid. */
+  const typeQuery = useCallback(
+    (next: string): void => {
+      debounceNextSearchRef.current = true;
+      setQuery(next);
+      if (category !== null) setCategory(null);
+    },
+    [category, setCategory, setQuery],
+  );
+  /** A chip (or the feed's, with `null`) replaces whatever was typed: the chip is the search. */
+  const chooseCategory = useCallback(
+    (next: StockCategoryId | null): void => {
+      debounceNextSearchRef.current = false;
+      if (query !== '') setQuery('');
+      setCategory(next);
+    },
+    [query, setCategory, setQuery],
+  );
+  /** A new shape re-runs the current search at once. */
+  const chooseOrientation = useCallback(
+    (next: StockOrientationChoice): void => {
+      debounceNextSearchRef.current = false;
+      setOrientation(next);
+    },
+    [setOrientation],
   );
   // Starts loading, not empty: the browse request is fired by the mount effect
   // below, and a skeleton is the honest thing to show while it is in flight.
@@ -275,10 +395,33 @@ export function PexelsBrowser({
   // Search
   // ---------------------------------------------------------------------------
 
+  /** The category chip in force, if any. */
+  const categoryEntry = STOCK_CATEGORIES.find((entry) => entry.id === category);
+  /** What is being asked of Pexels: the chip's curated words, else what was typed. */
+  const searchText = categoryEntry?.query ?? query.trim();
+  /** An empty search is the provider's own feed ("Curated" / "Popular"). */
+  const browsing = searchText === '';
+  /**
+   * The orientation sent with the request. Never with a browse: Pexels' feeds take no
+   * orientation, so sending one would only buy the same page again under another cache key.
+   */
+  const requestOrientation: StockOrientationWire | undefined =
+    browsing || orientation === 'any' ? undefined : orientation;
+
   const runSearch = useCallback(
-    async (text: string, mediaKind: StockMediaKindWire, page: number): Promise<void> => {
+    async (
+      text: string,
+      mediaKind: StockMediaKindWire,
+      page: number,
+      shape: StockOrientationWire | undefined,
+    ): Promise<void> => {
       const generation = ++searchGenerationRef.current;
-      const result = await stockSearch({ text, kind: mediaKind, page });
+      const result = await stockSearch({
+        text,
+        kind: mediaKind,
+        page,
+        ...(shape === undefined ? {} : { orientation: shape }),
+      });
       // Superseded while in flight. Dropped in silence: the newer search owns
       // the grid, and reporting this one's outcome — results OR an error — would
       // talk about a query the user has already moved on from.
@@ -332,8 +475,6 @@ export function PexelsBrowser({
       setSearch({ kind: 'empty' });
       return;
     }
-    const text = query.trim();
-
     // Previous results stay visible and dimmed rather than clearing: a grid that
     // blanks on every keystroke makes the panel feel broken while it works.
     setSearch((current) =>
@@ -341,15 +482,16 @@ export function PexelsBrowser({
     );
 
     let cancelled = false;
-    // An empty box is a browse, and a browse is not typing — it fires at once.
-    // The debounce exists to stop billing a request per keystroke, and there are
-    // no keystrokes here.
+    // An empty box is a browse, and a browse is not typing — it fires at once, as
+    // does a category chip or a change of shape: each is one deliberate click. The
+    // debounce exists to stop billing a request per keystroke, and there are no
+    // keystrokes there.
     const timer = setTimeout(
       () => {
         if (cancelled) return;
-        void runSearch(text, kind, 1);
+        void runSearch(searchText, kind, 1, requestOrientation);
       },
-      text === '' ? 0 : SEARCH_DEBOUNCE_MS,
+      searchText !== '' && debounceNextSearchRef.current ? SEARCH_DEBOUNCE_MS : 0,
     );
 
     return () => {
@@ -362,86 +504,37 @@ export function PexelsBrowser({
     };
     // `keyless` is a boolean, deliberately: depending on the quota OBJECT would
     // re-run this on every observation — and each search produces one, which is
-    // a loop.
-  }, [query, kind, runSearch, keyless]);
+    // a loop. The request's own parts are the other deps, so a second click on the
+    // chip already in force — the same words, kind and shape — asks for nothing.
+  }, [searchText, kind, requestOrientation, runSearch, keyless]);
 
   // ---------------------------------------------------------------------------
   // Download
   // ---------------------------------------------------------------------------
 
+  /**
+   * Download `item` and place it — as a cutaway (**Add**) or a picture-in-picture (**Add as
+   * overlay**). Guarded against a second download of an item in flight inside the shared flow,
+   * because the tile's Enter shortcut reaches this too.
+   */
   const add = useCallback(
-    async (item: StockItemWire): Promise<void> => {
-      // Guarded here rather than only in the click handler, because the tile's
-      // Enter shortcut reaches this too — and a second download of an item
-      // already in flight would fight the first over the same destination file.
-      if (stockDownloads.getSnapshot()[item.remoteId]?.kind === 'downloading') return;
-      const operationId = `stock_${item.remoteId}_${Date.now()}`;
-      // Registered before the await, so switching tabs mid-download and coming
-      // back still shows the progress bar and a working Cancel.
-      stockDownloads.start(item.remoteId, operationId);
-
-      const result = await stockDownload({
-        projectId: project.id,
-        remoteId: item.remoteId,
-        operationId,
-        targetHeight: projectHeight,
-        ...(project.fps ? { targetFps: project.fps } : {}),
-      });
-
-      if (!result.ok) {
-        // A cancel is not a failure — the user did it deliberately, so the tile
-        // returns to idle with no error text.
-        if (result.error === 'cancelled') stockDownloads.clear(item.remoteId);
-        else stockDownloads.fail(item.remoteId, stockErrorText(result.error, result.detail));
-        return;
-      }
-
-      const { asset: downloaded } = result;
+    async (item: StockItemWire, placement: StockPlacementChoice = 'cutaway'): Promise<void> => {
       // The verdict is the CALLER's, taken after the download with the timeline
       // as it is now — the playhead may have moved onto occupied ground while
-      // the bytes were in flight. A refusal is shown on the tile the user was
-      // watching; silently dropping it would leave them waiting for a clip that
-      // was never coming.
-      const refusal = onAddStock({
-        id: stockAssetId(item),
-        path: downloaded.relativePath,
-        kind: downloaded.kind,
-        ...(downloaded.durationSeconds === undefined
-          ? {}
-          : { durationSeconds: downloaded.durationSeconds }),
-        // The wire type is readonly; `Asset` is not, so arrays are copied rather
-        // than cast — a shared frozen array is a mutation bug in waiting.
-        ...(downloaded.media
-          ? {
-              media: {
-                // Both or neither, as everywhere else that carries this pair. Dropping it
-                // here would undo the whole point of the wire type carrying it: a stock
-                // library is overwhelmingly 16:9, so a shapeless stock asset is exactly
-                // the landscape-in-portrait case `list_assets`' letterbox note and the
-                // review's reframe check exist to catch, and both go quiet without it.
-                ...(downloaded.media.width != null && downloaded.media.height != null
-                  ? {
-                      width: downloaded.media.width,
-                      height: downloaded.media.height,
-                      pixelAspectRatio: downloaded.media.pixelAspectRatio ?? null,
-                      rotation: downloaded.media.rotation ?? null,
-                    }
-                  : {}),
-                proxyPath: downloaded.media.proxyPath ?? null,
-                peaks: downloaded.media.peaks ? [...downloaded.media.peaks] : null,
-                peaksPerSecond: downloaded.media.peaksPerSecond ?? null,
-                thumbnailPaths: downloaded.media.thumbnailPaths
-                  ? [...downloaded.media.thumbnailPaths]
-                  : null,
-              },
-            }
-          : {}),
-        source: downloaded.source,
-      });
-      if (refusal === null) stockDownloads.clear(item.remoteId);
-      else stockDownloads.fail(item.remoteId, refusal);
+      // the bytes were in flight. The flow shows a refusal on the tile.
+      const place = placement === 'overlay' && onAddStockOverlay ? onAddStockOverlay : onAddStock;
+      await downloadAndPlaceStock(
+        { download: stockDownload, registry: stockDownloads },
+        {
+          projectId: project.id,
+          remoteId: item.remoteId,
+          targetHeight: projectHeight,
+          ...(project.fps ? { targetFps: project.fps } : {}),
+        },
+        place,
+      );
     },
-    [onAddStock, project.fps, project.id, projectHeight],
+    [onAddStock, onAddStockOverlay, project.fps, project.id, projectHeight],
   );
 
   /**
@@ -459,7 +552,15 @@ export function PexelsBrowser({
   // Keyboard: one tab stop, arrows move between tiles (mirrors the bin grid)
   // ---------------------------------------------------------------------------
 
-  const items = search.kind === 'results' ? search.items : [];
+  /**
+   * The tiles to show. A search already came back in the chosen shape; the feed did not (it
+   * takes no orientation), so its page is filtered here by each item's own shape.
+   */
+  const items = useMemo((): readonly StockItemWire[] => {
+    if (search.kind !== 'results') return [];
+    if (!browsing || orientation === 'any') return search.items;
+    return search.items.filter((item) => orientationOf(item.width, item.height) === orientation);
+  }, [search, browsing, orientation]);
   const tabbableId = focusedId ?? items[0]?.remoteId ?? null;
 
   const onTileKeyDown = useCallback(
@@ -532,16 +633,19 @@ export function PexelsBrowser({
   }
 
   const noKey = keyless || (search.kind === 'error' && search.code === 'no_key');
-  /** An empty box shows the provider's own curated feed rather than a blank panel. */
-  const browsing = query.trim() === '';
   const browseLabel = kind === 'video' ? 'Popular on Pexels' : 'Curated on Pexels';
+  /** The feed's own chip: what an empty box shows. */
+  const feedChip = kind === 'video' ? 'Popular' : 'Curated';
+  const kindNoun = kind === 'video' ? 'videos' : 'photos';
+  const shapeWord = orientation === 'any' ? '' : orientation;
+  /** The panel-level note answers "why is everything disabled?" — only when nothing can be added. */
+  const allBlocked = items.length > 0 && items.every((item) => blockedReasonFor(item) !== null);
 
   return (
     <div className="stock-panel">
-      {/* One row holds everything that is not a result: what to search for, and
-          who the media comes from. Below it is the grid and nothing else — a
-          sidebar this narrow cannot spend two lines on prose the user reads once.
-          The kind is the Elements sub-tab, so it needs no control here. */}
+      {/* One row holds everything that is not a result: what to search for, the
+          shape to search in, and who the media comes from. The kind is the
+          Elements sub-tab, so it needs no control here. */}
       <div className="stock-controls">
         <label className="stock-search" htmlFor="stock-search-input">
           <span className="sr-only">{kind === 'video' ? 'Search videos' : 'Search photos'}</span>
@@ -552,9 +656,27 @@ export function PexelsBrowser({
             placeholder={kind === 'video' ? 'Search videos' : 'Search photos'}
             value={query}
             disabled={noKey}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => typeQuery(event.target.value)}
           />
         </label>
+        {/* Starts on the project's own shape, so a vertical short is offered
+            vertical footage first. Plain toggle buttons, like the chips. */}
+        <div className="stock-orientation" role="group" aria-label="Orientation">
+          {ORIENTATION_CHOICES.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              className="stock-orientation-option"
+              aria-pressed={orientation === id}
+              {...(id === 'any' ? {} : { 'aria-label': label })}
+              title={id === 'any' ? `${label} shape` : `${label} ${kindNoun} only`}
+              disabled={noKey}
+              onClick={() => chooseOrientation(id)}
+            >
+              {id === 'any' ? label : <OrientationGlyph shape={id} />}
+            </button>
+          ))}
+        </div>
         {/* Required by the Pexels API guidelines. It lives in this row for the
             same reason everything else does — it is not a result. */}
         <a
@@ -567,18 +689,49 @@ export function PexelsBrowser({
         </a>
       </div>
 
+      {noKey ? null : (
+        <div
+          className="stock-chips"
+          role="group"
+          aria-label={kind === 'video' ? 'Video categories' : 'Photo categories'}
+        >
+          <button
+            type="button"
+            className="shapes-chip"
+            aria-pressed={category === null && query.trim() === ''}
+            title={browseLabel}
+            onClick={() => chooseCategory(null)}
+          >
+            {feedChip}
+          </button>
+          {STOCK_CATEGORIES.map(({ id, label, query: words }) => (
+            <button
+              key={id}
+              type="button"
+              className="shapes-chip"
+              aria-pressed={category === id}
+              title={`Search Pexels for “${words}” — one search`}
+              onClick={() => chooseCategory(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Announced politely so a screen-reader user hears the count and the
           quota state without the grid stealing focus mid-type. */}
       <span className="sr-only" aria-live="polite">
         {search.kind === 'results' && !search.stale
-          ? `${search.items.length} ${kind === 'video' ? 'clip' : 'photo'}${
-              search.items.length === 1 ? '' : 's'
+          ? `${items.length} ${kind === 'video' ? 'clip' : 'photo'}${
+              items.length === 1 ? '' : 's'
             } ${browsing ? 'shown' : 'found'}`
           : ''}
       </span>
 
       <QuotaStrip
         quota={quota ?? { kind: 'unmeasured' }}
+        categoryActive={category !== null}
         {...(onOpenSettings ? { onOpenSettings } : {})}
       />
 
@@ -596,14 +749,15 @@ export function PexelsBrowser({
         </div>
       ) : (
         <>
-          {/* The panel-level note answers "why is everything disabled?", so it
-              speaks only when NOTHING here can be placed. Per-tile reasons live
-              on the tiles. */}
-          {search.kind === 'results' &&
-          search.items.length > 0 &&
-          search.items.every((item) => blockedReasonFor(item) !== null) ? (
+          {/* Per-tile reasons live on the tiles; this speaks only when NOTHING
+              here can be added as a cutaway, and points at the placement that
+              still works over footage. */}
+          {search.kind === 'results' && allBlocked ? (
             <p className="stock-blocked" role="status">
-              {blockedReasonFor(search.items[0]!)}
+              {blockedReasonFor(items[0]!)}
+              {onAddStockOverlay
+                ? ' Or choose Add as overlay to put a smaller picture over the footage.'
+                : ''}
             </p>
           ) : null}
 
@@ -630,6 +784,14 @@ export function PexelsBrowser({
             </p>
           )}
 
+          {search.kind === 'results' && items.length === 0 ? (
+            // The feed's page is filtered here, and none of it is this shape.
+            <p className="stock-note">
+              Nothing here is {shapeWord}. Pick a category or search to get {shapeWord} {kindNoun}{' '}
+              only.
+            </p>
+          ) : null}
+
           {search.kind === 'results' && (
             // The scroll lives HERE, not on the grid. A multi-column box with a
             // fixed height fills that height and then adds columns sideways —
@@ -641,12 +803,14 @@ export function PexelsBrowser({
                 aria-label={
                   browsing
                     ? `${browseLabel} — ${kind === 'video' ? 'video' : 'photos'}`
-                    : kind === 'video'
-                      ? 'Video results'
-                      : 'Photo results'
+                    : categoryEntry !== undefined
+                      ? `${categoryEntry.label} — ${kind === 'video' ? 'video' : 'photos'}`
+                      : kind === 'video'
+                        ? 'Video results'
+                        : 'Photo results'
                 }
               >
-                {search.items.map((item, index) => (
+                {items.map((item, index) => (
                   <StockTile
                     key={item.remoteId}
                     item={item}
@@ -659,6 +823,9 @@ export function PexelsBrowser({
                     onFocus={() => setFocusedId(item.remoteId)}
                     onKeyDown={onTileKeyDown}
                     onAdd={() => void add(item)}
+                    {...(onAddStockOverlay
+                      ? { onAddOverlay: () => void add(item, 'overlay') }
+                      : {})}
                     onCancel={(operationId) => stockDownloadCancel(operationId)}
                   />
                 ))}
@@ -674,7 +841,9 @@ export function PexelsBrowser({
                 <Button
                   variant="ghost"
                   type="button"
-                  onClick={() => void runSearch(query.trim(), kind, search.page + 1)}
+                  onClick={() =>
+                    void runSearch(searchText, kind, search.page + 1, requestOrientation)
+                  }
                 >
                   Load more
                 </Button>
@@ -685,6 +854,13 @@ export function PexelsBrowser({
       )}
     </div>
   );
+}
+
+/** The orientation filter's picture of each shape: a box of that aspect. */
+function OrientationGlyph({ shape }: { readonly shape: StockOrientationWire }): JSX.Element {
+  const Glyph =
+    shape === 'landscape' ? RectangleHorizontal : shape === 'portrait' ? RectangleVertical : Square;
+  return <Glyph size={ICON_SIZE.sm} aria-hidden="true" />;
 }
 
 /**
@@ -704,13 +880,25 @@ function prefersReducedMotion(): boolean {
 // Quota strip
 // ---------------------------------------------------------------------------
 
+/** What a category costs, said where the allowance is: each chip is one provider request. */
+export const CATEGORY_COST_NOTE = 'Each category is one search of your Pexels allowance.';
+
 function QuotaStrip({
   quota,
+  categoryActive,
   onOpenSettings,
 }: {
   readonly quota: StockQuotaSnapshot;
+  /** A category chip is in force: the strip says what it cost when nothing more urgent is due. */
+  readonly categoryActive: boolean;
   readonly onOpenSettings?: () => void;
 }): JSX.Element | null {
+  // Neutral tone: a fact about the allowance, not a warning. A warning below takes its place.
+  const categoryNote = categoryActive ? (
+    <p className="stock-quota-strip" role="status">
+      {CATEGORY_COST_NOTE}
+    </p>
+  ) : null;
   if (quota.kind === 'hourly_limited') {
     return (
       <p className="stock-quota-strip" data-tone="warning" role="status">
@@ -722,10 +910,10 @@ function QuotaStrip({
       </p>
     );
   }
-  if (quota.kind !== 'measured') return null;
+  if (quota.kind !== 'measured') return categoryNote;
 
   const { remaining, limit } = quota.monthly;
-  if (remaining > limit * LOW_QUOTA_RATIO) return null;
+  if (remaining > limit * LOW_QUOTA_RATIO) return categoryNote;
   return (
     <p className="stock-quota-strip" data-tone="warning" role="status">
       {remaining.toLocaleString()} of {limit.toLocaleString()} monthly requests left.{' '}
@@ -753,6 +941,8 @@ interface StockTileProps {
   readonly onFocus: () => void;
   readonly onKeyDown: (event: React.KeyboardEvent, index: number, item: StockItemWire) => void;
   readonly onAdd: () => void;
+  /** **Add as overlay**; absent when the host offers no overlay placement. */
+  readonly onAddOverlay?: () => void;
   readonly onCancel: (operationId: string) => void;
 }
 
@@ -767,6 +957,7 @@ function StockTile({
   onFocus,
   onKeyDown,
   onAdd,
+  onAddOverlay,
   onCancel,
 }: StockTileProps): JSX.Element {
   const thumbnail = useObjectUrl(() => stockThumbnail(item.remoteId));
@@ -774,12 +965,26 @@ function StockTile({
   const downloading = state.kind === 'downloading';
   const variant = tileVariant(item, targetHeight);
   const downloadBlocked = blockedReason !== null;
+  // A tile in flight is already on its way somewhere, and one in the project is in Assets,
+  // where it can be dragged from: neither starts a second download by drag.
+  const draggable = !downloading && !inProject;
 
   return (
     <li
       className="stock-tile"
       data-remote-id={item.remoteId}
       tabIndex={tabbable ? 0 : -1}
+      draggable={draggable}
+      onDragStart={(event) => {
+        if (!draggable) return;
+        // The provider id and the kind, nothing else: the drop asks main to download the item
+        // it fetched itself, exactly as Add does (ADR 0139).
+        event.dataTransfer.effectAllowed = 'copy';
+        event.dataTransfer.setData(
+          ELEMENT_DND_TYPE,
+          encodeElementDrag({ kind: 'stock', mediaKind: item.kind, remoteId: item.remoteId }),
+        );
+      }}
       style={{
         // The provider's own average colour and the item's own shape, so the tile
         // has its final size and roughly its final weight before a byte of image
@@ -874,15 +1079,31 @@ function StockTile({
         ) : inProject ? (
           <span className="stock-present">In this project</span>
         ) : (
-          <Button
-            variant="ghost"
-            type="button"
-            disabled={downloadBlocked}
-            title={blockedReason ?? undefined}
-            onClick={onAdd}
-          >
-            {state.kind === 'failed' ? 'Retry' : 'Add'}
-          </Button>
+          <>
+            <Button
+              variant="ghost"
+              type="button"
+              disabled={downloadBlocked}
+              title={blockedReason ?? 'Add at the playhead as a cutaway'}
+              onClick={onAdd}
+            >
+              {state.kind === 'failed' ? 'Retry' : 'Add'}
+            </Button>
+            {onAddOverlay !== undefined ? (
+              // Never disabled for covering picture: sitting over footage is the point (ADR 0193).
+              <Button
+                variant="ghost"
+                type="button"
+                className="stock-overlay-action"
+                aria-label="Add as overlay"
+                title="Add as overlay: a smaller picture over what is at the playhead"
+                onClick={onAddOverlay}
+              >
+                <PictureInPicture2 size={ICON_SIZE.sm} aria-hidden="true" />
+                Overlay
+              </Button>
+            ) : null}
+          </>
         )}
       </div>
 

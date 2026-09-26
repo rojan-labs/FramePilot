@@ -15890,11 +15890,24 @@ a.export-credits-license {
   position: absolute;
   top: var(--space-1);
   right: var(--space-1);
+  left: var(--space-1);
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-1);
   align-items: center;
+  justify-content: flex-end;
   opacity: 0;
   transition: opacity 140ms ease-out;
+}
+/* Add and Add as overlay sit on the photograph itself, so they carry the same dark backdrop as
+   the tile's other controls: legible over any picture, in either theme. */
+.stock-tile-action [data-variant] {
+  color: #fff;
+  background: rgb(0 0 0 / 55%);
+}
+.stock-tile-action [data-variant]:hover:not(:disabled) {
+  color: #fff;
+  background: rgb(0 0 0 / 72%);
 }
 .stock-tile:hover .stock-tile-action,
 .stock-tile:focus-visible .stock-tile-action,
@@ -15957,6 +15970,59 @@ a.export-credits-license {
   color: #fff;
   background: var(--danger);
   border-radius: 4px;
+}
+
+/* The orientation filter (plan/elements EL9): four toggles in one small box, the three shapes
+   drawn as boxes of that shape. It starts on the project's own shape. */
+.stock-orientation {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+.stock-orientation-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 var(--space-1);
+  font-size: 0.72rem;
+  color: var(--muted);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+}
+.stock-orientation-option[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--surface-3, var(--surface-2));
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.stock-orientation-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.stock-orientation-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Category chips: the Stickers strip's scrolling row and chips, one curated search each. */
+.stock-chips {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-1);
+  padding-bottom: 2px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.stock-chips .shapes-chip {
+  flex: none;
+  white-space: nowrap;
 }
 
 /* Required by the Pexels API guidelines, and rendered in every panel state

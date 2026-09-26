@@ -8,7 +8,7 @@
  * that passes here can still break the e2e spec.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { Project } from '@framepilot/timeline-schema';
 import type {
   StockDownloadProgressWire,
@@ -17,13 +17,17 @@ import type {
 } from '@framepilot/shared-types';
 import {
   PexelsBrowser,
+  STOCK_CATEGORIES,
   formatBytes,
   formatClipLength,
+  orientationOf,
+  projectOrientation,
   stockAssetId,
   stockErrorText,
   tileVariant,
 } from './PexelsBrowser.js';
-import { resetDownloadRegistriesForTests } from '../../editor/download-registry.js';
+import { ELEMENT_DND_TYPE, decodeElementDrag } from './element-dnd.js';
+import { resetDownloadRegistriesForTests, stockDownloads } from '../../editor/download-registry.js';
 
 const bridge = vi.hoisted(() => ({
   search: vi.fn(),
@@ -116,15 +120,22 @@ interface RenderOptions {
   blocked?: string | null;
   onOpenSettings?: () => void;
   kind?: 'photo' | 'video';
+  /** The host offers no overlay placement (a host without the editor behind it). */
+  noOverlay?: boolean;
 }
 
-function panel(options: RenderOptions, onAddStock: ReturnType<typeof vi.fn>): JSX.Element {
+function panel(
+  options: RenderOptions,
+  onAddStock: ReturnType<typeof vi.fn>,
+  onAddStockOverlay: ReturnType<typeof vi.fn>,
+): JSX.Element {
   return (
     <PexelsBrowser
       kind={options.kind ?? 'video'}
       project={options.project ?? emptyProject}
       placementBlockedReasonFor={() => options.blocked ?? null}
       onAddStock={onAddStock}
+      {...(options.noOverlay ? {} : { onAddStockOverlay })}
       {...(options.onOpenSettings ? { onOpenSettings: options.onOpenSettings } : {})}
     />
   );
@@ -132,12 +143,53 @@ function panel(options: RenderOptions, onAddStock: ReturnType<typeof vi.fn>): JS
 
 function renderPanel(options: RenderOptions = {}): {
   onAddStock: ReturnType<typeof vi.fn>;
+  onAddStockOverlay: ReturnType<typeof vi.fn>;
   unmount: () => void;
   rerender: (next: RenderOptions) => void;
 } {
   const onAddStock = vi.fn().mockReturnValue(null);
-  const { unmount, rerender } = render(panel(options, onAddStock));
-  return { onAddStock, unmount, rerender: (next) => rerender(panel(next, onAddStock)) };
+  const onAddStockOverlay = vi.fn().mockReturnValue(null);
+  const { unmount, rerender } = render(panel(options, onAddStock, onAddStockOverlay));
+  return {
+    onAddStock,
+    onAddStockOverlay,
+    unmount,
+    rerender: (next) => rerender(panel(next, onAddStock, onAddStockOverlay)),
+  };
+}
+
+/** Let the mount's browse (fired on a zero-delay timer) land. */
+async function settle(): Promise<void> {
+  await act(async () => {
+    vi.advanceTimersByTime(1);
+    await Promise.resolve();
+  });
+}
+
+/** A project of this frame size, to read the default orientation from. */
+function projectSized(width: number, height: number): Project {
+  return { ...emptyProject, resolution: { width, height } } as unknown as Project;
+}
+
+/** A finished download of the default item, as main answers it. */
+function downloadedCity() {
+  return {
+    ok: true,
+    asset: {
+      relativePath: 'media/p1/city.mp4',
+      kind: 'video',
+      durationSeconds: 12,
+      media: { width: 1920, height: 1080 },
+      source: {
+        provider: 'pexels',
+        remoteId: '3129671',
+        license: 'pexels',
+        attributionRequired: false,
+        fetchedAt: '2026-08-24T12:00:00.000Z',
+      },
+      deduped: false,
+    },
+  };
 }
 
 async function typeQuery(text: string): Promise<void> {
@@ -1041,6 +1093,312 @@ describe('PexelsBrowser', () => {
   });
 });
 
+describe('PexelsBrowser — categories, orientation, drag and Add as overlay (EL9)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    bridge.desktop.mockReturnValue(true);
+    bridge.search.mockReset().mockResolvedValue(okSearch([wireItem()]));
+    bridge.thumbnail.mockReset().mockResolvedValue({ ok: false });
+    bridge.preview.mockReset().mockResolvedValue({ ok: false });
+    bridge.download.mockReset();
+    bridge.cancel.mockReset();
+    bridge.quota.mockReset().mockResolvedValue({ kind: 'unmeasured' });
+    bridge.progressListeners = [];
+    bridge.quotaListeners = [];
+    resetDownloadRegistriesForTests();
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  // -------------------------------------------------------------------------
+  // Category chips
+  // -------------------------------------------------------------------------
+
+  it('offers the curated categories as chips, after the feed', async () => {
+    renderPanel({ kind: 'photo' });
+    await settle();
+    const chips = within(screen.getByRole('group', { name: 'Photo categories' })).getAllByRole(
+      'button',
+    );
+    expect(chips.map((chip) => chip.textContent)).toEqual([
+      'Curated',
+      'Business',
+      'Technology',
+      'People',
+      'Nature',
+      'City',
+      'Abstract',
+      'Backgrounds',
+      'Food',
+      'Travel',
+      'Textures',
+    ]);
+    // The feed is what an empty box shows, so it is the chip that starts pressed.
+    expect(chips[0]!.getAttribute('aria-pressed')).toBe('true');
+    expect(chips.slice(1).every((chip) => chip.getAttribute('aria-pressed') === 'false')).toBe(
+      true,
+    );
+    expect(STOCK_CATEGORIES).toHaveLength(10);
+  });
+
+  it('runs one search for a category, at once, and none for a second click on it', async () => {
+    renderPanel();
+    await settle();
+    bridge.search.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Nature' }));
+    // A click is a deliberate request: no typing debounce to wait through.
+    await settle();
+    expect(bridge.search).toHaveBeenCalledTimes(1);
+    expect(bridge.search).toHaveBeenCalledWith({
+      text: 'nature',
+      kind: 'video',
+      page: 1,
+      orientation: 'landscape',
+    });
+    expect(screen.getByRole('button', { name: 'Nature' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+
+    // The same chip, the same kind, the same orientation: nothing more to ask for.
+    fireEvent.click(screen.getByRole('button', { name: 'Nature' }));
+    await settle();
+    expect(bridge.search).toHaveBeenCalledTimes(1);
+  });
+
+  it('says in the quota strip that each category is one search', async () => {
+    renderPanel();
+    await settle();
+    expect(screen.queryByText(/Each category is one search/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'City' }));
+    await settle();
+    expect(screen.getByRole('status').textContent).toMatch(/Each category is one search/);
+  });
+
+  it('leaves the category when the user types, and goes back to the feed from its chip', async () => {
+    renderPanel();
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Food' }));
+    await settle();
+    // Choosing a category empties the box: the chip is what is being searched.
+    expect(screen.getByRole('searchbox')).toHaveProperty('value', '');
+
+    await typeQuery('pasta');
+    expect(screen.getByRole('button', { name: 'Food' }).getAttribute('aria-pressed')).toBe('false');
+    expect(bridge.search).toHaveBeenLastCalledWith(expect.objectContaining({ text: 'pasta' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Popular' }));
+    await settle();
+    expect(screen.getByRole('searchbox')).toHaveProperty('value', '');
+    expect(bridge.search).toHaveBeenLastCalledWith({ text: '', kind: 'video', page: 1 });
+  });
+
+  it('loads more of a category, not of the box', async () => {
+    bridge.search.mockResolvedValue(okSearch([wireItem()], true));
+    renderPanel();
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Travel' }));
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    await settle();
+    expect(bridge.search).toHaveBeenLastCalledWith({
+      text: 'travel',
+      kind: 'video',
+      page: 2,
+      orientation: 'landscape',
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Orientation
+  // -------------------------------------------------------------------------
+
+  it("starts on the project's own orientation", async () => {
+    const pressed = (): string | undefined =>
+      within(screen.getByRole('group', { name: 'Orientation' }))
+        .getAllByRole('button')
+        .find((button) => button.getAttribute('aria-pressed') === 'true')
+        ?.getAttribute('aria-label') ?? undefined;
+    for (const [width, height, expected] of [
+      [1920, 1080, 'Landscape'],
+      [1080, 1920, 'Portrait'],
+      [1080, 1080, 'Square'],
+    ] as const) {
+      const { unmount } = renderPanel({ project: projectSized(width, height) });
+      await settle();
+      expect(pressed()).toBe(expected);
+      unmount();
+    }
+  });
+
+  it('asks Pexels for the chosen shape, and re-runs the search when it changes', async () => {
+    renderPanel({ project: projectSized(1080, 1920) });
+    await typeQuery('city');
+    expect(bridge.search).toHaveBeenLastCalledWith(
+      expect.objectContaining({ text: 'city', orientation: 'portrait' }),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Square' }));
+    await settle();
+    expect(bridge.search).toHaveBeenLastCalledWith(
+      expect.objectContaining({ text: 'city', orientation: 'square' }),
+    );
+
+    // Any shape is no filter at all: the parameter is left off rather than sent empty.
+    fireEvent.click(screen.getByRole('button', { name: 'Any' }));
+    await settle();
+    expect(bridge.search).toHaveBeenLastCalledWith({ text: 'city', kind: 'video', page: 1 });
+  });
+
+  it('filters the feed by shape on the page, without spending a request', async () => {
+    // Pexels' curated and popular feeds take no orientation, so asking would buy the same page
+    // again. The page it already sent is filtered by each item's own shape instead.
+    bridge.search.mockResolvedValue(
+      okSearch([
+        wireItem({ remoteId: 'wide', title: 'Wide shot', width: 3840, height: 2160 }),
+        wireItem({ remoteId: 'tall', title: 'Tall shot', width: 1080, height: 1920 }),
+      ]),
+    );
+    renderPanel();
+    await settle();
+    expect(screen.getByText('Wide shot')).toBeDefined();
+    expect(screen.queryByText('Tall shot')).toBeNull();
+    const browses = bridge.search.mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Portrait' }));
+    await settle();
+    expect(screen.getByText('Tall shot')).toBeDefined();
+    expect(screen.queryByText('Wide shot')).toBeNull();
+    expect(bridge.search.mock.calls.length).toBe(browses);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Square' }));
+    await settle();
+    // Nothing on the page is that shape: said, with the way to get some.
+    expect(screen.getByText(/Nothing here is square/)).toBeDefined();
+  });
+
+  it('keeps the orientation control keyboard-reachable and labelled', async () => {
+    renderPanel();
+    await settle();
+    const group = screen.getByRole('group', { name: 'Orientation' });
+    const buttons = within(group).getAllByRole('button');
+    expect(
+      buttons.map((button) => button.getAttribute('aria-label') ?? button.textContent),
+    ).toEqual(['Any', 'Landscape', 'Portrait', 'Square']);
+    // Plain buttons in the tab order, like the category chips: no hidden roving state.
+    expect(buttons.every((button) => button.tabIndex === 0)).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // Drag to the timeline
+  // -------------------------------------------------------------------------
+
+  it('puts the provider id and the kind on a drag, and nothing else', async () => {
+    renderPanel({ kind: 'photo' });
+    await settle();
+    const tile = document.querySelector('.stock-tile') as HTMLElement;
+    expect(tile.getAttribute('draggable')).toBe('true');
+    const data = new Map<string, string>();
+    const dataTransfer = {
+      effectAllowed: 'none',
+      setData: (type: string, value: string) => data.set(type, value),
+    };
+    fireEvent.dragStart(tile, { dataTransfer });
+    expect(dataTransfer.effectAllowed).toBe('copy');
+    const raw = data.get(ELEMENT_DND_TYPE)!;
+    expect(JSON.parse(raw)).toEqual({ kind: 'stock', mediaKind: 'video', remoteId: '3129671' });
+    expect(decodeElementDrag(raw)).toEqual({
+      kind: 'stock',
+      mediaKind: 'video',
+      remoteId: '3129671',
+    });
+    expect(raw).not.toMatch(/https?:|media\//);
+  });
+
+  it('cannot be dragged while it downloads or once it is in the project', async () => {
+    bridge.download.mockReturnValue(new Promise(() => undefined));
+    renderPanel();
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await settle();
+    expect(document.querySelector('.stock-tile')!.getAttribute('draggable')).toBe('false');
+  });
+
+  // -------------------------------------------------------------------------
+  // Add as overlay
+  // -------------------------------------------------------------------------
+
+  it('offers Add as overlay beside Add, and keeps it enabled where Add is blocked', async () => {
+    renderPanel({ blocked: "There's already footage at the playhead — move the playhead." });
+    await settle();
+    // Add stays a cutaway, disabled with its reason (ADR 0140).
+    expect(screen.getByRole('button', { name: 'Add' })).toHaveProperty('disabled', true);
+    // Covering footage is the point of an overlay (ADR 0193).
+    const overlay = screen.getByRole('button', { name: 'Add as overlay' });
+    expect(overlay).toHaveProperty('disabled', false);
+    expect(overlay.textContent).toContain('Overlay');
+    // The reason for the blocked Add points at the placement that works here.
+    expect(screen.getByRole('status').textContent).toMatch(/Add as overlay/);
+  });
+
+  it('downloads and hands the asset to the overlay placement, never to the cutaway', async () => {
+    bridge.download.mockResolvedValue(downloadedCity());
+    const { onAddStock, onAddStockOverlay } = renderPanel({ blocked: 'occupied' });
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Add as overlay' }));
+    await settle();
+    expect(bridge.download).toHaveBeenCalledWith(
+      expect.objectContaining({ remoteId: '3129671', targetHeight: 1080 }),
+    );
+    expect(onAddStock).not.toHaveBeenCalled();
+    expect(onAddStockOverlay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'stock_pexels_3129671',
+        kind: 'video',
+        path: 'media/p1/city.mp4',
+        media: expect.objectContaining({ width: 1920, height: 1080 }),
+      }),
+    );
+    // Landed: the tile has nothing in flight and nothing failed.
+    expect(stockDownloads.getSnapshot()['3129671']).toBeUndefined();
+  });
+
+  it('shows the same progress and Cancel for an overlay as for Add', async () => {
+    bridge.download.mockReturnValue(new Promise(() => undefined));
+    renderPanel();
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Add as overlay' }));
+    await settle();
+    expect(
+      screen.getByRole('progressbar', { name: 'Downloading City skyline at dusk' }),
+    ).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'Add as overlay' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add' })).toBeNull();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Cancel downloading City skyline at dusk' }),
+    );
+    expect(bridge.cancel).toHaveBeenCalled();
+  });
+
+  it('keeps both actions after a failure, with the reason on the tile', async () => {
+    bridge.download.mockResolvedValue({ ok: false, error: 'offline' });
+    renderPanel();
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Add as overlay' }));
+    await settle();
+    expect(screen.getByRole('alert').textContent).toBe('No network connection.');
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Add as overlay' })).toBeDefined();
+  });
+
+  it('is absent from a tile already in the project, and from a host with no overlay placement', async () => {
+    renderPanel({ noOverlay: true });
+    await settle();
+    expect(screen.getByRole('button', { name: 'Add' })).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'Add as overlay' })).toBeNull();
+  });
+});
+
 describe('helpers', () => {
   it('formats a clip length', () => {
     expect(formatClipLength(12)).toBe('0:12');
@@ -1058,6 +1416,17 @@ describe('helpers', () => {
   it('derives a stable, filesystem-safe asset id', () => {
     expect(stockAssetId(wireItem())).toBe('stock_pexels_3129671');
     expect(stockAssetId(wireItem({ remoteId: 'a/b c' }))).toBe('stock_pexels_a_b_c');
+  });
+
+  it("reads a frame's orientation the way the filter offers it", () => {
+    expect(orientationOf(1920, 1080)).toBe('landscape');
+    expect(orientationOf(1080, 1920)).toBe('portrait');
+    expect(orientationOf(1080, 1080)).toBe('square');
+    // A 4:5 photo is portrait, not "nearly square"; a pixel off square is still square.
+    expect(orientationOf(1080, 1350)).toBe('portrait');
+    expect(orientationOf(1081, 1080)).toBe('square');
+    expect(projectOrientation({ width: 1920, height: 1080 })).toBe('landscape');
+    expect(projectOrientation(undefined)).toBe('any');
   });
 
   it('previews the rendition main would actually pick', () => {

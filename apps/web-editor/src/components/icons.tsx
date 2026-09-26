@@ -131,6 +131,10 @@ export {
   ListChecks,
   // The Inspector's Sticker section (plan/elements EL6a).
   Smile,
+  // Elements → Photos and Videos (plan/elements EL9): Add as overlay, and the orientation filter.
+  PictureInPicture2,
+  RectangleHorizontal,
+  RectangleVertical,
 } from 'lucide-react';
 export type { LucideIcon } from 'lucide-react';
 

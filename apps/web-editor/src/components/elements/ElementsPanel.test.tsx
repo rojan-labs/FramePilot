@@ -3,7 +3,7 @@
  * how it is remembered, and the keyboard model of the strip.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { Project } from '@framepilot/timeline-schema';
 import { ElementsPanel, availableElementsTabs, coerceElementsTab } from './ElementsPanel.js';
 
@@ -18,13 +18,30 @@ vi.mock('./PexelsBrowser.js', () => ({
     kind: string;
     initialQuery?: string;
     onQueryChange?: (q: string) => void;
+    initialCategory?: string | null;
+    onCategoryChange?: (category: string | null) => void;
+    initialOrientation?: string;
+    onOrientationChange?: (orientation: string) => void;
+    onAddStockOverlay?: unknown;
   }) => (
-    <div data-testid="pexels" data-kind={props.kind}>
+    <div
+      data-testid="pexels"
+      data-kind={props.kind}
+      data-category={props.initialCategory ?? ''}
+      data-orientation={props.initialOrientation ?? ''}
+      data-overlay={props.onAddStockOverlay === undefined ? 'no' : 'yes'}
+    >
       <input
         aria-label="query"
         defaultValue={props.initialQuery ?? ''}
         onChange={(event) => props.onQueryChange?.(event.target.value)}
       />
+      <button type="button" onClick={() => props.onCategoryChange?.('nature')}>
+        Nature
+      </button>
+      <button type="button" onClick={() => props.onOrientationChange?.('portrait')}>
+        Portrait
+      </button>
     </div>
   ),
 }));
@@ -136,6 +153,33 @@ describe('ElementsPanel', () => {
     fireEvent.change(screen.getByLabelText('query'), { target: { value: 'city' } });
     fireEvent.click(screen.getByRole('tab', { name: 'Videos' }));
     expect((screen.getByLabelText('query') as HTMLInputElement).value).toBe('city');
+  });
+
+  it('keeps the category and the shape across a Photos ↔ Videos switch', () => {
+    renderPanel();
+    // First open: no category, and the shape left to the browser (the project's own).
+    expect(screen.getByTestId('pexels').dataset.category).toBe('');
+    expect(screen.getByTestId('pexels').dataset.orientation).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Nature' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Portrait' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Videos' }));
+    expect(screen.getByTestId('pexels').dataset.category).toBe('nature');
+    expect(screen.getByTestId('pexels').dataset.orientation).toBe('portrait');
+  });
+
+  it('hands Add as overlay down to Photos and Videos when the editor offers it', () => {
+    renderPanel();
+    expect(screen.getByTestId('pexels').dataset.overlay).toBe('no');
+    cleanup();
+    render(
+      <ElementsPanel
+        project={project}
+        placementBlockedReasonFor={() => null}
+        onAddStock={() => null}
+        onAddStockOverlay={() => null}
+      />,
+    );
+    expect(screen.getByTestId('pexels').dataset.overlay).toBe('yes');
   });
 
   it('shows the shape tiles on the Shapes tab and adds the one clicked', () => {

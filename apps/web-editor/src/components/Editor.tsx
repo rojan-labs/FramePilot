@@ -62,10 +62,13 @@ import {
   addStickerPatch,
   replaceStickerPatch,
   addStockClipPatch,
+  addStockOverlayPatch,
   stockPlacementBlockedReason,
 } from '../editor/patch-builders.js';
-import { elementsMaterialize, isDesktop } from '../editor/bridge.js';
+import { elementsMaterialize, isDesktop, stockDownload } from '../editor/bridge.js';
 import { placeDroppedSticker } from '../editor/sticker-drop.js';
+import { stockDownloads } from '../editor/download-registry.js';
+import { placeDroppedStock } from '../editor/stock-drop.js';
 import { Toasts, type ToastNotice } from './Toasts.js';
 import { HistoryPanel } from './HistoryPanel.js';
 import { JobsRail } from './JobsPanel.js';
@@ -593,6 +596,49 @@ export function Editor({
     },
     [project.id, project.resolution, settings.defaultOverlaySeconds],
   );
+  /**
+   * A Photos or Videos tile dropped on the timeline (plan/elements EL9): downloaded through the
+   * panel's own flow, so its tile shows the progress and Cancel, then placed at the drop time
+   * against the editor as it is when the bytes land.
+   */
+  const dropStock = useCallback(
+    (
+      remoteId: string,
+      _mediaKind: 'photo' | 'video',
+      atSeconds: number,
+      trackId?: string,
+    ): void => {
+      const atDrop = liveEditor.current.state;
+      void placeDroppedStock(
+        { download: stockDownload, registry: stockDownloads },
+        {
+          projectId: project.id,
+          remoteId,
+          targetHeight: project.resolution?.height ?? 1080,
+          ...(project.fps ? { targetFps: project.fps } : {}),
+          atSeconds,
+          ...(trackId !== undefined ? { trackId } : {}),
+          atDrop: { timeline: atDrop.timeline, assets: atDrop.assets },
+          target: () => {
+            const live = liveEditor.current.state;
+            return { timeline: live.timeline, assets: live.assets };
+          },
+        },
+      ).then((placed) => {
+        const say = (message: string): void =>
+          setNotice((last) => ({ id: (last?.id ?? 0) + 1, message }));
+        if (!placed.ok) {
+          // A cancel says nothing: the user pressed it. A failure is also on the tile.
+          if (placed.message !== '') say(placed.message);
+          return;
+        }
+        liveEditor.current.applyPatch(placed.added.patch);
+        liveEditor.current.select(placed.added.clipId);
+        if (placed.notice !== null) say(placed.notice);
+      });
+    },
+    [project.id, project.resolution, project.fps],
+  );
   const toggleSnapping = useCallback(
     () => update({ snapping: !settings.snapping }),
     [update, settings.snapping],
@@ -783,10 +829,10 @@ export function Editor({
           )
         }
         onAddStock={(asset) => {
-          // Read from the store at CLICK time, not from the closure the tile was
-          // rendered with: a download takes seconds, and the playhead and the
-          // timeline both move during them.
-          const live = editor.state;
+          // Read the editor as it is when the download LANDS, not the render this
+          // closure came from: a download takes seconds, and the playhead and the
+          // timeline both move during them. (`editor` is a per-render snapshot.)
+          const live = liveEditor.current.state;
           const liveAssetById = new Map(live.assets.map((a) => [a.id, a]));
           const patch = addStockClipPatch(live.timeline, liveAssetById, asset, live.playhead);
           if (patch === null) {
@@ -803,6 +849,20 @@ export function Editor({
             );
           }
           editor.applyPatch(patch);
+          return null;
+        }}
+        onAddStockOverlay={(asset) => {
+          // A picture-in-picture at the playhead as it is when the download lands, over whatever
+          // is there: never refused for covering picture (ADR 0193).
+          const live = liveEditor.current.state;
+          const added = addStockOverlayPatch(
+            { timeline: live.timeline, assets: live.assets },
+            asset,
+            live.playhead,
+          );
+          editor.applyPatch(added.patch);
+          // Selected, so the monitor shows its handles and the Inspector can resize it.
+          editor.select(added.clipId);
           return null;
         }}
         {...(onOpenSettings ? { onOpenSettings: () => onOpenSettings('ai') } : {})}
@@ -978,6 +1038,7 @@ export function Editor({
         onReplaceSticker={openStickerReplace}
         onAnimateClip={animateClip}
         onDropSticker={dropSticker}
+        onDropStock={dropStock}
         onOpenTransitionLibrary={openTransitionLibrary}
         tool={tool}
         selectedEffectLayerIds={selectedEffectLayerIds}
@@ -998,6 +1059,7 @@ export function Editor({
       openTransitionLibrary,
       animateClip,
       dropSticker,
+      dropStock,
       tool,
       selectedEffectLayerIds,
     ],
