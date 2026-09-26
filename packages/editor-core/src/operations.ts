@@ -933,6 +933,10 @@ export const textOverlayClipId = (trackId: string, start: number): string =>
 /** The id of the `text` effect on a text overlay clip. */
 export const textEffectId = (clipId: string): string => `${clipId}__text`;
 
+/** The id `add_clip` gives a clip of `assetId` it creates on `trackId` at `start` without one. */
+export const addClipId = (trackId: string, assetId: string, start: number): string =>
+  deriveClipId('clip', trackId, assetId, start);
+
 /** The id `add_shape` gives a shape it creates on `trackId` at `start` without an explicit id. */
 export const shapeClipId = (trackId: string, start: number): string =>
   deriveClipId('shape', trackId, start);

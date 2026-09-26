@@ -13,13 +13,17 @@
  * own tests to this exact formula.
  */
 
-/** Which acquisition path minted the asset, and therefore the id's prefix. */
-export type SourcedAssetKind = 'stock' | 'music';
+/**
+ * Which acquisition path minted the asset, and therefore the id's prefix. `element` is a sticker
+ * from the Elements library (plan/elements EL6a); editor-core's `elementAssetId` is the renderer's
+ * copy of that arm.
+ */
+export type SourcedAssetKind = 'stock' | 'music' | 'element';
 
 /**
  * Build the deterministic asset id for a sourced download.
  *
- * @param kind - `stock` for photo/video sourcing, `music` for tracks.
+ * @param kind - `stock` for photo/video sourcing, `music` for tracks, `element` for stickers.
  * @param provider - The provider that served it (e.g. `pexels`, `openverse`).
  * @param remoteId - The provider's own id for the item.
  * @returns The id, with everything outside `[A-Za-z0-9_]` replaced by `_`.
