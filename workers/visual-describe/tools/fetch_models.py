@@ -45,6 +45,7 @@ import sys
 import tarfile
 import tempfile
 import tomllib
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -241,7 +242,8 @@ def main(argv: list[str] | None = None) -> int:
             if UNPINNED_REVISION not in str(source.get("baseUrl", "")):
                 continue
             repository = str(source["repository"])
-            if "github.com" in repository:
+            # The host, not a substring: "github.com" can sit in any other URL's path.
+            if urllib.parse.urlsplit(repository).hostname == "github.com":
                 asset = next(
                     str(archive["path"])
                     for archive in _archives(lock)
