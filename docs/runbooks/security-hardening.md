@@ -115,11 +115,15 @@ original-asset loss as **critical**.
 - **Also fixed:** three polynomial regexes (caption trailing closers `f5db5f54`, perception-metric
   frame count and clip rows `659ddd8f`), two incomplete escapes in tests, and a substring URL test
   in the visual-describe model fetcher (`92dbcfc7`).
-- **Open (tracked in `plan/PLAN.md`):** the render's audio mastering pass writes its predictable
-  `<export>.master.tmp` sibling with `ffmpeg -y`, which follows a planted link the same way;
-  matte artifact files are checked with `is_file()`, which follows a linked file (info: the pinned
-  digest must still match); the already-dismissed whole-argv runners (`media/ffmpeg.run`, the ASR
-  and audio-filter runners) keep their shape.
+- **Same class, fixed with it:** the render's audio mastering pass wrote a predictable
+  `<export>.master.tmp` sibling with `ffmpeg -y`, which follows a planted link the same way. It
+  now writes inside a fresh `mkdtemp` directory beside the export (unguessable, created
+  exclusively, so nothing in it predates the pass) under the export's own name, which is also what
+  let it run at all: ffmpeg picks the container from the extension. Matte artifact files were
+  checked with `is_file()`, which follows a linked file (the pinned digest still had to match);
+  they are now checked with `lstat` (`mattes.regular_file`).
+- **Open (tracked in `plan/PLAN.md`):** the already-dismissed whole-argv runners
+  (`media/ffmpeg.run`, the ASR and audio-filter runners) keep their shape.
 
 - **Surface:** everything Elements added across the IPC and agent boundaries — materialise and
   thumbnails, the Pexels download's new `kind`, the renderer drag payloads and the monitor and

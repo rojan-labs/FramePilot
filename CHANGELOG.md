@@ -195,6 +195,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Exports with loudness, de-noise, EQ, compression or a limiter finish again.** The pass that
+  applies them wrote to a temporary file whose name ffmpeg could not read a format from, so every
+  export that asked for one of these options failed at the end. The pass now runs on a file named
+  like the export, and is tested with ffmpeg itself rather than a stand-in.
 - **A photo or video added into empty time no longer covers your titles and stickers.** When
   there was no picture layer with room, Add (and the assistant) opened a new layer at the very
   front, above every title, sticker and shape; it now opens in front of the footage and under
@@ -592,7 +596,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **A link planted in a project folder can no longer make the engine write outside it.** The
   engine saves a reference's measurement beside the file; a symlink at that name (in a project
   shared as a zip, or cloned) made it overwrite or create the file the link pointed at. The link
-  is now ignored and replaced by a real cache file.
+  is now ignored and replaced by a real cache file. The same goes for the export's audio pass,
+  whose fixed temporary name beside the export could be a planted link, and background-removal
+  data now counts a linked file as missing instead of reading through it.
 
 ### Performance
 

@@ -10371,16 +10371,19 @@ stickers, CC BY 4.0 (EL10).
       project folder overwrote (or, dangling, created) a file outside the projects root; reproduced
       with a 200 and an overwritten outside file. A linked cache is now a miss and the cache is
       swapped in with `os.replace` (`0ab4bcd1`, four regression tests).
-- [ ] **Found triaging CodeQL (2026-09-26) — the audio mastering pass writes through a planted
-      link the same way.** `render/pipeline.py` masters into `<export>.master.tmp` with `ffmpeg -y`,
-      a predictable sibling nobody checks, so a link at that name in a project's exports folder
-      receives the render. Write to an exclusive temp name (or refuse a link) as `0ab4bcd1` did;
-      render path, so a separate change.
-- [ ] **Info (2026-09-26) — matte artifact files are checked through links.** `prepare_matte`
-      (`render/mattes.py`) checks each artifact file with `is_file()` and hashes it, which follows a
-      linked file (the pinned digest must still match, so this reads, never writes). The regular-file
-      check `_regular_file` lives in `matte_tier_job.py`, which imports `mattes.py`, so reusing it
-      needs moving it into `mattes.py` first.
+- [x] **Found triaging CodeQL (2026-09-26) — the audio mastering pass writes through a planted
+      link the same way, and never worked with a real ffmpeg.** `render/pipeline.py` mastered into
+      `<export>.master.tmp` with `ffmpeg -y`, a predictable sibling nobody checked, so a link at that
+      name received the render. Fixing it showed the name also failed every real run: ffmpeg picks
+      the container from the extension and has none for `.tmp` (exit 234), so every export that
+      asked for loudness, de-noise, EQ, compression or a limiter failed; every test replaced ffmpeg.
+      The pass now writes `<export name>` inside a fresh `mkdtemp` directory beside the export and
+      swaps it in; a real-ffmpeg test and a planted-link test cover it.
+- [x] **Info (2026-09-26) — matte artifact files were checked through links.** `prepare_matte`
+      (`render/mattes.py`) checked each artifact file with `is_file()`, which follows a linked file
+      (the pinned digest still had to match, so this read, never wrote). The `lstat` check moved from
+      `matte_tier_job.py` into `mattes.py` as `regular_file`, and both use it; a linked matte file is
+      now MISSING (regression test in `test_render_matte_refusals.py`).
 - [ ] **Found in EL6b — the packaged sticker set's only trust root is outside the archive
   (accepted risk, separate PR).** Its `manifest.json` catches corruption and a mismatched build,
   not a rewrite by someone who can write the install folder, who could rewrite `app.asar` as well:
