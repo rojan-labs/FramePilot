@@ -36,10 +36,14 @@
  *    matte service over the scripted-model worker (`smart-mask-pack.ts`) and a job journal, which
  *    adds the real job scheduler, the Jobs panel channels and resume-on-open (E2E.6).
  *  - **The AI model.** A scripted policy (see the AI spec), as in the AM5 eval harness.
+ *  - **Pexels** (Elements → Photos and Videos, when a spec passes `stock`). No network: a search
+ *    answers the spec's items and a download copies the spec's local file into the project's media
+ *    folder, answering as main's service does. The main-process service itself (cache, quota,
+ *    download, sizing) is covered by `apps/desktop` `stock-service.test.ts`, not here.
  */
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Page, Route } from '@playwright/test';
 import {
@@ -201,6 +205,16 @@ const INVOKE_METHODS = [
   'projectChooseRelinkFile',
   'elementsMaterialize',
 ] as const;
+/** The Photos and Videos bridge, installed only when a spec stands Pexels in (`stock`). */
+const STOCK_METHODS = [
+  'stockSearch',
+  'stockThumbnail',
+  'stockPreview',
+  'stockDownload',
+  'stockDownloadCancel',
+  'stockQuota',
+] as const;
+const STOCK_SUBSCRIPTIONS = ['onStockDownloadProgress', 'onStockQuotaChanged'] as const;
 const SUBSCRIPTIONS = [
   'onExportProgress',
   'onProjectChanged',
@@ -297,6 +311,29 @@ export interface FakeDesktopOptions {
    * does. Two hosts on one journal are one app before and after a restart.
    */
   readonly jobJournal?: string;
+  /**
+   * Stand Pexels in for Elements → Photos and Videos (plan/elements EL9). Absent, the bridge has
+   * no stock methods, and the tabs say a key is needed, as in a build without one.
+   */
+  readonly stock?: FakeStockLibrary;
+}
+
+/** A file a stand-in Pexels item downloads as. */
+export interface FakeStockFile {
+  /** The source file, relative to the project folder (copied, never moved). */
+  readonly path: string;
+  readonly kind: 'video' | 'image';
+  readonly width: number;
+  readonly height: number;
+  readonly durationSeconds?: number;
+}
+
+/** A stand-in for main's Pexels service: fixed results and local files, no network. */
+export interface FakeStockLibrary {
+  /** What every search answers, shaped as main sends items to the renderer (no URLs). */
+  readonly items: readonly Record<string, unknown>[];
+  /** The file each item downloads as, by its remote id. */
+  readonly files: Readonly<Record<string, FakeStockFile>>;
 }
 
 /** One call the page made, for assertions on what crossed the bridge. */
@@ -313,6 +350,8 @@ export class FakeDesktop {
   public readonly saves: Project[] = [];
   /** Export results the dialog was sent, in order. */
   public readonly exports: { requestId: string; result: Record<string, unknown> }[] = [];
+  /** Every Pexels search the page asked for, in order (with `stock`). */
+  public readonly stockSearches: Record<string, unknown>[] = [];
   public readonly packs: Record<KnownCapability, PackState>;
   public readonly inspector: DesktopMatteMediaInspector;
   private readonly ipc = new FakeIpcMain();
@@ -598,8 +637,11 @@ export class FakeDesktop {
         } as typeof Worker.prototype.postMessage;
       },
       {
-        invoke: [...INVOKE_METHODS],
-        subscriptions: [...SUBSCRIPTIONS],
+        invoke: [...INVOKE_METHODS, ...(this.options.stock === undefined ? [] : STOCK_METHODS)],
+        subscriptions: [
+          ...SUBSCRIPTIONS,
+          ...(this.options.stock === undefined ? [] : STOCK_SUBSCRIPTIONS),
+        ],
         prefix: MEDIA_ROUTE,
         root: relative(WORK_ROOT, this.options.workspace.projectDir).split(sep).join('/'),
         workRoot: WORK_ROOT.split(sep).join('/'),
@@ -682,6 +724,47 @@ export class FakeDesktop {
         elementId,
         webpBase64: Buffer.from(webp).toString('base64'),
       })),
+    };
+  }
+
+  /** `framepilot:stock:search`: the spec's items for any words, recorded for assertions. */
+  private stockSearch(request: Record<string, unknown>): Record<string, unknown> {
+    this.stockSearches.push(request);
+    const items = this.options.stock?.items ?? [];
+    return { ok: true, items, page: 1, totalResults: items.length, hasMore: false };
+  }
+
+  /**
+   * `framepilot:stock:download`: copy the item's file into the project's media folder, as main
+   * saves a download there, and answer with the asset main would (its path as the page reads it).
+   */
+  private async stockDownload(request: { projectId: string; remoteId: string }): Promise<unknown> {
+    const file = this.options.stock?.files[request.remoteId];
+    if (file === undefined) return { ok: false, error: 'download_failed' };
+    const extension = file.kind === 'image' ? 'jpg' : 'mp4';
+    const stored = `media/stock/pexels-${request.remoteId}.${extension}`;
+    const destination = join(this.options.workspace.projectDir, stored);
+    await mkdir(dirname(destination), { recursive: true });
+    await copyFile(join(this.options.workspace.projectDir, file.path), destination);
+    return {
+      ok: true,
+      asset: {
+        relativePath: this.rendererPath(stored),
+        kind: file.kind,
+        ...(file.durationSeconds === undefined ? {} : { durationSeconds: file.durationSeconds }),
+        width: file.width,
+        height: file.height,
+        media: { width: file.width, height: file.height },
+        source: {
+          provider: 'pexels',
+          remoteId: request.remoteId,
+          license: 'pexels',
+          licenseUrl: 'https://www.pexels.com/license/',
+          attributionRequired: false,
+          fetchedAt: '2026-09-26T00:00:00.000Z',
+        },
+        deduped: false,
+      },
     };
   }
 
@@ -980,6 +1063,18 @@ export class FakeDesktop {
         return this.materializeElement(args[0] as { projectId: string; elementId: string });
       case 'elementsThumbnail':
         return this.elementThumbnails(args[0] as { elementIds: string[] });
+      case 'stockQuota':
+        return { kind: 'unmeasured' };
+      case 'stockSearch':
+        return this.stockSearch(args[0] as Record<string, unknown>);
+      case 'stockThumbnail':
+      case 'stockPreview':
+        // No tile bytes: the tile shows its colour and shape, which is all a spec needs.
+        return { ok: false, error: 'provider_unavailable' };
+      case 'stockDownload':
+        return this.stockDownload(args[0] as { projectId: string; remoteId: string });
+      case 'stockDownloadCancel':
+        return undefined;
       case 'aiStreamStart':
         return this.aiStart(args[0] as Record<string, unknown>);
       case 'aiStreamAbort':
