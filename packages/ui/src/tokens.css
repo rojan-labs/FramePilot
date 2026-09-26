@@ -142,6 +142,14 @@
   --panel: var(--bg-panel);
   --panel-2: var(--bg-surface);
   --surface: var(--bg-surface);
+  /* A control well on a panel (search box, tile, chip strip), and the pressed step above it:
+     the panel colour moved toward the text colour. Declared once, here, as a mix rather than a
+     value: each theme overrides `--bg-surface`/`--text-primary` on `:root` itself, so the mix
+     resolves against whichever theme wins there, in both token systems. The fills sit only
+     1.1–1.4:1 from the panel — decoration — so an "on" state drawn on them must also carry a
+     ring, an underline or a weight change. */
+  --surface-2: color-mix(in srgb, var(--text-primary) 6%, var(--bg-surface));
+  --surface-3: color-mix(in srgb, var(--text-primary) 12%, var(--bg-surface));
   --line: var(--border-default);
   --line-soft: var(--border-subtle);
   --muted: var(--text-secondary);

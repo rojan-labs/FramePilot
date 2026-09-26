@@ -7579,7 +7579,7 @@ details.inspector-panel[open] > .inspector-section-head::before {
   padding: 0.5rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-2, 6px);
-  background: var(--surface-2, rgba(255, 255, 255, 0.02));
+  background: var(--surface-2);
 }
 
 .inspector-subpanel h4 {
@@ -9289,7 +9289,8 @@ details.inspector-panel[open] > .inspector-section-head::before {
   gap: var(--space-2);
   align-items: center;
   font-size: 0.72rem;
-  color: var(--muted-2);
+  /* --muted, not --muted-2: small text on the --surface-2 row fill needs 4.5:1. */
+  color: var(--muted);
 }
 .sounds-duration {
   font-variant-numeric: tabular-nums;
@@ -9306,7 +9307,7 @@ details.inspector-panel[open] > .inspector-section-head::before {
   color: var(--accent);
 }
 .sounds-badge--free {
-  color: var(--muted-2);
+  color: var(--muted);
 }
 
 .sounds-row-error {
@@ -9324,7 +9325,7 @@ details.inspector-panel[open] > .inspector-section-head::before {
   width: 72px;
   height: 4px;
   overflow: hidden;
-  background: var(--surface-3, var(--surface-2));
+  background: var(--surface-3);
   border-radius: 2px;
 }
 .sounds-progress-fill {
@@ -15337,9 +15338,14 @@ a.export-credits-license {
   color: var(--text);
 }
 .elements-tab[aria-selected='true'] {
+  /* Not colour alone: a raised fill, a strong ring and the rail tabs' orange underline, so the
+     selected segment reads in both themes and on the strip's own fill. */
   color: var(--text);
-  background: var(--bg-app);
-  box-shadow: 0 0 0 1px var(--line);
+  font-weight: var(--font-weight-medium);
+  background: var(--bg-elevated);
+  box-shadow:
+    0 0 0 1px var(--border-strong),
+    inset 0 -2px 0 var(--tl-select);
 }
 .elements-tab:focus-visible {
   outline: 2px solid var(--accent);
@@ -15386,6 +15392,7 @@ a.export-credits-license {
     background-color 0.12s ease;
 }
 .shapes-grid-tile:hover {
+  background: var(--surface-3);
   border-color: var(--accent);
 }
 .shapes-grid-tile:focus-visible {
@@ -15435,9 +15442,11 @@ a.export-credits-license {
   border-radius: 999px;
 }
 .shapes-chip[aria-pressed='true'] {
+  /* A 2 px ring (border plus inset), so pressed is a thickness change and not colour alone. */
   color: var(--text);
-  background: var(--surface-3, var(--surface-2));
+  background: var(--surface-3);
   border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 .shapes-chip:focus-visible,
 .shapes-swatch:focus-visible,
@@ -15481,7 +15490,8 @@ a.export-credits-license {
   min-width: 0;
   padding: 2px var(--space-1);
   color: var(--text);
-  background: var(--surface-2);
+  /* The Inspector's subpanel is itself on --surface-2; the field sits back on the panel colour. */
+  background: var(--bg-surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm, 6px);
 }
@@ -15553,6 +15563,7 @@ a.export-credits-license {
     background-color 0.12s ease;
 }
 .stickers-grid-tile:hover {
+  background: var(--surface-3);
   border-color: var(--accent);
 }
 .stickers-grid-tile:focus-visible {
@@ -15630,7 +15641,7 @@ a.export-credits-license {
   padding: 2px var(--space-2);
   color: var(--text);
   cursor: pointer;
-  background: var(--surface-3, var(--surface-2));
+  background: var(--surface-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm, 6px);
 }
@@ -15806,7 +15817,8 @@ a.export-credits-license {
 }
 .stock-tile--skeleton {
   aspect-ratio: 3 / 2;
-  opacity: 0.6;
+  /* A step above the tile well, so the first search shows its shape rather than nothing. */
+  background: var(--surface-3);
 }
 
 .stock-thumb {
@@ -16017,7 +16029,7 @@ a.export-credits-license {
 }
 .stock-orientation-option[aria-pressed='true'] {
   color: var(--text);
-  background: var(--surface-3, var(--surface-2));
+  background: var(--surface-3);
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 .stock-orientation-option:focus-visible {
@@ -16256,7 +16268,7 @@ a.export-credits-license {
 .jobs-progress {
   height: 4px;
   overflow: hidden;
-  background: var(--surface-3, var(--surface-2));
+  background: var(--surface-3);
   border-radius: 2px;
 }
 .jobs-progress-fill {

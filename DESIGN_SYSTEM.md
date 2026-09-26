@@ -32,6 +32,16 @@ Use the semantic surface ramp in order:
 The preview canvas is a separate color-critical surface (`--bg-canvas`) and stays
 dark in light mode so footage is not judged against a bright surround.
 
+Two control wells sit on a panel: `--surface-2` (a search box, a tile, a chip strip)
+and `--surface-3` (the pressed or hovered step above it). They are not a separate
+palette. `packages/ui/src/tokens.css` declares each once, as the panel colour moved
+6% and 12% toward the text colour
+(`color-mix(in srgb, var(--text-primary) 6%, var(--bg-surface))`), so they follow
+every theme without a per-theme value. Their contrast with the panel is only about
+1.1–1.4:1. A state drawn on them, such as a pressed chip or a selected segment, must
+also carry a ring, an underline or a weight change. Small text on `--surface-2` uses
+`--muted`, never `--muted-2`.
+
 Borders provide most structural separation. Prefer `--border-subtle` for dividers,
 `--border-default` for controls and boundaries, and `--border-strong` for hover or
 important separation. Panels should not manufacture depth with unrelated shadows.

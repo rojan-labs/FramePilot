@@ -87,6 +87,20 @@ describe('tokens.css structure', () => {
     expect(declarationsOf('dur-fast')[0]).toBe('120ms');
   });
 
+  it('derives the control-well surfaces from the theme tokens, once, so both themes get them', () => {
+    // 28 rules in the web editor read `--surface-2`/`--surface-3`; undefined, every skeleton,
+    // tile, chip and search box they fill drew nothing. Declared once on `:root` as a mix of the
+    // panel and text colours, each resolves against whichever theme's values win on `:root`.
+    for (const [name, share] of [
+      ['surface-2', '6%'],
+      ['surface-3', '12%'],
+    ] as const) {
+      const decls = declarationsOf(name);
+      expect(decls, `--${name} should be declared once`).toHaveLength(1);
+      expect(decls[0]).toBe(`color-mix(in srgb, var(--text-primary) ${share}, var(--bg-surface))`);
+    }
+  });
+
   it('pins the accent to the UI-clone blue, not the ADR 0054 logo-rebrand orange', () => {
     // Intentionally overridden post-rebrand to match a reference UI clone — see
     // the 2026-07-18 accent-blue change. Not yet reconciled with ADR 0054.
