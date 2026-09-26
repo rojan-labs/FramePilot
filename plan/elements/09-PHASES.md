@@ -365,7 +365,7 @@ packages/ai-sdk/scripts/mission-fixture-projects.mjs`; then, detached on an idle
 FRAMEPILOT_PYTHON_API_URL=http://127.0.0.1:8799 node packages/ai-sdk/scripts/mission-baseline.mjs
 --case sticker-fire-on-beat --runs 10 --yes`, and record the `sticker-on-beat` pass share here as
   the hit rate.
-- [!] **One desktop run** (10 §4 run B, stickers): in the desktop app, add five stickers from
+- [!] **One desktop run** (10 §4 run A, extended to stickers): in the desktop app, add five stickers from
   Elements → Stickers and five with the assistant over real footage; replace one from the
   Inspector; export; close and reopen the project; delete one sticker's file from the project
   folder and reopen (it comes back); undo each add. Record the export, the reopened project and
@@ -643,7 +643,25 @@ reuses.
 - [ ] **EL12.1** `docs/guides/elements.md` complete; `docs/api` (schema v25–v26, raster route,
       IPC); `mcp-server.md`; ADR index.
 - [ ] **EL12.2** `CHANGELOG.md` and the website changelog (`changelog-maintainer`).
-- [ ] **EL12.3** The remaining desktop evidence runs (10 §4) with committed reports.
+- [!] **EL12.3** The remaining desktop evidence runs (10 §4) with committed reports. **Human steps**
+      (real media on a desktop build; each report goes to `docs/reports/elements/run-<letter>.md`
+      with the commit it ran on and the machine):
+      - **Run A — callouts on a SaaS demo:** as EL4a's desktop run (shapes) and EL6a's (stickers)
+        above, on one real 5–15 minute 16:9 screen recording.
+      - **Run B — the agent on the same demo:** on that recording, ask the four evaluation
+        requests of 07 §8 cases 1, 4, 5 and 6 (a box on a named button at its word; an underline
+        and an arrow on a product shot or a still from the demo; "Make all the highlight boxes red
+        and thicker"; "Remove the stickers"), five times each, and judge each result on the
+        timeline and in the exported frame: on target, on the word, nothing else changed.
+      - **Run C — short-form talking head:** as EL7's step above.
+      - **Run D — scale:** as EL6b's step above.
+      - **Run E — compatibility:** open a project saved by the last release before Elements (schema
+        v24) with photos, titles and Pexels media in the new build; it must open unchanged, and its
+        export must match that release's except for the three listed fixes (00 G1 stills and titles
+        now honour opacity and transitions, G6 a title's In/Out now plays on the desktop, G11 a
+        still's crop is now drawn). Then save a project with a
+        shape (v25) and open it in that older release: it must refuse to open with its "Update
+        FramePilot" message rather than open without the shapes.
 - [ ] **EL12.4** `plan/PLAN.md` and this plan's ledger reconciled; deferred items listed.
 - [ ] **EL12.5** Website: `src/content/features.ts`, `content/docs/{getting-started,the-ai-agent,
 keyboard-shortcuts,render-and-export}.mdx`; `MANUAL_TESTING.md` Elements section (macOS and
