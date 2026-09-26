@@ -122,10 +122,10 @@ you add one. (A development build lists the 251 until `pnpm --filter @framepilot
 build:elements` has built the rest.)
 
 - **Browse:** the chips along the top narrow the grid: **All**, **Recent** (what you added
-  lately), **Favourites**, the thirteen collections, then the nine groups of the whole set
-  (Smileys & Emotion, People & Body, Animals & Nature, Food & Drink, Travel & Places, Activities,
-  Objects, Symbols, Flags). A group named like a collection says "(all)": "Objects (all)" is every
-  object, "Objects" the picked few. The chip strip scrolls sideways.
+  lately, with a click or a drag), **Favourites**, the thirteen collections, then the nine groups
+  of the whole set (Smileys & Emotion, People & Body, Animals & Nature, Food & Drink, Travel &
+  Places, Activities, Objects, Symbols, Flags). A group named like a collection says "(all)":
+  "Objects (all)" is every object, "Objects" the picked few. The chip strip scrolls sideways.
 - **Search** matches a sticker's name and what it is for ("fire", "party", "thumbs", "check"),
   and you can paste the emoji itself: 🔥 finds the fire sticker.
 - **Favourites:** hover a tile and click its star, or press **F** on it. They stay across projects

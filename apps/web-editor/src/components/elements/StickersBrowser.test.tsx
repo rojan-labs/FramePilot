@@ -348,6 +348,30 @@ describe('StickersBrowser', () => {
     });
   });
 
+  it('records a sticker dragged onto the timeline or the monitor as Recent, as a click is', async () => {
+    const { onAddSticker, view } = await open();
+    const drag = (name: string, dropEffect: DataTransfer['dropEffect']): void => {
+      const tile = screen.getByRole('button', { name });
+      fireEvent.dragStart(tile, { dataTransfer: { setData: () => undefined } });
+      fireEvent.dragEnd(tile, { dataTransfer: { dropEffect } });
+    };
+    // A drag let go anywhere that did not take it ends with no drop effect: nothing was added.
+    drag('Add Red heart', 'none');
+    expect(screen.queryByRole('button', { name: 'Recent' })).toBeNull();
+    // A lane (or the monitor) that took it ends the drag in a copy. The drop itself places the
+    // sticker, not this panel, so the panel records it without placing anything.
+    drag('Add Fire', 'copy');
+    fireEvent.click(await screen.findByRole('button', { name: 'Recent' }));
+    expect(names()).toEqual(['Add Fire']);
+    expect(onAddSticker).not.toHaveBeenCalled();
+    expect(bridge.materialize).not.toHaveBeenCalled();
+    // A view preference, like a click's: it outlives the panel.
+    view.unmount();
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: 'Recent' }));
+    expect(names()).toEqual(['Add Fire']);
+  });
+
   it('draws only the rows in view of the whole library, and End still reaches the last', async () => {
     const many = stickerCatalog({
       ...CATALOG,

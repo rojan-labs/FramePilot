@@ -281,6 +281,9 @@ export function StickersBrowser({
     };
   }, [missingKey, packagedTiles]);
 
+  const recordRecent = (item: StickerItem): void =>
+    setRecent((current) => pushFront(current, item.id, RECENT_LIMIT));
+
   const toggleFavourite = (item: StickerItem): void => {
     setFavourites((current) =>
       current.includes(item.id)
@@ -306,7 +309,7 @@ export function StickersBrowser({
         replaceTarget !== null && onReplaceSticker !== undefined ? onReplaceSticker : onAddSticker;
       const refused = place(result.asset, item);
       setRefusal(refused);
-      if (refused === null) setRecent((current) => pushFront(current, item.id, RECENT_LIMIT));
+      if (refused === null) recordRecent(item);
     } finally {
       setBusy(null);
     }
@@ -450,6 +453,13 @@ export function StickersBrowser({
                         ELEMENT_DND_TYPE,
                         encodeElementDrag({ kind: 'sticker', elementId: item.id }),
                       );
+                    }}
+                    // A lane or the monitor that took the drop ends the drag in a copy; the drop
+                    // places the sticker, and it counts as used, as a click does. Recorded here
+                    // and not by the drop's host: the chips read this panel's own preference,
+                    // which nothing outside it can refresh while it is open.
+                    onDragEnd={(event) => {
+                      if (event.dataTransfer.dropEffect === 'copy') recordRecent(item);
                     }}
                     onFocus={() => setActive(index)}
                     onClick={() => void pick(item)}
