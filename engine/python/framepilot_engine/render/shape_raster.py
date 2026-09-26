@@ -23,6 +23,7 @@ from __future__ import annotations
 import itertools
 import math
 from collections.abc import Callable, Mapping, Sequence
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -62,6 +63,13 @@ DOT_SPACING = 2.0
 #: Lines this wide (supersampled pixels) or thinner are drawn without round joins, as Pillow's
 #: ``line(joint="curve")`` draws them.
 JOINLESS_MAX_WIDTH = 4
+#: A coverage byte's values. One coloured part composites to at most this many different pixels,
+#: two to its square: few enough to blend once into a table and look up (see ``_composite``).
+COVERAGE_LEVELS = 256
+#: The most parts tabulated: three would be a 16.7 M-entry table.
+BLEND_TABLE_PARTS = 2
+#: How many colour combinations' tables to keep (256 KiB each for two parts).
+BLEND_TABLES_KEPT = 16
 #: A badge label's face: the title default (Inter, bold), through the title rasteriser's loader.
 LABEL_FAMILY = "Inter"
 LABEL_WEIGHT = 700
@@ -429,29 +437,26 @@ def _label_mask(shape: ResolvedShape, canvas: _Canvas) -> Mask | None:
     )
 
 
-def _coverage(mask: Mask | None, scale: int) -> np.ndarray | None:
+def _coverage(mask: Mask | None, scale: int) -> Mask | None:
+    """A part's mask box-averaged to the output size: how much of each pixel it covers, 0-255."""
     if mask is None:
         return None
-    reduced = mask.reduce(scale) if scale > 1 else mask
-    return np.asarray(reduced, dtype=np.float32) * np.float32(1 / 255)
+    return mask.reduce(scale) if scale > 1 else mask
 
 
-def _composite(
-    size: tuple[int, int], parts: Sequence[tuple[np.ndarray | None, str | None]]
-) -> Image.Image:
-    """Composite coloured coverage masks back to front into a straight-alpha RGBA image.
+def _blend(coverages: Sequence[np.ndarray], colours: Sequence[str]) -> list[np.ndarray]:
+    """Composite coloured coverage bytes back to front into straight-alpha R, G, B and A bytes.
 
     Accumulates premultiplied colour (each part a constant colour times its coverage) and
     un-premultiplies once, so a translucent edge keeps its colour instead of darkening. Each
     channel is its own contiguous plane: broadcasting over a trailing channel axis is several
-    times slower at 4K.
+    times slower at 4K. Every step is elementwise, so a pixel's bytes depend on nothing but its
+    own coverage bytes (which is what lets :func:`_composite` tabulate them).
     """
-    width, height = size
-    planes = [np.zeros((height, width), dtype=np.float32) for _ in range(3)]
-    alpha = np.zeros((height, width), dtype=np.float32)
-    for coverage, colour in parts:
-        if coverage is None or colour is None:
-            continue
+    planes = [np.zeros(coverages[0].shape, dtype=np.float32) for _ in range(3)]
+    alpha = np.zeros(coverages[0].shape, dtype=np.float32)
+    for coverage_bytes, colour in zip(coverages, colours, strict=True):
+        coverage = coverage_bytes.astype(np.float32) * np.float32(1 / 255)
         *channels, opacity = _hex_rgba(colour)
         a = coverage * np.float32(opacity)
         keep = 1 - a
@@ -463,11 +468,57 @@ def _composite(
     covered = alpha > 0
     safe = np.where(covered, alpha, np.float32(1))
 
-    def to_byte(plane: np.ndarray) -> Image.Image:
-        return Image.fromarray(np.rint(np.clip(plane, 0, 1) * 255).astype(np.uint8), "L")
+    def to_byte(plane: np.ndarray) -> np.ndarray:
+        byte_plane: np.ndarray = np.rint(np.clip(plane, 0, 1) * 255).astype(np.uint8)
+        return byte_plane
 
-    bands = [to_byte(np.where(covered, plane / safe, np.float32(0))) for plane in planes]
-    return Image.merge("RGBA", [*bands, to_byte(alpha)])
+    colour_bytes = [to_byte(np.where(covered, plane / safe, np.float32(0))) for plane in planes]
+    return [*colour_bytes, to_byte(alpha)]
+
+
+@lru_cache(maxsize=BLEND_TABLES_KEPT)
+def _blend_table(colours: tuple[str, ...]) -> np.ndarray:
+    """:func:`_blend` of every combination of the parts' coverage bytes, one RGBA pixel per entry.
+
+    The entry for coverages ``(c0, c1)`` is at ``c0 << 8 | c1``; each is four bytes, R G B A,
+    viewed as one ``uint32``. Read-only: the cache shares it.
+    """
+    count = len(colours)
+    combos = np.arange(COVERAGE_LEVELS**count, dtype=np.uint32)
+    coverages = [
+        ((combos >> (8 * (count - 1 - part))) & 0xFF).astype(np.uint8) for part in range(count)
+    ]
+    table: np.ndarray = np.stack(_blend(coverages, colours), axis=-1).view(np.uint32).reshape(-1)
+    table.flags.writeable = False
+    return table
+
+
+def _composite(
+    size: tuple[int, int], parts: Sequence[tuple[Mask | None, str | None]]
+) -> Image.Image:
+    """Composite coloured coverage masks back to front into a straight-alpha RGBA image.
+
+    A pixel's bytes are :func:`_blend` of its parts' coverage bytes and nothing else, so one part
+    makes at most 256 different pixels and two at most 65,536. When the raster has at least that
+    many pixels, those are blended once into a table (kept per colours, so a restyle reuses it)
+    and the raster is looked up in it: the same bytes as blending every pixel, for a fraction of
+    the float work, which was about half of a 4K icon's raster. Three parts (a badge's fill,
+    stroke and label) blend directly.
+    """
+    width, height = size
+    live = [(mask, colour) for mask, colour in parts if mask is not None and colour is not None]
+    if not live:
+        return Image.new("RGBA", size, (0, 0, 0, 0))
+    coverages = [np.asarray(mask) for mask, _ in live]
+    colours = tuple(colour for _, colour in live)
+    if len(live) <= BLEND_TABLE_PARTS and COVERAGE_LEVELS ** len(live) <= width * height:
+        index = coverages[0].astype(np.uint16)
+        for coverage in coverages[1:]:
+            index <<= 8
+            index |= coverage
+        pixels = _blend_table(colours)[index]
+        return Image.fromarray(pixels.view(np.uint8).reshape(height, width, 4))
+    return Image.merge("RGBA", [Image.fromarray(band) for band in _blend(coverages, colours)])
 
 
 def rasterize_shape(

@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from framepilot_engine.render import shape_raster
 from framepilot_engine.render.shape_catalog import preset_shape_params
 from framepilot_engine.render.shape_geometry import shape_bounds
 from framepilot_engine.render.shape_raster import rasterize_shape
@@ -112,6 +113,22 @@ def test_a_marker_is_translucent_with_edges_that_never_darken() -> None:
     # Every partly covered pixel keeps the marker's colour; only its alpha fades.
     assert (covered[:, :3] == (255, 212, 0)).all()
     assert pixels[pixels.shape[0] // 2, pixels.shape[1] // 2, 3] == 0x66
+
+
+@pytest.mark.parametrize(
+    "params",
+    [MARKER, {**HIGHLIGHT, "fill": "#FFD40033", "stroke": "#FF3B30CC"}],
+    ids=["one-part", "two-parts"],
+)
+def test_the_composite_table_draws_what_blending_every_pixel_draws(
+    params: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # One or two coloured parts composite through a table of every coverage combination; it is
+    # only a shortcut if each pixel's bytes depend on nothing but its own coverage.
+    tabled, _ = rasterize_shape(params, 1920, 1080)
+    monkeypatch.setattr(shape_raster, "BLEND_TABLE_PARTS", 0)
+    blended, _ = rasterize_shape(params, 1920, 1080)
+    assert tabled.tobytes() == blended.tobytes()
 
 
 def test_an_arrow_has_a_head_at_its_end() -> None:
