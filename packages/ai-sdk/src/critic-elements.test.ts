@@ -50,7 +50,10 @@ function base(resolution = { width: 1920, height: 1080 }): Project {
   };
 }
 
-/** A sticker placed as add_sticker places it, offset in canvas pixels from the centre. */
+/**
+ * A 30%-high sticker placed as add_sticker places it, offset in canvas pixels from the centre. The
+ * size is pinned rather than the default so each check sees the same geometry on every frame.
+ */
 function withSticker(
   project: Project,
   start: number,
@@ -59,6 +62,7 @@ function withSticker(
 ): Project {
   const placed = buildAddStickerOps(project, fire, start, end, {
     artFraction: 256 / 318,
+    height: 0.3,
     ...(offset === undefined ? {} : { offset }),
   });
   return applyProjectPatch(project, patchOf(placed.operations));

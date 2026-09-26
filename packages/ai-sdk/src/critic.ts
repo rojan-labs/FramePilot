@@ -2018,7 +2018,7 @@ function checkElementFaces(project: Project, options: CritiqueOptions): CriticCh
         'element_faces',
         label,
         'warn',
-        `${quoted(over)} sit${over.length === 1 ? 's' : ''} over the measured face for most of the time on screen. Move it into empty frame space beside the subject.`,
+        `${quoted(over)} sit${over.length === 1 ? 's' : ''} over the measured face for most of the time on screen. Move it into empty frame space beside the subject: for a shape, set_shape_style a new box or ends; for a sticker, delete_clip it and add_sticker it there.`,
       );
 }
 
@@ -2074,7 +2074,7 @@ function checkElementSafeArea(project: Project, options: CritiqueOptions): Criti
     'element_safe_area',
     label,
     'warn',
-    `${findings.join('; ')}. Move a sticker into free space above the captions; a callout stays on what it points at, so move the captions off it instead.`,
+    `${findings.join('; ')}. Move a sticker into free space above the captions: delete_clip it and add_sticker it there. A callout stays on what it points at; if the captions cover it, set_track_caption_style can put them at the top instead.`,
   );
 }
 
@@ -2092,7 +2092,7 @@ function checkElementBusyFrame(project: Project): CriticCheck {
         'element_busy_frame',
         label,
         'warn',
-        `${quoted(crowd.map((clip) => clip.id))} are on screen together, which splits the eye. Sequence them, or drop the ones the moment does not need.`,
+        `${quoted(crowd.map((clip) => clip.id))} are on screen together, which splits the eye. Sequence them with move_clip or trim_clip so fewer share the screen, or delete_clip the ones the moment does not need.`,
       );
 }
 
@@ -2109,7 +2109,7 @@ function checkStickerSharp(project: Project): CriticCheck {
         'sticker_sharp',
         label,
         'warn',
-        `${quoted(soft)} ${soft.length === 1 ? 'is' : 'are'} drawn larger than the sticker's own pixels at the export resolution and will look soft. Make ${soft.length === 1 ? 'it' : 'them'} smaller.`,
+        `${quoted(soft)} ${soft.length === 1 ? 'is' : 'are'} drawn larger than the sticker's own pixels at the export resolution and will look soft. Make ${soft.length === 1 ? 'it' : 'them'} smaller: delete_clip and add_sticker again with a smaller sizePercent, or leave out sizePercent for the largest sharp size.`,
       );
 }
 

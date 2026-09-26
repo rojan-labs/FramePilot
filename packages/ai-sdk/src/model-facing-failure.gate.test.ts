@@ -63,8 +63,16 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import type { Project } from '@framepilot/timeline-schema';
+import {
+  applyProjectPatch,
+  buildAddStickerOps,
+  type Operation,
+  type Patch,
+} from '@framepilot/editor-core';
+import type { Asset, Project } from '@framepilot/timeline-schema';
 import { makeProject } from './__fixtures__/project.js';
+import { assembleEdit } from './assemble.js';
+import { critique } from './critic.js';
 import { createAnalysisBudget } from './kernel/cost/analysis-caps.js';
 import { namesNextAction } from './reliability/next-action.js';
 import {
@@ -83,7 +91,7 @@ import {
   interpretIndexLoop,
   visualReasonGuidanceEntries,
 } from './sidecar-executor.js';
-import { TOOL_REGISTRY } from './tool-registry.js';
+import { TOOL_REGISTRY, getTool } from './tool-registry.js';
 import type { HostToolOutcome } from './tool-executor.js';
 import type { VisualIndexLoopResult } from './visual-index-client.js';
 
@@ -416,6 +424,96 @@ describe('every model-facing failure names a next action', () => {
       expect(note, code).not.toMatch(/\d/);
       expect(note.startsWith('"add_sticker" failed — '), code).toBe(true);
     }
+    dead.assertNone();
+  });
+
+  it('for every sentence the element checks hand the model (plan/elements EL8.1)', async () => {
+    // The critic's element advisories and its one failure, the off-frame refusal, and the
+    // search note on a host that cannot place stickers: each built from a project that
+    // produces it, so the sentence judged is the one a run reads.
+    const fire = {
+      id: 'element_fluent3d_fire',
+      path: 'media/p/elements/fluent3d/fire.webp',
+      kind: 'image',
+      media: { width: 318, height: 318 },
+      source: {
+        provider: 'fluent-emoji',
+        remoteId: 'fire',
+        license: 'mit',
+        licenseUrl: 'https://example.test/LICENSE',
+        attributionRequired: false,
+        attribution: 'Fluent Emoji by Microsoft (MIT)',
+        creator: 'Microsoft',
+        sourceUrl: 'https://example.test/fire.png',
+        fetchedAt: '2026-09-26T00:00:00.000Z',
+      },
+    } as Asset;
+    const patchOf = (operations: readonly Operation[]): Patch => ({
+      patchId: `gate_${String(operations.length)}` as Patch['patchId'],
+      createdBy: 'agent',
+      reason: 'gate',
+      operations: [...operations],
+    });
+    const at = (resolution: { width: number; height: number }): Project => ({
+      ...makeProject({ timeline: { tracks: [{ id: 'v', type: 'video', clips: [] }] } } as never),
+      resolution,
+    });
+    const sticker = (p: Project, offset = { x: 0, y: 0 }, height?: number): Project =>
+      applyProjectPatch(
+        p,
+        patchOf(
+          buildAddStickerOps(p, fire, 0, 3, {
+            artFraction: 256 / 318,
+            offset,
+            ...(height === undefined ? {} : { height }),
+          }).operations,
+        ),
+      );
+    // Five stickers at 4K, one at the edge and all enlarged: safe area, busy frame, soft.
+    let crowded = at({ width: 3840, height: 2160 });
+    crowded = sticker(crowded, { x: 1700, y: 0 }, 0.3);
+    for (let n = 0; n < 4; n += 1) crowded = sticker(crowded, { x: 0, y: 0 }, 0.3);
+    const face = { start: 0, end: 5, face: { x: 0.4, y: 0.3, width: 0.2, height: 0.3 } };
+    const report = [
+      ...critique(crowded, { subjects: [face], requiredElements: ['callout'] }).checks,
+    ];
+    const dead = new DeadEnds();
+    const judged = [
+      'element_faces',
+      'element_safe_area',
+      'element_busy_frame',
+      'sticker_sharp',
+      'elements_placed',
+    ];
+    for (const id of judged) {
+      const check = report.find((candidate) => candidate.id === id)!;
+      expect(['warn', 'fail'], id).toContain(check.status);
+      dead.check(`critic/${id}`, check.detail);
+      expect(check.detail.replace(/"[^"]*"/g, ''), id).not.toMatch(/\d/);
+    }
+    const one = sticker(at({ width: 1920, height: 1080 }));
+    const clipId = one.timeline.tracks
+      .flatMap((t) => t.clips)
+      .find((c) => c.assetId === fire.id)!.id;
+    const offFrame = assembleEdit(
+      one,
+      [
+        {
+          type: 'add_keyframes',
+          clipId,
+          replace: true,
+          keyframes: [{ id: 'kf_x', time: 0, property: 'x', value: 5000, easing: 'linear' }],
+        },
+      ],
+      'Move sticker',
+    ).validation.issues.find((issue) => issue.code === 'element_off_frame')!;
+    dead.check('assemble/element_off_frame', offFrame.message);
+    const search = getTool('search_elements');
+    if (!search || search.kind !== 'read') throw new Error('search_elements is not a read tool');
+    const found = (await search.read({ query: 'fire' }, { project, placesStickers: false })) as {
+      note: string;
+    };
+    dead.check('search_elements/no-stickers-here', found.note);
     dead.assertNone();
   });
 

@@ -335,8 +335,8 @@ export function assembleEdit(
         severity: 'error' as const,
         message:
           `"${clipId}" would sit outside the frame for as long as it is on the timeline, so the ` +
-          'edit would render as nothing. Place it inside the frame: centre it within the ' +
-          'picture, or make it smaller.',
+          'edit would render as nothing. Keep it on the picture: give add_keyframes x and y ' +
+          'values inside the frame, or for a shape give set_shape_style a box or ends inside it.',
       })),
     };
     log.warn('assembleEdit → an element would be off the frame', { clips: offFrame.length });
