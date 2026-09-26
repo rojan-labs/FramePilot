@@ -233,6 +233,25 @@ describe('ElementsPanel', () => {
     expect(photos.getAttribute('aria-selected')).toBe('true');
   });
 
+  it('points aria-controls only from the selected tab, and titles every tab', () => {
+    renderPanel();
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.map((tab) => tab.getAttribute('aria-controls'))).toEqual([
+      'elements-tabpanel-photos',
+      null,
+      null,
+      null,
+    ]);
+    expect(document.getElementById('elements-tabpanel-photos')).not.toBeNull();
+    // A label squeezed at the narrowest rail still has its whole name on hover.
+    expect(tabs.map((tab) => tab.getAttribute('title'))).toEqual([
+      'Photos',
+      'Videos',
+      'Stickers',
+      'Shapes',
+    ]);
+  });
+
   it('labels the panel with the selected sub-tab', () => {
     renderPanel();
     const panel = screen.getByRole('tabpanel');
@@ -307,7 +326,7 @@ describe('ElementsPanel', () => {
       />,
     );
     fireEvent.click(screen.getByRole('tab', { name: 'Shapes' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add Highlight box' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Highlight box, shape' }));
     expect(added).toEqual(['rounded-rect/highlight']);
   });
 

@@ -28,6 +28,8 @@ export {
   Type,
   Captions,
   Wand2,
+  // Element animation (In, Out, Loop): motion, not the AI rail's wand.
+  Orbit,
   SlidersHorizontal,
   FileText,
   SkipBack,

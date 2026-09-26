@@ -72,7 +72,7 @@ describe('Stickers tab budgets (02 §9)', () => {
           packagedTiles={packaged}
         />,
       );
-      await screen.findByRole('button', { name: 'Add Grinning face' });
+      await screen.findByRole('button', { name: 'Grinning face, sticker' });
       const elapsed = performance.now() - started;
       const drawn = document.querySelectorAll('.stickers-grid-tile').length;
       view.unmount();

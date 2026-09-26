@@ -147,20 +147,20 @@ test('Stickers: add the fire sticker, replace it with a heart, export, undo', as
     .getByRole('tab', { name: 'Stickers', exact: true })
     .click();
   await search.fill('fire');
-  await expect(page.getByRole('button', { name: 'Add Fire', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Fire, sticker', exact: true })).toBeVisible();
   await expectPanelAxeClean(page, 'Stickers');
   await page
     .getByRole('tablist', { name: 'Elements', exact: true })
     .getByRole('tab', { name: 'Shapes', exact: true })
     .click();
-  await expect(page.getByRole('button', { name: 'Add Highlight box', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Highlight box, shape', exact: true })).toBeVisible();
   await expectPanelAxeClean(page, 'Shapes');
   await page
     .getByRole('tablist', { name: 'Elements', exact: true })
     .getByRole('tab', { name: 'Stickers', exact: true })
     .click();
   await search.fill('fire');
-  await page.getByRole('button', { name: 'Add Fire', exact: true }).click();
+  await page.getByRole('button', { name: 'Fire, sticker', exact: true }).click();
   const added = await savedProject(desktop, (doc) => stickersOf(doc).length === 1, 'one sticker');
   const sticker = stickersOf(added)[0]!;
   expect(sticker).toMatchObject({ assetId: FIRE, start: 0, end: SECONDS });
@@ -303,7 +303,7 @@ test('Stickers: the whole library where the installer ships it — list, place, 
     .getByRole('tab', { name: 'Stickers', exact: true })
     .click();
   await page.getByRole('searchbox', { name: 'Search stickers', exact: true }).fill('llama');
-  const llama = page.getByRole('button', { name: 'Add Llama', exact: true });
+  const llama = page.getByRole('button', { name: 'Llama, sticker', exact: true });
   await expect(llama).toBeVisible();
   await expect(llama.locator('img')).toHaveAttribute('src', /^blob:/);
   await expectPanelAxeClean(page, 'Stickers, the whole library');
@@ -324,14 +324,14 @@ test('Stickers: the whole library where the installer ships it — list, place, 
   await page.keyboard.press('f');
   await page.getByRole('searchbox', { name: 'Search stickers', exact: true }).fill('');
   await page.getByRole('button', { name: 'Favourites', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Add Llama', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Llama, sticker', exact: true })).toBeVisible();
   await expect(page.locator('.stickers-grid-tile')).toHaveCount(1);
   await page.getByRole('button', { name: 'All', exact: true }).click();
 
   // --- dragged: the heart dropped on the sticker's lane lands there, at the drop time ---------
   // Searched for, so its tile is drawn: the grid draws only the rows in view.
   await page.getByRole('searchbox', { name: 'Search stickers', exact: true }).fill('red heart');
-  const heart = page.getByRole('button', { name: 'Add Red heart', exact: true });
+  const heart = page.getByRole('button', { name: 'Red heart, sticker', exact: true });
   const target = page.locator(`[data-track-id="${lane}"]`);
   const box = (await target.boundingBox())!;
   const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
@@ -391,7 +391,7 @@ test('Monitor drop: a sticker dragged onto the picture with the pointer lands th
     y: Math.round(frameBox.height * 0.3),
   };
   await page
-    .getByRole('button', { name: 'Add Fire', exact: true })
+    .getByRole('button', { name: 'Fire, sticker', exact: true })
     .dragTo(frame, { targetPosition });
 
   // --- at the playhead, centred where it was let go: its base offset in the project's pixels ------
@@ -416,7 +416,7 @@ test('Monitor drop: a sticker dragged onto the picture with the pointer lands th
   // --- the drag ended in a copy, so the Stickers tab lists it under Recent -------------------------
   await search.fill('');
   await page.getByRole('button', { name: 'Recent', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Add Fire', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Fire, sticker', exact: true })).toBeVisible();
   await expect(page.locator('.stickers-grid-tile')).toHaveCount(1);
 
   // --- one undo takes it back ---------------------------------------------------------------------

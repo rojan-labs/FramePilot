@@ -81,7 +81,7 @@ test('Shapes: add a highlight box, resize it on the monitor, recolour it, export
     .getByRole('tablist', { name: 'Elements', exact: true })
     .getByRole('tab', { name: 'Shapes', exact: true })
     .click();
-  await page.getByRole('button', { name: 'Add Highlight box', exact: true }).click();
+  await page.getByRole('button', { name: 'Highlight box, shape', exact: true }).click();
   const added = await savedProject(desktop, (doc) => shapesOf(doc).length === 1, 'one shape');
   const shape = shapesOf(added)[0]!;
   expect(shape.start).toBe(0);
@@ -313,7 +313,7 @@ test('Monitor drop: a highlight box let go over the picture lands centred there,
     x: (target.x - frameBox.x) / frameBox.width,
     y: (target.y - frameBox.y) / frameBox.height,
   };
-  await page.getByRole('button', { name: 'Add Highlight box', exact: true }).hover();
+  await page.getByRole('button', { name: 'Highlight box, shape', exact: true }).hover();
   await page.mouse.down();
   await page.mouse.move(target.x, target.y, { steps: 8 });
   // The monitor takes it: the picture's edge lights while the tile is over it.

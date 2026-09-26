@@ -3141,8 +3141,11 @@ g.mask-canvas-draft circle {
   z-index: 2;
   padding: 1px 5px;
   border-radius: var(--radius-xs);
-  background: var(--clip-graphic-border);
-  color: #fff;
+  /* The clip bar's fill and ink, ringed in the clip's border colour: white on the border rose
+     was 3.1:1 for 11 px text; bar and ink are about 9.7:1, and pass in the light theme too. */
+  background: var(--clip-graphic-bar);
+  box-shadow: inset 0 0 0 1px var(--clip-graphic-border);
+  color: var(--clip-bar-ink);
   font-size: var(--font-size-xs);
   line-height: 1.4;
   pointer-events: none;
@@ -15348,6 +15351,9 @@ a.export-credits-license {
 .elements-tabs {
   display: flex;
   flex-shrink: 0;
+  /* At the narrowest rail the four labels do not fit on one row: they wrap two by two rather
+     than truncate to "Sti…". */
+  flex-wrap: wrap;
   gap: 2px;
   padding: 2px;
   background: var(--surface-2);
@@ -15355,13 +15361,11 @@ a.export-credits-license {
   border-radius: var(--radius-sm, 6px);
 }
 .elements-tab {
-  flex: 1 1 0;
-  min-width: 0;
-  padding: var(--space-1) var(--space-2);
-  overflow: hidden;
+  flex: 1 0 auto;
+  min-height: 28px;
+  padding: 0 var(--space-2);
   font-size: 0.76rem;
   color: var(--muted);
-  text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
   background: transparent;
@@ -15486,6 +15490,7 @@ a.export-credits-license {
   white-space: nowrap;
 }
 .shapes-chip {
+  min-height: var(--control-h-xs, 24px);
   padding: 2px var(--space-2);
   font-size: 0.72rem;
   color: var(--text-secondary, var(--text));
@@ -15514,11 +15519,14 @@ a.export-credits-license {
   align-items: center;
 }
 .shapes-swatch {
-  width: 22px;
-  height: 22px;
+  display: grid;
+  place-items: center;
+  width: var(--control-h-xs, 24px);
+  height: var(--control-h-xs, 24px);
   padding: 0;
   cursor: pointer;
-  border: 1px solid var(--line);
+  /* A border that shows white on the light panel and near-black on the dark one. */
+  border: 1px solid var(--text-tertiary);
   border-radius: 50%;
 }
 .shapes-swatch.is-preset {
@@ -15526,8 +15534,19 @@ a.export-credits-license {
   background: conic-gradient(#ffd400 0 25%, #ff3b30 0 50%, #ffffff 0 75%, #0a84ff 0);
 }
 .shapes-swatch[aria-pressed='true'] {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  /* Chosen: a gap and a ring in the text colour, plus a check (the markup's); focus keeps the
+     outline, so the two never look the same. */
+  box-shadow:
+    0 0 0 2px var(--bg-surface),
+    0 0 0 4px var(--text);
+}
+.shapes-swatch-check {
+  color: #fff;
+  filter: drop-shadow(0 0 1px rgb(0 0 0 / 90%));
+}
+/* Each shape in its own colours: the picker shows a spectrum, not a colour nobody chose. */
+.shapes-swatch-picker[data-unset]::-webkit-color-swatch {
+  background-image: conic-gradient(#ff3b30, #ffd400, #34c759, #0a84ff, #af52de, #ff3b30);
 }
 .shapes-swatch-picker {
   width: 26px;
@@ -15633,8 +15652,8 @@ a.export-credits-license {
   position: absolute;
   right: 4px;
   bottom: 4px;
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   background: var(--accent);
   border-radius: 50%;
 }
@@ -15643,7 +15662,10 @@ a.export-credits-license {
   position: absolute;
   top: 2px;
   right: 2px;
-  display: flex;
+  display: grid;
+  place-items: center;
+  min-width: var(--control-h-xs, 24px);
+  min-height: var(--control-h-xs, 24px);
   padding: 2px;
   color: var(--text-secondary, var(--text));
   cursor: pointer;
@@ -15679,6 +15701,7 @@ a.export-credits-license {
 .stickers-replace-cancel,
 .sticker-section-replace,
 .animation-reapply {
+  min-height: var(--control-h-xs, 24px);
   padding: 2px var(--space-2);
   color: var(--text);
   cursor: pointer;
@@ -15819,7 +15842,8 @@ a.export-credits-license {
   flex: 1 1 auto;
   flex-direction: column;
   gap: var(--space-2);
-  min-height: 0;
+  /* Never squeezed to nothing: at 200% zoom on a short screen the header must not take it all. */
+  min-height: 120px;
   overflow-y: auto;
 }
 
@@ -15939,8 +15963,9 @@ a.export-credits-license {
   flex-direction: column;
   gap: 1px;
   padding: var(--space-2);
-  /* Legible over any photograph, without dimming the whole tile. */
-  background: linear-gradient(to top, rgb(0 0 0 / 72%), transparent);
+  /* Legible over any photograph (the title keeps 4.5:1 over a bright one), without dimming
+     the whole tile. */
+  background: linear-gradient(to top, rgb(0 0 0 / 82%), rgb(0 0 0 / 60%) 60%, transparent);
   opacity: 0;
   pointer-events: none;
   transition: opacity 140ms ease-out;
@@ -15995,7 +16020,7 @@ a.export-credits-license {
 .stock-tile-creator {
   overflow: hidden;
   font-size: 0.68rem;
-  color: rgb(255 255 255 / 62%);
+  color: rgb(255 255 255 / 78%);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -16084,6 +16109,9 @@ button.stock-present:hover {
 .stock-cancel {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: var(--control-h-xs, 24px);
+  min-height: var(--control-h-xs, 24px);
   padding: 2px;
   color: #fff;
   cursor: pointer;
@@ -16100,7 +16128,8 @@ button.stock-present:hover {
   padding: 2px var(--space-1);
   font-size: 0.68rem;
   color: #fff;
-  background: var(--danger);
+  /* Darkened: white on the dark theme's --danger was 3.35:1; this is about 6:1, 9:1 in light. */
+  background: color-mix(in srgb, var(--danger) 70%, #000);
   border-radius: 4px;
 }
 

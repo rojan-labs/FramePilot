@@ -18,6 +18,8 @@ import {
 } from '@framepilot/timeline-schema';
 import { useViewPreference } from '../../editor/useViewPreference.js';
 import { recolourPreset } from '../../editor/shape-builders.js';
+import { Check, ICON_SIZE } from '../icons.js';
+import { colourName } from './colour-name.js';
 import { writeElementDrag } from './element-dnd.js';
 import { boxTileOutline, tileBoxFor } from './shape-tile-outline.js';
 import { useShapeIconPaths } from './useShapeIconPaths.js';
@@ -347,16 +349,24 @@ export function ShapesBrowser({
             className="shapes-swatch"
             style={{ background: swatch }}
             aria-pressed={colour === swatch}
-            aria-label={`Colour ${swatch}`}
-            title={swatch}
+            aria-label={colourName(swatch)}
+            title={`${colourName(swatch)} (${swatch})`}
             onClick={() => choose(swatch)}
-          />
+          >
+            {/* Chosen is a mark as well as a ring, so it never reads as the focus ring. */}
+            {colour === swatch && (
+              <Check className="shapes-swatch-check" size={ICON_SIZE.sm} aria-hidden="true" />
+            )}
+          </button>
         ))}
         <input
           type="color"
           className="shapes-swatch-picker"
           aria-label="Custom colour"
-          value={(colour ?? '#FFD400').toLowerCase()}
+          // With each shape in its own colours the picker has no colour to show; it shows a
+          // spectrum (styles.css) instead of a yellow nobody chose.
+          {...(colour === null ? { 'data-unset': '' } : {})}
+          value={(colour ?? '#FFFFFF').toLowerCase()}
           onChange={(event) => choose(event.target.value.toUpperCase())}
         />
       </div>
@@ -384,7 +394,10 @@ export function ShapesBrowser({
                     type="button"
                     className="shapes-grid-tile"
                     tabIndex={index === focusIndex ? 0 : -1}
-                    aria-label={`Add ${entry.preset.name}`}
+                    // "Highlight box, red, shape" (02 §7): what it is, in the colour it will take.
+                    aria-label={`${entry.preset.name}${
+                      colour === null ? '' : `, ${colourName(colour).toLowerCase()}`
+                    }, shape`}
                     title={`Add ${entry.preset.name} at the playhead, or drag it onto a lane or the monitor`}
                     draggable
                     onDragStart={(event) => {

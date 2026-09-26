@@ -272,7 +272,7 @@ describe('MediaBin and stickers (plan/elements EL6a)', () => {
       );
     }
     const view = render(<Host />);
-    expect(view.getByText('Element')).toBeTruthy();
+    expect(view.getByText('Sticker')).toBeTruthy();
     fireEvent.doubleClick(view.getByLabelText(`asset ${sticker.id}`));
     expect(clipCount(view.container)).toBe(1);
     const lane = view.container.querySelector('.clip-block')?.closest('[data-track-type]');
@@ -1051,5 +1051,8 @@ describe('MediaBin — a card’s More actions', () => {
     expect(opener(sticker.id).getAttribute('aria-label')).toBe(
       'Open fire.webp, sticker from Elements',
     );
+    // The badge says what it is, too: a sticker, not a vague "element".
+    const card = screen.getByLabelText(`asset ${sticker.id}`);
+    expect(card.querySelector('.bin-card-element')?.textContent).toBe('Sticker');
   });
 });

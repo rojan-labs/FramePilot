@@ -15,6 +15,8 @@ export interface TileGrid {
   readonly focusIndex: number;
   /** Call from a tile's `onFocus`, and with 0 when the tile set changes. */
   readonly setActive: (index: number) => void;
+  /** Move the Tab stop to tile `index` (clamped) and focus it, revealing it first if need be. */
+  readonly focusTile: (index: number) => void;
   readonly onGridKey: (event: KeyboardEvent<HTMLUListElement>) => void;
 }
 
@@ -91,5 +93,5 @@ export function useTileGrid(
     else return;
     event.preventDefault();
   };
-  return { gridRef, focusIndex, setActive, onGridKey };
+  return { gridRef, focusIndex, setActive, focusTile, onGridKey };
 }

@@ -36,7 +36,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Type,
-  Wand2,
+  Orbit,
   type LucideIcon,
 } from './icons.js';
 import { Tooltip } from './Tooltip.js';
@@ -147,7 +147,8 @@ const SECTION_ICONS: Readonly<Record<string, LucideIcon>> = {
   text: Type,
   shape: Shapes,
   sticker: Smile,
-  animation: Wand2,
+  // Motion, not the AI rail's wand: an element's animation is not an AI feature.
+  animation: Orbit,
   color: Palette,
   speed: Gauge,
   audio: AudioLines,

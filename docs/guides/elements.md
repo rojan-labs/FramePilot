@@ -109,7 +109,9 @@ recording or a product demo:
   ("box", "curved arrow", "speech bubble", "badge", "check") and reaches the icons too. Icons show
   120 at a time; **Show more icons** adds more.
 - **Colour:** the colour row above the grid recolours every tile and becomes the colour of the
-  next shape you add; the split disc goes back to each shape's own colours. A colour you pick with
+  next shape you add; the split disc goes back to each shape's own colours. The chosen swatch
+  has a check mark, and each swatch is named by its colour ("Red", "Dark blue"), as is a tile in
+  it ("Highlight box, red, shape"). A colour you pick with
   the picker joins the row. The row, the chip and your recent colours are remembered for you, not
   saved in the project.
 - **Numbered badges** carry a number (or any label up to eight characters) inside the shape. The
@@ -181,11 +183,13 @@ build:elements` has built the rest.)
 - **Favourites:** hover a tile and click its star, or press **F** on it. They stay across projects
   and restarts.
 - **Keyboard:** the grid is one Tab stop. Arrows move between tiles, Home and End jump to the ends,
-  Enter adds, F stars.
+  Enter adds, F stars. A screen reader names a tile "Fire, sticker", says what Enter and F do on
+  it, and hears "Added Fire to favourites" when you star one. Unstar one under **Favourites** and
+  the keyboard moves to the next tile rather than off the grid.
 - **Already in the project:** a small dot marks a sticker the project holds. Clicking it still adds
   another.
 - **Add one:** click its tile. FramePilot copies the sticker into the project folder (it appears
-  in the bin's **Elements** folder, marked **Element**) and places it at the playhead for the
+  in the bin's **Elements** folder, marked **Sticker**) and places it at the playhead for the
   default overlay length (Settings → Editing), on an overlay layer, centred, a third of the frame
   high — or, on a vertical or 4K project, as big as the sticker stays sharp (about a fifth of the
   height), since the library art is drawn at one size. It is selected, and one undo removes it;

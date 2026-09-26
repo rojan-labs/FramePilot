@@ -214,7 +214,10 @@ export function ElementsPanel({
             id={`elements-tab-${id}`}
             className="elements-tab"
             aria-selected={tab === id}
-            aria-controls={`elements-tabpanel-${id}`}
+            // Only the selected tab's panel exists; pointing at the others' would name nothing.
+            {...(tab === id ? { 'aria-controls': `elements-tabpanel-${id}` } : {})}
+            // The whole name on hover, where the narrowest rail squeezes the label.
+            title={ELEMENTS_TAB_LABELS[id]}
             tabIndex={tab === id ? 0 : -1}
             onClick={() => chooseTab(id)}
             onKeyDown={(event) => onTabKeyDown(event, index)}

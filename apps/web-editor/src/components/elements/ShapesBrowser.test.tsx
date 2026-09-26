@@ -22,12 +22,12 @@ describe('ShapesBrowser', () => {
   it('opens on All with the six screen-recording staples first, every preset a button', () => {
     render(<ShapesBrowser onAddShape={() => null} />);
     expect(names().slice(0, 6)).toEqual([
-      'Add Highlight box',
-      'Add Filled box',
-      'Add Ellipse',
-      'Add Marker',
-      'Add Arrow',
-      'Add Underline',
+      'Highlight box, shape',
+      'Filled box, shape',
+      'Ellipse, shape',
+      'Marker, shape',
+      'Arrow, shape',
+      'Underline, shape',
     ]);
     expect(tiles()).toHaveLength(SHAPE_PRESETS.length);
   });
@@ -35,7 +35,7 @@ describe('ShapesBrowser', () => {
   it('adds the preset clicked, in its own colours', () => {
     const onAddShape = vi.fn(() => null);
     render(<ShapesBrowser onAddShape={onAddShape} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Add Arrow' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Arrow, shape' }));
     expect(onAddShape).toHaveBeenCalledWith('line-arrow/red', null);
     // The refusal line is mounted empty, so it is there before it has anything to say.
     expect(screen.getByRole('status').textContent).toBe('');
@@ -43,7 +43,7 @@ describe('ShapesBrowser', () => {
 
   it('says why a shape could not be added', () => {
     render(<ShapesBrowser onAddShape={() => 'That spot is locked.'} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Add Marker' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Marker, shape' }));
     expect(screen.getByRole('status').textContent).toBe('That spot is locked.');
   });
 
@@ -54,7 +54,7 @@ describe('ShapesBrowser', () => {
       screen.getByRole('button', { name: 'Stars & badges' }).getAttribute('aria-pressed'),
     ).toBe('true');
     const stars = SHAPE_PRESETS.filter(({ shape }) => shape.category === 'stars');
-    expect(names()).toEqual(stars.map(({ preset }) => `Add ${preset.name}`));
+    expect(names()).toEqual(stars.map(({ preset }) => `${preset.name}, shape`));
     unmount();
     render(<ShapesBrowser onAddShape={() => null} />);
     expect(names()).toHaveLength(stars.length);
@@ -64,12 +64,12 @@ describe('ShapesBrowser', () => {
     render(<ShapesBrowser onAddShape={() => null} />);
     const search = screen.getByRole('searchbox', { name: 'Search shapes' });
     fireEvent.change(search, { target: { value: 'bubble' } });
-    expect(names()).toContain('Add Speech bubble');
-    expect(names()).toContain('Add Thought bubble');
+    expect(names()).toContain('Speech bubble, shape');
+    expect(names()).toContain('Thought bubble, shape');
     fireEvent.change(search, { target: { value: 'check' } });
     // The catalogue's Check comes before the Lucide icons that share the word.
-    expect(names()[0]).toBe('Add Check');
-    expect(names()).toContain('Add Circle check');
+    expect(names()[0]).toBe('Check, shape');
+    expect(names()).toContain('Circle check, shape');
     fireEvent.keyDown(search, { key: 'Escape' });
     expect((search as HTMLInputElement).value).toBe('');
     fireEvent.change(search, { target: { value: 'zzzz' } });
@@ -82,14 +82,15 @@ describe('ShapesBrowser', () => {
   it('adds in the colour the row picks, and a custom colour joins the row first', () => {
     const onAddShape = vi.fn(() => null);
     render(<ShapesBrowser onAddShape={onAddShape} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Colour #0A84FF' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add Highlight box' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Blue' }));
+    // Named in the colour it will take.
+    fireEvent.click(screen.getByRole('button', { name: 'Highlight box, blue, shape' }));
     expect(onAddShape).toHaveBeenLastCalledWith('rounded-rect/highlight', '#0A84FF');
     fireEvent.change(screen.getByLabelText('Custom colour'), { target: { value: '#123456' } });
     const row = within(screen.getByRole('group', { name: 'Shape colour' }));
-    expect(row.getAllByRole('button')[1]!.getAttribute('aria-label')).toBe('Colour #123456');
+    expect(row.getAllByRole('button')[1]!.getAttribute('aria-label')).toBe('Dark blue');
     fireEvent.click(screen.getByRole('button', { name: 'Preset colours' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add Highlight box' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Highlight box, shape' }));
     expect(onAddShape).toHaveBeenLastCalledWith('rounded-rect/highlight', null);
   });
 
@@ -120,9 +121,9 @@ describe('ShapesBrowser', () => {
 
   it('puts the preset and the chosen colour on a drag', () => {
     render(<ShapesBrowser onAddShape={() => null} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Colour #FF3B30' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Red' }));
     const data = new Map<string, string>();
-    fireEvent.dragStart(screen.getByRole('button', { name: 'Add Ellipse' }), {
+    fireEvent.dragStart(screen.getByRole('button', { name: 'Ellipse, red, shape' }), {
       dataTransfer: { setData: (type: string, value: string) => data.set(type, value) },
     });
     expect(decodeElementDrag(data.get(ELEMENT_DND_TYPE)!)).toEqual({
@@ -130,6 +131,36 @@ describe('ShapesBrowser', () => {
       presetId: 'ellipse/outline',
       colour: '#FF3B30',
     });
+  });
+
+  it('names every swatch by its colour and the tiles by the colour they will take', () => {
+    render(<ShapesBrowser onAddShape={() => null} />);
+    const row = within(screen.getByRole('group', { name: 'Shape colour' }));
+    expect(row.getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Preset colours',
+      'Yellow',
+      'Red',
+      'White',
+      'Blue',
+      'Green',
+      'Black',
+    ]);
+    expect(screen.getByRole('button', { name: 'Red' }).getAttribute('title')).toBe('Red (#FF3B30)');
+    fireEvent.click(screen.getByRole('button', { name: 'Red' }));
+    expect(screen.getByRole('button', { name: 'Highlight box, red, shape' })).toBeDefined();
+  });
+
+  it('shows the chosen swatch apart from the focused one', () => {
+    render(<ShapesBrowser onAddShape={() => null} />);
+    // Preset colours: the picker shows no colour of its own rather than a yellow nobody chose.
+    expect(screen.getByLabelText('Custom colour').hasAttribute('data-unset')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Blue' }));
+    const blue = screen.getByRole('button', { name: 'Blue' });
+    expect(blue.getAttribute('aria-pressed')).toBe('true');
+    // Pressed carries a mark, not only a ring the focus ring could be mistaken for.
+    expect(blue.querySelector('svg')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Red' }).querySelector('svg')).toBeNull();
+    expect(screen.getByLabelText('Custom colour').hasAttribute('data-unset')).toBe(false);
   });
 
   it('pins its search, chips and colours, and scrolls only the grid', () => {

@@ -23,6 +23,7 @@ import { elementAssetId } from '@framepilot/editor-core';
 import type { ElementAssetWire, ElementMaterializeResult } from '@framepilot/shared-types';
 import { elementsMaterialize } from '../../editor/bridge.js';
 import { stickerErrorSentence } from '../../editor/sticker-builders.js';
+import { useLiveAnnouncement } from '../../editor/useLiveAnnouncement.js';
 import { useViewPreference } from '../../editor/useViewPreference.js';
 import { ICON_SIZE, Star } from '../icons.js';
 import { writeElementDrag } from './element-dnd.js';
@@ -183,6 +184,14 @@ export function StickersBrowser({
   const [scrollArea, setScrollArea] = useState<HTMLDivElement | null>(null);
   const inProjectNoteId = useId();
   const replaceNoteId = useId();
+  // What Enter and F do on a tile, read after its name.
+  const actionHintId = useId();
+  const favouriteOnHintId = useId();
+  const favouriteOffHintId = useId();
+  // "Added Fire to favourites": F is a silent key otherwise.
+  const [favouriteNews, announceFavourite] = useLiveAnnouncement();
+  /** A tile to focus once the grid has redrawn (a favourite left the Favourites list). */
+  const refocusIndex = useRef<number | null>(null);
   const replaceKey = replaceTarget?.clipId ?? null;
   const loaded = catalog !== null;
 
@@ -283,7 +292,7 @@ export function StickersBrowser({
   }, [scrollArea, initialScrollTop]);
   useEffect(() => virtualizer.measure(), [virtualizer, rowHeight]);
 
-  const { gridRef, focusIndex, setActive, onGridKey } = useTileGrid(
+  const { gridRef, focusIndex, setActive, focusTile, onGridKey } = useTileGrid(
     found.items.length,
     '.stickers-grid-tile',
     {
@@ -318,13 +327,26 @@ export function StickersBrowser({
   const recordRecent = (item: StickerItem): void =>
     setRecent((current) => pushFront(current, item.id, RECENT_LIMIT));
 
-  const toggleFavourite = (item: StickerItem): void => {
+  const toggleFavourite = (item: StickerItem, index?: number): void => {
+    const removing = favourites.includes(item.id);
     setFavourites((current) =>
       current.includes(item.id)
         ? current.filter((id) => id !== item.id)
         : pushFront(current, item.id, FAVOURITES_LIMIT),
     );
+    announceFavourite(
+      removing ? `Removed ${item.name} from favourites` : `Added ${item.name} to favourites`,
+    );
+    // Under Favourites the tile leaves the grid: keep the keyboard on what takes its place.
+    if (removing && scope === FAVOURITES && index !== undefined) refocusIndex.current = index;
   };
+
+  useEffect(() => {
+    if (refocusIndex.current === null) return;
+    const index = refocusIndex.current;
+    refocusIndex.current = null;
+    if (found.items.length > 0) focusTile(Math.min(index, found.items.length - 1));
+  }, [found.items, focusTile]);
 
   const pick = async (item: StickerItem): Promise<void> => {
     if (busy !== null) return;
@@ -357,7 +379,11 @@ export function StickersBrowser({
     );
   }
   if (catalog === null) {
-    return <p className="stock-note">Loading stickers…</p>;
+    return (
+      <p className="stock-note" role="status">
+        Loading stickers…
+      </p>
+    );
   }
 
   const tileSource = (item: StickerItem): string | undefined =>
@@ -464,7 +490,7 @@ export function StickersBrowser({
                 (event.target as HTMLElement).classList.contains('stickers-grid-tile')
               ) {
                 event.preventDefault();
-                toggleFavourite(focused);
+                toggleFavourite(focused, focusIndex);
                 return;
               }
               onGridKey(event);
@@ -491,13 +517,23 @@ export function StickersBrowser({
                     className="stickers-grid-tile"
                     data-tile-index={index}
                     tabIndex={index === focusIndex ? 0 : -1}
-                    aria-label={`${replaceTarget !== null ? 'Use' : 'Add'} ${item.name}`}
-                    aria-describedby={held ? inProjectNoteId : undefined}
+                    // "Fire, sticker" (02 §7); in a swap, what the click does: "Use Red heart".
+                    aria-label={
+                      replaceTarget !== null ? `Use ${item.name}` : `${item.name}, sticker`
+                    }
+                    aria-keyshortcuts="Enter F"
+                    aria-describedby={[
+                      actionHintId,
+                      favourite ? favouriteOnHintId : favouriteOffHintId,
+                      ...(held ? [inProjectNoteId] : []),
+                    ].join(' ')}
                     aria-busy={busy === item.id}
                     title={
                       replaceTarget !== null
                         ? `Use ${item.name} instead`
-                        : `Add ${item.name} at the playhead, or drag it onto a lane or the monitor`
+                        : `Add ${item.name} at the playhead, or drag it onto a lane or the monitor${
+                            held ? ' (already in this project)' : ''
+                          }`
                     }
                     disabled={busy !== null && busy !== item.id}
                     draggable={replaceTarget === null}
@@ -525,7 +561,13 @@ export function StickersBrowser({
                     ) : (
                       <img src={source} alt="" loading="lazy" draggable={false} />
                     )}
-                    {held && <span className="stickers-grid-held" aria-hidden="true" />}
+                    {held && (
+                      <span
+                        className="stickers-grid-held"
+                        aria-hidden="true"
+                        title="Already in this project"
+                      />
+                    )}
                   </button>
                   <button
                     type="button"
@@ -534,7 +576,7 @@ export function StickersBrowser({
                     aria-label={`Favourite ${item.name}`}
                     aria-pressed={favourite}
                     title={favourite ? 'Remove from favourites (F)' : 'Add to favourites (F)'}
-                    onClick={() => toggleFavourite(item)}
+                    onClick={() => toggleFavourite(item, index)}
                   >
                     <Star
                       size={ICON_SIZE.sm}
@@ -550,6 +592,18 @@ export function StickersBrowser({
       )}
       <p id={inProjectNoteId} hidden>
         Already in this project
+      </p>
+      <p id={actionHintId} hidden>
+        {replaceTarget !== null ? 'Enter uses it instead.' : 'Enter adds it at the playhead.'}
+      </p>
+      <p id={favouriteOnHintId} hidden>
+        In your favourites; F removes it.
+      </p>
+      <p id={favouriteOffHintId} hidden>
+        F adds it to favourites.
+      </p>
+      <p className="sr-only" aria-live="polite" data-live="favourites">
+        {favouriteNews}
       </p>
       <p className="stickers-credit">Stickers: Fluent Emoji by Microsoft (MIT)</p>
     </div>

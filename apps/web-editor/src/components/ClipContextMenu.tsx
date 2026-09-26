@@ -44,7 +44,7 @@ import {
   Trash2,
   Shapes,
   Smile,
-  Wand2,
+  Orbit,
 } from './icons.js';
 import { stickerName } from './inspector/sections/StickerSection.js';
 import { MenuShortcut } from './Menu.js';
@@ -201,7 +201,7 @@ export function ClipContextMenu({
               onClose();
             }}
           >
-            <Wand2 size={ICON_SIZE.sm} aria-hidden="true" /> Animation…
+            <Orbit size={ICON_SIZE.sm} aria-hidden="true" /> Animation…
           </button>
           <div className="context-menu-sep" role="separator" />
         </>

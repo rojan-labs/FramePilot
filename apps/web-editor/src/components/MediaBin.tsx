@@ -525,9 +525,10 @@ const AssetCard = memo(function AssetCard({
           </span>
         )}
         {duration !== null && <span className="bin-card-dur tabular">{duration}</span>}
+        {/* What it is, not the vague "Element"; the open button's name says it too. */}
         {isElementAsset(asset) && (
-          <span className="bin-card-element" title="A sticker from Elements, not footage">
-            Element
+          <span className="bin-card-element" aria-hidden="true">
+            Sticker
           </span>
         )}
         {/* The keyboard/AT entry point for the tile, sized to the thumbnail.

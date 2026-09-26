@@ -160,6 +160,14 @@ const tiles = (): HTMLButtonElement[] =>
 
 const names = (): (string | null)[] => tiles().map((tile) => tile.getAttribute('aria-label'));
 
+/** What a tile's `aria-describedby` reads, in order. */
+const description = (element: Element): string =>
+  (element.getAttribute('aria-describedby') ?? '')
+    .split(' ')
+    .filter((id) => id !== '')
+    .map((id) => document.getElementById(id)?.textContent ?? '')
+    .join(' ');
+
 beforeEach(() => {
   localStorage.clear();
   bridge.materialize.mockReset();
@@ -169,19 +177,19 @@ afterEach(() => localStorage.clear());
 describe('StickersBrowser', () => {
   it('shows the curated stickers in collection order and none this build does not ship', async () => {
     await open();
-    expect(names()).toEqual(['Add Grinning face', 'Add Fire', 'Add Red heart']);
+    expect(names()).toEqual(['Grinning face, sticker', 'Fire, sticker', 'Red heart, sticker']);
     expect(screen.getByText('Stickers: Fluent Emoji by Microsoft (MIT)')).toBeDefined();
   });
 
   it('narrows to a collection and finds a sticker by its glyph', async () => {
     await open();
     fireEvent.click(screen.getByRole('button', { name: 'Hearts' }));
-    expect(names()).toEqual(['Add Red heart']);
+    expect(names()).toEqual(['Red heart, sticker']);
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search stickers' }), {
       target: { value: '🔥' },
     });
-    expect(names()).toEqual(['Add Fire']);
+    expect(names()).toEqual(['Fire, sticker']);
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search stickers' }), {
       target: { value: 'zzz' },
     });
@@ -194,7 +202,7 @@ describe('StickersBrowser', () => {
     bridge.materialize.mockResolvedValue({ ok: true, asset: asset('fire') });
     const { onAddSticker } = await open();
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Add Fire' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Fire, sticker' }));
     });
     expect(bridge.materialize).toHaveBeenCalledWith({ projectId: 'p', elementId: 'fire' });
     await waitFor(() => expect(onAddSticker).toHaveBeenCalledTimes(1));
@@ -211,7 +219,7 @@ describe('StickersBrowser', () => {
     } satisfies ElementMaterializeResult);
     const { onAddSticker } = await open();
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Add Fire' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Fire, sticker' }));
     });
     const alert = screen.getByRole('alert');
     await waitFor(() =>
@@ -232,7 +240,7 @@ describe('StickersBrowser', () => {
     bridge.materialize.mockRejectedValue(new Error('the licence lapsed'));
     const { onAddSticker } = await open();
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Add Fire' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Fire, sticker' }));
     });
     await waitFor(() =>
       expect(screen.getByRole('alert').textContent).toBe(
@@ -241,7 +249,9 @@ describe('StickersBrowser', () => {
     );
     expect(onAddSticker).not.toHaveBeenCalled();
     // And the grid is usable again.
-    expect(screen.getByRole('button', { name: 'Add Fire' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Fire, sticker' }).hasAttribute('disabled')).toBe(
+      false,
+    );
   });
 
   it('is one Tab stop; arrows and End move through the tiles', async () => {
@@ -315,6 +325,56 @@ describe('StickersBrowser', () => {
     expect(onWindowKey).toHaveBeenCalledTimes(1);
   });
 
+  it('says what Enter and F do on a tile', async () => {
+    await open();
+    const fire = screen.getByRole('button', { name: 'Fire, sticker' });
+    expect(fire.getAttribute('aria-keyshortcuts')).toBe('Enter F');
+    expect(description(fire)).toBe('Enter adds it at the playhead. F adds it to favourites.');
+    fireEvent.click(screen.getByRole('button', { name: 'Favourite Fire' }));
+    expect(description(screen.getByRole('button', { name: 'Fire, sticker' }))).toBe(
+      'Enter adds it at the playhead. In your favourites; F removes it.',
+    );
+  });
+
+  it('says a favourite was added or removed', async () => {
+    await open();
+    const live = (): string =>
+      document.querySelector('[data-live="favourites"]')?.textContent ?? '';
+    const fire = screen.getByRole('button', { name: 'Fire, sticker' });
+    act(() => fire.focus());
+    fireEvent.keyDown(fire, { key: 'f' });
+    await waitFor(() => expect(live()).toBe('Added Fire to favourites'));
+    fireEvent.click(screen.getByRole('button', { name: 'Favourite Fire' }));
+    await waitFor(() => expect(live()).toBe('Removed Fire from favourites'));
+  });
+
+  it('keeps the keyboard in the grid when a favourite leaves the Favourites list', async () => {
+    await open();
+    for (const name of ['Favourite Fire', 'Favourite Red heart']) {
+      fireEvent.click(screen.getByRole('button', { name }));
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Favourites' }));
+    expect(names()).toEqual(['Red heart, sticker', 'Fire, sticker']);
+    const first = tiles()[0]!;
+    act(() => first.focus());
+    fireEvent.keyDown(first, { key: 'f' });
+    // Red heart left the list; the keyboard is on what took its place, not on the page.
+    await waitFor(() => expect(names()).toEqual(['Fire, sticker']));
+    await waitFor(() => expect(document.activeElement).toBe(tiles()[0]));
+  });
+
+  it('says it is loading as a status', async () => {
+    render(
+      <StickersBrowser
+        project={{ id: 'p', assets: [] }}
+        onAddSticker={() => null}
+        loadCatalog={() => new Promise(() => undefined)}
+        packagedTiles={tileSource(false)}
+      />,
+    );
+    expect(screen.getByRole('status').textContent).toBe('Loading stickers…');
+  });
+
   it('uses the app’s one input style for its search', async () => {
     await open();
     const search = screen.getByRole('searchbox', { name: 'Search stickers' });
@@ -333,7 +393,7 @@ describe('StickersBrowser', () => {
     });
     const search = screen.getByRole('searchbox', { name: 'Search stickers' }) as HTMLInputElement;
     expect(search.value).toBe('fire');
-    expect(names()).toEqual(['Add Fire']);
+    expect(names()).toEqual(['Fire, sticker']);
     fireEvent.change(search, { target: { value: '' } });
     expect(onQueryChange).toHaveBeenLastCalledWith('');
     const scroll = document.querySelector('.stickers-scroll') as HTMLElement;
@@ -346,20 +406,28 @@ describe('StickersBrowser', () => {
   it('narrows to one of the upstream groups', async () => {
     await open();
     fireEvent.click(screen.getByRole('button', { name: 'Symbols' }));
-    expect(names()).toEqual(['Add Red heart']);
+    expect(names()).toEqual(['Red heart, sticker']);
   });
 
   it('lists the whole library where the installer ships it, its tiles fetched from main', async () => {
     const packagedTiles = tileSource(true);
     await open({ packagedTiles });
-    await waitFor(() => expect(names()).toContain('Add Cat'));
-    expect(names()).toEqual(['Add Grinning face', 'Add Fire', 'Add Red heart', 'Add Cat']);
+    await waitFor(() => expect(names()).toContain('Cat, sticker'));
+    expect(names()).toEqual([
+      'Grinning face, sticker',
+      'Fire, sticker',
+      'Red heart, sticker',
+      'Cat, sticker',
+    ]);
     // Curated tiles are the renderer's own files; a packaged one is asked of main, then shown.
     expect(packagedTiles.load).toHaveBeenCalledWith(['cat']);
-    const cat = screen.getByRole('button', { name: 'Add Cat' });
+    const cat = screen.getByRole('button', { name: 'Cat, sticker' });
     await waitFor(() => expect(cat.querySelector('img')?.getAttribute('src')).toBe('blob:cat'));
     expect(
-      screen.getByRole('button', { name: 'Add Fire' }).querySelector('img')?.getAttribute('src'),
+      screen
+        .getByRole('button', { name: 'Fire, sticker' })
+        .querySelector('img')
+        ?.getAttribute('src'),
     ).toBe('elements/stickers/thumbs/fire.webp');
   });
 
@@ -370,17 +438,17 @@ describe('StickersBrowser', () => {
     expect(star.getAttribute('aria-pressed')).toBe('false');
     fireEvent.click(star);
     expect(star.getAttribute('aria-pressed')).toBe('true');
-    const heart = screen.getByRole('button', { name: 'Add Red heart' });
+    const heart = screen.getByRole('button', { name: 'Red heart, sticker' });
     act(() => heart.focus());
     fireEvent.keyDown(heart, { key: 'f' });
     fireEvent.click(screen.getByRole('button', { name: 'Favourites' }));
-    expect(names()).toEqual(['Add Red heart', 'Add Fire']);
+    expect(names()).toEqual(['Red heart, sticker', 'Fire, sticker']);
 
     // A view preference: it outlives the panel.
     view.unmount();
     await open();
     fireEvent.click(screen.getByRole('button', { name: 'Favourites' }));
-    expect(names()).toEqual(['Add Red heart', 'Add Fire']);
+    expect(names()).toEqual(['Red heart, sticker', 'Fire, sticker']);
   });
 
   it('lists what was added lately under Recent, newest first', async () => {
@@ -390,32 +458,34 @@ describe('StickersBrowser', () => {
     }));
     const { onAddSticker } = await open();
     expect(screen.queryByRole('button', { name: 'Recent' })).toBeNull();
-    for (const name of ['Add Fire', 'Add Red heart']) {
+    for (const name of ['Fire, sticker', 'Red heart, sticker']) {
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name }));
       });
     }
     await waitFor(() => expect(onAddSticker).toHaveBeenCalledTimes(2));
     fireEvent.click(await screen.findByRole('button', { name: 'Recent' }));
-    expect(names()).toEqual(['Add Red heart', 'Add Fire']);
+    expect(names()).toEqual(['Red heart, sticker', 'Fire, sticker']);
   });
 
   it('marks a sticker the project already holds, and still adds another', async () => {
     await open({ project: { id: 'p', assets: [{ id: 'element_fluent3d_fire' }] } });
-    const fire = screen.getByRole('button', { name: 'Add Fire' });
-    expect(fire.getAttribute('aria-describedby')).not.toBeNull();
-    const note = document.getElementById(fire.getAttribute('aria-describedby')!);
-    expect(note?.textContent).toBe('Already in this project');
+    const fire = screen.getByRole('button', { name: 'Fire, sticker' });
+    expect(description(fire)).toContain('Already in this project');
     expect(fire.hasAttribute('disabled')).toBe(false);
-    expect(
-      screen.getByRole('button', { name: 'Add Red heart' }).getAttribute('aria-describedby'),
-    ).toBeNull();
+    expect(fire.getAttribute('title')).toContain('already in this project');
+    expect(fire.querySelector('.stickers-grid-held')?.getAttribute('title')).toBe(
+      'Already in this project',
+    );
+    expect(description(screen.getByRole('button', { name: 'Red heart, sticker' }))).not.toContain(
+      'Already in this project',
+    );
   });
 
   it('puts the sticker’s id, and nothing else, on a drag to the timeline', async () => {
     await open();
     const data = new Map<string, string>();
-    fireEvent.dragStart(screen.getByRole('button', { name: 'Add Fire' }), {
+    fireEvent.dragStart(screen.getByRole('button', { name: 'Fire, sticker' }), {
       dataTransfer: {
         setData: (type: string, value: string) => data.set(type, value),
         effectAllowed: 'none',
@@ -435,20 +505,20 @@ describe('StickersBrowser', () => {
       fireEvent.dragEnd(tile, { dataTransfer: { dropEffect } });
     };
     // A drag let go anywhere that did not take it ends with no drop effect: nothing was added.
-    drag('Add Red heart', 'none');
+    drag('Red heart, sticker', 'none');
     expect(screen.queryByRole('button', { name: 'Recent' })).toBeNull();
     // A lane (or the monitor) that took it ends the drag in a copy. The drop itself places the
     // sticker, not this panel, so the panel records it without placing anything.
-    drag('Add Fire', 'copy');
+    drag('Fire, sticker', 'copy');
     fireEvent.click(await screen.findByRole('button', { name: 'Recent' }));
-    expect(names()).toEqual(['Add Fire']);
+    expect(names()).toEqual(['Fire, sticker']);
     expect(onAddSticker).not.toHaveBeenCalled();
     expect(bridge.materialize).not.toHaveBeenCalled();
     // A view preference, like a click's: it outlives the panel.
     view.unmount();
     await open();
     fireEvent.click(screen.getByRole('button', { name: 'Recent' }));
-    expect(names()).toEqual(['Add Fire']);
+    expect(names()).toEqual(['Fire, sticker']);
   });
 
   it('draws only the rows in view of the whole library, and End still reaches the last', async () => {
@@ -466,7 +536,7 @@ describe('StickersBrowser', () => {
     act(() => shown[0]!.focus());
     fireEvent.keyDown(screen.getByRole('list', { name: 'Stickers' }), { key: 'End' });
     await waitFor(() =>
-      expect(document.activeElement?.getAttribute('aria-label')).toBe('Add S1594'),
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('S1594, sticker'),
     );
     expect(document.activeElement?.closest('li')?.getAttribute('aria-posinset')).toBe('1595');
   });
