@@ -22,8 +22,27 @@ film. It sits second in the rail, right after **Assets**, and replaces the old *
 ## Photos and Videos
 
 These need a free Pexels API key (Settings → AI → **Photos & videos (Pexels)**). Only the words
-you type leave your computer. Everything else — the curated/popular feed on an empty search, the
-hover-scrub preview, the monthly quota, and placing a clip as a cutaway — works as described in
+you type leave your computer.
+
+- **Categories.** A row of chips under the search box — Business, Technology, People, Nature,
+  City, Abstract, Backgrounds, Food, Travel, Textures — each a ready-made search. One click is one
+  search of your Pexels allowance; clicking the same chip again costs nothing. Typing leaves the
+  category, and **Curated** (Photos) or **Popular** (Videos) takes you back to Pexels' own feed.
+- **Orientation.** **Any**, **Landscape**, **Portrait** or **Square**, starting on your project's
+  shape — a vertical short is offered vertical shots first. Changing it searches again straight
+  away.
+- **Add** puts the shot in as a **cutaway** at the playhead: it replaces the picture for its
+  length, so it is disabled over footage and says why.
+- **Overlay** (Add as overlay) puts it **on top** of whatever is at the playhead: a
+  picture-in-picture, centred, at 40% of full size, on a layer in front of your footage and under
+  your titles, stickers and shapes. It is selected when it lands, ready to move and resize on the
+  monitor.
+- **Drag a tile onto the timeline** to put the shot full frame at the drop point — on the video
+  layer you dropped it on when it has room there, else on a new layer in front of your footage.
+
+Every way in downloads into your project first, with a progress bar and **Cancel** on the tile,
+and one undo takes back the clip, any layer it opened and the bin entry. The feed, the hover-scrub
+preview and the monthly quota work as described in
 [Photos and videos (Pexels)](./stock-sourcing.md).
 
 In the browser build, Photos and Videos are not shown: reaching Pexels needs the desktop app's
