@@ -387,7 +387,9 @@ Depends on EL6a, MD-E1, EL2b.1.
   _Built:_ `@tanstack/react-virtual` grid (40 of 1,595 tiles drawn), Recent / Favourites /
   nine group chips, star + F, in-project dot, drag onto a lane (`onDropSticker`); tiles from
   main in batches of ≤ 96, kept for the session; `StickersBrowser.perf.test.tsx`: search p95
-  2.4 ms (≤ 16), warm first tiles 45 ms (≤ 100) in jsdom; the agent's search reaches the
+  2.4 ms (≤ 16), an open draws only the rows in view; the warm first tiles (≤ 100 ms) are
+  measured in Chromium (`elements-e2e-budgets.spec.ts`), since jsdom's timing measured the CI
+  runner (108 ms there, 45 ms locally); the agent's search reaches the
   packaged set only where the host ships it.
 - [~] **EL6b.4** `apps/desktop` `dist` runs `build:elements` before `electron-builder`;
   `release.yml` and the `desktop-build` job cache it; `scripts/check-installer-budget.mjs`

@@ -55,7 +55,7 @@ jobs:
           pnpm --filter @framepilot/web-editor exec vitest run src/components/preview/MaskCanvasTools.perf.test.tsx
           pnpm --filter @framepilot/desktop exec vitest run electron/capability-packs/segment-frame.test.ts -t 'hover latency'
       # plan/elements 02 §9 over the real 1,595-sticker catalogue, uninstrumented for the same reason.
-      - name: Elements budgets (Stickers search and first tiles)
+      - name: Elements budgets (Stickers search, and an open draws only the rows in view)
         env:
           FRAMEPILOT_RUN_PERF: '1'
         run: pnpm --filter @framepilot/web-editor exec vitest run src/components/elements/StickersBrowser.perf.test.tsx
