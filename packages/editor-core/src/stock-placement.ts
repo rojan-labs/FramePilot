@@ -332,19 +332,30 @@ const BASE_KEYFRAME_TIME = 1e-3;
 /** The one track type that carries the picture chain; graphics, captions and sound do not. */
 const PICTURE_LANE: Track['type'] = 'video';
 
+/** Lanes drawn over the picture — stickers, shapes and titles (`overlay`), and captions. */
+const GRAPHICS_LANES: ReadonlySet<Track['type']> = new Set(['overlay', 'caption']);
+
 /**
  * Where a new picture lane opens: just in front of the front-most picture lane, so it covers the
- * footage and stays under every graphics lane (stickers, shapes, titles — ADR 0191). With no
- * picture lane yet, it opens under the graphics and above the sound.
+ * footage, and never in front of a graphics lane, so stickers, shapes, titles and captions stay on
+ * top (ADR 0191). A picture lane can sit above the graphics — an older project, or a clip moved
+ * onto a new front lane — and the new lane still opens under the last graphics lane above the
+ * sound. With no picture lane yet, it opens under the graphics and above the sound.
  *
  * @param timeline - The timeline the lane will be added to.
  * @returns The `add_layer` index (0 is the visual front).
  */
 export function frontPictureLaneIndex(timeline: Timeline): number {
-  const frontPicture = timeline.tracks.findIndex((track) => track.type === PICTURE_LANE);
-  if (frontPicture >= 0) return frontPicture;
-  const firstSound = timeline.tracks.findIndex((track) => track.type === 'audio');
-  return firstSound >= 0 ? firstSound : timeline.tracks.length;
+  const { tracks } = timeline;
+  const firstSound = tracks.findIndex((track) => track.type === 'audio');
+  const aboveSound = firstSound >= 0 ? firstSound : tracks.length;
+  const frontPicture = tracks.findIndex((track) => track.type === PICTURE_LANE);
+  if (frontPicture < 0) return aboveSound;
+  let underGraphics = 0;
+  for (let index = 0; index < aboveSound; index += 1) {
+    if (GRAPHICS_LANES.has(tracks[index]!.type)) underGraphics = index + 1;
+  }
+  return Math.max(frontPicture, underGraphics);
 }
 
 /** What a manual Photos/Videos placement decided, for the caller that selects and describes it. */
@@ -381,6 +392,24 @@ function stockSpan(
   return { start, end: start + durationSeconds, durationSeconds };
 }
 
+/**
+ * An overlay's span: its own length, but ending with the programme when it starts inside it. A
+ * picture-in-picture sits over footage; one that ran on past the last picture clip would lengthen
+ * the export with the overlay alone over black (a 40 s clip at 25 s on a 30 s talking head
+ * exported 65 s). Started at or after the end, it is new material and keeps its length.
+ */
+function overlaySpan(
+  timeline: Timeline,
+  assets: readonly Asset[],
+  asset: Asset,
+  atStart: number,
+): { readonly start: number; readonly end: number; readonly durationSeconds: number } {
+  const span = stockSpan(asset, atStart);
+  const programmeEnd = lastPictureEnd(timeline, assets);
+  if (span.start >= programmeEnd - MIN_EDIT_SECONDS || span.end <= programmeEnd) return span;
+  return { start: span.start, end: programmeEnd, durationSeconds: programmeEnd - span.start };
+}
+
 /** A lane a manual placement may write to: a picture lane the user has not locked or hidden. */
 function isOpenPictureLane(track: Track): boolean {
   return track.type === PICTURE_LANE && track.locked !== true && track.hidden !== true;
@@ -395,12 +424,15 @@ function isScaledDown(clip: Clip): boolean {
 }
 
 /**
- * The front-most picture lane, when it holds only pictures-in-picture (or nothing) and has room
- * over the span — so a second overlay joins the first instead of opening a lane per clip, and an
- * overlay never lands on the footage it is meant to sit over.
+ * The picture lane a new one would open in front of — the front-most one under the graphics
+ * ({@link frontPictureLaneIndex}) — when it holds only pictures-in-picture (or nothing) and has
+ * room over the span. So a second overlay joins the first instead of opening a lane per clip, an
+ * overlay never lands on the footage it is meant to sit over, and a lane stacked above the titles
+ * is never reused to put a picture over them.
  */
 function pictureInPictureLane(timeline: Timeline, start: number, end: number): Track | undefined {
-  const front = timeline.tracks.find((track) => track.type === PICTURE_LANE);
+  const opensAt = frontPictureLaneIndex(timeline);
+  const front = timeline.tracks.slice(opensAt).find((track) => track.type === PICTURE_LANE);
   if (front === undefined || !isOpenPictureLane(front)) return undefined;
   if (!front.clips.every(isScaledDown)) return undefined;
   return trackHasRoomFor(front, start, end) ? front : undefined;
@@ -420,7 +452,12 @@ function stockLaneOperations(
 ): StockLanePlacement {
   const trackId = lane?.id ?? nextLaneId(timeline, PICTURE_LANE);
   const clipId = addClipId(trackId, asset.id, span.start);
-  const inBin = assets.some((candidate) => candidate.id === asset.id);
+  // The same file already in the bin is reused. A different file under the same id (a Pexels
+  // photo and video can share a numeric id) is added anyway, so the validator refuses the clash
+  // instead of the clip quietly showing the other file.
+  const inBin = assets.some(
+    (candidate) => candidate.id === asset.id && candidate.path === asset.path,
+  );
   return {
     operations: [
       ...(inBin ? [] : [{ type: 'add_asset', asset } as const]),
@@ -484,7 +521,7 @@ export function buildAddStockOverlayOps(
   asset: Asset,
   atStart: number,
 ): StockLanePlacement {
-  const span = stockSpan(asset, atStart);
+  const span = overlaySpan(timeline, assets, asset, atStart);
   const base = { scale: STOCK_OVERLAY_SCALE, x: 0, y: 0 } as const;
   return stockLaneOperations(
     timeline,
@@ -516,7 +553,9 @@ export function buildAddStockOverlayOps(
  *
  * A drag is an explicit stack: the user chose the moment and the lane and can see the result,
  * which is why ADR 0140 itself calls the front-lane placement right for a file dragged in by hand.
- * So this never refuses for covering picture either.
+ * So this never refuses for covering picture either. It keeps its full length even past the end of
+ * the programme, as any clip dragged in from the bin does: a full-frame shot there is new
+ * material, not a picture over the footage (ADR 0193).
  *
  * @param timeline - Current timeline (the caller passes the live one once the download is in).
  * @param assets - The project's asset bin.
@@ -535,8 +574,7 @@ export function buildDropStockOps(
   const dropped = timeline.tracks.find(
     (track) =>
       track.id === droppedTrackId &&
-      track.type === PICTURE_LANE &&
-      track.locked !== true &&
+      isOpenPictureLane(track) &&
       trackHasRoomFor(track, span.start, span.end),
   );
   const placement = stockLaneOperations(timeline, assets, asset, span, dropped, () => []);

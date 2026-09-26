@@ -267,6 +267,18 @@ function laneClip(trackId: string, assetId: string, start: number, end: number) 
 const footage = { id: 'video_1', type: 'video', clips: [laneClip('video_1', 'cam', 0, 30)] };
 const graphics = { id: 'overlay_1', type: 'overlay', clips: [] };
 const voice = { id: 'audio_1', type: 'audio', clips: [laneClip('audio_1', 'vo', 0, 30)] };
+/** A full-frame picture lane stacked ABOVE the graphics, as an older project can have one. */
+const fullFrameOnTop = {
+  id: 'video_top',
+  type: 'video',
+  clips: [laneClip('video_top', 'cam', 0, 2)],
+};
+const titles = {
+  id: 'titles',
+  type: 'overlay',
+  clips: [{ ...laneClip('titles', '__text__', 0, 30) }],
+};
+const captions = { id: 'captions_1', type: 'caption', clips: [] };
 
 describe('frontPictureLaneIndex', () => {
   it('opens in front of the front-most picture lane, under the graphics lanes', () => {
@@ -279,6 +291,15 @@ describe('frontPictureLaneIndex', () => {
     expect(frontPictureLaneIndex(timeline([graphics, voice]))).toBe(1);
     expect(frontPictureLaneIndex(timeline([graphics]))).toBe(1);
     expect(frontPictureLaneIndex(EMPTY)).toBe(0);
+  });
+
+  it('never opens in front of a graphics lane, even under a picture lane stacked above one', () => {
+    // A picture lane can sit above the graphics (an older project, or a clip moved onto a new
+    // front lane): the new lane still opens under every title, sticker and shape lane.
+    const stackedAbove = timeline([fullFrameOnTop, titles, footage, voice]);
+    expect(frontPictureLaneIndex(stackedAbove)).toBe(2);
+    // Captions draw over the picture too.
+    expect(frontPictureLaneIndex(timeline([captions, footage, voice]))).toBe(1);
   });
 });
 
@@ -365,13 +386,98 @@ describe('buildAddStockOverlayOps', () => {
   });
 
   it('skips a locked or hidden lane in front', () => {
-    const lockedPip = projectOf([
-      { id: 'pip', type: 'video', locked: true, clips: [] },
+    for (const flag of [{ locked: true }, { hidden: true }]) {
+      const closedPip = projectOf([
+        { id: 'pip', type: 'video', ...flag, clips: [] },
+        footage,
+      ] as unknown as Timeline['tracks']);
+      expect(
+        buildAddStockOverlayOps(closedPip.timeline, closedPip.assets, stockVideo, 0).trackId,
+      ).not.toBe('pip');
+    }
+  });
+
+  it('never covers a title: under a picture lane stacked above the graphics, it opens below them', () => {
+    // [full-frame picture, titles, footage, sound]: opening at the first picture lane (index 0)
+    // would put the overlay over the title.
+    const before = projectOf([
+      fullFrameOnTop,
+      titles,
+      footage,
+      voice,
+    ] as unknown as Timeline['tracks']);
+    const placed = buildAddStockOverlayOps(before.timeline, before.assets, stockVideo, 4);
+    expect(placed.createdLayer).toBe(true);
+    expect(placed.operations.find((op) => op.type === 'add_layer')).toMatchObject({ atIndex: 2 });
+    const after = expectOneUndo(before, placed.operations);
+    expect(after.timeline.tracks.map((track) => track.id)).toEqual([
+      'video_top',
+      'titles',
+      placed.trackId,
+      'video_1',
+      'audio_1',
+    ]);
+    // The cutaway Add shares the rule: into empty time its new lane also opens under the titles.
+    const cutaway = buildAddStockOps(before.timeline, before.assets, stockPhoto, 40)!;
+    expect(cutaway.operations.find((op) => op.type === 'add_layer')).toMatchObject({ atIndex: 2 });
+  });
+
+  it('does not reuse a picture-in-picture lane stacked above the graphics', () => {
+    const scaledPip = {
+      ...laneClip('pip_top', 'stock_old', 0, 3),
+      keyframes: [{ id: 'k', time: 0, property: 'scale', value: 0.4, easing: 'linear' }],
+    };
+    const before = projectOf([
+      { id: 'pip_top', type: 'video', clips: [scaledPip] },
+      titles,
       footage,
     ] as unknown as Timeline['tracks']);
-    expect(
-      buildAddStockOverlayOps(lockedPip.timeline, lockedPip.assets, stockVideo, 0).trackId,
-    ).not.toBe('pip');
+    const placed = buildAddStockOverlayOps(before.timeline, before.assets, stockPhoto, 10);
+    expect(placed.trackId).not.toBe('pip_top');
+    expect(placed.operations.find((op) => op.type === 'add_layer')).toMatchObject({ atIndex: 2 });
+  });
+
+  it('ends with the programme when it starts inside it, instead of lengthening it', () => {
+    // A 40 s clip at 25 s over a 30 s talking head used to export 65 s.
+    const long: Asset = { ...stockVideo, id: 'stock_pexels_long', durationSeconds: 40 };
+    const before = projectOf([footage] as unknown as Timeline['tracks']);
+    const placed = buildAddStockOverlayOps(before.timeline, before.assets, long, 25);
+    expect(placed.durationSeconds).toBe(5);
+    expect(placed.operations.find((op) => op.type === 'add_clip')).toMatchObject({
+      start: 25,
+      end: 30,
+      sourceStart: 0,
+      sourceEnd: 5,
+    });
+    expectOneUndo(before, placed.operations);
+    // A photo's default length is capped the same way.
+    const photo = buildAddStockOverlayOps(before.timeline, before.assets, stockPhoto, 28);
+    expect(photo.operations.find((op) => op.type === 'add_clip')).toMatchObject({ end: 30 });
+  });
+
+  it('keeps its own length when it starts at or after the end of the programme', () => {
+    const long: Asset = { ...stockVideo, id: 'stock_pexels_long', durationSeconds: 40 };
+    const before = projectOf([footage] as unknown as Timeline['tracks']);
+    for (const at of [30, 35]) {
+      const placed = buildAddStockOverlayOps(before.timeline, before.assets, long, at);
+      expect(placed.durationSeconds).toBe(40);
+      expect(placed.operations.find((op) => op.type === 'add_clip')).toMatchObject({
+        end: at + 40,
+      });
+    }
+  });
+
+  it('adds the asset when the bin holds a different file under the same id', () => {
+    // A Pexels photo and video can share a numeric id; reusing the other file would show the
+    // wrong media, so the add is left for the validator to refuse rather than quietly reused.
+    const otherKind: Asset = { ...stockPhoto, id: stockVideo.id };
+    const placed = buildAddStockOverlayOps(
+      timeline([footage]),
+      [existingVideo, otherKind],
+      stockVideo,
+      1,
+    );
+    expect(placed.operations[0]).toMatchObject({ type: 'add_asset' });
   });
 
   it('does not add the asset twice when it is already in the bin', () => {
@@ -394,6 +500,14 @@ describe('buildAddStockOverlayOps', () => {
 });
 
 describe('buildDropStockOps', () => {
+  it('is full frame at its own length even past the end: a drop is an ordinary edit', () => {
+    const long: Asset = { ...stockVideo, id: 'stock_pexels_long', durationSeconds: 40 };
+    const before = projectOf([footage] as unknown as Timeline['tracks']);
+    const placed = buildDropStockOps(before.timeline, before.assets, long, 25, 'video_1');
+    expect(placed.durationSeconds).toBe(40);
+    expect(placed.operations.find((op) => op.type === 'add_clip')).toMatchObject({ end: 65 });
+  });
+
   it('lands on the picture lane it was dropped on when that lane has room there', () => {
     const before = projectOf([
       { id: 'video_1', type: 'video', clips: [laneClip('video_1', 'cam', 0, 5)] },
@@ -418,13 +532,14 @@ describe('buildDropStockOps', () => {
     expectOneUndo(before, placed.operations);
   });
 
-  it('treats a drop on a graphics, sound or locked lane as a drop in front of the picture', () => {
+  it('treats a drop on a graphics, sound, locked or hidden lane as a drop in front of the picture', () => {
     const before = projectOf([
       graphics,
       { id: 'video_1', type: 'video', locked: true, clips: [] },
+      { id: 'video_2', type: 'video', hidden: true, clips: [] },
       voice,
     ] as unknown as Timeline['tracks']);
-    for (const lane of ['overlay_1', 'audio_1', 'video_1', 'gone']) {
+    for (const lane of ['overlay_1', 'audio_1', 'video_1', 'video_2', 'gone']) {
       const placed = buildDropStockOps(before.timeline, before.assets, stockPhoto, 1, lane);
       expect(placed.onDroppedLane).toBe(false);
       expect(placed.createdLayer).toBe(true);
