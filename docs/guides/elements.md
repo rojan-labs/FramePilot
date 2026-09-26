@@ -18,6 +18,9 @@ film. It sits second in the rail, right after **Assets**, and replaces the old *
 - If you left the rail on the old **Stock** tab, FramePilot opens **Elements** in its place.
 - **Photos** and **Videos** share one search box: type "city skyline" in Photos, switch to
   Videos, and the same words are searched there.
+- Whatever way an element goes in — a click, a key, a drop on a lane or on the monitor — the new
+  clip is selected, so the Inspector and the monitor's handles are on it, and a screen reader hears
+  where it landed: "Added Fire at 0:12", "Added the arrow at 0:04", "Added the video at 1:02".
 
 ## Photos and Videos
 

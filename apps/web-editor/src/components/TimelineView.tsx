@@ -159,6 +159,7 @@ import { TrackContextMenu, type TrackMenuTarget } from './TrackContextMenu.js';
 import { TransitionPicker, type TransitionPickerTarget } from './TransitionPicker.js';
 import { Tooltip, TooltipInfo } from './Tooltip.js';
 import { Menu, MenuItem } from './Menu.js';
+import { placedClipOf, shapeAddedAnnouncement } from '../editor/element-announcements.js';
 import {
   AudioLines,
   Captions,
@@ -224,6 +225,11 @@ export interface TimelineViewProps {
    * Absent where there is no project folder to copy into (a drop does nothing).
    */
   readonly onDropSticker?: (elementId: string, atSeconds: number, trackId?: string) => void;
+  /**
+   * Say something in the host's polite live region: a shape dropped on a lane lands on a clip the
+   * Shapes panel cannot show, so its arrival is announced ("Added the arrow at 0:12").
+   */
+  readonly onAnnounce?: (message: string) => void;
   /**
    * A Photos or Videos tile dropped on a lane (plan/elements EL9): the host downloads the item by
    * its provider id, as **Add** does, then places it at `atSeconds` — on `trackId` when it is a
@@ -1345,6 +1351,7 @@ export function TimelineView({
   onReplaceSticker,
   onAnimateClip,
   onDropSticker,
+  onAnnounce,
   onDropStock,
   onOpenTransitionLibrary,
   tool = 'select',
@@ -2651,8 +2658,22 @@ export function TimelineView({
       if (added === null) return;
       applyPatch(added.patch);
       select(added.clipId);
+      onAnnounce?.(
+        shapeAddedAnnouncement(
+          payload.presetId,
+          placedClipOf(added.patch)?.start ?? Math.max(0, atSeconds),
+        ),
+      );
     },
-    [timeline, applyPatch, select, settings.defaultOverlaySeconds, onDropSticker, onDropStock],
+    [
+      timeline,
+      applyPatch,
+      select,
+      settings.defaultOverlaySeconds,
+      onDropSticker,
+      onDropStock,
+      onAnnounce,
+    ],
   );
 
   // --- On-cut transitions (M3b) ---------------------------------------------

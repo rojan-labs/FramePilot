@@ -14,6 +14,7 @@ import { TimelineView } from './TimelineView.js';
 import { ASSET_DND_TYPE } from './MediaBin.js';
 import { TEXT_OVERLAY_DND_TYPE } from './OverlaysPanel.js';
 import { ELEMENT_DND_TYPE, encodeElementDrag } from './elements/element-dnd.js';
+import { shapeAddedAnnouncement } from '../editor/element-announcements.js';
 
 /** One short clip on a single video track with empty room to move into. */
 const timeline: Timeline = {
@@ -494,6 +495,28 @@ describe('TimelineView direct manipulation', () => {
     expect(lane.querySelector('.clip-block.is-graphic')).toBeNull();
     expect(graphic.style.left).toBe('300px');
     expect(graphic.querySelector('.clip-shape-glyph')).toBeTruthy();
+  });
+
+  it('selects a shape dropped on a lane and has the host say where it landed', () => {
+    const onAnnounce = vi.fn();
+    function ShapeHost(): JSX.Element {
+      const editor = useEditor(timeline, ['a']);
+      return <TimelineView editor={editor} assets={[]} fps={30} onAnnounce={onAnnounce} />;
+    }
+    const { container } = render(<ShapeHost />);
+    const lane = container.querySelector('[data-track-id="v"]') as HTMLElement;
+    const payload = encodeElementDrag({ kind: 'shape', presetId: 'star-5/white', colour: null });
+    const dataTransfer = {
+      getData: (type: string) => (type === ELEMENT_DND_TYPE ? payload : ''),
+      types: [ELEMENT_DND_TYPE],
+    };
+    const dropEvent = new MouseEvent('drop', { bubbles: true, clientX: 300 });
+    Object.defineProperty(dropEvent, 'dataTransfer', { value: dataTransfer });
+    fireEvent(lane, dropEvent);
+    const graphic = container.querySelector('.clip-block.is-graphic') as HTMLElement;
+    expect(graphic.getAttribute('data-selected')).toBe('true');
+    // 300 px at 40 px/s: it lands at 7.5 s, and is said by what it is.
+    expect(onAnnounce).toHaveBeenCalledWith(shapeAddedAnnouncement('star-5/white', 7.5));
   });
 
   it('hands a sticker tile dropped on a lane to the host, by id, at the drop time', () => {

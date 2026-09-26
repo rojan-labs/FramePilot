@@ -145,12 +145,12 @@ export function positionLabel(seconds: number): string {
  * "Added … at 0:12"), so a screen-reader user hears that the download finished and where it went.
  *
  * @param asset - The placed asset (its kind names it: photo or video).
- * @param placement - An overlay (Add as overlay) or a drop on the timeline.
+ * @param placement - An overlay (Add as overlay), a cutaway (Add) or a drop on the timeline.
  * @param atSeconds - Where it starts.
  */
 export function stockAddedAnnouncement(
   asset: Asset,
-  placement: 'overlay' | 'drop',
+  placement: 'overlay' | 'cutaway' | 'drop',
   atSeconds: number,
 ): string {
   const noun = asset.kind === 'image' ? 'photo' : 'video';

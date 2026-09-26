@@ -7,7 +7,7 @@
  * Photos, videos and bin assets dropped on the monitor are deferred; the monitor does not take them.
  */
 import type { Patch } from '@framepilot/editor-core';
-import { shapePreset } from '@framepilot/timeline-schema';
+import { shapeAddedAnnouncement, stickerAddedAnnouncement } from './element-announcements.js';
 import {
   shapeAtForFramePoint,
   stickerOffsetForFramePoint,
@@ -16,7 +16,6 @@ import {
 import { addShapePatch } from './shape-builders.js';
 import type { StickerTarget } from './sticker-builders.js';
 import { placeDroppedSticker, type StickerDropDeps } from './sticker-drop.js';
-import { positionLabel } from './stock-builders.js';
 
 /** What the monitor takes: a shape preset in a colour, or a sticker by catalogue id. */
 export type MonitorDropItem =
@@ -60,7 +59,6 @@ export async function placeMonitorDrop(
   drop: MonitorDrop,
 ): Promise<PlacedOnMonitor> {
   const { item } = drop;
-  const when = positionLabel(drop.atSeconds);
   if (item.kind === 'sticker') {
     const placed = await placeDroppedSticker(deps, {
       projectId: drop.projectId,
@@ -72,7 +70,11 @@ export async function placeMonitorDrop(
     });
     // A sticker by its own name, as the Stickers tab names it: "Added Grinning face at 0:12".
     return placed.ok
-      ? { ok: true, added: placed.added, announcement: `Added ${placed.name} at ${when}` }
+      ? {
+          ok: true,
+          added: placed.added,
+          announcement: stickerAddedAnnouncement(placed.name, drop.atSeconds),
+        }
       : placed;
   }
   const added = addShapePatch(
@@ -84,6 +86,9 @@ export async function placeMonitorDrop(
   );
   if (added === null) return { ok: false, message: SHAPE_NOT_ADDED };
   // A shape by what it is: "Added the highlight box at 0:12".
-  const name = shapePreset(item.presetId)?.preset.name.toLowerCase() ?? 'shape';
-  return { ok: true, added, announcement: `Added the ${name} at ${when}` };
+  return {
+    ok: true,
+    added,
+    announcement: shapeAddedAnnouncement(item.presetId, drop.atSeconds),
+  };
 }

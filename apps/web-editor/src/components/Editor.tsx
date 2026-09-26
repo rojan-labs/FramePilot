@@ -74,6 +74,13 @@ import type { FramePoint } from '../preview/frame-point.js';
 import { stockDownloads } from '../editor/download-registry.js';
 import { placeDroppedStock } from '../editor/stock-drop.js';
 import { applyStockPatch } from '../editor/stock-download.js';
+import {
+  placedClipOf,
+  shapeAddedAnnouncement,
+  stickerAddedAnnouncement,
+  stickerReplacedAnnouncement,
+} from '../editor/element-announcements.js';
+import { useLiveAnnouncement } from '../editor/useLiveAnnouncement.js';
 import { Toasts, type ToastNotice } from './Toasts.js';
 import { HistoryPanel } from './HistoryPanel.js';
 import { JobsRail } from './JobsPanel.js';
@@ -571,9 +578,10 @@ export function Editor({
   // A failure outside the patch path, raised as a toast (a dropped sticker main could not copy).
   const [notice, setNotice] = useState<ToastNotice | null>(null);
   // What a clip that just landed says to a screen reader (plan/elements 02 §3): a Pexels
-  // download ends seconds after the click, and an image laid over the picture from the bin lands
-  // on a lane the bin cannot show, so each arrival is announced, politely.
-  const [addedAnnouncement, setAddedAnnouncement] = useState('');
+  // download ends seconds after the click, a sticker after main's copy, and every element lands
+  // on a lane the panel it came from cannot show, so each arrival is announced, politely — the
+  // region is emptied before each message, so the same arrival twice is read twice.
+  const [addedAnnouncement, announceAdded] = useLiveAnnouncement();
   // What an element placement reads once main has copied a sticker in: the editor as it is then.
   const liveElementTarget = useCallback((): StickerTarget => {
     const live = liveEditor.current.state;
@@ -597,15 +605,32 @@ export function Editor({
           target: liveElementTarget,
         },
       ).then((placed) => {
+        const say = (message: string): void =>
+          setNotice((last) => ({ id: (last?.id ?? 0) + 1, message }));
         if (!placed.ok) {
-          setNotice((last) => ({ id: (last?.id ?? 0) + 1, message: placed.message }));
+          say(placed.message);
           return;
         }
-        liveEditor.current.applyPatch(placed.added.patch);
+        // Checked, so a patch the timeline refuses is said, not quietly dropped.
+        const refusal = applyStockPatch(
+          liveEditor.current.applyPatchChecked,
+          placed.added.patch,
+          'sticker dropped on a lane',
+        );
+        if (refusal !== null) {
+          say(refusal);
+          return;
+        }
         liveEditor.current.select(placed.added.clipId);
+        announceAdded(
+          stickerAddedAnnouncement(
+            placed.name,
+            placedClipOf(placed.added.patch)?.start ?? atSeconds,
+          ),
+        );
       });
     },
-    [project.id, liveElementTarget, settings.defaultOverlaySeconds],
+    [project.id, liveElementTarget, settings.defaultOverlaySeconds, announceAdded],
   );
   /**
    * A sticker or shape tile dropped on the program monitor (plan/elements EL11, 02 §3): added at
@@ -643,10 +668,10 @@ export function Editor({
         }
         // Selected, so the monitor shows its handles for the fine adjustment a drop invites.
         liveEditor.current.select(placed.added.clipId);
-        setAddedAnnouncement(placed.announcement);
+        announceAdded(placed.announcement);
       });
     },
-    [project.id, liveElementTarget, settings.defaultOverlaySeconds],
+    [project.id, liveElementTarget, settings.defaultOverlaySeconds, announceAdded],
   );
   /**
    * A Photos or Videos tile dropped on the timeline (plan/elements EL9): downloaded through the
@@ -690,11 +715,11 @@ export function Editor({
           if (placed.message !== '') say(placed.message);
           return;
         }
-        setAddedAnnouncement(stockAddedAnnouncement(placed.asset, 'drop', placed.added.start));
+        announceAdded(stockAddedAnnouncement(placed.asset, 'drop', placed.added.start));
         if (placed.notice !== null) say(placed.notice);
       });
     },
-    [project.id, project.resolution, project.fps],
+    [project.id, project.resolution, project.fps, announceAdded],
   );
   const toggleSnapping = useCallback(
     () => update({ snapping: !settings.snapping }),
@@ -833,7 +858,7 @@ export function Editor({
         {...(onProjectCommit ? { onProjectCommit } : {})}
         {...(ensureSavedForTranscription ? { ensureSavedForTranscription } : {})}
         {...(revealRequest ? { revealRequest } : {})}
-        onAnnounce={setAddedAnnouncement}
+        onAnnounce={announceAdded}
       />
     ),
     [
@@ -909,7 +934,19 @@ export function Editor({
             );
           }
           // Checked, so a patch the timeline refuses is said on the tile, not quietly dropped.
-          return applyStockPatch(editor.applyPatchChecked, patch, 'Pexels cutaway');
+          const refusal = applyStockPatch(
+            liveEditor.current.applyPatchChecked,
+            patch,
+            'Pexels cutaway',
+          );
+          if (refusal !== null) return refusal;
+          // Selected and said, as every placement is: the download ended seconds after the click.
+          const placed = placedClipOf(patch);
+          if (placed !== null) {
+            liveEditor.current.select(placed.clipId);
+            announceAdded(stockAddedAnnouncement(asset, 'cutaway', placed.start));
+          }
+          return null;
         }}
         onAddStockOverlay={(asset) => {
           // A picture-in-picture at the playhead as it is when the download lands, over whatever
@@ -920,69 +957,75 @@ export function Editor({
             asset,
             live.playhead,
           );
-          const refusal = applyStockPatch(editor.applyPatchChecked, added.patch, 'Pexels overlay');
+          const refusal = applyStockPatch(
+            liveEditor.current.applyPatchChecked,
+            added.patch,
+            'Pexels overlay',
+          );
           if (refusal !== null) return refusal;
           // Selected, so the monitor shows its handles and the Inspector can resize it.
-          editor.select(added.clipId);
-          setAddedAnnouncement(stockAddedAnnouncement(asset, 'overlay', added.start));
+          liveEditor.current.select(added.clipId);
+          announceAdded(stockAddedAnnouncement(asset, 'overlay', added.start));
           return null;
         }}
         {...(onOpenSettings ? { onOpenSettings: () => onOpenSettings('ai') } : {})}
         onShowInAssets={revealAssetInBin}
         onAddShape={(presetId, colour) => {
-          const live = editor.state;
+          const at = liveEditor.current.getPlayhead();
           const added = addShapePatch(
-            live.timeline,
+            liveEditor.current.state.timeline,
             presetId,
-            live.playhead,
+            at,
             settings.defaultOverlaySeconds,
             { colour },
           );
           if (added === null) return 'That shape could not be added. Try another.';
-          editor.applyPatch(added.patch);
+          const refusal = applyStockPatch(
+            liveEditor.current.applyPatchChecked,
+            added.patch,
+            'shape',
+          );
+          if (refusal !== null) return refusal;
           // Selected, so the Inspector opens on it and the monitor shows its handles.
-          editor.select(added.clipId);
+          liveEditor.current.select(added.clipId);
+          announceAdded(shapeAddedAnnouncement(presetId, placedClipOf(added.patch)?.start ?? at));
           return null;
         }}
         onAddSticker={(asset, item) => {
-          // Live state at click time: the copy took a moment and the playhead may have moved.
-          const live = editor.state;
-          const added = addStickerPatch(
-            {
-              timeline: live.timeline,
-              assets: live.assets,
-              folders: live.folders,
-              resolution: project.resolution,
-            },
-            asset,
-            item.name,
-            live.playhead,
-            settings.defaultOverlaySeconds,
-          );
+          // The editor as it is now, when main's copy has landed — not the render this closure
+          // came from: the copy took a moment, and the playhead and timeline may have moved.
+          const live = liveElementTarget();
+          const at = liveEditor.current.getPlayhead();
+          const added = addStickerPatch(live, asset, item.name, at, settings.defaultOverlaySeconds);
           if (added === null) return 'That sticker could not be added. Try another.';
-          editor.applyPatch(added.patch);
-          editor.select(added.clipId);
+          // Checked, so a patch the timeline refuses is said on the tile, not quietly dropped.
+          const refusal = applyStockPatch(
+            liveEditor.current.applyPatchChecked,
+            added.patch,
+            'sticker',
+          );
+          if (refusal !== null) return refusal;
+          liveEditor.current.select(added.clipId);
+          announceAdded(
+            stickerAddedAnnouncement(item.name, placedClipOf(added.patch)?.start ?? at),
+          );
           return null;
         }}
         stickerReplaceTarget={stickerReplaceTarget}
         onReplaceSticker={(asset, item) => {
           if (stickerReplaceTarget === null) return null;
-          const live = editor.state;
-          const patch = replaceStickerPatch(
-            {
-              timeline: live.timeline,
-              assets: live.assets,
-              folders: live.folders,
-              resolution: project.resolution,
-            },
-            stickerReplaceTarget.clipId,
-            asset,
-            item.name,
-          );
+          const target = stickerReplaceTarget;
+          const patch = replaceStickerPatch(liveElementTarget(), target.clipId, asset, item.name);
           setStickerReplaceTarget(null);
-          if (patch === null) return 'That sticker is no longer on the timeline.';
-          editor.applyPatch(patch);
-          editor.select(stickerReplaceTarget.clipId);
+          if (patch === null) return 'That sticker is no longer on the timeline. Add it again.';
+          const refusal = applyStockPatch(
+            liveEditor.current.applyPatchChecked,
+            patch,
+            'sticker replace',
+          );
+          if (refusal !== null) return refusal;
+          liveEditor.current.select(target.clipId);
+          announceAdded(stickerReplacedAnnouncement(target.name, item.name));
           return null;
         }}
         onCancelStickerReplace={() => setStickerReplaceTarget(null)}
@@ -995,6 +1038,8 @@ export function Editor({
     onOpenSettings,
     settings.defaultOverlaySeconds,
     stickerReplaceTarget,
+    announceAdded,
+    liveElementTarget,
   ]);
   const openTransitionLibrary = useCallback(() => setLeftTab('transitions'), []);
   const aiFacingProject = useMemo(
@@ -1101,6 +1146,7 @@ export function Editor({
         onReplaceSticker={openStickerReplace}
         onAnimateClip={animateClip}
         onDropSticker={dropSticker}
+        onAnnounce={announceAdded}
         // Photos and Videos come from main (desktop only), as the prop's doc says.
         {...(isDesktop() ? { onDropStock: dropStock } : {})}
         onOpenTransitionLibrary={openTransitionLibrary}
@@ -1124,6 +1170,7 @@ export function Editor({
       animateClip,
       dropSticker,
       dropStock,
+      announceAdded,
       tool,
       selectedEffectLayerIds,
     ],
@@ -1407,7 +1454,7 @@ export function Editor({
               this costs one subscription and never re-renders the editor. */}
           <AgentFab aiPanelVisible={rightTab === 'ai'} onOpenAi={() => setRightTab('ai')} />
           {toastsEl}
-          <p className="sr-only" role="status" aria-live="polite">
+          <p className="sr-only" role="status" aria-live="polite" data-live="added">
             {addedAnnouncement}
           </p>
           <HistoryPanel

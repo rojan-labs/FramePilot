@@ -241,6 +241,8 @@ describe('stockAddedAnnouncement', () => {
       'Added the video as an overlay at 0:12',
     );
     expect(stockAddedAnnouncement(STOCK_PHOTO, 'drop', 75)).toBe('Added the photo at 1:15');
+    // Add (a cutaway) is said the way a drop is: it lands full frame.
+    expect(stockAddedAnnouncement(STOCK_VIDEO, 'cutaway', 12)).toBe('Added the video at 0:12');
   });
 });
 
