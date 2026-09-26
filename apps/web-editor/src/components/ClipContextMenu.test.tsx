@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { Timeline } from '@framepilot/timeline-schema';
+import type { Asset, Timeline } from '@framepilot/timeline-schema';
 import type { UseEditor } from '../editor/useEditor.js';
 import { ClipContextMenu, type ClipMenuTarget } from './ClipContextMenu.js';
 
@@ -32,14 +32,16 @@ const pairTimeline: Timeline = {
   tracks: [{ id: 'v', type: 'video', clips: [clip('c1', 0, 4), clip('c2', 4, 8)] }],
 };
 
-function fakeEditor(over: { timeline?: Timeline; playhead?: number } = {}): UseEditor {
+function fakeEditor(
+  over: { timeline?: Timeline; playhead?: number; assets?: readonly Asset[] } = {},
+): UseEditor {
   const activeTimeline = over.timeline ?? timeline;
   const playhead = over.playhead ?? 2;
   return {
     state: {
       timeline: activeTimeline,
       history: { past: [], future: [] } as never,
-      assets: [],
+      assets: over.assets ?? [],
       folders: [],
       assetIds: ['a'],
       issues: [],
@@ -96,6 +98,50 @@ describe('ClipContextMenu', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Edit shape' }));
     expect(editor.select).toHaveBeenCalledWith('s1');
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('offers Replace sticker on a sticker, naming it, and no speed presets a still ignores', () => {
+    const fire = {
+      id: 'element_fluent3d_fire',
+      path: 'media/p/elements/fluent3d/fire.webp',
+      kind: 'image',
+      source: { provider: 'fluent-emoji', remoteId: 'fire' },
+    } as unknown as Asset;
+    const stickerTimeline: Timeline = {
+      tracks: [
+        {
+          id: 'o',
+          type: 'overlay',
+          clips: [{ ...clip('k1', 0, 3), assetId: fire.id, trackId: 'o' }],
+        },
+      ],
+    };
+    const onReplaceSticker = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <ClipContextMenu
+        editor={fakeEditor({ timeline: stickerTimeline, assets: [fire] })}
+        target={{ clipId: 'k1', x: 0, y: 0 }}
+        onClose={onClose}
+        onReplaceSticker={onReplaceSticker}
+      />,
+    );
+    expect(screen.queryByRole('group', { name: 'Speed' })).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Replace sticker…' }));
+    expect(onReplaceSticker).toHaveBeenCalledWith('k1', 'Fire');
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('offers no Replace sticker on footage, or where there is no Stickers panel', () => {
+    render(
+      <ClipContextMenu
+        editor={fakeEditor()}
+        target={target}
+        onClose={() => {}}
+        onReplaceSticker={() => {}}
+      />,
+    );
+    expect(screen.queryByRole('menuitem', { name: 'Replace sticker…' })).toBeNull();
   });
 
   it('offers no Edit shape on footage', () => {

@@ -214,6 +214,8 @@ export interface TimelineViewProps {
    * {@link ClipContextMenu}'s "Reveal in bin". Absent means this host has no bin.
    */
   readonly onRevealAssetInBin?: (assetId: string) => void;
+  /** Forwarded to {@link ClipContextMenu}'s "Replace sticker…"; absent where there is no panel. */
+  readonly onReplaceSticker?: (clipId: string, name: string) => void;
   /**
    * Switch the left rail to the transitions library. Offered by the on-cut
    * popover as its "there is more than this" escape hatch; absent means this
@@ -1321,6 +1323,7 @@ export function TimelineView({
   trackLayout: trackLayoutProp,
   onAskAiForClip,
   onRevealAssetInBin,
+  onReplaceSticker,
   onOpenTransitionLibrary,
   tool = 'select',
   onItemActivate,
@@ -3758,6 +3761,7 @@ export function TimelineView({
           {...(onAskAiForClip ? { onAskAi: onAskAiForClip } : {})}
           onAddTransition={(fromClipId, x, y) => setTransitionPicker({ fromClipId, x, y })}
           {...(onRevealAssetInBin ? { onRevealInBin: onRevealAssetInBin } : {})}
+          {...(onReplaceSticker ? { onReplaceSticker } : {})}
         />
       )}
       {trackMenu && (

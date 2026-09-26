@@ -328,6 +328,14 @@ export function Editor({
     readonly clipId: string;
     readonly name: string;
   } | null>(null);
+  // The Inspector's Replace… and the clip menu's "Replace sticker…" open the same swap.
+  const openStickerReplace = useCallback(
+    (clipId: string, name: string) => {
+      setStickerReplaceTarget({ clipId, name });
+      setLeftTab('elements');
+    },
+    [setLeftTab],
+  );
   // NOT persisted, deliberately. Program/Source is a mode the interaction drives — clicking
   // an asset switches to Source by itself — not a layout preference. Restoring "Source" on
   // open, with no asset loaded, reopens the editor onto an empty monitor: a worse first
@@ -911,6 +919,7 @@ export function Editor({
         trackLayout={trackLayout}
         onAskAiForClip={onAskAiForClip}
         onRevealAssetInBin={revealAssetInBin}
+        onReplaceSticker={openStickerReplace}
         onOpenTransitionLibrary={openTransitionLibrary}
         tool={tool}
         selectedEffectLayerIds={selectedEffectLayerIds}
@@ -1073,10 +1082,7 @@ export function Editor({
                 <Inspector
                   editor={editor}
                   fps={project.fps}
-                  onReplaceSticker={(clipId, name) => {
-                    setStickerReplaceTarget({ clipId, name });
-                    setLeftTab('elements');
-                  }}
+                  onReplaceSticker={openStickerReplace}
                   selectedEffectLayerIds={selectedEffectLayerIds}
                   onClearEffectLayers={() => setSelectedEffectLayerIds([])}
                 />

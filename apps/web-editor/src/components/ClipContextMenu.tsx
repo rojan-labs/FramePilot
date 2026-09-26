@@ -18,7 +18,7 @@
  * Closes on action, outside click, or Escape.
  */
 import { useEffect, useRef, type JSX } from 'react';
-import { syntheticClipKind } from '@framepilot/editor-core';
+import { isElementAsset, syntheticClipKind } from '@framepilot/editor-core';
 import type { UseEditor } from '../editor/useEditor.js';
 import {
   addTransitionPatch,
@@ -43,7 +43,9 @@ import {
   Sparkles,
   Trash2,
   Shapes,
+  Smile,
 } from './icons.js';
+import { stickerName } from './inspector/sections/StickerSection.js';
 import { MenuShortcut } from './Menu.js';
 
 /** Where the menu opened, and on which clip. */
@@ -81,6 +83,11 @@ export interface ClipContextMenuProps {
    * is no bin (the AI review player, tests that render the timeline alone).
    */
   readonly onRevealInBin?: (assetId: string) => void;
+  /**
+   * Open Elements → Stickers to swap this sticker for another (plan/elements EL6a.5), keeping its
+   * timing and transform. Absent where there is no Stickers panel (the browser build).
+   */
+  readonly onReplaceSticker?: (clipId: string, name: string) => void;
 }
 
 export function ClipContextMenu({
@@ -90,6 +97,7 @@ export function ClipContextMenu({
   onAskAi,
   onAddTransition,
   onRevealInBin,
+  onReplaceSticker,
 }: ClipContextMenuProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const { timeline, playhead } = editor.state;
@@ -137,6 +145,11 @@ export function ClipContextMenu({
   // A shape draws from its params alone (ADR 0190): it is edited in the Inspector and on the
   // monitor, and speed does nothing to it, so the menu offers the one and not the other.
   const isShape = clip !== undefined && syntheticClipKind(clip.assetId) === 'shape';
+  // A sticker is a still, so speed does nothing to it either; what it offers is a swap.
+  const stickerAsset =
+    clip === undefined ? undefined : editor.state.assets.find((a) => a.id === clip.assetId);
+  const isSticker = isElementAsset(stickerAsset);
+  const hasSpeed = !isShape && !isSticker;
   // Reordering is a different question from dragging: a drag puts a clip at a TIME, this
   // puts it at a PLACE in the running order. Gated on the builder, so "move earlier" is
   // never offered on the first clip (ADR 0173).
@@ -164,6 +177,21 @@ export function ClipContextMenu({
             }}
           >
             <Shapes size={ICON_SIZE.sm} aria-hidden="true" /> Edit shape
+          </button>
+          <div className="context-menu-sep" role="separator" />
+        </>
+      )}
+      {isSticker && onReplaceSticker && (
+        <>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onReplaceSticker(target.clipId, stickerName(stickerAsset));
+              onClose();
+            }}
+          >
+            <Smile size={ICON_SIZE.sm} aria-hidden="true" /> Replace sticker…
           </button>
           <div className="context-menu-sep" role="separator" />
         </>
@@ -207,8 +235,8 @@ export function ClipContextMenu({
       <button type="button" role="menuitem" disabled={later === null} onClick={() => act(later)}>
         <ChevronRight size={ICON_SIZE.sm} aria-hidden="true" /> Move later in sequence
       </button>
-      {!isShape && <div className="context-menu-sep" role="separator" />}
-      {!isShape && (
+      {hasSpeed && <div className="context-menu-sep" role="separator" />}
+      {hasSpeed && (
         <div className="context-menu-group" role="group" aria-label="Speed">
           <span className="context-menu-group-label">
             <Gauge size={ICON_SIZE.sm} aria-hidden="true" /> Speed
