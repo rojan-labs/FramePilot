@@ -356,6 +356,54 @@ describe('set_shape_style', () => {
   });
 });
 
+describe('set_element_animation (EL7)', () => {
+  const withShape = (): Project =>
+    apply(project(), run('add_shape', { shape: 'line-arrow/red', start: 0, end: 3 }, project()));
+  const shape = (on: Project) =>
+    on.timeline.tracks.flatMap((track) => track.clips).find((c) => c.assetId === '__shape__')!;
+
+  it('pops a shape in and pulses it, as one reversible edit', () => {
+    const on = withShape();
+    const ops = run(
+      'set_element_animation',
+      { clipId: shape(on).id, in: { kind: 'pop', seconds: 0.4 }, loop: { preset: 'pulse' } },
+      on,
+    );
+    const after = apply(on, ops);
+    const clip = shape(after);
+    expect(clip.effects.find((e) => e.type === 'transition')?.params).toEqual({
+      kind: 'zoom-out',
+      durationSeconds: 0.4,
+    });
+    expect(clip.keyframes.some((k) => k.id.startsWith('loop__pulse__'))).toBe(true);
+    // Nothing else on the timeline changed.
+    expect(after.timeline.tracks.find((t) => t.id === 'video_1')).toEqual(
+      on.timeline.tracks.find((t) => t.id === 'video_1'),
+    );
+  });
+
+  it('removes an end or a loop with null, and refuses in the builder’s words', () => {
+    const on = withShape();
+    const animated = apply(
+      on,
+      run('set_element_animation', { clipId: shape(on).id, out: { kind: 'fade' } }, on),
+    );
+    const ops = run('set_element_animation', { clipId: shape(on).id, out: null }, animated);
+    expect(shape(apply(animated, ops)).effects.some((e) => e.type === 'transition_out')).toBe(
+      false,
+    );
+    expect(() => run('set_element_animation', { clipId: shape(on).id }, on)).toThrow(
+      /Nothing to change/,
+    );
+    expect(() =>
+      run('set_element_animation', { clipId: 'nope', in: { kind: 'fade' } }, on),
+    ).toThrow(/graphics layer/);
+    expect(() =>
+      run('set_element_animation', { clipId: shape(on).id, in: { kind: 'teleport' } }, on),
+    ).toThrow();
+  });
+});
+
 describe('shapeColour', () => {
   it('reads the colours models write', () => {
     expect(shapeColour('#fff')).toBe('#ffffff');

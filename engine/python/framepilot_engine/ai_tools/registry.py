@@ -354,6 +354,39 @@ class SetShapeStyleArgs(_ShapeStyleArgs):
     clip_id: str = Field(alias="clipId", min_length=1)
 
 
+AnimationKindName = Literal[
+    "fade", "pop", "slide-left", "slide-right", "slide-up", "slide-down", "wipe", "blur"
+]
+LoopPresetName = Literal["pulse", "float", "wiggle", "bounce", "spin", "blink"]
+
+
+class AnimationEdgeArg(BaseModel):
+    """One end of an element's animation (TS ``animationEdge``)."""
+
+    model_config = _STRICT
+    kind: AnimationKindName
+    seconds: float | None = Field(default=None, gt=0)
+
+
+class LoopArg(BaseModel):
+    """An element's loop (TS ``set_element_animation.loop``)."""
+
+    model_config = _STRICT
+    preset: LoopPresetName
+    period: float | None = Field(default=None, gt=0)
+    amount: float | None = None
+
+
+class SetElementAnimationArgs(BaseModel):
+    """In, Out and Loop for one element; mirrors the TS ``set_element_animation`` schema."""
+
+    model_config = _STRICT
+    clip_id: str = Field(alias="clipId", min_length=1)
+    in_: AnimationEdgeArg | None = Field(default=None, alias="in")
+    out: AnimationEdgeArg | None = None
+    loop: LoopArg | None = None
+
+
 class AddCaptionLayerArgs(BaseModel):
     model_config = _STRICT
     track_id: str = Field(alias="trackId")
@@ -1626,6 +1659,13 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "Restyle or move one shape added with add_shape.",
         kind="mutate",
         input_model=SetShapeStyleArgs,
+        mutating=True,
+    ),
+    "set_element_animation": _spec(
+        "set_element_animation",
+        "Animate one sticker, shape or title in, out and on a loop (plan/elements EL7).",
+        kind="mutate",
+        input_model=SetElementAnimationArgs,
         mutating=True,
     ),
     "add_caption_layer": _spec(

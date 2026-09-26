@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 115,
+  "toolCount": 116,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -5534,6 +5534,127 @@
             "type": [
               "string"
             ]
+          }
+        }
+      }
+    },
+    "set_element_animation": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "in": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": [
+                  "string"
+                ],
+                "enum": [
+                  "blur",
+                  "fade",
+                  "pop",
+                  "slide-down",
+                  "slide-left",
+                  "slide-right",
+                  "slide-up",
+                  "wipe"
+                ]
+              },
+              "seconds": {
+                "type": [
+                  "number"
+                ],
+                "exclusiveMinimum": 0
+              }
+            }
+          },
+          "loop": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "preset"
+            ],
+            "properties": {
+              "amount": {
+                "type": [
+                  "number"
+                ]
+              },
+              "period": {
+                "type": [
+                  "number"
+                ],
+                "exclusiveMinimum": 0
+              },
+              "preset": {
+                "type": [
+                  "string"
+                ],
+                "enum": [
+                  "blink",
+                  "bounce",
+                  "float",
+                  "pulse",
+                  "spin",
+                  "wiggle"
+                ]
+              }
+            }
+          },
+          "out": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": [
+                  "string"
+                ],
+                "enum": [
+                  "blur",
+                  "fade",
+                  "pop",
+                  "slide-down",
+                  "slide-left",
+                  "slide-right",
+                  "slide-up",
+                  "wipe"
+                ]
+              },
+              "seconds": {
+                "type": [
+                  "number"
+                ],
+                "exclusiveMinimum": 0
+              }
+            }
           }
         }
       }

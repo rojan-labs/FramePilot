@@ -12,9 +12,14 @@
  */
 import { z } from 'zod/v4';
 import {
+  ANIMATION_KINDS,
+  LOOP_PRESETS,
   buildAddShapeOps,
+  planElementAnimation,
   setShapeParamsOp,
   shapeClipParams,
+  type AnimationEdge,
+  type AnimationKind,
   type Operation,
 } from '@framepilot/editor-core';
 import {
@@ -154,6 +159,14 @@ function shapeClip(ctx: ToolContext, clipId: string) {
   }
   return clip;
 }
+
+/** One end of an element's animation, as the model names it. */
+const animationEdge = z
+  .object({
+    kind: z.enum(Object.keys(ANIMATION_KINDS) as [AnimationKind, ...AnimationKind[]]),
+    seconds: numeric(z.number().positive()).optional(),
+  })
+  .strict();
 
 const PRESET_LIST = FEATURED.map(({ preset }) => `${preset.id} (${preset.name})`).join(', ');
 const FEATURED_IDS = FEATURED_SHAPE_PRESET_IDS.join(', ');
@@ -416,6 +429,65 @@ export const ELEMENT_TOOLS: readonly ToolSpec[] = [
       const problem = shapeParamsProblem({ ...params, ...changes });
       if (problem !== null) throw new ToolRefusalError(problem);
       return [setShapeParamsOp(a.clipId, changes)];
+    },
+  ),
+  mutateTool(
+    {
+      name: 'set_element_animation',
+      description:
+        'Animate one sticker, shape, title or picture on a graphics layer: how it comes in (in), ' +
+        'how it leaves (out), and a loop while it is on screen (loop). In/out kinds: fade, pop, ' +
+        'slide-left, slide-right, slide-up, slide-down (named by the way it travels), wipe, blur; ' +
+        'seconds defaults to the kind’s own length, at most half the clip. Loop presets: pulse, ' +
+        'float, wiggle, bounce, spin, blink, with period (seconds per cycle) and amount (pulse: ' +
+        'share of its size; float and bounce: share of the frame height; wiggle: degrees; spin: ' +
+        'degrees per cycle; blink: share dimmed). null removes an in, out or loop; what you leave ' +
+        'out stays. Use restraint: animate the element that should catch the eye, not every one.',
+    },
+    z
+      .object({
+        clipId: z.string().min(1),
+        in: animationEdge.nullable().optional(),
+        out: animationEdge.nullable().optional(),
+        loop: z
+          .object({
+            preset: z.enum(LOOP_PRESETS),
+            period: numeric(z.number().positive()).optional(),
+            amount: numeric(z.number()).optional(),
+          })
+          .strict()
+          .nullable()
+          .optional(),
+      })
+      .strict(),
+    (a, ctx) => {
+      const edge = (value: NonNullable<typeof a.in>): AnimationEdge => ({
+        kind: value.kind,
+        ...(value.seconds === undefined ? {} : { seconds: value.seconds }),
+      });
+      const plan = planElementAnimation(
+        ctx.project.timeline,
+        a.clipId,
+        {
+          ...(a.in === undefined ? {} : { in: a.in === null ? null : edge(a.in) }),
+          ...(a.out === undefined ? {} : { out: a.out === null ? null : edge(a.out) }),
+          ...(a.loop === undefined
+            ? {}
+            : {
+                loop:
+                  a.loop === null
+                    ? null
+                    : {
+                        preset: a.loop.preset,
+                        ...(a.loop.period === undefined ? {} : { periodSeconds: a.loop.period }),
+                        ...(a.loop.amount === undefined ? {} : { amount: a.loop.amount }),
+                      },
+              }),
+        },
+        ctx.project.resolution,
+      );
+      if (!plan.ok) throw new ToolRefusalError(plan.detail);
+      return [...plan.operations];
     },
   ),
 ];

@@ -173,6 +173,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   add_sticker: { label: 'Add a sticker', Icon: Smile },
   add_shape: { label: 'Add a shape', Icon: Shapes },
   set_shape_style: { label: 'Restyle a shape', Icon: Shapes },
+  set_element_animation: { label: 'Animate an element', Icon: Sparkles },
   add_caption_layer: { label: 'Add captions', Icon: Captions },
   caption_the_edit: { label: 'Captioning the edit', Icon: Captions },
   add_keyframes: { label: 'Add keyframes', Icon: SlidersHorizontal },

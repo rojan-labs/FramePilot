@@ -11,13 +11,28 @@
  *   FRAMEPILOT_PYTHON_API_URL=http://127.0.0.1:8799 node scripts/mission-fixture-projects.mjs
  * Requires a sidecar started with FRAMEPILOT_PROJECTS_ROOT=tests/fixtures/mission/projects.
  */
-import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { parseProject, SCHEMA_VERSION } from '@framepilot/timeline-schema';
-import { normalizeOperationTime } from '@framepilot/editor-core';
+import { parseProject, presetShapeParams, SCHEMA_VERSION } from '@framepilot/timeline-schema';
+import {
+  applyProjectPatch,
+  buildAddShapeOps,
+  buildAddStickerOps,
+  elementArtFraction,
+  normalizeOperationTime,
+} from '@framepilot/editor-core';
 import { detectTranscriptLoop } from '../dist/critic.js';
+import { loadStickerCatalog, stickerSourceUrl } from '../dist/index.js';
 
 process.env.FRAMEPILOT_LOG_LEVEL ??= 'silent';
 
@@ -30,7 +45,9 @@ const BASE_URL = process.env.FRAMEPILOT_PYTHON_API_URL ?? 'http://127.0.0.1:8799
 const VIDEO_EXT = new Set(['.mp4', '.mov']);
 const AUDIO_EXT = new Set(['.wav', '.mp3']);
 
-/** @typedef {{ id: string, name: string, fps: number, resolution: {width:number,height:number}, media: {file: string, onTimeline?: boolean}[], transcribe?: string, transcriptFrom?: string, overlayTrackId?: string }} Def */
+/** @typedef {{ id: string, name: string, fps: number, resolution: {width:number,height:number}, media: {file: string, onTimeline?: boolean}[], transcribe?: string, transcriptFrom?: string, overlayTrackId?: string, graphics?: Graphics }} Def */
+/** Elements already on the timeline, placed as the Shapes and Stickers tabs place them. */
+/** @typedef {{ shape?: { preset: string, start: number, end: number }, sticker?: { id: string, start: number, end: number } }} Graphics */
 
 /** @type {Def[]} */
 const DEFS = [
@@ -122,6 +139,20 @@ const DEFS = [
     resolution: { width: 1280, height: 720 },
     media: [{ file: 'reaction-demo-12s.mp4', onTimeline: true }],
     transcriptFrom: 'labels/reaction-demo.json',
+  },
+  {
+    // plan/elements 07 section 8, case 3: the two elements "make the arrow pop in and the
+    // sticker pulse" names, already on screen, so the case scores only the animation.
+    id: 'mission-animate-demo',
+    name: 'Mission animate demo (the reaction demo with an arrow and a sticker on it)',
+    fps: 30,
+    resolution: { width: 1280, height: 720 },
+    media: [{ file: 'reaction-demo-12s.mp4', onTimeline: true }],
+    transcriptFrom: 'labels/reaction-demo.json',
+    graphics: {
+      shape: { preset: 'line-arrow/red', start: 2, end: 6 },
+      sticker: { id: 'fire', start: 3, end: 7 },
+    },
   },
   {
     id: 'mission-photos',
@@ -267,21 +298,88 @@ async function buildProject(def) {
       );
     }
   }
-  const project = parseProject({
-    id: def.id,
-    name: def.name,
-    version: 1,
-    fps: def.fps,
-    resolution: def.resolution,
-    assets,
-    timeline: { tracks: tracksOf(def, clips) },
-    transcript,
-    aiMemory: {},
-    history: [],
-  });
+  const project = await withGraphics(
+    def,
+    mediaDir,
+    parseProject({
+      id: def.id,
+      name: def.name,
+      version: 1,
+      fps: def.fps,
+      resolution: def.resolution,
+      assets,
+      timeline: { tracks: tracksOf(def, clips) },
+      transcript,
+      aiMemory: {},
+      history: [],
+    }),
+  );
   const out = join(ROOT, `${def.id}.fp.json`);
   writeFileSync(out, JSON.stringify({ schemaVersion: SCHEMA_VERSION, ...project }, null, 2));
   return { out, assets: assets.length, clips: clips.length, words: transcript.length, durationSeconds: cursor };
+}
+
+/**
+ * Place a def's elements with the builders the Shapes and Stickers tabs use, so the project is
+ * one the product can make: a shape on a graphics lane, and a curated sticker copied into the
+ * project's media folder with its provenance.
+ *
+ * @param {Def} def
+ * @param {string} mediaDir
+ * @param {import('@framepilot/timeline-schema').Project} project
+ */
+async function withGraphics(def, mediaDir, project) {
+  if (!def.graphics) return project;
+  const patch = (operations) => ({
+    patchId: `fixture_${def.id}_${operations.length}`,
+    createdBy: 'user',
+    reason: 'Fixture graphics',
+    operations: [...operations],
+  });
+  let next = project;
+  const { shape, sticker } = def.graphics;
+  if (shape) {
+    const placed = buildAddShapeOps(
+      next.timeline,
+      presetShapeParams(shape.preset),
+      shape.start,
+      shape.end,
+    );
+    next = applyProjectPatch(next, patch(placed.operations));
+  }
+  if (sticker) {
+    const catalog = await loadStickerCatalog();
+    const item = catalog.byId.get(sticker.id);
+    if (!item?.file) throw new Error(`${def.id}: ${sticker.id} is not a curated sticker`);
+    const dir = join(mediaDir, 'elements', catalog.library);
+    mkdirSync(dir, { recursive: true });
+    copyFileSync(
+      join(REPO, 'apps', 'web-editor', 'public', 'elements', 'stickers', item.file),
+      join(dir, `${item.id}.webp`),
+    );
+    const asset = {
+      id: `element_${catalog.library}_${item.id}`,
+      path: `media/${def.id}/elements/${catalog.library}/${item.id}.webp`,
+      kind: 'image',
+      media: { width: item.width, height: item.height },
+      source: {
+        provider: catalog.provider,
+        remoteId: item.id,
+        license: catalog.license,
+        licenseUrl: catalog.licenseUrl,
+        attributionRequired: catalog.attributionRequired,
+        attribution: catalog.attribution,
+        creator: catalog.creator,
+        sourceUrl: stickerSourceUrl(catalog, item),
+        fetchedAt: '2026-09-26T00:00:00.000Z',
+      },
+    };
+    const placed = buildAddStickerOps(next, asset, sticker.start, sticker.end, {
+      artFraction: elementArtFraction(asset),
+    });
+    next = applyProjectPatch(next, patch(placed.operations));
+  }
+  return parseProject(next);
 }
 
 // `--only <id>` rebuilds one project. Whisper is content-hash cached and the derived media

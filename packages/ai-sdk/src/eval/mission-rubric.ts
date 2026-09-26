@@ -14,6 +14,7 @@ import {
   COLOR_GRADE_PARAMETER_CONTRACTS,
   TRANSITION_EFFECT_TYPE,
   TRANSITION_OUT_EFFECT_TYPE,
+  clipAnimation,
   coverageVerdict,
   elementArtFraction,
   isElementAsset,
@@ -101,7 +102,9 @@ export type MissionScenarioId =
   // plan/elements 07 section 8, case 1: a shape placed on a named UI element at the word.
   | 'callout-on-target'
   // plan/elements 07 section 8, case 2: a sticker on the phrase, off the face and the captions.
-  | 'sticker-on-beat';
+  | 'sticker-on-beat'
+  // plan/elements 07 section 8, case 3: a Pop on the arrow, a Pulse on the sticker, nothing else.
+  | 'element-animation';
 
 export interface RubricContext {
   /** The project the run started from (needed for before/after checks). */
@@ -1913,7 +1916,71 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkContentPreserved(ctx),
         ...COMMON(ctx),
       ]);
+    case 'element-animation':
+      return scored(scenario, [
+        checkChanged(ctx),
+        ...checkElementAnimation(ctx),
+        checkContentPreserved(ctx),
+        ...COMMON(ctx),
+      ]);
   }
+}
+
+/**
+ * Case 3: the arrow (the one shape) enters with Pop, the sticker (the one element asset) loops
+ * with Pulse, and nothing else about either — the other ends, the other's loop, their timing —
+ * changed from the project the run started with.
+ */
+function checkElementAnimation(ctx: RubricContext): RubricCheck[] {
+  const clips = (project: Project) => project.timeline.tracks.flatMap((track) => track.clips);
+  const assets = new Map(ctx.before.assets.map((asset) => [asset.id, asset]));
+  const arrowBefore = clips(ctx.before).find((clip) => shapeClipParams(clip) !== null);
+  const stickerBefore = clips(ctx.before).find((clip) => isElementAsset(assets.get(clip.assetId)));
+  const after = (clip: Clip | undefined) =>
+    clip === undefined ? undefined : clips(ctx.after).find((c) => c.id === clip.id);
+  const arrow = after(arrowBefore);
+  const sticker = after(stickerBefore);
+  if (arrowBefore === undefined || stickerBefore === undefined || !arrow || !sticker) {
+    return [{ id: 'arrow-pops-in', ok: false, detail: 'the arrow or the sticker is gone' }];
+  }
+  const was = { arrow: clipAnimation(arrowBefore), sticker: clipAnimation(stickerBefore) };
+  const now = { arrow: clipAnimation(arrow), sticker: clipAnimation(sticker) };
+  const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+  const untouched =
+    same(now.arrow.out, was.arrow.out) &&
+    same(now.arrow.loop, was.arrow.loop) &&
+    same(now.sticker.in, was.sticker.in) &&
+    same(now.sticker.out, was.sticker.out);
+  const inPlace =
+    arrow.start === arrowBefore.start &&
+    arrow.end === arrowBefore.end &&
+    sticker.start === stickerBefore.start &&
+    sticker.end === stickerBefore.end;
+  return [
+    {
+      id: 'arrow-pops-in',
+      ok: now.arrow.in?.kind === 'pop',
+      detail: `arrow enters with ${now.arrow.in?.kind ?? 'nothing'}`,
+      facet: 'target',
+    },
+    {
+      id: 'sticker-pulses',
+      ok: now.sticker.loop?.preset === 'pulse' && now.sticker.loop.coversClip,
+      detail: `sticker loops with ${now.sticker.loop?.preset ?? 'nothing'}`,
+      facet: 'target',
+    },
+    {
+      id: 'nothing-else-animated',
+      ok: untouched,
+      detail: untouched ? 'only what was asked' : 'another end or loop changed',
+      weight: 2,
+    },
+    {
+      id: 'elements-kept-in-place',
+      ok: inPlace,
+      detail: inPlace ? 'timing kept' : 'the arrow or the sticker moved in time',
+    },
+  ];
 }
 
 /**

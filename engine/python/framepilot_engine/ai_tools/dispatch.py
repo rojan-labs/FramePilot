@@ -165,6 +165,9 @@ _HOST_DELEGATED_TOOLS = frozenset(
         "adjust_effect",
         "set_effect_enabled",
         "remove_effect",
+        # plan/elements EL7: In/Out and Loop are planned by editor-core's element-animation and
+        # loop-motion builders, which the TS host runs.
+        "set_element_animation",
     }
 )
 

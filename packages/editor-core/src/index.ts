@@ -40,6 +40,8 @@ export * from './clip-blur.js';
 export * from './track-follow.js';
 // Loop motion for stickers, shapes and titles as keyframes (plan/elements EL7.2).
 export * from './loop-motion.js';
+// In / Out / Loop for stickers, shapes and titles, as one reversible request (plan/elements EL7).
+export * from './element-animation.js';
 export * from './track-reframe.js';
 export * from './picture-occupancy.js';
 export * from './lane-placement.js';

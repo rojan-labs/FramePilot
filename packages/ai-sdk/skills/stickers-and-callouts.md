@@ -1,7 +1,7 @@
 ---
 name: stickers-and-callouts
-description: Place stickers (🔥 👍 🎉) and callout shapes — highlight boxes, arrows, circles, underlines, numbered badges, icons — on the moment and the thing the narration names, clear of faces and captions. Explains search_elements, add_sticker, add_shape, set_shape_style.
-tools: [get_mapped_transcript, get_frame, get_timeline, measure_subject, search_elements, add_sticker, add_shape, set_shape_style, move_clip, trim_clip, delete_clip]
+description: Place stickers (🔥 👍 🎉) and callout shapes — highlight boxes, arrows, circles, underlines, numbered badges, icons — on the moment and the thing the narration names, clear of faces and captions. Explains search_elements, add_sticker, add_shape, set_shape_style, set_element_animation.
+tools: [get_mapped_transcript, get_frame, get_timeline, measure_subject, search_elements, add_sticker, add_shape, set_shape_style, set_element_animation, move_clip, trim_clip, delete_clip]
 ---
 
 # Stickers and callouts
@@ -59,6 +59,11 @@ then get out of the way.
 - Colours are `#rrggbb`, `#rrggbbaa`, a name (yellow, red, white, blue, green, black), or `none`.
 - `set_shape_style` changes only what you pass: colours, stroke, corners, arrow head, label,
   knobs, box, ends.
+- `set_element_animation` gives a sticker, shape or title an `in`, an `out` and a `loop`. In and
+  out kinds: `fade`, `pop`, `slide-left`/`-right`/`-up`/`-down` (the way it travels), `wipe`,
+  `blur`; `seconds` is held to half the clip. Loops: `pulse`, `float`, `wiggle`, `bounce`, `spin`,
+  `blink`, with `period` and `amount`. `null` removes one; what you leave out stays. A loop covers
+  the clip as it is now: after lengthening the clip, set the loop again.
 
 ## Professional heuristics
 
@@ -78,6 +83,11 @@ then get out of the way.
   and above the caption band; two stickers at once is one too many.
 - **Faces and captions.** Use `measure_subject` for the face box and keep clear of the bottom
   caption band.
+- **Animate with restraint.** A short entrance (0.3–0.5 s) on the element that should catch the
+  eye — a sticker pops, a box fades or pops in on the word — and at most one loop on screen, on a
+  sticker, slow (a pulse of a second or more). Never loop a box or an arrow that points at
+  something: the motion pulls the eye off the thing it points at. Leave the way you came in, or
+  fade.
 
 ## Decision framework
 

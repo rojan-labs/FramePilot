@@ -57,7 +57,9 @@ export type GoldenCategory =
   // plan/elements 07 section 8: a shape placed on the thing the narration names.
   | 'callout'
   // plan/elements 07 section 8: a sticker on the phrase, clear of the face and captions.
-  | 'sticker';
+  | 'sticker'
+  // plan/elements 07 section 8, case 3: an entrance on one element and a loop on another.
+  | 'animation';
 
 /** The categories goal.md Phase 0 names; the shape test asserts each has a case. */
 export const REQUIRED_CATEGORIES: readonly GoldenCategory[] = [
@@ -648,6 +650,23 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
           wordStart: 5.36,
           captionBandTop: 77.7778,
         },
+      },
+    ],
+  },
+  {
+    id: 'animate-arrow-and-sticker',
+    category: 'animation',
+    project: 'mission-animate-demo',
+    why:
+      'Elements, case 3 (plan/elements 07 section 8): two elements already on screen, one ' +
+      'request that animates each differently. The model must tell the arrow from the sticker ' +
+      '(get_timeline), give the arrow a Pop entrance and the sticker a Pulse loop with ' +
+      'set_element_animation, and animate nothing else: restraint is half the score.',
+    turns: [
+      {
+        prompt: 'Make the arrow pop in and the sticker pulse.',
+        rubric: 'element-animation',
+        intent: 'edit',
       },
     ],
   },
