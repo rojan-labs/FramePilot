@@ -493,22 +493,45 @@ def unsupported_animated_properties(timeline: Timeline) -> list[str]:
 
 
 def _compile_image_clip(
-    image_clip_cls: Any, path: str, clip: Clip, target: tuple[int, int], lut_base_dir: Path
+    image_clip_cls: Any,
+    path: str,
+    clip: Clip,
+    target: tuple[int, int],
+    lut_base_dir: Path,
+    media_size: tuple[float, float] | None = None,
+    layer_mattes: LayerMatteResolver | None = None,
 ) -> Any:
-    """A still through the picture pipeline, in the video path's order (plan/elements EL2a).
+    """A still through the picture pipeline, in the video path's order (plan/elements EL2a, EL2b).
 
-    Crop, grade, the legacy transition's blur, opacity (keyframes * a fade * a wipe, multiplied
-    into the image's own transparency), the catalog transitions, then placement with any
-    geometry transition. Masks and edge styles on stills are not drawn yet (``with_stack=False``),
-    matching the frame plan. A still borrows no under-layer.
+    Crop, the mask stack, grade (an effect-target mask limits it), the legacy transition's blur,
+    the alpha (stack * opacity * a fade * a wipe, multiplied into the image's own transparency),
+    a key's despill, the edge styles, the catalog transitions, then placement with any geometry
+    transition. A still's masks are in its own pixels, as a video's are in its frame's; its edge
+    styles trace the stack times its own alpha, so a sticker with no mask is outlined around its
+    art. A still borrows no under-layer.
     """
     source = image_clip_cls(path).with_duration(clip.end - clip.start)
+    decoded = (int(source.size[0]), int(source.size[1]))
     source = _apply_crop(source, clip)
-    source = _apply_color_grade(source, clip, lut_base_dir)
     use_legacy = _uses_legacy_transition_path(clip)
     transition = legacy_transition(clip)
+    stacks = _clip_mask_stacks(
+        clip,
+        media_size,
+        None,
+        decoded,
+        None,
+        None
+        if layer_mattes is None
+        else _layer_matte_binding(layer_mattes, clip, target, transition),
+        _frame_placement_binding(clip, target, transition),
+    )
+    source = _apply_color_grade(source, clip, lut_base_dir, stacks)
     source = _apply_transition_blur(source, transition)
-    source = _attach_mask(source, clip, transition, with_stack=False)
+    own_alpha = source.mask
+    source = _attach_mask(source, clip, transition, media_size, stacks)
+    source = _apply_key_despill(source, stacks)
+    source = _apply_edge_styles(source, clip, stacks, media_size, transition, own_alpha)
     source = _apply_catalog_transition(source, clip, use_legacy)
     placed = _place_video_clip(source, clip, target, transition)
     return placed.with_start(clip.start)
@@ -994,6 +1017,23 @@ def _apply_key_despill(source: VideoClip, stacks: ClipMaskStacks | None) -> Vide
     return source.transform(cleaned, keep_duration=True)
 
 
+def _refuse_still_only_video_masks(clip: Clip) -> None:
+    """Refuse a background removal or a tracked mask on a still: both are measured on video.
+
+    Without this a matte mask on a photo would fail mid-render with a message about missing
+    decoded frames, which says nothing true about a photo (plan/elements EL2b).
+    """
+    for mask in clip.masks or []:
+        if not mask.enabled:
+            continue
+        if mask.kind == "matte" or getattr(mask, "tracking", None) is not None:
+            what = "Background removal" if mask.kind == "matte" else "A tracked mask"
+            raise CompileError(
+                f"{what} on clip {clip.id!r} needs video, and this clip is a still image. "
+                "Remove that mask, or draw a shape mask on the photo instead."
+            )
+
+
 def _refuse_unrenderable_edge_styles(clip: Clip, media_size: tuple[float, float] | None) -> None:
     """Refuse a malformed edge style, or one whose lengths cannot be scaled (MK9.2)."""
     try:
@@ -1013,23 +1053,30 @@ def _apply_edge_styles(
     stacks: ClipMaskStacks | None,
     media_size: tuple[float, float] | None,
     transition: transitions.Transition | None,
+    own_alpha: Any | None = None,
 ) -> VideoClip:
     """Draw the clip's cut-out edge styles (outline, glow, shadow) under its picture (MK9.2).
 
-    After the stack is attached and despilled: the styles read the alpha-target stack (the
-    cut-out) and the picture goes over them, so the picture keeps every pixel it had. A static
-    stack is evaluated once and reused.
+    After the stack is attached and despilled: the styles read the cut-out and the picture goes
+    over them, so the picture keeps every pixel it had. The cut-out is the alpha-target stack
+    times the layer's own alpha (``own_alpha``, a still's transparency, EL2b): a video with no
+    stack has nothing to trace, and a sticker with none is traced around its art. A static
+    cut-out is evaluated once and reused.
     """
     styles = clip_edge_styles(clip)
-    if not styles or stacks is None or not stacks.alpha or media_size is None:
+    if not styles or media_size is None:
+        return source
+    alpha_stack = stacks if stacks is not None and stacks.alpha else None
+    if alpha_stack is None and own_alpha is None:
         return source
     width, height = source.size
     scale = edge_distance_scale(clip, media_size, width, height)
     existing_mask = source.mask
-    keyed = stacks.alpha_needs_picture
+    keyed = alpha_stack is not None and alpha_stack.alpha_needs_picture
     memo: dict[int, tuple[np.ndarray, np.ndarray]] = {}
-    # The cut-out is reused when the stack does not move; opacity is read per instant anyway.
-    static = not stacks.alpha_animated
+    # The cut-out is reused when the stack does not move (a still's own alpha never does);
+    # opacity is read per instant anyway.
+    static = alpha_stack is None or not alpha_stack.alpha_animated
     static_cut: list[Any] = []
 
     def evaluate(t: float, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -1046,7 +1093,10 @@ def _apply_edge_styles(
             cut = static_cut[0]
         else:
             picture = (lambda: source.get_frame(t)) if keyed else None
-            cut = stacks.alpha_at(t, width, height, picture)
+            cut = None if alpha_stack is None else alpha_stack.alpha_at(t, width, height, picture)
+            if own_alpha is not None:
+                own = np.asarray(own_alpha.get_frame(t), dtype=np.float64)
+                cut = own if cut is None else cut * own
             if static:
                 static_cut.append(cut)
         result = apply_edge_styles(
@@ -1102,10 +1152,17 @@ def _refuse_unrenderable_masks(
                 layer_mask_stack(layer)
             except MaskStackRefusal as exc:
                 raise CompileError(str(exc)) from exc
-        if track.type != TrackType.VIDEO or track.hidden:
+        if track.type not in (TrackType.VIDEO, TrackType.OVERLAY) or track.hidden:
             continue
         for clip in track.clips:
-            # Only video clips draw their stack (stills are placed without crop or mask).
+            # EL2b: a still draws its stack and its edge styles too, on any picture lane.
+            if kinds.get(clip.asset_id) == "image" and (clip.masks or clip_edge_styles(clip)):
+                _refuse_still_only_video_masks(clip)
+                _clip_mask_stacks(clip, _asset_media_size(project, clip))
+                _refuse_unrenderable_edge_styles(clip, _asset_media_size(project, clip))
+                continue
+            if track.type != TrackType.VIDEO:
+                continue
             if clip.masks and kinds.get(clip.asset_id) == "video":
                 _clip_mask_stacks(clip, _asset_media_size(project, clip))
                 _refuse_unrenderable_edge_styles(clip, _asset_media_size(project, clip))
@@ -1572,7 +1629,15 @@ def compile_timeline(
                         continue
                     path = _resolve_clip_asset(clip, asset_index)
                     if kind == "image":
-                        picture = _compile_image_clip(ImageClip, path, clip, target, lut_base_dir)
+                        picture = _compile_image_clip(
+                            ImageClip,
+                            path,
+                            clip,
+                            target,
+                            lut_base_dir,
+                            _asset_media_size(project, clip),
+                            layer_mattes,
+                        )
                         opened.append(picture)
                         if matte_sources.consumes(track.id, clip.id, None):
                             layer_mattes.add(track.id, clip.id, picture)

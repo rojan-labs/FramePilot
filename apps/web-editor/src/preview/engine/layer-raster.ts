@@ -28,6 +28,7 @@ import {
   wipeProgressAt,
   wipeSoftness,
 } from '../transition-envelope.js';
+import { edgeDistanceScale } from '../masks/edge-styles.js';
 import { clipMaskStack, type ClipMaskStack, type MaskPreviewRefusal } from '../masks/mask-stack.js';
 import {
   resolveTransitionParamsFor,
@@ -114,9 +115,16 @@ export interface PictureRasterStep {
   readonly effects: FramePlanLayer['effects'];
   /**
    * MK9.2: the clip's cut-out edge styles, bottom first, drawn under the picture after its alpha
-   * stack is attached (`_apply_edge_styles`). Empty unless the clip cuts its alpha.
+   * stack is attached (`_apply_edge_styles`). Empty unless the clip cuts its alpha or, for a
+   * still, has an alpha of its own to trace.
    */
   readonly edgeStyles: readonly FramePlanEdgeStyle[];
+  /**
+   * EL2b: a still's edge styles trace its own alpha (times its stack, when it has one), and a
+   * style's lengths are `scale` raster pixels per source pixel. `null` for a video, whose styles
+   * trace its stack alone.
+   */
+  readonly ownAlphaEdges: { readonly scale: number } | null;
 }
 
 export interface LayerMaskStack {
@@ -315,12 +323,21 @@ export function pictureRasterStep(
   const placed: PixelSize = crop ?? decoded;
   if (placed.width <= 0 || placed.height <= 0) return null;
 
-  // Only a video clip draws its mask stack; a still's stack is not exported yet (with_stack=False).
-  const stack = isVideo && layer.role === 'clip' ? clipMaskStack(clip, asset.media, tracks) : null;
+  // A still draws its mask stack in its own pixels, as a video does in its frame's (EL2b).
+  const stack =
+    layer.role === 'clip' ? clipMaskStack(clip, asset.media, tracks, { still: !isVideo }) : null;
   const drawable = stack !== null && stack.refusal === null ? stack : null;
   const mask: LayerMaskStack | null =
     drawable === null ? null : { stack: drawable, clipTime: layer.localTime };
   const alphaStack = drawable !== null && drawable.alpha.length > 0;
+  // EL2b: a still traces its own alpha (× its stack); lengths in its own pixels, as a mask's.
+  const ownAlphaEdges =
+    !isVideo &&
+    layer.role === 'clip' &&
+    (layer.edgeStyles?.length ?? 0) > 0 &&
+    stack?.refusal == null
+      ? { scale: edgeDistanceScale(clip.crop, size, placed.width, placed.height) }
+      : null;
   const { opacity, blurRadius, wipe, transitions } = layerAlphaWork(
     layer,
     clip,
@@ -391,7 +408,8 @@ export function pictureRasterStep(
     y,
     blendMode: layer.blendMode,
     effects: layer.effects,
-    edgeStyles: alphaStack ? (layer.edgeStyles ?? []) : [],
+    edgeStyles: alphaStack || ownAlphaEdges !== null ? (layer.edgeStyles ?? []) : [],
+    ownAlphaEdges,
   };
 }
 
@@ -528,5 +546,6 @@ export function textRasterStep(
     blendMode: layer.blendMode,
     effects: [],
     edgeStyles: [],
+    ownAlphaEdges: null,
   };
 }

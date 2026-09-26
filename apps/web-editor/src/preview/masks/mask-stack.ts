@@ -245,6 +245,12 @@ function refusal(
   return { clipId: clip.id, maskId: mask.id, task, message };
 }
 
+/** Why a still cannot take this mask: the export's `_refuse_still_only_video_masks`, reworded. */
+function stillVideoOnlySentence(mask: MaskLayer): string {
+  const what = mask.kind === 'matte' ? 'Background removal' : 'A tracked mask';
+  return `${what} needs video, and this clip is a still image. Remove that mask, or draw a shape mask on the photo instead.`;
+}
+
 const isLegacy = (mask: MaskLayer): boolean => mask.featherModel === 'gaussian-legacy';
 
 /**
@@ -425,11 +431,14 @@ function pathVertexCountsMatch(mask: PathMask): boolean {
  *
  * @param clip - The clip.
  * @param media - Its asset's measured media (masks are stored in display-corrected pixels).
+ * @param options.still - The clip shows a still image: a background removal or a tracked mask,
+ *   both measured on video, is refused as the export refuses it (plan/elements EL2b).
  */
 export function clipMaskStack(
   clip: Clip,
   media: Asset['media'] | null | undefined,
   tracks: ReadonlyMap<string, TrackArtifact> = new Map(),
+  options: { readonly still?: boolean } = {},
 ): ClipMaskStack | null {
   const enabled = masksOf(clip).filter((mask) => mask.enabled);
   if (enabled.length === 0) return null;
@@ -444,6 +453,9 @@ export function clipMaskStack(
     tracks,
   });
   for (const mask of enabled) {
+    if (options.still === true && (mask.kind === 'matte' || mask.tracking !== undefined)) {
+      return refuse(refusal(clip, mask, null, stillVideoOnlySentence(mask)));
+    }
     const refused = refusalFor(clip, mask, size);
     if (refused !== null) return refuse(refused);
     // A tracked mask is drawn only once its (small, digest-checked) artifact is in hand: the

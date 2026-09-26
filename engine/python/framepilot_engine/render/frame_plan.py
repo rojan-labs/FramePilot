@@ -921,10 +921,11 @@ def _edge_styles_json(clip: Clip) -> list[dict[str, Any]]:
 
 
 def _image_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer:
-    """A still: its crop, opacity and transitions, as the video path has them (EL2a).
+    """A still: its crop, opacity, masks, transitions and edge styles, as a video's (EL2a, EL2b).
 
-    Masks and edge styles stay video-only for now (the export does not draw them on stills), and
-    a still borrows no under-layer: its ramp composites over whatever is beneath it.
+    Its mask stack is in its own pixels and runs on the clip's source clock, with no source
+    frame; its edge styles trace the stack times its own alpha. A still borrows no under-layer:
+    its ramp composites over whatever is beneath it.
     """
     local = ctx.t - clip.start
     transition = legacy_transition(clip)
@@ -941,7 +942,9 @@ def _image_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer:
         opacity=layer_opacity_at(clip, local, transition),
         blend_mode=_blend(clip),
         effects=_effects_json(clip),
+        mask=_mask_plan_json(clip, local, None),
         transitions=_transition_states(clip, local),
+        edge_styles=_edge_styles_json(clip),
     )
 
 

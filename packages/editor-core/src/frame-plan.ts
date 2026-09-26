@@ -1024,9 +1024,10 @@ function edgeStylesPlan(clip: Clip): { edgeStyles?: readonly FramePlanEdgeStyle[
 
 function imageLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer {
   const local = ctx.t - clip.start;
-  // A still is a picture layer like any other (plan/elements EL2a): its crop, opacity and
-  // transitions, as the video path has them. Masks and edge styles stay video-only for now,
-  // and a still borrows no under-layer.
+  // A still is a picture layer like any other (plan/elements EL2a, EL2b): its crop, opacity,
+  // masks, transitions and edge styles, as the video path has them. Its mask stack is in its own
+  // pixels with no source frame; its edge styles trace the stack times its own alpha. A still
+  // borrows no under-layer.
   const tr = legacyTransition(clip);
   return {
     ...baseLayer('picture', track.id, clip.id, local),
@@ -1036,7 +1037,9 @@ function imageLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer {
     opacity: layerOpacityAt(clip, local, tr),
     blendMode: clip.blendMode ?? 'normal',
     effects: effectsJson(clip),
+    mask: maskPlan(clip, local, null),
     transitions: transitionStates(clip, local),
+    ...edgeStylesPlan(clip),
   };
 }
 

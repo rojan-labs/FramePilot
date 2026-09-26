@@ -876,6 +876,360 @@
           "frameEffects": []
         }
       ]
+    },
+    {
+      "id": "stickers-outline-shadow",
+      "row": "Stickers: an outline and a shadow traced around its own alpha (EL2b)",
+      "description": "A sticker with no mask, outlined and shadowed: the edge styles trace its transparent margin, and the picture goes over them.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-stickers-outline-shadow",
+        "name": "stickers-outline-shadow",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          },
+          {
+            "id": "element_fluent3d_fire",
+            "path": "media/elements/fluent3d/fire.webp",
+            "kind": "image",
+            "media": {
+              "width": 318,
+              "height": 318
+            },
+            "folderId": "folder_elements",
+            "source": {
+              "provider": "fluent-emoji",
+              "remoteId": "fire",
+              "license": "mit",
+              "licenseUrl": "https://github.com/microsoft/fluentui-emoji/blob/1ffb34c752ecf5d402f04cfb4b392c77f57c54bc/LICENSE",
+              "attributionRequired": false,
+              "attribution": "Fluent Emoji by Microsoft (MIT)",
+              "creator": "Microsoft",
+              "sourceUrl": "https://raw.githubusercontent.com/microsoft/fluentui-emoji/1ffb34c752ecf5d402f04cfb4b392c77f57c54bc/assets/Fire/3D/fire_3d.png",
+              "fetchedAt": "2026-09-26T00:00:00.000Z"
+            }
+          }
+        ],
+        "folders": [
+          {
+            "id": "folder_elements",
+            "name": "Elements",
+            "parentId": null
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "o1",
+              "type": "overlay",
+              "clips": [
+                {
+                  "id": "st",
+                  "assetId": "element_fluent3d_fire",
+                  "trackId": "o1",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [
+                    {
+                      "id": "st__edge_shadow",
+                      "type": "edge_style",
+                      "params": {
+                        "kind": "shadow",
+                        "offsetXPx": 10,
+                        "offsetYPx": 12,
+                        "softnessPx": 8,
+                        "opacity": 0.6
+                      }
+                    },
+                    {
+                      "id": "st__edge_stroke",
+                      "type": "edge_style",
+                      "params": {
+                        "kind": "stroke",
+                        "widthPx": 10,
+                        "red": 255,
+                        "green": 255,
+                        "blue": 255
+                      }
+                    }
+                  ],
+                  "keyframes": [
+                    {
+                      "id": "kf_st_scale_base",
+                      "time": 0.0,
+                      "property": "scale",
+                      "value": 0.3727,
+                      "easing": "linear"
+                    },
+                    {
+                      "id": "kf_st_x_base",
+                      "time": 0.0,
+                      "property": "x",
+                      "value": 0,
+                      "easing": "linear"
+                    },
+                    {
+                      "id": "kf_st_y_base",
+                      "time": 0.0,
+                      "property": "y",
+                      "value": 0,
+                      "easing": "linear"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        1.0,
+        3.0
+      ],
+      "expected": [
+        {
+          "time": 1.0,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 1.0,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 1.0,
+                "frame": 30
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "edgeStyles": [
+                {
+                  "kind": "shadow",
+                  "params": {
+                    "offsetXPx": 10.0,
+                    "offsetYPx": 12.0,
+                    "softnessPx": 8.0,
+                    "red": 0.0,
+                    "green": 0.0,
+                    "blue": 0.0,
+                    "opacity": 0.6
+                  }
+                },
+                {
+                  "kind": "stroke",
+                  "params": {
+                    "widthPx": 10.0,
+                    "red": 255.0,
+                    "green": 255.0,
+                    "blue": 255.0,
+                    "opacity": 1.0
+                  }
+                }
+              ],
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "o1",
+              "clipId": "st",
+              "forClipId": null,
+              "localTime": 1.0,
+              "source": {
+                "assetId": "element_fluent3d_fire",
+                "assetKind": "image",
+                "time": null,
+                "frame": null
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 2.2641509433962264,
+                "scale": 0.8438490566037735,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 505.828,
+                "top": 225.828,
+                "width": 268.344,
+                "height": 268.344
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        },
+        {
+          "time": 3.0,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 3.0,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 3.0,
+                "frame": 90
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "edgeStyles": [
+                {
+                  "kind": "shadow",
+                  "params": {
+                    "offsetXPx": 10.0,
+                    "offsetYPx": 12.0,
+                    "softnessPx": 8.0,
+                    "red": 0.0,
+                    "green": 0.0,
+                    "blue": 0.0,
+                    "opacity": 0.6
+                  }
+                },
+                {
+                  "kind": "stroke",
+                  "params": {
+                    "widthPx": 10.0,
+                    "red": 255.0,
+                    "green": 255.0,
+                    "blue": 255.0,
+                    "opacity": 1.0
+                  }
+                }
+              ],
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "o1",
+              "clipId": "st",
+              "forClipId": null,
+              "localTime": 3.0,
+              "source": {
+                "assetId": "element_fluent3d_fire",
+                "assetKind": "image",
+                "time": null,
+                "frame": null
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 2.2641509433962264,
+                "scale": 0.8438490566037735,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 505.828,
+                "top": 225.828,
+                "width": 268.344,
+                "height": 268.344
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        }
+      ]
     }
   ]
 }

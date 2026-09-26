@@ -221,9 +221,8 @@ describe('stills and titles take the picture pipeline (plan/elements EL2a)', () 
     expect(stepFor(dissolved, still(800, 600), 0.5)?.transitions).toHaveLength(1);
   });
 
-  it('never draws a still’s mask stack, which the export does not draw yet', () => {
-    const host = clip('s', 'png');
-    const mask = MaskLayerSchema.parse(
+  const ellipseMask = (host: Clip) =>
+    MaskLayerSchema.parse(
       maskLayerFromLegacyMaskEffect(
         {
           id: 's__mask',
@@ -234,9 +233,65 @@ describe('stills and titles take the picture pipeline (plan/elements EL2a)', () 
         { width: 800, height: 600 },
       ),
     );
-    const step = stepFor({ ...host, masks: [mask] }, still(800, 600));
-    expect(step?.mask).toBeNull();
+  const outline = {
+    id: 's__edge',
+    type: 'edge_style',
+    params: { kind: 'stroke', widthPx: 8, red: 0, green: 0, blue: 255 },
+    keyframes: [],
+  };
+
+  it('draws a still’s mask stack in its own pixels, as the export does (EL2b)', () => {
+    const host = clip('s', 'png');
+    const step = stepFor({ ...host, masks: [ellipseMask(host)] }, still(800, 600));
+    expect(step?.mask?.stack.alpha.map((mask) => mask.id)).toEqual(['s__mask']);
     expect(step?.maskRefusal).toBeNull();
+  });
+
+  it('outlines a still around its own alpha, with or without a mask (EL2b)', () => {
+    const host = clip('s', 'png', { effects: [outline] });
+    const bare = stepFor(host, still(800, 600));
+    expect(bare?.mask).toBeNull();
+    expect(bare?.edgeStyles.map((style) => style.kind)).toEqual(['stroke']);
+    // The 800x600 still is drawn at its own size here, so a source pixel is a raster pixel.
+    expect(bare?.ownAlphaEdges).toEqual({ scale: 1 });
+    const masked = stepFor({ ...host, masks: [ellipseMask(host)] }, still(800, 600));
+    expect(masked?.edgeStyles).toHaveLength(1);
+    expect(masked?.ownAlphaEdges).toEqual({ scale: 1 });
+  });
+
+  it('keeps a video’s edge styles on its stack alone: it has no alpha of its own', () => {
+    const host = clip('c', 'land', { effects: [outline] });
+    const step = stepFor(host, video('land', 1920, 1080));
+    expect(step?.edgeStyles).toEqual([]);
+    expect(step?.ownAlphaEdges).toBeNull();
+  });
+
+  it('refuses, visibly, a background removal on a still, which needs video', () => {
+    const host = clip('s', 'png');
+    const matte = MaskLayerSchema.parse({
+      id: 's__matte',
+      kind: 'matte',
+      artifact: {
+        key: 'a'.repeat(64),
+        files: [
+          { name: 'matte.mkv', sha256: 'e'.repeat(64) },
+          { name: 'frames.json', sha256: 'f'.repeat(64) },
+          { name: 'report.json', sha256: 'd'.repeat(64) },
+        ],
+        width: 800,
+        height: 600,
+        coverage: { sourceStart: 0, sourceEnd: 4 },
+        packId: 'p',
+        packVersion: '1',
+        modelDigests: [],
+      },
+      decontaminate: false,
+    });
+    const step = stepFor({ ...host, masks: [matte] }, still(800, 600));
+    expect(step?.mask).toBeNull();
+    expect(step?.maskRefusal?.message).toBe(
+      'Background removal needs video, and this clip is a still image. Remove that mask, or draw a shape mask on the photo instead.',
+    );
   });
 
   const title = (params: Record<string, unknown>, extra: Partial<Clip> = {}): Clip =>

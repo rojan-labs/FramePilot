@@ -208,6 +208,63 @@ def test_the_frame_plan_carries_a_stills_crop_and_opacity(media: Path) -> None:
     assert layer.geometry.height == pytest.approx(320.0)
 
 
+# --- EL2b: masks and edge styles on stills -------------------------------------------------
+# The sticker fits the 640x360 frame at 1.8x, centred: sticker pixel (sx, sy) lands on frame
+# (140 + 1.8 sx, 1.8 sy). Its red square (50..150) covers frame x 230..410, y 90..270.
+
+
+def _circle_mask(**extra: Any) -> dict[str, Any]:
+    # In the still's own pixels, like a mask on footage: radius 30 around the sticker's centre.
+    return {"kind": "ellipse", "id": "m", "cx": 100, "cy": 100, "rx": 30, "ry": 30, **extra}
+
+
+def _outline(width: float = 8.0) -> dict[str, Any]:
+    return {
+        "id": "s1__edge",
+        "type": "edge_style",
+        "params": {"kind": "stroke", "widthPx": width, "red": 0, "green": 0, "blue": 255},
+        "keyframes": [],
+    }
+
+
+def _blue(pixel: Any) -> bool:
+    """The outline's blue, allowing the few levels the still's Lanczos resize bleeds in."""
+    return isinstance(pixel, tuple) and pixel[2] >= 245 and pixel[0] <= 20 and pixel[1] <= 20
+
+
+def test_a_mask_cuts_a_still(media: Path) -> None:
+    # Sticker pixel (60, 60): inside the red square, outside the circle.
+    corner = (248, 108)
+    plain = _frame(_project(_still()), media, 1.0)
+    masked = _frame(_project(_still(masks=[_circle_mask()])), media, 1.0)
+    assert plain.getpixel(corner) == RED
+    assert masked.getpixel(corner) == WHITE
+    assert masked.getpixel((320, 180)) == RED
+
+
+def test_an_outline_traces_a_stills_own_alpha_when_it_has_no_mask(media: Path) -> None:
+    # Eight source pixels = 14.4 frame pixels outside the red square's top edge (y = 90).
+    frame = _frame(_project(_still(effects=[_outline()])), media, 1.0)
+    assert _blue(frame.getpixel((320, 80)))
+    assert frame.getpixel((320, 70)) == WHITE
+    assert frame.getpixel((320, 180)) == RED
+
+
+def test_an_outline_traces_what_the_mask_leaves_of_a_still(media: Path) -> None:
+    # The circle (radius 54 frame px) is inside the red square: the outline follows the circle.
+    frame = _frame(_project(_still(masks=[_circle_mask()], effects=[_outline()])), media, 1.0)
+    assert _blue(frame.getpixel((320, 180 - 54 - 6)))
+    assert frame.getpixel((248, 108)) == WHITE
+
+
+def test_the_frame_plan_carries_a_stills_mask_and_edge_styles(media: Path) -> None:
+    plan = frame_plan_at(_project(_still(masks=[_circle_mask()], effects=[_outline()])), 1.0)
+    layer = next(layer for layer in plan.layers if layer.clip_id == "s1")
+    assert layer.mask is not None
+    assert [entry["id"] for entry in layer.mask["layers"]] == ["m"]
+    assert [style["kind"] for style in layer.edge_styles] == ["stroke"]
+
+
 # --- titles --------------------------------------------------------------------------------
 
 

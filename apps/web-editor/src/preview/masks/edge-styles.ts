@@ -221,6 +221,30 @@ export function applyEdgeStylesCpu(
 }
 
 /**
+ * EL2b: a still's cut-out for its edge styles, its own alpha times its alpha stack's coverage
+ * when it has one (`_apply_edge_styles` multiplies them), written as the coverage the row pass
+ * reads: 255 inside, 0 outside, so the row pass's `>= ½` test is exactly the engine's.
+ *
+ * @param masked - Whether a stack coverage texture (`u_mask`, R8UI `q / 255 · u_maskScale`) is
+ *   bound; without one the cut-out is the picture's alpha alone.
+ */
+export function edgeOwnAlphaFragment(masked: boolean): string {
+  return `#version 300 es
+precision highp float;
+precision highp int;
+precision highp usampler2D;
+uniform sampler2D u_picture;
+${masked ? 'uniform usampler2D u_mask;\nuniform float u_maskScale;' : ''}
+out uvec4 o_value;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float cut = texelFetch(u_picture, p, 0).a;
+  ${masked ? 'cut *= float(texelFetch(u_mask, p, 0).r) / 255.0 * u_maskScale;' : ''}
+  o_value = uvec4(cut >= 0.5 ? 255u : 0u, 0u, 0u, 255u);
+}`;
+}
+
+/**
  * Row pass: per pixel, the nearest cut-out column within `u_reach` (or `u_reach + 1`), reading
  * the stack coverage (R8UI, `q / 255 · scale`) at the pixel moved back by the shadow offset.
  */

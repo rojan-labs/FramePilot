@@ -55,6 +55,7 @@ import {
   EDGE_MAX_STYLES,
   EDGE_PREVIEW_MAX_REACH,
   EDGE_ROW_FRAGMENT,
+  edgeOwnAlphaFragment,
   edgeDistanceScale,
   edgeReach,
   edgeShift,
@@ -557,7 +558,11 @@ export class LayerCompositor {
     }
     // MK9.2: the outline, glow and shadow go under the cut picture, after despill, as
     // `_apply_edge_styles` draws them. Not in the mask views, which show the stack itself.
-    if (viewMode === 0 && step.edgeStyles.length > 0 && step.mask !== null) {
+    if (
+      viewMode === 0 &&
+      step.edgeStyles.length > 0 &&
+      (step.mask !== null || step.ownAlphaEdges !== null)
+    ) {
       current = this.edgeStyles(current, step, mattes, keyed);
     }
     for (const half of step.transitions) {
@@ -994,9 +999,37 @@ export class LayerCompositor {
   }
 
   /**
+   * EL2b: a still's cut-out, its own alpha (`picture`'s) times `stack` coverage when it has one,
+   * as the binary R8UI coverage the edge row pass reads.
+   */
+  private ownAlphaCut(
+    picture: RenderTarget,
+    stack: { texture: WebGLTexture; scale: number } | null,
+  ): { texture: WebGLTexture; scale: number } {
+    const r = this.resources;
+    const gl = this.gl;
+    const cut = r.target(picture.width, picture.height, 'r8ui');
+    const masked = stack !== null;
+    const program = r.program(
+      masked ? 'edge-own-alpha-masked' : 'edge-own-alpha',
+      edgeOwnAlphaFragment(masked),
+    );
+    gl.useProgram(program.handle);
+    r.bind(program, 'u_picture', 0, picture.texture);
+    if (stack !== null) {
+      r.bind(program, 'u_mask', 1, stack.texture);
+      gl.uniform1f(program.location('u_maskScale'), stack.scale);
+    }
+    r.draw(cut, picture.width, picture.height);
+    return { texture: cut.texture, scale: 1 };
+  }
+
+  /**
    * The clip's cut-out edge styles under its picture (MK9.2, `render/edge_styles.py`): per style a
-   * row and a column distance pass over the alpha stack's coverage, then one composite. Needs
-   * float targets; without them the picture is shown without its styles and the log says why.
+   * row and a column distance pass over the cut-out, then one composite. The cut-out is the alpha
+   * stack's coverage, times a still's own alpha (EL2b): `keyed`, the picture as it stood before
+   * its alpha was attached, carries that alpha. Needs float targets; without them the picture is
+   * shown without its styles and the log says why.
    */
   private edgeStyles(
     picture: RenderTarget,
@@ -1004,20 +1037,28 @@ export class LayerCompositor {
     mattes: MatteStackInputs | null,
     keyed: RenderTarget,
   ): RenderTarget {
-    const stack = step.mask!.stack;
-    if (stack.size === null || !this.floatTargetsAvailable()) return picture;
+    const stack = step.mask?.stack ?? null;
+    if (!this.floatTargetsAvailable()) return picture;
+    if (step.ownAlphaEdges === null && (stack === null || stack.size === null)) return picture;
     const { width, height } = picture;
-    const coverage = this.stackCoverage(
-      stack,
-      { kind: 'alpha' },
-      width,
-      height,
-      step.mask!.clipTime,
-      mattes,
-      keyed,
-    );
+    let coverage: { texture: WebGLTexture; scale: number } | null = null;
+    if (stack !== null && stack.alpha.length > 0) {
+      coverage = this.stackCoverage(
+        stack,
+        { kind: 'alpha' },
+        width,
+        height,
+        step.mask!.clipTime,
+        mattes,
+        keyed,
+      );
+      if (coverage === null) return picture;
+    }
+    if (step.ownAlphaEdges !== null) coverage = this.ownAlphaCut(keyed, coverage);
     if (coverage === null) return picture;
-    const scale = edgeDistanceScale(stack.clip.crop, stack.size, width, height);
+    const scale =
+      step.ownAlphaEdges?.scale ?? edgeDistanceScale(stack!.clip.crop, stack!.size!, width, height);
+    const clipId = stack?.clip.id ?? step.assetId;
     const r = this.resources;
     const gl = this.gl;
     const drawn: { style: FramePlanEdgeStyle; distance: RenderTarget }[] = [];
@@ -1025,7 +1066,7 @@ export class LayerCompositor {
       const reach = edgeReach(style, scale);
       if (reach > EDGE_PREVIEW_MAX_REACH) {
         log.warn('edge style too wide for the monitor; the export still draws it', {
-          clipId: stack.clip.id,
+          clipId,
           kind: style.kind,
         });
         continue;
