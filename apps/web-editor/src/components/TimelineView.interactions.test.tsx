@@ -13,6 +13,8 @@ import { useEditor } from '../editor/useEditor.js';
 import { TimelineView } from './TimelineView.js';
 import { ASSET_DND_TYPE } from './MediaBin.js';
 import { TEXT_OVERLAY_DND_TYPE } from './OverlaysPanel.js';
+import { ELEMENT_DND_TYPE, encodeElementDrag } from './elements/element-dnd.js';
+import { shapeAddedAnnouncement } from '../editor/element-announcements.js';
 
 /** One short clip on a single video track with empty room to move into. */
 const timeline: Timeline = {
@@ -470,6 +472,130 @@ describe('TimelineView direct manipulation', () => {
     fireEvent(lane, dropEvent);
     // A new text-overlay clip is created at the drop point (alongside c1).
     expect(container.querySelectorAll('.clip-block').length).toBe(2);
+  });
+
+  it('drops a shape tile from Elements as a graphic clip with its glyph, never on the footage lane', () => {
+    const { container } = render(<Host />);
+    const lane = container.querySelector('[data-track-id="v"]') as HTMLElement;
+    const payload = encodeElementDrag({
+      kind: 'shape',
+      presetId: 'star-5/white',
+      colour: '#FF3B30',
+    });
+    const dataTransfer = {
+      getData: (type: string) => (type === ELEMENT_DND_TYPE ? payload : ''),
+      types: [ELEMENT_DND_TYPE],
+    };
+    const dropEvent = new MouseEvent('drop', { bubbles: true, clientX: 300 });
+    Object.defineProperty(dropEvent, 'dataTransfer', { value: dataTransfer });
+    fireEvent(lane, dropEvent);
+    const graphic = container.querySelector('.clip-block.is-graphic') as HTMLElement;
+    expect(graphic).toBeTruthy();
+    // Dropped on the video lane, the shape still goes on a graphics lane of its own.
+    expect(lane.querySelector('.clip-block.is-graphic')).toBeNull();
+    expect(graphic.style.left).toBe('300px');
+    expect(graphic.querySelector('.clip-shape-glyph')).toBeTruthy();
+  });
+
+  it('selects a shape dropped on a lane and has the host say where it landed', () => {
+    const onAnnounce = vi.fn();
+    function ShapeHost(): JSX.Element {
+      const editor = useEditor(timeline, ['a']);
+      return <TimelineView editor={editor} assets={[]} fps={30} onAnnounce={onAnnounce} />;
+    }
+    const { container } = render(<ShapeHost />);
+    const lane = container.querySelector('[data-track-id="v"]') as HTMLElement;
+    const payload = encodeElementDrag({ kind: 'shape', presetId: 'star-5/white', colour: null });
+    const dataTransfer = {
+      getData: (type: string) => (type === ELEMENT_DND_TYPE ? payload : ''),
+      types: [ELEMENT_DND_TYPE],
+    };
+    const dropEvent = new MouseEvent('drop', { bubbles: true, clientX: 300 });
+    Object.defineProperty(dropEvent, 'dataTransfer', { value: dataTransfer });
+    fireEvent(lane, dropEvent);
+    const graphic = container.querySelector('.clip-block.is-graphic') as HTMLElement;
+    expect(graphic.getAttribute('data-selected')).toBe('true');
+    // 300 px at 40 px/s: it lands at 7.5 s, and is said by what it is.
+    expect(onAnnounce).toHaveBeenCalledWith(shapeAddedAnnouncement('star-5/white', 7.5));
+  });
+
+  it('hands a sticker tile dropped on a lane to the host, by id, at the drop time', () => {
+    const onDropSticker = vi.fn();
+    function StickerHost(): JSX.Element {
+      const editor = useEditor(
+        { tracks: [...timeline.tracks, { id: 'o', type: 'overlay', clips: [] }] },
+        ['a'],
+      );
+      return <TimelineView editor={editor} assets={[]} fps={30} onDropSticker={onDropSticker} />;
+    }
+    const { container } = render(<StickerHost />);
+    const drop = (trackId: string): void => {
+      const lane = container.querySelector(`[data-track-id="${trackId}"]`) as HTMLElement;
+      const payload = encodeElementDrag({ kind: 'sticker', elementId: 'fire' });
+      const dataTransfer = {
+        getData: (type: string) => (type === ELEMENT_DND_TYPE ? payload : ''),
+        types: [ELEMENT_DND_TYPE],
+      };
+      const dropEvent = new MouseEvent('drop', { bubbles: true, clientX: 300 });
+      Object.defineProperty(dropEvent, 'dataTransfer', { value: dataTransfer });
+      fireEvent(lane, dropEvent);
+    };
+    // On a graphics lane it asks for that lane; on footage it leaves the lane to the placer.
+    drop('o');
+    drop('v');
+    expect(onDropSticker.mock.calls).toEqual([
+      ['fire', expect.any(Number), 'o'],
+      ['fire', expect.any(Number), undefined],
+    ]);
+    const [[, onGraphics], [, onFootage]] = onDropSticker.mock.calls as [
+      [string, number],
+      [string, number],
+    ];
+    expect(onGraphics).toBeGreaterThan(0);
+    expect(onFootage).toBe(onGraphics);
+    // Nothing is placed until main has copied the file in: the host does both.
+    expect(container.querySelectorAll('.clip-block')).toHaveLength(1);
+  });
+
+  it('hands a photo or video tile dropped on a lane to the host, by provider id, at the drop time', () => {
+    const onDropStock = vi.fn();
+    function StockHost(): JSX.Element {
+      const editor = useEditor(
+        {
+          tracks: [
+            ...timeline.tracks,
+            { id: 'o', type: 'overlay', clips: [] },
+            { id: 'locked', type: 'video', locked: true, clips: [] },
+          ],
+        },
+        ['a'],
+      );
+      return <TimelineView editor={editor} assets={[]} fps={30} onDropStock={onDropStock} />;
+    }
+    const { container } = render(<StockHost />);
+    const drop = (trackId: string): void => {
+      const lane = container.querySelector(`[data-track-id="${trackId}"]`) as HTMLElement;
+      const payload = encodeElementDrag({ kind: 'stock', mediaKind: 'video', remoteId: '3129671' });
+      const dataTransfer = {
+        getData: (type: string) => (type === ELEMENT_DND_TYPE ? payload : ''),
+        types: [ELEMENT_DND_TYPE],
+      };
+      const dropEvent = new MouseEvent('drop', { bubbles: true, clientX: 300 });
+      Object.defineProperty(dropEvent, 'dataTransfer', { value: dataTransfer });
+      fireEvent(lane, dropEvent);
+    };
+    // A picture lane is named; a graphics lane or a locked one leaves the lane to the placer.
+    drop('v');
+    drop('o');
+    drop('locked');
+    expect(onDropStock.mock.calls).toEqual([
+      ['3129671', 'video', expect.any(Number), 'v'],
+      ['3129671', 'video', expect.any(Number), undefined],
+      ['3129671', 'video', expect.any(Number), undefined],
+    ]);
+    expect(onDropStock.mock.calls[0]![2]).toBeGreaterThan(0);
+    // Nothing is placed until main has downloaded it: the host does both.
+    expect(container.querySelectorAll('.clip-block')).toHaveLength(1);
   });
 
   it('adds a new layer at the front via the Add-track menu (Phase 2 / TIMELINE-TOOLBAR-REORG)', () => {

@@ -428,6 +428,25 @@ def test_enumerates_visual_assets_from_brain(
     assert body["total"] == 1 and body["indexed"] == 1
 
 
+def test_stickers_are_never_indexed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A sticker is an element, not footage (plan/elements EL6a.6).
+
+    It gets a brain row the moment anything analyses it, and it is a still with frames, so
+    only its id keeps it out of the worklist the footage map and visual search are built on.
+    """
+    client = _client(tmp_path, monkeypatch)
+    _seed_asset(tmp_path, "p1", "vid", "clip.mp4", _video_probe())
+    _seed_asset(
+        tmp_path, "p1", "element_fluent3d_fire", "elements/fluent3d/fire.webp", _image_probe()
+    )
+    body = _index(client).json()
+    assert body["total"] == 1 and body["indexed"] == 1
+    assert [item["assetId"] for item in body["items"]] == ["vid"]
+    # Asked for by id (the agent's index_media names what it wants), still skipped.
+    named = _index(client, assetIds=["element_fluent3d_fire", "vid"]).json()
+    assert named["total"] == 1
+
+
 # --- Key exhaustion -------------------------------------------------------------
 
 

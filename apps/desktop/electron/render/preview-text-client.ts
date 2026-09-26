@@ -21,7 +21,9 @@ const REQUEST_TIMEOUT_MS = 5_000;
 
 function invalid(req: unknown): string | null {
   const r = (req ?? {}) as Partial<PreviewTextRasterRequest>;
-  if (r.kind !== 'text' && r.kind !== 'caption') return 'Unknown text raster kind.';
+  if (r.kind !== 'text' && r.kind !== 'caption' && r.kind !== 'shape') {
+    return 'Unknown text raster kind.';
+  }
   const edgeOk = (value: unknown): boolean =>
     typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= MAX_FRAME_EDGE;
   if (!edgeOk(r.frameWidth) || !edgeOk(r.frameHeight)) return 'Invalid frame size.';
@@ -29,6 +31,12 @@ function invalid(req: unknown): string | null {
     if (typeof r.text !== 'string' || r.text.length > MAX_TEXT_LENGTH) return 'Invalid caption.';
     if (r.trackStyle !== undefined || r.clipStyle !== undefined) return invalidStyled(r);
   } else if (typeof r.params !== 'object' || r.params === null || Array.isArray(r.params)) {
+    return r.kind === 'shape' ? 'Invalid shape params.' : 'Invalid text params.';
+  } else if (r.kind === 'shape') {
+    // The engine validates the shape itself; the host only bounds what crosses the boundary.
+    if (JSON.stringify(r.params).length > MAX_STYLE_JSON_LENGTH) return 'Invalid shape params.';
+    if (r.rotates !== undefined && typeof r.rotates !== 'boolean') return 'Invalid shape params.';
+  } else if (r.rotates !== undefined && typeof r.rotates !== 'boolean') {
     return 'Invalid text params.';
   }
   return null;
@@ -58,10 +66,26 @@ function invalidStyled(r: Partial<PreviewTextRasterRequest>): string | null {
   return words.every(wordOk) ? null : 'Invalid caption words.';
 }
 
-/** The sidecar's wire body for a validated request (snake_case, only the fields it reads). */
-function wireBody(r: PreviewTextRasterRequest): Record<string, unknown> {
+/**
+ * The sidecar's wire body for a validated request (snake_case, only the fields it reads).
+ * Exported for the e2e hosts that stand in for main (the PX4 oracle, the fake desktop), so they
+ * send exactly what the desktop sends: a copy of this body drifted once, and the oracle compared
+ * a tight title raster with the export's rotation-safe one.
+ */
+export function previewTextWireBody(r: PreviewTextRasterRequest): Record<string, unknown> {
   const frame = { frame_width: r.frameWidth, frame_height: r.frameHeight };
-  if (r.kind === 'text') return { kind: 'text', params: r.params, ...frame };
+  if (r.kind === 'text') {
+    // EL2b.4: a turning title is drawn in the rotation-safe square the export turns it inside.
+    return {
+      kind: 'text',
+      params: r.params,
+      ...(r.rotates === true ? { rotates: true } : {}),
+      ...frame,
+    };
+  }
+  if (r.kind === 'shape') {
+    return { kind: 'shape', params: r.params, rotates: r.rotates === true, ...frame };
+  }
   if (r.trackStyle === undefined && r.clipStyle === undefined) {
     return { kind: 'caption', text: r.text, ...frame };
   }
@@ -100,7 +124,7 @@ export async function previewTextRasterViaSidecar(
     response = await fetchFn(`${baseUrl}/preview/text-raster`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(wireBody(r)),
+      body: JSON.stringify(previewTextWireBody(r)),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (error) {

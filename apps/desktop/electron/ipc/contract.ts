@@ -93,6 +93,8 @@ export const IpcChannels = {
   stockDownloadProgress: 'framepilot:stock:download-progress',
   stockQuota: 'framepilot:stock:quota',
   stockQuotaChanged: 'framepilot:stock:quota-changed',
+  elementsMaterialize: 'framepilot:elements:materialize',
+  elementsThumbnail: 'framepilot:elements:thumbnail',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];
@@ -114,6 +116,12 @@ export type {
   StockBytesResult,
   StockDownloadRequest,
   StockDownloadResult,
+  ElementAssetWire,
+  ElementErrorCodeWire,
+  ElementMaterializeRequest,
+  ElementMaterializeResult,
+  ElementThumbnailRequest,
+  ElementThumbnailResult,
   StockDownloadedAssetWire,
   StockDownloadProgressWire,
   StockQuotaObservationWire,

@@ -32,6 +32,20 @@ test.describe('view preferences persist across a reload', () => {
     await expect(selectedLeftTab(page)).toBeVisible();
   });
 
+  test('a rail left on the old Stock tab reopens on a tab that exists', async ({ page }) => {
+    // `stock` became `elements` (plan/elements). On the desktop the stored value lands on
+    // Elements (Editor.left-tabs.test.ts); this browser build has no Elements tab, so the
+    // renamed value must fall back to the default rather than select a panel with no tab.
+    await openEditor(page);
+    await page.evaluate(() => localStorage.setItem('framepilot.view.leftTab', '"stock"'));
+    await page.reload();
+    await expect(page.getByLabel('project name')).toHaveText('Demo Project');
+    await expect(page.getByRole('tab', { name: 'Assets' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
   test('the right rail reopens on the panel it was left on', async ({ page }) => {
     await openEditor(page);
     await page.getByRole('tab', { name: 'Inspector' }).click();

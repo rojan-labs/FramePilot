@@ -42,14 +42,28 @@ if (runs.length > 0) {
   lines.push('');
 }
 if (existsSync(join(RESULTS, 'export-ratio.json'))) {
+  // One plain export, and each variant compared with it under its own budget
+  // (engine/python/tests/px5_export_ratio.py). Logged, never gated here: a short window reads high.
   const ratio = read('export-ratio.json');
+  const baseline = ratio.runs[ratio.baseline];
   lines.push(
-    `### Export, masks + 4K matte vs without (${ratio.machine}, ${ratio.windowSeconds} s window)`,
+    `### Export time against the plain row (${ratio.machine}, ${ratio.windowSeconds} s window)`,
     '',
-    `plain ${ratio.runs['scale-plain'].seconds} s, with the matte ${ratio.runs.scale.seconds} s: ` +
-      `**${ratio.ratio}x** (budget ${ratio.budget}x)`,
+    `plain: ${baseline.seconds} s wall, ${baseline.cpuSeconds} s CPU. Logged, not gated: a short ` +
+      'window reads high (fixed costs weigh more), up to ~0.13 over the whole row for the matte.',
     '',
+    '| variant | adds | wall s | CPU s | ratio | CPU ratio | budget | within |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- |',
   );
+  for (const [variant, comparison] of Object.entries(ratio.comparisons)) {
+    const run = ratio.runs[variant];
+    lines.push(
+      `| ${variant} | ${comparison.adds} | ${run.seconds} | ${run.cpuSeconds} | ` +
+        `**${comparison.ratio}x** | ${comparison.cpuRatio}x | ${comparison.budget}x | ` +
+        `${comparison.withinBudget ? 'yes' : 'no'} |`,
+    );
+  }
+  lines.push('');
 }
 if (existsSync(join(RESULTS, 'pts-probe.json'))) {
   const probe = read('pts-probe.json');

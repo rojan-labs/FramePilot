@@ -19,12 +19,11 @@
  * screen reader announces the editor in. axe measures none of those honestly.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { clip, openEditor } from './helpers.js';
 
 /** WCAG A + AA only — the levels this product is holding itself to. */
-const scan = (page: Parameters<typeof AxeBuilder>[0]['page']): AxeBuilder =>
-  new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']);
+const scan = (page: Page): AxeBuilder => new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']);
 
 /**
  * Rule ids that already fail on `main` and are NOT this task's to fix. Naming
@@ -61,9 +60,7 @@ const KNOWN_VIOLATIONS: readonly string[] = [
 ];
 
 /** Fail on any violation whose rule is not already known and owned elsewhere. */
-async function expectNoNewViolations(
-  page: Parameters<typeof AxeBuilder>[0]['page'],
-): Promise<void> {
+async function expectNoNewViolations(page: Page): Promise<void> {
   const { violations } = await scan(page).analyze();
   const unexpected = violations.filter(({ id }) => !KNOWN_VIOLATIONS.includes(id));
   expect(

@@ -1,6 +1,8 @@
 # ADR 0140 — Stock media is placed as a cutaway, not an overlay
 
-**Status:** accepted
+**Status:** accepted; its gating role for **manual** picture-in-picture from the Photos and
+Videos panel is superseded by ADR 0193 (**Add** stays a cutaway under this ADR, and the agent's
+`add_stock` is unchanged)
 **Date:** 2026-08-24
 **Implements:** `plan/3rd-party-sourcing/photo-video` Phases 3–4
 **Related:** ADR 0139 (provider media is fetched in main), ADR 0048 (multi-layer

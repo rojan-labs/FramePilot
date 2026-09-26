@@ -105,10 +105,10 @@ export function paintTextOverlay(
   const blockHeight = lines.length * lineHeightPx;
   const maxLineWidth = lines.reduce((m, l) => Math.max(m, measure(l)), 0);
 
-  // Box centre in canvas px, plus the animation translate (percent of the box's
-  // own size, matching CSS `translate(%,%)`).
-  const cx = (params.xPercent / 100) * cw + (anim.txPercent / 100) * boxWidthPx;
-  const cy = (params.yPercent / 100) * ch + (anim.tyPercent / 100) * blockHeight;
+  // Box centre in canvas px, plus the animation's vertical travel (a share of the frame
+  // height, as the export moves a title).
+  const cx = (params.xPercent / 100) * cw;
+  const cy = (params.yPercent / 100) * ch + anim.dyFrame * ch;
 
   ctx.globalAlpha = anim.opacity;
   ctx.translate(cx, cy);

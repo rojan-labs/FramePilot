@@ -190,6 +190,7 @@ function TimelineMinimapImpl({
         <span
           key={`${block.clipId}:${i}`}
           className="mm-block"
+          data-graphic={block.graphic ? 'true' : undefined}
           aria-hidden="true"
           style={{
             left: `${block.x}px`,

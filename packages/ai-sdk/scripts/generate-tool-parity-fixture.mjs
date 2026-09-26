@@ -75,7 +75,7 @@
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const pkgRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(pkgRoot, '..', '..');
@@ -230,7 +230,9 @@ export const serializeFixture = (fixture) => `${JSON.stringify(fixture, null, 2)
 
 // Only write when invoked as a script, not when imported by the staleness test.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { TOOL_REGISTRY } = await import(join(pkgRoot, 'dist', 'tool-registry.js'));
+  const { TOOL_REGISTRY } = await import(
+    pathToFileURL(join(pkgRoot, 'dist', 'tool-registry.js')).href
+  );
   const fixture = buildFixture(TOOL_REGISTRY);
   mkdirSync(dirname(FIXTURE_PATH), { recursive: true });
   writeFileSync(FIXTURE_PATH, serializeFixture(fixture));

@@ -35,3 +35,11 @@ tests/fixtures/mask-render/legacy-v21.migrated.json
 # `python -m framepilot_engine.render.title_metrics`, which owns the formatting;
 # engine/python/tests/test_title_metrics.py asserts the file byte for byte.
 packages/ai-sdk/src/title-metrics.generated.ts
+
+# Written by scripts/elements/build_library.py (one sticker per line) and
+# scripts/elements/build_icons.mjs (one line of paths); the generators own their formatting
+# and tests pin the files to the libraries they describe.
+packages/ai-sdk/src/providers/elements/sticker-catalog.generated.ts
+scripts/elements/fluent.lock.json
+packages/timeline-schema/schema/shape-icons.json
+packages/timeline-schema/src/shape-icon-names.ts

@@ -33,22 +33,28 @@ import {
 } from '../editor/import.js';
 import {
   addAssetPatch,
+  addImageOverlayPatch,
   createFolderPatch,
   deleteFolderPatch,
+  imageOverlayAnnouncement,
   moveAssetToFolderPatch,
   moveFolderPatch,
   insertClipPatch,
   placeAssetPatch,
+  placeElementAssetPatch,
   removeAssetClipsPatch,
   removeAssetPatch,
   renameFolderPatch,
 } from '../editor/patch-builders.js';
+import { applyStockPatch } from '../editor/stock-download.js';
+import { formatChord, isMacPlatform } from '../editor/shortcuts.js';
 import { assetDisplayName, assetKind, layerKind } from '../editor/selectors.js';
 import { useAssetThumbnail } from '../editor/useAssetThumbnail.js';
 import { mediaSrc } from '../editor/media.js';
 import { formatClock } from '../editor/captions.js';
 import { searchTranscript, type TranscriptSearchResult } from '../editor/transcriptSearch.js';
 import { useSettings } from '../editor/useSettings.js';
+import { isElementAsset } from '@framepilot/editor-core';
 import { autoTranscribeImportedAssets } from '../editor/transcribeImport.js';
 import {
   type BinDensity,
@@ -69,6 +75,7 @@ function coerceIdList(raw: unknown): readonly string[] | undefined {
     ? (raw as readonly string[])
     : undefined;
 }
+import { BinCardMenu, type BinCardMenuItem } from './BinCardMenu.js';
 import { FolderGlyph } from './FolderGlyph.js';
 import { Tooltip } from './Tooltip.js';
 import { Select, type SelectOption } from './Select.js';
@@ -82,7 +89,9 @@ import {
   Image,
   Link2,
   type LucideIcon,
+  MoreHorizontal,
   Pencil,
+  PictureInPicture2,
   Play,
   Plus,
   Search,
@@ -133,6 +142,21 @@ export interface MediaBinProps {
    * showing.
    */
   readonly revealRequest?: { readonly assetId: string; readonly seq: number };
+  /**
+   * Say something through the editor's polite live region — here, that an image just landed as
+   * an overlay, and where (plan/elements 02 §3). Absent, nothing is announced.
+   */
+  readonly onAnnounce?: (message: string) => void;
+}
+
+/**
+ * Whether a card offers **Add as overlay**: the user's own images only — a logo, a screenshot, a
+ * cut-out (ADR 0193, amendment "bin images"). Not sound, which has no picture; not a sticker,
+ * which is placed as a sticker; and not the user's own videos, which would widen MD-E5 beyond
+ * Pexels media and are the maintainer's decision.
+ */
+function offersImageOverlay(asset: Asset): boolean {
+  return asset.kind === 'image' && !isElementAsset(asset);
 }
 
 /** Lucide glyph per asset kind (Part D iconography mapping — no emoji). */
@@ -328,6 +352,11 @@ interface AssetCardActions {
   readonly onOpen: (asset: Asset) => void;
   /** Place on the timeline — Cmd/Ctrl+Enter, or a double-click. */
   readonly onAdd: (asset: Asset) => void;
+  /**
+   * Lay an image over the picture at the playhead — Cmd/Ctrl+Shift+Enter, or the overlay
+   * button. Offered on the cards {@link offersImageOverlay} allows.
+   */
+  readonly onAddOverlay?: (asset: Asset) => void;
   /** Remove from the project — Delete/Backspace, or the hover control. */
   readonly onRemove: (asset: Asset) => void;
   /** Relink to another file (desktop only; absent in the browser build). */
@@ -384,12 +413,31 @@ const AssetCard = memo(function AssetCard({
   actions,
 }: AssetCardProps): JSX.Element {
   const openRef = useRef<HTMLButtonElement>(null);
+  const thumbRef = useRef<HTMLSpanElement>(null);
   const name = assetDisplayName(asset, asset.id);
+  // The card's More actions menu, open at the thumbnail's place on screen, or closed.
+  const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
+  const openMenu = (): void => setMenuAnchor(thumbRef.current?.getBoundingClientRect() ?? null);
+  const closeMenu = useCallback((returnFocus: boolean) => {
+    setMenuAnchor(null);
+    if (returnFocus) openRef.current?.focus();
+  }, []);
+  const menuItems: readonly BinCardMenuItem[] = [
+    ...(actions.onRelink === undefined
+      ? []
+      : [{ id: 'relink', label: 'Relink media…', onSelect: () => actions.onRelink?.(asset) }]),
+    { id: 'remove', label: 'Remove from project', onSelect: () => actions.onRemove(asset) },
+  ];
   // A still image is not playable and has no intrinsic duration — its
   // `durationSeconds` is just the default timeline length. So it shows neither
   // the play overlay nor a duration badge (both are video/audio affordances).
   const isStill = asset.kind === 'image';
   const duration = isStill ? null : formatDuration(asset.durationSeconds);
+  const addOverlay = offersImageOverlay(asset) ? actions.onAddOverlay : undefined;
+  // The platform modifier, as assistive tech and the tooltip should name it: the handler takes
+  // either, but a Windows user told "Meta+Enter" is told a key they do not have.
+  const isMac = isMacPlatform();
+  const modifier = isMac ? 'Meta' : 'Control';
 
   // Programmatic focus follows the arrow keys. Keyed on the counter so it fires
   // for a fresh move even when the card was already the tabbable one, and never
@@ -421,13 +469,24 @@ const AssetCard = memo(function AssetCard({
       case 'Enter':
         // Enter alone previews (matching a single click); with the platform
         // modifier it commits the edit (matching a double-click), the same
-        // "modifier commits" pairing the rest of the editor uses.
-        if (event.metaKey || event.ctrlKey) actions.onAdd(asset);
-        else return; // let the button's own click handling run
+        // "modifier commits" pairing the rest of the editor uses. Shift with it
+        // is the overlay button's twin, on the cards that have one.
+        if (!(event.metaKey || event.ctrlKey)) return; // the button's own click runs
+        if (!event.shiftKey) actions.onAdd(asset);
+        else if (addOverlay !== undefined) addOverlay(asset);
+        else return;
         break;
       case 'Delete':
       case 'Backspace':
         actions.onRemove(asset);
+        break;
+      // The card's secondary actions (Relink, Remove), as any context menu opens.
+      case 'ContextMenu':
+        openMenu();
+        break;
+      case 'F10':
+        if (!event.shiftKey) return;
+        openMenu();
         break;
       default:
         return;
@@ -455,7 +514,7 @@ const AssetCard = memo(function AssetCard({
       onClick={() => actions.onOpen(asset)}
       onDoubleClick={() => actions.onAdd(asset)}
     >
-      <span className="bin-card-thumb">
+      <span className="bin-card-thumb" ref={thumbRef}>
         <AssetThumb asset={asset} />
         {used && (
           <span className="bin-card-used" aria-hidden="true" title="Already on the timeline" />
@@ -466,6 +525,12 @@ const AssetCard = memo(function AssetCard({
           </span>
         )}
         {duration !== null && <span className="bin-card-dur tabular">{duration}</span>}
+        {/* What it is, not the vague "Element"; the open button's name says it too. */}
+        {isElementAsset(asset) && (
+          <span className="bin-card-element" aria-hidden="true">
+            Sticker
+          </span>
+        )}
         {/* The keyboard/AT entry point for the tile, sized to the thumbnail.
             Its click bubbles to the card's own handler, so there is exactly one
             "open in Source" code path for both input methods. */}
@@ -474,9 +539,20 @@ const AssetCard = memo(function AssetCard({
           type="button"
           className="bin-card-open"
           tabIndex={tabbable ? 0 : -1}
-          aria-label={used ? `Open ${name} (on the timeline)` : `Open ${name}`}
-          aria-keyshortcuts="Enter Meta+Enter Delete"
-          title={`${name}\nEnter: open · ${'⌘'}Enter: add to timeline · Delete: remove`}
+          // What it is, when it is not footage: the badge on the picture is not in the name.
+          aria-label={`Open ${name}${isElementAsset(asset) ? ', sticker from Elements' : ''}${
+            used ? ' (on the timeline)' : ''
+          }`}
+          aria-keyshortcuts={
+            addOverlay === undefined
+              ? `Enter ${modifier}+Enter Delete Shift+F10`
+              : `Enter ${modifier}+Enter ${modifier}+Shift+Enter Delete Shift+F10`
+          }
+          title={`${name}\nEnter: open · ${formatChord('mod+enter', isMac)}: add to timeline${
+            addOverlay === undefined
+              ? ''
+              : ` · ${formatChord('mod+shift+enter', isMac)}: add as overlay`
+          } · Delete: remove · Shift+F10: more actions`}
           onFocus={() => actions.onFocused(asset.id)}
           onKeyDown={onKeyDown}
         />
@@ -488,7 +564,8 @@ const AssetCard = memo(function AssetCard({
             // action has a keyboard shortcut on the focused card. Still in the
             // accessibility tree, still reachable by an AT virtual cursor.
             tabIndex={-1}
-            aria-label={`add ${asset.id} to timeline`}
+            // Named by the file, as the card is: an id means nothing to a listener.
+            aria-label={`add ${name} to timeline`}
             title="Add to timeline"
             onClick={(event) => {
               event.stopPropagation();
@@ -497,12 +574,29 @@ const AssetCard = memo(function AssetCard({
           >
             <Plus size={ICON_SIZE.sm} aria-hidden="true" />
           </button>
+          {addOverlay !== undefined && (
+            <button
+              type="button"
+              className="bin-card-icon-btn bin-card-overlay"
+              // Out of the tab ring like Add: Cmd/Ctrl+Shift+Enter on the focused
+              // card is its keyboard path.
+              tabIndex={-1}
+              aria-label={`add ${name} as an overlay`}
+              title="Add as overlay: a smaller picture over what is at the playhead"
+              onClick={(event) => {
+                event.stopPropagation();
+                addOverlay(asset);
+              }}
+            >
+              <PictureInPicture2 size={ICON_SIZE.sm} aria-hidden="true" />
+            </button>
+          )}
           {actions.onRelink !== undefined && (
             <button
               type="button"
-              className="bin-card-icon-btn bin-relink"
+              className="bin-card-icon-btn bin-relink bin-card-wide-only"
               tabIndex={-1}
-              aria-label={`relink ${asset.id}`}
+              aria-label={`relink ${name}`}
               title="Relink media…"
               onClick={(event) => {
                 event.stopPropagation();
@@ -514,9 +608,9 @@ const AssetCard = memo(function AssetCard({
           )}
           <button
             type="button"
-            className="bin-card-icon-btn bin-remove"
+            className="bin-card-icon-btn bin-remove bin-card-wide-only"
             tabIndex={-1}
-            aria-label={`remove ${asset.id}`}
+            aria-label={`remove ${name}`}
             title="Remove from project"
             onClick={(event) => {
               event.stopPropagation();
@@ -525,8 +619,35 @@ const AssetCard = memo(function AssetCard({
           >
             <X size={ICON_SIZE.sm} aria-hidden="true" />
           </button>
+          {/* On a narrow card (a container query shows it) Relink and Remove move in here,
+              so the cluster stays one row of 24 px buttons. Shift+F10 on the card opens it
+              at any width: Relink's keyboard path. */}
+          <button
+            type="button"
+            className="bin-card-icon-btn bin-card-more bin-card-narrow-only"
+            tabIndex={-1}
+            aria-label={`More actions for ${name}`}
+            aria-haspopup="menu"
+            aria-expanded={menuAnchor !== null}
+            title="More actions (Shift+F10)"
+            onClick={(event) => {
+              event.stopPropagation();
+              if (menuAnchor === null) openMenu();
+              else closeMenu(false);
+            }}
+          >
+            <MoreHorizontal size={ICON_SIZE.sm} aria-hidden="true" />
+          </button>
         </span>
       </span>
+      {menuAnchor !== null && (
+        <BinCardMenu
+          label={`More actions for ${name}`}
+          anchor={menuAnchor}
+          items={menuItems}
+          onClose={closeMenu}
+        />
+      )}
       <span className="bin-card-name" title={name}>
         {name}
       </span>
@@ -662,6 +783,7 @@ export function MediaBin({
   onOpenInSource,
   ensureSavedForTranscription,
   revealRequest,
+  onAnnounce,
 }: MediaBinProps): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -1010,6 +1132,26 @@ export function MediaBin({
     (asset: Asset) => {
       const timeline = editor.state.timeline;
       const assetById = new Map(editor.state.assets.map((a) => [a.id, a]));
+      // A sticker goes where the Stickers tab puts one: over the picture at the playhead, never
+      // appended to the footage as a full-frame clip (plan/elements EL6a).
+      if (isElementAsset(asset)) {
+        const added = placeElementAssetPatch(
+          {
+            timeline,
+            assets: editor.state.assets,
+            folders: editor.state.folders,
+            resolution: project.resolution,
+          },
+          asset,
+          editor.getPlayhead(),
+          settings.defaultOverlaySeconds,
+        );
+        if (added) {
+          editor.applyPatch(added.patch);
+          editor.select(added.clipId);
+        }
+        return;
+      }
       // Insert mode: drop the clip in at the playhead on the frontmost same-kind
       // (or empty) lane, pushing that lane's downstream clips right (one patch).
       // Falls through to the append path when there is no compatible lane.
@@ -1036,7 +1178,34 @@ export function MediaBin({
       const patch = placeAssetPatch(timeline, assetById, asset, appendAt);
       if (patch) editor.applyPatch(patch);
     },
-    [editor, editMode],
+    [editor, editMode, project.resolution, settings.defaultOverlaySeconds],
+  );
+
+  /**
+   * **Add as overlay** (ADR 0193, amendment "bin images"): the image as a picture-in-picture at
+   * the playhead, over whatever is there, through the Pexels overlay's builder. The image is
+   * already in the bin, so the edit adds no asset and one undo leaves the bin as it was.
+   */
+  const addAsOverlay = useCallback(
+    (asset: Asset) => {
+      const name = assetDisplayName(asset, asset.id);
+      const added = addImageOverlayPatch(
+        { timeline: editor.state.timeline, assets: editor.state.assets },
+        asset,
+        name,
+        editor.getPlayhead(),
+      );
+      // Checked, so a patch the timeline refuses is said here, not quietly dropped.
+      const refusal = applyStockPatch(editor.applyPatchChecked, added.patch, 'bin image overlay');
+      if (refusal !== null) {
+        setStatus(refusal);
+        return;
+      }
+      // Selected, so the monitor shows its handles and the Inspector can resize it.
+      editor.select(added.clipId);
+      onAnnounce?.(imageOverlayAnnouncement(name, added.start));
+    },
+    [editor, onAnnounce],
   );
 
   const relinkFromBin = useCallback(
@@ -1058,7 +1227,7 @@ export function MediaBin({
       const removePatch = removeAssetPatch(asset.id);
       const operations = [...(clipsPatch?.operations ?? []), ...removePatch.operations];
       editor.applyPatch({ ...removePatch, operations });
-      setStatus(`Removed ${asset.id}.`);
+      setStatus(`Removed ${assetDisplayName(asset, asset.id)}.`);
     },
     [editor],
   );
@@ -1121,6 +1290,7 @@ export function MediaBin({
     () => ({
       onOpen: (asset) => onOpenInSource?.(asset),
       onAdd: (asset) => addToTimeline(asset),
+      onAddOverlay: (asset) => addAsOverlay(asset),
       onRemove: (asset) => removeFromBin(asset),
       ...(getBridge()?.projectChooseRelinkFile === undefined ? {} : { onRelink: (asset: Asset) => void relinkFromBin(asset) }),
       onMove: (fromId, delta) => {
@@ -1142,7 +1312,7 @@ export function MediaBin({
         // `seq`, or the programmatic-focus effect would fire in a loop.
         setFocus((current) => (current?.id === id ? current : { id, seq: current?.seq ?? 0 })),
     }),
-    [addToTimeline, focusCard, onOpenInSource, relinkFromBin, removeFromBin],
+    [addAsOverlay, addToTimeline, focusCard, onOpenInSource, relinkFromBin, removeFromBin],
   );
 
   /** Begin creating a folder under `parentId`, auto-expanding that parent. */

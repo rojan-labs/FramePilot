@@ -104,7 +104,9 @@ function framesOf(event: AiEvent & { type: 'tool_call' }): number {
   // args summary we read it, and otherwise we count the call as one frame rather than
   // inventing a number.
   const summary = event.argsSummary ?? '';
-  const match = /(\d+)\s*frames?/i.exec(summary);
+  // The lookbehind starts a count only where a digit run starts; unanchored, every digit of
+  // a long run restarts the scan (quadratic on a hostile summary).
+  const match = /(?<!\d)(\d+)\s*frames?/i.exec(summary);
   return match ? Math.max(1, Number(match[1])) : 1;
 }
 
@@ -232,8 +234,11 @@ export function pictureFactsInPrompt(timelineSliceText: string): {
   readonly rate: number | null;
 } {
   // A clip row is `id[start–end s]`, optionally followed by ` · facts` before the next
-  // comma-separated row. The en dash is the one `renderTrackClips` writes.
-  const ROW = /[^\s,[\]]+\[[^\]]*\]( · [^,]*)?/g;
+  // comma-separated row. The en dash is the one `renderTrackClips` writes. A row starts only
+  // where an id starts (the lookbehind), and its span holds no `[` (renderTrackClips never
+  // nests one): without either, a long run of id characters or of `![` is scanned again
+  // from every position, which is quadratic.
+  const ROW = /(?<![^\s,[\]])[^\s,[\]]+\[[^\][]*\]( · [^,]*)?/g;
   const rows = [...timelineSliceText.matchAll(ROW)];
   const withFacts = rows.filter((match) => match[1] !== undefined).length;
   return {

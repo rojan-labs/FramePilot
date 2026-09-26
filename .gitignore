@@ -18,6 +18,8 @@ apps/desktop/release/
 apps/desktop/renderer/
 apps/desktop/engine-dist/
 apps/desktop/engine-build/
+# The desktop installer's packaged stickers (plan/elements EL6b): built from the pinned lock.
+apps/desktop/elements-packaged/
 # electron-builder's `buildResources` dir (electron-builder.yml) is a SOURCE
 # directory (app icon, entitlements), not build output — track it despite the
 # blanket `build/` rule above.

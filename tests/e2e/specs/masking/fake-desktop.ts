@@ -36,13 +36,27 @@
  *    matte service over the scripted-model worker (`smart-mask-pack.ts`) and a job journal, which
  *    adds the real job scheduler, the Jobs panel channels and resume-on-open (E2E.6).
  *  - **The AI model.** A scripted policy (see the AI spec), as in the AM5 eval harness.
+ *  - **Pexels** (Elements → Photos and Videos, when a spec passes `stock`). No network: a search
+ *    answers the spec's items and a download copies the spec's local file into the project's media
+ *    folder, answering as main's service does. The main-process service itself (cache, quota,
+ *    download, sizing) is covered by `apps/desktop` `stock-service.test.ts`, not here.
+ *  - **The import path and probe** (Assets → Import). This host offers no `importMediaChunk`, so
+ *    the renderer takes its single-request fallback — `importMedia` with one framed chunk — rather
+ *    than production's chunked IPC; both end in main's `importMediaChunk`, reached here through
+ *    main's own `importMediaFile` (a spec's files are far smaller than one chunk). The sidecar's
+ *    `/asset-media` probe that follows is stood in for by reading a PNG's own header for its size,
+ *    the one kind of file a spec imports. Anything else answers "not probed", which the app treats
+ *    as the real probe failing: the asset is kept without media.
  */
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Page, Route } from '@playwright/test';
-import { IpcChannels } from '../../../../apps/desktop/dist/ipc/contract.js';
+import {
+  IpcChannels,
+  type PreviewTextRasterRequest,
+} from '../../../../apps/desktop/dist/ipc/contract.js';
 import {
   registerJobIpc,
   registerMatteIpc,
@@ -56,6 +70,11 @@ import {
 import { registerRelinkIpc } from '../../../../apps/desktop/dist/capability-packs/matte-relink-ipc.js';
 import { DesktopMatteMediaInspector } from '../../../../apps/desktop/dist/capability-packs/matte-media-inspector.js';
 import { validateProjectMattes } from '../../../../apps/desktop/dist/capability-packs/matte-validation.js';
+import { ElementsLibrary } from '../../../../apps/desktop/dist/media/elements-library.js';
+import { importMediaFile } from '../../../../apps/desktop/dist/projects/media-import.js';
+import { decodeMediaImportChunk } from '../../../../packages/shared-types/dist/index.js';
+import { previewTextWireBody } from '../../../../apps/desktop/dist/render/preview-text-client.js';
+import { loadStickerCatalog } from '../../../../packages/ai-sdk/dist/index.js';
 import {
   frameRange,
   sampleSourcePts,
@@ -70,7 +89,7 @@ import {
   writeProjectFile,
 } from '../../../../packages/timeline-schema/dist/project-file.js';
 import { parseProject, type Project } from '../../../../packages/timeline-schema/dist/index.js';
-import { MEDIA_ROUTE, WORK_ROOT, type Rgb3, type Workspace } from './workspace.js';
+import { MEDIA_ROUTE, REPO, WORK_ROOT, type Rgb3, type Workspace } from './workspace.js';
 
 /** Where a pack stands for one capability, as the host would answer `capabilityPackStatus`. */
 export type PackState = 'ready' | 'missing' | 'catalog_unconfigured';
@@ -178,6 +197,7 @@ const INVOKE_METHODS = [
   'aiStreamAbort',
   'aiStreamAnswer',
   'previewTextRaster',
+  'elementsThumbnail',
   'capabilityPackStatus',
   'capabilityPackPropose',
   'capabilityPackInstall',
@@ -192,7 +212,18 @@ const INVOKE_METHODS = [
   'matteSaveCorrection',
   'matteRecheckMedia',
   'projectChooseRelinkFile',
+  'elementsMaterialize',
 ] as const;
+/** The Photos and Videos bridge, installed only when a spec stands Pexels in (`stock`). */
+const STOCK_METHODS = [
+  'stockSearch',
+  'stockThumbnail',
+  'stockPreview',
+  'stockDownload',
+  'stockDownloadCancel',
+  'stockQuota',
+] as const;
+const STOCK_SUBSCRIPTIONS = ['onStockDownloadProgress', 'onStockQuotaChanged'] as const;
 const SUBSCRIPTIONS = [
   'onExportProgress',
   'onProjectChanged',
@@ -273,6 +304,12 @@ export interface FakeDesktopOptions {
   /** The file the relink dialog "picks" (absolute). */
   readonly relinkTo?: string;
   /**
+   * A packaged sticker set (plan/elements EL6b), as the installer's resources hold it: main
+   * then lists the whole library and answers packaged tiles. Absent, the app has only the
+   * stickers the renderer ships, as in a build without the set.
+   */
+  readonly packagedStickers?: string;
+  /**
    * The REAL matte service to run background removal with (see `smart-mask-pack.ts`) instead of
    * the scripted `matteJob`.
    */
@@ -283,6 +320,29 @@ export interface FakeDesktopOptions {
    * does. Two hosts on one journal are one app before and after a restart.
    */
   readonly jobJournal?: string;
+  /**
+   * Stand Pexels in for Elements → Photos and Videos (plan/elements EL9). Absent, the bridge has
+   * no stock methods, and the tabs say a key is needed, as in a build without one.
+   */
+  readonly stock?: FakeStockLibrary;
+}
+
+/** A file a stand-in Pexels item downloads as. */
+export interface FakeStockFile {
+  /** The source file, relative to the project folder (copied, never moved). */
+  readonly path: string;
+  readonly kind: 'video' | 'image';
+  readonly width: number;
+  readonly height: number;
+  readonly durationSeconds?: number;
+}
+
+/** A stand-in for main's Pexels service: fixed results and local files, no network. */
+export interface FakeStockLibrary {
+  /** What every search answers, shaped as main sends items to the renderer (no URLs). */
+  readonly items: readonly Record<string, unknown>[];
+  /** The file each item downloads as, by its remote id. */
+  readonly files: Readonly<Record<string, FakeStockFile>>;
 }
 
 /** One call the page made, for assertions on what crossed the bridge. */
@@ -299,6 +359,8 @@ export class FakeDesktop {
   public readonly saves: Project[] = [];
   /** Export results the dialog was sent, in order. */
   public readonly exports: { requestId: string; result: Record<string, unknown> }[] = [];
+  /** Every Pexels search the page asked for, in order (with `stock`). */
+  public readonly stockSearches: Record<string, unknown>[] = [];
   public readonly packs: Record<KnownCapability, PackState>;
   public readonly inspector: DesktopMatteMediaInspector;
   private readonly ipc = new FakeIpcMain();
@@ -309,9 +371,20 @@ export class FakeDesktop {
   private readonly aiRuns = new Map<string, AbortController>();
   /** The real job scheduler, when the spec gave a journal. */
   public readonly scheduler: CapabilityPackJobScheduler | undefined;
+  /**
+   * Main's own sticker library over the stickers the app ships (plan/elements EL6a): it copies a
+   * sticker into the project folder by id, and heals one whose file went missing on open.
+   */
+  private readonly elements: ElementsLibrary;
   private readonly matteDependencies: Record<string, unknown>;
 
   public constructor(public readonly options: FakeDesktopOptions) {
+    this.elements = new ElementsLibrary({
+      projectsRoot: options.workspace.projectDir,
+      bundledRoot: () => join(REPO, 'apps', 'web-editor', 'public', 'elements', 'stickers'),
+      packagedRoot: () => options.packagedStickers ?? null,
+      catalog: loadStickerCatalog,
+    });
     this.packs = {
       'subject.matte': options.packs?.['subject.matte'] ?? 'ready',
       'subject.detect': options.packs?.['subject.detect'] ?? 'ready',
@@ -464,7 +537,8 @@ export class FakeDesktop {
         const base: Record<string, unknown> = {};
         for (const method of invoke) {
           base[method] = (...args: unknown[]) => {
-            // Bytes cross as base64 (the page ↔ harness channel carries JSON).
+            // Bytes cross as base64 (the page ↔ harness channel carries JSON): a correction's
+            // `png`, and an import's `data`.
             const wire = args.map((arg) =>
               arg !== null &&
               typeof arg === 'object' &&
@@ -474,7 +548,17 @@ export class FakeDesktop {
                     ...(arg as object),
                     png: { base64: toBase64((arg as { png: Uint8Array }).png) },
                   }
-                : arg,
+                : arg !== null &&
+                    typeof arg === 'object' &&
+                    'data' in arg &&
+                    (arg as { data: unknown }).data instanceof ArrayBuffer
+                  ? {
+                      ...(arg as object),
+                      data: {
+                        base64: toBase64(new Uint8Array((arg as { data: ArrayBuffer }).data)),
+                      },
+                    }
+                  : arg,
             );
             return call(method, wire).then((result) => {
               if (
@@ -485,6 +569,23 @@ export class FakeDesktop {
               ) {
                 const { rgbaBase64, ...rest } = result as { rgbaBase64: string };
                 return { ...rest, rgba: fromBase64(rgbaBase64) };
+              }
+              if (
+                method === 'elementsThumbnail' &&
+                result !== null &&
+                typeof result === 'object' &&
+                'thumbs' in result
+              ) {
+                const { thumbs } = result as {
+                  thumbs: { elementId: string; webpBase64: string }[];
+                };
+                return {
+                  ...(result as object),
+                  thumbs: thumbs.map(({ elementId, webpBase64 }) => ({
+                    elementId,
+                    webp: fromBase64(webpBase64),
+                  })),
+                };
               }
               return result;
             });
@@ -556,8 +657,11 @@ export class FakeDesktop {
         } as typeof Worker.prototype.postMessage;
       },
       {
-        invoke: [...INVOKE_METHODS],
-        subscriptions: [...SUBSCRIPTIONS],
+        invoke: [...INVOKE_METHODS, ...(this.options.stock === undefined ? [] : STOCK_METHODS)],
+        subscriptions: [
+          ...SUBSCRIPTIONS,
+          ...(this.options.stock === undefined ? [] : STOCK_SUBSCRIPTIONS),
+        ],
         prefix: MEDIA_ROUTE,
         root: relative(WORK_ROOT, this.options.workspace.projectDir).split(sep).join('/'),
         workRoot: WORK_ROOT.split(sep).join('/'),
@@ -611,25 +715,145 @@ export class FakeDesktop {
     if (!file.startsWith(WORK_ROOT) || !existsSync(file)) return route.fulfill({ status: 404 });
     const type = file.endsWith('.mp4')
       ? 'video/mp4'
-      : file.endsWith('.json')
-        ? 'application/json'
-        : file.endsWith('.mkv')
-          ? 'video/x-matroska'
-          : file.endsWith('.webm')
-            ? 'video/webm'
-            : 'application/octet-stream';
+      : file.endsWith('.png')
+        ? 'image/png'
+        : file.endsWith('.json')
+          ? 'application/json'
+          : file.endsWith('.mkv')
+            ? 'video/x-matroska'
+            : file.endsWith('.webm')
+              ? 'video/webm'
+              : 'application/octet-stream';
     return route.fulfill({ path: file, headers: { 'content-type': type } });
   }
 
   // --- the project on disk ↔ the renderer's copy --------------------------------------------------
 
   /** Asset paths as the renderer sees them: same-origin URLs for files in the project folder. */
-  private toRenderer(project: Project): Project {
-    const dir = this.options.workspace.projectDir;
-    const url = (stored: string): string => {
-      const absolute = isAbsolute(stored) ? stored : join(dir, stored);
-      return `${this.origin}${this.options.workspace.urlPath(absolute)}`;
+  /** A stored path (relative to the project file) as the page reads it. */
+  private rendererPath(stored: string): string {
+    const absolute = isAbsolute(stored) ? stored : join(this.options.workspace.projectDir, stored);
+    return `${this.origin}${this.options.workspace.urlPath(absolute)}`;
+  }
+
+  /** `framepilot:elements:thumbnail`, the tiles' bytes as base64 (the channel carries JSON). */
+  private async elementThumbnails(request: { elementIds: string[] }): Promise<unknown> {
+    const result = await this.elements.thumbnails(request.elementIds);
+    if (!result.ok) return result;
+    return {
+      ...result,
+      thumbs: result.thumbs.map(({ elementId, webp }) => ({
+        elementId,
+        webpBase64: Buffer.from(webp).toString('base64'),
+      })),
     };
+  }
+
+  /** `framepilot:stock:search`: the spec's items for any words, recorded for assertions. */
+  private stockSearch(request: Record<string, unknown>): Record<string, unknown> {
+    this.stockSearches.push(request);
+    const items = this.options.stock?.items ?? [];
+    return { ok: true, items, page: 1, totalResults: items.length, hasMore: false };
+  }
+
+  /**
+   * `framepilot:stock:download`: copy the item's file into the project's media folder, as main
+   * saves a download there, and answer with the asset main would (its path as the page reads it).
+   */
+  private async stockDownload(request: { projectId: string; remoteId: string }): Promise<unknown> {
+    const file = this.options.stock?.files[request.remoteId];
+    if (file === undefined) return { ok: false, error: 'download_failed' };
+    const extension = file.kind === 'image' ? 'jpg' : 'mp4';
+    const stored = `media/stock/pexels-${request.remoteId}.${extension}`;
+    const destination = join(this.options.workspace.projectDir, stored);
+    await mkdir(dirname(destination), { recursive: true });
+    await copyFile(join(this.options.workspace.projectDir, file.path), destination);
+    return {
+      ok: true,
+      asset: {
+        relativePath: this.rendererPath(stored),
+        kind: file.kind,
+        ...(file.durationSeconds === undefined ? {} : { durationSeconds: file.durationSeconds }),
+        width: file.width,
+        height: file.height,
+        media: { width: file.width, height: file.height },
+        source: {
+          provider: 'pexels',
+          remoteId: request.remoteId,
+          license: 'pexels',
+          licenseUrl: 'https://www.pexels.com/license/',
+          attributionRequired: false,
+          fetchedAt: '2026-09-26T00:00:00.000Z',
+        },
+        deduped: false,
+      },
+    };
+  }
+
+  /** `framepilot:elements:materialize`, with the copied file's path as the page reads it. */
+  private async materializeElement(request: {
+    projectId: string;
+    elementId: string;
+  }): Promise<unknown> {
+    const result = await this.elements.materialize(request);
+    if (!result.ok) return result;
+    return { ...result, asset: { ...result.asset, path: this.rendererPath(result.asset.path) } };
+  }
+
+  /**
+   * `framepilot:media:import`: main's own `importMediaFile` writes the bytes into the project's
+   * media folder (the workspace's project folder stands in for the projects root, as it does for
+   * the sticker library), and the page gets the path as it reads it.
+   */
+  private async importMedia(request: {
+    projectId: string;
+    fileName: string;
+    data: Uint8Array;
+  }): Promise<unknown> {
+    const chunk = decodeMediaImportChunk(request.data);
+    if (chunk !== null && (chunk.header.offset !== 0 || !chunk.header.final)) {
+      throw new Error(
+        `The e2e host imports a file in one chunk; ${request.fileName} came in several.`,
+      );
+    }
+    const stored = await importMediaFile(
+      this.options.workspace.projectDir,
+      request.projectId,
+      request.fileName,
+      request.data,
+    );
+    return { ok: true, path: this.rendererPath(stored) };
+  }
+
+  /**
+   * `framepilot:media:import-asset`, the probe after an import: a PNG's size from its own header
+   * (see the header's SIMULATED list); anything else is "not probed", as a failed probe answers.
+   */
+  private async importAsset(request: { inputPath: string }): Promise<unknown> {
+    const bytes = await readFile(this.diskPath(request.inputPath));
+    const PNG_SIGNATURE = '89504e470d0a1a0a';
+    if (bytes.length < 24 || bytes.subarray(0, 8).toString('hex') !== PNG_SIGNATURE) {
+      return { ok: false, error: 'The e2e host probes PNG files only.' };
+    }
+    return {
+      ok: true,
+      durationSeconds: null,
+      kind: 'image',
+      media: { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) },
+    };
+  }
+
+  /** A path as the page holds it (a same-origin URL, or a stored path) as a file on disk. */
+  private diskPath(path: string): string {
+    const prefix = `${this.origin}${MEDIA_ROUTE}`;
+    if (path.startsWith(prefix)) {
+      return join(WORK_ROOT, decodeURIComponent(path.slice(prefix.length)));
+    }
+    return isAbsolute(path) ? path : join(this.options.workspace.projectDir, path);
+  }
+
+  private toRenderer(project: Project): Project {
+    const url = (stored: string): string => this.rendererPath(stored);
     return {
       ...project,
       assets: project.assets.map((asset) => ({
@@ -677,6 +901,8 @@ export class FakeDesktop {
     const path = this.options.workspace.projectPath;
     try {
       const project = await readProjectFile(path, { backupBeforeMigration: true });
+      // As main does: a sticker file that went missing comes back before anything reads it.
+      await this.elements.heal(project);
       this.opened = true;
       if (this.scheduler !== undefined) {
         // `resumeJobsForProject` in main.ts: this project's journaled jobs wake now.
@@ -818,19 +1044,19 @@ export class FakeDesktop {
 
   private async invoke(method: string, rawArgs: unknown[]): Promise<unknown> {
     // Bytes arrive as base64 (see the page stub); the host modules want Uint8Array.
-    const args = rawArgs.map((arg) =>
-      arg !== null &&
-      typeof arg === 'object' &&
-      'png' in arg &&
-      typeof (arg as { png: unknown }).png === 'object'
-        ? {
-            ...(arg as object),
-            png: new Uint8Array(
-              Buffer.from((arg as { png: { base64: string } }).png.base64, 'base64'),
-            ),
-          }
-        : arg,
-    );
+    const isWireBytes = (value: unknown): value is { base64: string } =>
+      value !== null &&
+      typeof value === 'object' &&
+      typeof (value as { base64?: unknown }).base64 === 'string';
+    const bytesOf = (wire: { base64: string }): Uint8Array =>
+      new Uint8Array(Buffer.from(wire.base64, 'base64'));
+    const args = rawArgs.map((arg) => {
+      if (arg === null || typeof arg !== 'object') return arg;
+      const { png, data } = arg as { png?: unknown; data?: unknown };
+      if (isWireBytes(png)) return { ...arg, png: bytesOf(png) };
+      if (isWireBytes(data)) return { ...arg, data: bytesOf(data) };
+      return arg;
+    });
     const channel = INVOKE_CHANNELS[method];
     const handler = channel === undefined ? undefined : this.ipc.handlers.get(channel);
     if (handler !== undefined) {
@@ -907,6 +1133,28 @@ export class FakeDesktop {
         return this.options.trackJob(args[0] as Record<string, unknown>, this);
       case 'previewTextRaster':
         return this.textRaster(args[0] as Record<string, unknown>);
+      case 'elementsMaterialize':
+        return this.materializeElement(args[0] as { projectId: string; elementId: string });
+      case 'importMedia':
+        return this.importMedia(
+          args[0] as { projectId: string; fileName: string; data: Uint8Array },
+        );
+      case 'importAsset':
+        return this.importAsset(args[0] as { inputPath: string });
+      case 'elementsThumbnail':
+        return this.elementThumbnails(args[0] as { elementIds: string[] });
+      case 'stockQuota':
+        return { kind: 'unmeasured' };
+      case 'stockSearch':
+        return this.stockSearch(args[0] as Record<string, unknown>);
+      case 'stockThumbnail':
+      case 'stockPreview':
+        // No tile bytes: the tile shows its colour and shape, which is all a spec needs.
+        return { ok: false, error: 'provider_unavailable' };
+      case 'stockDownload':
+        return this.stockDownload(args[0] as { projectId: string; remoteId: string });
+      case 'stockDownloadCancel':
+        return undefined;
       case 'aiStreamStart':
         return this.aiStart(args[0] as Record<string, unknown>);
       case 'aiStreamAbort':
@@ -923,12 +1171,8 @@ export class FakeDesktop {
     const response = await fetch(`${this.options.sidecarUrl}/preview/text-raster`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        kind: req.kind,
-        ...(req.kind === 'text' ? { params: req.params } : { text: req.text }),
-        frame_width: req.frameWidth,
-        frame_height: req.frameHeight,
-      }),
+      // What main sends, so a spec's monitor asks the engine for what the desktop's would.
+      body: JSON.stringify(previewTextWireBody(req as unknown as PreviewTextRasterRequest)),
     });
     if (!response.ok) return { ok: false, error: `sidecar ${response.status}` };
     const wire = (await response.json()) as {

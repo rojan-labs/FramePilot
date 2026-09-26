@@ -38,6 +38,10 @@
  * Pure: no clock, no I/O, no registry import, so this stays at the bottom of the graph
  * beside its siblings and `apps/desktop` can import it without dragging the run loop in.
  */
+import {
+  ELEMENT_ERROR_CODES,
+  type ElementErrorCode,
+} from '../providers/elements/sticker-catalog.js';
 import { MUSIC_ERROR_CODES, type MusicErrorCode } from '../providers/music-types.js';
 import { STOCK_ERROR_CODES, type StockErrorCode } from '../providers/stock-types.js';
 
@@ -287,4 +291,55 @@ export function sourcingFailureNoteEntries(): readonly {
       note: sourcingFailureNote(tool, code as MusicErrorCode | StockErrorCode),
     }));
   });
+}
+
+/**
+ * What `add_sticker` is told for each reason the desktop library could not copy a sticker in.
+ * The panel's sentences (02 §8) are for a person who can reinstall or free space; the model can
+ * only pick another sticker or tell the editor, so each says which.
+ */
+const STICKER_COPY: Readonly<Record<ElementErrorCode, SourcingCopy>> = {
+  unknown_element: {
+    what: 'that sticker id is not in the library',
+    instead: 'Find one with search_elements (kind: sticker) and pass its elementId.',
+  },
+  library_missing: {
+    what: "this sticker's file is missing from this install of FramePilot",
+    instead:
+      'Pick another sticker from search_elements, or tell the editor that reinstalling ' +
+      'FramePilot fixes it.',
+  },
+  integrity_failed: {
+    what: "this sticker's file in this install of FramePilot is damaged",
+    instead:
+      'Pick another sticker from search_elements, or tell the editor that reinstalling ' +
+      'FramePilot fixes it.',
+  },
+  disk_full: {
+    what: "there isn't enough disk space to copy the sticker into the project",
+    instead: 'Do not retry; tell the editor to free some space.',
+  },
+  io_failed: {
+    what: 'the sticker could not be copied into the project folder',
+    instead: 'Do not retry; tell the editor to check that the project folder can be written to.',
+  },
+};
+
+/**
+ * The sentence a failed `add_sticker` hands back to the model: what happened and what to do
+ * instead, with no code and no number (the repeated-failure guard keys on the text).
+ *
+ * @param code - The library's closed-union reason.
+ */
+export function stickerFailureNote(code: ElementErrorCode): string {
+  const copy = STICKER_COPY[code];
+  return `"add_sticker" failed — ${copy.what}. ${copy.instead}`;
+}
+
+/** Every sentence {@link stickerFailureNote} can produce, for the failure-quality gates. */
+export function stickerFailureNoteEntries(): readonly {
+  readonly code: ElementErrorCode;
+  readonly note: string;
+}[] {
+  return ELEMENT_ERROR_CODES.map((code) => ({ code, note: stickerFailureNote(code) }));
 }

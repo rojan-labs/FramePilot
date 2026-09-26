@@ -117,8 +117,12 @@ type ScaleProject = {
   id: string;
   name: string;
   fps: number;
-  assets: { id: string; path: string; media?: { proxyPath?: string } }[];
-  timeline: { tracks: { clips: { masks?: { kind: string; artifact?: { key: string } }[] }[] }[] };
+  assets: { id: string; path: string; kind?: string; media?: { proxyPath?: string } }[];
+  timeline: {
+    tracks: {
+      clips: { assetId: string; masks?: { kind: string; artifact?: { key: string } }[] }[];
+    }[];
+  };
 };
 
 type MediaMode = 'proxy' | 'original';
@@ -134,6 +138,8 @@ const RUNS: readonly { variant: string; mode: MediaMode; gpuSync?: boolean }[] =
   { variant: 'scale-plain', mode: 'original' },
   // PX5.8: the row with a default soft matte, whose alpha the tier's alpha plane stands in for.
   { variant: 'scale-soft', mode: 'proxy' },
+  // plan/elements 02 §9 (EL6b): the plain row under 20 sticker layers, some outlined, some turning.
+  { variant: 'scale-elements', mode: 'proxy' },
 ];
 
 const fsUrl = (origin: string, file: string): string =>
@@ -501,7 +507,12 @@ test.describe('PX5 Scale row', () => {
       expect(result.gauges.liveDecoders.peak, 'live decoders within the pool').toBeLessThanOrEqual(
         DECODER_POOL_CAPACITY,
       );
-      expect(layersWhilePlaying, 'load shedding never removes a layer').toBe(4);
+      // Every picture the variant holds (its media and, for `scale-elements`, its 20 stickers):
+      // the title is drawn over them and is not a picture layer.
+      const pictures = project.timeline.tracks
+        .flatMap((track) => track.clips)
+        .filter((clip) => project.assets.some((asset) => asset.id === clip.assetId)).length;
+      expect(layersWhilePlaying, 'load shedding never removes a layer').toBe(pictures);
       // PX5.5: playback plans at the project frame's own instant, so a frame is composited once
       // however many display refreshes it spans (1.7 composites per presented frame before, on
       // a 60 Hz display). The slack covers what may legitimately draw a frame again: a render
@@ -545,5 +556,7 @@ function pinnedBytes(project: ScaleProject, mode: MediaMode): number {
     .flatMap((clip) => clip.masks ?? [])
     .filter((mask) => mask.kind === 'matte').length;
   const matte = 3840 * 2160 * (1 + 4);
-  return PINNED_FRAMES * (project.assets.length * picture + mattes * matte);
+  // Decode windows belong to video sources; a still (`scale-elements`' stickers) is one raster.
+  const videos = project.assets.filter((asset) => asset.kind === 'video').length;
+  return PINNED_FRAMES * (videos * picture + mattes * matte);
 }

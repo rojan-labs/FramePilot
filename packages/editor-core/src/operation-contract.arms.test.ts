@@ -81,7 +81,7 @@ describe('range and time arms', () => {
       ok({ type, trackId: 'video-1', start: 1, end: 3 });
       rejects({ type, trackId: 'video-1', start: 3, end: 1 }, /greater than start/i);
     }
-    for (const type of ['add_text_overlay', 'add_caption_layer'] as const) {
+    for (const type of ['add_text_overlay', 'add_shape', 'add_caption_layer'] as const) {
       ok({ type, trackId: 'video-1', start: 0, end: 2 } as unknown as Operation);
       rejects({ type, trackId: 'video-1', start: 2, end: 2 } as unknown as Operation, /greater/i);
     }

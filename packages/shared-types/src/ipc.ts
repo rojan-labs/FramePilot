@@ -791,9 +791,14 @@ export interface AiStreamReferenceProfile {
  * own Pillow path, so the program monitor's glyphs are the export's (PX2.3).
  */
 export interface PreviewTextRasterRequest {
-  readonly kind: 'text' | 'caption';
-  /** The text effect's params (kind `text`). */
+  readonly kind: 'text' | 'caption' | 'shape';
+  /** The text effect's params (kind `text`), or the shape effect's params (kind `shape`). */
   readonly params?: Readonly<Record<string, unknown>>;
+  /**
+   * Kinds `text` and `shape`: the clip animates `rotation`, so the engine draws the rotation-safe
+   * square the export turns it inside (plan/elements EL2b.4).
+   */
+  readonly rotates?: boolean;
   /** The caption cue text (kind `caption`). */
   readonly text?: string;
   readonly frameWidth: number;
@@ -820,7 +825,10 @@ export type PreviewTextRasterResult =
       readonly height: number;
       /** Straight RGBA as Pillow stores it, row-major, top row first. */
       readonly rgba: Uint8Array;
-      /** A caption's paste position; `null` for a text clip (the frame plan places it). */
+      /**
+       * A caption's paste position, or a shape's untransformed top-left (the frame plan's
+       * `shape` bounds); `null` for a text clip (the frame plan places it).
+       */
       readonly x: number | null;
       readonly y: number | null;
       /** True when a styled caption's raster changes with the frame time. */
@@ -2133,6 +2141,12 @@ export interface StockDownloadRequest {
   readonly projectId: string;
   readonly remoteId: string;
   /**
+   * The kind the renderer's tile shows. A Pexels photo and video can share a numeric id, and main
+   * knows an id by the last search that returned it, so main refuses a download whose known item
+   * is the other kind. Absent (the agent's host), the id alone decides, as before.
+   */
+  readonly kind?: StockMediaKindWire;
+  /**
    * Which rendition to fetch. Absent ⇒ main chooses by the project’s own height,
    * which is the path the panel and the agent both take; naming one explicitly is
    * for a user who deliberately picked a size.
@@ -2143,6 +2157,75 @@ export interface StockDownloadRequest {
   readonly targetFps?: number;
   readonly operationId: string;
 }
+
+// --- Elements: stickers (plan/elements EL6a, 06 §2) ------------------------------------------
+
+/** Why a sticker could not be put into the project; each has one user sentence (02 §8). */
+export type ElementErrorCodeWire =
+  | 'unknown_element'
+  | 'library_missing'
+  | 'integrity_failed'
+  | 'disk_full'
+  | 'io_failed';
+
+/**
+ * `framepilot:elements:thumbnail` (plan/elements EL6b): tiles of packaged stickers, which live in
+ * the desktop installer's resources rather than the renderer's own files. Ids only; an empty
+ * list asks only whether this build has the packaged set.
+ */
+export interface ElementThumbnailRequest {
+  readonly elementIds: readonly string[];
+}
+
+/** One packaged sticker's tile, as WebP bytes the renderer turns into a `blob:` URL. */
+export interface ElementThumbnailWire {
+  readonly elementId: string;
+  readonly webp: Uint8Array;
+}
+
+export type ElementThumbnailResult =
+  | {
+      readonly ok: true;
+      /** This build ships the packaged set; without it the panel shows only curated stickers. */
+      readonly packaged: boolean;
+      /** The tiles found, in the order asked; an id that is not a packaged sticker is skipped. */
+      readonly thumbs: readonly ElementThumbnailWire[];
+    }
+  | { readonly ok: false; readonly error: ElementErrorCodeWire };
+
+/** Put the catalogue sticker `elementId` into the open project. Ids only, never a path. */
+export interface ElementMaterializeRequest {
+  readonly projectId: string;
+  readonly elementId: string;
+}
+
+/** The asset a materialised sticker becomes: an ordinary `image` with element provenance. */
+export interface ElementAssetWire {
+  readonly id: string;
+  /** Relative to the projects root, inside the project's media folder. */
+  readonly path: string;
+  readonly kind: 'image';
+  readonly media: { readonly width: number | null; readonly height: number | null };
+  /** The art's own size inside the file's transparent margin (the placement's `artFraction`). */
+  readonly sharpSize: number | null;
+  readonly source: {
+    readonly provider: string;
+    readonly remoteId: string;
+    readonly license: string;
+    readonly licenseUrl: string;
+    readonly attributionRequired: boolean;
+    readonly attribution: string;
+    readonly creator: string;
+    readonly sourceUrl: string;
+    readonly fetchedAt: string;
+  };
+  /** TRUE when the project already had the file and nothing was copied. */
+  readonly deduped: boolean;
+}
+
+export type ElementMaterializeResult =
+  | { readonly ok: true; readonly asset: ElementAssetWire }
+  | { readonly ok: false; readonly error: ElementErrorCodeWire; readonly detail?: string };
 
 export interface FramePilotBridge {
   ping(): Promise<'pong'>;
@@ -2276,6 +2359,13 @@ export interface FramePilotBridge {
   stockPreview?(remoteId: string): Promise<StockBytesResult>;
   /** Download one rendition into the project's media folder and derive its media. */
   stockDownload?(request: StockDownloadRequest): Promise<StockDownloadResult>;
+  /**
+   * Copy a catalogue sticker into the open project and return its asset (plan/elements EL6a).
+   * Desktop only; the caller places it with `buildAddStickerOps`.
+   */
+  elementsMaterialize?(request: ElementMaterializeRequest): Promise<ElementMaterializeResult>;
+  /** Packaged stickers' tiles, and whether this build has the packaged set (EL6b). Desktop only. */
+  elementsThumbnail?(request: ElementThumbnailRequest): Promise<ElementThumbnailResult>;
   /** Cancel an in-flight download by operation id (fire-and-forget). */
   stockDownloadCancel?(operationId: string): void;
   /** Subscribe to download progress; the returned function unsubscribes. */

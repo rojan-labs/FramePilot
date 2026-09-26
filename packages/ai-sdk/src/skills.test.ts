@@ -14,6 +14,9 @@ import {
   summarizeSkillsManifest,
   validateSkillTools,
 } from './skills.js';
+import { ANIMATION_KINDS, LOOP_PRESETS } from '@framepilot/editor-core';
+import { resolveShapePresetId } from '@framepilot/timeline-schema';
+
 import { AI_MASKING_TOOL_NAMES } from './masking/feature-flag.js';
 import { getTool } from './tool-registry.js';
 import { selectTools } from './tool-scope.js';
@@ -264,6 +267,96 @@ describe('masking-and-compositing (AM4.2)', () => {
     expect(skill!.body).toContain('effect: "blur_to_hide"');
     expect(skill!.body).toContain('You never give');
     expect(skill!.description).toMatch(/never call a mask verified/u);
+  });
+});
+
+describe('stickers-and-callouts (plan/elements EL8.3)', () => {
+  const skill = BUNDLED_SKILLS.find((candidate) => candidate.name === 'stickers-and-callouts');
+
+  it('is bundled, not silently skipped, and every tool it lists is one the model can call', () => {
+    expect(skill).toBeDefined();
+    expect(validateSkillTools(skill!).unknown).toEqual([]);
+    for (const name of skill!.tools) expect(getTool(name)?.available, name).toBe(true);
+  });
+
+  it('routes on a description under the cap that names the situations it covers', () => {
+    // The description is the only thing the model reads when choosing a skill, and over 300
+    // characters the loader skips the file without a word.
+    const { description } = skill!;
+    expect(description.length).toBeLessThanOrEqual(300);
+    for (const situation of [
+      /sticker/iu,
+      /callout/iu,
+      /emoji/iu,
+      /highlight box/iu,
+      /arrow/iu,
+      /circle/iu,
+      /underline/iu,
+      /badge/iu,
+      /animate/iu,
+    ]) {
+      expect(description, String(situation)).toMatch(situation);
+    }
+  });
+
+  it('lists the element tools and delete_clip', () => {
+    expect(skill!.tools).toEqual(
+      expect.arrayContaining([
+        'search_elements',
+        'add_sticker',
+        'add_shape',
+        'set_shape_style',
+        'set_element_animation',
+        'delete_clip',
+      ]),
+    );
+  });
+
+  it('names only real tools, real shape presets and the real loop presets in its body', () => {
+    const quoted = [...skill!.body.matchAll(/`([^`]+)`/gu)].map((match) => match[1]!);
+    for (const name of quoted.filter((token) => /^[a-z]+(?:_[a-z]+)+$/u.test(token))) {
+      expect(getTool(name), `unknown tool \`${name}\``).toBeDefined();
+    }
+    for (const preset of quoted.filter((token) => /^[a-z0-9-]+\/[a-z0-9-]+$/u.test(token))) {
+      expect(resolveShapePresetId(preset), `unknown shape preset \`${preset}\``).toBeDefined();
+    }
+    for (const loop of LOOP_PRESETS) expect(skill!.body).toContain(`\`${loop}\``);
+    for (const kind of Object.keys(ANIMATION_KINDS)) expect(skill!.body).toContain(`\`${kind}\``);
+    expect(skill!.body).not.toMatch(/detect_faces|generate_mask/u);
+  });
+
+  it('teaches reading an element’s place off its timeline row, in the units its tool takes', () => {
+    // element-row-facts.ts writes these rows; the numbers go straight back into the tools.
+    expect(skill!.body).toContain('sticker "Fire" at 75%, 25%, 30% high');
+    expect(skill!.body).toContain('box 50, 50, 48×27');
+    expect(skill!.body).toContain('ends 38, 38 → 50, 50');
+    expect(skill!.body).toMatch(/no `get_clips`/iu);
+  });
+
+  it('covers the three evaluation recipes: a product still, restyling every box, removing stickers', () => {
+    const { body } = skill!;
+    expect(body).toMatch(/product still/iu);
+    expect(body).toMatch(/Make all the highlight boxes red and thicker/u);
+    expect(body).toMatch(/one `set_shape_style` per box/iu);
+    expect(body).toMatch(/never delete and re-add/iu);
+    expect(body).toMatch(/Remove the stickers/u);
+    expect(body).toMatch(/`delete_clip` on each/u);
+    expect(body).toMatch(/footage, shapes and titles/u);
+  });
+
+  it('keeps elements clear of faces, captions, the frame edge and platform buttons, three at most', () => {
+    const { body } = skill!;
+    expect(body).toMatch(/`measure_subject`/u);
+    expect(body).toMatch(/caption band/iu);
+    expect(body).toMatch(/10% in from every edge/iu);
+    expect(body).toMatch(/TikTok, Reels and Shorts/u);
+    expect(body).toMatch(/more than three/iu);
+    // Stickers ship 256 px art: past 1.5× they export soft (element-frame.ts).
+    expect(body).toMatch(/soft/iu);
+    // An element off the frame for its whole span is refused (assemble.ts).
+    expect(body).toMatch(/outside the frame/iu);
+    // A request that asked for one fails when none is placed (critic elements_placed).
+    expect(body).toMatch(/asked for a sticker or a callout/iu);
   });
 });
 

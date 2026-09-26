@@ -19,6 +19,8 @@ const SOURCE = { width: 3840, height: 2160 };
 const FPS = 30;
 const FRAMES = 24;
 const WARMUP_FRAMES = 4;
+/** Room for the whole measurement on a slow shared runner (it takes 8–16 s there). */
+const MEASUREMENT_TIMEOUT_MS = 60_000;
 
 /** A closed 200-vertex outline with curved segments, centred, scaled by `radius`. */
 function outline(radius: number, phase: number): number[] {
@@ -107,13 +109,20 @@ describe('animated 200-vertex path raster cost (PX5)', () => {
   it.each([
     ['hard edge', { inner: 0, outer: 0 }],
     ['feathered 24 px', { inner: 8, outer: 24 }],
-  ] as const)('%s', (label, feather) => {
-    const clip = animatedPathClip(feather);
-    const rows = SIZES.map(([name, width, height]) => {
-      const { p50, p95 } = measure(clip, width, height);
-      return { name, size: `${width}x${height}`, p50: p50.toFixed(2), p95: p95.toFixed(2) };
-    });
-    console.info(`[PX5 mask raster] ${label}\n${JSON.stringify(rows, null, 1)}`);
-    expect(rows).toHaveLength(SIZES.length);
-  });
+  ] as const)(
+    '%s',
+    (label, feather) => {
+      const clip = animatedPathClip(feather);
+      const rows = SIZES.map(([name, width, height]) => {
+        const { p50, p95 } = measure(clip, width, height);
+        return { name, size: `${width}x${height}`, p50: p50.toFixed(2), p95: p95.toFixed(2) };
+      });
+      console.info(`[PX5 mask raster] ${label}\n${JSON.stringify(rows, null, 1)}`);
+      expect(rows).toHaveLength(SIZES.length);
+      // A measurement, not a budget: 28 frames at four sizes. Shared runners differ ~2x in speed
+      // (the same code's 4K hard edge measured p50 96 ms and 169 ms on two runs), so the default
+      // per-test timeout failed a run that measured fine. The budgets live in PX5-BUDGETS.md.
+    },
+    MEASUREMENT_TIMEOUT_MS,
+  );
 });

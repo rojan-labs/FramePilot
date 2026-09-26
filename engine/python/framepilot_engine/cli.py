@@ -103,6 +103,30 @@ def _cmd_inspect_media(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_decode_image(args: argparse.Namespace) -> int:
+    """``framepilot decode-image`` — decode a still through the export's own loader.
+
+    The release smoke runs it on the frozen engine with a shipped sticker (WebP with alpha,
+    plan/elements EL6a): a bundle whose Pillow lacks the codec fails here, at packaging, instead of
+    a user's export drawing an empty box. Prints ``{"width", "height", "alpha"}`` as JSON.
+    """
+    from moviepy import ImageClip
+
+    try:
+        clip = ImageClip(args.input, transparent=True)
+        frame = clip.get_frame(0)
+    except (OSError, ValueError) as exc:
+        sys.stdout.write(f"error: could not decode {Path(args.input).name}: {exc}\n")
+        return 1
+    height, width = int(frame.shape[0]), int(frame.shape[1])
+    has_alpha = clip.mask is not None
+    sys.stdout.write(json.dumps({"width": width, "height": height, "alpha": has_alpha}) + "\n")
+    if args.expect_alpha and not has_alpha:
+        sys.stdout.write("error: the image decoded without its transparency.\n")
+        return 1
+    return 0
+
+
 def _print_download_progress(downloaded: int, total: int | None) -> None:
     """Overwrite a single stderr line with the real download figures.
 
@@ -235,6 +259,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inspect.add_argument("input", help="Path to an input media file.")
     inspect.set_defaults(func=_cmd_inspect_media)
+
+    decode_image = subparsers.add_parser(
+        "decode-image", help="Decode a still through the export's loader (a packaging smoke)."
+    )
+    decode_image.add_argument("input", help="Path to an image file.")
+    decode_image.add_argument(
+        "--expect-alpha", action="store_true", help="Fail unless the image keeps its transparency."
+    )
+    decode_image.set_defaults(func=_cmd_decode_image)
 
     setup_asr = subparsers.add_parser(
         "setup-asr", help="Download + SHA256-verify the local ASR (whisper.cpp) model."

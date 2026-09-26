@@ -28,6 +28,8 @@ export {
   Type,
   Captions,
   Wand2,
+  // Element animation (In, Out, Loop): motion, not the AI rail's wand.
+  Orbit,
   SlidersHorizontal,
   FileText,
   SkipBack,
@@ -129,6 +131,12 @@ export {
   Shapes,
   // The Jobs rail tab (BR6.12).
   ListChecks,
+  // The Inspector's Sticker section (plan/elements EL6a).
+  Smile,
+  // Elements → Photos and Videos (plan/elements EL9): Add as overlay, and the orientation filter.
+  PictureInPicture2,
+  RectangleHorizontal,
+  RectangleVertical,
 } from 'lucide-react';
 export type { LucideIcon } from 'lucide-react';
 

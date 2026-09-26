@@ -13,6 +13,8 @@ from framepilot_engine.audio.asr import _default_runner as asr_runner
 from framepilot_engine.media.ffmpeg import FFmpegError
 from framepilot_engine.subprocess_safety import (
     UnsafeArgvError,
+    popen_argv,
+    run_argv,
     safe_operand,
     validate_safe_argv,
 )
@@ -98,3 +100,44 @@ def test_error_types_unchanged_for_operational_failures() -> None:
         run(["framepilot-nonexistent-binary-xyz"])
     with pytest.raises((AsrTranscriptionError, UnsafeArgvError)):
         asr_runner(["framepilot-nonexistent-binary-xyz"], timeout=5.0)
+
+
+def test_run_argv_runs_the_binary_with_its_operands() -> None:
+    completed = run_argv(
+        sys.executable, ["-c", "import sys; print(sys.argv[1])", "operand"], capture_output=True
+    )
+    assert completed.returncode == 0
+    assert completed.stdout.strip() == b"operand"
+
+
+def test_popen_argv_runs_the_binary_with_its_operands() -> None:
+    import subprocess
+
+    process = popen_argv(sys.executable, ["-c", "print('piped')"], stdout=subprocess.PIPE)
+    stdout, _ = process.communicate(timeout=10)
+    assert process.returncode == 0
+    assert stdout.strip() == b"piped"
+
+
+@pytest.mark.parametrize("launch", [run_argv, popen_argv])
+def test_argv_helpers_validate_before_exec(launch: object) -> None:
+    with pytest.raises(UnsafeArgvError):
+        launch(sys.executable, ["-c", "pass", "clip\x00.mp4"])  # type: ignore[operator]
+    with pytest.raises(UnsafeArgvError):
+        launch("--config=x", ["value"])  # type: ignore[operator]
+    with pytest.raises(UnsafeArgvError):
+        launch(sys.executable, [Path("clip.mp4")])  # type: ignore[operator]
+
+
+@pytest.mark.parametrize("launch", [run_argv, popen_argv])
+def test_argv_helpers_never_take_a_shell(launch: object) -> None:
+    """``shell`` is fixed to ``False`` by the helper; a caller asking for one is a bug."""
+    with pytest.raises(TypeError):
+        launch(sys.executable, ["-c", "pass"], shell=True)  # type: ignore[operator]
+
+
+@pytest.mark.parametrize("launch", [run_argv, popen_argv])
+def test_argv_helpers_refuse_a_substitute_executable(launch: object) -> None:
+    """``executable=`` would run a program other than the validated ``argv[0]``."""
+    with pytest.raises(UnsafeArgvError):
+        launch(sys.executable, ["-c", "pass"], executable="/bin/sh")  # type: ignore[operator]

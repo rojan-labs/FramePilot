@@ -24,9 +24,20 @@ import { onMusicDownloadProgress, onStockDownloadProgress } from './bridge.js';
 /** What a download is doing, for the one row or tile that started it. */
 export type DownloadEntry =
   | { readonly kind: 'downloading'; readonly operationId: string; readonly percent: number | null }
-  | { readonly kind: 'failed'; readonly message: string };
+  | {
+      readonly kind: 'failed';
+      readonly message: string;
+      /**
+       * Which of the row's actions failed, when it has more than one (a Pexels tile's Add or Add
+       * as overlay), so that action is the one offered again. The registry does not read it.
+       */
+      readonly action?: string;
+    };
 
-/** Every tracked download, keyed by provider item id. */
+/**
+ * Every tracked download, keyed by what the panel names its row by: the provider item id, or for
+ * stock the kind and the id (a Pexels photo and video can share an id).
+ */
 export type DownloadEntries = Readonly<Record<string, DownloadEntry>>;
 
 /**
@@ -37,6 +48,8 @@ export type DownloadEntries = Readonly<Record<string, DownloadEntry>>;
  * care which provider it is mirroring.
  */
 export interface DownloadProgressMessage {
+  /** The download this progress belongs to; matched first, since a key need not be the id. */
+  readonly operationId?: string;
   readonly remoteId: string;
   readonly phase: 'downloading' | 'deriving' | 'installed' | 'cancelled' | 'failed';
   readonly completedBytes: number;
@@ -50,8 +63,8 @@ export interface DownloadRegistry {
   subscribe(listener: () => void): () => void;
   /** Record a download that has just been asked for. */
   start(remoteId: string, operationId: string): void;
-  /** Record a download that ended badly, with the sentence to show. */
-  fail(remoteId: string, message: string): void;
+  /** Record a download that ended badly, with the sentence to show and the action that failed. */
+  fail(remoteId: string, message: string, action?: string): void;
   /** Forget this item — it landed, or the user cancelled, or it was retried. */
   clear(remoteId: string): void;
 }
@@ -77,18 +90,32 @@ export function createDownloadRegistry(
   const anyDownloading = (): boolean =>
     Object.values(entries).some((entry) => entry.kind === 'downloading');
 
+  /** The entry a progress message is about: by its operation id, else keyed by its item id. */
+  const keyOf = (message: DownloadProgressMessage): string | undefined => {
+    if (message.operationId !== undefined) {
+      const byOperation = Object.keys(entries).find((key) => {
+        const entry = entries[key];
+        return entry?.kind === 'downloading' && entry.operationId === message.operationId;
+      });
+      if (byOperation !== undefined) return byOperation;
+    }
+    return entries[message.remoteId] === undefined ? undefined : message.remoteId;
+  };
+
   function syncProgressSubscription(): void {
     if (anyDownloading() && detachProgress === null) {
       detachProgress = subscribeToProgress((message) => {
         if (message.phase !== 'downloading') return;
-        const current = entries[message.remoteId];
+        const key = keyOf(message);
+        if (key === undefined) return;
+        const current = entries[key];
         if (current?.kind !== 'downloading') return;
         const percent =
           message.totalBytes > 0
             ? Math.min(100, Math.round((message.completedBytes / message.totalBytes) * 100))
             : null;
         if (current.percent === percent) return;
-        emit({ ...entries, [message.remoteId]: { ...current, percent } });
+        emit({ ...entries, [key]: { ...current, percent } });
       });
       return;
     }
@@ -109,8 +136,11 @@ export function createDownloadRegistry(
     start(remoteId, operationId) {
       emit({ ...entries, [remoteId]: { kind: 'downloading', operationId, percent: null } });
     },
-    fail(remoteId, message) {
-      emit({ ...entries, [remoteId]: { kind: 'failed', message } });
+    fail(remoteId, message, action) {
+      emit({
+        ...entries,
+        [remoteId]: { kind: 'failed', message, ...(action === undefined ? {} : { action }) },
+      });
     },
     clear(remoteId) {
       if (entries[remoteId] === undefined) return;

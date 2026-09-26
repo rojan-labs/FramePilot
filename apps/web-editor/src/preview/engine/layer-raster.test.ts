@@ -13,6 +13,7 @@ import {
   fittedDecodeSize,
   pictureRasterStep,
   readerDecodeSize,
+  textRasterStep,
   type PictureRasterStep,
 } from './layer-raster.js';
 
@@ -170,5 +171,225 @@ describe('layer raster steps mirror compile_timeline pixel decisions', () => {
         90,
       ),
     ).toEqual({ width: 404, height: 720 });
+  });
+});
+
+describe('stills and titles take the picture pipeline (plan/elements EL2a)', () => {
+  const still = (width: number, height: number): Asset => ({
+    id: 'png',
+    path: 'still.png',
+    kind: 'image',
+    media: { width, height },
+  });
+  const opacity = (value: number) =>
+    [{ id: 'o', property: 'opacity', time: 0, value, easing: 'linear' }] as Clip['keyframes'];
+
+  it('crops a still and draws its opacity, as the export does', () => {
+    const c = clip('s', 'png', {
+      crop: { x: 0, y: 0, width: 0.5, height: 1 },
+      keyframes: opacity(0.25),
+    });
+    const step = stepFor(c, still(800, 400));
+    expect(step?.crop).toEqual({ x: 0, y: 0, width: 400, height: 400 });
+    expect(step?.opacity).toBe(0.25);
+    // The 400x400 crop fits the 1280x720 frame by height.
+    expect(step?.resize).toEqual({ width: 720, height: 720 });
+  });
+
+  it('draws a still’s legacy wipe and catalog transition', () => {
+    const wiped = clip('s', 'png', {
+      effects: [
+        {
+          id: 'w',
+          type: 'transition',
+          params: { kind: 'wipe', durationSeconds: 2 },
+          keyframes: [],
+        },
+      ],
+    });
+    expect(stepFor(wiped, still(800, 600), 0.5)?.wipe).not.toBeNull();
+    const dissolved = clip('s', 'png', {
+      effects: [
+        {
+          id: 'd',
+          type: 'transition',
+          params: { kind: 'soft-dissolve', durationSeconds: 2 },
+          keyframes: [],
+        },
+      ],
+    });
+    expect(stepFor(dissolved, still(800, 600), 0.5)?.transitions).toHaveLength(1);
+  });
+
+  const ellipseMask = (host: Clip) =>
+    MaskLayerSchema.parse(
+      maskLayerFromLegacyMaskEffect(
+        {
+          id: 's__mask',
+          params: { shape: 'ellipse', bounds: { x: 0.25, y: 0.25, width: 0.5, height: 0.5 } },
+          keyframes: [],
+        },
+        host as unknown as Record<string, unknown>,
+        { width: 800, height: 600 },
+      ),
+    );
+  const outline = {
+    id: 's__edge',
+    type: 'edge_style',
+    params: { kind: 'stroke', widthPx: 8, red: 0, green: 0, blue: 255 },
+    keyframes: [],
+  };
+
+  it('draws a still’s mask stack in its own pixels, as the export does (EL2b)', () => {
+    const host = clip('s', 'png');
+    const step = stepFor({ ...host, masks: [ellipseMask(host)] }, still(800, 600));
+    expect(step?.mask?.stack.alpha.map((mask) => mask.id)).toEqual(['s__mask']);
+    expect(step?.maskRefusal).toBeNull();
+  });
+
+  it('outlines a still around its own alpha, with or without a mask (EL2b)', () => {
+    const host = clip('s', 'png', { effects: [outline] });
+    const bare = stepFor(host, still(800, 600));
+    expect(bare?.mask).toBeNull();
+    expect(bare?.edgeStyles.map((style) => style.kind)).toEqual(['stroke']);
+    // The 800x600 still is drawn at its own size here, so a source pixel is a raster pixel.
+    expect(bare?.ownAlphaEdges).toEqual({ scale: 1 });
+    const masked = stepFor({ ...host, masks: [ellipseMask(host)] }, still(800, 600));
+    expect(masked?.edgeStyles).toHaveLength(1);
+    expect(masked?.ownAlphaEdges).toEqual({ scale: 1 });
+  });
+
+  it('keeps a video’s edge styles on its stack alone: it has no alpha of its own', () => {
+    const host = clip('c', 'land', { effects: [outline] });
+    const step = stepFor(host, video('land', 1920, 1080));
+    expect(step?.edgeStyles).toEqual([]);
+    expect(step?.ownAlphaEdges).toBeNull();
+  });
+
+  it('refuses, visibly, a background removal on a still, which needs video', () => {
+    const host = clip('s', 'png');
+    const matte = MaskLayerSchema.parse({
+      id: 's__matte',
+      kind: 'matte',
+      artifact: {
+        key: 'a'.repeat(64),
+        files: [
+          { name: 'matte.mkv', sha256: 'e'.repeat(64) },
+          { name: 'frames.json', sha256: 'f'.repeat(64) },
+          { name: 'report.json', sha256: 'd'.repeat(64) },
+        ],
+        width: 800,
+        height: 600,
+        coverage: { sourceStart: 0, sourceEnd: 4 },
+        packId: 'p',
+        packVersion: '1',
+        modelDigests: [],
+      },
+      decontaminate: false,
+    });
+    const step = stepFor({ ...host, masks: [matte] }, still(800, 600));
+    expect(step?.mask).toBeNull();
+    expect(step?.maskRefusal?.message).toBe(
+      'Background removal needs video, and this clip is a still image. Remove that mask, or draw a shape mask on the photo instead.',
+    );
+  });
+
+  const title = (params: Record<string, unknown>, extra: Partial<Clip> = {}): Clip =>
+    clip('t', '__text__', {
+      effects: [{ id: 't__text', type: 'text', params: { text: 'Hi', ...params }, keyframes: [] }],
+      ...extra,
+    });
+
+  function titleStep(c: Clip, t: number): PictureRasterStep | null {
+    const timeline: Timeline = { tracks: [{ id: 't', type: 'overlay', clips: [c] }] };
+    const layer = framePlanAt(timeline, [], t, TARGET).layers.find((l) => l.kind === 'text');
+    if (!layer) throw new Error('no text layer');
+    return textRasterStep(layer, c, { width: 200, height: 100 }, { x: 640, y: 360 });
+  }
+
+  function titleStepWith(c: Clip, frameScale: number): PictureRasterStep | null {
+    const timeline: Timeline = { tracks: [{ id: 't', type: 'overlay', clips: [c] }] };
+    const layer = framePlanAt(timeline, [], 1, TARGET).layers.find((l) => l.kind === 'text');
+    if (!layer) throw new Error('no text layer');
+    return textRasterStep(
+      layer,
+      c,
+      { width: 200, height: 100 },
+      { x: 640, y: 360 },
+      { frameScale },
+    );
+  }
+
+  it('cuts a title with a Frame-space mask and traces its glyphs (EL2b)', () => {
+    const frameMask = MaskLayerSchema.parse({
+      id: 't__mask',
+      kind: 'rectangle',
+      space: 'frame',
+      cx: 320,
+      cy: 360,
+      width: 640,
+      height: 720,
+    });
+    const traced = title(
+      {},
+      {
+        masks: [frameMask],
+        effects: [
+          { id: 't__text', type: 'text', params: { text: 'Hi' }, keyframes: [] },
+          {
+            id: 't__edge',
+            type: 'edge_style',
+            params: { kind: 'stroke', widthPx: 4, red: 0, green: 0, blue: 0 },
+            keyframes: [],
+          },
+        ],
+      },
+    );
+    const step = titleStepWith(traced, 0.5);
+    expect(step?.mask?.stack.alpha.map((mask) => mask.id)).toEqual(['t__mask']);
+    expect(step?.edgeStyles.map((style) => style.kind)).toEqual(['stroke']);
+    // Frame pixels at the project's size, drawn on a half-size monitor: half a raster pixel each.
+    expect(step?.ownAlphaEdges).toEqual({ scale: 0.5 });
+  });
+
+  it('refuses, visibly, a mask drawn on a title’s own picture, naming the remedy', () => {
+    const drawn = MaskLayerSchema.parse({
+      id: 't__mask',
+      kind: 'ellipse',
+      cx: 50,
+      cy: 50,
+      rx: 20,
+      ry: 20,
+    });
+    const step = titleStepWith(title({}, { masks: [drawn] }), 1);
+    expect(step?.mask).toBeNull();
+    expect(step?.maskRefusal?.message).toBe(
+      "This mask is drawn on the title's own picture, which has no fixed size: set its space to Frame, or use a track matte.",
+    );
+  });
+
+  it('draws a title’s opacity keyframe', () => {
+    expect(titleStep(title({}, { keyframes: opacity(0.25) }), 1)?.opacity).toBe(0.25);
+    expect(titleStep(title({}), 1)?.opacity).toBeNull();
+  });
+
+  it('pops a title in from smaller and settles at its own size', () => {
+    const popping = title({ inAnimation: 'pop', animDurationSeconds: 0.4 });
+    const early = titleStep(popping, 0.1);
+    // 0.7 + 0.3 × 0.25 = 0.775 of 200x100, around the layout centre; int() truncates the
+    // float 154.99999… exactly as Pillow's size does.
+    expect(early?.opacity).toBe(0.25);
+    expect(early?.resize).toEqual({ width: 154, height: 77 });
+    expect(early?.x).toBe(Math.trunc(640 - (200 * 0.775) / 2));
+    const settled = titleStep(popping, 1);
+    expect(settled?.resize).toBeNull();
+    expect(settled?.x).toBe(540);
+  });
+
+  it('slides a title up by a share of the frame height', () => {
+    const sliding = title({ inAnimation: 'slide-up', animDurationSeconds: 0.4 });
+    // At t=0 it sits 5% of 720 = 36px below its place.
+    expect(titleStep(sliding, 0)?.y).toBe(310 + 36);
+    expect(titleStep(sliding, 1)?.y).toBe(310);
   });
 });

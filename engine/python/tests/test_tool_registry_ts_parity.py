@@ -129,6 +129,9 @@ def test_host_ui_only_tools_are_detected_and_excluded() -> None:
         "remove_silences",
         "search_stock",
         "add_stock",
+        # The sticker library lives in the desktop install and main copies a sticker into the
+        # project (plan/elements EL6a); like add_stock, nothing here can reach either.
+        "add_sticker",
         "professional_audio",
         "professional_color",
         "professional_edit",

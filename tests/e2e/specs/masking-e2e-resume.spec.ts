@@ -299,7 +299,8 @@ test('E2E.6 crash mid-job, relaunch, resume from finished windows, identical out
   // ---- relink the clip to different media: STALE, the export refuses, recompute ---------------
   // The card's actions appear on hover (the media bin's own rule), as for a pointer user.
   await relaunched.getByRole('listitem', { name: 'asset subject', exact: true }).hover();
-  await relaunched.getByRole('button', { name: 'relink subject', exact: true }).click();
+  // Named by the file the card shows, not by the asset id.
+  await relaunched.getByRole('button', { name: 'relink subject.mp4', exact: true }).click();
   await expect(relaunched.getByText(STALE_REMEDY).first()).toBeVisible({ timeout: 30_000 });
   // The native dialog answers an absolute path, and the relink stores it as chosen.
   const relinkTarget = join(workspace.projectDir, 'media', 'subject-v2.mp4');

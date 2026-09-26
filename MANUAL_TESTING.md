@@ -1420,6 +1420,94 @@ The registered payload points at the worker's `.venv` in your checkout — if yo
 
 ---
 
+## 23. Elements — photos, videos, shapes, stickers
+
+`UI+AI` · `desktop` (Elements is desktop-only; the browser build shows no Elements tab)
+
+Run this section on **macOS arm64 and Windows x64** (plan/elements 13 §10) and fill both result
+lines. Guide: `docs/guides/elements.md`; support: `docs/runbooks/elements.md`.
+
+- [ ] **23.1 The Elements tab** — `UI`
+  - Do: left rail → **Elements** (second, after Assets). Switch Photos · Videos · Shapes · Stickers;
+    quit and reopen the app.
+  - Expect: each sub-tab opens; the last one used is remembered; a project last left on the old
+    Stock tab opens on Elements.
+  - Result (macOS arm64): **/**/____ · PASS / FAIL · notes:
+  - Result (Windows x64): **/**/____ · PASS / FAIL · notes:
+
+- [ ] **23.2 Photos and Videos: categories and orientation** — `UI`
+  - Setup: a Pexels key in Settings → AI → Photos & videos.
+  - Do: Photos → click **Nature**, then click it again; switch the orientation filter from the
+    project's shape to Portrait; type a search.
+  - Expect: one search per category (the quota strip says so; the second click spends nothing);
+    the filter starts on the project's shape and re-searches when changed; typing leaves the
+    category.
+  - Result (macOS arm64): **/**/____ · PASS / FAIL · notes:
+  - Result (Windows x64): **/**/____ · PASS / FAIL · notes:
+
+- [ ] **23.3 Add, Add as overlay, and drag to the timeline** — `UI`
+  - Do: with the playhead over footage, hover a tile: **Add** is disabled with a reason; click
+    **Overlay**. Then drag another tile onto an empty video lane; undo each.
+  - Expect: the overlay lands at the playhead, centred at 40% of its fitted size, under any
+    title, sticker or shape, and is selected; the dragged tile lands full frame at the drop time;
+    one undo removes each, asset and lane included; the export matches the monitor.
+  - Fail if: the overlay covers a title or sticker, or the programme gets longer than its footage.
+  - Result (macOS arm64): **/**/____ · PASS / FAIL · notes:
+  - Result (Windows x64): **/**/____ · PASS / FAIL · notes:
+
+- [ ] **23.4 Shapes** — `UI`
+  - Do: Shapes → click the highlight box; drag its corner and body on the monitor; drag an arrow's
+    tip onto something; search "star", pick a category chip and a colour; drag a tile onto a lane;
+    in the Inspector change fill, stroke, corners, swap the shape, and give a numbered badge a
+    label.
+  - Expect: each change previews at once and exports identically; one undo per change.
+  - Result (macOS arm64): **/**/____ · PASS / FAIL · notes:
+  - Result (Windows x64): **/**/____ · PASS / FAIL · notes:
+
+- [ ] **23.5 Stickers** — `UI`
+  - Do: Stickers → search "fire" and 🔥; star one (or press F on a focused tile) and open
+    Favourites; scroll the whole library; drag a sticker onto a lane; in the Inspector use
+    **Replace…**, turn on an outline and a shadow.
+  - Expect: the whole library (1,595) scrolls smoothly; a sticker lands a third of the frame high
+    (about a fifth on a vertical or 4K project) and is sharp in the export; Replace keeps timing,
+    place and animation.
+  - Result (macOS arm64): **/**/____ · PASS / FAIL · notes:
+  - Result (Windows x64): **/**/____ · PASS / FAIL · notes:
+
+- [ ] **23.6 Animation: In, Out and Loop** — `UI`
+  - Do: right-click a sticker → **Animation…**; set In = Pop, Loop = Pulse, Out = Slide left;
+    lengthen the clip and use **Re-apply**.
+  - Expect: the monitor and the export move identically; the section says when the clip has
+    outgrown its loop; each change is one undo.
+  - Result (macOS arm64): **/**/____ · PASS / FAIL · notes:
+  - Result (Windows x64): **/**/____ · PASS / FAIL · notes:
+
+- [ ] **23.7 Elements survive the project** — `UI`
+  - Do: save, quit, reopen; delete a sticker's file from the project's `media/…/elements` folder
+    and reopen.
+  - Expect: everything reopens identically; the missing sticker is copied back on open.
+  - Result (macOS arm64): **/**/____ · PASS / FAIL · notes:
+  - Result (Windows x64): **/**/____ · PASS / FAIL · notes:
+
+- [ ] **23.8 Callouts and stickers by asking** — `AI`
+  - Do, on a screen recording: _"Put a box around the Export button when I say 'export'."_ Then
+    _"Make all the highlight boxes red and thicker."_ On a talking head: _"Add a fire emoji when I
+    say 'this is fire'."_, _"Make the arrow pop in and the sticker pulse."_, _"Remove the
+    stickers."_
+  - Expect: each lands on the named thing at the word; restyling changes the boxes in place;
+    removing leaves footage and shapes alone; the run's review notes anything over a face, under
+    the captions or soft.
+  - Result (macOS arm64): **/**/____ · PASS / FAIL · notes:
+  - Result (Windows x64): **/**/____ · PASS / FAIL · notes:
+
+- [ ] **23.9 Failures say what to do** — `UI`
+  - Do: fill the disk the project is on and add a sticker; try Photos without a key.
+  - Expect: a sentence that says what happened and what to do, never a silent no-op.
+  - Result (macOS arm64): **/**/____ · PASS / FAIL · notes:
+  - Result (Windows x64): **/**/____ · PASS / FAIL · notes:
+
+---
+
 ## Session log
 
 | Date | Sections covered | Passed | Failed | Notes |

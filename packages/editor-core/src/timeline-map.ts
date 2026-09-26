@@ -39,6 +39,7 @@
  * @see docs/adr/0076-canonical-timeline-mapping.md
  */
 import type { Timeline } from '@framepilot/timeline-schema';
+import { hasTimeBasedSource } from './synthetic-assets.js';
 
 /**
  * Comparison slack for time arithmetic, in seconds — well under a frame at any
@@ -181,6 +182,9 @@ export function buildTimelineMap(timeline: Timeline): TimelineMap {
   for (const track of timeline.tracks) {
     if (!TIMED_TRACK_TYPES.has(track.type)) continue;
     for (const clip of track.clips) {
+      // A title or a shape dragged onto a picture lane is still not footage: it has no source
+      // timeline, so it is never a span, a cut, or a source of captions (plan/elements EL4a).
+      if (!hasTimeBasedSource(clip)) continue;
       spans.push({
         clipId: clip.id,
         assetId: clip.assetId,

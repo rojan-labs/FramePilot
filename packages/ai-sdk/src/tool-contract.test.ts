@@ -131,6 +131,7 @@ describe('analysis-kind tools are exhaustively classified by project-state effec
     'remove_silences',
     'add_music',
     'add_stock',
+    'add_sticker',
     'index_media',
     'track_subject_automatically',
     'transcribe',

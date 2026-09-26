@@ -13,6 +13,7 @@ import {
   addStockClipPatch,
   picturePlacementConflict,
   placeAssetPatch,
+  STOCK_ADD_BLOCKED,
   stockPlacementBlockedReason,
 } from './patch-builders.js';
 import { StockAssetPayloadSchema, stockOpsFromPayload } from '@framepilot/ai-sdk';
@@ -186,11 +187,18 @@ describe('one undo removes everything', () => {
 });
 
 describe('stockPlacementBlockedReason', () => {
-  it('names the problem and the fix, not just the problem', () => {
+  it('names the problem and both fixes in one fixed sentence', () => {
     const reason = stockPlacementBlockedReason(demoTimeline, assetById, 2, 5);
-    expect(reason).toMatch(/already footage/i);
-    // The fix has to be a place, not an instruction to go looking for one.
-    expect(reason).toMatch(/move it to \d+\.\ds/i);
+    // One sentence every tile shares. The "first gap" it used to name was a varying number of
+    // raw seconds, different for every tile, and on a timeline full of footage it was the end of
+    // the programme; Overlay is the fix that works where the footage is.
+    expect(reason).toBe(STOCK_ADD_BLOCKED);
+    expect(STOCK_ADD_BLOCKED).toBe(
+      "Add replaces the picture, and there's footage at the playhead. " +
+        'Use Overlay to put it on top, or move the playhead to a gap.',
+    );
+    expect(stockPlacementBlockedReason(demoTimeline, assetById, 6, 12)).toBe(reason);
+    expect(reason).not.toMatch(/\d/);
   });
 
   it('is null where placement would succeed', () => {

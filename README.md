@@ -83,6 +83,9 @@ for Premiere Pro, After Effects, or DaVinci Resolve.
 - A catalog-driven transition system with alignment and editable parameters.
 - Position, scale, rotation, and opacity keyframes with multiple easing modes and real
   cubic Bezier handles.
+- Elements (desktop): Pexels photos and videos as cutaways or picture-in-picture, callout shapes
+  and icons drawn by the render engine, and the Fluent Emoji sticker library, each with In, Out
+  and Loop animation that exports as it previews, and placeable by the agent.
 
 ### Export and desktop delivery
 

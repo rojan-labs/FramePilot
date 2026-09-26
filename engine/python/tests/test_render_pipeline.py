@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from framepilot_engine.media.ffmpeg import find_ffprobe
 from framepilot_engine.render.export_settings import ExportSettings
 from framepilot_engine.render.pipeline import (
     RenderOptions,
@@ -285,9 +288,64 @@ def test_master_audio_pass_failure_leaves_no_partial_temp(tmp_path: Path, monkey
     monkeypatch.setattr("framepilot_engine.render.pipeline.apply_master_audio", failing_apply)
     with pytest.raises(RuntimeError, match="ffmpeg exploded"):
         _apply_master_audio_pass(output, REELS, RenderOptions(compression="voice"))
-    assert not output.with_suffix(".mp4.master.tmp").exists()
+    # Nothing of the pass is left beside the export, whatever it named its temp file.
+    assert sorted(entry.name for entry in tmp_path.iterdir()) == ["out.mp4"]
     # The finished render is the caller's to keep or discard; this pass never eats it.
     assert output.read_bytes() == b"render"
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_master_audio_pass_runs_on_real_ffmpeg(
+    tmp_path: Path, media_factory: Callable[..., Path]
+) -> None:
+    """The pass as ffmpeg really runs it, not a stand-in.
+
+    ffmpeg picks the output container from the file's extension, so the temp file must keep the
+    export's own. Named ``out.mp4.master.tmp``, it failed every export that asked for loudness,
+    de-noise, EQ, compression or a limiter, and every other test here replaces ffmpeg.
+    """
+    output = tmp_path / "out.mp4"
+    shutil.copyfile(media_factory("master-pass.mp4"), output)
+    before = output.read_bytes()
+    _apply_master_audio_pass(output, REELS, RenderOptions(loudness="social", limiter=True))
+    assert output.read_bytes() != before
+    probe = [find_ffprobe(), "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0"]
+    streams = subprocess.run(
+        [*probe, str(output)],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.split()
+    assert sorted(streams) == ["audio", "video"]
+    assert sorted(entry.name for entry in tmp_path.iterdir()) == ["out.mp4"]
+
+
+def test_master_audio_pass_never_writes_through_a_planted_link(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """An export folder is the user's (synced, shared, unpacked from a zip): a link planted where
+    the pass writes its temp file must not turn the pass into a write outside that folder."""
+    victim = tmp_path / "elsewhere" / "victim.txt"
+    victim.parent.mkdir()
+    victim.write_text("keep")
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    output = exports / "out.mp4"
+    output.write_bytes(b"original")
+    # The name the pass used to write, predictable from the export's own.
+    (exports / "out.mp4.master.tmp").symlink_to(victim)
+    written: list[Path] = []
+
+    def fake_apply(src: Path, dst: Path, filter_str: str, **kwargs: Any) -> None:
+        written.append(dst)
+        dst.write_bytes(b"filtered")
+
+    monkeypatch.setattr("framepilot_engine.render.pipeline.apply_master_audio", fake_apply)
+    _apply_master_audio_pass(output, REELS, RenderOptions(limiter=True))
+    assert victim.read_text() == "keep"
+    assert not output.is_symlink()
+    assert output.read_bytes() == b"filtered"
+    assert written[0].suffix == ".mp4"
 
 
 def test_master_audio_pass_noop_without_options(tmp_path: Path, monkeypatch: Any) -> None:

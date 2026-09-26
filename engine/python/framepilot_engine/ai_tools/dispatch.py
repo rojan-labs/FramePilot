@@ -103,6 +103,7 @@ _HANDLERS: dict[str, Callable[[Any, ToolContext], Any]] = {
     "load_skill": handlers.load_skill,
     "list_assets": handlers.list_assets,
     "discover_caption_styles": handlers.discover_caption_styles,
+    "search_elements": handlers.search_elements,
     "trim_clip": handlers.trim_clip,
     "split_clip": handlers.split_clip,
     "delete_range": handlers.delete_range,
@@ -120,6 +121,8 @@ _HANDLERS: dict[str, Callable[[Any, ToolContext], Any]] = {
     "add_clip": handlers.add_clip,
     "add_clips": handlers.add_clips,
     "add_text_layer": handlers.add_text_layer,
+    "add_shape": handlers.add_shape,
+    "set_shape_style": handlers.set_shape_style,
     "add_caption_layer": handlers.add_caption_layer,
     "add_keyframes": handlers.add_keyframes,
     "remove_keyframes": handlers.remove_keyframes,
@@ -162,6 +165,9 @@ _HOST_DELEGATED_TOOLS = frozenset(
         "adjust_effect",
         "set_effect_enabled",
         "remove_effect",
+        # plan/elements EL7: In/Out and Loop are planned by editor-core's element-animation and
+        # loop-motion builders, which the TS host runs.
+        "set_element_animation",
     }
 )
 

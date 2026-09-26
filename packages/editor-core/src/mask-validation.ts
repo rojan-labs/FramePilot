@@ -31,6 +31,7 @@ import {
   type MaskOperation,
 } from './mask-operations.js';
 import type { Operation } from './operations.js';
+import { syntheticClipKind } from './synthetic-assets.js';
 import type { ValidationCode, ValidationIssue } from './validator.js';
 
 /**
@@ -48,8 +49,14 @@ export const RETIRED_MASK_EFFECT_TYPE = 'mask';
 
 /** What the mask rules need that a timeline does not carry. */
 export interface MaskValidationContext {
-  /** Measured media, by asset id. Absent ⇒ size rules are skipped (no evidence either way). */
-  readonly assets?: ReadonlyMap<string, Pick<Asset, 'id' | 'media'>>;
+  /**
+   * Measured media, by asset id. Absent ⇒ size rules are skipped (no evidence either way). Its
+   * `kind`, when given, says a clip shows a still, which takes no mask measured on video.
+   */
+  readonly assets?: ReadonlyMap<
+    string,
+    Pick<Asset, 'id' | 'media'> & { readonly kind?: Asset['kind'] }
+  >;
   /** Project frame rate, for the half-frame matte coverage tolerance. */
   readonly fps?: number | null;
 }
@@ -440,6 +447,56 @@ function layerCycleIssues(
   return issues;
 }
 
+/** Mask kinds drawn from geometry: what a title cannot take on its own picture (EL2b). */
+export const GEOMETRIC_MASK_KINDS: ReadonlySet<string> = new Set([
+  'rectangle',
+  'ellipse',
+  'path',
+  'linear',
+  'band',
+  'gradient',
+]);
+
+/**
+ * The masks a still or a title cannot take (plan/elements EL2b), refused when an edit makes one
+ * with the sentence the export refuses it with: a background removal and a tracked mask are
+ * measured on video, and a shape drawn on a title's own picture has nothing fixed to be
+ * measured against (on the frame, it does).
+ */
+function graphicIssues(owner: Owner, context: MaskValidationContext, index: number): Issue[] {
+  const clip = owner.clip;
+  if (!clip) return [];
+  const title = syntheticClipKind(clip.assetId) === 'text';
+  const still = !title && context.assets?.get(clip.assetId)?.kind === 'image';
+  if (!title && !still) return [];
+  const issues: Issue[] = [];
+  for (const mask of owner.masks) {
+    if (!mask.enabled) continue;
+    if (mask.kind === 'matte' || mask.tracking !== undefined) {
+      const what = mask.kind === 'matte' ? 'Background removal' : `Tracked mask '${mask.id}'`;
+      const remedy = title
+        ? 'Remove that mask.'
+        : 'Remove that mask, or draw a shape mask on the photo instead.';
+      issues.push(
+        error(
+          'invalid_mask',
+          `${what} on ${owner.label} needs video, and this clip is ${title ? 'a title' : 'a still image'}. ${remedy}`,
+          index,
+        ),
+      );
+    } else if (title && GEOMETRIC_MASK_KINDS.has(mask.kind) && mask.space !== 'frame') {
+      issues.push(
+        error(
+          'invalid_mask',
+          `Mask '${mask.id}' on ${owner.label} is drawn on the title's own picture, which has no fixed size: set its space to Frame, or use a track matte.`,
+          index,
+        ),
+      );
+    }
+  }
+  return issues;
+}
+
 /**
  * Issues in the stack a mask operation produced.
  *
@@ -464,6 +521,7 @@ export function maskOperationIssues(
     issues.push(...structuralIssues(owner, index));
     issues.push(...keyframeRangeIssues(owner, authored, index));
     issues.push(...mediaIssues(owner, op, authored, context, index));
+    issues.push(...graphicIssues(owner, context, index));
   }
   issues.push(...layerCycleIssues(after, clipIds, index));
   return issues;

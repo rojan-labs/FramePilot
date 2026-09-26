@@ -23,8 +23,8 @@ as packs).
 
 ## The tools
 
-Select a video or image clip and open **Inspector → Mask**. A clip carries a **stack** of masks,
-read top to bottom, each with a blend mode (add, subtract, intersect, …), opacity, invert,
+Select a video, image or title clip and open **Inspector → Mask**. A clip carries a **stack** of
+masks, read top to bottom, each with a blend mode (add, subtract, intersect, …), opacity, invert,
 expansion and inner/outer feather.
 
 - **Shapes you draw:** rectangle, ellipse, pen path, freehand (fitted to a smooth path), split,
@@ -39,7 +39,13 @@ expansion and inner/outer feather.
   (strength is a share of the picture, so it looks the same at every resolution); press **Add
   mask** on the blur's row and draw — that is a face or plate blur. Track the mask and the blur
   stays on the face. One blur per clip; each face is its own mask on it.
-- **Edge styles** on a cut-out: outline, glow, drop shadow.
+- **Edge styles** on a cut-out: outline, glow, drop shadow. A photo, a sticker or a title needs no
+  mask for them: they trace its own shape (a sticker's art, a title's letters), and on an opaque
+  photo an outline is a border.
+- **Photos and stickers** take drawn masks in their own pixels, keys and track mattes, as footage
+  does. **Titles** take a track matte, a key, or a shape set to **Frame** space; a shape drawn on
+  a title's own picture has nothing fixed to be measured against, so FramePilot asks you to set
+  it to Frame. Background removal and tracking need video, so they are not offered on either.
 - **Animation.** Every property keys at the playhead; a path keys its whole shape. Mask keyframes
   live on the clip's own media clock, so trims, splits and speed changes never make a mask drift.
 

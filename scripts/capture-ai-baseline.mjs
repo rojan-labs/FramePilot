@@ -33,7 +33,7 @@
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -96,7 +96,9 @@ if (args.label !== undefined && args.label !== adapter) {
 }
 args.label = adapter;
 
-const sdk = await import(path.join(root, 'packages/ai-sdk/dist/index.js')).catch(() => {
+const sdk = await import(
+  pathToFileURL(path.join(root, 'packages/ai-sdk/dist/index.js')).href
+).catch(() => {
   fail('Could not load @framepilot/ai-sdk dist. Run: pnpm --filter @framepilot/ai-sdk build');
 });
 

@@ -188,6 +188,35 @@ describe('CreditsSection', () => {
       expect(creditRows([imported])).toHaveLength(0);
     });
 
+    it('groups identical lines, so ten stickers from one library are one line', () => {
+      const sticker = (id: string): Asset =>
+        ({
+          id: `element_fluent3d_${id}`,
+          path: `media/p/elements/fluent3d/${id}.webp`,
+          kind: 'image',
+          source: {
+            provider: 'fluent-emoji',
+            remoteId: id,
+            license: 'mit',
+            attributionRequired: false,
+            attribution: 'Fluent Emoji by Microsoft (MIT)',
+            creator: 'Microsoft',
+            fetchedAt: '2026-09-26T00:00:00.000Z',
+          },
+        }) as unknown as Asset;
+      const assets = [sticker('fire'), pexelsPhoto, sticker('rocket'), sticker('party_popper')];
+      const rows = suggestedCreditRows(assets);
+      expect(rows.map((row) => [row.line, row.count])).toEqual([
+        ['Fluent Emoji by Microsoft (MIT)', 3],
+        ['Photo by Joey Farina on Pexels', 1],
+      ]);
+      expect(suggestedCreditsText(assets)).toBe(
+        'Fluent Emoji by Microsoft (MIT)\nPhoto by Joey Farina on Pexels',
+      );
+      render(<CreditsSection assets={assets} />);
+      expect(screen.getByText('×3')).toBeTruthy();
+    });
+
     it('copies only its own group', () => {
       expect(suggestedCreditsText([pexelsPhoto])).toBe('Photo by Joey Farina on Pexels');
       expect(creditsText([pexelsPhoto])).toBe('');

@@ -33,14 +33,14 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { basename, dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
 loadDotEnv(join(REPO, '.env'));
 process.env.FRAMEPILOT_LOG_LEVEL ??= 'silent';
 
-const sdk = await import(join(HERE, '..', 'dist', 'index.js'));
+const sdk = await import(pathToFileURL(join(HERE, '..', 'dist', 'index.js')).href);
 const { parseProject } = await import('@framepilot/timeline-schema');
 const { applyProjectPatch } = await import('@framepilot/editor-core');
 const {
@@ -691,6 +691,9 @@ async function runCase(goldenCase, run) {
       musicAssetId,
       expectedHeadTrimSeconds: turn.expectedHeadTrimSeconds,
       captionStyle: turn.captionStyle,
+      calloutTarget: turn.calloutTarget,
+      stickerTarget: turn.stickerTarget,
+      productTarget: turn.productTarget,
       // Keyed by clip ids, and the checks read the AFTER timeline: a map built from `project`
       // misses every cut the turn created, so those cuts would score as unlabelled. The labels
       // are per source time, so they resolve against any timeline built from these assets.

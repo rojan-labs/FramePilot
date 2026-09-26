@@ -61,6 +61,8 @@ j=0; for role in logo mood thumbnail character colorchart design; do j=$((j+1));
 # deterministic music: click + bass, 100 BPM (30 s) and a 128→140 BPM ramp (30 s)
 [ -f "$HERE/music/beat-100bpm.wav" ] || ffmpeg -v error -f lavfi -i "sine=frequency=60:beep_factor=8:duration=30" -f lavfi -i "sine=frequency=1000:duration=30" -filter_complex "[1]volume='if(lt(mod(t,0.6),0.05),1,0)':eval=frame[c];[0][c]amix=inputs=2" -ar 44100 -ac 2 "$HERE/music/beat-100bpm.wav"
 [ -f "$HERE/music/beat-ramp.wav" ] || ffmpeg -v error -f lavfi -i "sine=frequency=55:duration=30" -f lavfi -i "sine=frequency=900:duration=30" -filter_complex "[1]volume='if(lt(mod(t,0.46875-0.04*t/30),0.05),1,0)':eval=frame[c];[0][c]amix=inputs=2" -ar 44100 -ac 2 "$HERE/music/beat-ramp.wav"
+# the screen-demo recording for the Elements callout case: drawn, not fetched (deterministic)
+[ -f "$HERE/screen-demo-20s.mp4" ] || ( cd "$HERE/../../../engine/python" && uv run python -m tests.screen_demo_fixture )
 # manifest
 ( cd "$HERE" && find . -type f \( -name '*.mp4' -o -name '*.mov' -o -name '*.wav' -o -name '*.jpg' -o -name '*.png' \) | sort | while read -r f; do printf '{"file":"%s","sha256":"%s","bytes":%s}\n' "${f#./}" "$(shasum -a 256 "$f" | cut -d' ' -f1)" "$(stat -f%z "$f")"; done | jq -s '{generatedAt: (now|todate), files: .}' > manifest.json )
 echo "fixtures ready: $(jq '.files|length' "$HERE/manifest.json") files"

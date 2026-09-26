@@ -51,6 +51,7 @@ export function postValidationScope(
     case 'ripple_delete':
     case 'add_clip':
     case 'add_text_overlay':
+    case 'add_shape':
     case 'add_caption_layer':
     case 'restore_clips':
       return scope([op.trackId], TIMING_CHECKS);

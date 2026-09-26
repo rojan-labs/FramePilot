@@ -13,7 +13,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { SCHEMA_VERSION, parseProject } from './index.js';
+import { SCHEMA_VERSION, parseProject, presetShapeParams } from './index.js';
 import { writeProjectFile } from './project-file.js';
 import { deserializeProject, serializeProject } from './serialization.js';
 
@@ -131,6 +131,44 @@ describe('save budget with 1,000 path keyframes × 200 vertices (MK4.6)', () => 
       expect(text).toContain('"points": "f64le:');
       const reloaded = deserializeProject(text);
       expect(reloaded.timeline).toEqual(parseProject(document).timeline);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('holds with 50 shape clips on top of the same document (plan/elements EL4a)', async () => {
+    const document = rotoscopeDocument() as { timeline: { tracks: Record<string, unknown>[] } };
+    const params = presetShapeParams('rounded-rect/highlight')!;
+    document.timeline.tracks.unshift({
+      id: 'shapes',
+      type: 'overlay',
+      clips: Array.from({ length: 50 }, (_, index) => ({
+        id: `shape_${String(index)}`,
+        assetId: '__shape__',
+        trackId: 'shapes',
+        start: index,
+        end: index + 1,
+        sourceStart: 0,
+        sourceEnd: 1,
+        effects: [{ id: `shape_${String(index)}__shape`, type: 'shape', params, keyframes: [] }],
+        keyframes: [],
+      })),
+    });
+    const directory = mkdtempSync(join(tmpdir(), 'fp-save-budget-shapes-'));
+    try {
+      const timings: number[] = [];
+      for (let run = 0; run < RUNS; run += 1) {
+        const started = performance.now();
+        const project = parseProject(structuredClone(document));
+        await writeProjectFile(join(directory, 'project.fp.json'), project);
+        timings.push(performance.now() - started);
+      }
+      const best = Math.min(...timings);
+      console.log(`EL4a save budget with 50 shapes: best ${best.toFixed(1)} ms`);
+      expect(best).toBeLessThanOrEqual(INSTRUMENTED ? INSTRUMENTED_CEILING_MS : SAVE_BUDGET_MS);
+      const reloaded = deserializeProject(readFileSync(join(directory, 'project.fp.json'), 'utf8'));
+      expect(reloaded.timeline.tracks[0]?.clips).toHaveLength(50);
+      expect(reloaded.timeline.tracks[0]?.clips[7]?.effects[0]?.params).toEqual(params);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

@@ -144,6 +144,18 @@ class ExpectedRender(BaseModel):
             "tail is the edit, not a defect, and the check is skipped."
         ),
     )
+    element_count: int = Field(
+        default=0,
+        description="Visible element clips (shapes) the export draws; 0 skips the element check.",
+    )
+    offscreen_elements: list[str] = Field(
+        default_factory=list,
+        description=(
+            "One sentence per element placed entirely outside the frame at its midpoint: it "
+            "renders as nothing, which the export must say rather than ship (plan/elements, "
+            "PRD section 9.4)."
+        ),
+    )
     max_audio_dbfs: float = Field(
         default=EXPORT_MAX_AUDIO_DBFS,
         description=(
@@ -310,6 +322,7 @@ def validate_render(
     checks.extend(_black_checks(path, info, expected, log_runner))
     checks.append(_audio_clipping_check(path, info, expected, log_runner))
     checks.append(_silent_tail_check(path, info, expected, log_runner))
+    checks.append(_elements_on_screen_check(expected))
 
     return ValidationReport.from_checks(str(path), checks)
 
@@ -346,9 +359,24 @@ def plain_failures(report: ValidationReport) -> list[str]:
                 lines.append("The export has no sound.")
             case "audio_clipping":
                 lines.append(f"The export's audio clips ({detail}).")
+            case "elements_on_screen":
+                lines.append(detail)
             case _:
                 lines.append(f"{check.name}: {detail}" if detail else check.name)
     return lines
+
+
+def _elements_on_screen_check(expected: ExpectedRender) -> ValidationCheck:
+    """Every visible shape is at least partly inside the frame (plan/elements EL4a)."""
+    if expected.element_count == 0:
+        return ValidationCheck(name="elements_on_screen", status=CheckStatus.SKIP)
+    if expected.offscreen_elements:
+        return ValidationCheck(
+            name="elements_on_screen",
+            status=CheckStatus.FAIL,
+            detail=" ".join(expected.offscreen_elements),
+        )
+    return ValidationCheck(name="elements_on_screen", status=CheckStatus.PASS)
 
 
 def _video_stream_check(info: MediaInfo, expected: ExpectedRender) -> ValidationCheck:

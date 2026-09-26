@@ -36,10 +36,12 @@ import {
   type TranscriptWord,
 } from '@framepilot/timeline-schema';
 import { getTransition } from '@framepilot/timeline-schema/transition-catalog';
+import { TRANSITION_EXIT_BY_MASK } from '@framepilot/timeline-schema/transition-params';
 import { resolveCaptionCue } from './captions/cue.js';
 import { assetDisplaySize } from './mask-geometry.js';
 import { applyEasing, evaluateKeyframes } from './keyframes.js';
-import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID } from './operations.js';
+import { clipRenderKind, syntheticClipKind, type ClipRenderKind } from './synthetic-assets.js';
+import { shapeBounds, shapeClipParams, type ShapeBounds } from './shape-geometry.js';
 import { hasSpeedRamp, sourceTimeAt } from './speed-curve.js';
 import {
   readAlignment,
@@ -53,7 +55,7 @@ import {
 // Plan shape (JSON-identical to `FramePlan.to_json()` in the engine)
 // ---------------------------------------------------------------------------
 
-export type FramePlanLayerKind = 'picture' | 'text' | 'caption' | 'solid';
+export type FramePlanLayerKind = 'picture' | 'text' | 'caption' | 'solid' | 'shape';
 export type FramePlanLayerRole = 'clip' | 'underlay';
 
 export interface FramePlanSource {
@@ -90,6 +92,13 @@ export interface FramePlanTransition {
   readonly renderKind: string;
   readonly progress: number;
   readonly eased: number;
+  /**
+   * A layer's exit whose kind is not a closing mask (plan/elements EL7): the renderers play the
+   * kind's entrance backwards in time, so a slide leaves the way it came; `eased` is then the
+   * entrance's, at `1 - progress`. Present only when true, so plans without such an exit are
+   * unchanged.
+   */
+  readonly reversed?: true;
 }
 
 export interface FramePlanLayer {
@@ -128,6 +137,11 @@ export interface FramePlanLayer {
    * params. Present only when the clip has one, so plans without edge styles are unchanged.
    */
   readonly edgeStyles?: readonly FramePlanEdgeStyle[];
+  /**
+   * Shapes (schema v25): the frame-pixel rectangle the engine's raster covers, before the clip's
+   * transform. Present only on `shape` layers, so other plans are unchanged.
+   */
+  readonly shape?: ShapeBounds;
 }
 
 /** One cut-out edge style as the renderers read it (`render/edge_styles.py`). */
@@ -442,15 +456,8 @@ function liveCatalogTransitions(
 // Shared decisions (mirrors frame_plan.py)
 // ---------------------------------------------------------------------------
 
-type RenderKind = 'video' | 'image' | 'audio' | 'text' | 'caption';
-
-function clipKindOf(clip: Clip, assetKinds: ReadonlyMap<string, string>): RenderKind {
-  if (clip.assetId === TEXT_OVERLAY_ASSET_ID) return 'text';
-  if (clip.assetId === CAPTION_ASSET_ID) return 'caption';
-  const kind = assetKinds.get(clip.assetId);
-  if (kind === 'audio') return 'audio';
-  if (kind === 'image') return 'image';
-  return 'video';
+function clipKindOf(clip: Clip, assetKinds: ReadonlyMap<string, string>): ClipRenderKind {
+  return clipRenderKind(clip.assetId, assetKinds.get(clip.assetId));
 }
 
 /** MoviePy's `is_playing` for a layer placed at `start` for `end - start` seconds. */
@@ -489,8 +496,125 @@ function layerScaleAt(
   return scale;
 }
 
+// ---------------------------------------------------------------------------
+// A title's In/Out envelope (plan/elements EL2a; `frame_plan.py#title_envelope_at`)
+// ---------------------------------------------------------------------------
+
+/**
+ * How far a title's slide In/Out travels, as a fraction of the frame HEIGHT. Frame-relative so
+ * the plan can state the offset without the raster's size, which only the pixel stage knows.
+ */
+export const TITLE_SLIDE_TRAVEL = 0.05;
+/** The scale a title's pop In/Out starts from (and ends at, going out). */
+export const TITLE_POP_FROM = 0.7;
+/** What an absent `animDurationSeconds` means: the editor's default for a new title. */
+export const TITLE_ANIMATION_DEFAULT_SECONDS = 0.4;
+const TITLE_ANIMATIONS: ReadonlySet<string> = new Set([
+  'none',
+  'fade',
+  'slide-up',
+  'slide-down',
+  'pop',
+]);
+
+/** A title's In/Out at one instant: opacity, vertical offset (fraction of frame height, down +), scale. */
+export interface TitleEnvelope {
+  readonly opacity: number;
+  readonly dy: number;
+  readonly scale: number;
+}
+
+/** The `text` params a title's In/Out reads; anything else about the title is irrelevant here. */
+export interface TitleAnimationParams {
+  readonly inAnimation?: unknown;
+  readonly outAnimation?: unknown;
+  readonly animDurationSeconds?: unknown;
+}
+
+const IDENTITY_TITLE_ENVELOPE: TitleEnvelope = { opacity: 1, dy: 0, scale: 1 };
+
+function titleParams(clip: Clip): Readonly<Record<string, unknown>> | null {
+  if (syntheticClipKind(clip.assetId) !== 'text') return null;
+  return effectOfType(clip, 'text')?.params ?? null;
+}
+
+function titleAnimation(value: unknown): string {
+  return typeof value === 'string' && TITLE_ANIMATIONS.has(value) ? value : 'none';
+}
+
+function titleAnimationSeconds(params: TitleAnimationParams): number {
+  const raw = params.animDurationSeconds ?? TITLE_ANIMATION_DEFAULT_SECONDS;
+  return typeof raw === 'number' && Number.isFinite(raw)
+    ? Math.max(0, raw)
+    : TITLE_ANIMATION_DEFAULT_SECONDS;
+}
+
+/** True when a title carries an In or Out preset that moves or fades it. */
+export function titleEnvelopeAnimates(clip: Clip): boolean {
+  const params = titleParams(clip);
+  if (params === null || titleAnimationSeconds(params) <= 0) return false;
+  return (
+    titleAnimation(params.inAnimation) !== 'none' || titleAnimation(params.outAnimation) !== 'none'
+  );
+}
+
+function titlePart(kind: string, progress: number, sign: number): TitleEnvelope {
+  const travel = (1 - progress) * TITLE_SLIDE_TRAVEL * sign;
+  switch (kind) {
+    case 'fade':
+      return { opacity: progress, dy: 0, scale: 1 };
+    case 'slide-up':
+      return { opacity: progress, dy: travel, scale: 1 };
+    case 'slide-down':
+      return { opacity: progress, dy: -travel, scale: 1 };
+    case 'pop':
+      return { opacity: progress, dy: 0, scale: TITLE_POP_FROM + (1 - TITLE_POP_FROM) * progress };
+    default:
+      return IDENTITY_TITLE_ENVELOPE;
+  }
+}
+
+/**
+ * A title's In/Out envelope at clip-local `t` (identity for anything that is not a title). The
+ * intro eases in over the first `animDurationSeconds`, the outro out over the last; opacity and
+ * scale multiply, offsets add.
+ */
+export function titleEnvelopeAt(clip: Clip, t: number): TitleEnvelope {
+  if (!titleEnvelopeAnimates(clip)) return IDENTITY_TITLE_ENVELOPE;
+  return titleEnvelopeFromParams(titleParams(clip)!, t, clip.end - clip.start);
+}
+
+/**
+ * {@link titleEnvelopeAt} from a title's `text` params and its duration: the one computation the
+ * frame plan, the DOM overlay and the canvas overlay painter all draw from.
+ *
+ * @param params - The `text` effect's params (`inAnimation`, `outAnimation`, `animDurationSeconds`).
+ * @param t - Seconds into the title.
+ * @param duration - The title's length in seconds.
+ */
+export function titleEnvelopeFromParams(
+  params: TitleAnimationParams,
+  t: number,
+  duration: number,
+): TitleEnvelope {
+  const seconds = titleAnimationSeconds(params);
+  if (seconds <= 0) return IDENTITY_TITLE_ENVELOPE;
+  const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
+  const intro = titlePart(titleAnimation(params.inAnimation), clamp01(t / seconds), 1);
+  const outro = titlePart(
+    titleAnimation(params.outAnimation),
+    clamp01((duration - t) / seconds),
+    -1,
+  );
+  return {
+    opacity: intro.opacity * outro.opacity,
+    dy: intro.dy + outro.dy,
+    scale: intro.scale * outro.scale,
+  };
+}
+
 function layerOpacityAt(clip: Clip, t: number, tr: ResolvedTransition | null): number {
-  let opacity = evaluateClipTransform(clip.keyframes, t).opacity;
+  let opacity = evaluateClipTransform(clip.keyframes, t).opacity * titleEnvelopeAt(clip, t).opacity;
   if (tr !== null && OPACITY_KINDS.has(tr.kind)) opacity *= transitionOpacityAt(tr, t);
   return opacity;
 }
@@ -752,16 +876,33 @@ function transitionStates(clip: Clip, local: number): readonly FramePlanTransiti
   for (const [role, tr] of liveCatalogTransitions(clip, useLegacy)) {
     const progress = catalogProgressAt(role, local, tr, duration);
     if (progress === null) continue;
+    const reversed = role === 'out' && exitPlaysReversed(clip, tr.renderKind);
+    // A reversed exit draws the entrance as it was 1 - p of the way through.
+    const along = Math.min(1, Math.max(0, reversed ? 1 - progress : progress));
     states.push({
       role,
       kind: tr.kind,
       path: 'catalog',
       renderKind: tr.renderKind,
       progress,
-      eased: applyEasing(tr.easing, Math.min(1, Math.max(0, progress))),
+      eased: applyEasing(tr.easing, along),
+      ...(reversed ? { reversed: true as const } : {}),
     });
   }
   return states;
+}
+
+const EXIT_BY_MASK: ReadonlySet<string> = new Set(TRANSITION_EXIT_BY_MASK);
+
+/**
+ * `exit_plays_reversed`: a layer's own exit (no partner clip after it) of a kind that is not a
+ * closing mask. The outgoing half of a cut is not one: the next shot animates over it.
+ */
+function exitPlaysReversed(clip: Clip, renderKind: string): boolean {
+  const effect = effectOfType(clip, TRANSITION_OUT_EFFECT_TYPE);
+  return (
+    effect !== undefined && effect.params.toClipId === undefined && !EXIT_BY_MASK.has(renderKind)
+  );
 }
 
 function baseLayer(
@@ -908,13 +1049,22 @@ function edgeStylesPlan(clip: Clip): { edgeStyles?: readonly FramePlanEdgeStyle[
 
 function imageLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer {
   const local = ctx.t - clip.start;
+  // A still is a picture layer like any other (plan/elements EL2a, EL2b): its crop, opacity,
+  // masks, transitions and edge styles, as the video path has them. Its mask stack is in its own
+  // pixels with no source frame; its edge styles trace the stack times its own alpha. A still
+  // borrows no under-layer.
+  const tr = legacyTransition(clip);
   return {
     ...baseLayer('picture', track.id, clip.id, local),
     source: { assetId: clip.assetId, assetKind: 'image', time: null, frame: null },
-    // The export places a still without its crop, mask, opacity or transition.
-    geometry: pictureGeometry(ctx, clip, clip.keyframes, local, false, null),
+    crop: cropJson(clip),
+    geometry: pictureGeometry(ctx, clip, clip.keyframes, local, true, tr),
+    opacity: layerOpacityAt(clip, local, tr),
     blendMode: clip.blendMode ?? 'normal',
     effects: effectsJson(clip),
+    mask: maskPlan(clip, local, null),
+    transitions: transitionStates(clip, local),
+    ...edgeStylesPlan(clip),
   };
 }
 
@@ -960,21 +1110,83 @@ function textLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer | nul
   const [text, params] = content;
   const local = ctx.t - clip.start;
   const transform = evaluateClipTransform(clip.keyframes, local);
+  // A title takes its opacity, In/Out envelope and transitions like a picture (EL2a); the anchor
+  // is `layer_position_at`'s centre, independent of the raster's size.
+  const tr = legacyTransition(clip);
+  const [dx, dy] =
+    tr !== null && GEOMETRY_KINDS.has(tr.kind)
+      ? transitionOffsetAt(tr, local, ctx.width, ctx.height)
+      : [0, 0];
+  const envelope = titleEnvelopeAt(clip, local);
+  // Same operation order as `layer_scale_at` / `_text_layer`, so the floats agree to the bit.
+  let scale = transform.scale * envelope.scale;
+  if (tr !== null && GEOMETRY_KINDS.has(tr.kind)) scale *= transitionScaleAt(tr, local);
+  const offsetY = dy + envelope.dy * ctx.height;
   return {
     ...baseLayer('text', track.id, clip.id, local),
     text,
     geometry: {
       baseScale: 1,
-      scale: layerScaleAt(clip.keyframes, local, null),
-      anchorX: (ctx.width * textPercent(params.xPercent, 50)) / 100 + transform.x,
-      anchorY: (ctx.height * textPercent(params.yPercent, 50)) / 100 + transform.y,
+      scale,
+      anchorX: (ctx.width * textPercent(params.xPercent, 50)) / 100 + transform.x + dx,
+      anchorY: (ctx.height * textPercent(params.yPercent, 50)) / 100 + transform.y + offsetY,
       rotation: transform.rotation,
       left: null,
       top: null,
       width: null,
       height: null,
     },
+    opacity: layerOpacityAt(clip, local, tr),
     blendMode: clip.blendMode ?? 'normal',
+    // EL2b: the masks a title takes (a track matte, a Frame-space shape, a key) and the edge
+    // styles that trace its glyphs, as `_compile_text_clip` draws them.
+    mask: maskPlan(clip, local, null),
+    transitions: transitionStates(clip, local),
+    ...edgeStylesPlan(clip),
+  };
+}
+
+/**
+ * A shape as the export places the engine's raster: `fit_to_frame=False` around the bounds'
+ * centre, with the clip's transform, opacity and transitions like a title (`_shape_layer`).
+ */
+function shapeLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer | null {
+  const params = shapeClipParams(clip);
+  if (params === null) return null;
+  const local = ctx.t - clip.start;
+  const rotates = clip.keyframes.some((keyframe) => keyframe.property === 'rotation');
+  const bounds = shapeBounds(params, ctx.width, ctx.height, rotates);
+  if (bounds === null) return null;
+  const centreX = bounds.x + bounds.width / 2;
+  const centreY = bounds.y + bounds.height / 2;
+  const transform = evaluateClipTransform(clip.keyframes, local);
+  const tr = legacyTransition(clip);
+  const geometric = tr !== null && GEOMETRY_KINDS.has(tr.kind);
+  const [dx, dy] = geometric ? transitionOffsetAt(tr, local, ctx.width, ctx.height) : [0, 0];
+  // `layer_scale_at`'s operation order, so the floats agree to the bit.
+  let scale = transform.scale * titleEnvelopeAt(clip, local).scale;
+  if (geometric) scale *= transitionScaleAt(tr, local);
+  const anchorX = centreX + transform.x + dx;
+  const anchorY = centreY + transform.y + dy;
+  const width = bounds.width * scale;
+  const height = bounds.height * scale;
+  return {
+    ...baseLayer('shape', track.id, clip.id, local),
+    geometry: {
+      baseScale: 1,
+      scale,
+      anchorX,
+      anchorY,
+      rotation: transform.rotation,
+      left: anchorX - width / 2,
+      top: anchorY - height / 2,
+      width,
+      height,
+    },
+    opacity: layerOpacityAt(clip, local, tr),
+    blendMode: clip.blendMode ?? 'normal',
+    transitions: transitionStates(clip, local),
+    shape: bounds,
   };
 }
 
@@ -1003,6 +1215,9 @@ function placedTrackLayers(ctx: Context, track: Track): FramePlanLayer[] {
     } else if (kind === 'text' && layerIsActive(clip.start, clip.end, ctx.t)) {
       const layer = textLayer(ctx, track, clip);
       if (layer !== null) layers.push(layer);
+    } else if (kind === 'shape' && layerIsActive(clip.start, clip.end, ctx.t)) {
+      const layer = shapeLayer(ctx, track, clip);
+      if (layer !== null) layers.push(layer);
     }
   });
   return layers;
@@ -1017,7 +1232,8 @@ function hasPictureAnywhere(timeline: Timeline, assetKinds: ReadonlyMap<string, 
         return (
           kind === 'video' ||
           kind === 'image' ||
-          (kind === 'text' && textOverlayText(clip) !== null)
+          (kind === 'text' && textOverlayText(clip) !== null) ||
+          (kind === 'shape' && shapeClipParams(clip) !== null)
         );
       }),
   );

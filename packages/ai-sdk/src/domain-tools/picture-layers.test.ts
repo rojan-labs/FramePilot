@@ -267,6 +267,48 @@ describe('a full-frame placement over existing picture goes in front', () => {
     ]);
   });
 
+  it('opens that layer under the graphics in front, never over a sticker or a title', () => {
+    // A cutaway covers FOOTAGE. A sticker, a shape or a title on a graphics lane in front of
+    // the footage stays in front of the cutaway too: opening the layer at index 0 put the
+    // b-roll over them, and the export stacks by index, so they vanished (plan/elements 12 F).
+    const project = projectWith([
+      {
+        id: 'graphics_1',
+        type: 'overlay',
+        clips: [{ id: 'sticker', assetId: 'asset_img', start: 0, end: 10 }],
+      },
+      {
+        id: 'video_1',
+        type: 'video',
+        clips: [{ id: 'clip_a', assetId: 'asset_v', start: 0, end: 10 }],
+      },
+      { id: 'video_2', type: 'video', clips: [] },
+    ]);
+    const ops = buildOps(
+      'add_clip',
+      { trackId: 'video_2', assetId: 'asset_v2', start: 2, end: 6, sourceStart: 0 },
+      project,
+    );
+    expect(ops[0]).toEqual({
+      type: 'add_layer',
+      layerId: 'video_cutaway_1',
+      layerType: 'video',
+      atIndex: 1,
+    });
+    const after = applyPatch(project.timeline, {
+      patchId: 'p' as never,
+      createdBy: 'ai',
+      reason: 'test',
+      operations: ops,
+    });
+    expect(after.tracks.map((track) => track.id)).toEqual([
+      'graphics_1',
+      'video_cutaway_1',
+      'video_1',
+      'video_2',
+    ]);
+  });
+
   it('keeps the lane the model named when that lane is already in front', () => {
     const project = projectWith([
       { id: 'video_over', type: 'video', clips: [] },

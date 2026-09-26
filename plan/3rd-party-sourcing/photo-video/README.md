@@ -4,6 +4,12 @@
 > Parent: [`plan/3rd-party-sourcing/README.md`](../README.md) → third-party media sourcing.
 > Sibling: the shipped **music** slice (Openverse), whose machinery this plan extends rather
 > than duplicates.
+>
+> **2026-09-26 — the Stock panel becomes Elements.** [`plan/elements/`](../../elements/README.md)
+> renames the Stock tab to **Elements** (Photos · Videos · Stickers · Shapes). The Pexels service,
+> key custody, quota and provenance built here are reused unchanged; §2's single-picture-layer
+> constraint no longer holds (ADR 0180 amendment), and manual picture-in-picture is planned there
+> as EL9 (MD-E5).
 
 Music sourcing shipped. This plan gives FramePilot the second outward reach: **stock photos
 and stock video from Pexels, fetched in the Electron main process and materialized as

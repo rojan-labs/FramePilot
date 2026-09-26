@@ -59,8 +59,9 @@ from framepilot_engine.render.mattes import (
     MATTE_FILE,
     MATTES_DIR,
     read_frames_file,
+    regular_file,
 )
-from framepilot_engine.subprocess_safety import validate_safe_argv
+from framepilot_engine.subprocess_safety import UnsafeArgvError, run_argv
 
 _log = logging.getLogger(__name__)
 
@@ -130,14 +131,6 @@ def real_directory(base: Path, parts: Sequence[str], *, create: bool) -> Path:
     return current
 
 
-def _regular_file(path: Path) -> bool:
-    try:
-        info = os.lstat(path)
-    except FileNotFoundError:
-        return False
-    return stat.S_ISREG(info.st_mode) and not stat.S_ISLNK(info.st_mode)
-
-
 def _remove_tree(path: Path) -> None:
     """Remove a folder this module staged; a link is unlinked, never followed."""
     if path.is_symlink():
@@ -157,33 +150,34 @@ def monitor_tier_size(proxy: Path, rotation: int) -> tuple[int, int]:
     :raises MatteTierMissing: ``proxy`` is not a regular file.
     :raises MatteTierError: It has no readable video stream, or a size out of bounds.
     """
-    if not _regular_file(proxy):
+    if not regular_file(proxy):
         raise MatteTierMissing("The picture the tier is made for is missing.")
-    argv = validate_safe_argv(
-        [
-            find_ffprobe(),
-            "-v",
-            "error",
-            "-protocol_whitelist",
-            "file",
-            "-format_whitelist",
-            FORMAT_WHITELIST,
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height",
-            "-of",
-            "json",
-            "-i",
-            str(proxy),
-        ]
-    )
+    binary = find_ffprobe()
+    operands = [
+        "-v",
+        "error",
+        "-protocol_whitelist",
+        "file",
+        "-format_whitelist",
+        FORMAT_WHITELIST,
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height",
+        "-of",
+        "json",
+        "-i",
+        str(proxy),
+    ]
     try:
-        completed = subprocess.run(
-            argv, capture_output=True, check=False, timeout=PROBE_TIMEOUT_SECONDS
+        completed = run_argv(
+            binary, operands, capture_output=True, check=False, timeout=PROBE_TIMEOUT_SECONDS
         )
         stream = (json.loads(completed.stdout or b"{}").get("streams") or [])[0]
         width, height = int(stream["width"]), int(stream["height"])
+    except UnsafeArgvError:
+        # A malformed vector is a bug here, not an unmeasurable picture (it subclasses ValueError).
+        raise
     except (subprocess.SubprocessError, ValueError, IndexError, KeyError, TypeError) as exc:
         raise MatteTierError("The picture could not be measured.") from exc
     if not (0 < width <= TIER_MAX_SIDE and 0 < height <= TIER_MAX_SIDE):
@@ -196,7 +190,7 @@ def monitor_tier_size(proxy: Path, rotation: int) -> tuple[int, int]:
 
 def _read_manifest(directory: Path) -> dict[str, Any] | None:
     path = directory / TIER_FILE
-    if not _regular_file(path) or path.stat().st_size > TIER_JSON_MAX_BYTES:
+    if not regular_file(path) or path.stat().st_size > TIER_JSON_MAX_BYTES:
         return None
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
@@ -238,7 +232,7 @@ def _tier_is_current(
     assert manifest is not None
     for name, entry in ((PLANES_FILE, manifest["planes"]), (ALPHA_FILE, manifest["alpha"])):
         path = directory / name
-        if not _regular_file(path) or path.stat().st_size != entry.get("bytes"):
+        if not regular_file(path) or path.stat().st_size != entry.get("bytes"):
             return False
     return True
 
@@ -283,7 +277,7 @@ def make_monitor_tier(
     derived, mattes = MATTES_DIR.split("/")
     artifact_dir = real_directory(base_dir, [derived, mattes, key], create=False)
     for name in _MASTERS:
-        if not _regular_file(artifact_dir / name):
+        if not regular_file(artifact_dir / name):
             raise MatteTierUnsafePath("A background removal file is not a plain file.")
     source = verified_source(artifact_dir, artifact)
     frame_count = read_frames_file(artifact_dir / FRAMES_FILE).count

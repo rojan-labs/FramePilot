@@ -16,6 +16,7 @@ packages/ai-sdk/src/tool-registry.ts.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -28,6 +29,7 @@ from framepilot_engine.ai_tools.registry import (
     AddClipsArgs,
     AddKeyframesArgs,
     AddMarkerArgs,
+    AddShapeArgs,
     AddTextLayerArgs,
     AddTrackArgs,
     AddTransitionArgs,
@@ -52,11 +54,13 @@ from framepilot_engine.ai_tools.registry import (
     RemoveMarkerArgs,
     RemoveTrackArgs,
     ReorderClipsArgs,
+    SearchElementsArgs,
     SetCaptionStyleArgs,
     SetClipBlendModeArgs,
     SetClipCropArgs,
     SetClipSpeedArgs,
     SetClipSpeedRampArgs,
+    SetShapeStyleArgs,
     SetTrackCaptionStyleArgs,
     SetTrackFlagsArgs,
     SplitClipArgs,
@@ -65,13 +69,30 @@ from framepilot_engine.ai_tools.registry import (
     TrackObjectArgs,
     TranscriptWindowArgs,
     TrimClipArgs,
+    _ShapeStyleArgs,
 )
 from framepilot_engine.ai_tools.skills_generated import SKILLS
 from framepilot_engine.effects.keyframes import punch_in_keyframes
 from framepilot_engine.render.caption_templates import get_caption_template, load_catalog
 from framepilot_engine.render.captions import _font_manifest
+from framepilot_engine.render.shape_catalog import (
+    ICON_PREFIX,
+    catalogue_entry,
+    preset_shape_params,
+    resolve_shape_preset_id,
+    search_shapes,
+    shape_descriptor,
+    shape_params_problem,
+)
+from framepilot_engine.render.shape_geometry import shape_clip_params
 from framepilot_engine.timeline.models import Asset, CaptionStyle, Project, Track, TrackType
-from framepilot_engine.timeline.operations import text_effect_id, text_overlay_clip_id
+from framepilot_engine.timeline.operations import (
+    shape_clip_id,
+    shape_effect_id,
+    text_effect_id,
+    text_overlay_clip_id,
+)
+from framepilot_engine.timeline.synthetic_assets import synthetic_clip_kind
 
 _log = logging.getLogger(__name__)
 
@@ -493,6 +514,251 @@ def remove_track(args: RemoveTrackArgs, ctx: ToolContext) -> Operations:
 
 def move_track(args: MoveTrackArgs, ctx: ToolContext) -> Operations:
     return [{"type": "move_layer", "layerId": args.track_id, "toIndex": args.to_index}]
+
+
+# --- shapes (plan/elements EL4a) -------------------------------------------------------------
+
+#: Colour names models use, mapped to the catalogue palette (TS ``NAMED_COLOURS``).
+_NAMED_COLOURS = {
+    "white": "#FFFFFF",
+    "black": "#111111",
+    "yellow": "#FFD400",
+    "red": "#FF3B30",
+    "blue": "#0A84FF",
+    "green": "#34C759",
+    "orange": "#FF9500",
+    "purple": "#AF52DE",
+    "pink": "#FF2D55",
+}
+#: A lane counts as busy over a span only past this overlap (TS ``LANE_OVERLAP_EPSILON``).
+_LANE_OVERLAP_EPSILON = 1e-3
+_UNREADABLE_COLOUR = "must be a colour: #rrggbb, #rrggbbaa, a name like yellow or red, or none."
+
+
+def shape_colour(value: str) -> str | None:
+    """A colour argument as ``ShapeParams`` stores it (TS ``shapeColour``).
+
+    :raises ValueError: when the value is not a colour this accepts.
+    """
+    text = value.strip().lower()
+    if text in ("none", "transparent"):
+        return None
+    if text in _NAMED_COLOURS:
+        return _NAMED_COLOURS[text]
+    short = re.fullmatch(r"#([0-9a-f])([0-9a-f])([0-9a-f])", text)
+    if short:
+        return "#" + "".join(channel * 2 for channel in short.groups())
+    if re.fullmatch(r"#[0-9a-f]{6}([0-9a-f]{2})?", text):
+        return text
+    raise ValueError(_UNREADABLE_COLOUR)
+
+
+def _shape_style_changes(args: _ShapeStyleArgs) -> dict[str, Any]:
+    changes: dict[str, Any] = {}
+    if args.box is not None:
+        changes.update(args.box.model_dump())
+    if args.ends is not None:
+        changes.update(args.ends.model_dump())
+    for attr, key in (("fill", "fill"), ("stroke", "stroke"), ("label_color", "labelColor")):
+        raw = getattr(args, attr)
+        if raw is None:
+            continue
+        try:
+            changes[key] = shape_colour(raw)
+        except ValueError as exc:
+            raise ValueError(f"{key} {exc}") from exc
+    for attr, key in (
+        ("stroke_width", "strokeWidth"),
+        ("stroke_style", "strokeStyle"),
+        ("start_cap", "startCap"),
+        ("end_cap", "endCap"),
+        ("corner_radius", "cornerRadius"),
+        ("head_size", "headSize"),
+        ("label", "label"),
+    ):
+        value = getattr(args, attr)
+        if value is not None:
+            changes[key] = value
+    return {**changes, **(args.knobs or {})}
+
+
+def _lane_has_room(clips: Sequence[Any], start: float, end: float) -> bool:
+    return not any(
+        clip.start < end - _LANE_OVERLAP_EPSILON and clip.end > start + _LANE_OVERLAP_EPSILON
+        for clip in clips
+    )
+
+
+def _shape_lane(
+    project: Project, start: float, end: float, preferred: str | None
+) -> tuple[str, Operations]:
+    """The overlay lane a shape lands on, and any op that opens it (TS ``buildAddShapeOps``)."""
+    tracks = project.timeline.tracks
+    named = next(
+        (t for t in tracks if t.id == preferred and t.type == "overlay" and not t.locked), None
+    )
+    usable = [t for t in tracks if t.type == "overlay" and not t.locked and not t.hidden]
+    # Shapes join the lane that already holds shapes (TS ``buildAddShapeOps``).
+    with_shapes = next(
+        (t for t in usable if any(synthetic_clip_kind(c.asset_id) == "shape" for c in t.clips)),
+        None,
+    )
+    aimed = named or with_shapes or (usable[0] if usable else None)
+    if aimed is None:
+        layer_id = _next_track_id(project, "overlay")
+        return layer_id, [
+            {"type": "add_layer", "layerId": layer_id, "layerType": "overlay", "atIndex": 0}
+        ]
+    if _lane_has_room(aimed.clips, start, end):
+        return aimed.id, []
+    other = next(
+        (
+            t
+            for t in tracks
+            if t.type == "overlay"
+            and not t.locked
+            and not t.hidden
+            and not t.muted
+            and _lane_has_room(t.clips, start, end)
+        ),
+        None,
+    )
+    if other is not None:
+        return other.id, []
+    layer_id = _next_track_id(project, "overlay")
+    return layer_id, [
+        {"type": "add_layer", "layerId": layer_id, "layerType": "overlay", "atIndex": 0}
+    ]
+
+
+def add_shape(args: AddShapeArgs, ctx: ToolContext) -> Operations:
+    # The same ops the TS tool builds over editor-core's `buildAddShapeOps`: a preset's params
+    # with the model's box/ends/colours, on an overlay lane with room.
+    if not args.end > args.start:
+        raise ValueError("end must be after start. Give the shape a time range.")
+    preset_id = resolve_shape_preset_id(args.shape) or args.shape
+    params = {**(preset_shape_params(preset_id) or {}), **_shape_style_changes(args)}
+    problem = shape_params_problem(params)
+    if problem is not None:
+        raise ValueError(problem)
+    track_id, ops = _shape_lane(ctx.project, args.start, args.end, args.track_id)
+    clip_id = shape_clip_id(track_id, args.start)
+    ops = [
+        *ops,
+        {
+            "type": "add_shape",
+            "trackId": track_id,
+            "start": args.start,
+            "end": args.end,
+            "params": params,
+            "clipId": clip_id,
+        },
+    ]
+    if args.rotation is not None and args.rotation != 0:
+        ops.append(
+            {
+                "type": "add_keyframes",
+                "clipId": clip_id,
+                "keyframes": [
+                    {
+                        "id": f"{clip_id}__rotation",
+                        "time": 0,
+                        "property": "rotation",
+                        "value": args.rotation,
+                        "easing": "linear",
+                    }
+                ],
+            }
+        )
+    return ops
+
+
+_SEARCH_LIMIT_DEFAULT = 12
+
+
+def search_elements(args: SearchElementsArgs, ctx: ToolContext) -> dict[str, Any]:
+    """One row per shape the query finds, best first (the TS ``search_elements`` twin).
+
+    The sticker catalogue ships with the desktop app, not the engine, so this mirror answers for
+    shapes; asked for stickers alone it says where they are searched.
+    """
+    if args.kind == "sticker":
+        raise ValueError(
+            "Stickers are searched by the FramePilot app. Search shapes here (kind: shape)."
+        )
+    hits, _ = search_shapes(args.query, args.category)
+    shapes: dict[str, list[dict[str, str]]] = {}
+    for hit in hits:
+        shapes.setdefault(hit.shape_id, []).append({"id": hit.preset_id, "name": hit.preset_name})
+    limit = args.limit if args.limit is not None else _SEARCH_LIMIT_DEFAULT
+    results = [_element_row(shape_id, styles) for shape_id, styles in list(shapes.items())[:limit]]
+    return {
+        "query": args.query,
+        "kind": "shape",
+        **({"category": args.category} if args.category is not None else {}),
+        "results": results,
+        "returned": len(results),
+        "total": len(shapes),
+    }
+
+
+def _element_row(shape_id: str, styles: list[dict[str, str]]) -> dict[str, Any]:
+    descriptor = shape_descriptor(shape_id)
+    assert descriptor is not None
+    icon = shape_id.startswith(ICON_PREFIX)
+    raw = catalogue_entry(shape_id)
+    defaults = raw["defaults"] if raw is not None else {"width": 24, "height": 24}
+    return {
+        "elementId": shape_id,
+        "kind": "shape",
+        "name": raw["name"] if raw is not None else descriptor.name.capitalize(),
+        "category": "icons" if icon else raw["category"] if raw is not None else "symbols",
+        "tags": list(raw["tags"]) if raw is not None else ["icon"],
+        "frame": descriptor.frame,
+        "aspect": (
+            # JavaScript's Math.round (half up), so both runtimes print the same aspect.
+            math.floor(defaults["width"] / defaults["height"] * 100 + 0.5) / 100
+            if descriptor.frame == "box"
+            else None
+        ),
+        "knobs": [
+            {"name": knob.name, "min": knob.min, "max": knob.max, "default": knob.default}
+            for knob in descriptor.knobs
+        ],
+        "labelled": descriptor.labelled,
+        "styles": styles,
+        "animated": False,
+        "license": "ISC (Lucide)" if icon else "first-party",
+        "attributionRequired": False,
+    }
+
+
+def set_shape_style(args: SetShapeStyleArgs, ctx: ToolContext) -> Operations:
+    clip = next(
+        (c for t in ctx.project.timeline.tracks for c in t.clips if c.id == args.clip_id), None
+    )
+    params = None if clip is None else shape_clip_params(clip)
+    if params is None:
+        raise ValueError(
+            f'"{args.clip_id}" is not a shape. Read the timeline with get_timeline for shape '
+            "clip ids, or add one with add_shape."
+        )
+    changes = _shape_style_changes(args)
+    if not changes:
+        raise ValueError(
+            "Nothing to change. Pass a colour, a stroke, a label, a knob, a box or ends."
+        )
+    problem = shape_params_problem({**params, **changes})
+    if problem is not None:
+        raise ValueError(problem)
+    return [
+        {
+            "type": "set_effect_params",
+            "clipId": args.clip_id,
+            "effectId": shape_effect_id(args.clip_id),
+            "params": changes,
+        }
+    ]
 
 
 def add_text_layer(args: AddTextLayerArgs, ctx: ToolContext) -> Operations:

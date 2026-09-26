@@ -90,9 +90,17 @@ See [ci-cd.md](../runbooks/ci-cd.md) for what each gate enforces.
 - [ ] Tag `vX.Y.Z` pushed → the **Release workflow** builds installers for
       **macOS arm64/x64, Windows, Linux** (`pnpm desktop:dist` per native
       runner: workspace build → renderer staged → PyInstaller engine frozen
-      with bundled `ffprobe` → deep-signed when `CSC_NAME` is set →
-      electron-builder; ADR 0062/0063) and stages them on a **draft GitHub
-      Release**.
+      with bundled `ffprobe` → deep-signed when `CSC_NAME` is set → the
+      packaged sticker set encoded and checked (`build:elements`,
+      `check:elements`) → electron-builder; ADR 0062/0063/0191) and stages them
+      on a **draft GitHub Release**.
+- [ ] **Installer within budget**: `pnpm release:check-installer --dir
+    apps/desktop/release` passes on each platform (400 MiB; no Capability
+      Pack payload). The packaged stickers are 32 MiB of it: a local unsigned
+      macOS arm64 DMG measured 374.0 MiB on 2026-09-26.
+- [ ] **Every sticker placeable in the installer**: in the installed app,
+      Elements → Stickers → **All** lists 1,595 stickers, and a sticker from
+      outside the thirteen collections (search "llama") adds and exports.
 - [ ] macOS build is **code-signed and notarized** (engine deep-signing is
       automatic via `scripts/sign-engine.mjs` when `CSC_NAME` is set); Windows
       build is **code-signed**.

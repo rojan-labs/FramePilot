@@ -64,6 +64,15 @@ const MCP_SKILLS = skillsByName(
   ),
 );
 
+/**
+ * Host-only tools whose reason is not "live editor state": what the agent should do instead.
+ * `add_sticker` needs the desktop app to copy the sticker file into the project; nothing here does.
+ */
+const HOST_ONLY_REASONS: Readonly<Record<string, string>> = {
+  add_sticker:
+    'Stickers are copied into the project by the FramePilot desktop app, and this connection cannot place one. Draw a callout or an icon with add_shape instead, or add the sticker in the app.',
+};
+
 /** Why a tool call could not be honoured — the tool boundary gate (PRD §8.3). */
 export type SessionErrorCode =
   | 'unknown_tool'
@@ -154,8 +163,9 @@ export class EditorSession {
     // Bundled skills (ADR 0057) so `load_skill` serves the same playbooks over MCP
     // as it does in the desktop/web orchestrator — less any playbook whose every tool this
     // surface cannot serve (the masking one: all `hostUiOnly`), which would only send an MCP
-    // client to tools it cannot call.
-    return { project: open.project, skills: MCP_SKILLS };
+    // client to tools it cannot call. Nor can it place a sticker (no materialiser copies one
+    // into the project here), so `search_elements` offers shapes only and says why.
+    return { project: open.project, skills: MCP_SKILLS, placesStickers: false };
   }
 
   /** Open a `project.fp.json` (sandbox-checked) and make it the active project. */
@@ -317,7 +327,8 @@ export class EditorSession {
     if (!servableOverMcp(registered)) {
       throw new SessionError(
         'host_ui_only',
-        `Tool "${name}" requires live FramePilot editor interaction state and is not available over MCP.`,
+        HOST_ONLY_REASONS[name] ??
+          `Tool "${name}" requires live FramePilot editor interaction state and is not available over MCP.`,
       );
     }
     // The registry's Zod schema is only HALF the tool's input contract. The relational and

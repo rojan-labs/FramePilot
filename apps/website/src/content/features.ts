@@ -57,7 +57,7 @@ export const FEATURES: Feature[] = [
     span: 38,
     title: 'The manual tools never go away',
     description:
-      'Trim, split, ripple, snap, keyframe, mix audio, style captions, add transitions, work across tracks. Your mouse and the agent drive the same editing model.',
+      'Trim, split, ripple, snap, keyframe, mix audio, style captions, add transitions, drop in callouts, stickers and stock footage, work across tracks. Your mouse and the agent drive the same editing model.',
   },
   {
     track: 'editor',

@@ -384,8 +384,12 @@ export function isClauseEnd(token: string): boolean {
 /** A phrase as the bare words it is matched on — the unit `keepTogether` compares. */
 const phraseWords = (phrase: string): string[] => phrase.split(/\s+/).map(bareWord).filter(Boolean);
 
-/** Closing quotes/brackets that may trail a token without changing what it is. */
-const TRAILING_CLOSERS = /["'”’)\]]+$/;
+/**
+ * Closing quotes/brackets that may trail a token without changing what it is. The
+ * lookbehind lets a match start only where a run of closers starts: unanchored, every
+ * closer in a long run ahead of a letter restarts the scan (quadratic on a hostile token).
+ */
+const TRAILING_CLOSERS = /(?<!["'”’)\]])["'”’)\]]+$/;
 
 /**
  * A spoken quantity as ASR writes it: digits with thousands/decimal separators in any

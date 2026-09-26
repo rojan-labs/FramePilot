@@ -1,6 +1,6 @@
 """Text-overlay burn-in rasterization (render-vs-preview honesty fix).
 
-WHY: ``add_text_overlay`` stores a synthetic clip (``asset_id == "__text__"``)
+WHY: ``add_text_overlay`` stores a synthetic clip (``TEXT_OVERLAY_ASSET_ID``)
 carrying a single ``text`` effect whose ``params`` hold the authored ``text``
 (see ``packages/editor-core/src/operations.ts::applyAddTextOverlay`` and its
 Python mirror ``timeline/operations.py::_apply_add_text_overlay``). That op
@@ -53,6 +53,7 @@ mirroring :mod:`framepilot_engine.render.captions` (which this module reuses
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -306,15 +307,26 @@ def render_text_overlay_image(
 
 
 def rasterize_text_overlay(
-    text: str, style_params: Mapping[str, Any], frame_width: int, frame_height: int
+    text: str,
+    style_params: Mapping[str, Any],
+    frame_width: int,
+    frame_height: int,
+    *,
+    rotates: bool = False,
 ) -> np.ndarray:
     """A text clip's RGBA raster exactly as the export composites it.
 
     The one call both the compiler (``_compile_text_clip``) and the desktop preview's text
     raster route make, so the monitor's glyphs are the export's glyphs by construction.
+
+    :param rotates: the clip animates ``rotation``. The export turns a layer inside its own box
+        (``expand=False``), and a title's raster is tight to its glyphs, so a turned title lost
+        its letters. A turning title is drawn centred in a transparent square as wide as its
+        diagonal (plan/elements EL2b.4), as a turning shape is (ADR 0190); its centre, and so its
+        placement, stays where it was.
     """
     layout = text_overlay_layout(style_params, frame_width, frame_height)
-    return render_text_overlay_image(
+    image = render_text_overlay_image(
         text,
         frame_width,
         frame_height,
@@ -326,3 +338,19 @@ def rasterize_text_overlay(
         font_family=layout.font_family,
         font_weight=layout.font_weight,
     )
+    return rotation_safe(image) if rotates else image
+
+
+def rotation_safe(image: np.ndarray) -> np.ndarray:
+    """``image`` centred in a transparent square as wide as its diagonal (EL2b.4).
+
+    Even padding on both sides where the difference is even; the odd pixel goes to the right and
+    the bottom, so the TypeScript twin (``text-raster.ts`` ``rotationSafe``) pads identically.
+    """
+    height, width = image.shape[:2]
+    side = math.ceil(math.hypot(width, height))
+    left = (side - width) // 2
+    top = (side - height) // 2
+    padded = np.zeros((side, side, image.shape[2]), dtype=image.dtype)
+    padded[top : top + height, left : left + width] = image
+    return padded

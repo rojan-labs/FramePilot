@@ -132,6 +132,27 @@ export const TRANSITION_APPLY_PATH: Readonly<Record<TransitionRenderKind, Transi
   'page-turn': 'frame',
 };
 
+/**
+ * The kinds a layer's EXIT draws as a closing mask (plan/elements EL7): the renderer keeps the
+ * kind's reveal mask and fades the layer by it, so a dissolve fades it away and a wipe wipes it
+ * off. Every other kind exits by playing its entrance backwards, because its mask is the whole
+ * frame from the first instant: a slide leaves the way it came in, a zoom shrinks away. The
+ * compiler and the monitor both read this list (the frame plan marks the reversed exits), and it
+ * is the set layer exits were limited to before EL7, so no existing exit renders differently.
+ */
+export const TRANSITION_EXIT_BY_MASK: readonly TransitionRenderKind[] = [
+  'dissolve',
+  'blur-dissolve',
+  'noise-dissolve',
+  'luma-fade',
+  'wipe-linear',
+  'wipe-radial',
+  'wipe-split',
+  'wipe-shape',
+  'wipe-clock',
+  'wipe-bars',
+];
+
 const withHint = (hint: string | undefined): { hint?: string } =>
   hint === undefined ? {} : { hint };
 

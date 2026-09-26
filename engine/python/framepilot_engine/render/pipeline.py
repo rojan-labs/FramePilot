@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
+import tempfile
 import uuid
 from collections.abc import Callable
 from enum import StrEnum
@@ -420,9 +422,17 @@ def _apply_master_audio_pass(output: Path, preset: ExportPreset, opts: RenderOpt
 
     Builds the ffmpeg ``-af`` chain from the render options (de-noise / EQ /
     compression / loudness / limiter); when empty this is a no-op. The filtered
-    result is written to a sibling temp file then atomically replaces the output,
+    result is written to a temp file beside the output then atomically replaces it,
     so a failure leaves the original render untouched. Runs before validation, so
     the validated file is the final delivered audio.
+
+    WHY the temp file lives in a fresh private directory under the export's own name:
+    ffmpeg picks the output container from the file's extension, so the name must end
+    in the export's (``out.mp4.master.tmp`` failed every export that asked for a
+    master-bus option). And the export folder is the user's, synced or unpacked from a
+    zip: a fixed sibling name could be a planted link that ``ffmpeg -y`` writes
+    through. ``mkdtemp`` creates an unguessable directory exclusively, so nothing in it
+    predates the pass, and the file ffmpeg creates there takes the usual permissions.
     """
     filter_str = build_master_filter(
         denoise=opts.denoise,
@@ -433,16 +443,16 @@ def _apply_master_audio_pass(output: Path, preset: ExportPreset, opts: RenderOpt
     )
     if filter_str is None:
         return
-    tmp = output.with_suffix(output.suffix + ".master.tmp")
+    workdir = Path(tempfile.mkdtemp(dir=output.parent, prefix=f".{output.name}.master-"))
     try:
+        tmp = workdir / output.name
         apply_master_audio(output, tmp, filter_str, audio_codec=preset.audio_codec)
-    except BaseException:
+        tmp.replace(output)
+    finally:
         # ffmpeg writes `tmp` progressively, so a failed pass leaves a half-written file
-        # beside the export — and the outer handler only ever discards `output`. Remove
+        # beside the export, and the outer handler only ever discards `output`. Remove
         # what THIS pass was writing; the original render is untouched for the caller.
-        tmp.unlink(missing_ok=True)
-        raise
-    tmp.replace(output)
+        shutil.rmtree(workdir, ignore_errors=True)
 
 
 def render_preview(

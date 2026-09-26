@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from PIL import Image, ImageDraw
 from pydantic import TypeAdapter
 
 from framepilot_engine.media.ffmpeg import find_ffmpeg
@@ -82,12 +83,38 @@ def _duration_for(asset: dict[str, Any], project: Project) -> float:
     return max(1.0, max(ends, default=1.0))
 
 
+#: Side of a staged still, and the share of it the opaque disc fills. The margin matches
+#: what a library sticker carries, so a graphics proof renders the shape the product ships.
+_STILL_SIZE = 96
+_STILL_ART_FRACTION = 0.8
+
+
+def _stage_still(output: Path) -> None:
+    """A square RGBA still: an opaque disc on a transparent margin, in the path's format.
+
+    A sticker is a still with alpha (plan/elements EL6a); staged as the video every other
+    asset gets, its ``.webp`` path held H.264 the renderer's image path cannot open.
+    """
+    image = Image.new("RGBA", (_STILL_SIZE, _STILL_SIZE), (0, 0, 0, 0))
+    inset = round(_STILL_SIZE * (1 - _STILL_ART_FRACTION) / 2)
+    ImageDraw.Draw(image).ellipse(
+        (inset, inset, _STILL_SIZE - inset, _STILL_SIZE - inset), fill=(240, 120, 20, 255)
+    )
+    if output.suffix.lower() == ".webp":
+        image.save(output, format="WEBP", lossless=True, exact=True)
+    else:
+        image.save(output)
+
+
 def _stage_asset(ffmpeg: str, root: Path, asset: dict[str, Any], project: Project) -> None:
     relative = Path(str(asset["path"]))
     if relative.is_absolute() or ".." in relative.parts:
         raise ValueError(f"Professional eval asset path must be relative: {relative}")
     output = root / relative
     output.parent.mkdir(parents=True, exist_ok=True)
+    if asset["kind"] == "image":
+        _stage_still(output)
+        return
     duration = _duration_for(asset, project)
     digest = hashlib.sha256(str(asset["id"]).encode()).digest()
     frequency = 220 + digest[1] * 3
@@ -143,7 +170,7 @@ def _stage_asset(ffmpeg: str, root: Path, asset: dict[str, Any], project: Projec
 def run(payload: dict[str, Any]) -> dict[str, Any]:
     project = Project.model_validate(payload["project"])
     # Professional fixtures prove semantics, not delivery resolution. Keeping the deterministic
-    # render small makes all 33 rows practical as a release gate without changing timing/content.
+    # render small makes every row practical as a release gate without changing timing/content.
     project.resolution.width = 320
     project.resolution.height = 240
     requests = _REQUESTS.validate_python(payload["requests"])

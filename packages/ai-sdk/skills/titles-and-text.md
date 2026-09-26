@@ -57,4 +57,5 @@ Shorten copy before extending duration; if the frame remains crowded, remove the
 
 ## Related skills
 
-`caption-design`, `motion-design`, `hook-crafting`, `vertical-reframe`.
+`caption-design`, `motion-design`, `hook-crafting`, `vertical-reframe`, `stickers-and-callouts`
+(boxes, arrows and markers that point at something on screen).

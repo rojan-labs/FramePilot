@@ -8,7 +8,12 @@
  * drawing path starts from the panel.
  */
 import { useEffect } from 'react';
-import { MEASURE_MEDIA_FIRST, assetDisplaySize, nextMaskId } from '@framepilot/editor-core';
+import {
+  MEASURE_MEDIA_FIRST,
+  assetDisplaySize,
+  nextMaskId,
+  syntheticClipKind,
+} from '@framepilot/editor-core';
 import { masksOf, type Clip } from '@framepilot/timeline-schema';
 import type { UseEditor } from '../../../editor/useEditor.js';
 import {
@@ -38,6 +43,10 @@ const DRAW_TOOLS: readonly {
   { tool: 'freehand', label: 'Freehand', Icon: Pencil },
 ];
 
+/** What a title can take in the Mask tab, instead of asking for media it does not have. */
+const TITLE_MASKS_NOTE =
+  'Drawing a mask needs a video or a photo. A title takes a track matte, below, or an edge style.';
+
 export interface MaskPanelProps {
   readonly editor: UseEditor;
   readonly clip: Clip;
@@ -50,6 +59,9 @@ export function MaskPanel({ editor, clip, store = maskToolStore }: MaskPanelProp
   const sourceTime = clipSourceTimeAt(clip, editor.state.playhead);
   const media = editor.state.assets.find((asset) => asset.id === clip.assetId)?.media;
   const measured = assetDisplaySize(media) !== null;
+  // A title has no picture of its own to draw on (EL2b): it takes a track matte or an edge style.
+  const isTitle = syntheticClipKind(clip.assetId) === 'text';
+  const isStill = editor.state.assets.find((asset) => asset.id === clip.assetId)?.kind === 'image';
 
   useEffect(() => {
     store.update({ panelClipId: clip.id });
@@ -84,7 +96,8 @@ export function MaskPanel({ editor, clip, store = maskToolStore }: MaskPanelProp
     <div className="inspector-subpanel mask-panel" aria-label="mask stack">
       {/* The Mask tab's first action row (plan 05 "Placement"): the preset that adds an AI
           subject matte, and the front door to every pack-backed tool's warnings. */}
-      <BackgroundRemovalRow editor={editor} clip={clip} store={store} />
+      {/* EL2b: a background removal is measured on video; a still or a title cannot take one. */}
+      {!isTitle && !isStill && <BackgroundRemovalRow editor={editor} clip={clip} store={store} />}
       <div className="mask-panel-tools" role="group" aria-label="Draw a mask">
         {DRAW_TOOLS.map(({ tool, label, Icon }) => (
           <button
@@ -101,9 +114,14 @@ export function MaskPanel({ editor, clip, store = maskToolStore }: MaskPanelProp
           </button>
         ))}
       </div>
-      {!measured && (
+      {!measured && !isTitle && (
         <p role="alert" className="inspector-empty inspector-empty-inline">
           {MEASURE_MEDIA_FIRST}
+        </p>
+      )}
+      {isTitle && (
+        <p role="status" className="inspector-empty inspector-empty-inline">
+          {TITLE_MASKS_NOTE}
         </p>
       )}
       {/* MK8.2: a title, a graphic or another shot as this clip's mask (text as a mask). */}

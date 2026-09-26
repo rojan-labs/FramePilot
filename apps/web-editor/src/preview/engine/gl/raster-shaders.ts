@@ -440,8 +440,9 @@ export const BLEND_MODE_INDEX: Readonly<Record<string, number>> = {
 
 /**
  * `_attach_mask`'s alpha for one layer at its own (pre-placement) size: opacity × the legacy
- * wipe band, stored as the 8-bit value compositing truncates it to. `u_wipeAxis`: 0 none,
- * 1 x, 2 y.
+ * wipe band × the layer's own alpha (a still's transparency, a title's glyph coverage, which
+ * the export multiplies rather than replaces), stored as the 8-bit value compositing truncates
+ * it to. `u_wipeAxis`: 0 none, 1 x, 2 y.
  */
 export const ALPHA_FRAGMENT = `${HEADER}
 uniform sampler2D u_source;
@@ -458,7 +459,7 @@ void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   ivec2 size = textureSize(u_source, 0);
   vec4 texel = texelFetch(u_source, p, 0);
-  float alpha = u_opacity;
+  float alpha = u_opacity * texel.a;
   if (u_hasMask) alpha *= float(texelFetch(u_mask, p, 0).r) / 255.0 * u_maskScale;
   if (u_wipeAxis != 0) {
     float extent = float(u_wipeAxis == 1 ? size.x : size.y);

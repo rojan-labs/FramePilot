@@ -176,6 +176,16 @@ export const TOOL_CONTRACT_DECLARATIONS: Readonly<Record<string, ToolContract>> 
     stateDependency: 'project_revision',
     cacheScope: 'none',
   },
+  // `add_sticker` (plan/elements EL6a.7): the host copies a library file into the project and
+  // the orchestrator places it — `add_stock`'s contract, for the same reasons.
+  add_sticker: {
+    executionPlane: 'host',
+    effectClass: 'mutation',
+    permissions: ['analysis', 'write'],
+    concurrency: 'serial',
+    stateDependency: 'project_revision',
+    cacheScope: 'none',
+  },
   // `get_frame` and `measure_color` are PICTURE measurements, and `Timeline.revision` is
   // not a picture counter.
   //

@@ -110,6 +110,27 @@ the failure was a validation check).
 contract; they were not touched in this slice and will get a `202`+`jobId` body
 they don't yet know how to poll. Wiring them to the new contract is plan H1.3b.
 
+### `POST /preview/text-raster`
+
+One title, caption or shape drawn by the export's own Pillow code, for the desktop program
+monitor to composite (PX2.3; shapes since schema v25, ADR 0190). Pure CPU on one layer: no
+project, media or MoviePy.
+
+```json
+// request
+{ "kind": "shape", "params": { "shape": "rounded-rect", "stroke": "#FFD400", "…": "…" },
+  "rotates": false, "frame_width": 1920, "frame_height": 1080 }
+// 200
+{ "width": 870, "height": 490, "rgba_base64": "…", "x": 525, "y": 295, "animated": false,
+  "backdrop_base64": null, "backdrop_sigma_px": null }
+```
+
+`kind` is `text` (a text clip's `text` effect params), `caption` (a cue: `text`, or a styled cue
+with `track_style`/`clip_style`, `words`, `clip_start`, `clip_end`, `frame_time`) or `shape` (a
+shape clip's `shape` effect params). `rotates: true` — for a title or shape that animates
+rotation — draws it centred in a transparent square as wide as its diagonal, so a turn keeps every
+pixel. Parameters the engine cannot draw return `422` with the reason.
+
 ### `POST /validate-render`
 
 Run render validation on an existing file (PRD §9.4).

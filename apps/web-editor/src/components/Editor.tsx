@@ -17,6 +17,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { Asset, Project } from '@framepilot/timeline-schema';
 import { DEFAULT_STOCK_STILL_SECONDS, type HistoryEntry } from '@framepilot/editor-core';
 import {
+  loadStickerCatalog,
   readMemory,
   recordRejected,
   type InteractionKeyframeRef,
@@ -54,14 +55,33 @@ import { OverlaysPanel } from './OverlaysPanel.js';
 import { TransitionsPanel } from './TransitionsPanel.js';
 import { MonitorHeaderPortal } from './MonitorHeaderPortal.js';
 import { SoundsPanel } from './SoundsPanel.js';
-import { StockPanel } from './StockPanel.js';
+import { ElementsPanel } from './elements/ElementsPanel.js';
 import {
   addMusicTrackPatch,
+  addShapePatch,
+  addStickerPatch,
+  replaceStickerPatch,
   addStockClipPatch,
+  addStockOverlayPatch,
+  stockAddedAnnouncement,
   stockPlacementBlockedReason,
 } from '../editor/patch-builders.js';
-import { isDesktop } from '../editor/bridge.js';
-import { Toasts } from './Toasts.js';
+import { elementsMaterialize, isDesktop, stockDownload } from '../editor/bridge.js';
+import { placeDroppedSticker } from '../editor/sticker-drop.js';
+import { placeMonitorDrop, type MonitorDropItem } from '../editor/monitor-drop.js';
+import type { StickerTarget } from '../editor/sticker-builders.js';
+import type { FramePoint } from '../preview/frame-point.js';
+import { stockDownloads } from '../editor/download-registry.js';
+import { placeDroppedStock } from '../editor/stock-drop.js';
+import { applyStockPatch } from '../editor/stock-download.js';
+import {
+  placedClipOf,
+  shapeAddedAnnouncement,
+  stickerAddedAnnouncement,
+  stickerReplacedAnnouncement,
+} from '../editor/element-announcements.js';
+import { useLiveAnnouncement } from '../editor/useLiveAnnouncement.js';
+import { Toasts, type ToastNotice } from './Toasts.js';
 import { HistoryPanel } from './HistoryPanel.js';
 import { JobsRail } from './JobsPanel.js';
 import { FootageUnderstandingPanel } from './FootageUnderstandingPanel.js';
@@ -70,14 +90,15 @@ import { Tooltip } from './Tooltip.js';
 import { CommandPalette } from './CommandPalette.js';
 import { useMatteJobCommits } from './inspector/masks/useMatteJob.js';
 import { useMaskToolValue } from './inspector/masks/useMaskTools.js';
-import type { SettingsSection } from './SettingsDialog.js';
+import type { SettingsFocusField, SettingsSection } from './SettingsDialog.js';
+import { useAiConfig } from '../editor/useAiConfig.js';
 import {
   Captions,
   ChevronLeft,
   ChevronRight,
   Folder,
   ICON_SIZE,
-  ImagePlus,
+  Shapes,
   ListChecks,
   type LucideIcon,
   SlidersHorizontal,
@@ -104,8 +125,11 @@ export interface EditorProps {
   readonly helpOpen?: boolean;
   /** Toggle the keyboard-help overlay (`?`). */
   readonly onToggleHelp?: () => void;
-  /** Open the Settings dialog (`⌘,`), optionally deep-linked to a tab (H2). */
-  readonly onOpenSettings?: (section?: SettingsSection) => void;
+  /**
+   * Open the Settings dialog (`⌘,`), optionally deep-linked to a tab (H2) and to a control in it,
+   * scrolled into view and focused.
+   */
+  readonly onOpenSettings?: (section?: SettingsSection, focusField?: SettingsFocusField) => void;
   /**
    * The Topbar's centre box (owned by {@link App}), where the Source/Program
    * switch and the monitor's view controls render.
@@ -133,12 +157,12 @@ export interface EditorProps {
 
 const LEFT_TAB_IDS = [
   'media',
+  'elements',
   'effects',
   'transitions',
   'overlays',
   'captions',
   'sounds',
-  'stock',
 ] as const;
 const RIGHT_TAB_IDS = ['ai', 'inspector', 'jobs'] as const;
 
@@ -158,28 +182,57 @@ type MonitorTab = 'program' | 'source';
  * retired tab falls back to the default instead of selecting a panel that no longer exists.
  */
 
-const LEFT_TABS: readonly { id: LeftTab; label: string; icon: LucideIcon }[] = [
+/**
+ * The left rail. Elements sits second, after Assets — CapCut's Media → Elements order
+ * (plan/elements, MD-E7): both are "things you place", and Elements is where every
+ * photo, video, sticker and shape the user did not film comes from.
+ */
+const LEFT_TABS: readonly { id: LeftTab; label: string; icon: LucideIcon; tooltip?: string }[] = [
   { id: 'media', label: 'Assets', icon: Folder },
+  {
+    id: 'elements',
+    label: 'Elements',
+    icon: Shapes,
+    tooltip: 'Elements — photos, videos, stickers, shapes',
+  },
   { id: 'effects', label: 'Effects', icon: Sparkles },
   { id: 'transitions', label: 'Transitions', icon: ArrowLeftRight },
   { id: 'overlays', label: 'Text', icon: Type },
   { id: 'captions', label: 'Captions', icon: Captions },
   { id: 'sounds', label: 'Sounds', icon: Music },
-  { id: 'stock', label: 'Stock', icon: ImagePlus },
 ];
 
-/** Tabs that need the main process to reach a third-party provider. */
-const DESKTOP_ONLY_TABS: ReadonlySet<LeftTab> = new Set<LeftTab>(['sounds', 'stock']);
+/**
+ * Tabs that need the main process to reach a third-party provider.
+ *
+ * Elements is here while its only sub-tabs are Photos and Videos (Pexels, through
+ * main); it leaves the set once a sub-tab that works without main ships.
+ */
+const DESKTOP_ONLY_TABS: ReadonlySet<LeftTab> = new Set<LeftTab>(['sounds', 'elements']);
+
+/**
+ * A stored rail tab that was renamed, mapped to the tab that replaced it.
+ *
+ * `stock` became `elements` (plan/elements). Mapping it — rather than letting the
+ * stored value fall back to Assets — lands someone who left the rail on Stock on the
+ * panel that now holds the same photos and videos.
+ */
+const RENAMED_LEFT_TABS: Readonly<Record<string, LeftTab>> = { stock: 'elements' };
 
 /**
  * The tabs actually shown.
  *
- * Sounds and Stock need the main process to reach a provider — the renderer's
+ * Sounds and Elements need the main process to reach a provider — the renderer's
  * CSP forbids it, deliberately — so in a plain browser those tabs are **absent**
  * rather than present-and-broken. A tab that opens a panel explaining it cannot
  * work is worse than no tab: it costs a click to learn nothing.
  */
-function visibleLeftTabs(): readonly { id: LeftTab; label: string; icon: LucideIcon }[] {
+function visibleLeftTabs(): readonly {
+  id: LeftTab;
+  label: string;
+  icon: LucideIcon;
+  tooltip?: string;
+}[] {
   return isDesktop() ? LEFT_TABS : LEFT_TABS.filter((tab) => !DESKTOP_ONLY_TABS.has(tab.id));
 }
 
@@ -203,8 +256,8 @@ function coerceRightTab(raw: unknown): RightTab | undefined {
  * `isDesktop()` is a runtime fact, and only ever on the stored value, so the default is
  * untouched.
  */
-function coerceLeftTab(raw: unknown): LeftTab | undefined {
-  const tab = isLeftTab(raw);
+export function coerceLeftTab(raw: unknown): LeftTab | undefined {
+  const tab = isLeftTab(typeof raw === 'string' ? (RENAMED_LEFT_TABS[raw] ?? raw) : raw);
   if (tab === undefined) return undefined;
   return isDesktop() || !DESKTOP_ONLY_TABS.has(tab) ? tab : undefined;
 }
@@ -290,6 +343,32 @@ export function Editor({
     editor.replaceAuthoritativeProject(project);
   }, [editor.replaceAuthoritativeProject, project, projectSyncNonce]);
   const [leftTab, setLeftTab] = useViewPreference<LeftTab>('leftTab', 'media', coerceLeftTab);
+  // The sticker the Inspector's Replace… is swapping (plan/elements 02 §4.1): opens Elements →
+  // Stickers in replace mode until a sticker is picked or the swap is cancelled.
+  const [stickerReplaceTarget, setStickerReplaceTarget] = useState<{
+    readonly clipId: string;
+    readonly name: string;
+  } | null>(null);
+  // The Inspector's Replace… and the clip menu's "Replace sticker…" open the same swap.
+  const openStickerReplace = useCallback(
+    (clipId: string, name: string) => {
+      setStickerReplaceTarget({ clipId, name });
+      setLeftTab('elements');
+    },
+    [setLeftTab],
+  );
+  /**
+   * The swap is over (a sticker was picked, or it was cancelled from the panel): the keyboard goes
+   * back to the Inspector's Replace…, where it was asked for, when the Inspector shows it. A swap
+   * left by choosing another Elements tab keeps focus on that tab.
+   */
+  const endStickerReplace = useCallback((returnFocus: boolean) => {
+    setStickerReplaceTarget(null);
+    if (!returnFocus) return;
+    requestAnimationFrame(() =>
+      document.querySelector<HTMLButtonElement>('.sticker-section-replace')?.focus(),
+    );
+  }, []);
   // NOT persisted, deliberately. Program/Source is a mode the interaction drives — clicking
   // an asset switches to Source by itself — not a layout preference. Restoring "Source" on
   // open, with no asset loaded, reopens the editor onto an empty monitor: a worse first
@@ -382,6 +461,20 @@ export function Editor({
       editor.select(clipId);
       editor.seek(clip.start);
       setRightTab('inspector');
+    },
+    [editor, setRightTab],
+  );
+  // "Animation…" in the clip menu (plan/elements EL7): the clip, in the Inspector, its
+  // Animation section in view. The nonce asks again for a second clip or a second time.
+  const [inspectorFocus, setInspectorFocus] = useState<{
+    readonly id: string;
+    readonly nonce: number;
+  } | null>(null);
+  const animateClip = useCallback(
+    (clipId: string) => {
+      editor.select(clipId);
+      setRightTab('inspector');
+      setInspectorFocus((last) => ({ id: 'animation', nonce: (last?.nonce ?? 0) + 1 }));
     },
     [editor, setRightTab],
   );
@@ -494,6 +587,158 @@ export function Editor({
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const { settings, update } = useSettings();
+  // Whether Photos and Videos can browse: Elements opens on Stickers until they can.
+  const pexelsKeyConfigured = useAiConfig().config.pexelsReady === true;
+  // The editor as of the latest render, for work that finishes after an await (a sticker drop
+  // waits for main's copy while edits go on).
+  const liveEditor = useRef(editor);
+  liveEditor.current = editor;
+  // A failure outside the patch path, raised as a toast (a dropped sticker main could not copy).
+  const [notice, setNotice] = useState<ToastNotice | null>(null);
+  // What a clip that just landed says to a screen reader (plan/elements 02 §3): a Pexels
+  // download ends seconds after the click, a sticker after main's copy, and every element lands
+  // on a lane the panel it came from cannot show, so each arrival is announced, politely — the
+  // region is emptied before each message, so the same arrival twice is read twice.
+  const [addedAnnouncement, announceAdded] = useLiveAnnouncement();
+  // What an element placement reads once main has copied a sticker in: the editor as it is then.
+  const liveElementTarget = useCallback((): StickerTarget => {
+    const live = liveEditor.current.state;
+    return {
+      timeline: live.timeline,
+      assets: live.assets,
+      folders: live.folders,
+      resolution: project.resolution,
+    };
+  }, [project.resolution]);
+  const dropSticker = useCallback(
+    (elementId: string, atSeconds: number, trackId?: string): void => {
+      void placeDroppedSticker(
+        { materialize: elementsMaterialize, loadCatalog: loadStickerCatalog },
+        {
+          projectId: project.id,
+          elementId,
+          atSeconds,
+          durationSeconds: settings.defaultOverlaySeconds,
+          ...(trackId !== undefined ? { trackId } : {}),
+          target: liveElementTarget,
+        },
+      ).then((placed) => {
+        const say = (message: string): void =>
+          setNotice((last) => ({ id: (last?.id ?? 0) + 1, message }));
+        if (!placed.ok) {
+          say(placed.message);
+          return;
+        }
+        // Checked, so a patch the timeline refuses is said, not quietly dropped.
+        const refusal = applyStockPatch(
+          liveEditor.current.applyPatchChecked,
+          placed.added.patch,
+          'sticker dropped on a lane',
+        );
+        if (refusal !== null) {
+          say(refusal);
+          return;
+        }
+        liveEditor.current.select(placed.added.clipId);
+        announceAdded(
+          stickerAddedAnnouncement(
+            placed.name,
+            placedClipOf(placed.added.patch)?.start ?? atSeconds,
+          ),
+        );
+      });
+    },
+    [project.id, liveElementTarget, settings.defaultOverlaySeconds, announceAdded],
+  );
+  /**
+   * A sticker or shape tile dropped on the program monitor (plan/elements EL11, 02 §3): added at
+   * the playhead, centred where it was dropped, selected and announced. A sticker main could not
+   * copy says why in the Stickers tab's words; a patch the timeline refuses is said, not quietly
+   * dropped.
+   */
+  const dropOnMonitor = useCallback(
+    (item: MonitorDropItem, point: FramePoint): void => {
+      void placeMonitorDrop(
+        { materialize: elementsMaterialize, loadCatalog: loadStickerCatalog },
+        {
+          item,
+          point,
+          projectId: project.id,
+          atSeconds: liveEditor.current.getPlayhead(),
+          durationSeconds: settings.defaultOverlaySeconds,
+          target: liveElementTarget,
+        },
+      ).then((placed) => {
+        const say = (message: string): void =>
+          setNotice((last) => ({ id: (last?.id ?? 0) + 1, message }));
+        if (!placed.ok) {
+          say(placed.message);
+          return;
+        }
+        const refusal = applyStockPatch(
+          liveEditor.current.applyPatchChecked,
+          placed.added.patch,
+          `${item.kind} dropped on the monitor`,
+        );
+        if (refusal !== null) {
+          say(refusal);
+          return;
+        }
+        // Selected, so the monitor shows its handles for the fine adjustment a drop invites.
+        liveEditor.current.select(placed.added.clipId);
+        announceAdded(placed.announcement);
+      });
+    },
+    [project.id, liveElementTarget, settings.defaultOverlaySeconds, announceAdded],
+  );
+  /**
+   * A Photos or Videos tile dropped on the timeline (plan/elements EL9): downloaded through the
+   * panel's own flow, so its tile shows the progress and Cancel, then placed at the drop time
+   * against the editor as it is when the bytes land.
+   */
+  const dropStock = useCallback(
+    (remoteId: string, mediaKind: 'photo' | 'video', atSeconds: number, trackId?: string): void => {
+      const atDrop = liveEditor.current.state;
+      void placeDroppedStock(
+        { download: stockDownload, registry: stockDownloads },
+        {
+          projectId: project.id,
+          remoteId,
+          kind: mediaKind,
+          targetHeight: project.resolution?.height ?? 1080,
+          ...(project.fps ? { targetFps: project.fps } : {}),
+          atSeconds,
+          ...(trackId !== undefined ? { trackId } : {}),
+          atDrop: { timeline: atDrop.timeline, assets: atDrop.assets },
+          target: () => {
+            const live = liveEditor.current.state;
+            return { timeline: live.timeline, assets: live.assets };
+          },
+          // Checked, so a patch the timeline refuses is said on the tile, not quietly dropped.
+          apply: (added) => {
+            const refusal = applyStockPatch(
+              liveEditor.current.applyPatchChecked,
+              added.patch,
+              'Pexels drop',
+            );
+            if (refusal === null) liveEditor.current.select(added.clipId);
+            return refusal;
+          },
+        },
+      ).then((placed) => {
+        const say = (message: string): void =>
+          setNotice((last) => ({ id: (last?.id ?? 0) + 1, message }));
+        if (!placed.ok) {
+          // A cancel says nothing: the user pressed it. A failure is also on the tile.
+          if (placed.message !== '') say(placed.message);
+          return;
+        }
+        announceAdded(stockAddedAnnouncement(placed.asset, 'drop', placed.added.start));
+        if (placed.notice !== null) say(placed.notice);
+      });
+    },
+    [project.id, project.resolution, project.fps, announceAdded],
+  );
   const toggleSnapping = useCallback(
     () => update({ snapping: !settings.snapping }),
     [update, settings.snapping],
@@ -580,6 +825,8 @@ export function Editor({
     [editor.state.timeline, programAssetById, project.resolution],
   );
   const ProgramPreview = useWebCodecsPreview ? WebCodecsPreviewPlayer : PreviewPlayer;
+  // Stickers and shapes come from Elements, which the browser build does not offer.
+  const elementsOffered = visibleLeftTabs().some((tab) => tab.id === 'elements');
 
   /**
    * "Open the Inspector when I click something" (Settings → Editing).
@@ -629,6 +876,7 @@ export function Editor({
         {...(onProjectCommit ? { onProjectCommit } : {})}
         {...(ensureSavedForTranscription ? { ensureSavedForTranscription } : {})}
         {...(revealRequest ? { revealRequest } : {})}
+        onAnnounce={announceAdded}
       />
     ),
     [
@@ -642,7 +890,19 @@ export function Editor({
     ],
   );
   const effectsEl = useMemo(() => <EffectsPanel editor={editor} />, [nonPlayheadKey]);
-  const overlaysEl = useMemo(() => <OverlaysPanel editor={editor} />, [nonPlayheadKey]);
+  const overlaysEl = useMemo(
+    () => (
+      <OverlaysPanel
+        editor={editor}
+        // Only where the Elements tab is offered (the desktop app): a link to an absent tab
+        // would be a dead end.
+        {...(visibleLeftTabs().some((tab) => tab.id === 'elements')
+          ? { onOpenElements: () => setLeftTab('elements') }
+          : {})}
+      />
+    ),
+    [nonPlayheadKey],
+  );
   const transitionsEl = useMemo(() => <TransitionsPanel editor={editor} />, [nonPlayheadKey]);
   const soundsEl = useMemo(
     () => (
@@ -656,12 +916,12 @@ export function Editor({
     ),
     [nonPlayheadKey, project],
   );
-  const stockEl = useMemo(() => {
+  const elementsEl = useMemo(() => {
     // Recomputed with the playhead, because the answer changes as it moves —
     // the tile must be able to disable Add with a reason *before* the click.
     const assetById = new Map(project.assets.map((asset) => [asset.id, asset]));
     return (
-      <StockPanel
+      <ElementsPanel
         project={project}
         placementBlockedReasonFor={(durationSeconds) =>
           stockPlacementBlockedReason(
@@ -672,10 +932,10 @@ export function Editor({
           )
         }
         onAddStock={(asset) => {
-          // Read from the store at CLICK time, not from the closure the tile was
-          // rendered with: a download takes seconds, and the playhead and the
-          // timeline both move during them.
-          const live = editor.state;
+          // Read the editor as it is when the download LANDS, not the render this
+          // closure came from: a download takes seconds, and the playhead and the
+          // timeline both move during them. (`editor` is a per-render snapshot.)
+          const live = liveEditor.current.state;
           const liveAssetById = new Map(live.assets.map((a) => [a.id, a]));
           const patch = addStockClipPatch(live.timeline, liveAssetById, asset, live.playhead);
           if (patch === null) {
@@ -691,13 +951,118 @@ export function Editor({
               ) ?? 'That spot is occupied — move the playhead and try again.'
             );
           }
-          editor.applyPatch(patch);
+          // Checked, so a patch the timeline refuses is said on the tile, not quietly dropped.
+          const refusal = applyStockPatch(
+            liveEditor.current.applyPatchChecked,
+            patch,
+            'Pexels cutaway',
+          );
+          if (refusal !== null) return refusal;
+          // Selected and said, as every placement is: the download ended seconds after the click.
+          const placed = placedClipOf(patch);
+          if (placed !== null) {
+            liveEditor.current.select(placed.clipId);
+            announceAdded(stockAddedAnnouncement(asset, 'cutaway', placed.start));
+          }
           return null;
         }}
-        {...(onOpenSettings ? { onOpenSettings: () => onOpenSettings('ai') } : {})}
+        onAddStockOverlay={(asset) => {
+          // A picture-in-picture at the playhead as it is when the download lands, over whatever
+          // is there: never refused for covering picture (ADR 0193).
+          const live = liveEditor.current.state;
+          const added = addStockOverlayPatch(
+            { timeline: live.timeline, assets: live.assets },
+            asset,
+            live.playhead,
+          );
+          const refusal = applyStockPatch(
+            liveEditor.current.applyPatchChecked,
+            added.patch,
+            'Pexels overlay',
+          );
+          if (refusal !== null) return refusal;
+          // Selected, so the monitor shows its handles and the Inspector can resize it.
+          liveEditor.current.select(added.clipId);
+          announceAdded(stockAddedAnnouncement(asset, 'overlay', added.start));
+          return null;
+        }}
+        // Straight to the key field: the Pexels group sits below the AI provider accordions.
+        {...(onOpenSettings ? { onOpenSettings: () => onOpenSettings('ai', 'pexels-key') } : {})}
+        pexelsKeyConfigured={pexelsKeyConfigured}
+        onShowInAssets={revealAssetInBin}
+        onAddShape={(presetId, colour) => {
+          const at = liveEditor.current.getPlayhead();
+          const added = addShapePatch(
+            liveEditor.current.state.timeline,
+            presetId,
+            at,
+            settings.defaultOverlaySeconds,
+            { colour },
+          );
+          if (added === null) return 'That shape could not be added. Try another.';
+          const refusal = applyStockPatch(
+            liveEditor.current.applyPatchChecked,
+            added.patch,
+            'shape',
+          );
+          if (refusal !== null) return refusal;
+          // Selected, so the Inspector opens on it and the monitor shows its handles.
+          liveEditor.current.select(added.clipId);
+          announceAdded(shapeAddedAnnouncement(presetId, placedClipOf(added.patch)?.start ?? at));
+          return null;
+        }}
+        onAddSticker={(asset, item) => {
+          // The editor as it is now, when main's copy has landed — not the render this closure
+          // came from: the copy took a moment, and the playhead and timeline may have moved.
+          const live = liveElementTarget();
+          const at = liveEditor.current.getPlayhead();
+          const added = addStickerPatch(live, asset, item.name, at, settings.defaultOverlaySeconds);
+          if (added === null) return 'That sticker could not be added. Try another.';
+          // Checked, so a patch the timeline refuses is said on the tile, not quietly dropped.
+          const refusal = applyStockPatch(
+            liveEditor.current.applyPatchChecked,
+            added.patch,
+            'sticker',
+          );
+          if (refusal !== null) return refusal;
+          liveEditor.current.select(added.clipId);
+          announceAdded(
+            stickerAddedAnnouncement(item.name, placedClipOf(added.patch)?.start ?? at),
+          );
+          return null;
+        }}
+        stickerReplaceTarget={stickerReplaceTarget}
+        onReplaceSticker={(asset, item) => {
+          if (stickerReplaceTarget === null) return null;
+          const target = stickerReplaceTarget;
+          const patch = replaceStickerPatch(liveElementTarget(), target.clipId, asset, item.name);
+          endStickerReplace(true);
+          if (patch === null) return 'That sticker is no longer on the timeline. Add it again.';
+          const refusal = applyStockPatch(
+            liveEditor.current.applyPatchChecked,
+            patch,
+            'sticker replace',
+          );
+          if (refusal !== null) return refusal;
+          liveEditor.current.select(target.clipId);
+          announceAdded(stickerReplacedAnnouncement(target.name, item.name));
+          return null;
+        }}
+        onCancelStickerReplace={endStickerReplace}
       />
     );
-  }, [project, editor.state.playhead, editor.state.timeline, onOpenSettings]);
+  }, [
+    project,
+    editor.state.playhead,
+    editor.state.timeline,
+    onOpenSettings,
+    settings.defaultOverlaySeconds,
+    stickerReplaceTarget,
+    announceAdded,
+    liveElementTarget,
+    endStickerReplace,
+    pexelsKeyConfigured,
+  ]);
   const openTransitionLibrary = useCallback(() => setLeftTab('transitions'), []);
   const aiFacingProject = useMemo(
     () => projectForAi(project, editor.state),
@@ -759,7 +1124,10 @@ export function Editor({
       sourceMonitorInteraction,
     ],
   );
-  const toastsEl = useMemo(() => <Toasts editor={editor} />, [nonPlayheadKey]);
+  const toastsEl = useMemo(
+    () => <Toasts editor={editor} notice={notice} />,
+    [nonPlayheadKey, notice],
+  );
   const toolbarEl = useMemo(
     () => (
       <Toolbar
@@ -792,10 +1160,17 @@ export function Editor({
         editor={editor}
         assets={project.assets}
         fps={project.fps}
+        resolution={project.resolution}
         editMode={editMode}
         trackLayout={trackLayout}
         onAskAiForClip={onAskAiForClip}
         onRevealAssetInBin={revealAssetInBin}
+        onReplaceSticker={openStickerReplace}
+        onAnimateClip={animateClip}
+        onDropSticker={dropSticker}
+        onAnnounce={announceAdded}
+        // Photos and Videos come from main (desktop only), as the prop's doc says.
+        {...(isDesktop() ? { onDropStock: dropStock } : {})}
         onOpenTransitionLibrary={openTransitionLibrary}
         tool={tool}
         selectedEffectLayerIds={selectedEffectLayerIds}
@@ -814,6 +1189,10 @@ export function Editor({
       onItemActivate,
       revealAssetInBin,
       openTransitionLibrary,
+      animateClip,
+      dropSticker,
+      dropStock,
+      announceAdded,
       tool,
       selectedEffectLayerIds,
     ],
@@ -859,8 +1238,8 @@ export function Editor({
                 to spare the width. */}
             <nav className="rail-activitybar" aria-label="Library">
               <div className="activity-tabs" role="tablist" aria-label="library tabs">
-                {visibleLeftTabs().map(({ id, label, icon: Icon }) => (
-                  <Tooltip key={id} label={label} placement="right">
+                {visibleLeftTabs().map(({ id, label, icon: Icon, tooltip }) => (
+                  <Tooltip key={id} label={tooltip ?? label} placement="right">
                     <button
                       type="button"
                       role="tab"
@@ -905,7 +1284,7 @@ export function Editor({
                 {leftTab === 'effects' && effectsEl}
                 {leftTab === 'transitions' && transitionsEl}
                 {leftTab === 'sounds' && soundsEl}
-                {leftTab === 'stock' && stockEl}
+                {leftTab === 'elements' && elementsEl}
                 {leftTab === 'overlays' && overlaysEl}
                 {leftTab === 'captions' && (
                   <CaptionEditor
@@ -958,6 +1337,9 @@ export function Editor({
                 <Inspector
                   editor={editor}
                   fps={project.fps}
+                  resolution={project.resolution}
+                  focusSection={inspectorFocus}
+                  onReplaceSticker={openStickerReplace}
                   selectedEffectLayerIds={selectedEffectLayerIds}
                   onClearEffectLayers={() => setSelectedEffectLayerIds([])}
                 />
@@ -1059,6 +1441,11 @@ export function Editor({
                 headerControlsHost={monitorHeaderControlsHost}
                 soloedTrackIds={trackLayout.soloedIds}
                 transcript={project.transcript}
+                // Only where Elements is offered (the desktop app), and only the layer
+                // compositor's monitor takes a drop (the legacy one is not a drop target).
+                {...(useWebCodecsPreview && elementsOffered
+                  ? { onDropElement: dropOnMonitor }
+                  : {})}
                 {...(onProjectChange
                   ? {
                       onChangeOrientation: (presetId: string) => {
@@ -1089,6 +1476,9 @@ export function Editor({
               this costs one subscription and never re-renders the editor. */}
           <AgentFab aiPanelVisible={rightTab === 'ai'} onOpenAi={() => setRightTab('ai')} />
           {toastsEl}
+          <p className="sr-only" role="status" aria-live="polite" data-live="added">
+            {addedAnnouncement}
+          </p>
           <HistoryPanel
             editor={editor}
             project={project}

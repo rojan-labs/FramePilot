@@ -1,0 +1,352 @@
+/**
+ * ElementsPanel — the sub-tab host: which sub-tabs a build offers, which one opens,
+ * how it is remembered, and the keyboard model of the strip.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useState } from 'react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { Project } from '@framepilot/timeline-schema';
+import { ElementsPanel, availableElementsTabs, coerceElementsTab } from './ElementsPanel.js';
+
+const desktop = vi.hoisted(() => ({ value: true }));
+
+vi.mock('../../editor/bridge.js', () => ({ isDesktop: () => desktop.value }));
+
+// The Pexels browser has its own suite; here it only has to show which kind it was
+// given and hand the query back, which is all the host is responsible for.
+vi.mock('./PexelsBrowser.js', () => ({
+  PexelsBrowser: (props: {
+    kind: string;
+    initialQuery?: string;
+    onQueryChange?: (q: string) => void;
+    initialCategory?: string | null;
+    onCategoryChange?: (category: string | null) => void;
+    initialOrientation?: string;
+    onOrientationChange?: (orientation: string) => void;
+    onAddStockOverlay?: unknown;
+  }) => (
+    <div
+      data-testid="pexels"
+      data-kind={props.kind}
+      data-category={props.initialCategory ?? ''}
+      data-orientation={props.initialOrientation ?? ''}
+      data-overlay={props.onAddStockOverlay === undefined ? 'no' : 'yes'}
+    >
+      <input
+        aria-label="query"
+        defaultValue={props.initialQuery ?? ''}
+        onChange={(event) => props.onQueryChange?.(event.target.value)}
+      />
+      <button type="button" onClick={() => props.onCategoryChange?.('nature')}>
+        Nature
+      </button>
+      <button type="button" onClick={() => props.onOrientationChange?.('portrait')}>
+        Portrait
+      </button>
+    </div>
+  ),
+}));
+
+// The Stickers browser has its own suite; here it only shows whether it is replacing a sticker.
+vi.mock('./StickersBrowser.js', () => ({
+  StickersBrowser: (props: {
+    replaceTarget?: { name: string } | null;
+    initialQuery?: string;
+    onQueryChange?: (query: string) => void;
+    initialScrollTop?: number;
+    onScrollTopChange?: (top: number) => void;
+  }) => (
+    <div
+      data-testid="stickers"
+      data-replacing={props.replaceTarget?.name ?? ''}
+      data-scroll={String(props.initialScrollTop ?? 0)}
+    >
+      <input
+        aria-label="sticker query"
+        defaultValue={props.initialQuery ?? ''}
+        onChange={(event) => props.onQueryChange?.(event.target.value)}
+      />
+      <button type="button" onClick={() => props.onScrollTopChange?.(240)}>
+        scroll stickers
+      </button>
+    </div>
+  ),
+}));
+
+const project = {
+  id: 'p1',
+  assets: [],
+  resolution: { width: 1920, height: 1080 },
+} as unknown as Project;
+
+/** The panel with a Pexels key configured (Photos and Videos can browse), unless told otherwise. */
+function renderPanel(options: { readonly keyed?: boolean } = {}): void {
+  render(
+    <ElementsPanel
+      project={project}
+      placementBlockedReasonFor={() => null}
+      onAddStock={() => null}
+      pexelsKeyConfigured={options.keyed ?? true}
+    />,
+  );
+}
+
+const STORAGE_KEY = 'framepilot.view.elementsTab';
+
+describe('ElementsPanel', () => {
+  beforeEach(() => {
+    desktop.value = true;
+    localStorage.clear();
+  });
+  afterEach(() => localStorage.clear());
+
+  it('offers Photos, Videos, Stickers and Shapes on the desktop, in the maintainer’s order', () => {
+    renderPanel();
+    const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent);
+    expect(tabs).toEqual(['Photos', 'Videos', 'Stickers', 'Shapes']);
+    expect(screen.getByRole('tablist', { name: 'Elements' })).toBeDefined();
+  });
+
+  it('opens on Photos the first time when a Pexels key is configured', () => {
+    renderPanel();
+    expect(screen.getByRole('tab', { name: 'Photos' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByTestId('pexels').dataset.kind).toBe('photo');
+  });
+
+  it('opens on Stickers the first time without a key: something useful, not a key form', () => {
+    renderPanel({ keyed: false });
+    expect(screen.getByRole('tab', { name: 'Stickers' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    expect(screen.getByTestId('stickers')).toBeDefined();
+    // Nothing is remembered until the person chooses: a key added later opens on Photos.
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it('keeps a remembered Photos over the no-key default', () => {
+    localStorage.setItem(STORAGE_KEY, '"photos"');
+    renderPanel({ keyed: false });
+    expect(screen.getByRole('tab', { name: 'Photos' }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('switches to Videos on click and remembers the choice', () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('tab', { name: 'Videos' }));
+    expect(screen.getByTestId('pexels').dataset.kind).toBe('video');
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('"videos"');
+  });
+
+  it('restores the remembered sub-tab on the next open', () => {
+    localStorage.setItem(STORAGE_KEY, '"videos"');
+    renderPanel();
+    expect(screen.getByRole('tab', { name: 'Videos' }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('ignores a remembered sub-tab this build does not offer', () => {
+    localStorage.setItem(STORAGE_KEY, '"gifs"');
+    renderPanel();
+    expect(screen.getByRole('tab', { name: 'Photos' }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('opens the Stickers sub-tab in replace mode when the Inspector asks to replace one', () => {
+    render(
+      <ElementsPanel
+        project={project}
+        placementBlockedReasonFor={() => null}
+        onAddStock={() => null}
+        stickerReplaceTarget={{ clipId: 'c1', name: 'Fire' }}
+      />,
+    );
+    expect(screen.getByRole('tab', { name: 'Stickers' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    expect(screen.getByTestId('stickers').dataset.replacing).toBe('Fire');
+  });
+
+  it('leaves replace mode when another sub-tab is chosen, by click or by arrow key', () => {
+    const cancelled: string[] = [];
+    function Host(): JSX.Element {
+      const [target, setTarget] = useState<{ clipId: string; name: string } | null>({
+        clipId: 'c1',
+        name: 'Fire',
+      });
+      return (
+        <ElementsPanel
+          project={project}
+          placementBlockedReasonFor={() => null}
+          onAddStock={() => null}
+          stickerReplaceTarget={target}
+          onCancelStickerReplace={(returnFocus) => {
+            // Choosing a tab keeps the keyboard on the tab strip.
+            cancelled.push(returnFocus ? 'cancel and return focus' : 'cancel');
+            setTarget(null);
+          }}
+        />
+      );
+    }
+    render(<Host />);
+    // The tab clicked is the tab shown: choosing it cancels the swap rather than doing nothing.
+    fireEvent.click(screen.getByRole('tab', { name: 'Shapes' }));
+    expect(cancelled).toEqual(['cancel']);
+    expect(screen.getByRole('tab', { name: 'Shapes' }).getAttribute('aria-selected')).toBe('true');
+    cleanup();
+    cancelled.length = 0;
+    render(<Host />);
+    const stickers = screen.getByRole('tab', { name: 'Stickers' });
+    fireEvent.keyDown(stickers, { key: 'ArrowRight' });
+    expect(cancelled).toEqual(['cancel']);
+    const shapes = screen.getByRole('tab', { name: 'Shapes' });
+    expect(shapes.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(shapes);
+  });
+
+  it('keeps replace mode when Stickers itself is chosen again', () => {
+    const onCancelStickerReplace = vi.fn();
+    render(
+      <ElementsPanel
+        project={project}
+        placementBlockedReasonFor={() => null}
+        onAddStock={() => null}
+        stickerReplaceTarget={{ clipId: 'c1', name: 'Fire' }}
+        onCancelStickerReplace={onCancelStickerReplace}
+      />,
+    );
+    fireEvent.click(screen.getByRole('tab', { name: 'Stickers' }));
+    expect(onCancelStickerReplace).not.toHaveBeenCalled();
+    expect(screen.getByTestId('stickers').dataset.replacing).toBe('Fire');
+  });
+
+  it('moves between sub-tabs with the arrow keys and keeps one tab stop', () => {
+    renderPanel();
+    const photos = screen.getByRole('tab', { name: 'Photos' });
+    expect(photos.tabIndex).toBe(0);
+    expect(screen.getByRole('tab', { name: 'Videos' }).tabIndex).toBe(-1);
+    fireEvent.keyDown(photos, { key: 'ArrowRight' });
+    const videos = screen.getByRole('tab', { name: 'Videos' });
+    expect(videos.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(videos);
+    fireEvent.keyDown(videos, { key: 'End' });
+    const shapes = screen.getByRole('tab', { name: 'Shapes' });
+    expect(shapes.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(shapes, { key: 'ArrowRight' });
+    // Wraps around, as a tablist does.
+    expect(photos.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('points aria-controls only from the selected tab, and titles every tab', () => {
+    renderPanel();
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.map((tab) => tab.getAttribute('aria-controls'))).toEqual([
+      'elements-tabpanel-photos',
+      null,
+      null,
+      null,
+    ]);
+    expect(document.getElementById('elements-tabpanel-photos')).not.toBeNull();
+    // A label squeezed at the narrowest rail still has its whole name on hover.
+    expect(tabs.map((tab) => tab.getAttribute('title'))).toEqual([
+      'Photos',
+      'Videos',
+      'Stickers',
+      'Shapes',
+    ]);
+  });
+
+  it('labels the panel with the selected sub-tab', () => {
+    renderPanel();
+    const panel = screen.getByRole('tabpanel');
+    expect(panel.getAttribute('aria-labelledby')).toBe('elements-tab-photos');
+  });
+
+  it('keeps the search words across a Photos ↔ Videos switch', () => {
+    renderPanel();
+    fireEvent.change(screen.getByLabelText('query'), { target: { value: 'city' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'Videos' }));
+    expect((screen.getByLabelText('query') as HTMLInputElement).value).toBe('city');
+  });
+
+  it('keeps the category and the shape across a Photos ↔ Videos switch', () => {
+    renderPanel();
+    // First open: no category, and the shape left to the browser (the project's own).
+    expect(screen.getByTestId('pexels').dataset.category).toBe('');
+    expect(screen.getByTestId('pexels').dataset.orientation).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Nature' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Portrait' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Videos' }));
+    expect(screen.getByTestId('pexels').dataset.category).toBe('nature');
+    expect(screen.getByTestId('pexels').dataset.orientation).toBe('portrait');
+  });
+
+  it('keeps the Stickers and Shapes searches, and the Stickers scroll, across sub-tab switches', () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('tab', { name: 'Stickers' }));
+    fireEvent.change(screen.getByLabelText('sticker query'), { target: { value: 'party' } });
+    fireEvent.click(screen.getByRole('button', { name: 'scroll stickers' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Shapes' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search shapes' }), {
+      target: { value: 'arrow' },
+    });
+    fireEvent.click(screen.getByRole('tab', { name: 'Photos' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Stickers' }));
+    expect((screen.getByLabelText('sticker query') as HTMLInputElement).value).toBe('party');
+    expect(screen.getByTestId('stickers').dataset.scroll).toBe('240');
+    fireEvent.click(screen.getByRole('tab', { name: 'Shapes' }));
+    expect(
+      (screen.getByRole('searchbox', { name: 'Search shapes' }) as HTMLInputElement).value,
+    ).toBe('arrow');
+  });
+
+  it('hands Add as overlay down to Photos and Videos when the editor offers it', () => {
+    renderPanel();
+    expect(screen.getByTestId('pexels').dataset.overlay).toBe('no');
+    cleanup();
+    render(
+      <ElementsPanel
+        project={project}
+        placementBlockedReasonFor={() => null}
+        onAddStock={() => null}
+        onAddStockOverlay={() => null}
+        pexelsKeyConfigured
+      />,
+    );
+    expect(screen.getByTestId('pexels').dataset.overlay).toBe('yes');
+  });
+
+  it('shows the shape tiles on the Shapes tab and adds the one clicked', () => {
+    const added: string[] = [];
+    render(
+      <ElementsPanel
+        project={project}
+        placementBlockedReasonFor={() => null}
+        onAddStock={() => null}
+        onAddShape={(presetId) => {
+          added.push(presetId);
+          return null;
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('tab', { name: 'Shapes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Highlight box, shape' }));
+    expect(added).toEqual(['rounded-rect/highlight']);
+  });
+
+  it('is absent-and-explained in a browser build, which serves no sub-tab yet', () => {
+    desktop.value = false;
+    renderPanel();
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(screen.getByRole('note').textContent).toMatch(/desktop app/i);
+  });
+});
+
+describe('availableElementsTabs / coerceElementsTab', () => {
+  it('serves Photos, Videos, Stickers and Shapes only where the desktop host runs', () => {
+    expect(availableElementsTabs(true)).toEqual(['photos', 'videos', 'stickers', 'shapes']);
+    expect(availableElementsTabs(false)).toEqual([]);
+  });
+
+  it('accepts only a sub-tab the build offers', () => {
+    expect(coerceElementsTab('videos', ['photos', 'videos'])).toBe('videos');
+    expect(coerceElementsTab('shapes', ['photos', 'videos'])).toBeUndefined();
+    expect(coerceElementsTab(42, ['photos', 'videos'])).toBeUndefined();
+  });
+});

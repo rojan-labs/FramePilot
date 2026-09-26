@@ -45,7 +45,8 @@
     "./transition-params": {
       "types": "./dist/transition-params.d.ts",
       "default": "./dist/transition-params.js"
-    }
+    },
+    "./shape-icons.json": "./schema/shape-icons.json"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

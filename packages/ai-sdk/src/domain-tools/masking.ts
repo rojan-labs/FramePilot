@@ -23,7 +23,7 @@ import {
   type EdgeStyleKind,
   type MaskLayer,
 } from '@framepilot/timeline-schema';
-import type { Operation } from '@framepilot/editor-core';
+import { syntheticClipKind, type Operation } from '@framepilot/editor-core';
 import type { ToolContext } from '../tool-context.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { ToolRefusalError } from '../tool-refusal.js';
@@ -56,6 +56,7 @@ import {
   MaskCommandChain,
   buildCreateMaskOps,
   buildTrackMaskOps,
+  clipOnTimeline,
   clipWithSize,
   maskOnClip,
   type BuiltMask,
@@ -800,7 +801,7 @@ function styleCutoutEdgeOps(
   args: z.infer<typeof StyleCutoutEdgeArgsSchema>,
   ctx: ToolContext,
 ): Operation[] {
-  const { clip } = clipWithSize(ctx.project, args.clipId);
+  const clip = clipOnTimeline(ctx.project, args.clipId);
   const kind: EdgeStyleKind = EDGE_STYLE_WORDS[args.style];
   if (args.remove === true) {
     const has = clip.effects.some(
@@ -811,7 +812,11 @@ function styleCutoutEdgeOps(
     }
     return [{ type: 'set_clip_edge_style', clipId: clip.id, kind, params: null }];
   }
-  if (!masksOf(clip).some((mask) => mask.enabled && mask.target.kind === 'alpha')) {
+  // A photo, a sticker or a title traces its own alpha (EL2b); footage needs a mask to cut it.
+  const ownAlpha =
+    syntheticClipKind(clip.assetId) === 'text' ||
+    ctx.project.assets.find((asset) => asset.id === clip.assetId)?.kind === 'image';
+  if (!ownAlpha && !masksOf(clip).some((mask) => mask.enabled && mask.target.kind === 'alpha')) {
     throw new ToolRefusalError(
       `Clip "${clip.id}" has no cut-out to style. Remove its background or mask it first.`,
     );
@@ -1018,8 +1023,9 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
       name: 'style_cutout_edge',
       description:
         'Outline, glow or drop shadow around a clip’s cut-out (a removed background or a mask ' +
-        'that keeps part of the clip). preset picks the look; color only if the editor named ' +
-        'one; remove:true takes that style off. One of each style per clip.',
+        'that keeps part of the clip), or around a sticker, photo or title as it is. preset ' +
+        'picks the look; color only if the editor named one; remove:true takes that style off. ' +
+        'One of each style per clip.',
       capabilities: ['masking'],
       hostUiOnly: true,
     },

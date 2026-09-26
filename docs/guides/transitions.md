@@ -74,6 +74,14 @@ The only real limit is length: a transition cannot exceed half the shorter of th
 two clips, or it has eaten the shot it was meant to introduce. The inspector states
 that ceiling rather than just enforcing it.
 
+## Photos, stickers and titles
+
+A photo, a sticker or a title takes a transition exactly as a video clip does: fades, dissolves,
+wipes, zooms and the catalog transitions all play on the monitor and in the export. A
+transparent PNG keeps its see-through edges while it fades; only the art fades, never a box
+around it. A title's own **In/Out** animation (Inspector → Text) runs on top of any transition:
+a slide moves 5% of the frame height, a pop grows from 70% to full size, and both fade.
+
 ## Cutaways: b-roll over the A-roll
 
 A talking head with b-roll laid over it may have no cut between two clips on one
@@ -84,9 +92,11 @@ A-roll and back out — stored on the insert itself.
 - The default is a hard cut on the word, the talking-head convention. Ask for a
   reason ("soften the b-roll", "make the inserts punchier") and the assistant treats
   every insert the same way (`add_transitions` with `includeCutaways`).
-- An exit is always a dissolve or a wipe. A slide or zoom only animates a shot coming
-  in; as an exit the insert would vanish at once, so a punchy entrance leaves on a
-  short cross-dissolve.
+- A b-roll exit the assistant chooses is always a dissolve or a wipe: a full-frame shot
+  sliding or shrinking back off the speaker reads as a rewind, so a punchy entrance leaves on
+  a short cross-dissolve. Any transition can be an exit, though: a slide or a zoom leaving
+  plays its entrance backwards, which is what stickers, shapes and titles use (see
+  [Elements](./elements.md)).
 - An insert can carry at most half its own length at each end.
 
 ## Audio

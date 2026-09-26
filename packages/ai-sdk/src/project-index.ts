@@ -23,6 +23,7 @@
  * invalidate and no path where the index drifts from the project.
  */
 import type { Asset, Clip, Effect, Project, Timeline, Track } from '@framepilot/timeline-schema';
+import { clipRenderKind } from '@framepilot/editor-core';
 
 /** Where a clip lives: the clip plus its track context (z-order = track index). */
 export interface ClipEntry {
@@ -79,19 +80,12 @@ export interface ProjectIndex {
   };
 }
 
-// Synthetic asset ids for clips with no media source (mirrors context-builder /
-// the engine — a clip's kind derives from its content, never its layer).
-const TEXT_OVERLAY_ASSET_ID = '__text__';
-const CAPTION_ASSET_ID = '__caption__';
-
-/** Derive a clip's kind from its asset (or synthetic id). Mirrors the engine. */
+/**
+ * Derive a clip's kind from its asset (or synthetic id) — from its content, never its layer.
+ * editor-core's one definition, which the engine mirrors.
+ */
 export function clipKindOf(clip: Clip, assetById: ReadonlyMap<string, Asset>): string {
-  if (clip.assetId === TEXT_OVERLAY_ASSET_ID) return 'text';
-  if (clip.assetId === CAPTION_ASSET_ID) return 'caption';
-  const kind = assetById.get(clip.assetId)?.kind;
-  if (kind === 'audio') return 'audio';
-  if (kind === 'image') return 'image';
-  return 'video';
+  return clipRenderKind(clip.assetId, assetById.get(clip.assetId)?.kind);
 }
 
 /** The per-track slice of the index, reusable while the Track object is unchanged. */

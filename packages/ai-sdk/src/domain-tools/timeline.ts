@@ -28,7 +28,13 @@ import {
   speechAssetIdsFor,
 } from '@framepilot/editor-core';
 import type { Operation } from '@framepilot/editor-core';
-import { createLaneAllocator } from '@framepilot/editor-core';
+import {
+  buildAddStickerOps,
+  createLaneAllocator,
+  elementArtFraction,
+  isElementAsset,
+  stickerLane,
+} from '@framepilot/editor-core';
 import { maskSummaryFor } from '../masking/mask-row-facts.js';
 import {
   type PictureBlockView,
@@ -716,6 +722,16 @@ function addClipOperation(
   // Nothing else catches it: a second placement really does change the project, so the
   // run's no-change guard cannot see it, and the copies share no track so the validator
   // cannot either.
+  // A sticker is not footage (plan/elements 07 §4, MD-E4): the picture placer would take it for
+  // a cutaway and the reframe would cover-crop it to the full frame. It goes where the Stickers
+  // tab puts one, with the same transform, whatever lane was named.
+  const elementAsset = ctx.project.assets.find((asset) => asset.id === clip.assetId);
+  if (isElementAsset(elementAsset)) {
+    return buildAddStickerOps(ctx.project, elementAsset!, clip.start, clip.end, {
+      trackId: clip.trackId,
+      artFraction: elementArtFraction(elementAsset),
+    }).operations as Operation[];
+  }
   const alreadyThere = existingPlacement(ctx.project, clip);
   if (alreadyThere) throw new ToolRefusalError(sameFramesRefusal(ctx, clip, alreadyThere));
   // One more stock cutaway than the brief asked for is refused before any lane is chosen.
@@ -1390,6 +1406,27 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       if (!found) {
         return [
           { type: 'move_clip', clipId: a.clipId, toTrackId: a.toTrackId, toStart: a.toStart },
+        ];
+      }
+      // A sticker moves like one placed from the Stickers tab: to a graphics lane with room,
+      // never through the picture placer (plan/elements 07 §4).
+      if (isElementAsset(ctx.project.assets.find((asset) => asset.id === found.clip.assetId))) {
+        const without: Timeline = {
+          ...ctx.project.timeline,
+          tracks: ctx.project.timeline.tracks.map((track) => ({
+            ...track,
+            clips: track.clips.filter((clip) => clip.id !== a.clipId),
+          })),
+        };
+        const lane = stickerLane(
+          { timeline: without, assets: ctx.project.assets },
+          a.toStart,
+          a.toStart + (found.clip.end - found.clip.start),
+          a.toTrackId,
+        );
+        return [
+          ...lane.setupOps,
+          { type: 'move_clip', clipId: a.clipId, toTrackId: lane.trackId, toStart: a.toStart },
         ];
       }
       const placed = createPicturePlacer(ctx.project).place({

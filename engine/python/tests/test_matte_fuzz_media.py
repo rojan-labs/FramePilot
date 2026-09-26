@@ -10,11 +10,14 @@ started staying under a memory bound. Nothing may raise an untyped exception or 
 from __future__ import annotations
 
 import contextlib
+import multiprocessing
 import resource
 import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Callable
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -56,6 +59,47 @@ def _child_peak_rss_bytes() -> int:
     return peak if sys.platform == "darwin" else peak * 1024
 
 
+def _hash_every_case(paths: list[Path]) -> int:
+    """The frame-hash decoders of every case; the peak RSS of the children they started."""
+    for path in paths:
+        with contextlib.suppress(FrameHashError, ValueError):
+            frame_hashes_by_pts(path, [0, 1, 33], deadline=time.monotonic() + CASE_SECONDS)
+        with contextlib.suppress(FrameHashError, ValueError):
+            frame_hashes_by_index(path, [0, 5], deadline=time.monotonic() + CASE_SECONDS)
+    return _child_peak_rss_bytes()
+
+
+def _decode_every_case_as_matte(paths: list[Path]) -> int:
+    """The export's matte probe, packet index and cursor on every case; the children's peak RSS."""
+    for path in paths:
+        with contextlib.suppress(ValueError, subprocess.SubprocessError):
+            probe_stream(path)
+        with contextlib.suppress(MatteFrameMissing):
+            _packet_seconds(path)
+        track = _Track(path, "gray", 64, 36, 1, 1)
+        try:
+            track.read(0)
+            track.read(3)
+        except MatteFrameMissing:
+            pass
+        finally:
+            track.close()
+    return _child_peak_rss_bytes()
+
+
+def _decoders_peak_rss_bytes(workload: Callable[[list[Path]], int], paths: list[Path]) -> int:
+    """Run ``workload`` in a fresh process and return the peak RSS of the decoders it started.
+
+    WHY a fresh process: ``RUSAGE_CHILDREN`` is the largest child a process has EVER waited for.
+    Read in the test process, it also counted whatever earlier tests on the same xdist worker
+    had run (a 4K encode reaches 1.1 GB), so the bound passed or failed with the schedule, not
+    with these decoders. A process that runs only them reports only them.
+    """
+    context = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=1, mp_context=context) as pool:
+        return pool.submit(workload, paths).result(timeout=len(paths) * (2 * CASE_SECONDS + 5) + 60)
+
+
 @pytest.fixture(scope="module")
 def corpus(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict[str, Path]]:
     root = tmp_path_factory.mktemp("fuzz_media")
@@ -85,7 +129,12 @@ def test_every_case_ends_typed_bounded_and_without_following_references(
         with contextlib.suppress(FrameHashError, ValueError):
             frame_hashes_by_index(path, [0, 5], deadline=time.monotonic() + CASE_SECONDS)
         assert time.monotonic() - started < 2 * CASE_SECONDS + 5, name
-    assert _child_peak_rss_bytes() < CHILD_RSS_BOUND_BYTES
+    # Above zero: the fresh process really started the decoders it measures.
+    assert (
+        0
+        < _decoders_peak_rss_bytes(_hash_every_case, list(files.values()))
+        < (CHILD_RSS_BOUND_BYTES)
+    )
 
 
 def test_routes_refuse_the_corpus_without_paths(corpus: tuple[Path, dict[str, Path]]) -> None:
@@ -154,8 +203,10 @@ def test_the_export_matte_decoder_ends_typed_bounded_and_without_following_refer
     """BR4.16: ``mattes.probe_stream``, the packet index and the rawvideo cursor against every
     corpus case, each placed as ``matte.mkv``."""
     root, files = corpus
+    placed: list[Path] = []
     for name, source in files.items():
         path = _as_matte(root, name, source)
+        placed.append(path)
         started = time.monotonic()
         with contextlib.suppress(ValueError, subprocess.SubprocessError):
             probe_stream(path)
@@ -173,7 +224,9 @@ def test_the_export_matte_decoder_ends_typed_bounded_and_without_following_refer
         if name in NEVER_DECODES:
             assert not decoded, name
         assert time.monotonic() - started < CASE_SECONDS, name
-    assert _child_peak_rss_bytes() < CHILD_RSS_BOUND_BYTES
+    assert (
+        0 < _decoders_peak_rss_bytes(_decode_every_case_as_matte, placed) < (CHILD_RSS_BOUND_BYTES)
+    )
 
 
 def test_every_export_matte_probe_and_decode_is_hardened(

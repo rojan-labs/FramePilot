@@ -23,6 +23,10 @@ import type {
   StockBytesResult,
   StockDownloadRequest,
   StockDownloadResult,
+  ElementMaterializeRequest,
+  ElementMaterializeResult,
+  ElementThumbnailRequest,
+  ElementThumbnailResult,
   StockDownloadProgressWire,
   StockQuotaSnapshot,
   ImportAssetRequest,
@@ -199,6 +203,8 @@ const Channels = {
   stockDownloadProgress: 'framepilot:stock:download-progress',
   stockQuota: 'framepilot:stock:quota',
   stockQuotaChanged: 'framepilot:stock:quota-changed',
+  elementsMaterialize: 'framepilot:elements:materialize',
+  elementsThumbnail: 'framepilot:elements:thumbnail',
 } as const;
 
 const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge = {
@@ -359,6 +365,13 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
     ipcRenderer.invoke(Channels.stockPreview, remoteId) as Promise<StockBytesResult>,
   stockDownload: (request: StockDownloadRequest) =>
     ipcRenderer.invoke(Channels.stockDownload, request) as Promise<StockDownloadResult>,
+  // Elements: the renderer names a catalogue sticker; main copies the verified file into the
+  // project. Ids cross this bridge, never a path (plan/elements 06 §2).
+  elementsMaterialize: (request: ElementMaterializeRequest) =>
+    ipcRenderer.invoke(Channels.elementsMaterialize, request) as Promise<ElementMaterializeResult>,
+  // Packaged stickers' tiles (EL6b), by id: bytes back, never a path.
+  elementsThumbnail: (request: ElementThumbnailRequest) =>
+    ipcRenderer.invoke(Channels.elementsThumbnail, request) as Promise<ElementThumbnailResult>,
   stockDownloadCancel: (operationId: string) => {
     ipcRenderer.send(Channels.stockDownloadCancel, operationId);
   },

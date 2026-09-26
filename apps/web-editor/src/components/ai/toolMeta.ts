@@ -39,6 +39,7 @@ import {
   Scissors,
   Search,
   SlidersHorizontal,
+  Smile,
   Sparkles,
   Square,
   Trash2,
@@ -47,6 +48,7 @@ import {
   Wand2,
   Wrench,
   ZoomIn,
+  Shapes,
 } from '../icons.js';
 
 export interface ToolMeta {
@@ -111,8 +113,8 @@ const TOOL_META: Record<string, ToolMeta> = {
   // in the words the person watching would use.
   search_music: { label: 'Search for music', Icon: Music },
   add_music: { label: 'Add background music', Icon: Music },
-  search_stock: { label: 'Search stock media', Icon: ImagePlus },
-  add_stock: { label: 'Add a stock shot', Icon: ImagePlus },
+  search_stock: { label: 'Search photos and videos', Icon: ImagePlus },
+  add_stock: { label: 'Add a photo or video', Icon: ImagePlus },
   find_similar: { label: 'Find similar', Icon: Sparkles },
   search_visual: { label: 'Search visual evidence', Icon: Search },
   describe_footage: { label: 'Describe footage', Icon: Film },
@@ -167,6 +169,11 @@ const TOOL_META: Record<string, ToolMeta> = {
   remove_track: { label: 'Remove track', Icon: Trash2 },
   move_track: { label: 'Reorder track', Icon: ArrowLeftRight },
   add_text_layer: { label: 'Add text', Icon: Type },
+  search_elements: { label: 'Find a sticker or shape', Icon: Search },
+  add_sticker: { label: 'Add a sticker', Icon: Smile },
+  add_shape: { label: 'Add a shape', Icon: Shapes },
+  set_shape_style: { label: 'Restyle a shape', Icon: Shapes },
+  set_element_animation: { label: 'Animate an element', Icon: Sparkles },
   add_caption_layer: { label: 'Add captions', Icon: Captions },
   caption_the_edit: { label: 'Captioning the edit', Icon: Captions },
   add_keyframes: { label: 'Add keyframes', Icon: SlidersHorizontal },

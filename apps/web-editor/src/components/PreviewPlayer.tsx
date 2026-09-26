@@ -27,7 +27,7 @@
  * never hang on unresponsive media.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { evaluateKeyframes, resolveCaptionCue } from '@framepilot/editor-core';
+import { evaluateKeyframes, resolveCaptionCue, shapeClipParams } from '@framepilot/editor-core';
 import type {
   Asset,
   CaptionStyle,
@@ -256,6 +256,10 @@ export function PreviewPlayer({
   muted = false,
   transcript,
 }: PreviewPlayerProps): JSX.Element {
+  // Any shape on a visible lane: this monitor cannot draw one (see the note below).
+  const hasShapes = editor.state.timeline.tracks.some(
+    (track) => track.hidden !== true && track.clips.some((clip) => shapeClipParams(clip) !== null),
+  );
   const { timeline, playing } = editor.state;
   // The media transport still advances the live clock at display/media cadence,
   // while React-visible DOM composition changes only on real project frames.
@@ -998,6 +1002,15 @@ export function PreviewPlayer({
               {frameFit.label}
             </span>
           </Tooltip>
+        )}
+        {/* Shapes are drawn by the engine into the layer preview (ADR 0190); this legacy
+            monitor has no path for them, so it says so instead of showing a picture
+            without them (plan/elements EL4a). */}
+        {hasShapes && (
+          <p className="preview-elements-note" role="note">
+            Elements need the layer preview, which this build has turned off. Shapes are not shown
+            here; the export includes them.
+          </p>
         )}
         {/* --aspect drives the pure-CSS contain sizing (see .preview-frame); the
             frame reflows correctly on any resize and bounds the video exactly.

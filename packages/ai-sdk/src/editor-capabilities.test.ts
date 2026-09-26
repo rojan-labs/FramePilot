@@ -80,6 +80,22 @@ describe('editor capability registry', () => {
     ]);
   });
 
+  it('advertises shapes and stickers as graphics, each written by its own tool', () => {
+    // plan/elements EL4a/EL6a/EL7: none is an EditorCommand, so each is the property an
+    // editor sets, compiled by the builder the panel uses too and inverted like any patch.
+    const graphics = listEditorCapabilities({ domain: 'graphics' });
+    expect(graphics.map((capability) => [capability.id, capability.tool])).toEqual([
+      ['graphics.shape.add', 'add_shape'],
+      ['graphics.shape.style', 'set_shape_style'],
+      ['graphics.sticker.add', 'add_sticker'],
+      ['graphics.element.animation', 'set_element_animation'],
+    ]);
+    for (const capability of graphics) {
+      expect(capability.editable, capability.id).toBe(true);
+      expect(capability.inverter, capability.id).toBe('editor-core:invertPatch');
+    }
+  });
+
   it('filters by target and editability without returning mutable registry storage', () => {
     const clipCapabilities = listEditorCapabilities({ appliesTo: 'clip', editable: true });
 

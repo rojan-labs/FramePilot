@@ -29,6 +29,7 @@ import re
 import signal
 import sqlite3
 import subprocess
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -311,6 +312,7 @@ from framepilot_engine.render.preview_text import (
 from framepilot_engine.render.preview_text import (
     PreviewTextError,
     baseline_caption_raster,
+    shape_raster,
     styled_caption_raster,
     text_overlay_raster,
 )
@@ -334,6 +336,7 @@ from framepilot_engine.validation.temporal_evidence import (
 from framepilot_engine.visual_indexing import (
     FrameExtractionError,
     extract_keyframe_jpeg,
+    is_element_asset_id,
     keyframe_dhashes,
     sample_asset,
 )
@@ -1213,11 +1216,21 @@ class PreviewTextRasterRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["text", "caption"] = Field(
-        description="'text': a text clip's `text` effect params; 'caption': an unstyled cue."
+    kind: Literal["text", "caption", "shape"] = Field(
+        description=(
+            "'text': a text clip's `text` effect params; 'caption': an unstyled cue; "
+            "'shape': a shape clip's `shape` effect params (schema v25)."
+        )
     )
     params: dict[str, Any] | None = Field(
-        default=None, description="The text effect's params (kind 'text')."
+        default=None, description="The text or shape effect's params (kinds 'text', 'shape')."
+    )
+    rotates: bool = Field(
+        default=False,
+        description=(
+            "Kinds 'text' and 'shape': the clip animates rotation, so draw the rotation-safe "
+            "square."
+        ),
     )
     text: str | None = Field(
         default=None, max_length=2000, description="The caption cue text (kind 'caption')."
@@ -1249,8 +1262,14 @@ class PreviewTextRasterResponse(BaseModel):
     width: int
     height: int
     rgba_base64: str = Field(description="width x height x 4 bytes, base64-encoded.")
-    x: int | None = Field(default=None, description="Caption paste x; None for a text clip.")
-    y: int | None = Field(default=None, description="Caption paste y; None for a text clip.")
+    x: int | None = Field(
+        default=None,
+        description="Caption paste x, or a shape's untransformed left; None for a text clip.",
+    )
+    y: int | None = Field(
+        default=None,
+        description="Caption paste y, or a shape's untransformed top; None for a text clip.",
+    )
     animated: bool = Field(
         default=False, description="True when the raster changes with the frame time."
     )
@@ -3061,9 +3080,10 @@ def create_app(
         """Whether a brain asset has video frames to sample (video or still image).
 
         Classified from the stored ffprobe result; an asset with no probe (or an
-        audio-only one) is not part of the visual worklist.
+        audio-only one) is not part of the visual worklist. Neither is a sticker: it
+        is an element laid over footage, not footage (plan/elements EL6a.6).
         """
-        if asset.probe is None:
+        if asset.probe is None or is_element_asset_id(asset.id):
             return False
         try:
             return MediaInfo.model_validate(asset.probe).has_video
@@ -4151,7 +4171,8 @@ def create_app(
                 return existing
         explicit = req.asset_ids is not None
         if req.asset_ids is not None:
-            asset_ids = list(dict.fromkeys(req.asset_ids))
+            # Named ids too: a sticker the agent asks for is still not footage.
+            asset_ids = [a for a in dict.fromkeys(req.asset_ids) if not is_element_asset_id(a)]
         else:
             asset_ids = [a.id for a in store.list_assets() if _asset_is_visual(a)]
         asset_ids = _prioritise_worklist(store, asset_ids, req)
@@ -6778,7 +6799,13 @@ def create_app(
         """
         try:
             if req.kind == "text":
-                raster = text_overlay_raster(req.params or {}, req.frame_width, req.frame_height)
+                raster = text_overlay_raster(
+                    req.params or {}, req.frame_width, req.frame_height, rotates=req.rotates
+                )
+            elif req.kind == "shape":
+                raster = shape_raster(
+                    req.params or {}, req.frame_width, req.frame_height, rotates=req.rotates
+                )
             elif req.track_style or req.clip_style:
                 if req.clip_start is None or req.clip_end is None:
                     raise PreviewTextError("A styled caption needs its clip_start and clip_end.")
@@ -7098,7 +7125,6 @@ def create_app(
         as the analysis — the host copied the attachment under the project's media dir.
         """
         media_path = sandbox(req.input_path)
-        # codeql[py/path-injection]
         if not media_path.is_file():
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"Reference not found: {req.input_path}")
         if media_path.suffix.lower() not in _IMAGE_SUFFIXES:
@@ -7107,7 +7133,6 @@ def create_app(
                 f"Only image references have a still; {media_path.name} is not an image.",
             )
         try:
-            # codeql[py/path-injection]
             still = reference_still(media_path, max_dimension=req.max_dimension)
         except (OSError, ValueError) as exc:
             raise HTTPException(
@@ -7131,19 +7156,24 @@ def create_app(
         under the project's media dir). The result is cached beside the file, keyed by
         the file's content hash, so re-attaching or re-asking never re-analyzes.
         """
-        # `media_path` is `sandbox()`-resolved above (PRD §18.1 boundary — see its
-        # docstring): every use below is a file already proven to live inside the
-        # projects root, not the raw `req.input_path`. CodeQL cannot model that
-        # cross-function barrier, so this documented suppression stands in for its
-        # taint analysis on each read/stat that follows.
+        # `media_path` is `sandbox()`-resolved (PRD §18.1 boundary — see its docstring):
+        # every use below is a file already proven to live inside the projects root, not
+        # the raw `req.input_path`.
         media_path = sandbox(req.input_path)
         if not media_path.is_file():
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"Reference not found: {req.input_path}")
-        # codeql[py/path-injection]
         content_hash = _sha256_file(media_path)
         cache_path = media_path.with_name(f"{media_path.name}.reference.json")
-        # codeql[py/path-injection]
-        if not req.refresh and cache_path.is_file():
+        # The sandbox proved the MEDIA path lives inside the root, not its sibling: a
+        # cache planted as a symlink (shared zip, git clone) points wherever it likes.
+        # Treat it as a miss; the write below replaces the link with a real file.
+        cache_is_link = cache_path.is_symlink()
+        if cache_is_link:
+            _log.warning(
+                "reference cache for %s is a symlink; ignoring it and re-analyzing",
+                media_path.name,
+            )
+        if not req.refresh and not cache_is_link and cache_path.is_file():
             try:
                 cached = json.loads(cache_path.read_text(encoding="utf-8"))
                 if cached.get("contentHash") == content_hash:
@@ -7165,12 +7195,10 @@ def create_app(
                     kind="video", content_hash=content_hash, video=payload, cached=False
                 )
         except (FFmpegError, OSError, ValueError) as exc:
-            # codeql[py/path-injection]
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         try:
-            # codeql[py/path-injection]
-            cache_path.write_text(
-                json.dumps(response.model_dump(by_alias=True, exclude_none=True)), encoding="utf-8"
+            _replace_file_text(
+                cache_path, json.dumps(response.model_dump(by_alias=True, exclude_none=True))
             )
         except OSError as exc:
             _log.warning("reference cache not written for %s: %s", media_path.name, exc)
@@ -7779,11 +7807,16 @@ def create_app(
                         f"Job {req.job_id!r} exists but is not an {BATCH_JOB_KIND} job.",
                     )
                 return existing
+        # Stickers are elements, not footage: there is nothing in one to analyse (EL6a.6).
         if req.asset_ids is not None:
-            asset_ids = list(dict.fromkeys(req.asset_ids))
+            asset_ids = [a for a in dict.fromkeys(req.asset_ids) if not is_element_asset_id(a)]
         else:
             project = load_project_document(req.project_path, req.project)
-            asset_ids = [a.id for a in project.assets if a.kind in ANALYZABLE_ASSET_KINDS]
+            asset_ids = [
+                a.id
+                for a in project.assets
+                if a.kind in ANALYZABLE_ASSET_KINDS and not is_element_asset_id(a.id)
+            ]
         job_id = req.job_id or f"{BATCH_JOB_KIND}-{uuid4().hex}"
         return store.create_job(
             job_id,
@@ -8425,6 +8458,36 @@ def _sha256_file(path: Path, *, chunk_bytes: int = 1 << 20) -> str:
         while chunk := handle.read(chunk_bytes):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _replace_file_text(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` by swapping a fresh sibling file into place.
+
+    WHY not ``path.write_text``: this writes beside user media, in a folder a shared
+    zip or a git clone controls. ``write_text`` follows a symlink planted at ``path``
+    and CREATES the target of a dangling one, so the engine would write outside the
+    projects root. ``Path.replace`` (``os.replace``) swaps the directory entry itself:
+    a link at ``path`` is replaced, never written through. The temp file is created
+    exclusively in the same directory (same filesystem, so the swap is atomic) and
+    removed if anything fails before the swap.
+
+    :param path: Destination file; its parent must already be a sandboxed directory.
+    :param text: UTF-8 text to store.
+    :raises OSError: If the temp file cannot be created, written, or swapped in.
+    """
+    descriptor, temp_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        temp_path.replace(path)
+    except BaseException:
+        # A failed cleanup must not mask the failure the caller needs to see.
+        with contextlib.suppress(OSError):
+            temp_path.unlink(missing_ok=True)
+        raise
 
 
 def _load_project(project_path: Path) -> Project:

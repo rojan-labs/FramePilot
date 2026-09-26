@@ -69,9 +69,9 @@ apart from the cuts. "No cuts" never means there is nowhere to put a transition.
   pass `includeCutaways: true`.
 - Treat them only with a reason, and the same way for every insert in a piece:
   `includeCutaways: true` with `reason: "soften"` for quick dissolves in and out, `"energy"`
-  for a punchier entrance. An exit is always a dissolve or a wipe — a slide or zoom as an
-  exit would make the insert vanish at once — so a punchy entrance leaves on a short
-  cross-dissolve.
+  for a punchier entrance. A b-roll exit is always a dissolve or a wipe — a full-frame shot
+  sliding or shrinking back off the speaker reads as a rewind — so a punchy entrance leaves on
+  a short cross-dissolve. (Moving exits are for stickers, shapes and titles.)
 - An insert carries at most half its own length at each end; a 2 s insert takes a 0.2–0.3 s
   ramp, not a second.
 

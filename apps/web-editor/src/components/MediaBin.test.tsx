@@ -7,10 +7,11 @@
  * derivation fails (engine down → skeleton, never a blocked import).
  */
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
-import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import type { Asset, AssetMedia, Clip, Folder, Project } from '@framepilot/timeline-schema';
 import { parseProject } from '@framepilot/timeline-schema';
 import { MediaBin } from './MediaBin.js';
+import { STOCK_PLACEMENT_REJECTED } from '../editor/stock-download.js';
 import { TimelineView } from './TimelineView.js';
 import { useEditor } from '../editor/useEditor.js';
 import { newProject } from '../editor/project.js';
@@ -231,7 +232,8 @@ describe('MediaBin → Source monitor wiring (H1.7, J3)', () => {
   it('clicking the "add to timeline" icon button does not also fire onOpenInSource', () => {
     const onOpenInSource = vi.fn();
     const view = renderBinWithTimeline(onOpenInSource);
-    fireEvent.click(view.getByLabelText(`add ${asset.id} to timeline`));
+    // Named by its file, as the card is, not by its id.
+    fireEvent.click(view.getByRole('button', { name: 'add interview.mp4 to timeline' }));
     expect(onOpenInSource).not.toHaveBeenCalled();
     expect(clipCount(view.container)).toBe(1);
   });
@@ -239,6 +241,42 @@ describe('MediaBin → Source monitor wiring (H1.7, J3)', () => {
   it('rendering without onOpenInSource does not throw when a card is clicked', () => {
     const view = renderBinWithTimeline();
     expect(() => fireEvent.click(view.getByLabelText(`asset ${asset.id}`))).not.toThrow();
+  });
+});
+
+describe('MediaBin and stickers (plan/elements EL6a)', () => {
+  const sticker: Asset = {
+    id: 'element_fluent3d_fire',
+    path: 'media/p/elements/fluent3d/fire.webp',
+    kind: 'image',
+    media: { width: 318, height: 318 },
+    source: {
+      provider: 'fluent-emoji',
+      remoteId: 'fire',
+      license: 'mit',
+      attributionRequired: false,
+      attribution: 'Fluent Emoji by Microsoft (MIT)',
+      fetchedAt: '2026-09-26T00:00:00.000Z',
+    },
+  };
+  const project = parseProject({ ...newProject('Sticker Test'), assets: [sticker] });
+
+  it('badges a sticker as an element and places it over the picture, not as footage', () => {
+    function Host(): JSX.Element {
+      const editor = useEditor(project.timeline, { assets: project.assets, folders: [] });
+      return (
+        <>
+          <MediaBin editor={editor} project={project} />
+          <TimelineView editor={editor} assets={project.assets} />
+        </>
+      );
+    }
+    const view = render(<Host />);
+    expect(view.getByText('Sticker')).toBeTruthy();
+    fireEvent.doubleClick(view.getByLabelText(`asset ${sticker.id}`));
+    expect(clipCount(view.container)).toBe(1);
+    const lane = view.container.querySelector('.clip-block')?.closest('[data-track-type]');
+    expect(lane?.getAttribute('data-track-type')).toBe('overlay');
   });
 });
 
@@ -673,5 +711,348 @@ describe('MediaBin — reveal in bin (UX-08)', () => {
     (document.activeElement as HTMLElement | null)?.blur();
     await reveal('v_1', 2);
     expect(document.activeElement).toBe(opener('v_1'));
+  });
+});
+
+/**
+ * **Add as overlay** on the user's own images (plan/elements EL11, ADR 0193 amendment "bin
+ * images"): a logo, a screenshot or a cut-out laid over the footage at the playhead through the
+ * Pexels overlay's builder. Offered for images only: the user's own videos widen MD-E5 and are the
+ * maintainer's call, sound has no picture, and a sticker is placed as a sticker.
+ */
+describe('MediaBin — Add as overlay on the user’s own images', () => {
+  const footage: Asset = { id: 'cam', path: 'media/cam.mp4', kind: 'video', durationSeconds: 30 };
+  const logo: Asset = {
+    id: 'asset_logo',
+    path: 'media/logo.png',
+    kind: 'image',
+    durationSeconds: 5,
+    media: { width: 400, height: 200 },
+  };
+  const song: Asset = { id: 'asset_song', path: 'media/song.mp3', kind: 'audio' };
+  const sticker: Asset = {
+    id: 'element_fluent3d_fire',
+    path: 'media/p/elements/fluent3d/fire.webp',
+    kind: 'image',
+    media: { width: 318, height: 318 },
+    source: {
+      provider: 'fluent-emoji',
+      remoteId: 'fire',
+      license: 'mit',
+      attributionRequired: false,
+      attribution: 'Fluent Emoji by Microsoft (MIT)',
+      fetchedAt: '2026-09-26T00:00:00.000Z',
+    },
+  };
+  const talk: Clip = {
+    id: 'clip_talk',
+    assetId: footage.id,
+    trackId: 'video_1',
+    start: 0,
+    end: 30,
+    sourceStart: 0,
+    sourceEnd: 30,
+    effects: [],
+    keyframes: [],
+  };
+
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  /**
+   * The bin over a talking head, the playhead at 4 s; `live()` is the editor as last rendered.
+   * `refuse` stands in for a timeline that refuses the patch (its checked apply says why).
+   */
+  function renderOverlayBin(onAnnounce?: (message: string) => void, refuse = false) {
+    const project = parseProject({
+      ...newProject('Overlay Test'),
+      assets: [footage, logo, song, sticker],
+      timeline: { tracks: [{ id: 'video_1', type: 'video', clips: [talk] }] },
+    });
+    let current: ReturnType<typeof useEditor> | null = null;
+    function Host(): JSX.Element {
+      const editor = useEditor(project.timeline, { assets: project.assets, folders: [] });
+      current = editor;
+      return (
+        <MediaBin
+          editor={
+            refuse
+              ? {
+                  ...editor,
+                  applyPatchChecked: () =>
+                    [
+                      { code: 'overlap', severity: 'error', message: "Clips 'a' and 'b' overlap" },
+                    ] as never,
+                }
+              : editor
+          }
+          project={project}
+          {...(onAnnounce ? { onAnnounce } : {})}
+          onOpenInSource={() => undefined}
+        />
+      );
+    }
+    const view = render(<Host />);
+    const live = (): ReturnType<typeof useEditor> => current!;
+    act(() => live().seek(4));
+    return { view, live };
+  }
+
+  /** A card's overlay button, by the file name the card shows. */
+  const overlayButton = (name: string): HTMLElement | null =>
+    screen.queryByRole('button', { name: `add ${name} as an overlay` });
+  const opener = (id: string): HTMLElement =>
+    screen.getByLabelText(`asset ${id}`).querySelector<HTMLElement>('.bin-card-open')!;
+  const clipsOf = (editor: ReturnType<typeof useEditor>) =>
+    editor.state.timeline.tracks.flatMap((track) => track.clips);
+
+  it('is offered on an image card, and not on video, audio or a sticker', () => {
+    renderOverlayBin();
+    expect(overlayButton('logo.png')).not.toBeNull();
+    expect(overlayButton('cam.mp4')).toBeNull();
+    expect(overlayButton('song.mp3')).toBeNull();
+    expect(overlayButton('fire.webp')).toBeNull();
+    // Out of the tab ring, like the card's other icon buttons: the grid is one tab stop.
+    expect(overlayButton('logo.png')?.getAttribute('tabindex')).toBe('-1');
+    // Its sibling Add is named by the file too, and the two names differ.
+    expect(screen.getByRole('button', { name: 'add logo.png to timeline' })).toBeTruthy();
+  });
+
+  it('lays the image over the footage at the playhead, selected and announced', () => {
+    const onAnnounce = vi.fn();
+    const { live } = renderOverlayBin(onAnnounce);
+    act(() => fireEvent.click(overlayButton('logo.png')!));
+
+    const placed = clipsOf(live()).find((clip) => clip.assetId === logo.id);
+    // At the playhead, over the footage, for the image's five seconds.
+    expect(placed).toMatchObject({ start: 4, end: 9 });
+    expect(placed?.keyframes.map((k) => [k.property, k.value])).toEqual([
+      ['scale', 0.4],
+      ['x', 0],
+      ['y', 0],
+    ]);
+    // On a lane in front of the footage, which stays where it was.
+    const lanes = live().state.timeline.tracks.map((track) => track.id);
+    expect(lanes.indexOf(placed!.trackId)).toBeLessThan(lanes.indexOf('video_1'));
+    expect(clipsOf(live()).find((clip) => clip.id === talk.id)).toMatchObject(talk);
+    // The image was already the project's: the edit adds no asset.
+    const last = live().state.history.entries.at(-1)!;
+    expect(last.patch.operations.map((op) => op.type)).not.toContain('add_asset');
+    expect(live().state.selection).toBe(placed!.id);
+    expect(onAnnounce).toHaveBeenCalledWith('Added logo.png as an overlay at 0:04');
+  });
+
+  it('is on the focused card’s keyboard too: Cmd+Shift+Enter overlays, Cmd+Enter still adds', () => {
+    const { live } = renderOverlayBin();
+    fireEvent.keyDown(opener(logo.id), { key: 'Enter', metaKey: true, shiftKey: true });
+    const overlays = clipsOf(live()).filter((clip) => clip.assetId === logo.id);
+    expect(overlays).toHaveLength(1);
+    expect(overlays[0]).toMatchObject({ start: 4 });
+    // Ctrl on Windows and Linux, as Cmd+Enter's add is.
+    act(() => live().seek(12));
+    fireEvent.keyDown(opener(logo.id), { key: 'Enter', ctrlKey: true, shiftKey: true });
+    expect(clipsOf(live()).filter((clip) => clip.assetId === logo.id)).toHaveLength(2);
+    // A card with no overlay takes no overlay shortcut: nothing is placed.
+    fireEvent.keyDown(opener(footage.id), { key: 'Enter', metaKey: true, shiftKey: true });
+    expect(clipsOf(live())).toHaveLength(3);
+  });
+
+  it('names the shortcuts as the platform spells them: Control off a Mac, Meta on one', () => {
+    renderOverlayBin();
+    // jsdom is not a Mac: Control, and the title says Ctrl.
+    expect(opener(logo.id).getAttribute('aria-keyshortcuts')).toBe(
+      'Enter Control+Enter Control+Shift+Enter Delete Shift+F10',
+    );
+    expect(opener(logo.id).getAttribute('title')).toContain(
+      'Ctrl+Enter: add to timeline · Ctrl+Shift+Enter: add as overlay',
+    );
+    // The overlay shortcut only where there is an overlay.
+    expect(opener(footage.id).getAttribute('aria-keyshortcuts')).toBe(
+      'Enter Control+Enter Delete Shift+F10',
+    );
+    expect(opener(footage.id).getAttribute('title')).not.toContain('overlay');
+    cleanup();
+    const platform = vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+    try {
+      renderOverlayBin();
+      expect(opener(logo.id).getAttribute('aria-keyshortcuts')).toBe(
+        'Enter Meta+Enter Meta+Shift+Enter Delete Shift+F10',
+      );
+      expect(opener(logo.id).getAttribute('title')).toContain('⌘⇧↩: add as overlay');
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it('lasts the image’s five seconds, or until the programme ends if that is sooner', () => {
+    // The talking head runs 30 s, far past five: the image keeps its own length.
+    const { live } = renderOverlayBin();
+    act(() => fireEvent.click(overlayButton('logo.png')!));
+    // Near the end, it stops with the programme rather than running on over black.
+    act(() => live().seek(27));
+    act(() => fireEvent.click(overlayButton('logo.png')!));
+    expect(
+      clipsOf(live())
+        .filter((clip) => clip.assetId === logo.id)
+        .map((clip) => [clip.start, clip.end]),
+    ).toEqual([
+      [4, 9],
+      [27, 30],
+    ]);
+  });
+
+  it('says so in the bin when the timeline refuses it, and places nothing', () => {
+    const onAnnounce = vi.fn();
+    const { live } = renderOverlayBin(onAnnounce, true);
+    act(() => fireEvent.click(overlayButton('logo.png')!));
+    expect(screen.getByRole('status', { name: 'import status' }).textContent).toBe(
+      STOCK_PLACEMENT_REJECTED,
+    );
+    expect(clipsOf(live()).some((clip) => clip.assetId === logo.id)).toBe(false);
+    expect(live().state.selection).toBeNull();
+    expect(onAnnounce).not.toHaveBeenCalled();
+  });
+
+  it('comes off in one undo, and the image stays in the bin', () => {
+    const { live } = renderOverlayBin();
+    const lanesBefore = live().state.timeline.tracks.map((track) => track.id);
+    act(() => fireEvent.click(overlayButton('logo.png')!));
+    expect(live().state.timeline.tracks).toHaveLength(lanesBefore.length + 1);
+    act(() => live().undo());
+    expect(live().state.timeline.tracks.map((track) => track.id)).toEqual(lanesBefore);
+    expect(clipsOf(live()).some((clip) => clip.assetId === logo.id)).toBe(false);
+    expect(live().state.assets.map((asset) => asset.id)).toContain(logo.id);
+    expect(screen.getByLabelText(`asset ${logo.id}`)).toBeTruthy();
+  });
+});
+
+/**
+ * A card's secondary actions (the release-gate UI pass): Relink and Remove are named by the file
+ * and are also under **More actions**, which the focused card opens with Shift+F10 — the keyboard
+ * path Relink never had. At narrow card widths the menu is the only place they show (a container
+ * query hides the direct buttons, which jsdom does not evaluate).
+ */
+describe('MediaBin — a card’s More actions', () => {
+  const logo: Asset = {
+    id: 'asset_logo',
+    path: 'media/logo.png',
+    kind: 'image',
+    durationSeconds: 5,
+    media: { width: 400, height: 200 },
+  };
+  const sticker: Asset = {
+    id: 'element_fluent3d_fire',
+    path: 'media/p/elements/fluent3d/fire.webp',
+    kind: 'image',
+    media: { width: 318, height: 318 },
+    source: {
+      provider: 'fluent-emoji',
+      remoteId: 'fire',
+      license: 'mit',
+      attributionRequired: false,
+      attribution: 'Fluent Emoji by Microsoft (MIT)',
+      fetchedAt: '2026-09-26T00:00:00.000Z',
+    },
+  };
+
+  afterEach(() => {
+    delete (window as unknown as { framepilot?: unknown }).framepilot;
+    localStorage.clear();
+  });
+
+  function renderMenuBin(relink?: ReturnType<typeof vi.fn>) {
+    if (relink !== undefined) {
+      (window as unknown as { framepilot?: unknown }).framepilot = {
+        projectChooseRelinkFile: relink,
+      };
+    }
+    const project = parseProject({
+      ...newProject('Menu Test'),
+      assets: [logo, sticker],
+    });
+    const onOpenInSource = vi.fn();
+    let current: ReturnType<typeof useEditor> | null = null;
+    function Host(): JSX.Element {
+      const editor = useEditor(project.timeline, { assets: project.assets, folders: [] });
+      current = editor;
+      return <MediaBin editor={editor} project={project} onOpenInSource={onOpenInSource} />;
+    }
+    render(<Host />);
+    return { onOpenInSource, live: () => current! };
+  }
+
+  const opener = (id: string): HTMLElement =>
+    screen.getByLabelText(`asset ${id}`).querySelector<HTMLElement>('.bin-card-open')!;
+
+  it('names Relink and Remove by the file, and offers both again under More actions', () => {
+    renderMenuBin(vi.fn(async () => ({ ok: false, code: 'cancelled' })));
+    expect(screen.getByRole('button', { name: 'relink logo.png' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'remove logo.png' })).toBeTruthy();
+    const more = screen.getByRole('button', { name: 'More actions for logo.png' });
+    expect(more.getAttribute('aria-haspopup')).toBe('menu');
+    expect(more.getAttribute('tabindex')).toBe('-1');
+    expect(opener(logo.id).getAttribute('aria-keyshortcuts')).toContain('Shift+F10');
+    fireEvent.click(more);
+    const menu = screen.getByRole('menu', { name: 'More actions for logo.png' });
+    expect(
+      Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent),
+    ).toEqual(['Relink media…', 'Remove from project']);
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('opens from the focused card with Shift+F10, moves by arrow, and Escape gives focus back', () => {
+    renderMenuBin(vi.fn(async () => ({ ok: false, code: 'cancelled' })));
+    act(() => opener(logo.id).focus());
+    fireEvent.keyDown(opener(logo.id), { key: 'F10', shiftKey: true });
+    const items = screen.getAllByRole('menuitem');
+    expect(document.activeElement).toBe(items[0]);
+    fireEvent.keyDown(items[0]!, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(items[1]);
+    fireEvent.keyDown(items[1]!, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(items[0]);
+    fireEvent.keyDown(items[0]!, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(opener(logo.id));
+    // The context-menu key opens it as well.
+    fireEvent.keyDown(opener(logo.id), { key: 'ContextMenu' });
+    expect(screen.getByRole('menu', { name: 'More actions for logo.png' })).toBeTruthy();
+  });
+
+  it('removes from the menu without also opening the card in Source', () => {
+    const { onOpenInSource, live } = renderMenuBin();
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for logo.png' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove from project' }));
+    expect(live().state.assets.some((asset) => asset.id === logo.id)).toBe(false);
+    expect(onOpenInSource).not.toHaveBeenCalled();
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('relinks from the menu: Relink’s keyboard path', async () => {
+    const relink = vi.fn(async () => ({ ok: false, code: 'cancelled' }));
+    renderMenuBin(relink);
+    act(() => opener(logo.id).focus());
+    fireEvent.keyDown(opener(logo.id), { key: 'F10', shiftKey: true });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Relink media…' }));
+    });
+    expect(relink).toHaveBeenCalledWith(logo.id);
+  });
+
+  it('offers only Remove under More actions where there is no relink (the browser build)', () => {
+    renderMenuBin();
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for logo.png' }));
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Remove from project',
+    ]);
+  });
+
+  it('says a sticker card is a sticker from Elements', () => {
+    renderMenuBin();
+    expect(opener(sticker.id).getAttribute('aria-label')).toBe(
+      'Open fire.webp, sticker from Elements',
+    );
+    // The badge says what it is, too: a sticker, not a vague "element".
+    const card = screen.getByLabelText(`asset ${sticker.id}`);
+    expect(card.querySelector('.bin-card-element')?.textContent).toBe('Sticker');
   });
 });

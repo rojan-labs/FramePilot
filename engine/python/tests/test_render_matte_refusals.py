@@ -118,6 +118,19 @@ def test_missing_directory_file_or_pin_is_broken(tmp_path: Path) -> None:
     prepare_matte(_mask(artifact, decontaminate=False), _clip(), tmp_path, _media(), FPS)
 
 
+def test_a_linked_artifact_file_is_missing(tmp_path: Path) -> None:
+    """A matte file replaced by a link (a project unpacked from a zip or cloned keeps links) is
+    not the file the pass wrote, even when what it points at has the pinned digest: prepare reads
+    only regular files, as the monitor tier's job already did."""
+    artifact = fx.write_artifact(tmp_path, pts=list(range(6)))
+    matte = tmp_path / MATTES_DIR / fx.KEY / MATTE_FILE
+    outside = tmp_path / "elsewhere" / MATTE_FILE
+    outside.parent.mkdir()
+    matte.replace(outside)
+    matte.symlink_to(outside)
+    assert _refusal(artifact, tmp_path).code is MatteRefusalCode.MISSING
+
+
 def test_changed_file_is_a_digest_mismatch(tmp_path: Path) -> None:
     artifact = fx.write_artifact(tmp_path, pts=list(range(6)))
     frames = tmp_path / MATTES_DIR / fx.KEY / FRAMES_FILE

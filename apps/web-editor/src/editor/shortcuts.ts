@@ -165,6 +165,7 @@ const MAC_GLYPH: Readonly<Record<string, string>> = {
   home: 'Home',
   end: 'End',
   tab: 'Tab',
+  enter: '↩',
 };
 
 const PC_LABEL: Readonly<Record<string, string>> = {
@@ -182,6 +183,7 @@ const PC_LABEL: Readonly<Record<string, string>> = {
   home: 'Home',
   end: 'End',
   tab: 'Tab',
+  enter: 'Enter',
 };
 
 /** Render a chord as platform-correct key glyphs (⌘⇧Z on macOS, Ctrl+Shift+Z else). */
@@ -701,6 +703,44 @@ export const SHORTCUTS: readonly Shortcut[] = [
     group: 'Help',
     label: 'Settings',
     run: ({ openSettings }) => openSettings(),
+  },
+];
+
+/** A key that works only while focus is inside one panel. */
+export interface PanelKey {
+  readonly id: string;
+  readonly keys: readonly string[];
+  /** The panel it belongs to; the help overlay lists it under this heading. */
+  readonly panel: string;
+  readonly label: string;
+}
+
+/**
+ * Keys a panel handles itself while focus is inside it (plan/elements 02 §7). Listed in the help
+ * overlay and Settings so they can be found, and deliberately NOT in {@link SHORTCUTS}: the global
+ * handler would then run them everywhere — `/` would steal focus from the timeline, and Enter on
+ * a tile is already the tile's own button.
+ */
+export const PANEL_KEYS: readonly PanelKey[] = [
+  { id: 'elements.search', keys: ['/'], panel: 'Elements panel', label: 'Search shapes' },
+  { id: 'elements.clear', keys: ['esc'], panel: 'Elements panel', label: 'Clear the search' },
+  {
+    id: 'elements.move',
+    keys: ['left', 'right', 'up', 'down'],
+    panel: 'Elements panel',
+    label: 'Move between tiles',
+  },
+  {
+    id: 'elements.ends',
+    keys: ['home', 'end'],
+    panel: 'Elements panel',
+    label: 'First or last tile',
+  },
+  {
+    id: 'elements.add',
+    keys: ['enter'],
+    panel: 'Elements panel',
+    label: 'Add the tile at the playhead',
   },
 ];
 

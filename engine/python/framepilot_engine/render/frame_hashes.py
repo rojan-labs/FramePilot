@@ -37,7 +37,7 @@ from typing import Literal
 from framepilot_engine.media.ffmpeg import find_ffmpeg, find_ffprobe
 from framepilot_engine.media.untrusted import FORMAT_WHITELIST, bounded_decode_input_options
 from framepilot_engine.render.pts_reader import video_timing
-from framepilot_engine.subprocess_safety import validate_safe_argv
+from framepilot_engine.subprocess_safety import run_argv
 
 _log = logging.getLogger(__name__)
 
@@ -79,33 +79,34 @@ def _remaining(deadline: float | None) -> float:
     return min(DECODE_TIMEOUT_SECONDS, left)
 
 
-def _run(argv: list[str], deadline: float | None, name: str) -> subprocess.CompletedProcess[bytes]:
+def _run(
+    binary: str, operands: list[str], deadline: float | None, name: str
+) -> subprocess.CompletedProcess[bytes]:
     try:
-        return subprocess.run(argv, capture_output=True, check=False, timeout=_remaining(deadline))
+        return run_argv(
+            binary, operands, capture_output=True, check=False, timeout=_remaining(deadline)
+        )
     except subprocess.TimeoutExpired as exc:
         raise FrameHashDeadline(f"Decoding {name} ran out of time.") from exc
 
 
 def _assert_allowed_container(path: Path, deadline: float | None) -> None:
     """Refuse a file whose container is not on :data:`FORMAT_WHITELIST` before any other probe."""
-    argv = validate_safe_argv(
-        [
-            find_ffprobe(),
-            "-v",
-            "error",
-            "-protocol_whitelist",
-            "file",
-            "-format_whitelist",
-            FORMAT_WHITELIST,
-            "-show_entries",
-            "format=format_name",
-            "-of",
-            "csv=p=0",
-            "-i",
-            str(path),
-        ]
-    )
-    if _run(argv, deadline, path.name).returncode != 0:
+    operands = [
+        "-v",
+        "error",
+        "-protocol_whitelist",
+        "file",
+        "-format_whitelist",
+        FORMAT_WHITELIST,
+        "-show_entries",
+        "format=format_name",
+        "-of",
+        "csv=p=0",
+        "-i",
+        str(path),
+    ]
+    if _run(find_ffprobe(), operands, deadline, path.name).returncode != 0:
         raise FrameHashError(f"{path.name} is not a media container FramePilot checks.")
 
 
@@ -138,32 +139,29 @@ def frame_hashes_by_index(
         return []
     wanted = sorted({int(i) for i in indexes})
     select = "select=" + "+".join(f"eq(n\\,{i})" for i in wanted)
-    argv = validate_safe_argv(
-        [
-            find_ffmpeg(),
-            "-nostdin",
-            "-v",
-            "error",
-            *_input_args(path),
-            "-i",
-            str(path),
-            "-map",
-            "0:v:0",
-            "-vf",
-            select,
-            "-filter_threads",
-            "1",
-            "-fps_mode",
-            "passthrough",
-            *_pixel_args(pixel_format),
-            "-f",
-            "framehash",
-            "-hash",
-            "sha256",
-            "-",
-        ]
-    )
-    completed = _run(argv, deadline, path.name)
+    operands = [
+        "-nostdin",
+        "-v",
+        "error",
+        *_input_args(path),
+        "-i",
+        str(path),
+        "-map",
+        "0:v:0",
+        "-vf",
+        select,
+        "-filter_threads",
+        "1",
+        "-fps_mode",
+        "passthrough",
+        *_pixel_args(pixel_format),
+        "-f",
+        "framehash",
+        "-hash",
+        "sha256",
+        "-",
+    ]
+    completed = _run(find_ffmpeg(), operands, deadline, path.name)
     rows = _parse_rows(completed.stdout)
     if completed.returncode != 0 or len(rows) != len(wanted):
         raise FrameHashError(f"Could not decode the requested frames of {path.name}.")
@@ -194,35 +192,32 @@ def frame_hashes_by_pts(
     out: list[str | None] = []
     for target in pts:
         seconds = float((int(target) - 0.5) * time_base)
-        argv = validate_safe_argv(
-            [
-                ffmpeg,
-                "-nostdin",
-                "-v",
-                "error",
-                *_input_args(path),
-                "-copyts",
-                "-ss",
-                f"{seconds:.9f}",
-                "-i",
-                str(path),
-                "-map",
-                "0:v:0",
-                "-frames:v",
-                "1",
-                "-fps_mode",
-                "passthrough",
-                "-enc_time_base",
-                f"{time_base.numerator}/{time_base.denominator}",
-                *_pixel_args(pixel_format),
-                "-f",
-                "framehash",
-                "-hash",
-                "sha256",
-                "-",
-            ]
-        )
-        completed = _run(argv, deadline, path.name)
+        operands = [
+            "-nostdin",
+            "-v",
+            "error",
+            *_input_args(path),
+            "-copyts",
+            "-ss",
+            f"{seconds:.9f}",
+            "-i",
+            str(path),
+            "-map",
+            "0:v:0",
+            "-frames:v",
+            "1",
+            "-fps_mode",
+            "passthrough",
+            "-enc_time_base",
+            f"{time_base.numerator}/{time_base.denominator}",
+            *_pixel_args(pixel_format),
+            "-f",
+            "framehash",
+            "-hash",
+            "sha256",
+            "-",
+        ]
+        completed = _run(ffmpeg, operands, deadline, path.name)
         rows = _parse_rows(completed.stdout)
         if completed.returncode != 0 or not rows or rows[0][0] != int(target):
             out.append(None)

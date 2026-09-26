@@ -275,6 +275,51 @@ describe('PreviewTransform — rotation, snapping and reset', () => {
     return { onCommit, onPreview, container, box };
   }
 
+  it('scales by one percent per arrow on a corner handle, ten with Shift, one commit each', () => {
+    const { onCommit } = setup();
+    const corner = screen.getByRole('slider', { name: 'Resize handle se' });
+    fireEvent.keyDown(corner, { key: 'ArrowUp' });
+    fireEvent.keyDown(corner, { key: 'ArrowRight', shiftKey: true });
+    fireEvent.keyDown(corner, { key: 'ArrowDown' });
+    expect(onCommit.mock.calls.map(([values]) => values.scale)).toEqual([1.01, 1.1, 0.99]);
+    expect(corner.getAttribute('aria-valuetext')).toBe('100%');
+  });
+
+  it('turns by one degree per arrow on the rotation handle, fifteen with Shift', () => {
+    const { onCommit } = setup();
+    const handle = screen.getByRole('slider', { name: 'Rotate clip' });
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+    fireEvent.keyDown(handle, { key: 'ArrowUp', shiftKey: true });
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+    expect(onCommit.mock.calls.map(([values]) => values.rotation)).toEqual([1, 15, -1]);
+  });
+
+  it('nudges the clip with the arrows on the box, further with Shift', () => {
+    const { onCommit, box } = setup();
+    expect(box.getAttribute('tabindex')).toBe('0');
+    expect(box.getAttribute('aria-keyshortcuts')).toBe('ArrowUp ArrowDown ArrowLeft ArrowRight');
+    fireEvent.keyDown(box, { key: 'ArrowRight' });
+    fireEvent.keyDown(box, { key: 'ArrowDown', shiftKey: true });
+    expect(onCommit.mock.calls.map(([values]) => [values.x, values.y])).toEqual([
+      [1, 0],
+      [0, 10],
+    ]);
+  });
+
+  it('keeps its arrows from the editor-wide shortcuts, and other keys for them', () => {
+    const { onCommit } = setup();
+    const onWindowKey = vi.fn();
+    window.addEventListener('keydown', onWindowKey);
+    const corner = screen.getByRole('slider', { name: 'Resize handle nw' });
+    fireEvent.keyDown(corner, { key: 'ArrowUp' });
+    expect(onWindowKey).not.toHaveBeenCalled();
+    // `s` is the editor's split: it still reaches it from a focused handle.
+    fireEvent.keyDown(corner, { key: 's' });
+    window.removeEventListener('keydown', onWindowKey);
+    expect(onWindowKey).toHaveBeenCalledTimes(1);
+    expect(onCommit).toHaveBeenCalledTimes(1);
+  });
+
   it('offers a rotation handle with its angle in ARIA', () => {
     render(
       <div className="preview-frame">

@@ -79,6 +79,17 @@ class FakeProvider implements AiProvider {
   }
 }
 
+/** Answers each request with the next scripted response and keeps every request it saw. */
+class SequencedProvider implements AiProvider {
+  public readonly name = 'mock' as const;
+  public readonly requests: AiCompletionRequest[] = [];
+  public constructor(private readonly responses: readonly AiResponse[]) {}
+  public async complete(request: AiCompletionRequest): Promise<AiResponse> {
+    this.requests.push(request);
+    return this.responses[Math.min(this.requests.length, this.responses.length) - 1]!;
+  }
+}
+
 /** Aborts mid-`complete()` so the abort trips inside a step, not at the loop top. */
 class AbortingProvider implements AiProvider {
   public readonly name = 'mock' as const;
@@ -3850,6 +3861,81 @@ describe('streamAgent host tool execution (Phase T)', () => {
     });
   });
 
+  describe('add_sticker (host-backed placement, plan/elements EL6a.7)', () => {
+    const stickerCall = {
+      id: 'st1',
+      name: 'add_sticker',
+      arguments: { elementId: 'fire', start: 2, end: 4, xPercent: 75, yPercent: 30 },
+    };
+    const stickerAsset = {
+      id: 'element_fluent3d_fire',
+      path: 'media/p/elements/fluent3d/fire.webp',
+      kind: 'image' as const,
+      media: { width: 318, height: 318 },
+      sharpSize: 256,
+      source: {
+        provider: 'fluent-emoji',
+        remoteId: 'fire',
+        license: 'mit',
+        licenseUrl: 'https://example.test/LICENSE',
+        attributionRequired: false,
+        attribution: 'Fluent Emoji by Microsoft (MIT)',
+        creator: 'Microsoft',
+        sourceUrl: 'https://example.test/fire.png',
+        fetchedAt: '2026-09-26T00:00:00.000Z',
+      },
+      deduped: false,
+    };
+    const host = (data: unknown) => ({
+      run: async (): Promise<HostToolOutcome> => ({
+        status: 'completed' as const,
+        summary: 'Added the fire sticker to the project.',
+        data,
+      }),
+    });
+
+    it('places the sticker the host copied as an overlay, with the call’s position', async () => {
+      const provider = new ScriptedProvider([
+        { text: 'a sticker on the punchline', toolCalls: [stickerCall] },
+        { text: 'done', toolCalls: [] },
+      ]);
+      const events = await drain(
+        new Orchestrator(provider, { executor: host({ asset: stickerAsset }) }).streamAgent(
+          input,
+          opts(),
+        ),
+      );
+      const diff = events.find((e) => e.type === 'diff');
+      const ops = diff?.type === 'diff' ? diff.edit.patch.operations : [];
+      expect(ops.map((op: AnyOperation) => op.type)).toEqual([
+        'create_folder',
+        'add_asset',
+        'add_layer',
+        'add_clip',
+        'add_keyframes',
+      ]);
+      const layer = ops.find((op: AnyOperation) => op.type === 'add_layer') as {
+        layerType: string;
+      };
+      expect(layer.layerType).toBe('overlay');
+      const fedBack = JSON.stringify(provider.requests[1]?.messages ?? []);
+      expect(fedBack).toMatch(/from 2\.0s to 4\.0s/);
+    });
+
+    it('fails closed when the host hands back nothing placeable', async () => {
+      const provider = new ScriptedProvider([
+        { text: 'a sticker', toolCalls: [stickerCall] },
+        { text: 'done', toolCalls: [] },
+      ]);
+      const events = await drain(
+        new Orchestrator(provider, { executor: host({ nope: true }) }).streamAgent(input, opts()),
+      );
+      expect(events.find((e) => e.type === 'diff')).toBeUndefined();
+      const terminal = events.filter((e) => e.type === 'tool_call' && e.id === 'st1').at(-1);
+      expect(terminal).toMatchObject({ status: 'failed' });
+    });
+  });
+
   describe('add_stock (host-backed mutation)', () => {
     // The fixture's picture runs 0–10s, so 12s is empty and 2s is occupied.
     const stockCall = {
@@ -6094,5 +6180,27 @@ describe('picture over picture is refused once, not once per placement (run 369e
     const log = fedBack(provider);
     expect(log).toMatch(/b_roll \[video\] 0 clips/);
     expect(log).not.toMatch(/hidden behind picture/);
+  });
+});
+
+describe('the whole sticker library reaches the agent only where the host ships it (EL6b)', () => {
+  const run = async (packagedStickers: boolean): Promise<string> => {
+    const provider = new SequencedProvider([
+      {
+        text: 'Looking for a dragon.',
+        toolCalls: [
+          { id: 's1', name: 'search_elements', arguments: { query: 'dragon', kind: 'sticker' } },
+        ],
+      },
+      { text: 'Done.' },
+    ]);
+    const orchestrator = new Orchestrator(provider, packagedStickers ? { packagedStickers } : {});
+    await drain(orchestrator.streamAgent(input, opts()));
+    return JSON.stringify(provider.requests.slice(1));
+  };
+
+  it('offers a packaged sticker on a desktop with the set, and not elsewhere', async () => {
+    expect(await run(true)).toContain('- dragon ');
+    expect(await run(false)).not.toContain('- dragon ');
   });
 });

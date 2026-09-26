@@ -1,11 +1,14 @@
 name: Preview performance — full export row (PX5.11)
 
-# The P13 export budget (plan/background-removal-ai/06-PRECISION-AND-EVAL.md, "Production
-# budgets"): exporting the Scale row with masks + a 4K matte costs <= 1.5x the same timeline
-# without. CI's `preview-perf` job (ci.yml) measures a 4-second window because that job is
-# capped at 60 minutes; the whole 3-minute row is ~60 min plain + ~80 min with the matte on a
-# GitHub runner, so it runs here, on demand only. It is evidence, not a gate: it never runs on a
-# push or a pull request, and a ratio over budget is reported, not failed.
+# The export budgets, each against the same plain export of the Scale row
+# (engine/python/tests/px5_export_ratio.py): masks + a 4K matte cost <= 1.5x (P13,
+# plan/background-removal-ai/06-PRECISION-AND-EVAL.md, "Production budgets"), and 20 sticker
+# layers cost <= 1.3x (plan/elements/05-RENDER-AND-PREVIEW.md §7). CI's `preview-perf` job
+# (ci.yml) measures a 4-second window because that job is capped at 60 minutes; the whole
+# 3-minute row is ~60 min plain + ~80 min with the matte on a GitHub runner, so it runs here, on
+# demand only, one `variant` at a time or both (`both` adds the elements' export, about another
+# hour, to the same run). It is evidence, not a gate: it never runs on a push or a pull request,
+# and a ratio over budget is reported, not failed.
 #
 # The fixture is generated in the job, deterministically, by the same script the PR job uses
 # (engine/python/tests/px5_scale_fixture.py); nothing is committed or downloaded.
@@ -23,6 +26,15 @@ on:
         description: 'Seconds of the Scale row to export (180 = the whole row)'
         required: false
         default: '180'
+      variant:
+        description: 'What to export against the plain row: the matte (P13), the 20 elements, or both'
+        required: false
+        type: choice
+        options:
+          - scale
+          - scale-elements
+          - both
+        default: scale
       note:
         description: 'Optional note recorded in the job summary'
         required: false
@@ -40,11 +52,13 @@ env:
 
 jobs:
   export-ratio-full:
-    name: Export ratio, full Scale row (P13)
+    name: Export ratio, full Scale row (${{ inputs.variant }})
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     # GitHub-hosted jobs stop at 360 minutes. Two full 4K exports plus the fixture measured
-    # ~2.5 h from CI's 4 s windows (78.7 s plain, 106.1 s matte per 4 s in run 35366379149).
+    # ~2.5 h from CI's 4 s windows (78.7 s plain, 106.1 s matte per 4 s in run 35366379149); PX5.11
+    # took 3,386 s plain and 4,476 s with the matte. `both` adds a third export: at the elements'
+    # 1.3x budget about 4,400 s more, ~3.7 h in all, still inside this timeout.
     timeout-minutes: 330
     steps:
       - uses: actions/checkout@v7
@@ -65,23 +79,29 @@ jobs:
             echo "### Runner"
             echo ""
             echo "- note: ${NOTE:-none}"
+            echo "- variant: ${VARIANT}"
             echo "- cores: $(nproc), memory: $(free -g | awk '/Mem:/ {print $2}') GiB"
             echo "- cpu: $(lscpu | awk -F: '/Model name/ {gsub(/^ +/, "", $2); print $2}')"
             echo "- ffmpeg: $(ffmpeg -version | head -1)"
           } >> "$GITHUB_STEP_SUMMARY"
         env:
           NOTE: ${{ inputs.note }}
+          VARIANT: ${{ inputs.variant }}
       - name: Generate the Scale fixture (3 min, 4K, 4 sources + a 4K matte)
         working-directory: engine/python
         run: uv run python -m tests.px5_scale_fixture
-      - name: Export with masks and a 4K matte vs without (the requested window)
+      - name: Export the requested variant(s) against the plain row (the requested window)
         working-directory: engine/python
         env:
           WINDOW_SECONDS: ${{ inputs.window_seconds }}
+          VARIANT: ${{ inputs.variant }}
         run: |
-          uv run python -m tests.px5_export_ratio --window-seconds "$WINDOW_SECONDS"
+          # The plain row is exported once and every requested variant is measured against it.
+          if [ "$VARIANT" = "both" ]; then variants="scale scale-elements"; else variants="$VARIANT"; fi
+          # shellcheck disable=SC2086 # one word per variant
+          uv run python -m tests.px5_export_ratio --window-seconds "$WINDOW_SECONDS" --variants $variants
           cp ../../tests/e2e/.tmp-px5-scale/results/export-ratio.json \
-            "../../tests/e2e/.tmp-px5-scale/results/export-ratio-${WINDOW_SECONDS}s.json"
+            "../../tests/e2e/.tmp-px5-scale/results/export-ratio-${VARIANT}-${WINDOW_SECONDS}s.json"
       - name: Summarise
         if: always()
         run: |

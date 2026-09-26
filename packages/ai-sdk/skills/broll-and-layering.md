@@ -21,6 +21,8 @@ else.
 
 Do not add unrelated movement, cover an emotional performance, or use blend modes as a substitute for shot selection.
 
+An emoji, sticker, arrow or highlight over the footage is not b-roll: load `stickers-and-callouts`. A cutaway placed over a sticker or title goes in under it, so graphics stay on top.
+
 ## Sourcing a shot the user never filmed
 
 `search_stock` reaches a stock library; `add_stock` downloads one. Give it
@@ -110,4 +112,4 @@ is missing, which is more useful than a generic substitute. If a seam remains di
 
 ## Related skills
 
-`footage-intelligence`, `titles-and-text`, `cut-and-transition-grammar`, `cinematic-storytelling`.
+`footage-intelligence`, `titles-and-text`, `stickers-and-callouts`, `cut-and-transition-grammar`, `cinematic-storytelling`.

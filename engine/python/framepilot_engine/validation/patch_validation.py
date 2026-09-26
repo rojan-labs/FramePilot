@@ -54,6 +54,8 @@ ValidationCode = Literal[
     "invalid_operation",
     # Two masks on one clip would share an id (schema v22). Mirrors the TS code.
     "duplicate_mask",
+    # A shape's params cannot be drawn (schema v25). Mirrors the TS `invalid_style` code.
+    "invalid_style",
 ]
 ValidationSeverity = Literal["error", "warning"]
 
@@ -70,6 +72,7 @@ SUPPORTED_OPERATIONS = frozenset(
         "ripple_delete",
         "add_clip",
         "add_text_overlay",
+        "add_shape",
         "add_caption_layer",
         "add_keyframes",
         "remove_keyframes",
@@ -345,6 +348,8 @@ def _from_operation_error(error: OperationError, index: int) -> ValidationIssue:
         code = "invalid_operation"
     elif error.code == "duplicate_mask":
         code = "duplicate_mask"
+    elif error.code == "invalid_style":
+        code = "invalid_style"
     else:  # duplicate_clip
         code = "overlap_error"
     return ValidationIssue(code=code, severity="error", message=str(error), operation_index=index)

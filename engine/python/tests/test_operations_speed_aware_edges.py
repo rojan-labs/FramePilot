@@ -24,7 +24,6 @@ from framepilot_engine.timeline.models import (
     TrackType,
 )
 from framepilot_engine.timeline.operations import (
-    TEXT_OVERLAY_ASSET_ID,
     DeleteRange,
     RippleDelete,
     SetClipSpeedRamp,
@@ -33,6 +32,7 @@ from framepilot_engine.timeline.operations import (
     apply_operation,
     invert_operation,
 )
+from framepilot_engine.timeline.synthetic_assets import TEXT_OVERLAY_ASSET_ID
 from framepilot_engine.validation.patch_validation import validate_patch
 
 

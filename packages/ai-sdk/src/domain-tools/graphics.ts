@@ -27,9 +27,9 @@ import {
 } from '@framepilot/timeline-schema/transition-catalog';
 import { transitionParamsForKind } from '@framepilot/timeline-schema/transition-params';
 import {
-  TEXT_OVERLAY_ASSET_ID,
   createLaneAllocator,
   type Operation,
+  syntheticClipKind,
   textEffectId,
   textOverlayClipId,
 } from '@framepilot/editor-core';
@@ -99,7 +99,7 @@ function findOverlayWithSameText(
   if (wanted === '') return undefined;
   for (const track of project.timeline.tracks) {
     for (const clip of track.clips) {
-      if (clip.assetId !== TEXT_OVERLAY_ASSET_ID) continue;
+      if (syntheticClipKind(clip.assetId) !== 'text') continue;
       if (!(clip.start < end && clip.end > start)) continue;
       const existing = clip.effects.find((effect) => effect.type === 'text');
       const value = existing?.params['text'];

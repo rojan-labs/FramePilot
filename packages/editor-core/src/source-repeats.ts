@@ -15,15 +15,21 @@
  * two separate recordings of one action and is a judgement, not a fact.
  */
 import type { Clip, Project } from '@framepilot/timeline-schema';
+import { isElementAsset } from './element-assets.js';
 
 /** Source seconds two clips of one asset must share before they are the same take twice. */
 export const REPEATED_SOURCE_OVERLAP_SECONDS = 0.5;
 
-/** Every clip on a picture (video) track, in timeline order. */
+/**
+ * Every clip on a picture (video) track, in timeline order. A sticker is not footage: the same
+ * sticker twice is a sticker reused, never a take played twice (plan/elements EL6a).
+ */
 function pictureClipsInOrder(project: Project): readonly Clip[] {
+  const elements = new Set(project.assets.filter(isElementAsset).map((asset) => asset.id));
   return project.timeline.tracks
     .filter((track) => track.type === 'video')
     .flatMap((track) => track.clips)
+    .filter((clip) => !elements.has(clip.assetId))
     .slice()
     .sort((a, b) => a.start - b.start);
 }

@@ -16,12 +16,13 @@
  */
 import { z } from 'zod/v4';
 import { decodeFloat64Array } from './float-array-codec.js';
+import { ShapeParamsSchema } from './shape-params.js';
 
 /**
  * Bump on any breaking change to the schema. A migration is required before the
  * schema can change in a way that invalidates existing `project.fp.json` files.
  */
-export const SCHEMA_VERSION = 24 as const;
+export const SCHEMA_VERSION = 25 as const;
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -1057,10 +1058,11 @@ export const CaptionAccentSchema = z.object({
  * Rich, persisted caption style (schema v10 — template-based; v5 introduced
  * the field, ADR 0045; v10 rewrote it around the template catalog, ADR 0069).
  * Meaningful only on caption-kind clips (created via `add_caption_layer`,
- * `assetId === '__caption__'`), but modeled as an optional {@link ClipSchema}
- * field — like {@link Clip.keyframes} — rather than nested inside the caption
- * `Effect`'s free-form `params`, so the renderer and editor UI can read/write
- * it with full typed field access instead of unpacking an untyped record.
+ * whose asset id is editor-core's `CAPTION_ASSET_ID`), but modeled as an
+ * optional {@link ClipSchema} field — like {@link Clip.keyframes} — rather
+ * than nested inside the caption `Effect`'s free-form `params`, so the
+ * renderer and editor UI can read/write it with full typed field access
+ * instead of unpacking an untyped record.
  *
  * Resolution: `templateId` names a `CAPTION_TEMPLATE_CATALOG` entry whose
  * style fills every field left unset here; explicit fields are user overrides
@@ -1991,7 +1993,19 @@ export const safeParseProject = (input: unknown) => ProjectSchema.safeParse(inpu
  *
  * @returns A draft-2020-12 JSON Schema object for the project document.
  */
-export const buildProjectJsonSchema = (): Record<string, unknown> =>
+export const buildProjectJsonSchema = (): Record<string, unknown> => {
+  const project = projectJsonSchema();
+  // A shape's params ride the open `Effect.params` record, so the project tree never reaches
+  // them. Declared here so the engine's Pydantic twin is held to them like every other model.
+  const { $schema: _dropped, ...shapeParams } = z.toJSONSchema(ShapeParamsSchema) as Record<
+    string,
+    unknown
+  >;
+  const defs = (project.$defs ?? {}) as Record<string, unknown>;
+  return { ...project, $defs: { ...defs, ShapeParams: shapeParams } };
+};
+
+const projectJsonSchema = (): Record<string, unknown> =>
   z.toJSONSchema(ProjectSchema, {
     // Fast path arrays are `z.custom` checks; the override below describes them, so they are
     // not "unrepresentable" (every other custom type still leaves `{}` and fails the drift test).
@@ -2015,3 +2029,7 @@ export * from './serialization.js';
 
 export * from './float-array-codec.js';
 export * from './edge-styles.js';
+// Shapes (schema v25, plan/elements EL4a): the params a shape clip carries and the catalogue.
+export * from './shape-catalog.js';
+export * from './shape-search.js';
+export * from './shape-params.js';

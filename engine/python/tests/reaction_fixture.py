@@ -1,0 +1,169 @@
+"""Generate the reaction fixture for the sticker evaluation (plan/elements EL6a.8, 07 section 8).
+
+The case asks "Add a fire emoji when I say 'this is fire'". Scoring it needs ground truth no real
+recording has: where the face is, when the phrase is said, and where captions sit. So this draws
+a 12-second talking-head shot — a figure whose face occupies a known box — and writes a narration
+transcript that says "this is fire" once, at a known time. Everything is deterministic; nothing
+is fetched.
+
+Writes (run from ``engine/python``)::
+
+    uv run python -m tests.reaction_fixture
+
+- ``tests/fixtures/mission/reaction-demo-12s.mp4`` (gitignored media, like every mission file);
+- ``tests/fixtures/mission/labels/reaction-demo.json`` (committed): the face box in percent of
+  each frame axis, when the phrase and the word "fire" start, the top of the caption band, and the
+  transcript the fixture project carries.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+from PIL import Image, ImageDraw
+
+REPO = Path(__file__).resolve().parents[3]
+MISSION = REPO / "tests" / "fixtures" / "mission"
+VIDEO = MISSION / "reaction-demo-12s.mp4"
+LABELS = MISSION / "labels" / "reaction-demo.json"
+
+WIDTH, HEIGHT, FPS, SECONDS = 1280, 720, 30, 12
+#: The face, in output pixels: left, top, right, bottom. Left of centre, as a presenter framed
+#: for a caption stands.
+FACE = (400, 150, 600, 400)
+#: Where burnt-in captions sit: the bottom band of the frame, from this row down.
+CAPTION_BAND_TOP = 560
+NARRATION = [
+    "Okay",
+    "so",
+    "we",
+    "tried",
+    "the",
+    "new",
+    "recipe",
+    "and",
+    "honestly",
+    ".",
+    "this",
+    "is",
+    "fire",
+    ".",
+    "You",
+    "have",
+    "to",
+    "try",
+    "it",
+    "yourself",
+    ".",
+]
+FIRST_WORD_AT = 0.8
+WORD_SECONDS = 0.36
+PAUSE_SECONDS = 0.6
+
+
+def _transcript() -> tuple[list[dict[str, Any]], float, float]:
+    """The narration's words with times, when "this is fire" starts, and when "fire" does."""
+    words: list[dict[str, Any]] = []
+    t = FIRST_WORD_AT
+    for token in NARRATION:
+        if token == ".":
+            t += PAUSE_SECONDS
+            continue
+        words.append({"word": token, "start": round(t, 3), "end": round(t + WORD_SECONDS * 0.9, 3)})
+        t += WORD_SECONDS
+    index = next(i for i, w in enumerate(words) if w["word"] == "this")
+    return words, float(words[index]["start"]), float(words[index + 2]["start"])
+
+
+def _frame(t: float) -> Image.Image:
+    image = Image.new("RGB", (WIDTH, HEIGHT), (38, 52, 70))
+    draw = ImageDraw.Draw(image)
+    # A kitchen-ish backdrop: a counter line and a window, so the frame has empty space to use.
+    draw.rectangle((0, 470, WIDTH, HEIGHT), fill=(92, 72, 56))
+    draw.rectangle((820, 90, 1180, 330), fill=(120, 150, 180))
+    left, top, right, bottom = FACE
+    # Shoulders under the face, then the head; the mouth opens while the narration runs.
+    draw.rounded_rectangle(
+        (left - 90, bottom - 10, right + 90, HEIGHT), radius=80, fill=(200, 60, 60)
+    )
+    draw.ellipse(FACE, fill=(224, 180, 150))
+    eye_y = top + (bottom - top) * 0.42
+    for eye_x in (left + (right - left) * 0.33, left + (right - left) * 0.67):
+        draw.ellipse((eye_x - 10, eye_y - 10, eye_x + 10, eye_y + 10), fill=(40, 30, 30))
+    open_by = 6 + 10 * abs(((t * 4) % 2) - 1) if FIRST_WORD_AT <= t <= 9.0 else 3
+    mouth_y = top + (bottom - top) * 0.72
+    cx = (left + right) / 2
+    draw.ellipse((cx - 30, mouth_y - open_by, cx + 30, mouth_y + open_by), fill=(120, 40, 40))
+    return image
+
+
+def main() -> int:
+    words, phrase_start, word_start = _transcript()
+    VIDEO.parent.mkdir(parents=True, exist_ok=True)
+    encoder = subprocess.Popen(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "-s",
+            f"{WIDTH}x{HEIGHT}",
+            "-r",
+            str(FPS),
+            "-i",
+            "-",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+            "-pix_fmt",
+            "yuv420p",
+            str(VIDEO),
+        ],
+        stdin=subprocess.PIPE,
+    )
+    assert encoder.stdin is not None
+    for index in range(FPS * SECONDS):
+        encoder.stdin.write(_frame(index / FPS).tobytes())
+    encoder.stdin.close()
+    if encoder.wait() != 0:
+        sys.stderr.write("reaction_fixture: ffmpeg failed; is it installed?\n")
+        return 1
+    left, top, right, bottom = FACE
+    labels = {
+        "spec": (
+            "Ground truth for the sticker evaluation case (plan/elements 07 section 8): the "
+            "face in percent of each frame axis, when the narration says 'this is fire' and "
+            "when it says 'fire', and the top of the caption band. Generated by "
+            "engine/python/tests/reaction_fixture.py."
+        ),
+        "video": "reaction-demo-12s.mp4",
+        "resolution": {"width": WIDTH, "height": HEIGHT},
+        "face": {
+            "x": round(left / WIDTH * 100, 4),
+            "y": round(top / HEIGHT * 100, 4),
+            "width": round((right - left) / WIDTH * 100, 4),
+            "height": round((bottom - top) / HEIGHT * 100, 4),
+        },
+        "phraseStart": phrase_start,
+        "wordStart": word_start,
+        "captionBandTop": round(CAPTION_BAND_TOP / HEIGHT * 100, 4),
+        "transcript": words,
+    }
+    LABELS.write_text(json.dumps(labels, indent=2) + "\n", encoding="utf-8")
+    sys.stdout.write(f"wrote {VIDEO} and {LABELS}\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

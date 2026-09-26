@@ -26,6 +26,12 @@ const ASSETS: Asset[] = [
     media: { width: 1920, height: 1080 },
   } as Asset,
   { id: 'raw', path: 'media/raw.mp4', kind: 'video', durationSeconds: 10 } as Asset,
+  {
+    id: 'photo',
+    path: 'media/photo.png',
+    kind: 'image',
+    media: { width: 800, height: 600 },
+  } as Asset,
 ];
 
 function timeline(masks: MaskLayerInput[], assetId = 'a1'): Timeline {
@@ -103,6 +109,32 @@ describe('panel', () => {
   it('says to measure unmeasured media and disables drawing', () => {
     render(<Host initial={timeline([], 'raw')} />);
     expect(screen.getByRole('alert').textContent).toContain('Measure this media first');
+    expect(
+      (screen.getByRole('button', { name: 'Draw pen mask' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('offers no background removal on a still or a title: it is measured on video (EL2b)', () => {
+    const { unmount } = render(<Host initial={timeline([], 'a1')} />);
+    expect(screen.queryByLabelText('Background removal')).not.toBeNull();
+    unmount();
+    const still = render(<Host initial={timeline([], 'photo')} />);
+    expect(screen.queryByLabelText('Background removal')).toBeNull();
+    still.unmount();
+    render(<Host initial={timeline([], '__text__')} />);
+    expect(screen.queryByLabelText('Background removal')).toBeNull();
+  });
+
+  it('says what a title can take instead of asking to measure it (EL2b)', () => {
+    render(<Host initial={timeline([], '__text__')} />);
+    expect(
+      screen
+        .getByText(
+          'Drawing a mask needs a video or a photo. A title takes a track matte, below, or an edge style.',
+        )
+        .getAttribute('role'),
+    ).toBe('status');
+    expect(screen.queryByText(/Measure this media first/)).toBeNull();
     expect(
       (screen.getByRole('button', { name: 'Draw pen mask' }) as HTMLButtonElement).disabled,
     ).toBe(true);

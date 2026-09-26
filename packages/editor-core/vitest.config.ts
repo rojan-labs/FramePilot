@@ -11,6 +11,11 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     globals: true,
+    // The caption property sweeps (`captions/derive.property.test.ts`, hundreds of derivations
+    // per test) take about 0.4 s each on a laptop but 5 s and more once v8 coverage and turbo's
+    // package parallelism share a CI runner, so the 5 s default failed them on load alone. The
+    // timeout catches a hang; it is not a speed budget.
+    testTimeout: 20_000,
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],

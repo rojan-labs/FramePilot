@@ -1307,10 +1307,15 @@
                 "frame": null
               },
               "text": null,
-              "crop": null,
+              "crop": {
+                "x": 0.0,
+                "y": 0.0,
+                "width": 0.5,
+                "height": 0.5
+              },
               "geometry": {
-                "baseScale": 1.2,
-                "scale": 0.6,
+                "baseScale": 2.4,
+                "scale": 1.2,
                 "anchorX": 640.0,
                 "anchorY": 360.0,
                 "rotation": 0.0,
@@ -1319,7 +1324,7 @@
                 "width": 480.0,
                 "height": 360.0
               },
-              "opacity": 1.0,
+              "opacity": 0.5,
               "blendMode": "normal",
               "effects": [],
               "mask": null,
@@ -1705,6 +1710,181 @@
                 "top": 144.00000000000003,
                 "width": 242.99999999999997,
                 "height": 431.99999999999994
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        }
+      ]
+    },
+    {
+      "id": "still-crop-cover",
+      "row": "Geometry: a still cropped to fill the frame (EL2a)",
+      "description": "A 4:3 PNG cover-cropped to 16:9, as autoReframeCrop does in the other direction; it must fill.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-still-crop-cover",
+        "name": "still-crop-cover",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          },
+          {
+            "id": "png",
+            "path": "media/png.png",
+            "kind": "image",
+            "media": {
+              "width": 800,
+              "height": 600
+            }
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "o1",
+              "type": "overlay",
+              "clips": [
+                {
+                  "id": "s1",
+                  "assetId": "png",
+                  "trackId": "o1",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 2.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "crop": {
+                    "x": 0.0,
+                    "y": 0.125,
+                    "width": 1.0,
+                    "height": 0.75
+                  }
+                }
+              ]
+            },
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 2.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        1.0
+      ],
+      "expected": [
+        {
+          "time": 1.0,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 1.0,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 1.0,
+                "frame": 30
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "o1",
+              "clipId": "s1",
+              "forClipId": null,
+              "localTime": 1.0,
+              "source": {
+                "assetId": "png",
+                "assetKind": "image",
+                "time": null,
+                "frame": null
+              },
+              "text": null,
+              "crop": {
+                "x": 0.0,
+                "y": 0.125,
+                "width": 1.0,
+                "height": 0.75
+              },
+              "geometry": {
+                "baseScale": 1.6,
+                "scale": 1.6,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
               },
               "opacity": 1.0,
               "blendMode": "normal",

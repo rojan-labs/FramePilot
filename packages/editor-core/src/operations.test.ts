@@ -10,14 +10,13 @@ import type { Clip, Keyframe, Timeline, Track } from '@framepilot/timeline-schem
 import { TimelineSchema } from '@framepilot/timeline-schema';
 import {
   applyOperation,
-  CAPTION_ASSET_ID,
   invertOperation,
   isOperationOfType,
   OperationError,
   splitClipRightId,
-  TEXT_OVERLAY_ASSET_ID,
   type Operation,
 } from './operations.js';
+import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID } from './synthetic-assets.js';
 import { evaluateKeyframes } from './keyframes.js';
 import { clipTimelineDuration } from './speed-curve.js';
 import { validatePatch } from './validator.js';

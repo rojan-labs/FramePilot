@@ -402,28 +402,6 @@ export function readTransitionAt(
 // Cutaway edges — where an inserted shot enters and leaves over the picture beneath it
 // ---------------------------------------------------------------------------
 
-/**
- * Render kinds whose ramp is a true opacity or wipe mask, so they also work as an EXIT.
- *
- * On an exit the renderer keeps only the kind's reveal mask and fades the clip by it
- * (`compiler.py#_apply_catalog_transition`, role `out`). For a geometric kind (slide, zoom,
- * spin) that mask is the whole frame from the first instant, so the cutaway would vanish
- * at once instead of leaving. Entrances animate the incoming picture itself and accept
- * every kind.
- */
-const EXIT_RENDER_KINDS: ReadonlySet<string> = new Set([
-  'dissolve',
-  'blur-dissolve',
-  'noise-dissolve',
-  'luma-fade',
-  'wipe-linear',
-  'wipe-radial',
-  'wipe-split',
-  'wipe-shape',
-  'wipe-clock',
-  'wipe-bars',
-]);
-
 /** Which end of an inserted shot a layer transition treats. */
 export type CutawayEdgeSide = 'in' | 'out';
 
@@ -546,7 +524,7 @@ export type LayerTransitionEligibility =
   | { readonly ok: true; readonly durationSeconds: number; readonly clampedFrom?: number }
   | {
       readonly ok: false;
-      readonly reason: TransitionRejection | 'is_a_cut' | 'kind_cannot_exit';
+      readonly reason: TransitionRejection | 'is_a_cut';
       readonly detail: string;
     };
 
@@ -554,9 +532,10 @@ export type LayerTransitionEligibility =
  * Can this end of this clip carry a transition over what plays beneath it?
  *
  * Refused, each with the move that works instead: an unknown kind, a non-positive duration,
- * a clip that is not picture on a video layer, an edge that is really a cut on its own layer
- * (use `add_transition`), and an exit kind that only animates the incoming side. A request
- * longer than half the clip is clamped, like a cut's.
+ * a clip that is not picture on a video or graphics layer, and an edge that is really a cut on
+ * its own layer (use `add_transition`). Any kind can exit (plan/elements EL7): a mask kind
+ * (`TRANSITION_EXIT_BY_MASK`) closes over the layer, every other kind plays its entrance
+ * backwards. A request longer than half the clip is clamped, like a cut's.
  *
  * @param timeline - The timeline the transition would be applied to.
  * @param request - Which clip, which end, what kind, how long.
@@ -585,11 +564,16 @@ export function layerTransitionEligibility(
   );
   const track = timeline.tracks[trackIndex];
   const clip = track?.clips.find((candidate) => candidate.id === request.clipId);
-  if (track === undefined || clip === undefined || track.type !== 'video') {
+  // Picture on a video layer (a cutaway), or a sticker, shape or title on a graphics layer.
+  if (
+    track === undefined ||
+    clip === undefined ||
+    (track.type !== 'video' && track.type !== 'overlay')
+  ) {
     return {
       ok: false,
       reason: 'no_such_clip',
-      detail: `No picture clip "${request.clipId}" on a video layer. A layer transition treats the start or end of a shot laid over other picture.`,
+      detail: `No clip "${request.clipId}" on a video or graphics layer. A layer transition treats the start or end of a shot, sticker, shape or title laid over other picture; list the timeline for real clip ids.`,
     };
   }
   const at = request.edge === 'in' ? clip.start : clip.end;
@@ -605,13 +589,6 @@ export function layerTransitionEligibility(
       ok: false,
       reason: 'is_a_cut',
       detail: `The ${request.edge === 'in' ? 'start' : 'end'} of "${clip.id}" is a cut on its own layer (${secs(at)}). Use add_transition with fromClipId "${fromClipId}" and toClipId "${toClipId}".`,
-    };
-  }
-  if (request.edge === 'out' && !EXIT_RENDER_KINDS.has(entry.renderKind)) {
-    return {
-      ok: false,
-      reason: 'kind_cannot_exit',
-      detail: `"${request.kind}" only animates the shot coming IN; as an exit the insert would vanish at once. Leave with a dissolve or a wipe (e.g. cross-dissolve).`,
     };
   }
   const limit = (clip.end - clip.start) / 2;

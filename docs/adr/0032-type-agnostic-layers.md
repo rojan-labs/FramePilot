@@ -54,3 +54,22 @@ model instead:
   clips through the same auto-layering path.
 - Deferred option: fully removing `Track.type` (a future schema v5 migration) — only if a
   later revision of this ADR decides the advisory field should go.
+
+## Amendment 2026-09-26 — the one helper, enforced (plan/elements EL3)
+
+"One pure helper per language" had drifted: six copies of the clip-kind rule and seventeen modules
+comparing `assetId` against the sentinels themselves, two of them with private
+`SYNTHETIC_ASSET_IDS` sets. A new synthetic kind (Elements' shapes) would have been called a
+**video** by both frame plans and a missing asset by the critic and the mission rubric.
+
+The helper now exists once per runtime and every caller asks it:
+
+- TypeScript: `packages/editor-core/src/synthetic-assets.ts` — `TEXT_OVERLAY_ASSET_ID`,
+  `CAPTION_ASSET_ID`, `SYNTHETIC_ASSET_IDS`, `isSyntheticAssetId`, `syntheticClipKind`,
+  `hasTimeBasedSource`, `clipRenderKind`, `laneTypeForKind`.
+- Python: `framepilot_engine/timeline/synthetic_assets.py`, the same names in snake case;
+  `frame_plan.clip_kind` delegates to it.
+- `tests/fixtures/clip-kind.json` is read by both runtimes' tests, so they answer every row alike.
+- Guard tests (`synthetic-assets.guard.test.ts`, `test_synthetic_assets.py`) fail on a sentinel
+  literal, a local copy of a sentinel constant, or a direct comparison anywhere else in
+  `packages/`, `apps/` or the engine. Test files may still spell a project out.

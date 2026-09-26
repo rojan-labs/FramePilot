@@ -110,6 +110,11 @@ nothing in a non-empty bin.
 | `add_clip`                          | Add a clip from an existing asset                              | write            | yes        |
 | `add_clips`                         | Place a whole sequence on one track in a single call           | write            | yes        |
 | `add_text_layer`                    | Add a text overlay (`add_text_overlay` op)                     | write            | yes        |
+| `search_elements`                   | Find shapes, icons or stickers by words (kind, collection)     | read             | yes        |
+| `add_shape`                         | Draw a catalogue shape or icon on an overlay (`add_shape`)     | write            | yes        |
+| `set_shape_style`                   | Restyle or move a shape (`set_effect_params`)                  | write            | yes        |
+| `add_sticker`                       | Copy a library sticker in and place it (desktop host)          | host (desktop)   | yes        |
+| `set_element_animation`             | In / Out (layer transitions) and Loop (keyframes) on a graphic | write            | yes        |
 | `add_caption_layer`                 | Add one short mapped caption cue (never a full-song block)     | write            | yes        |
 | `auto_emphasize_captions`           | Ground AI-selected anchors and compose a caption track         | write            | yes        |
 | `set_track_caption_style`           | Set/clear the complete shared caption composition              | write            | yes        |
@@ -126,6 +131,17 @@ nothing in a non-empty bin.
 | `detect_scenes`                     | Detect scene cuts (ffmpeg scene score)                         | analysis         | yes        |
 | `detect_subjects`                   | Detect people/objects in frames (Subject Intelligence pack)    | analysis         | yes        |
 | `find_mask_targets` … `delete_mask` | The masking domain — see [ai-masking.md](./ai-masking.md)      | analysis / write | yes        |
+
+**Elements** (`plan/elements`, EL8). Each sticker and shape row in the timeline the model reads
+names the element and where it sits in its own tool's units (`sticker "Fire" at 75%, 25%, 30% high
+· in: pop`, `shape rounded-rect · outline #FFD400 · box 50, 50, 48×27`), about fifteen tokens an
+element. `add_sticker` without `sizePercent` places the art at 30% of the frame height, or at the
+largest whole percent that stays within 1.5× its pixels on a tall or 4K frame. An edit that
+leaves an element off the frame for its whole span is refused (`element_off_frame`). The critic
+adds `element_faces`, `element_safe_area`, `element_busy_frame`, `sticker_sharp` (advisories)
+and `elements_placed` (a failure when the request named a sticker or a callout and none was
+placed). Where the host cannot place stickers (`placesStickers: false`, the MCP server),
+`search_elements` returns shapes only with a `note`.
 
 `get_project_state` returns the media bin as a **tally**, not a listing:
 

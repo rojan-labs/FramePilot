@@ -431,7 +431,12 @@ def write_png_asset(out_dir: Path, rel_path: str, width: int, height: int) -> No
     )
     target = out_dir / rel_path
     target.parent.mkdir(parents=True, exist_ok=True)
-    image.save(target, format="PNG")
+    # A sticker ships as WebP (plan/elements EL6a): write that format for a .webp path, lossless
+    # and with exact transparent pixels, so both sides really decode WebP.
+    if target.suffix.lower() == ".webp":
+        image.save(target, format="WEBP", lossless=True, exact=True)
+    else:
+        image.save(target, format="PNG")
 
 
 #: PX5.6: the image asset the ``key`` rows qualify. Not a sentinel: a key needs colour to read.

@@ -157,7 +157,7 @@ validator).
 ## Caption style (schema v5)
 
 `Clip.captionStyle` is an optional, structured object — meaningful on caption-kind
-clips (created by `add_caption_layer`, `assetId === '__caption__'`), but modeled as
+clips (created by `add_caption_layer`, whose asset id is `CAPTION_ASSET_ID`), but modeled as
 a plain clip field rather than nested inside the caption `Effect`'s free-form
 `params`. Set/cleared with the `set_caption_style` operation (`packages/editor-core`).
 
@@ -447,6 +447,18 @@ it. A project from a newer FramePilot is refused with "Update FramePilot to open
 nothing to backfill — no v22 project ever saved a preset — but it still bumps the envelope, so a
 FramePilot that predates presets refuses a file whose presets it would otherwise silently drop on
 the next save. See [Mask presets and binary path arrays](#mask-presets-and-binary-path-arrays-schema-v23-mk4).
+
+**v24 → v25** (plan/elements, ADR 0190) adds shapes: a clip whose `assetId` is the shape sentinel
+(`SHAPE_ASSET_ID`) carries one effect of type `shape` whose params are a `ShapeParams` — declared
+in `project.schema.json` under `$defs.ShapeParams`, twinned by the engine's Pydantic
+`ShapeParams`, and validated against the shape catalogue (`schema/shape-catalog.json`) by
+`shapeParamsProblem` / `shape_params_problem`, which return the same sentences
+(`tests/fixtures/shape-params.json`). Units: a box centre in percent of each frame axis, a box size
+and the stroke width in percent of the frame height, segment ends in percent of each axis; `null`
+and an absent key mean the same thing. The step rewrites nothing; the envelope bump makes an older
+FramePilot refuse a project with shapes rather than drop them. The desktop monitor fetches a
+shape's raster from the engine's `POST /preview/text-raster` with `kind: "shape"` (and `rotates`),
+whose response carries the raster's untransformed top-left in `x`/`y`.
 
 - `Project.version` is the schema version. It is **bumped only with a migration**.
 - **No breaking schema change without a migration** (CI/agent rule; see

@@ -23,8 +23,10 @@ import {
   transitionEligibilityIn,
   type TransitionAlignment,
   type TransitionEligibility,
+  isElementAsset,
 } from '@framepilot/editor-core';
 import type { Asset, Clip, Effect, Timeline, Track } from '@framepilot/timeline-schema';
+import { SHAPE_EFFECT_TYPE, shapeDescriptor } from '@framepilot/timeline-schema';
 import { type UseEditor, useFramePlayhead } from '../editor/useEditor.js';
 import { type EditPulseKind, useEditPulse } from '../editor/useEditPulse.js';
 import { alignToDevicePixel } from '../editor/pixel-alignment.js';
@@ -96,6 +98,8 @@ import {
   addClipPatch,
   addLayerPatch,
   addEffectLayerPatch,
+  addShapePatch,
+  placeElementAssetPatch,
   addTextOverlayPatch,
   duplicateEffectLayerPatch,
   moveEffectLayerPatch,
@@ -129,6 +133,8 @@ import {
 } from '../editor/patch-builders.js';
 import { ASSET_DND_TYPE } from './MediaBin.js';
 import { TEXT_OVERLAY_DND_TYPE } from './OverlaysPanel.js';
+import { ELEMENT_DND_TYPE, decodeElementDrag } from './elements/element-dnd.js';
+import { ShapeClipGlyph } from './elements/ShapeClipGlyph.js';
 import { TRANSITION_DND_TYPE } from './transition-catalog.js';
 import { getTransition } from '@framepilot/timeline-schema/transition-catalog';
 import { EFFECT_DND_TYPE } from './EffectsPanel.js';
@@ -153,9 +159,11 @@ import { TrackContextMenu, type TrackMenuTarget } from './TrackContextMenu.js';
 import { TransitionPicker, type TransitionPickerTarget } from './TransitionPicker.js';
 import { Tooltip, TooltipInfo } from './Tooltip.js';
 import { Menu, MenuItem } from './Menu.js';
+import { placedClipOf, shapeAddedAnnouncement } from '../editor/element-announcements.js';
 import {
   AudioLines,
   Captions,
+  Shapes,
   ChevronDown,
   ChevronRight,
   Eye,
@@ -184,6 +192,8 @@ export interface TimelineViewProps {
   readonly assets?: readonly Asset[];
   /** Project frame rate, used for frame-accurate ruler/clip timecodes. */
   readonly fps?: number;
+  /** The project frame size, for sizing a sticker dropped from the bin. */
+  readonly resolution?: { readonly width: number; readonly height: number };
   /**
    * Placement mode (view state). `insert` pushes downstream same-lane clips right
    * when a clip is dropped; `overwrite` (default) keeps today's auto-layering drop.
@@ -205,6 +215,32 @@ export interface TimelineViewProps {
    * {@link ClipContextMenu}'s "Reveal in bin". Absent means this host has no bin.
    */
   readonly onRevealAssetInBin?: (assetId: string) => void;
+  /** Forwarded to {@link ClipContextMenu}'s "Replace sticker…"; absent where there is no panel. */
+  readonly onReplaceSticker?: (clipId: string, name: string) => void;
+  /** Forwarded to {@link ClipContextMenu}'s "Animation…" (plan/elements EL7). */
+  readonly onAnimateClip?: (clipId: string) => void;
+  /**
+   * A sticker tile dropped on a lane (plan/elements EL6b): the host asks main to copy it into the
+   * project, then places it at `atSeconds` — on `trackId` when it is a graphics lane with room.
+   * Absent where there is no project folder to copy into (a drop does nothing).
+   */
+  readonly onDropSticker?: (elementId: string, atSeconds: number, trackId?: string) => void;
+  /**
+   * Say something in the host's polite live region: a shape dropped on a lane lands on a clip the
+   * Shapes panel cannot show, so its arrival is announced ("Added the arrow at 0:12").
+   */
+  readonly onAnnounce?: (message: string) => void;
+  /**
+   * A Photos or Videos tile dropped on a lane (plan/elements EL9): the host downloads the item by
+   * its provider id, as **Add** does, then places it at `atSeconds` — on `trackId` when it is a
+   * picture lane with room, else on a new lane in front. Absent outside the desktop app.
+   */
+  readonly onDropStock?: (
+    remoteId: string,
+    mediaKind: 'photo' | 'video',
+    atSeconds: number,
+    trackId?: string,
+  ) => void;
   /**
    * Switch the left rail to the transitions library. Offered by the on-cut
    * popover as its "there is more than this" escape hatch; absent means this
@@ -360,6 +396,8 @@ const KIND_META: Record<ClipKind, { icon: LucideIcon; cls: string; label: string
   audio: { icon: AudioLines, cls: 'is-audio', label: 'Audio' },
   text: { icon: Type, cls: 'is-overlay', label: 'Text' },
   caption: { icon: Captions, cls: 'is-caption', label: 'Caption' },
+  // Element graphics get their own colour (`--clip-graphic`), apart from footage and titles.
+  shape: { icon: Shapes, cls: 'is-graphic', label: 'Shape' },
 };
 
 /**
@@ -553,6 +591,10 @@ function clipLabel(kind: ClipKind, clip: Clip, asset: Asset | undefined): string
     return typeof text === 'string' && text.trim() !== '' ? text : 'Text';
   }
   if (kind === 'caption') return 'Caption';
+  if (kind === 'shape') {
+    const shape = clip.effects.find((e) => e.type === SHAPE_EFFECT_TYPE)?.params?.shape;
+    return (typeof shape === 'string' ? shapeDescriptor(shape)?.name : undefined) ?? 'Shape';
+  }
   return assetDisplayName(asset, clip.id);
 }
 
@@ -1201,6 +1243,7 @@ const TimelineClip = memo(function TimelineClip({
       )}
       {density.showHeader && (
         <div className="clip-header">
+          {kind === 'shape' && <ShapeClipGlyph clip={clip} />}
           <span className="clip-label" id={`${clip.id}-label`} title={name}>
             {name}
           </span>
@@ -1293,14 +1336,23 @@ const TimelineClip = memo(function TimelineClip({
   );
 });
 
+/** The frame size a sticker is sized for when the host passes none (tests, stories). */
+const DEFAULT_RESOLUTION = { width: 1920, height: 1080 } as const;
+
 export function TimelineView({
   editor,
   assets = [],
   fps = 30,
+  resolution = DEFAULT_RESOLUTION,
   editMode = 'overwrite',
   trackLayout: trackLayoutProp,
   onAskAiForClip,
   onRevealAssetInBin,
+  onReplaceSticker,
+  onAnimateClip,
+  onDropSticker,
+  onAnnounce,
+  onDropStock,
   onOpenTransitionLibrary,
   tool = 'select',
   onItemActivate,
@@ -2406,6 +2458,22 @@ export function TimelineView({
       const asset = assets.find((a) => a.id === assetId);
       if (!asset) return;
       const start = Math.max(0, atSeconds);
+      // A sticker dragged from the bin lands like one dragged from Elements: on this lane when it
+      // is a graphics lane with room, never as footage (plan/elements EL6a).
+      if (isElementAsset(asset)) {
+        const added = placeElementAssetPatch(
+          { timeline, assets, folders: editor.state.folders, resolution },
+          asset,
+          start,
+          settings.defaultOverlaySeconds,
+          track.type === 'overlay' && !track.locked ? track.id : undefined,
+        );
+        if (added) {
+          applyPatch(added.patch);
+          select(added.clipId);
+        }
+        return;
+      }
       // Insert mode: push the downstream same-lane clips right by the dropped
       // clip's duration (one patch), instead of placing/auto-layering on overlap.
       if (editMode === 'insert' && !track.locked) {
@@ -2430,7 +2498,16 @@ export function TimelineView({
         : placeAssetPatch(timeline, assetById, asset, start);
       if (patch) applyPatch(patch);
     },
-    [assets, assetById, timeline, applyPatch, editMode],
+    [
+      assets,
+      assetById,
+      timeline,
+      applyPatch,
+      editMode,
+      resolution,
+      select,
+      settings.defaultOverlaySeconds,
+    ],
   );
 
   /** Create a text overlay where a "Text" chip was dropped from the Overlays panel. */
@@ -2551,6 +2628,52 @@ export function TimelineView({
       if (patch) applyPatch(patch);
     },
     [timeline, applyPatch, settings.defaultOverlaySeconds],
+  );
+
+  const onDropElement = useCallback(
+    (track: Track, raw: string, atSeconds: number): void => {
+      const payload = decodeElementDrag(raw);
+      if (payload === null) return;
+      const graphicsLane = track.type === 'overlay' && !track.locked ? track.id : undefined;
+      if (payload.kind === 'sticker') {
+        onDropSticker?.(payload.elementId, Math.max(0, atSeconds), graphicsLane);
+        return;
+      }
+      if (payload.kind === 'stock') {
+        // A photo or video is picture: the lane under the cursor counts when it is a picture lane.
+        const pictureLane = track.type === 'video' && !track.locked ? track.id : undefined;
+        onDropStock?.(payload.remoteId, payload.mediaKind, Math.max(0, atSeconds), pictureLane);
+        return;
+      }
+      const added = addShapePatch(
+        timeline,
+        payload.presetId,
+        Math.max(0, atSeconds),
+        settings.defaultOverlaySeconds,
+        {
+          colour: payload.colour,
+          ...(graphicsLane !== undefined ? { trackId: graphicsLane } : {}),
+        },
+      );
+      if (added === null) return;
+      applyPatch(added.patch);
+      select(added.clipId);
+      onAnnounce?.(
+        shapeAddedAnnouncement(
+          payload.presetId,
+          placedClipOf(added.patch)?.start ?? Math.max(0, atSeconds),
+        ),
+      );
+    },
+    [
+      timeline,
+      applyPatch,
+      select,
+      settings.defaultOverlaySeconds,
+      onDropSticker,
+      onDropStock,
+      onAnnounce,
+    ],
   );
 
   // --- On-cut transitions (M3b) ---------------------------------------------
@@ -2933,7 +3056,11 @@ export function TimelineView({
                 }
                 return;
               }
-              if (types.includes(ASSET_DND_TYPE) || types.includes(TEXT_OVERLAY_DND_TYPE)) {
+              if (
+                types.includes(ASSET_DND_TYPE) ||
+                types.includes(TEXT_OVERLAY_DND_TYPE) ||
+                types.includes(ELEMENT_DND_TYPE)
+              ) {
                 event.preventDefault();
                 event.dataTransfer.dropEffect = 'copy';
               }
@@ -2960,6 +3087,15 @@ export function TimelineView({
               if (event.dataTransfer.types.includes(TEXT_OVERLAY_DND_TYPE)) {
                 event.preventDefault();
                 onDropTextOverlay(track, value);
+                return;
+              }
+              // A shape or sticker tile dragged from Elements lands at the drop time: on this
+              // lane when it is a graphics lane with room, else where a click would put it
+              // (EL5.2, EL6b). A photo or video lands on this lane when it is a picture lane
+              // with room, else on a new lane in front of the footage (EL9).
+              if (event.dataTransfer.types.includes(ELEMENT_DND_TYPE)) {
+                event.preventDefault();
+                onDropElement(track, event.dataTransfer.getData(ELEMENT_DND_TYPE), value);
                 return;
               }
               const assetId =
@@ -3177,6 +3313,7 @@ export function TimelineView({
     snapDisabled,
     xToSeconds,
     onDropTextOverlay,
+    onDropElement,
     select,
     openClipMenu,
     transitionsByTrack,
@@ -3680,6 +3817,8 @@ export function TimelineView({
           {...(onAskAiForClip ? { onAskAi: onAskAiForClip } : {})}
           onAddTransition={(fromClipId, x, y) => setTransitionPicker({ fromClipId, x, y })}
           {...(onRevealAssetInBin ? { onRevealInBin: onRevealAssetInBin } : {})}
+          {...(onReplaceSticker ? { onReplaceSticker } : {})}
+          {...(onAnimateClip ? { onAnimate: onAnimateClip } : {})}
         />
       )}
       {trackMenu && (

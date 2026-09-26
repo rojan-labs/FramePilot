@@ -237,7 +237,7 @@ const AGENT_CONTRACT_HEAD = [
   // because no grading tool is on offer. `admitCall` catches a correct guess, but a
   // capability the model never guesses at is one the editor does not get.
   'Your tool list starts with what every edit needs. Specialized work — captions, colour,',
-  'audio, motion, effects, footage analysis, stock, tracking — has more tools than are',
+  'audio, motion, effects, shapes and callouts, footage analysis, stock, tracking — has more tools than are',
   'shown: call load_tools with those domains BEFORE the work, in the same turn as the',
   'reads that set it up, and they stay for the rest of the run. Not seeing a tool means',
   'you have not loaded it yet, never that FramePilot cannot do it.',

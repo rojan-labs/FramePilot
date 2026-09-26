@@ -20,14 +20,16 @@
  * boundary where a side effect becomes an edit, exactly as
  * `music-placement.ts` is for `add_music`.
  */
-import type { Asset, Timeline, Track } from '@framepilot/timeline-schema';
+import type { Asset, Clip, Timeline, Track } from '@framepilot/timeline-schema';
 import type { AnyOperation } from './patch.js';
-import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID } from './operations.js';
+import { clipRenderKind, type ClipRenderKind } from './synthetic-assets.js';
 import {
   firstFreePictureStart,
   lastPictureEnd,
   picturePlacementConflict,
 } from './picture-occupancy.js';
+import { nextLayerId as nextLaneId, trackHasRoomFor } from './lane-placement.js';
+import { addClipId } from './operations.js';
 
 /**
  * Length given to a still, matching the renderer's `DEFAULT_CLIP_SECONDS`: a
@@ -51,7 +53,7 @@ type StockKind = 'video' | 'image';
  * dominant-kind rule below counts over the same space and cannot resolve a tie
  * differently from the panel it replaced.
  */
-type ClipKind = StockKind | 'audio' | 'text' | 'caption';
+type ClipKind = ClipRenderKind;
 
 /** What {@link buildAddStockOps} decided, for a caller that must describe it. */
 export interface StockPlacement {
@@ -80,12 +82,7 @@ function stockKind(asset: Asset): StockKind {
  * from the bin reads as `video`, matching the renderer.
  */
 function clipKindOf(assetId: string, kindByAssetId: ReadonlyMap<string, Asset['kind']>): ClipKind {
-  if (assetId === TEXT_OVERLAY_ASSET_ID) return 'text';
-  if (assetId === CAPTION_ASSET_ID) return 'caption';
-  const kind = kindByAssetId.get(assetId);
-  if (kind === 'audio') return 'audio';
-  if (kind === 'image') return 'image';
-  return 'video';
+  return clipRenderKind(assetId, kindByAssetId.get(assetId));
 }
 
 /**
@@ -232,7 +229,9 @@ export function buildAddStockOps(
   return {
     operations: [
       addAsset,
-      { type: 'add_layer', layerId, layerType: 'video', atIndex: 0 },
+      // In front of the footage, under every graphics lane (ADR 0191): at index 0 a photo placed
+      // into empty time covered the stickers, shapes and titles above it.
+      { type: 'add_layer', layerId, layerType: 'video', atIndex: frontPictureLaneIndex(timeline) },
       {
         type: 'add_clip',
         trackId: layerId,
@@ -313,4 +312,271 @@ export function stockPlacementConflictReason(
     `Call add_stock again with atSeconds ${free.toFixed(1)}, or omit atSeconds to put it ` +
     'in the media bin and place it later with add_clip.'
   );
+}
+
+// ---------------------------------------------------------------------------
+// Manual placements from the Photos and Videos panel (plan/elements EL9, ADR 0193)
+// ---------------------------------------------------------------------------
+
+/**
+ * **Add as overlay** places a picture at this share of its contain-fit size (MD-E5).
+ *
+ * Small enough that the footage it sits over stays the subject, big enough to read at a glance
+ * on a phone. It is a starting size, not a rule: the on-canvas handles resize it like any clip.
+ */
+export const STOCK_OVERLAY_SCALE = 0.4;
+
+/** Keyframes at the clip's first frame count as its base transform (the handles write time 0). */
+const BASE_KEYFRAME_TIME = 1e-3;
+
+/** The one track type that carries the picture chain; graphics, captions and sound do not. */
+const PICTURE_LANE: Track['type'] = 'video';
+
+/** Lanes drawn over the picture — stickers, shapes and titles (`overlay`), and captions. */
+const GRAPHICS_LANES: ReadonlySet<Track['type']> = new Set(['overlay', 'caption']);
+
+/**
+ * Where a new picture lane opens: just in front of the front-most picture lane, so it covers the
+ * footage, and never in front of a graphics lane, so stickers, shapes, titles and captions stay on
+ * top (ADR 0191). A picture lane can sit above the graphics — an older project, or a clip moved
+ * onto a new front lane — and the new lane still opens under the last graphics lane above the
+ * sound. With no picture lane yet, it opens under the graphics and above the sound.
+ *
+ * @param timeline - The timeline the lane will be added to.
+ * @returns The `add_layer` index (0 is the visual front).
+ */
+export function frontPictureLaneIndex(timeline: Timeline): number {
+  const { tracks } = timeline;
+  const firstSound = tracks.findIndex((track) => track.type === 'audio');
+  const aboveSound = firstSound >= 0 ? firstSound : tracks.length;
+  const frontPicture = tracks.findIndex((track) => track.type === PICTURE_LANE);
+  if (frontPicture < 0) return aboveSound;
+  let underGraphics = 0;
+  for (let index = 0; index < aboveSound; index += 1) {
+    if (GRAPHICS_LANES.has(tracks[index]!.type)) underGraphics = index + 1;
+  }
+  return Math.max(frontPicture, underGraphics);
+}
+
+/** What a manual Photos/Videos placement decided, for the caller that selects and describes it. */
+export interface StockLanePlacement {
+  /** The operations, in the order they must apply: one patch, one undo. */
+  readonly operations: readonly AnyOperation[];
+  /** The lane the clip lands on — existing, or one the operations open. */
+  readonly trackId: string;
+  /** The id the new clip will have, so the caller can select it. */
+  readonly clipId: string;
+  /** TRUE when the placement opens that lane. */
+  readonly createdLayer: boolean;
+  /** The clamped start, in timeline seconds. */
+  readonly start: number;
+  /** The clip's length, in timeline seconds. */
+  readonly durationSeconds: number;
+  /** The asset's renderable kind, for describing what was placed. */
+  readonly kind: StockKind;
+}
+
+/** A drop's placement, which also says whether it honoured the lane under the cursor. */
+export interface StockDropPlacement extends StockLanePlacement {
+  /** TRUE when the clip landed on the lane it was dropped on. */
+  readonly onDroppedLane: boolean;
+}
+
+/** The span a stock asset occupies from `atStart`: clamped, with a still's default length. */
+function stockSpan(
+  asset: Asset,
+  atStart: number,
+): { readonly start: number; readonly end: number; readonly durationSeconds: number } {
+  const start = atStart < 0 ? 0 : atStart;
+  const durationSeconds = asset.durationSeconds ?? DEFAULT_STOCK_STILL_SECONDS;
+  return { start, end: start + durationSeconds, durationSeconds };
+}
+
+/**
+ * An overlay's span: its own length, but ending with the programme when it starts inside it. A
+ * picture-in-picture sits over footage; one that ran on past the last picture clip would lengthen
+ * the export with the overlay alone over black (a 40 s clip at 25 s on a 30 s talking head
+ * exported 65 s). Started at or after the end, it is new material and keeps its length.
+ */
+function overlaySpan(
+  timeline: Timeline,
+  assets: readonly Asset[],
+  asset: Asset,
+  atStart: number,
+): { readonly start: number; readonly end: number; readonly durationSeconds: number } {
+  const span = stockSpan(asset, atStart);
+  const programmeEnd = lastPictureEnd(timeline, assets);
+  if (span.start >= programmeEnd - MIN_EDIT_SECONDS || span.end <= programmeEnd) return span;
+  return { start: span.start, end: programmeEnd, durationSeconds: programmeEnd - span.start };
+}
+
+/** A lane a manual placement may write to: a picture lane the user has not locked or hidden. */
+function isOpenPictureLane(track: Track): boolean {
+  return track.type === PICTURE_LANE && track.locked !== true && track.hidden !== true;
+}
+
+/** TRUE when the clip's base transform draws it smaller than its contain-fit size. */
+function isScaledDown(clip: Clip): boolean {
+  return (clip.keyframes ?? []).some(
+    (keyframe) =>
+      keyframe.property === 'scale' && keyframe.time <= BASE_KEYFRAME_TIME && keyframe.value < 1,
+  );
+}
+
+/**
+ * The picture lane a new one would open in front of — the front-most one under the graphics
+ * ({@link frontPictureLaneIndex}) — when it holds only pictures-in-picture (or nothing) and has
+ * room over the span. So a second overlay joins the first instead of opening a lane per clip, an
+ * overlay never lands on the footage it is meant to sit over, and a lane stacked above the titles
+ * is never reused to put a picture over them.
+ */
+function pictureInPictureLane(timeline: Timeline, start: number, end: number): Track | undefined {
+  const opensAt = frontPictureLaneIndex(timeline);
+  const front = timeline.tracks.slice(opensAt).find((track) => track.type === PICTURE_LANE);
+  if (front === undefined || !isOpenPictureLane(front)) return undefined;
+  if (!front.clips.every(isScaledDown)) return undefined;
+  return trackHasRoomFor(front, start, end) ? front : undefined;
+}
+
+/**
+ * The asset (unless the bin has it), the lane (when one opens), the clip, then `extra` — one
+ * patch, so a single undo takes back all of it and leaves no orphan asset or empty lane.
+ */
+function stockLaneOperations(
+  timeline: Timeline,
+  assets: readonly Asset[],
+  asset: Asset,
+  span: { readonly start: number; readonly end: number; readonly durationSeconds: number },
+  lane: Track | undefined,
+  extra: (clipId: string) => readonly AnyOperation[],
+): StockLanePlacement {
+  const trackId = lane?.id ?? nextLaneId(timeline, PICTURE_LANE);
+  const clipId = addClipId(trackId, asset.id, span.start);
+  // The same file already in the bin is reused. A different file under the same id (a Pexels
+  // photo and video can share a numeric id) is added anyway, so the validator refuses the clash
+  // instead of the clip quietly showing the other file.
+  const inBin = assets.some(
+    (candidate) => candidate.id === asset.id && candidate.path === asset.path,
+  );
+  return {
+    operations: [
+      ...(inBin ? [] : [{ type: 'add_asset', asset } as const]),
+      ...(lane === undefined
+        ? [
+            {
+              type: 'add_layer',
+              layerId: trackId,
+              layerType: PICTURE_LANE,
+              atIndex: frontPictureLaneIndex(timeline),
+            } as const,
+          ]
+        : []),
+      {
+        type: 'add_clip',
+        trackId,
+        assetId: asset.id,
+        clipId,
+        start: span.start,
+        end: span.end,
+        sourceStart: 0,
+        sourceEnd: span.durationSeconds,
+      },
+      ...extra(clipId),
+    ],
+    trackId,
+    clipId,
+    createdLayer: lane === undefined,
+    start: span.start,
+    durationSeconds: span.durationSeconds,
+    kind: stockKind(asset),
+  };
+}
+
+/**
+ * The operations for **Add as overlay**: a downloaded photo or video as a picture-in-picture at
+ * `atStart`, centred at {@link STOCK_OVERLAY_SCALE} of its contain-fit size, in front of the
+ * front-most picture lane and under every graphics lane.
+ *
+ * ## Why this never refuses, when {@link buildAddStockOps} does
+ *
+ * **Add** is a cutaway, and ADR 0140 keeps it out of occupied picture. An overlay exists to sit
+ * over footage — refusing it for covering picture would refuse the whole feature. The refusal was
+ * about a monitor that could not composite layers; the monitor composites every layer now (ADR
+ * 0180), and this is an ordinary picture clip with a base transform, so preview and export draw
+ * it the same way (ADR 0193).
+ *
+ * The size is the base `scale` keyframe at time 0, the same keyframes the on-canvas handles
+ * write, so a placed overlay and a hand-sized one are the same data. Manual only: the agent's
+ * `add_stock` keeps its cutaway rule until picture-in-picture from the agent is measured.
+ *
+ * @param timeline - Current timeline.
+ * @param assets - The project's asset bin (an asset already in it is not added twice).
+ * @param asset - The downloaded stock asset.
+ * @param atStart - Desired timeline start (seconds); clamped to >= 0.
+ * @returns The placement — always one; nothing about the timeline can refuse it.
+ */
+export function buildAddStockOverlayOps(
+  timeline: Timeline,
+  assets: readonly Asset[],
+  asset: Asset,
+  atStart: number,
+): StockLanePlacement {
+  const span = overlaySpan(timeline, assets, asset, atStart);
+  const base = { scale: STOCK_OVERLAY_SCALE, x: 0, y: 0 } as const;
+  return stockLaneOperations(
+    timeline,
+    assets,
+    asset,
+    span,
+    pictureInPictureLane(timeline, span.start, span.end),
+    (clipId) => [
+      {
+        type: 'add_keyframes',
+        clipId,
+        keyframes: (['scale', 'x', 'y'] as const).map((property) => ({
+          id: `kf_${clipId}_${property}_base`,
+          time: 0,
+          property,
+          value: base[property],
+          easing: 'linear' as const,
+        })),
+        replace: true,
+      },
+    ],
+  );
+}
+
+/**
+ * The operations for a photo or video tile dragged onto the timeline: full frame, at the drop
+ * time, on the lane it was dropped on when that is an open picture lane with room — else on a new
+ * lane in front of the front-most picture lane.
+ *
+ * A drag is an explicit stack: the user chose the moment and the lane and can see the result,
+ * which is why ADR 0140 itself calls the front-lane placement right for a file dragged in by hand.
+ * So this never refuses for covering picture either. It keeps its full length even past the end of
+ * the programme, as any clip dragged in from the bin does: a full-frame shot there is new
+ * material, not a picture over the footage (ADR 0193).
+ *
+ * @param timeline - Current timeline (the caller passes the live one once the download is in).
+ * @param assets - The project's asset bin.
+ * @param asset - The downloaded stock asset.
+ * @param atStart - The drop time (seconds); clamped to >= 0.
+ * @param droppedTrackId - The lane under the cursor, if the drop was on one.
+ */
+export function buildDropStockOps(
+  timeline: Timeline,
+  assets: readonly Asset[],
+  asset: Asset,
+  atStart: number,
+  droppedTrackId?: string,
+): StockDropPlacement {
+  const span = stockSpan(asset, atStart);
+  const dropped = timeline.tracks.find(
+    (track) =>
+      track.id === droppedTrackId &&
+      isOpenPictureLane(track) &&
+      trackHasRoomFor(track, span.start, span.end),
+  );
+  const placement = stockLaneOperations(timeline, assets, asset, span, dropped, () => []);
+  return { ...placement, onDroppedLane: dropped !== undefined };
 }
