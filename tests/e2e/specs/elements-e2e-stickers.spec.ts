@@ -134,11 +134,15 @@ test('Stickers: add the fire sticker, replace it with a heart, export, undo', as
   const { desktop } = opened;
 
   // --- add: one click on the tile; main copies the file in, one patch places it ----------------
+  // The grid draws only the rows in view (EL6b), so a sticker is found as a person finds one in
+  // 1,595: by search.
+  const search = page.getByRole('searchbox', { name: 'Search stickers', exact: true });
   await page.getByRole('tab', { name: 'Elements', exact: true }).click();
   await page
     .getByRole('tablist', { name: 'Elements', exact: true })
     .getByRole('tab', { name: 'Stickers', exact: true })
     .click();
+  await search.fill('fire');
   await expect(page.getByRole('button', { name: 'Add Fire', exact: true })).toBeVisible();
   await expectPanelAxeClean(page, 'Stickers');
   await page
@@ -151,6 +155,7 @@ test('Stickers: add the fire sticker, replace it with a heart, export, undo', as
     .getByRole('tablist', { name: 'Elements', exact: true })
     .getByRole('tab', { name: 'Stickers', exact: true })
     .click();
+  await search.fill('fire');
   await page.getByRole('button', { name: 'Add Fire', exact: true }).click();
   const added = await savedProject(desktop, (doc) => stickersOf(doc).length === 1, 'one sticker');
   const sticker = stickersOf(added)[0]!;
@@ -164,6 +169,7 @@ test('Stickers: add the fire sticker, replace it with a heart, export, undo', as
   await page.getByRole('tab', { name: 'Inspector', exact: true }).click();
   await page.getByRole('button', { name: 'Replace…', exact: true }).click();
   await expect(page.getByText('Pick a sticker to replace “Fire”.')).toBeVisible();
+  await search.fill('red heart');
   await page.getByRole('button', { name: 'Use Red heart', exact: true }).click();
   const replaced = await savedProject(
     desktop,
