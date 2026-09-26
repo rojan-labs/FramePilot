@@ -276,6 +276,8 @@ Required:
 - project save/load
 - markers
 - nested sequences later
+- elements over the picture: stock photos and videos, callout shapes and stickers, with In/Out
+  and Loop animation (`plan/elements/`)
 
 ---
 
