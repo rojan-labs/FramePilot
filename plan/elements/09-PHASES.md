@@ -651,7 +651,7 @@ reuses.
 
 ---
 
-## EL12 — Close-out `[ ]`
+## EL12 — Close-out `[~]`
 
 - [ ] **EL12.1** `docs/guides/elements.md` complete; `docs/api` (schema v25–v26, raster route,
       IPC); `mcp-server.md`; ADR index.

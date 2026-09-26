@@ -10328,7 +10328,7 @@ stickers, CC BY 4.0 (EL10).
 - [~] **EL11** Polish, shrunk by its scope review: "Add as overlay" for the user's own images, drop a
   sticker or shape on the monitor, record a dragged sticker as recent; skin tones, follow subject
   and the browser build deferred with reasons (`plan/elements/11-RISKS-AND-DEFERRED.md` §2)
-- [ ] **EL12** Docs, changelogs, desktop evidence runs, close-out
+- [~] **EL12** Docs, changelogs, desktop evidence runs, close-out
 - [ ] **Found in EL6a — the release workflow has never completed a build.** electron-builder
   rejects the Linux executable name (`@framepilotdesktop`), macOS stops at "not a file", Windows
   fails building editor-core. The release gate (EL12, "installer within budget") fixes it; the

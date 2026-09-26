@@ -307,7 +307,7 @@ holds and every row of [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md) is d
 | EL9   | `[~]`  | Built: chips, orientation, drag, Add as overlay (ADR 0193); CI pending    |
 | EL10  | `[!]`  | Optional; waits on the MD-E3 licence read (a human step, see 09)          |
 | EL11  | `[~]`  | Built: bin overlay, monitor drop, dragged recent; 3 deferred; CI pending  |
-| EL12  | `[ ]`  |                                                                           |
+| EL12  | `[~]`  | Docs, changelogs, runbook, release fixes; UI and a11y pass in progress    |
 
 ---
 
