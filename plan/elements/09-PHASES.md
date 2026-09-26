@@ -413,18 +413,49 @@ Depends on EL6a, MD-E1, EL2b.1.
 
 Depends on EL2b.2 (geometry transitions), and EL4a or EL6a.
 
-- [ ] **EL7.1** Inspector **Animation** section for stickers, shapes and titles. **In / Out** are
-      layer transitions (`add_layer_transition`, the existing op and catalogue — a curated graphics
-      subset: fade, pop, slide ×4, wipe, blur-in); the title's control writes them too from now
-      on, while the legacy `inAnimation`/`outAnimation` params (honoured since EL2a) stay readable
-      and are no longer written. No new schema. "Animation…" in the clip context menu.
-- [ ] **EL7.2** **Loop** as keyframes from an `editor-core` builder (`loop-motion.ts`, the
-      `track-follow.ts` pattern): pulse, float, wiggle, bounce, spin, blink — one patch, one undo,
-      rendered by the transform pipeline that already exists. Trade-off recorded in the ADR:
-      extending a looped clip does not extend its loop until the Inspector's "Re-apply" (or the
-      agent) regenerates it; the critic notes a loop that stops before its clip ends.
-- [ ] **EL7.3** Agent: `set_element_animation`; skill section on restraint; one evaluation case.
-- [ ] **EL7.4** Oracle rows `loop/pulse`, `loop/wiggle`, `stickers/in-pop`, `shapes/out-slide`.
+- [~] **EL7.1** Inspector **Animation** section for stickers, shapes and titles. **In / Out** are
+  layer transitions (`add_layer_transition`, the existing op and catalogue — a curated graphics
+  subset: fade, pop, slide ×4, wipe, blur-in); the title's control writes them too from now on,
+  while the legacy `inAnimation`/`outAnimation` params (honoured since EL2a) stay readable and are
+  no longer written. No new schema. "Animation…" in the clip context menu.
+  _Built:_ `AnimationSection.tsx` on the Basic tab (In/Out preset + length, Loop preset + speed +
+  amount, Re-apply), one undo each through `planElementAnimation`; the Text tab points there;
+  "Animation…" opens it. **Found and fixed:** the op refused graphics lanes and every moving exit,
+  because on an exit both renderers kept only the kind's mask (a slide vanished at once). Layer
+  transitions now treat graphics lanes, and a moving exit plays its entrance backwards in time
+  (frame plan `reversed`, compiler and monitor; `TRANSITION_EXIT_BY_MASK` keeps every existing
+  exit as it was). ADR 0192.
+- [~] **EL7.2** **Loop** as keyframes from an `editor-core` builder (`loop-motion.ts`, the
+  `track-follow.ts` pattern): pulse, float, wiggle, bounce, spin, blink — one patch, one undo,
+  rendered by the transform pipeline that already exists. Trade-off recorded in the ADR:
+  extending a looped clip does not extend its loop until the Inspector's "Re-apply" (or the
+  agent) regenerates it; the critic notes a loop that stops before its clip ends.
+  _Built:_ `loop-motion.ts` (8 tests: every preset, frame-pixel moves, spin, read back,
+  replace/clear, refusals, ranges); `clipLoop().coversClip` drives Re-apply and the skill's
+  instruction; the eval rubric requires `coversClip`.
+- [~] **EL7.3** Agent: `set_element_animation`; skill section on restraint; one evaluation case.
+  _Built:_ the tool (elements domain, MCP, engine registry delegated to the host), the
+  stickers-and-callouts skill's restraint rules, case `animate-arrow-and-sticker` on
+  `mission-animate-demo` (rubric `element-animation`: Pop on the arrow, Pulse on the sticker,
+  nothing else); +22 tokens a request.
+- [~] **EL7.4** Oracle rows `loop/pulse`, `loop/wiggle`, `stickers/in-pop`, `shapes/out-slide`.
+  _Built:_ `loop/pulse`, `loop/wiggle` (keyframes written by the builder),
+  `stickers/stickers-in-pop`, `shapes/shapes-out-slide`; TS and Python vectors equal; e2e
+  (Shapes spec) animates a box from the clip menu through export parity and undo.
+- [!] **The evaluation case** `animate-arrow-and-sticker` (a talking head with an arrow and a
+  sticker already on it; rubric `element-animation`). **Human step (model runs are paid and not
+  run by the agent):** as EL6a's case, with the sidecar up and
+  `node packages/ai-sdk/scripts/mission-fixture-projects.mjs --only mission-animate-demo`; then,
+  detached on an idle machine, `FRAMEPILOT_AI_PROVIDER=claude-agent-sdk
+FRAMEPILOT_CLAUDE_AGENT_SDK_MODEL=claude-sonnet-5 FRAMEPILOT_PYTHON_API_URL=http://127.0.0.1:8799
+node packages/ai-sdk/scripts/mission-baseline.mjs --case animate-arrow-and-sticker --runs 10
+--yes`, and record the share of runs passing `arrow-pops-in`, `sticker-pulses` and
+  `nothing-else-animated` here.
+- [!] **Run C — short-form talking head** (10 §4, a human step): in the desktop app, a real 9:16
+  talking-head clip; add three reaction stickers with an In, a Loop and an Out (one by hand, two by
+  asking the assistant), export at 1080×1920, and note whether any sticker covers the face or the
+  captions and whether the exported motion matches the monitor. Commit the notes as
+  `docs/reports/elements/run-c-short-form.md` with the commit they ran on.
 
 **DoD:** each animation previews exactly as it exports, undoes in one step, and is reachable by the
 agent.

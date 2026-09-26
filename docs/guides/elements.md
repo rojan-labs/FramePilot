@@ -153,6 +153,28 @@ If a sticker cannot be added, the tab says why: not enough disk space, a damaged
 in this install of FramePilot (reinstalling fixes it), or a project folder that cannot be written
 to. Stickers need the desktop app: in the browser the Stickers tab is not shown.
 
+## Animation: In, Out and Loop
+
+A sticker, a shape, a title or a picture on a graphics layer can come in, go out and loop while it
+is on screen. Right-click it on the timeline and choose **Animation…**, or find **Animation** on the
+Inspector's Basic tab.
+
+- **In and Out:** Fade, Pop, Slide left, Slide right, Slide up, Slide down, Wipe or Blur, each with
+  a length (at most half the clip). A slide is named by the way it travels: **Slide left** comes in
+  moving left, and as an Out it leaves moving left. A moving Out plays its In backwards, so it
+  eases away the way it eased in.
+- **Loop:** Pulse (grows and shrinks), Float (drifts up and down), Wiggle (rocks), Bounce (hops),
+  Spin or Blink, with its **Speed** (seconds per cycle) and **Amount**. A loop is written over the
+  clip as it is when you set it: lengthen the clip later and the section says the clip is longer
+  than its loop, with **Re-apply** to cover it again. A loop will not replace animation you keyed
+  yourself: clear those keyframes first, or pick a loop that moves something else.
+- Every change is one undo, and the monitor shows exactly what the export draws.
+- **Titles** used to set In and Out on the Text tab; that is Animation's job now. A title that
+  already had them keeps them until you change them here.
+- **Ask the assistant:** "make the arrow pop in and the sticker pulse". It uses the same In, Out
+  and Loop (`set_element_animation`), and keeps to one entrance and at most one slow loop unless
+  you ask for more.
+
 ## What stays the same
 
 Saved projects are untouched by the rename: a clip you added from the Stock tab keeps its asset,

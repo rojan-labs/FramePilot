@@ -38,6 +38,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   shadowed without a mask (an outline on a photo is a border), and a title's outline follows its
   letters. The assistant's "outline this sticker" works the same way.
 
+- **Animation for stickers, shapes and titles.** Each can now come in, go out and loop: Fade, Pop,
+  four slides, Wipe or Blur on the way in and out, with a length; Pulse, Float, Wiggle, Bounce,
+  Spin or Blink while it is on screen, with a speed and an amount. Find it in the Inspector's new
+  **Animation** section, or right-click a graphic and choose **Animation…**. A moving exit plays
+  its entrance backwards, so a slide leaves the way it came. Every change is one undo, and the
+  monitor shows what the export draws. The assistant does it too: "make the arrow pop in and the
+  sticker pulse". A title's In and Out have moved there from the Text tab.
+
 - **All 1,595 stickers, in the desktop app.** The Stickers tab now lists the whole Fluent Emoji
   set, shipped inside the installer so every sticker works offline. Chips for **Recent**,
   **Favourites** (a star, or **F**) and the set's nine groups sit beside the collections; a dot

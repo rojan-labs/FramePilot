@@ -34,6 +34,15 @@ comes from, and **Replace…**, which opens the Stickers tab to swap it for anot
 timing, position, size and animation stay. Its place, size and turn are the ordinary **Position &
 size** section, as for a photo.
 
+## Animation
+
+A sticker, shape, title or picture on a graphics layer gets an **Animation** section on the Basic
+tab: **In** and **Out** (a preset and a length each) and **Loop** (a preset, its speed and its
+amount), each change one undo. "Animation…" on the clip's right-click menu opens it. A loop set
+before the clip was lengthened offers **Re-apply**. A title's In and Out live here, not on the Text
+tab. The Transition section does not show a graphic's own entrance, which this section edits.
+See [Elements](./elements.md#animation-in-out-and-loop).
+
 ## Extension rules
 
 New inspector sections belong in `components/inspector/registry.ts` and should use the shared `InspectorSection`, `InspectorRow`, `LabeledSelect`, and existing patch builders. Keep section ids stable because disclosure preferences are persisted by id. New controls must retain explicit accessible names and must never mutate timeline data directly.
