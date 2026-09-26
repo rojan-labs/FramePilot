@@ -307,32 +307,48 @@ export function WebCodecsPreviewPlayer({
   };
 
   // --- A sticker or shape dropped on the picture (plan/elements EL11, 02 §3) ------------------
-  // The frame is the drop zone: it is the picture itself, inside any letterbox and after any zoom
-  // or pan, so its box is where the drop lands on the frame. The legacy engine (kill switch) is not
-  // a drop target: it previews one picture layer, and a drop there could not be shown as placed.
+  // The stage is the drop zone — the picture and the letterbox around it — so a drop in the black
+  // beside a 9:16 picture still lands, on the picture's nearest edge. Where it lands is measured
+  // against the frame's own box: the picture itself, after any zoom or pan. The legacy engine
+  // (kill switch) is not a drop target: it previews one picture layer, and a drop there could not
+  // be shown as placed.
   const takesElementDrops = layered && onDropElement !== undefined;
   const [elementDropOver, setElementDropOver] = useState(false);
-  const onFrameDragOver = (event: React.DragEvent<HTMLDivElement>): void => {
-    // Only the types are readable before the drop; the tile names its kind among them.
-    if (!dragCarriesElementKind(event.dataTransfer.types, MONITOR_DROP_KINDS)) return;
+  // Enters minus leaves: crossing the frame, the handles or a caption fires a leave on what the
+  // pointer left, and a plain flag would flicker the ring off while it is still over the monitor.
+  const elementDropDepth = useRef(0);
+  // Only the types are readable before the drop; the tile names its kind among them.
+  const carriesDroppable = (event: React.DragEvent<HTMLDivElement>): boolean =>
+    dragCarriesElementKind(event.dataTransfer.types, MONITOR_DROP_KINDS);
+  const onStageDragEnter = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (!carriesDroppable(event)) return;
+    event.preventDefault();
+    elementDropDepth.current += 1;
+    setElementDropOver(true);
+  };
+  const onStageDragOver = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (!carriesDroppable(event)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
     setElementDropOver(true);
   };
-  const onFrameDragLeave = (event: React.DragEvent<HTMLDivElement>): void => {
-    // Crossing onto the handles, a caption or a shape drawn on the picture is not leaving it.
-    const next = event.relatedTarget;
-    if (next instanceof Node && event.currentTarget.contains(next)) return;
-    setElementDropOver(false);
+  const onStageDragLeave = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (!carriesDroppable(event)) return;
+    elementDropDepth.current = Math.max(0, elementDropDepth.current - 1);
+    if (elementDropDepth.current === 0) setElementDropOver(false);
   };
-  const onFrameDrop = (event: React.DragEvent<HTMLDivElement>): void => {
+  const onStageDrop = (event: React.DragEvent<HTMLDivElement>): void => {
+    elementDropDepth.current = 0;
     setElementDropOver(false);
     const item = decodeElementDrag(event.dataTransfer.getData(ELEMENT_DND_TYPE));
-    if (item === null || item.kind === 'stock' || onDropElement === undefined) return;
+    const frame = frameRef.current;
+    if (item === null || item.kind === 'stock' || onDropElement === undefined || frame === null) {
+      return;
+    }
     event.preventDefault();
     const point = clientPointToFrame(
       { x: event.clientX, y: event.clientY },
-      event.currentTarget.getBoundingClientRect(),
+      frame.getBoundingClientRect(),
     );
     if (point === null) return;
     log.action('element dropped on the monitor', { kind: item.kind, x: point.x, y: point.y });
@@ -964,13 +980,21 @@ export function WebCodecsPreviewPlayer({
           monitorVolume={monitorGain}
         />
       )}
-      <div className="preview-stage" ref={setStageHost}>
+      <div
+        className="preview-stage"
+        ref={setStageHost}
+        {...(takesElementDrops
+          ? {
+              onDragEnter: onStageDragEnter,
+              onDragOver: onStageDragOver,
+              onDragLeave: onStageDragLeave,
+              onDrop: onStageDrop,
+            }
+          : {})}
+      >
         <div
           className={`preview-frame${elementDropOver ? ' is-element-drop' : ''}`}
           ref={frameRef}
-          {...(takesElementDrops
-            ? { onDragOver: onFrameDragOver, onDragLeave: onFrameDragLeave, onDrop: onFrameDrop }
-            : {})}
           style={{
             ['--aspect' as string]: String(aspect),
             transform:
