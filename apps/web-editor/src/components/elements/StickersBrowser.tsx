@@ -20,7 +20,7 @@ import {
   type StickerItem,
 } from '@framepilot/ai-sdk';
 import { elementAssetId } from '@framepilot/editor-core';
-import type { ElementAssetWire } from '@framepilot/shared-types';
+import type { ElementAssetWire, ElementMaterializeResult } from '@framepilot/shared-types';
 import { elementsMaterialize } from '../../editor/bridge.js';
 import { stickerErrorSentence } from '../../editor/sticker-builders.js';
 import { useViewPreference } from '../../editor/useViewPreference.js';
@@ -294,7 +294,10 @@ export function StickersBrowser({
     setBusy(item.id);
     setRefusal(null);
     try {
-      const result = await elementsMaterialize({ projectId: project.id, elementId: item.id });
+      // Main may not answer at all (the licence lapsed, the window is closing): a failed copy.
+      const result = await elementsMaterialize({ projectId: project.id, elementId: item.id }).catch(
+        (): ElementMaterializeResult => ({ ok: false, error: 'io_failed' }),
+      );
       if (!result.ok) {
         setRefusal(stickerErrorSentence(result.error, result.detail));
         return;

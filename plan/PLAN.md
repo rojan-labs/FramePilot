@@ -10331,6 +10331,13 @@ stickers, CC BY 4.0 (EL10).
   it. Every Python flow passes through `safety.resolve_within`: rewriting its containment check as
   the normalise-then-`startswith` guard CodeQL recognises should clear most of them; triage the
   rest one by one.
+- [ ] **Found in EL6b — the packaged sticker set's only trust root is outside the archive
+  (accepted risk, separate PR).** Its `manifest.json` catches corruption and a mismatched build,
+  not a rewrite by someone who can write the install folder, who could rewrite `app.asar` as well:
+  the asar-integrity fuses (`EnableEmbeddedAsarIntegrityValidation`, `OnlyLoadAppFromAsar`) are
+  off. Enable them with signing (EL12 or the signing work), and compile the manifest's digest into
+  the archive at packaging so main checks the set against it
+  (`docs/runbooks/security-hardening.md`, 2026-09-26 packaged set review).
 
 **Last updated:** 2026-09-26
 

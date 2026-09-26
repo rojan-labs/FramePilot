@@ -11,7 +11,12 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { loadStickerCatalog } from '@framepilot/ai-sdk';
+import { setLogLevel } from '@framepilot/shared-types';
 import { packagedSetProblems } from '../dist/media/packaged-stickers.js';
+
+// The check places every sticker through the app's library, which logs each copy; a problem is
+// what this run is for, so only warnings and errors are printed.
+setLogLevel('warn');
 
 const desktopDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const root = path.resolve(desktopDir, process.argv[2] ?? 'elements-packaged');

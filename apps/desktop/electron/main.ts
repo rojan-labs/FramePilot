@@ -260,9 +260,9 @@ import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
 import {
   ElementsLibrary,
-  MAX_THUMBNAILS_PER_REQUEST,
   bundledStickersRoot,
   packagedStickersRoot,
+  thumbnailRequestIds,
 } from './media/elements-library.js';
 import { createStickerHost } from './ai/sticker-host.js';
 
@@ -1600,12 +1600,11 @@ function registerIpcHandlers(): void {
     IpcChannels.elementsThumbnail,
     async (_event, request: unknown): Promise<ElementThumbnailResult> => {
       requireLicense();
-      const ids = (request as { elementIds?: unknown } | null)?.elementIds;
-      // Ids only, strings only, bounded: the library skips anything that is not a packaged id.
-      if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'string')) {
-        return { ok: false, error: 'unknown_element' };
-      }
-      return await elementsLibrary.thumbnails(ids.slice(0, MAX_THUMBNAILS_PER_REQUEST));
+      // Ids only, strings only, one request's worth: the library skips anything that is not a
+      // packaged id.
+      const ids = thumbnailRequestIds(request);
+      if (ids === null) return { ok: false, error: 'unknown_element' };
+      return await elementsLibrary.thumbnails(ids);
     },
   );
   ipcMain.handle(IpcChannels.stockQuota, async (): Promise<StockQuotaSnapshot> => {

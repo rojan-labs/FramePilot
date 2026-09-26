@@ -97,10 +97,30 @@ describe('packagedSetProblems', () => {
       'rocket: the file does not match the manifest',
       'ufo: the manifest names a file that is not the sticker’s own',
       'comet: not in the packaged set',
+      // And so the app, which refuses a manifest with an entry packaging could not have written.
+      'the app would not use this set: rebuild it with pnpm build:elements',
     ]);
     write({ rocket: {} }, 'another-commit');
     expect(await packagedSetProblems(catalog([packaged('rocket')]), root)).toEqual([
       'the set was built for library commit another-commit, not abc: rebuild it',
+    ]);
+  });
+
+  it('reads the set as the app will: a manifest the app would not use fails, whatever else holds', async () => {
+    // Every file present and hashed, but one entry claims a size no sticker has: the app ignores
+    // the whole set, so a packaged build would list none of it.
+    write({ rocket: {}, ufo: { width: 0 } });
+    expect(
+      await packagedSetProblems(catalog([packaged('rocket'), packaged('ufo')]), root),
+    ).toContain('the app would not use this set: rebuild it with pnpm build:elements');
+  });
+
+  it('places every sticker through the app’s own library, and names one it cannot', async () => {
+    // The manifest is well formed and the full file hashes, but the tile is not the size the
+    // manifest says: the app would list the sticker with no tile.
+    write({ rocket: { thumbBytes: ROCKET.length + 1 } });
+    expect(await packagedSetProblems(catalog([packaged('rocket')]), root)).toEqual([
+      'rocket: the app would not show its tile',
     ]);
   });
 

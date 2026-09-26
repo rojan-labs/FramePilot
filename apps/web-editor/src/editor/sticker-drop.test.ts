@@ -141,4 +141,21 @@ describe('placeDroppedSticker', () => {
     });
     expect(d.materialize).not.toHaveBeenCalled();
   });
+
+  it('says the copy failed, rather than throwing, when main does not answer', async () => {
+    const placed = await placeDroppedSticker(
+      {
+        materialize: async () => {
+          throw new Error('the licence lapsed');
+        },
+        loadCatalog: async () => catalog,
+      },
+      { projectId: 'p', elementId: 'fire', atSeconds: 0, durationSeconds: 3, target },
+    );
+    expect(placed).toEqual({
+      ok: false,
+      message:
+        "Couldn't copy this sticker into the project. Check the project folder can be written to, then try again.",
+    });
+  });
 });

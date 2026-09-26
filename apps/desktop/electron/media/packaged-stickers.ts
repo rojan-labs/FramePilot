@@ -4,15 +4,19 @@
  * `pnpm build:elements` encodes every sticker the renderer does not ship into the desktop
  * installer's resources, with a manifest of what it encoded. This reads that set back against the
  * catalogue the app lists from: every packaged sticker present, its file the one the manifest
- * names and hashes, the licence beside it, the whole within its budget. CI (`desktop-build`) runs
- * it (`scripts/check-packaged-stickers.mjs`), so a packaged app can never list a sticker it cannot
+ * names and hashes, the licence beside it, the whole within its budget — and then through the
+ * app's own `ElementsLibrary`, which is stricter about the manifest than packaging need be: every
+ * tile served and every sticker placed into a scratch project. CI (`desktop-build`) runs it
+ * (`scripts/check-packaged-stickers.mjs`), so a packaged app can never list a sticker it cannot
  * place.
  */
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { StickerCatalog } from '@framepilot/ai-sdk';
+import { ElementsLibrary, MAX_THUMBNAILS_PER_REQUEST } from './elements-library.js';
 
 /** What the packaged set may weigh (MD-E1); `build_library.py` holds it to the same number. */
 export const PACKAGED_STICKERS_BUDGET_BYTES = 40_000_000;
@@ -77,5 +81,42 @@ export async function packagedSetProblems(
       problems.push(`${item.id}: the file is missing`);
     }
   }
-  return problems;
+  return [...problems, ...(await problemsThroughTheApp(catalog, root))];
+}
+
+/** What the app's own library makes of the set: it must use it, show every tile, place each. */
+async function problemsThroughTheApp(
+  catalog: StickerCatalog,
+  root: string,
+): Promise<readonly string[]> {
+  const scratch = await mkdtemp(path.join(tmpdir(), 'fp-packaged-check-'));
+  try {
+    const library = new ElementsLibrary({
+      projectsRoot: scratch,
+      bundledRoot: () => scratch,
+      packagedRoot: () => root,
+      catalog: async () => catalog,
+    });
+    const presence = await library.thumbnails([]);
+    if (!presence.ok || !presence.packaged) {
+      return ['the app would not use this set: rebuild it with pnpm build:elements'];
+    }
+    const problems: string[] = [];
+    const ids = catalog.items.filter((item) => item.availability === 'packaged').map((i) => i.id);
+    for (let start = 0; start < ids.length; start += MAX_THUMBNAILS_PER_REQUEST) {
+      const batch = ids.slice(start, start + MAX_THUMBNAILS_PER_REQUEST);
+      const answer = await library.thumbnails(batch);
+      const served = new Set(answer.ok ? answer.thumbs.map((thumb) => thumb.elementId) : []);
+      for (const id of batch) {
+        if (!served.has(id)) problems.push(`${id}: the app would not show its tile`);
+      }
+    }
+    for (const id of ids) {
+      const placed = await library.materialize({ projectId: 'packaged-check', elementId: id });
+      if (!placed.ok) problems.push(`${id}: the app could not place it (${placed.error})`);
+    }
+    return problems;
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
 }

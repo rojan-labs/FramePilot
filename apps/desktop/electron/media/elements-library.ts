@@ -11,7 +11,8 @@
  * A sticker is not footage: no derive (its shape is in the catalogue) and no footage enrolment.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@framepilot/shared-types';
 import type {
@@ -46,6 +47,11 @@ export interface ElementsLibraryIO {
   readonly size: (file: string) => Promise<number | null>;
   /** The names in a folder; empty when there is no such folder. */
   readonly list: (dir: string) => Promise<readonly string[]>;
+  /**
+   * A regular file's bytes, refusing (throwing) anything else — a folder, a device, a pipe — and
+   * a file larger than `maxBytes`, without reading it. For files outside the app's own archive.
+   */
+  readonly readBounded: (file: string, maxBytes: number) => Promise<Buffer>;
 }
 
 export const nodeElementsLibraryIO: ElementsLibraryIO = {
@@ -78,6 +84,23 @@ export const nodeElementsLibraryIO: ElementsLibraryIO = {
       return [];
     }
   },
+  readBounded: async (file, maxBytes) => {
+    // Non-blocking, so a pipe planted in the set cannot hang main on open; POSIX only (Windows
+    // has no such flag, and no such files).
+    const handle = await open(file, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+    try {
+      const info = await handle.stat();
+      if (!info.isFile()) throw new Error('not a regular file');
+      if (info.size > maxBytes) throw new Error('larger than a sticker file may be');
+      // Exactly the size just checked, from the handle checked: a file that grows between the
+      // two is read no further.
+      const data = Buffer.alloc(info.size);
+      const { bytesRead } = await handle.read(data, 0, info.size, 0);
+      return data.subarray(0, bytesRead);
+    } finally {
+      await handle.close();
+    }
+  },
 };
 
 export interface ElementsLibraryOptions {
@@ -107,12 +130,35 @@ const sha256 = (data: Buffer): string => createHash('sha256').update(data).diges
 /** Tiles one thumbnail request may ask for: a screen of the grid, with room to scroll. */
 export const MAX_THUMBNAILS_PER_REQUEST = 96;
 
+/**
+ * What a packaged file may weigh. The set lives outside the app's archive, where another process
+ * can write, so main never reads more than this of it: the largest sticker is 57 KB and the
+ * largest tile 10 KB, so a file past these is not one packaging wrote.
+ */
+export const MAX_PACKAGED_STICKER_BYTES = 512 * 1024;
+export const MAX_PACKAGED_TILE_BYTES = 64 * 1024;
+/** A sticker's recorded pixel sizes stay within what a picture may be. */
+const MAX_STICKER_EDGE_PX = 8192;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+
+/**
+ * The ids of a `framepilot:elements:thumbnail` request, or `null` when it is not one: an object
+ * with a list of strings, no longer than one request may ask for (the renderer batches to that).
+ * The length is checked before the entries, so an oversized list is not walked.
+ */
+export function thumbnailRequestIds(request: unknown): readonly string[] | null {
+  const ids = (request as { elementIds?: unknown } | null)?.elementIds;
+  if (!Array.isArray(ids) || ids.length > MAX_THUMBNAILS_PER_REQUEST) return null;
+  return ids.every((id): id is string => typeof id === 'string') ? ids : null;
+}
+
 /** One packaged sticker as the packaging step encoded it (`build_library.py --packaged`). */
 interface PackagedEntry {
   readonly file: string;
   readonly thumb: string;
   readonly sha256: string;
   readonly bytes: number;
+  readonly thumbBytes: number;
   readonly width: number;
   readonly height: number;
   readonly sharpSize: number;
@@ -132,6 +178,29 @@ interface StickerSource {
   readonly width: number | null;
   readonly height: number | null;
   readonly sharpSize: number | null;
+  /** Set for a file outside the app's archive: read bounded, a regular file only. */
+  readonly maxBytes?: number;
+}
+
+const positiveInteger = (value: unknown, max: number): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= max;
+
+/**
+ * One manifest entry, checked field by field: the files must be the sticker's own, the digest a
+ * digest, and every number one packaging could have written. Nothing in it reaches a project
+ * unchecked, because the set lives outside the app's archive.
+ */
+function packagedEntry(id: string, raw: unknown): PackagedEntry | null {
+  if (!STICKER_ID_PATTERN.test(id) || typeof raw !== 'object' || raw === null) return null;
+  const entry = raw as Record<string, unknown>;
+  if (entry.file !== bundledFile(id) || entry.thumb !== `thumbs/${id}.webp`) return null;
+  if (typeof entry.sha256 !== 'string' || !SHA256_PATTERN.test(entry.sha256)) return null;
+  if (!positiveInteger(entry.bytes, MAX_PACKAGED_STICKER_BYTES)) return null;
+  if (!positiveInteger(entry.thumbBytes, MAX_PACKAGED_TILE_BYTES)) return null;
+  for (const edge of [entry.width, entry.height, entry.sharpSize]) {
+    if (!positiveInteger(edge, MAX_STICKER_EDGE_PX)) return null;
+  }
+  return entry as unknown as PackagedEntry;
 }
 
 /** ENOSPC has one honest answer, and it is not "the copy failed". */
@@ -325,7 +394,10 @@ export class ElementsLibrary {
     const source = found.path;
     let bytes: Buffer;
     try {
-      bytes = await this.io.readFile(source);
+      bytes =
+        found.maxBytes === undefined
+          ? await this.io.readFile(source)
+          : await this.io.readBounded(source, found.maxBytes);
     } catch {
       log.error('materialize: sticker file missing', {
         elementId: item.id,
@@ -393,19 +465,24 @@ export class ElementsLibrary {
     const entry = manifest?.items[item.id];
     const root = this.options.packagedRoot?.() ?? null;
     if (entry === undefined || root === null) return null;
-    if (entry.file !== bundledFile(item.id)) {
-      log.error('materialize: the packaged manifest names a file that is not the sticker’s own', {
+    let file: string;
+    try {
+      // The real path: a file linked out of the set is not the sticker's.
+      file = resolveWithin(root, entry.file);
+    } catch {
+      log.error('materialize: a packaged sticker file leads outside the set', {
         elementId: item.id,
       });
       return null;
     }
     return {
-      path: path.join(root, entry.file),
+      path: file,
       sha256: entry.sha256,
       bytes: entry.bytes,
       width: entry.width,
       height: entry.height,
       sharpSize: entry.sharpSize,
+      maxBytes: entry.bytes,
     };
   }
 
@@ -420,13 +497,23 @@ export class ElementsLibrary {
       try {
         const parsed = JSON.parse(
           (await this.io.readFile(path.join(root, 'manifest.json'))).toString('utf8'),
-        ) as Partial<PackagedManifest>;
+        ) as { commit?: unknown; items?: unknown };
         if (typeof parsed.items !== 'object' || parsed.items === null) return null;
         if (parsed.commit !== catalog.commit) {
           log.warn('the packaged sticker set was built for another library; it is not used', {});
           return null;
         }
-        return { commit: parsed.commit, items: parsed.items };
+        const items: Record<string, PackagedEntry> = {};
+        for (const [id, raw] of Object.entries(parsed.items)) {
+          const entry = packagedEntry(id, raw);
+          if (entry === null) {
+            // One entry packaging could not have written means the manifest is not packaging's.
+            log.error('the packaged sticker manifest is malformed; the set is not used', {});
+            return null;
+          }
+          items[id] = entry;
+        }
+        return { commit: parsed.commit, items };
       } catch {
         return null;
       }
@@ -454,14 +541,16 @@ export class ElementsLibrary {
       if (!STICKER_ID_PATTERN.test(elementId)) continue;
       if (catalog.byId.get(elementId)?.availability !== 'packaged') continue;
       const entry = manifest.items[elementId];
-      if (entry?.thumb !== `thumbs/${elementId}.webp`) continue;
+      if (entry === undefined) continue;
       try {
-        thumbs.push({
-          elementId,
-          webp: new Uint8Array(await this.io.readFile(path.join(root, entry.thumb))),
-        });
+        // In the set by its real path, a regular file, no larger than the manifest says.
+        const data = await this.io.readBounded(resolveWithin(root, entry.thumb), entry.thumbBytes);
+        if (data.length !== entry.thumbBytes) throw new Error('not the size packaging wrote');
+        thumbs.push({ elementId, webp: new Uint8Array(data) });
       } catch {
-        log.warn('thumbnails: a packaged tile is missing', { elementId });
+        log.warn('thumbnails: a packaged tile is missing or not the one packaging wrote', {
+          elementId,
+        });
       }
     }
     return { ok: true, packaged: true, thumbs };

@@ -220,6 +220,20 @@ describe('StickersBrowser', () => {
     expect(onAddSticker).not.toHaveBeenCalled();
   });
 
+  it('says the copy failed, rather than throwing, when main does not answer', async () => {
+    bridge.materialize.mockRejectedValue(new Error('the licence lapsed'));
+    const { onAddSticker } = await open();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add Fire' }));
+    });
+    expect((await screen.findByRole('status')).textContent).toBe(
+      "Couldn't copy this sticker into the project. Check the project folder can be written to, then try again.",
+    );
+    expect(onAddSticker).not.toHaveBeenCalled();
+    // And the grid is usable again.
+    expect(screen.getByRole('button', { name: 'Add Fire' }).hasAttribute('disabled')).toBe(false);
+  });
+
   it('is one Tab stop; arrows and End move through the tiles', async () => {
     await open();
     expect(tiles().filter((t) => t.tabIndex === 0)).toHaveLength(1);

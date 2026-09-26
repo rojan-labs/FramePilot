@@ -37,9 +37,13 @@ export async function placeDroppedSticker(
   deps: StickerDropDeps,
   drop: StickerDrop,
 ): Promise<PlacedSticker> {
-  const item = (await deps.loadCatalog()).byId.get(drop.elementId);
+  const item = (await deps.loadCatalog().catch(() => null))?.byId.get(drop.elementId);
   if (item === undefined) return { ok: false, message: stickerErrorSentence('unknown_element') };
-  const copied = await deps.materialize({ projectId: drop.projectId, elementId: drop.elementId });
+  // Main may not answer at all (the licence lapsed, the window is closing): that is a copy that
+  // failed, said as one, never an unhandled rejection.
+  const copied = await deps
+    .materialize({ projectId: drop.projectId, elementId: drop.elementId })
+    .catch((): ElementMaterializeResult => ({ ok: false, error: 'io_failed' }));
   if (!copied.ok) return { ok: false, message: stickerErrorSentence(copied.error, copied.detail) };
   const added = addStickerPatch(
     drop.target(),

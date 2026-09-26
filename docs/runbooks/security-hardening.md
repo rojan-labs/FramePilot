@@ -73,6 +73,42 @@ When a security issue is found or reported (see disclosure process in
 root cause, fix + PR link, and the regression test added. Treat a sandbox escape or
 original-asset loss as **critical**.
 
+### 2026-09-26 — Packaged sticker set review (plan/elements EL6b, PASS WITH FINDINGS)
+
+- **Surface:** the installer's packaged set (`<resources>/elements/stickers`, `manifest.json`),
+  `framepilot:elements:thumbnail`, the packaged branch of materialise and heal
+  (`apps/desktop/electron/media/elements-library.ts`), the renderer's tile cache and sticker drop,
+  and the agent's widened search, reviewed by `security-reviewer`.
+- **Held:** ids are checked against the pattern and the catalogue's `packaged` availability;
+  the manifest's files are pinned to `full|thumbs/<id>.webp`; a packaged source is read once,
+  hashed, and that buffer written through `resolveWithin`; no path or error text crosses IPC;
+  the handler is licence-gated; a drag from another window can only ask for an id; blob URLs are
+  bounded by the catalogue (≈ 6 MB); the agent reaches no new file (`add_sticker` is still
+  `hostUiOnly`); the CSP and Electron flags are unchanged.
+- **Fixed (low):** a packaged file was read whole, following links, before any check: a tile
+  linked to a private file would have been sent to the renderer, and a link to `/dev/zero` or a
+  pipe could exhaust or hang main. Packaged files are now read by real path inside the set, as
+  regular files only (opened non-blocking), no larger than the manifest says and under fixed caps
+  (512 KiB a sticker, 64 KiB a tile).
+- **Fixed (low):** the manifest was trusted field by field; its numbers reached projects. It is now
+  validated whole (digest shape, integer sizes within the caps and 8192 px), and one bad entry
+  means the set is not used. The build's `check:elements` now reads the set through the app's own
+  library (every tile served, every sticker placed into a scratch project), so CI cannot pass a
+  set the app would refuse.
+- **Fixed (low, info):** the thumbnail request is refused whole when longer than one request may be,
+  before its entries are walked (`thumbnailRequestIds`); a sticker click or drop whose IPC call
+  rejects (a lapsed licence) now says the copy failed instead of leaving an unhandled rejection.
+- **Accepted risk (info):** the manifest is the set's only trust root and sits outside the app's
+  archive, so "verified against the manifest" catches corruption and a mismatched build, not a
+  deliberate rewrite of the set by someone who can already write the install folder — who could
+  equally rewrite `app.asar`, since the asar-integrity fuses are not enabled. The fix is those
+  fuses with the manifest's digest compiled into the archive; tracked in `plan/PLAN.md`.
+- **Tests:** `elements-library.test.ts` (a malformed manifest in seven ways, a tile linked outside
+  the set, an oversized tile, a full file linked outside, the request parser),
+  `packaged-stickers.test.ts` (the check refuses a set the app would ignore, and names a sticker
+  whose tile the app would not show), `sticker-drop.test.ts` and `StickersBrowser.test.tsx`
+  (a rejected copy is said, not thrown).
+
 ### 2026-09-26 — Sticker library review (plan/elements EL6a, PASS WITH FINDINGS)
 
 - **Surface:** `framepilot:elements:materialize` and heal-on-open

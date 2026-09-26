@@ -8,6 +8,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
   existsSync,
@@ -18,9 +19,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { stickerCatalog, type StickerCatalog, type StickerItem } from '@framepilot/ai-sdk';
 import {
   ElementsLibrary,
+  MAX_PACKAGED_TILE_BYTES,
+  MAX_THUMBNAILS_PER_REQUEST,
   bundledStickersRoot,
   nodeElementsLibraryIO,
   packagedStickersRoot,
+  thumbnailRequestIds,
 } from './elements-library.js';
 
 const FIRE = Buffer.from('RIFF----WEBPVP8L fire bytes');
@@ -402,6 +406,7 @@ describe('the packaged set (plan/elements EL6b)', () => {
             thumb: 'thumbs/rocket.webp',
             sha256: sha(ROCKET),
             bytes: ROCKET.length,
+            thumbBytes: ROCKET_THUMB.length,
             width: 318,
             height: 318,
             sharpSize: 256,
@@ -483,6 +488,62 @@ describe('the packaged set (plan/elements EL6b)', () => {
     ]);
   });
 
+  it('refuses a whole manifest with a malformed entry, so nothing it says reaches a project', async () => {
+    for (const bad of [
+      { width: 'x' },
+      { sharpSize: 1e308 },
+      { height: 0 },
+      { sha256: 'not-a-digest' },
+      { bytes: -1 },
+      { thumbBytes: 1.5 },
+      { thumb: '../../x' },
+    ]) {
+      writeSet(bad);
+      const lib = withPackaged([packagedItem()]);
+      expect(
+        await lib.materialize({ projectId: 'p1', elementId: 'rocket' }),
+        JSON.stringify(bad),
+      ).toEqual({ ok: false, error: 'library_missing' });
+      expect(await lib.thumbnails([]), JSON.stringify(bad)).toEqual({
+        ok: true,
+        packaged: false,
+        thumbs: [],
+      });
+    }
+  });
+
+  it('reads packaged files only as the regular, in-set files of the size the manifest says', async () => {
+    const outside = mkdtempSync(path.join(tmpdir(), 'fp-outside-'));
+    writeFileSync(path.join(outside, 'secret'), ROCKET_THUMB);
+    // A tile linked to a file outside the set is not served, even with the right size.
+    writeSet();
+    const tile = path.join(packaged, 'thumbs', 'rocket.webp');
+    rmSync(tile);
+    symlinkSync(path.join(outside, 'secret'), tile);
+    expect(await withPackaged([packagedItem()]).thumbnails(['rocket'])).toEqual({
+      ok: true,
+      packaged: true,
+      thumbs: [],
+    });
+    // A tile larger than the manifest says, or than any tile may be, is not read.
+    writeSet();
+    writeFileSync(tile, Buffer.alloc(MAX_PACKAGED_TILE_BYTES + 1));
+    expect(await withPackaged([packagedItem()]).thumbnails(['rocket'])).toEqual({
+      ok: true,
+      packaged: true,
+      thumbs: [],
+    });
+    // A full file linked outside the set is missing, not copied.
+    writeSet();
+    const full = path.join(packaged, 'full', 'rocket.webp');
+    rmSync(full);
+    writeFileSync(path.join(outside, 'rocket.webp'), ROCKET);
+    symlinkSync(path.join(outside, 'rocket.webp'), full);
+    expect(
+      await withPackaged([packagedItem()]).materialize({ projectId: 'p1', elementId: 'rocket' }),
+    ).toEqual({ ok: false, error: 'library_missing' });
+  });
+
   it('reads the packaged set from the app’s resources, or the desktop app’s build folder in a dev tree', () => {
     const mainDir = path.join('/repo', 'apps', 'desktop', 'dist');
     expect(packagedStickersRoot(mainDir, true, '/App/Contents/Resources')).toBe(
@@ -491,5 +552,22 @@ describe('the packaged set (plan/elements EL6b)', () => {
     expect(packagedStickersRoot(mainDir, false, '/unused')).toBe(
       path.join('/repo', 'apps', 'desktop', 'elements-packaged'),
     );
+  });
+});
+
+describe('thumbnailRequestIds', () => {
+  it('takes a list of at most one request’s ids, all strings, and refuses anything else whole', () => {
+    expect(thumbnailRequestIds({ elementIds: ['a', 'b'] })).toEqual(['a', 'b']);
+    expect(thumbnailRequestIds({ elementIds: [] })).toEqual([]);
+    for (const request of [
+      null,
+      'ids',
+      {},
+      { elementIds: 'a' },
+      { elementIds: ['a', 2] },
+      { elementIds: Array.from({ length: MAX_THUMBNAILS_PER_REQUEST + 1 }, () => 'a') },
+    ]) {
+      expect(thumbnailRequestIds(request), JSON.stringify(request)?.slice(0, 40)).toBeNull();
+    }
   });
 });
