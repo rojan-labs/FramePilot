@@ -104,7 +104,13 @@ export type MissionScenarioId =
   // plan/elements 07 section 8, case 2: a sticker on the phrase, off the face and the captions.
   | 'sticker-on-beat'
   // plan/elements 07 section 8, case 3: a Pop on the arrow, a Pulse on the sticker, nothing else.
-  | 'element-animation';
+  | 'element-animation'
+  // plan/elements 07 section 8, case 4: an underline under the headline, an arrow at the price.
+  | 'underline-and-arrow'
+  // plan/elements 07 section 8, case 5: every highlight box red and thicker, nothing moved.
+  | 'restyle-highlight-boxes'
+  // plan/elements 07 section 8, case 6: every sticker gone, everything else as it was.
+  | 'remove-stickers';
 
 export interface RubricContext {
   /** The project the run started from (needed for before/after checks). */
@@ -169,6 +175,27 @@ export interface RubricContext {
    * from the fixture's labels (`tests/fixtures/mission/labels/reaction-demo.json`).
    */
   readonly stickerTarget?: StickerTarget;
+  /**
+   * `underline-and-arrow`: where the headline and the price sit on the product still. Ground truth
+   * from the fixture's labels (`tests/fixtures/mission/labels/product-still.json`).
+   */
+  readonly productTarget?: ProductTarget;
+}
+
+/** A box on the frame, in percent of each axis. */
+interface FrameBox {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** What an underline and an arrow must land on (see `underline-and-arrow`). */
+export interface ProductTarget {
+  /** The headline's drawn text, descenders included. */
+  readonly headline: FrameBox;
+  /** The price tag. */
+  readonly price: FrameBox;
 }
 
 /** When a sticker must land and what it must keep clear of (see `sticker-on-beat`). */
@@ -211,6 +238,20 @@ export const CALLOUT_MAX_SECONDS = 3;
 export const CALLOUT_MAX_AREA_RATIO = 9;
 /** An arrow's tip may miss the target's edge by this much (percent of the frame). */
 const CALLOUT_TIP_SLACK_PERCENT = 3;
+/** A stroke reads as red with at least this much red (0–255)… */
+const RED_MIN_RED = 180;
+/** …and no more than this much green or blue. */
+const RED_MAX_OTHER = 120;
+/** An underline may overlap the text's bottom by this much (descenders) — percent of the height. */
+const UNDERLINE_ABOVE_SLACK_PERCENT = 2;
+/** …and sit this far below it and still read as under it. */
+const UNDERLINE_BELOW_SLACK_PERCENT = 6;
+/** An underline is level within this much rise, percent of the frame height. */
+const UNDERLINE_MAX_TILT_PERCENT = 3;
+/** It spans at least this share of the text's width… */
+const UNDERLINE_MIN_COVERAGE = 0.6;
+/** …and at most this many times it, or it underlines the frame rather than the text. */
+const UNDERLINE_MAX_LENGTH_RATIO = 1.5;
 
 const FRAME_EPSILON = 1e-6;
 /** Cuts may drift this far from a beat and still count as "on the beat" (one frame at 30 fps + audio slop). */
@@ -1923,7 +1964,236 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkContentPreserved(ctx),
         ...COMMON(ctx),
       ]);
+    case 'underline-and-arrow':
+      return scored(scenario, [
+        checkChanged(ctx),
+        ...checkUnderlineAndArrow(ctx),
+        checkContentPreserved(ctx),
+        ...COMMON(ctx),
+      ]);
+    case 'restyle-highlight-boxes':
+      return scored(scenario, [
+        checkChanged(ctx),
+        ...checkBoxesRestyled(ctx),
+        checkContentPreserved(ctx),
+        ...COMMON(ctx),
+      ]);
+    case 'remove-stickers':
+      return scored(scenario, [
+        checkChanged(ctx),
+        ...checkStickersRemoved(ctx),
+        checkContentPreserved(ctx),
+        ...COMMON(ctx),
+      ]);
   }
+}
+
+/** Whether a shape's params draw an arrow head at either end. */
+const isArrow = (params: Readonly<Record<string, unknown>>): boolean =>
+  params.endCap === 'arrow' ||
+  params.startCap === 'arrow' ||
+  String(params.shape).includes('arrow');
+/** Whether a shape is placed by its two ends (a line or an arrow), not by a box. */
+const hasEnds = (params: Readonly<Record<string, unknown>>): boolean =>
+  typeof params.x1 === 'number';
+
+/** Whether a line's ends underline `text`: level, just under it, and about as wide. */
+export function underlines(
+  params: Readonly<Record<string, unknown>>,
+  text: FrameBox,
+): { readonly hit: boolean; readonly detail: string } {
+  const [x1, y1, x2, y2] = [params.x1, params.y1, params.x2, params.y2].map(Number) as [
+    number,
+    number,
+    number,
+    number,
+  ];
+  const y = (y1 + y2) / 2;
+  const bottom = text.y + text.height;
+  const left = Math.min(x1, x2);
+  const right = Math.max(x1, x2);
+  const covered = Math.max(0, Math.min(right, text.x + text.width) - Math.max(left, text.x));
+  const hit =
+    Math.abs(y2 - y1) <= UNDERLINE_MAX_TILT_PERCENT &&
+    y >= bottom - UNDERLINE_ABOVE_SLACK_PERCENT &&
+    y <= bottom + UNDERLINE_BELOW_SLACK_PERCENT &&
+    covered >= text.width * UNDERLINE_MIN_COVERAGE &&
+    right - left <= text.width * UNDERLINE_MAX_LENGTH_RATIO;
+  return {
+    hit,
+    detail: `line ${left.toFixed(1)}–${right.toFixed(1)}% at ${y.toFixed(1)}%; the text ends at ${bottom.toFixed(1)}%`,
+  };
+}
+
+/**
+ * Case 4: one underline under the headline and one arrow whose tip is in the price tag. A straight
+ * arrow's tip is its head end; a curved or box-placed arrow has no tip in its params, so it cannot
+ * be scored and is reported as such rather than guessed at.
+ */
+function checkUnderlineAndArrow(ctx: RubricContext): RubricCheck[] {
+  const target = ctx.productTarget;
+  const added = addedShapes(ctx).map((clip) => shapeClipParams(clip)!);
+  const underlinesAdded = added.filter((params) => hasEnds(params) && !isArrow(params));
+  const arrows = added.filter(isArrow);
+  const underline = underlinesAdded[0];
+  const arrow = arrows[0];
+  const checks: RubricCheck[] = [
+    {
+      id: 'underline-added',
+      ok: target !== undefined && underlinesAdded.length === 1,
+      detail:
+        target === undefined
+          ? 'no target supplied'
+          : `${String(underlinesAdded.length)} underline(s)`,
+    },
+    {
+      id: 'arrow-added',
+      ok: target !== undefined && arrows.length === 1,
+      detail: target === undefined ? 'no target supplied' : `${String(arrows.length)} arrow(s)`,
+    },
+  ];
+  if (target === undefined) return checks;
+  const under =
+    underline === undefined
+      ? { hit: false, detail: 'no underline' }
+      : underlines(underline, target.headline);
+  const aspect = ctx.after.resolution.width / ctx.after.resolution.height;
+  const tip =
+    arrow === undefined
+      ? { hit: false, detail: 'no arrow' }
+      : !hasEnds(arrow)
+        ? { hit: false, detail: `a ${String(arrow.shape)} has no tip to measure` }
+        : calloutHits(arrowTowardHead(arrow), target.price, aspect);
+  return [
+    ...checks,
+    {
+      id: 'underline-under-headline',
+      ok: under.hit,
+      detail: under.detail,
+      weight: 2,
+      facet: 'target',
+    },
+    { id: 'arrow-on-price', ok: tip.hit, detail: tip.detail, weight: 2, facet: 'target' },
+  ];
+}
+
+/** A line's params with its head at `x2, y2`, whichever end the arrow head was drawn on. */
+function arrowTowardHead(
+  params: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  if (params.endCap === 'arrow' || params.startCap !== 'arrow') return params;
+  return { ...params, x1: params.x2, y1: params.y2, x2: params.x1, y2: params.y1 };
+}
+
+/** Whether a `#rrggbb[aa]` colour reads as red: a strong red channel over weak green and blue. */
+function isRed(colour: unknown): boolean {
+  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(String(colour));
+  if (!match) return false;
+  const [r, g, b] = match.slice(1, 4).map((hex) => parseInt(hex, 16)) as [number, number, number];
+  return r >= RED_MIN_RED && g <= RED_MAX_OTHER && b <= RED_MAX_OTHER;
+}
+
+/**
+ * Case 5: every highlight box (a box-placed shape with a stroke, as the fixture's are) now has a red
+ * stroke wider than before; the same clips sit where they sat; and nothing else changed — the
+ * arrow beside them keeps its style, and no clip was added or removed.
+ */
+function checkBoxesRestyled(ctx: RubricContext): RubricCheck[] {
+  const clipsOf = (project: Project) => project.timeline.tracks.flatMap((track) => track.clips);
+  const after = new Map(clipsOf(ctx.after).map((clip) => [clip.id, clip]));
+  const boxes = clipsOf(ctx.before).filter((clip) => {
+    const params = shapeClipParams(clip);
+    return params !== null && !hasEnds(params) && typeof params.stroke === 'string';
+  });
+  const kept = boxes.filter((clip) => {
+    const now = after.get(clip.id);
+    const was = shapeClipParams(clip)!;
+    const is = now === undefined ? null : shapeClipParams(now);
+    return (
+      now !== undefined &&
+      is !== null &&
+      now.trackId === clip.trackId &&
+      now.start === clip.start &&
+      now.end === clip.end &&
+      (['x', 'y', 'width', 'height'] as const).every((key) => is[key] === was[key])
+    );
+  });
+  const restyled = (test: (was: Record<string, unknown>, is: Record<string, unknown>) => boolean) =>
+    boxes.filter((clip) => {
+      const now = after.get(clip.id);
+      const is = now === undefined ? null : shapeClipParams(now);
+      return is !== null && test(shapeClipParams(clip)!, is);
+    }).length;
+  const red = restyled((_, is) => isRed(is.stroke));
+  const thicker = restyled((was, is) => Number(is.strokeWidth) > Number(was.strokeWidth));
+  const boxIds = new Set(boxes.map((clip) => clip.id));
+  const others = clipsOf(ctx.before).filter((clip) => !boxIds.has(clip.id));
+  const othersKept =
+    others.every((clip) => JSON.stringify(after.get(clip.id)) === JSON.stringify(clip)) &&
+    after.size === clipsOf(ctx.before).length;
+  const of = (count: number) => `${String(count)} of ${String(boxes.length)} box(es)`;
+  return [
+    {
+      id: 'boxes-kept',
+      ok: boxes.length > 0 && kept.length === boxes.length,
+      detail: `${of(kept.length)} in place`,
+      weight: 2,
+    },
+    {
+      id: 'boxes-red',
+      ok: boxes.length > 0 && red === boxes.length,
+      detail: `${of(red)} red`,
+      facet: 'target',
+    },
+    {
+      id: 'boxes-thicker',
+      ok: boxes.length > 0 && thicker === boxes.length,
+      detail: `${of(thicker)} thicker`,
+      facet: 'target',
+    },
+    {
+      id: 'only-boxes-restyled',
+      ok: othersKept,
+      detail: othersKept
+        ? 'nothing else changed'
+        : 'another clip changed, or one was added or removed',
+      weight: 2,
+    },
+  ];
+}
+
+/** Case 6: no sticker left on the timeline, and every other clip exactly as it was. */
+function checkStickersRemoved(ctx: RubricContext): RubricCheck[] {
+  const clipsOf = (project: Project) => project.timeline.tracks.flatMap((track) => track.clips);
+  const assets = new Map(
+    [...ctx.before.assets, ...ctx.after.assets].map((asset) => [asset.id, asset]),
+  );
+  const isSticker = (clip: Clip) => isElementAsset(assets.get(clip.assetId));
+  const before = clipsOf(ctx.before);
+  const after = new Map(clipsOf(ctx.after).map((clip) => [clip.id, clip]));
+  const had = before.filter(isSticker).length;
+  const left = [...after.values()].filter(isSticker).length;
+  const others = before.filter((clip) => !isSticker(clip));
+  const othersKept =
+    others.every((clip) => JSON.stringify(after.get(clip.id)) === JSON.stringify(clip)) &&
+    after.size === others.length + left;
+  return [
+    {
+      id: 'stickers-removed',
+      ok: had > 0 && left === 0,
+      detail: `${String(left)} of ${String(had)} sticker(s) left`,
+      weight: 2,
+      facet: 'target',
+    },
+    {
+      id: 'others-kept',
+      ok: othersKept,
+      detail: othersKept
+        ? 'footage and shapes as they were'
+        : 'another clip changed, or one was added or removed',
+      weight: 2,
+    },
+  ];
 }
 
 /**

@@ -693,6 +693,7 @@ async function runCase(goldenCase, run) {
       captionStyle: turn.captionStyle,
       calloutTarget: turn.calloutTarget,
       stickerTarget: turn.stickerTarget,
+      productTarget: turn.productTarget,
       // Keyed by clip ids, and the checks read the AFTER timeline: a map built from `project`
       // misses every cut the turn created, so those cuts would score as unlabelled. The labels
       // are per source time, so they resolve against any timeline built from these assets.

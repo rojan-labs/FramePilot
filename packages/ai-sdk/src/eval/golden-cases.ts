@@ -29,7 +29,12 @@
  *                          `369e8c82`'s shape: because the picture track is gapless, every
  *                          placement on `b_roll` overlaps the picture beneath it — the shape ADR 0169 governs.
  */
-import type { CalloutTarget, MissionScenarioId, StickerTarget } from './mission-rubric.js';
+import type {
+  CalloutTarget,
+  MissionScenarioId,
+  ProductTarget,
+  StickerTarget,
+} from './mission-rubric.js';
 
 export type GoldenCategory =
   | 'trim'
@@ -59,7 +64,11 @@ export type GoldenCategory =
   // plan/elements 07 section 8: a sticker on the phrase, clear of the face and captions.
   | 'sticker'
   // plan/elements 07 section 8, case 3: an entrance on one element and a loop on another.
-  | 'animation';
+  | 'animation'
+  // plan/elements 07 section 8, case 5: every shape of one kind restyled, none moved.
+  | 'restyle'
+  // plan/elements 07 section 8, case 6: one kind of element taken off, the rest kept.
+  | 'removal';
 
 /** The categories goal.md Phase 0 names; the shape test asserts each has a case. */
 export const REQUIRED_CATEGORIES: readonly GoldenCategory[] = [
@@ -110,6 +119,8 @@ export interface GoldenTurn {
   readonly calloutTarget?: CalloutTarget;
   /** `sticker-on-beat`: when the sticker lands and what it keeps clear of (fixture labels). */
   readonly stickerTarget?: StickerTarget;
+  /** `underline-and-arrow`: where the headline and the price sit (fixture labels). */
+  readonly productTarget?: ProductTarget;
   /**
    * What the scripted operator answers if the agent asks.
    *
@@ -669,6 +680,59 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
         intent: 'edit',
       },
     ],
+  },
+  {
+    id: 'underline-and-arrow-on-product',
+    category: 'callout',
+    project: 'mission-product-still',
+    why:
+      'Elements, case 4 (plan/elements 07 section 8): two callouts of different kinds on one ' +
+      'product shot. No tool says where the headline or the price is: the model reads them off ' +
+      'get_frame and places an underline by its ends under the text and an arrow whose head ' +
+      'ends in the price tag. The still is drawn, so both boxes are known exactly; the metric ' +
+      'is the hit rate over repeated runs. A curved arrow has no tip in its params to measure, ' +
+      'so the rubric scores straight ones, which is what the skill teaches for a clear path.',
+    turns: [
+      {
+        prompt: 'Underline the headline and put an arrow pointing at the price.',
+        rubric: 'underline-and-arrow',
+        intent: 'edit',
+        // tests/fixtures/mission/labels/product-still.json, pinned by element-quality-rubric.test.ts.
+        productTarget: {
+          headline: { x: 51.5625, y: 36.5278, width: 40.2344, height: 7.0833 },
+          price: { x: 51.5625, y: 58.3333, width: 12.5, height: 9.1667 },
+        },
+      },
+    ],
+  },
+  {
+    id: 'restyle-highlight-boxes',
+    category: 'restyle',
+    project: 'mission-restyle-demo',
+    why:
+      'Elements, case 5 (plan/elements 07 section 8): one request that means every box. The ' +
+      'model must find the three highlight boxes from the timeline, restyle each in place with ' +
+      'set_shape_style, and leave the arrow beside them alone. Deleting and redrawing a box, ' +
+      'moving one, or restyling the arrow all fail: the same clips, in the same places, with a ' +
+      'red stroke wider than before.',
+    turns: [
+      {
+        prompt: 'Make all the highlight boxes red and thicker.',
+        rubric: 'restyle-highlight-boxes',
+        intent: 'edit',
+      },
+    ],
+  },
+  {
+    id: 'remove-the-stickers',
+    category: 'removal',
+    project: 'mission-sticker-cleanup',
+    why:
+      'Elements, case 6 (plan/elements 07 section 8): taking one kind of element off. Two ' +
+      'stickers and an arrow are on the footage; every sticker must go, and the arrow and the ' +
+      'footage must stay exactly as they were. A run that clears the overlay lanes wholesale, ' +
+      'or ripples the footage, fails.',
+    turns: [{ prompt: 'Remove the stickers.', rubric: 'remove-stickers', intent: 'edit' }],
   },
   {
     id: 'which-clips-show-host',

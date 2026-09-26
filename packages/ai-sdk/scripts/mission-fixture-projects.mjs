@@ -47,7 +47,11 @@ const AUDIO_EXT = new Set(['.wav', '.mp3']);
 
 /** @typedef {{ id: string, name: string, fps: number, resolution: {width:number,height:number}, media: {file: string, onTimeline?: boolean}[], transcribe?: string, transcriptFrom?: string, overlayTrackId?: string, graphics?: Graphics }} Def */
 /** Elements already on the timeline, placed as the Shapes and Stickers tabs place them. */
-/** @typedef {{ shape?: { preset: string, start: number, end: number }, sticker?: { id: string, start: number, end: number } }} Graphics */
+/**
+ * @typedef {{ shapes?: { preset: string, start: number, end: number, box?: { x: number, y: number, width: number, height: number } }[], stickers?: { id: string, start: number, end: number, offset?: { x: number, y: number } }[] }} Graphics
+ * `box` is add_shape's (centre in percent of the frame, size in percent of its height); `offset`
+ * is the sticker's centre in canvas pixels from the frame's.
+ */
 
 /** @type {Def[]} */
 const DEFS = [
@@ -150,8 +154,68 @@ const DEFS = [
     media: [{ file: 'reaction-demo-12s.mp4', onTimeline: true }],
     transcriptFrom: 'labels/reaction-demo.json',
     graphics: {
-      shape: { preset: 'line-arrow/red', start: 2, end: 6 },
-      sticker: { id: 'fire', start: 3, end: 7 },
+      shapes: [{ preset: 'line-arrow/red', start: 2, end: 6 }],
+      stickers: [{ id: 'fire', start: 3, end: 7 }],
+    },
+  },
+  {
+    // plan/elements 07 section 8, case 4: a drawn product card whose headline and price boxes
+    // are known exactly (`tests/product_still_fixture.py`). No narration: the case is placement.
+    id: 'mission-product-still',
+    name: 'Mission product still (a drawn product card with a headline and a price)',
+    fps: 30,
+    resolution: { width: 1280, height: 720 },
+    media: [{ file: 'product-still-8s.mp4', onTimeline: true }],
+  },
+  {
+    // Case 5: the screen demo with a highlight box on each toolbar button, one after another,
+    // and an arrow the request does not name, so restyling "all the highlight boxes" has three
+    // targets and one thing to leave alone.
+    id: 'mission-restyle-demo',
+    name: 'Mission restyle demo (the screen demo with three highlight boxes and an arrow)',
+    fps: 30,
+    resolution: { width: 1280, height: 720 },
+    media: [{ file: 'screen-demo-20s.mp4', onTimeline: true }],
+    transcriptFrom: 'labels/screen-demo.json',
+    graphics: {
+      shapes: [
+        {
+          preset: 'rounded-rect/highlight',
+          start: 2,
+          end: 4,
+          box: { x: 6.5625, y: 5, width: 20, height: 6.6667 },
+        },
+        {
+          preset: 'rounded-rect/highlight',
+          start: 7,
+          end: 9,
+          box: { x: 17.1875, y: 5, width: 20, height: 6.6667 },
+        },
+        {
+          preset: 'rounded-rect/highlight',
+          start: 12,
+          end: 14,
+          box: { x: 92.5, y: 5, width: 24, height: 6.6667 },
+        },
+        { preset: 'line-arrow/red', start: 15, end: 17 },
+      ],
+    },
+  },
+  {
+    // Case 6: the reaction demo with two stickers in the empty frame beside the face and an
+    // arrow, so "remove the stickers" has two targets and one thing to leave alone.
+    id: 'mission-sticker-cleanup',
+    name: 'Mission sticker cleanup (the reaction demo with two stickers and an arrow)',
+    fps: 30,
+    resolution: { width: 1280, height: 720 },
+    media: [{ file: 'reaction-demo-12s.mp4', onTimeline: true }],
+    transcriptFrom: 'labels/reaction-demo.json',
+    graphics: {
+      shapes: [{ preset: 'line-arrow/red', start: 2, end: 6 }],
+      stickers: [
+        { id: 'fire', start: 4.5, end: 6.5, offset: { x: 360, y: -160 } },
+        { id: 'party_popper', start: 7, end: 9, offset: { x: 360, y: -160 } },
+      ],
     },
   },
   {
@@ -337,18 +401,14 @@ async function withGraphics(def, mediaDir, project) {
     operations: [...operations],
   });
   let next = project;
-  const { shape, sticker } = def.graphics;
-  if (shape) {
-    const placed = buildAddShapeOps(
-      next.timeline,
-      presetShapeParams(shape.preset),
-      shape.start,
-      shape.end,
-    );
+  for (const shape of def.graphics.shapes ?? []) {
+    const params = { ...presetShapeParams(shape.preset), ...(shape.box ?? {}) };
+    const placed = buildAddShapeOps(next.timeline, params, shape.start, shape.end);
     next = applyProjectPatch(next, patch(placed.operations));
   }
-  if (sticker) {
-    const catalog = await loadStickerCatalog();
+  const stickers = def.graphics.stickers ?? [];
+  const catalog = stickers.length === 0 ? null : await loadStickerCatalog();
+  for (const sticker of stickers) {
     const item = catalog.byId.get(sticker.id);
     if (!item?.file) throw new Error(`${def.id}: ${sticker.id} is not a curated sticker`);
     const dir = join(mediaDir, 'elements', catalog.library);
@@ -376,6 +436,7 @@ async function withGraphics(def, mediaDir, project) {
     };
     const placed = buildAddStickerOps(next, asset, sticker.start, sticker.end, {
       artFraction: elementArtFraction(asset),
+      ...(sticker.offset ? { offset: sticker.offset } : {}),
     });
     next = applyProjectPatch(next, patch(placed.operations));
   }
