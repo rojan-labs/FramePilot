@@ -19,6 +19,7 @@ import {
   stockPlacementBlockedReason,
 } from './patch-builders.js';
 import { applyUserPatch, createEditorState, redoEdit, undoEdit } from './store.js';
+import { StockAssetPayloadSchema, stockOpsFromPayload } from '@framepilot/ai-sdk';
 
 const CAMERA: Asset = { id: 'cam', path: 'media/p/cam.mp4', kind: 'video', durationSeconds: 60 };
 
@@ -178,5 +179,49 @@ describe('dropStockClipPatch', () => {
     expect(contentOf(applyProjectPatch(after, invertProjectPatch(before, dropped.patch)))).toEqual(
       contentOf(before),
     );
+  });
+});
+
+/**
+ * MD-E5 is manual only: the agent's `add_stock` keeps its cutaway rule until picture-in-picture
+ * from the agent is measured (plan/elements 11 §2). This is the one package that can import both
+ * paths, so it is where "the agent is unchanged" is held.
+ */
+describe('Add as overlay does not reach the agent', () => {
+  const agentOutcome = (timeline: Timeline, assets: readonly Asset[], asset: Asset, at: number) =>
+    stockOpsFromPayload(
+      { ...projectOf(timeline), assets: [...assets] } as unknown as Parameters<
+        typeof stockOpsFromPayload
+      >[0],
+      StockAssetPayloadSchema.parse({ asset, atSeconds: at }),
+    );
+
+  it('still refuses over footage what it cannot show as a full-frame cutaway', () => {
+    // Nothing measured the camera, so nothing can say the stock clip hides it: the agent says no,
+    // over the same footage where the panel's overlay places without asking.
+    const unmeasuredCamera: Asset = { id: 'cam', path: 'media/p/cam.mp4', kind: 'video' };
+    const agent = agentOutcome(TALKING_HEAD, [unmeasuredCamera], STOCK_PHOTO, 4);
+    expect(agent.ok).toBe(false);
+    if (agent.ok) throw new Error('unreachable');
+    expect(agent.refusalCause).toBe('picture_over_picture');
+    expect(
+      addStockOverlayPatch({ timeline: TALKING_HEAD, assets: [unmeasuredCamera] }, STOCK_PHOTO, 4)
+        .patch.operations,
+    ).toContainEqual(expect.objectContaining({ type: 'add_keyframes' }));
+  });
+
+  it('where it does place over footage, places a full-frame cutaway — never the overlay', () => {
+    const measuredCamera: Asset = { ...CAMERA, media: { width: 1920, height: 1080 } };
+    const agent = agentOutcome(TALKING_HEAD, [measuredCamera], STOCK_VIDEO, 4);
+    expect(agent.ok).toBe(true);
+    if (!agent.ok) throw new Error('unreachable');
+    // No base transform: the clip fills the frame, which is what a cutaway is.
+    expect(agent.operations.some((op) => op.type === 'add_keyframes')).toBe(false);
+    const overlay = addStockOverlayPatch(
+      { timeline: TALKING_HEAD, assets: [measuredCamera] },
+      STOCK_VIDEO,
+      4,
+    );
+    expect(agent.operations).not.toEqual(overlay.patch.operations);
   });
 });

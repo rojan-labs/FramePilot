@@ -212,6 +212,20 @@ describe('search', () => {
     expect(provider.calls).toBe(1);
   });
 
+  it('spends one request per category and shape: a second look is served from cache', async () => {
+    // Elements → Photos and Videos (plan/elements EL9): a category chip is a curated query and the
+    // orientation filter is Pexels' own parameter, so both are part of the cache key. Coming back
+    // to a chip in the same shape costs nothing; the same chip in another shape is a new search.
+    const provider = stubProvider(page([VIDEO_ITEM]));
+    const service = makeService({ provider });
+    await service.search({ text: 'nature', kind: 'photo', orientation: 'portrait' });
+    await service.search({ text: 'city', kind: 'photo', orientation: 'portrait' });
+    await service.search({ text: 'nature', kind: 'photo', orientation: 'portrait' });
+    expect(provider.calls).toBe(2);
+    await service.search({ text: 'nature', kind: 'photo', orientation: 'landscape' });
+    expect(provider.calls).toBe(3);
+  });
+
   it('regression: parallel agent searches do not cancel each other', async () => {
     // The agent batches concurrency-safe calls four at a time, so four DELIBERATE
     // queries arrive together. Under the panel's supersede rule each aborted the one
