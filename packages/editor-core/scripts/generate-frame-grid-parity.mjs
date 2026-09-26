@@ -14,11 +14,11 @@
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const { rationalFrameRate, secondsToFrame, frameToSeconds, snapSecondsToFrame } = await import(
-  join(HERE, '..', 'dist', 'frame-grid.js')
+  pathToFileURL(join(HERE, '..', 'dist', 'frame-grid.js')).href
 );
 
 /** Every rate the product plausibly meets, NTSC pull-downs included. */

@@ -16,7 +16,7 @@
  */
 import { writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const pkgRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 export const OUT_PATH = join(
@@ -59,7 +59,9 @@ export function renderModule(registry) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { TOOL_REGISTRY } = await import(join(pkgRoot, 'dist', 'tool-registry.js'));
+  const { TOOL_REGISTRY } = await import(
+    pathToFileURL(join(pkgRoot, 'dist', 'tool-registry.js')).href
+  );
   writeFileSync(OUT_PATH, renderModule(TOOL_REGISTRY));
   process.stdout.write(
     `generate-tool-descriptions: mirrored ${String(TOOL_REGISTRY.length)} description(s) → ${OUT_PATH}\n`,

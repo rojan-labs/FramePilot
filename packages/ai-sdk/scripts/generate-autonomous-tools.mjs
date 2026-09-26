@@ -21,7 +21,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const pkgRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(pkgRoot, '..', '..');
@@ -64,7 +64,9 @@ export function renderIndex(manifest) {
   return `{\n  "version": ${String(manifest.version)},\n  "tools": [\n${tools}\n  ]\n}`;
 }
 
-const { AUTONOMOUS_TOOL_MANIFEST } = await import(join(pkgRoot, 'dist', 'autonomous-tool-contract.js'));
+const { AUTONOMOUS_TOOL_MANIFEST } = await import(
+  pathToFileURL(join(pkgRoot, 'dist', 'autonomous-tool-contract.js')).href
+);
 const source = readFileSync(MIRROR_PATH, 'utf8');
 // Either triple-quote: `ruff format` rewrites r'''…''' as r"""…""" when it touches the
 // mirror, and a generator that only recognised one spelling then failed CI's typecheck
