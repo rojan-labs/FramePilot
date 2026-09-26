@@ -607,7 +607,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   had changed. Now each is blended only where it is, and a resize or outline is reused until
   something about it changes. The exported video is identical, pixel for pixel. On a 4K test
   timeline with 20 stickers (five outlined, five turning) their cost per frame fell from about
-  240 ms to about 68 ms; a turning sticker still pays for its rotation on every frame.
+  240 ms to about 68 ms, and the 3-minute export takes 1.17× the time of the same timeline without
+  them, where it took 1.61×; a turning sticker still pays for its rotation on every frame.
 - **Playback in the monitor shows the frames the export renders, and draws each one once.** The
   monitor now draws each frame of the project at the same instant the export does. A 60 fps clip
   in a 30 fps project used to show frames in between that the exported video never contains; it

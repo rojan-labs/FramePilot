@@ -418,7 +418,8 @@ Depends on EL6a, MD-E1, EL2b.1.
   - In the desktop app, a 3-minute timeline of real 4K camera footage with 20 stickers (five
     outlined, five turning, some over faces): play it through twice, noting any stutter; export
     it, then hide the stickers' layers and export again. Record both export times (the budget:
-    with stickers ≤ 1.3× without).
+    with stickers ≤ 1.3× without). CI's synthetic full row already holds it: 1.165× wall,
+    1.092× CPU (run 36259741558, 2026-09-26), from 1.613× before the per-frame fixes.
   - Commit both results as `docs/reports/elements/run-d-scale.md`, with the commit they ran on.
 
 **DoD:** every catalogued sticker is placeable in a packaged build (CI check); budgets met.
