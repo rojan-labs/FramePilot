@@ -102,6 +102,12 @@ linux:
     - AppImage # AppImage supports electron-updater auto-update
     - deb
 
+appImage:
+  # mksquashfs defaults to gzip; xz (with a full dictionary and 1 MiB blocks) packs the same files
+  # far tighter. The AppImage carries what the .deb carries (331 MiB with xz) but came to 411 MiB,
+  # over the installer budget.
+  compression: xz
+
 deb:
   packageName: framepilot
   # The default file name is the package name too; name it the Debian way.
