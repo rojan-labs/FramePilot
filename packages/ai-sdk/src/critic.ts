@@ -18,9 +18,16 @@
  * render was run rather than fabricating a pass (build-order honesty, AGENTS.md).
  */
 import {
+  STICKER_SOFT_ENLARGEMENT,
   buildTimelineMap,
   clipLoop,
+  elementClips,
+  elementRectAt,
+  elementSampleTimes,
   isSyntheticAssetId,
+  rectsOverlap,
+  stickerEnlargement,
+  type FrameRect,
   syntheticClipKind,
   listEditBoundaries,
   mapTranscript,
@@ -33,6 +40,7 @@ import {
   COVERAGE_LABEL,
   mentionsUnreadableShotCount,
   type CoverageTreatment,
+  type RequestedElement,
 } from './acceptance.js';
 import type { TargetPlatform } from './context-builder.js';
 import { detectTranscriptLoop, type TranscriptLoop } from './transcript-loop.js';
@@ -84,7 +92,18 @@ export type CheckId =
   /** The caption track passes `verify_captions` — timing AND the two look facts it computes. */
   | 'caption_verify'
   /** Every element loop still covers its clip (plan/elements EL7.2, ADR 0192). */
-  | 'loop_coverage';
+  | 'loop_coverage'
+  // plan/elements EL8.1 (07 §4): advisories about stickers and shapes, and the one failure.
+  /** No element sits over the face the run measured for most of its span. */
+  | 'element_faces'
+  /** No element in the caption band, past the frame's safe margin, or under a platform's UI. */
+  | 'element_safe_area'
+  /** No more than three elements on screen at once. */
+  | 'element_busy_frame'
+  /** No sticker drawn beyond its sharp size at the export resolution. */
+  | 'sticker_sharp'
+  /** A request that asked for a sticker or a callout finishes with one on the timeline. */
+  | 'elements_placed';
 
 /** One check's verdict + a human-readable explanation. */
 export interface CriticCheck {
@@ -186,9 +205,56 @@ export interface CritiqueOptions {
     readonly ranges: readonly { readonly start: number; readonly end: number }[];
     readonly handle?: string;
   };
+  /**
+   * Faces the run measured (`measure_subject`), each over the timeline span it was measured
+   * for, as frame fractions: what the element-over-a-face advisory reads (plan/elements EL8.1).
+   * Absent, that check says it had nothing to go on rather than guessing.
+   */
+  readonly subjects?: readonly MeasuredSubject[];
+  /**
+   * Elements the request asked to have placed (`acceptance.ts` `explicitElements`): a run that
+   * finishes without one of each fails `elements_placed` (ADR 0153).
+   */
+  readonly requiredElements?: readonly RequestedElement[];
+}
+
+/** One measured subject's face, over the timeline span it was measured for. */
+export interface MeasuredSubject {
+  readonly start: number;
+  readonly end: number;
+  readonly face: FrameRect;
 }
 
 const DEFAULT_DURATION_TOLERANCE = 2;
+
+/** An element over a measured face for more than this share of its span is flagged. */
+const ELEMENT_FACE_SHARE = 0.5;
+/**
+ * Where burned captions sit by default: the bottom of the frame up to here (a share of its
+ * height). An element there while captions show hides the words or the words hide it.
+ */
+const CAPTION_BAND_TOP = 0.78;
+/** More elements than this on screen at once is a busy frame (07 §4). */
+const BUSY_FRAME_ELEMENTS = 3;
+/**
+ * Approximate zones where a vertical platform draws its own UI over the video — the button rail
+ * down the right and the caption and handle block along the bottom — as frame fractions. They
+ * are estimates, not a platform specification: an element inside one is worth a look.
+ */
+const PLATFORM_CHROME: Partial<Record<TargetPlatform, readonly FrameRect[]>> = {
+  tiktok: [
+    { x: 0.86, y: 0.3, width: 0.14, height: 0.55 },
+    { x: 0, y: 0.82, width: 1, height: 0.18 },
+  ],
+  reels: [
+    { x: 0.86, y: 0.35, width: 0.14, height: 0.5 },
+    { x: 0, y: 0.84, width: 1, height: 0.16 },
+  ],
+  shorts: [
+    { x: 0.86, y: 0.35, width: 0.14, height: 0.5 },
+    { x: 0, y: 0.84, width: 1, height: 0.16 },
+  ],
+};
 
 /** Safe-area inset (fraction of frame) overlays/captions should stay within. */
 const SAFE_AREA_INSET = 0.1;
@@ -1893,6 +1959,181 @@ function markerToken(raw: string): string {
  * afterwards loops only part of the way and then holds still. A warning, not a failure — the edit
  * is valid — with the fix, since only the agent or the Inspector can write the loop again.
  */
+/** Each element clip and the moments it is judged at, with its rectangle then. */
+function elementSamples(project: Project) {
+  return elementClips(project).map(({ clip, kind }) => ({
+    clip,
+    kind,
+    samples: elementSampleTimes(clip).map((time) => ({
+      time,
+      rect: elementRectAt(project, clip.id, time),
+    })),
+  }));
+}
+
+const quoted = (ids: readonly string[]): string => ids.map((id) => `"${id}"`).join(', ');
+
+function checkElementFaces(project: Project, options: CritiqueOptions): CriticCheck {
+  const label = 'Elements stay off the faces';
+  const elements = elementSamples(project);
+  if (elements.length === 0) return check('element_faces', label, 'skipped', 'No elements.');
+  const subjects = options.subjects ?? [];
+  if (subjects.length === 0) {
+    return check(
+      'element_faces',
+      label,
+      'skipped',
+      'No face was measured in this run, so no element was checked against one. measure_subject over an element’s span measures the face it must stay off.',
+    );
+  }
+  const over = elements
+    .filter(({ samples }) => {
+      const covering = samples.filter(
+        ({ time, rect }) =>
+          rect !== null &&
+          subjects.some(
+            (subject) =>
+              time >= subject.start && time < subject.end && rectsOverlap(rect, subject.face),
+          ),
+      ).length;
+      return covering / samples.length > ELEMENT_FACE_SHARE;
+    })
+    .map(({ clip }) => clip.id);
+  return over.length === 0
+    ? check('element_faces', label, 'pass', 'No element sits over a measured face.')
+    : check(
+        'element_faces',
+        label,
+        'warn',
+        `${quoted(over)} sit${over.length === 1 ? 's' : ''} over the measured face for most of the time on screen. Move it into empty frame space beside the subject.`,
+      );
+}
+
+function checkElementSafeArea(project: Project, options: CritiqueOptions): CriticCheck {
+  const label = 'Elements clear of captions, edges and platform UI';
+  const elements = elementSamples(project);
+  if (elements.length === 0) return check('element_safe_area', label, 'skipped', 'No elements.');
+  const captions = project.timeline.tracks
+    .filter((track) => track.type === 'caption' && track.hidden !== true)
+    .flatMap((track) => track.clips);
+  const chrome = options.targetPlatform ? (PLATFORM_CHROME[options.targetPlatform] ?? []) : [];
+  const edge: string[] = [];
+  const band: string[] = [];
+  const ui: string[] = [];
+  for (const { clip, samples } of elements) {
+    const on = samples.filter(
+      (sample): sample is { time: number; rect: FrameRect } => sample.rect !== null,
+    );
+    if (
+      on.some(
+        ({ rect }) =>
+          rect.x < SAFE_AREA_INSET ||
+          rect.y < SAFE_AREA_INSET ||
+          rect.x + rect.width > 1 - SAFE_AREA_INSET ||
+          rect.y + rect.height > 1 - SAFE_AREA_INSET,
+      )
+    ) {
+      edge.push(clip.id);
+    }
+    if (
+      on.some(
+        ({ time, rect }) =>
+          rect.y + rect.height > CAPTION_BAND_TOP &&
+          captions.some((cue) => time >= cue.start && time < cue.end),
+      )
+    ) {
+      band.push(clip.id);
+    }
+    if (on.some(({ rect }) => chrome.some((zone) => rectsOverlap(rect, zone)))) ui.push(clip.id);
+  }
+  if (edge.length + band.length + ui.length === 0) {
+    return check('element_safe_area', label, 'pass', 'Every element is clear.');
+  }
+  const findings = [
+    band.length > 0 ? `${quoted(band)} in the caption band while captions show` : '',
+    ui.length > 0 ? `${quoted(ui)} under the platform's own buttons or caption block` : '',
+    edge.length > 0 ? `${quoted(edge)} past the frame's safe margin` : '',
+  ].filter((finding) => finding !== '');
+  return check(
+    'element_safe_area',
+    label,
+    'warn',
+    `${findings.join('; ')}. Move each toward the middle of the frame, above the captions.`,
+  );
+}
+
+function checkElementBusyFrame(project: Project): CriticCheck {
+  const label = 'No more than three elements at once';
+  const elements = elementClips(project).map(({ clip }) => clip);
+  if (elements.length === 0) return check('element_busy_frame', label, 'skipped', 'No elements.');
+  // The frame is busiest at some element's start: count what is on screen at each start.
+  const crowd = elements
+    .map((at) => elements.filter((clip) => clip.start <= at.start && at.start < clip.end))
+    .reduce((busiest, crowded) => (crowded.length > busiest.length ? crowded : busiest), []);
+  return crowd.length <= BUSY_FRAME_ELEMENTS
+    ? check('element_busy_frame', label, 'pass', 'Never more than three elements at once.')
+    : check(
+        'element_busy_frame',
+        label,
+        'warn',
+        `${quoted(crowd.map((clip) => clip.id))} are on screen together, which splits the eye. Sequence them, or drop the ones the moment does not need.`,
+      );
+}
+
+function checkStickerSharp(project: Project): CriticCheck {
+  const label = 'Stickers drawn at a sharp size';
+  const stickers = elementClips(project).filter(({ kind }) => kind === 'sticker');
+  if (stickers.length === 0) return check('sticker_sharp', label, 'skipped', 'No stickers.');
+  const soft = stickers
+    .filter(({ clip }) => (stickerEnlargement(project, clip.id) ?? 0) > STICKER_SOFT_ENLARGEMENT)
+    .map(({ clip }) => clip.id);
+  return soft.length === 0
+    ? check('sticker_sharp', label, 'pass', 'Every sticker is within its sharp size.')
+    : check(
+        'sticker_sharp',
+        label,
+        'warn',
+        `${quoted(soft)} ${soft.length === 1 ? 'is' : 'are'} drawn larger than the sticker's own pixels at the export resolution and will look soft. Make ${soft.length === 1 ? 'it' : 'them'} smaller.`,
+      );
+}
+
+/** What each requested element needs on the timeline, and how the run can place one. */
+const REQUESTED_ELEMENT: Record<RequestedElement, { kind: string; how: string }> = {
+  sticker: { kind: 'sticker', how: 'Find one with search_elements and place it with add_sticker.' },
+  callout: {
+    kind: 'shape',
+    how: 'Place a box, an arrow, a circle or an underline with add_shape.',
+  },
+};
+
+function checkElementsPlaced(project: Project, options: CritiqueOptions): CriticCheck {
+  const label = 'The elements the request asked for are placed';
+  const wanted = options.requiredElements ?? [];
+  if (wanted.length === 0) {
+    return check('elements_placed', label, 'skipped', 'The request asked for no element.');
+  }
+  const kinds = new Set(elementClips(project).map(({ kind }) => kind as string));
+  const missing = wanted.filter((element) => !kinds.has(REQUESTED_ELEMENT[element].kind));
+  return missing.length === 0
+    ? check(
+        'elements_placed',
+        label,
+        'pass',
+        'Each element the request asked for is on the timeline.',
+      )
+    : check(
+        'elements_placed',
+        label,
+        'fail',
+        missing
+          .map(
+            (element) =>
+              `The request asked for a ${element}, and none is on the timeline. ${REQUESTED_ELEMENT[element].how}`,
+          )
+          .join(' '),
+      );
+}
+
 function checkLoopCoverage(project: Project): CriticCheck {
   const label = 'Element loops run the length of their clips';
   const loops = project.timeline.tracks
@@ -2772,6 +3013,11 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
     checkMarkerLabels(project, loop),
     checkCaptionVerify(project),
     checkLoopCoverage(project),
+    checkElementFaces(project, options),
+    checkElementSafeArea(project, options),
+    checkElementBusyFrame(project),
+    checkStickerSharp(project),
+    checkElementsPlaced(project, options),
   ];
   const fails = checks.filter((c) => c.status === 'fail').length;
   const warns = checks.filter((c) => c.status === 'warn').length;

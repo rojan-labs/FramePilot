@@ -696,6 +696,13 @@ describe('critique — shape', () => {
       'caption_verify',
       // plan/elements EL7.2: an element loop its clip has outgrown (ADR 0192).
       'loop_coverage',
+      // plan/elements EL8.1 (07 §4): stickers and shapes over faces, captions, edges and
+      // platform UI, a busy frame, a soft sticker, and the elements a request asked for.
+      'element_faces',
+      'element_safe_area',
+      'element_busy_frame',
+      'sticker_sharp',
+      'elements_placed',
     ]);
   });
 

@@ -87,6 +87,7 @@ import {
 } from './context-builder.js';
 import {
   type CritiqueOptions,
+  type MeasuredSubject,
   type CritiqueReport,
   critique,
   explicitDurationTarget,
@@ -3629,6 +3630,41 @@ function earliestTouchedSecond(project: Project, region: TouchedRegion): number 
  * Only `analyze_silence` payloads are read, and only their `ranges`. A store scan that
  * guessed at shapes would be a second, undeclared contract with every analysis tool.
  */
+/**
+ * The faces the run measured (`measure_subject`), for the critic's element-over-a-face advisory
+ * (plan/elements EL8.1): each payload's subject box between the top of the head and the
+ * shoulder line — "text above the shoulders and below the head top is on the face" — over the
+ * span it was measured for. A payload without both lines names no face and is skipped.
+ */
+function measuredSubjects(evidence: EvidenceStore): Pick<CritiqueOptions, 'subjects'> {
+  const subjects: MeasuredSubject[] = [];
+  for (const entry of evidence.entries()) {
+    if (entry.source !== 'measure_subject') continue;
+    const data = (entry.data ?? {}) as Record<string, unknown>;
+    const box = data.box;
+    const { start, end, headTop, shoulders } = data;
+    if (
+      !Array.isArray(box) ||
+      box.length !== 4 ||
+      !box.every((value) => typeof value === 'number') ||
+      typeof start !== 'number' ||
+      typeof end !== 'number' ||
+      typeof headTop !== 'number' ||
+      typeof shoulders !== 'number' ||
+      shoulders <= headTop
+    ) {
+      continue;
+    }
+    const [x0, , x1] = box as [number, number, number, number];
+    subjects.push({
+      start,
+      end,
+      face: { x: x0, y: headTop, width: x1 - x0, height: shoulders - headTop },
+    });
+  }
+  return subjects.length === 0 ? {} : { subjects };
+}
+
 function measuredSilences(evidence: EvidenceStore): Pick<CritiqueOptions, 'silences'> {
   for (const entry of [...evidence.entries()].reverse()) {
     if (entry.source !== 'analyze_silence') continue;
@@ -3970,7 +4006,7 @@ export class Orchestrator {
     // The conditions the request stated in checkable terms (see `acceptance.ts`). The same
     // reading is recorded on the run's objective, so the criterion the ledger reports against
     // and the check that settles it can never be two different things.
-    const { minShotCount, coverage, maxStockCutaways } = checkableAcceptance(
+    const { minShotCount, coverage, maxStockCutaways, elements } = checkableAcceptance(
       objectiveText,
       durationTargetSeconds,
     );
@@ -3998,9 +4034,11 @@ export class Orchestrator {
         ? { medianShotSource: `${medianShotSource.profileId}: ${medianShotSource.line}` }
         : {}),
       ...(coverage !== undefined ? { coverage } : {}),
+      ...(elements !== undefined ? { requiredElements: elements } : {}),
       ...(options.targetPlatform !== undefined ? { targetPlatform: options.targetPlatform } : {}),
       ...(options.render !== undefined ? { render: options.render } : {}),
       ...(evidence ? measuredSilences(evidence) : {}),
+      ...(evidence ? measuredSubjects(evidence) : {}),
     };
   }
 

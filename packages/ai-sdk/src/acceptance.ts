@@ -94,7 +94,16 @@ export interface CheckableAcceptance {
    * success. The number is in the brief, so the runtime can hold the run to it.
    */
   readonly maxStockCutaways?: number;
+  /**
+   * Elements the request asks to have placed — a sticker, a callout (plan/elements EL8.1). A
+   * run asked to "add a fire emoji" that finishes with none has not done what it was asked, and
+   * without this nothing measured that: every other criterion could pass.
+   */
+  readonly elements?: readonly RequestedElement[];
 }
+
+/** An element a request can ask for: a sticker or emoji, or a callout shape. */
+export type RequestedElement = 'sticker' | 'callout';
 
 /** A deliverable no registered tool can produce. */
 export type UnmeetableDeliverable = 'voiceover' | 'soundEffects' | 'preview' | 'subjectTracking';
@@ -685,6 +694,33 @@ export function unmeetableDeliverables(prompt: string): UnmeetableDeliverable[] 
  * @param durationSeconds - A duration already extracted by the caller (the Critic's own
  *   reader), so the two cannot disagree about what the request asked for.
  */
+const STICKER_WORDS = /\b(?:stickers?|emojis?)\b/i;
+const CALLOUT_WORDS =
+  /\b(?:callouts?|highlight(?:ed)? box(?:es)?|box(?:es)? around|arrows?|circle|circling|underlin\w*|numbered badges?|speech bubbles?)\b/i;
+/** Asking for something to be put on screen. */
+const PLACE_WORDS =
+  /\b(?:add|put|place|drop in|insert|stick|throw in|draw|circle|underline|highlight|point(?:ing)? (?:at|to)|mark)\b/i;
+/** Asking about what is already there: removing, restyling or animating it. */
+const NOT_PLACING_WORDS =
+  /\b(?:remove|delete|drop|clear|get rid of|take (?:out|off)|make|change|restyle|recolou?r|animate|pop in|pulse|move)\b/i;
+
+/**
+ * The elements `prompt` asks to have placed, read clause by clause: a clause that names a
+ * sticker or a callout and asks to put it on screen. A clause that removes, restyles or
+ * animates what is there asks for nothing new — "remove the stickers", "make the arrow pop in"
+ * — and a wrong requirement would fail a run that did as it was told, so the reading is
+ * conservative.
+ */
+export function explicitElements(prompt: string): readonly RequestedElement[] {
+  const found = new Set<RequestedElement>();
+  for (const clause of prompt.split(/[.;!?]|,|\band\b/i)) {
+    if (!PLACE_WORDS.test(clause) || NOT_PLACING_WORDS.test(clause)) continue;
+    if (STICKER_WORDS.test(clause)) found.add('sticker');
+    if (CALLOUT_WORDS.test(clause)) found.add('callout');
+  }
+  return (['sticker', 'callout'] as const).filter((element) => found.has(element));
+}
+
 export function checkableAcceptance(
   prompt: string,
   durationSeconds: number | undefined,
@@ -695,6 +731,7 @@ export function checkableAcceptance(
   const coverage = explicitCoverage(prompt);
   const unmeetable = unmeetableDeliverables(prompt);
   const cutaways = explicitCutawayCount(prompt);
+  const elements = explicitElements(prompt);
   const medianShotSource = references.applied.find((c) => c.line.startsWith('Pacing:'));
   return {
     ...(durationSeconds === undefined ? {} : { durationSeconds }),
@@ -708,6 +745,7 @@ export function checkableAcceptance(
     ...(unmeetable.length === 0 ? {} : { unmeetable }),
     ...(asksToRememberPreference(prompt) ? { rememberPreference: true } : {}),
     ...(cutaways === undefined ? {} : { maxStockCutaways: cutaways }),
+    ...(elements.length === 0 ? {} : { elements }),
   };
 }
 
@@ -768,6 +806,13 @@ export function acceptanceCriteria(acceptance: CheckableAcceptance): readonly st
         'they named and nothing else.',
     );
   }
+  for (const element of acceptance.elements ?? []) {
+    criteria.push(
+      element === 'sticker'
+        ? 'A sticker is on the timeline.'
+        : 'A callout (a box, an arrow, a circle or an underline) is on the timeline.',
+    );
+  }
   if (acceptance.rememberPreference === true) {
     criteria.push(
       'The preference the editor stated for future edits is saved with remember_preference ' +
@@ -796,6 +841,7 @@ export function hasCheckableAcceptance(acceptance: CheckableAcceptance): boolean
     acceptance.deliverableFile === true ||
     (acceptance.unmeetable?.length ?? 0) > 0 ||
     acceptance.rememberPreference === true ||
-    acceptance.maxStockCutaways !== undefined
+    acceptance.maxStockCutaways !== undefined ||
+    (acceptance.elements?.length ?? 0) > 0
   );
 }

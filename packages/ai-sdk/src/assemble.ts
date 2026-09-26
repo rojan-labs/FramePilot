@@ -17,6 +17,8 @@ import {
   applyProjectPatch,
   assertOperationContract,
   diffProject,
+  elementClips,
+  elementEverOnFrame,
   isProjectOperation,
   validatePatch,
 } from '@framepilot/editor-core';
@@ -235,6 +237,22 @@ export function describeValidationIssue(
  * The semantic contract still judges RAW intent first, where it belongs: it judges what the
  * model meant, and grid arithmetic has nothing to do with that.
  */
+/**
+ * The element clips (stickers and shapes) this patch added or changed that would be off the
+ * frame for their whole span (plan/elements EL8.1): an edit that renders as nothing, which the
+ * agent is told rather than allowed to report as done. Untouched elements are not judged, so an
+ * edit elsewhere is never refused for one the editor placed.
+ */
+function elementsOffFrame(before: Project, after: Project): readonly string[] {
+  const previous = new Map(
+    before.timeline.tracks.flatMap((track) => track.clips).map((clip) => [clip.id, clip]),
+  );
+  return elementClips(after)
+    .filter(({ clip }) => JSON.stringify(previous.get(clip.id)) !== JSON.stringify(clip))
+    .filter(({ clip }) => !elementEverOnFrame(after, clip.id))
+    .map(({ clip }) => clip.id);
+}
+
 export function assembleEdit(
   project: Project,
   operations: AnyOperation[],
@@ -308,6 +326,22 @@ export function assembleEdit(
   }
 
   const after = applyProjectPatch(project, patch);
+  const offFrame = elementsOffFrame(project, after);
+  if (offFrame.length > 0) {
+    const refusal: ValidationResult = {
+      valid: false,
+      issues: offFrame.map((clipId) => ({
+        code: 'element_off_frame' as const,
+        severity: 'error' as const,
+        message:
+          `"${clipId}" would sit outside the frame for as long as it is on the timeline, so the ` +
+          'edit would render as nothing. Place it inside the frame: centre it within the ' +
+          'picture, or make it smaller.',
+      })),
+    };
+    log.warn('assembleEdit → an element would be off the frame', { clips: offFrame.length });
+    return { patch, validation: refusal, text: reason };
+  }
   const diff = diffProject(project, after);
   log.action('assembleEdit → patch assembled', {
     patchId: patch.patchId,

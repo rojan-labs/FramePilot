@@ -101,7 +101,12 @@ export type ValidationCode =
   /** An enabled matte does not cover the source range its clip plays. */
   | 'matte_out_of_coverage'
   /** An apply path threw something the operations layer did not raise deliberately. */
-  | 'invalid_operation';
+  | 'invalid_operation'
+  /**
+   * An element (a sticker or a shape) would be off the frame for its whole span, so the edit
+   * renders as nothing (plan/elements EL8.1). Raised where the agent's edits are assembled.
+   */
+  | 'element_off_frame';
 
 export type ValidationSeverity = 'error' | 'warning';
 
