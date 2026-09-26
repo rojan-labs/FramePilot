@@ -1,5 +1,6 @@
 /**
- * Executable outcome evals for shapes and stickers (plan/elements EL4a, EL6a).
+ * Executable outcome evals for shapes and stickers (plan/elements EL4a, EL6a), and their animation
+ * (EL7).
  *
  * Neither is an EditorCommand, so there is no controller to resolve: each case compiles with the
  * builder the Elements panel and the agent's tool share, which is exactly what the capability
@@ -10,8 +11,10 @@ import {
   applyPatch,
   buildAddShapeOps,
   buildAddStickerOps,
+  clipAnimation,
   invertPatch,
   isProjectOperation,
+  planElementAnimation,
   setShapeParamsOp,
   shapeClipParams,
   stickerBaseScale,
@@ -31,6 +34,8 @@ const SHAPE_PRESET = 'rounded-rect/highlight';
 const SHAPE_START_SECONDS = 2;
 const SHAPE_END_SECONDS = 5;
 const RESTYLED_FILL = '#22C55E';
+const ANIMATION_IN = 'pop';
+const ANIMATION_LOOP = 'pulse';
 const STICKER_START_SECONDS = 3;
 const STICKER_END_SECONDS = 6;
 /** The library pads 256 px of art into a 318 px file (see `elementArtFraction`). */
@@ -192,6 +197,24 @@ function addSticker(fixture: ProfessionalEvalFixture): ProfessionalEvalCompilati
   ]);
 }
 
+/** A Pop entrance and a Pulse loop on the shape, as the Animation section and the tool plan them. */
+function animateShape(fixture: ProfessionalEvalFixture): ProfessionalEvalCompilation {
+  const clip = shapeClipOf(fixture.project);
+  if (clip === undefined) return { status: 'failed', failures: ['no shape to animate'] };
+  const plan = planElementAnimation(
+    fixture.project.timeline,
+    clip.id,
+    { in: { kind: ANIMATION_IN }, loop: { preset: ANIMATION_LOOP } },
+    fixture.project.resolution,
+  );
+  if (!plan.ok) return { status: 'failed', failures: [plan.detail] };
+  return compiled(fixture.project, 'Animate shape', plan.operations, [
+    `clip=${clip.id}`,
+    `in=${ANIMATION_IN}`,
+    `loop=${ANIMATION_LOOP}`,
+  ]);
+}
+
 function expectShapeAdded(persisted: Project): readonly string[] {
   const clip = shapeClipOf(persisted);
   const lane = persisted.timeline.tracks.find((track) => track.id === clip?.trackId);
@@ -215,6 +238,18 @@ function expectShapeRestyled(persisted: Project): readonly string[] {
     { label: 'fill restyled', actual: params?.['fill'], expected: RESTYLED_FILL },
     { label: 'stroke kept', actual: params?.['stroke'], expected: shapeParams()['stroke'] },
     { label: 'box kept', actual: params?.['width'], expected: shapeParams()['width'] },
+  ]);
+}
+
+function expectShapeAnimated(persisted: Project): readonly string[] {
+  const clip = shapeClipOf(persisted);
+  const animation = clip === undefined ? null : clipAnimation(clip);
+  return outcomeIssues([
+    { label: 'entrance', actual: animation?.in?.kind, expected: ANIMATION_IN },
+    { label: 'no exit added', actual: animation?.out ?? null, expected: null },
+    { label: 'loop', actual: animation?.loop?.preset, expected: ANIMATION_LOOP },
+    { label: 'loop covers the clip', actual: animation?.loop?.coversClip, expected: true },
+    { label: 'shape kept its span', actual: clip?.end, expected: SHAPE_END_SECONDS },
   ]);
 }
 
@@ -261,5 +296,12 @@ export const GRAPHICS_EVAL_CASES: readonly ProfessionalEvalCase[] = [
     setup: () => fixtureFor(graphicsEvalProject(true)),
     resolveAndCompile: addSticker,
     expectOutcome: expectStickerAdded,
+  },
+  {
+    fixtureId: 'graphics.element-animation.outcome',
+    capabilityId: 'graphics.element.animation',
+    setup: shapeStyleFixture,
+    resolveAndCompile: animateShape,
+    expectOutcome: expectShapeAnimated,
   },
 ];

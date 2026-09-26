@@ -64,6 +64,7 @@ const COVERED_FIXTURES = {
   'graphics.shape.add': 'graphics.shape-add.outcome',
   'graphics.shape.style': 'graphics.shape-style.outcome',
   'graphics.sticker.add': 'graphics.sticker-add.outcome',
+  'graphics.element.animation': 'graphics.element-animation.outcome',
 } as const satisfies Readonly<Record<string, string>>;
 
 export const ProfessionalEvalRowSchema = z

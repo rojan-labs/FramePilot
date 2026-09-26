@@ -17,6 +17,7 @@ exports[`professional capability outcome evals > records a machine-readable scor
   "color.shadows.outcome passed not_acquired",
   "color.temperature.outcome passed not_acquired",
   "color.tint.outcome passed not_acquired",
+  "graphics.element-animation.outcome passed not_acquired",
   "graphics.shape-add.outcome passed not_acquired",
   "graphics.shape-style.outcome passed not_acquired",
   "graphics.sticker-add.outcome passed not_acquired",
