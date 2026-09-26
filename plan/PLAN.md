@@ -10302,7 +10302,7 @@ stickers, CC BY 4.0 (EL10).
 - [x] **EL1** Stock → Elements rename; Photos and Videos sub-tabs; stored `'stock'` tab aliased
 - [x] **EL2a** Stills and titles honour opacity, fades, crop and their own alpha; titles' In/Out
   presets render (fixes the three live bugs)
-- [~] **EL2b** Masks, edge styles and geometry transitions for stills and titles, with their first
+- [x] **EL2b** Masks, edge styles and geometry transitions for stills and titles, with their first
   consumers (EL6b, EL7); a turning title keeps its letters
 - [x] **EL3** One definition of synthetic asset ids and clip kind per runtime + guard tests
 - [!] **EL4a** Shapes minimum slice, complete (desktop): six shapes, Inspector, box/endpoint handles,
@@ -10311,23 +10311,25 @@ stickers, CC BY 4.0 (EL10).
 - [!] **EL6a** Stickers minimum slice, complete: 251 curated, materialise IPC, Stickers tab,
   credits, `add_sticker`, `add_clip` delegation for element assets, one eval case; green on
   `9633653c`; the eval run and one desktop run are human steps (`plan/elements/09-PHASES.md`)
-- [~] **EL6b** The full 1,595 in the desktop installer, virtualised grid, outline and shadow
-- [~] **EL7** Animation In/Out (layer transitions) and Loop (keyframes from a builder);
-  `set_element_animation`
-- [~] **EL8** Agent quality: critic checks, digest, skill craft pass, remaining eval cases, MCP —
+- [!] **EL6b** The full 1,595 in the desktop installer, virtualised grid, outline and shadow —
+  green on `8f6985ed`; run D (scale on real hardware) is a human step
+- [!] **EL7** Animation In/Out (layer transitions) and Loop (keyframes from a builder);
+  `set_element_animation` — green on `8f6985ed`; the eval run and run C are human steps
+- [!] **EL8** Agent quality: critic checks, digest, skill craft pass, remaining eval cases, MCP —
   built (element advisories and `elements_placed`, off-frame refusal, element rows at 15 tokens
   each, skill pass, cases 4–6, MCP end to end); found and fixed: soft default sticker size on
   vertical/4K, callouts told to move off their targets, sticker ids offered over MCP; the MCP
-  sticker materialiser deferred (decided autonomously); CI pending; eval runs are human steps
-- [~] **EL9** Photos/Videos: category chips, orientation filter, drag to timeline, manual overlay
+  sticker materialiser deferred (decided autonomously); green on `8f6985ed`; eval runs are human steps
+- [x] **EL9** Photos/Videos: category chips, orientation filter, drag to timeline, manual overlay
   — built with Add as overlay (ADR 0193); found and fixed: new picture lanes covered graphics;
-  CI pending
+  green on `8f6985ed`
 - [!] **EL10** Animated stickers (optional, schema v26) — gated on MD-E3, whose recommended answer
   needs a licence read of Noto Emoji Animation (CC BY 4.0): a human step, instructions in
   `plan/elements/09-PHASES.md` EL10
-- [~] **EL11** Polish, shrunk by its scope review: "Add as overlay" for the user's own images, drop a
+- [x] **EL11** Polish, shrunk by its scope review: "Add as overlay" for the user's own images, drop a
   sticker or shape on the monitor, record a dragged sticker as recent; skin tones, follow subject
-  and the browser build deferred with reasons (`plan/elements/11-RISKS-AND-DEFERRED.md` §2)
+  and the browser build deferred with reasons (`plan/elements/11-RISKS-AND-DEFERRED.md` §2);
+  green on `8f6985ed`
 - [~] **EL12** Docs, changelogs, desktop evidence runs, close-out
 - [x] **Found in EL6a — the release workflow has never completed a build.** electron-builder
   rejected the Linux executable name (`@framepilotdesktop`), macOS stopped at "not a file", Windows

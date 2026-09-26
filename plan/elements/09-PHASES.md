@@ -122,26 +122,26 @@ travels 5% of the frame height in every path (ADR 0189); the DOM overlay's box-r
 not expressible in the export. Goldens: no engine golden fixture holds a still or title with
 opacity, a transition, a crop or an In/Out preset, so none changes; CI confirms: [CI run 36198403567](https://github.com/rojan-labs/FramePilot/actions/runs/36198403567) on `9bbde591`, every job green including the PX4 oracle.
 
-## EL2b — Stills and titles: masks, edge styles, geometry transitions `[~]`
+## EL2b — Stills and titles: masks, edge styles, geometry transitions `[x]`
 
 Lands **with its first consumer**, not before: edge styles and masks with EL6b (sticker outline,
 shadow, masking), geometry transitions (zoom, slide, wipe passes) with EL7 (In/Out).
 
-- [~] **EL2b.1** Masks and edge styles for stills and titles; edge styles read the layer's own
+- [x] **EL2b.1** Masks and edge styles for stills and titles; edge styles read the layer's own
       alpha when it has no mask stack (`render/edge_styles.py` + the preview's edge passes).
       _Built:_ `33c63e45` (a photo or a sticker takes its masks and edge styles, monitor and
       export), `16bf8a24` (a title takes a track matte or a Frame mask, and an outline around its
       glyphs), `a8834dad` (a mask a title or photo cannot take is refused up front).
-- [~] **EL2b.2** Catalogue and geometry transitions for stills and titles in the compiler, both
+- [x] **EL2b.2** Catalogue and geometry transitions for stills and titles in the compiler, both
       frame plans and the monitor.
       _Built:_ with its consumer EL7 (`f738af2f`): stills and titles enter and leave with the
       catalogue's geometry transitions, and a moving exit plays its entrance backwards.
-- [~] **EL2b.3** Oracle rows: `stills/mask-ellipse`, `stills/edge-outline`, `stills/zoom-in`,
+- [x] **EL2b.3** Oracle rows: `stills/mask-ellipse`, `stills/edge-outline`, `stills/zoom-in`,
       `text/slide-in`.
       _Built as:_ `alpha/still-mask-ellipse`, `stickers/stickers-outline-shadow` (an edge outline
       on a still's own alpha), `transitions/still-transitions` (fade, zoom and wipe entrances on
       PNG stills over video), `text/text-slide-in`; TS and Python vectors equal.
-- [~] **EL2b.4** (found 2026-09-26 while building shapes) A rotated title is clipped: the export
+- [x] **EL2b.4** (found 2026-09-26 while building shapes) A rotated title is clipped: the export
       rotates a layer inside its own box (`expand=False`) and a title's raster is tight to its
       glyphs, so "HELLO" turned 90° loses most of its letters, on the monitor and in the file.
       Shapes already avoid it with a rotation-safe square raster (ADR 0190); give titles the same
@@ -150,6 +150,8 @@ shadow, masking), geometry transitions (zoom, slide, wipe passes) with EL7 (In/O
       _Built:_ `ea3ebaaa` — a title that animates rotation is drawn in a transparent square as wide
       as its diagonal in the engine, the preview raster route and the monitor's fallback; row
       `text/text-rotated` (0° to 90°); `3d55c9f0` gives the oracle harness the same flag.
+
+**CI:** green on `8f6985ed` (31 checks; CodeQL's failure is the known diff-size artefact — the PR's 57 open alerts are `main`'s 57).
 
 ---
 
@@ -371,18 +373,18 @@ FRAMEPILOT_PYTHON_API_URL=http://127.0.0.1:8799 node packages/ai-sdk/scripts/mis
   folder and reopen (it comes back); undo each add. Record the export, the reopened project and
   any defect here.
 
-## EL6b — Stickers: the whole library `[~]`
+## EL6b — Stickers: the whole library `[!]`
 
 Depends on EL6a, MD-E1, EL2b.1.
 
-- [~] **EL6b.1** All 1,595 full files fetched from the pinned commit **when packaging the desktop
+- [x] **EL6b.1** All 1,595 full files fetched from the pinned commit **when packaging the desktop
   app** (an electron-builder `extraResources` step, cached by the lock hash), not in
   `web-editor#build`; `elementsRoot()` prefers the packaged set and falls back to the curated
   set (06 §4); CI size budget.
   _Built:_ `build_library.py --packaged` (1,344 files, 32.2 MiB, parallel, byte-stable
   reruns; 8 tests), a `manifest.json` main verifies copies against (MD-E1 note), `sourceOf`
   per item, `check:elements` (every sticker placeable, licence, 40 MB) in `desktop-build`.
-- [~] **EL6b.2** Virtualised grid, collection chips, glyph search, favourites star; packaged tiles
+- [x] **EL6b.2** Virtualised grid, collection chips, glyph search, favourites star; packaged tiles
   through `framepilot:elements:thumbnail`; perf test for 02 §9.
   _Built:_ `@tanstack/react-virtual` grid (40 of 1,595 tiles drawn), Recent / Favourites /
   nine group chips, star + F, in-project dot, drag onto a lane (`onDropSticker`); tiles from
@@ -392,14 +394,14 @@ Depends on EL6a, MD-E1, EL2b.1.
   runner, cold 142 ms), since jsdom's timing measured the runner (108 ms there, 45 ms locally);
   the agent's search reaches the
   packaged set only where the host ships it.
-- [~] **EL6b.4** `apps/desktop` `dist` runs `build:elements` before `electron-builder`;
+- [x] **EL6b.4** `apps/desktop` `dist` runs `build:elements` before `electron-builder`;
   `release.yml` and the `desktop-build` job cache it; `scripts/check-installer-budget.mjs`
   re-checked (raised in the same PR only if needed, with the reason); release checklist and
   runbooks updated.
   _Built:_ both jobs cache `~/.cache/framepilot/elements` and the set by the lock's hash; a
   local unsigned macOS arm64 DMG with the set is 374.0 MiB (budget 400, not raised), and its
   own resources pass `check:elements`; `distribution.md` and the v1 release checklist say so.
-- [~] **EL6b.3** Inspector Outline and Shadow (edge styles on the sticker's own alpha, from EL2b);
+- [x] **EL6b.3** Inspector Outline and Shadow (edge styles on the sticker's own alpha, from EL2b);
   the "Enlarged beyond its sharp size" hint; oracle rows `stickers/outline-shadow`,
   `stickers/masked`.
   _Built:_ `EdgeStyleControls` shared with the Mask tab (Outline: colour, width; Shadow:
@@ -421,13 +423,15 @@ Depends on EL6a, MD-E1, EL2b.1.
 
 **DoD:** every catalogued sticker is placeable in a packaged build (CI check); budgets met.
 
+**CI:** green on `8f6985ed` (31 checks; CodeQL's failure is the known diff-size artefact — the PR's 57 open alerts are `main`'s 57). Built; the `[!]` items above are human steps, with instructions.
+
 ---
 
-## EL7 — Animation: In · Out · Loop `[~]`
+## EL7 — Animation: In · Out · Loop `[!]`
 
 Depends on EL2b.2 (geometry transitions), and EL4a or EL6a.
 
-- [~] **EL7.1** Inspector **Animation** section for stickers, shapes and titles. **In / Out** are
+- [x] **EL7.1** Inspector **Animation** section for stickers, shapes and titles. **In / Out** are
   layer transitions (`add_layer_transition`, the existing op and catalogue — a curated graphics
   subset: fade, pop, slide ×4, wipe, blur-in); the title's control writes them too from now on,
   while the legacy `inAnimation`/`outAnimation` params (honoured since EL2a) stay readable and are
@@ -439,7 +443,7 @@ Depends on EL2b.2 (geometry transitions), and EL4a or EL6a.
   transitions now treat graphics lanes, and a moving exit plays its entrance backwards in time
   (frame plan `reversed`, compiler and monitor; `TRANSITION_EXIT_BY_MASK` keeps every existing
   exit as it was). ADR 0192.
-- [~] **EL7.2** **Loop** as keyframes from an `editor-core` builder (`loop-motion.ts`, the
+- [x] **EL7.2** **Loop** as keyframes from an `editor-core` builder (`loop-motion.ts`, the
   `track-follow.ts` pattern): pulse, float, wiggle, bounce, spin, blink — one patch, one undo,
   rendered by the transform pipeline that already exists. Trade-off recorded in the ADR:
   extending a looped clip does not extend its loop until the Inspector's "Re-apply" (or the
@@ -447,12 +451,12 @@ Depends on EL2b.2 (geometry transitions), and EL4a or EL6a.
   _Built:_ `loop-motion.ts` (8 tests: every preset, frame-pixel moves, spin, read back,
   replace/clear, refusals, ranges); `clipLoop().coversClip` drives Re-apply and the skill's
   instruction; the eval rubric requires `coversClip`.
-- [~] **EL7.3** Agent: `set_element_animation`; skill section on restraint; one evaluation case.
+- [x] **EL7.3** Agent: `set_element_animation`; skill section on restraint; one evaluation case.
   _Built:_ the tool (elements domain, MCP, engine registry delegated to the host), the
   stickers-and-callouts skill's restraint rules, case `animate-arrow-and-sticker` on
   `mission-animate-demo` (rubric `element-animation`: Pop on the arrow, Pulse on the sticker,
   nothing else); +22 tokens a request.
-- [~] **EL7.4** Oracle rows `loop/pulse`, `loop/wiggle`, `stickers/in-pop`, `shapes/out-slide`.
+- [x] **EL7.4** Oracle rows `loop/pulse`, `loop/wiggle`, `stickers/in-pop`, `shapes/out-slide`.
   _Built:_ `loop/pulse`, `loop/wiggle` (keyframes written by the builder),
   `stickers/stickers-in-pop`, `shapes/shapes-out-slide`; TS and Python vectors equal; e2e
   (Shapes spec) animates a box from the clip menu through export parity and undo.
@@ -474,11 +478,13 @@ node packages/ai-sdk/scripts/mission-baseline.mjs --case animate-arrow-and-stick
 **DoD:** each animation previews exactly as it exports, undoes in one step, and is reachable by the
 agent.
 
+**CI:** green on `8f6985ed` (31 checks; CodeQL's failure is the known diff-size artefact — the PR's 57 open alerts are `main`'s 57). Built; the `[!]` items above are human steps, with instructions.
+
 ---
 
-## EL8 — Agent quality and MCP `[~]`
+## EL8 — Agent quality and MCP `[!]`
 
-- [~] **EL8.1** Critic/verification checks (07 §4 table) with tests; `acceptance.ts` does not accept
+- [x] **EL8.1** Critic/verification checks (07 §4 table) with tests; `acceptance.ts` does not accept
       a run whose request named callouts or stickers while none was placed (ADR 0153);
       `temporal-review.ts` never calls a sticker foreign footage.
       _Built:_ `element_faces`, `element_safe_area` (caption band, vertical platform chrome, a
@@ -490,27 +496,27 @@ agent.
       the new cases against their fixtures showed the first safe-area check telling the agent to
       move callouts off toolbar buttons at the frame's top; the edge margin now judges stickers only
       and the face check only what hides what it covers (ADR 0191 amendment).
-- [~] **EL8.2** Context digest names element clips compactly (07 §5); token delta measured.
+- [x] **EL8.2** Context digest names element clips compactly (07 §5); token delta measured.
       _Built:_ `element-row-facts.ts` — rows such as `sticker "Fire" at 75%, 25%, 30% high`
       and `shape line-arrow · outline #FF3B30 · ends 38, 38 → 50, 50`, plus In/Out/Loop — in each
       tool's own units. Measured: a timeline with two shapes and an animated sticker goes from 101
       to 146 tokens, **15 tokens an element**; a project without elements does not move by a byte
       (the goldens did not change).
-- [~] **EL8.3** `editing-skills-expert` craft pass on `stickers-and-callouts.md`; description under
+- [x] **EL8.3** `editing-skills-expert` craft pass on `stickers-and-callouts.md`; description under
       the 300-character cap (test).
       _Built:_ description 296 characters, routing restyle/move/remove/animate requests; reading
       rows, where an element may sit (the critic's numbers), sharp sizes, and recipes for cases
       4–6; 7 tests pin every tool, preset, animation kind and loop the body names. The manifest
       grew by 6 tokens (goldens: counts only). **Found and fixed:** the default sticker size (30%)
       exported soft on vertical and 4K frames; it is now capped at the sharp size.
-- [~] **EL8.4** The remaining evaluation cases (07 §8) in the golden set, with expected timeline
+- [x] **EL8.4** The remaining evaluation cases (07 §8) in the golden set, with expected timeline
       outcomes; results read from recorded reports.
       _Built:_ `underline-and-arrow-on-product` (a new drawn fixture,
       `engine/python/tests/product_still_fixture.py`, labels committed), `restyle-highlight-boxes`
       and `remove-the-stickers` on builder-made fixture projects; rubrics `underline-and-arrow`,
       `restyle-highlight-boxes`, `remove-stickers` (12 tests), each 1.0 on its real fixture with
       the intended edit applied.
-- [~] **EL8.5** MCP: verify the element tools end to end; optional MCP sticker materialiser with
+- [x] **EL8.5** MCP: verify the element tools end to end; optional MCP sticker materialiser with
       `FRAMEPILOT_ELEMENTS_ROOT` (`.env.example` + `turbo.json` `globalEnv` in the same commit);
       `docs/api/mcp-server.md`.
       _Built:_ `packages/mcp-server/src/elements.test.ts` drives `search_elements`, `add_shape`,
@@ -534,26 +540,28 @@ node packages/ai-sdk/scripts/mission-baseline.mjs --case <case> --runs 10 --yes`
       rates of `boxes-red`/`boxes-thicker`/`only-boxes-restyled` and
       `stickers-removed`/`others-kept`.
 
+**CI:** green on `8f6985ed` (31 checks; CodeQL's failure is the known diff-size artefact — the PR's 57 open alerts are `main`'s 57). Built; the `[!]` items above are human steps, with instructions.
+
 ---
 
-## EL9 — Photos and Videos grow up `[~]`
+## EL9 — Photos and Videos grow up `[x]`
 
-- [~] **EL9.1** Category chips as curated queries (cached; each chip is one request, stated in the
+- [x] **EL9.1** Category chips as curated queries (cached; each chip is one request, stated in the
       quota strip).
       _Built:_ a Curated/Popular chip and the ten categories in `PexelsBrowser.tsx`; one search per
       chip, a repeat click spends nothing (a service-level cache test), "Each category is one
       search of your Pexels allowance" in the quota strip; typing leaves the category.
-- [~] **EL9.2** Orientation filter (default: the project's orientation).
+- [x] **EL9.2** Orientation filter (default: the project's orientation).
       _Built:_ Any / Landscape / Portrait / Square, starting on the project's shape and sent as
       Pexels' orientation parameter; on the Curated/Popular feed (which ignores it) it narrows the
       loaded page instead of paying for the page again.
-- [~] **EL9.3** Drag a photo/video tile to the timeline (download, then place at the drop).
+- [x] **EL9.3** Drag a photo/video tile to the timeline (download, then place at the drop).
       _Built:_ a `stock` drag payload of kind and remote id only (a strict id pattern; main
       resolves the id against items it fetched, and refuses the other kind);
       `buildDropStockOps` places full frame on the dropped picture lane when it is open and has
       room, else on a new lane in front of the footage and under the graphics; one shared download
       flow with Add (progress, Cancel, stated failures); desktop only.
-- [~] **EL9.4** **Add as overlay** for manual placement (MD-E5): a front lane, scaled to 40%,
+- [x] **EL9.4** **Add as overlay** for manual placement (MD-E5): a front lane, scaled to 40%,
       centred; ADR superseding ADR 0140's gating role for manual placement; the agent's rule is
       unchanged until measured.
       _Built:_ `buildAddStockOverlayOps` beside `buildAddStockOps` (base scale 0.4 and a centred
@@ -565,13 +573,15 @@ node packages/ai-sdk/scripts/mission-baseline.mjs --case <case> --runs 10 --yes`
       stickers and shapes; it now opens under the lowest graphics lane (ADR 0191). A placement
       the validator refuses now reaches the tile as a sentence, Retry repeats what failed, and an
       arrival is announced in a polite live region.
-- [~] **EL9.5** Tests (a panel-matrix row for each), docs.
+- [x] **EL9.5** Tests (a panel-matrix row for each), docs.
       _Built:_ editor-core placement suites (apply and invert, one undo, lane rules, hidden and
       locked lanes, determinism); web-editor panel, builder, drop, registry and announcement
       tests; desktop kind-mismatch test; `elements-e2e-photos.spec.ts` (category in landscape, axe
       in both themes, Add blocked over footage, Add as overlay checked in the exported pixels,
       undo, redo, save and reopen, drag to a lane twice); `docs/guides/elements.md`,
       `stock-sourcing.md`, CHANGELOG. **Found:** `--surface-2`/`--surface-3` undefined (EL12.6).
+
+**CI:** green on `8f6985ed` (31 checks; CodeQL's failure is the known diff-size artefact — the PR's 57 open alerts are `main`'s 57).
 
 ---
 
@@ -603,14 +613,14 @@ appears in Credits; already-downloaded stickers work offline.
 
 ---
 
-## EL11 — Polish `[~]`
+## EL11 — Polish `[x]`
 
 **Shrunk by the product-scope review of 2026-09-26** (README §7): two items are shown gaps in the
 editing loop and stay, one was already built, three are deferred with their numbers, and the
 accessibility and UI passes join the release gate. Starts after EL9, whose overlay builder EL11.3
 reuses.
 
-- [~] **EL11.1** Favourites and Recents (user settings store). **Built in EL6b.2**: the Stickers
+- [x] **EL11.1** Favourites and Recents (user settings store). **Built in EL6b.2**: the Stickers
       tab's All/Recent/Favourites chips and star persist through `useViewPreference`, which is the
       user settings store 04 §5 names. Left: a sticker **dragged** onto a lane is not recorded as
       recent (only a click is); record it in the browser when the drag ends in a copy, with a test.
@@ -620,7 +630,7 @@ reuses.
       files ≈ 37 MB with thumbnails; bundled, the packaged set goes from 32.2 MiB to ~70 MB against
       its 40 MB budget and the installer from 374 to ~409 MiB against 400; an on-demand pack needs
       EL10's download path first, which waits on a licence read.
-- [~] **EL11.3** An **"Add as overlay"** button on the media bin's picture cards (the user's own
+- [x] **EL11.3** An **"Add as overlay"** button on the media bin's picture cards (the user's own
       images: a logo, a screenshot, a cut-out), placing through EL9.4's `buildAddStockOverlayOps`
       at the playhead — not sticker placement, which would give a user's file library behaviour
       (the Elements folder, re-copy on open, credits). Keyboard parity with the focused card; absent
@@ -630,7 +640,7 @@ reuses.
       operation for a bin image), an overlay icon button on image cards only and ⌘/Ctrl+Shift+Enter
       on the focused card, checked apply, selection and a polite announcement; ADR 0193 amendment;
       e2e row importing a transparent PNG (`66f10ea7`, CI).
-- [~] **EL11.4** Drop a sticker or shape tile onto the **layer monitor** at a position: one drop
+- [x] **EL11.4** Drop a sticker or shape tile onto the **layer monitor** at a position: one drop
       zone on the frame accepting the elements drag payload, one pure screen-to-frame mapping
       (letterboxed and zoomed monitors), placing at the playhead through the existing `at` /
       `offset` builders; the new clip is selected. Photos, videos and bin assets on the monitor are
@@ -648,6 +658,8 @@ reuses.
       implementation ADR 0190 rejected; browser stickers need a project that stores imported bytes.
 - [x] **EL11.7** Moved to EL12.6: `accessibility-responsive-auditor` and `ui-ux-critic` over every
       shipped Elements surface, each finding fixed or waived with a reason.
+
+**CI:** green on `8f6985ed` (31 checks; CodeQL's failure is the known diff-size artefact — the PR's 57 open alerts are `main`'s 57).
 
 ---
 

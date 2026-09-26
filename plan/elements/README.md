@@ -296,17 +296,17 @@ holds and every row of [`12-SURFACE-COVERAGE.md`](./12-SURFACE-COVERAGE.md) is d
 | EL0   | `[x]`  | Scope review (§7); MD-E6, MD-E7 decided; spike A report with numbers      |
 | EL1   | `[x]`  | Rename + Photos/Videos sub-tabs; CI green on `9bbde591`                   |
 | EL2a  | `[x]`  | Export, plans, monitor, DOM overlay fixed; CI green on `9bbde591`         |
-| EL2b  | `[~]`  | Masks, edge styles, turning titles for stills and titles; awaiting CI     |
+| EL2b  | `[x]`  | Masks, edge styles, turning titles; CI green on `8f6985ed`                |
 | EL3   | `[x]`  | One helper per runtime + guards; CI green on `9bbde591`                   |
 | EL4a  | `[!]`  | Built and green on `276b8827`; eval run and desktop run are human steps   |
 | EL5   | `[x]`  | 106 shapes, 260 presets, 1,703 icons, search, badges; CI green `276b8827` |
 | EL6a  | `[!]`  | Green on `9633653c`; eval run and desktop run are human steps             |
-| EL6b  | `[~]`  | Built: installer set, grid, Inspector, rows; CI pending; run D human      |
-| EL7   | `[~]`  | Built: In/Out/Loop, tool, rows, e2e; CI pending; eval and run C human     |
-| EL8   | `[~]`  | Built: checks, rows, skill, cases 4–6, MCP; CI pending; evals human       |
-| EL9   | `[~]`  | Built: chips, orientation, drag, Add as overlay (ADR 0193); CI pending    |
+| EL6b  | `[!]`  | Installer set, grid, Inspector; green `8f6985ed`; run D is human          |
+| EL7   | `[!]`  | In/Out/Loop, tool, rows; green `8f6985ed`; eval and run C human           |
+| EL8   | `[!]`  | Checks, rows, skill, cases 4–6, MCP; green `8f6985ed`; evals human        |
+| EL9   | `[x]`  | Chips, orientation, drag, Add as overlay; CI green on `8f6985ed`          |
 | EL10  | `[!]`  | Optional; waits on the MD-E3 licence read (a human step, see 09)          |
-| EL11  | `[~]`  | Built: bin overlay, monitor drop, dragged recent; 3 deferred; CI pending  |
+| EL11  | `[x]`  | Bin overlay, monitor drop, dragged recent; CI green on `8f6985ed`         |
 | EL12  | `[~]`  | Docs, changelogs, runbook, release fixes; UI and a11y pass in progress    |
 
 ---
