@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from framepilot_engine.render.shape_catalog import preset_shape_params
 from framepilot_engine.render.shape_geometry import shape_bounds
 from framepilot_engine.render.shape_raster import rasterize_shape
 
@@ -146,13 +147,60 @@ def test_the_same_params_draw_the_same_pixels() -> None:
     assert first.tobytes() == second.tobytes()
 
 
-def test_a_1080p_shape_rasters_inside_its_budget() -> None:
-    # Budget 15 ms at 1080p (05 section 2.2); measured ~4 ms on Apple Silicon. The bound is
-    # generous for shared CI runners: it catches an order-of-magnitude regression, not noise.
-    params = {**HIGHLIGHT, "fill": "#FFD40033", "width": 60, "height": 30}
-    times = []
-    for _ in range(20):
-        start = time.perf_counter()
-        rasterize_shape(params, 1920, 1080)
-        times.append(time.perf_counter() - start)
-    assert statistics.median(times) < 0.06
+#: plan/elements 05 section 7: one shape raster at 1080p and at 4K, on the reference machine.
+RASTER_BUDGET_MS = {"1080p": 15.0, "4k": 50.0}
+#: CI runners are slower than the reference machine and run this suite under coverage on three
+#: workers, so they are held to the budget x2 (docs/guides/performance-budgets.md).
+CI_CEILING_FACTOR = 2.0
+FRAME_SIZES = {"1080p": (1920, 1080), "4k": (3840, 2160)}
+RASTER_RUNS = 20
+#: The size the budget is set at (05 section 2.2): a box 60% x 30% of the frame height.
+BUDGET_BOX = {"width": 60, "height": 30}
+#: The case 05 section 2.2 budgeted: a translucent, stroked highlight box.
+BUDGET_HIGHLIGHT = {**HIGHLIGHT, "fill": "#FFD40033", **BUDGET_BOX}
+#: The slowest shape in the catalogue at the budget's size, found by timing every preset and all
+#: 1,703 icons (2026-09-26, M1 Pro, median of 20 CPU): the grape icon, 14.2 ms at 1080p and
+#: 36-41 ms at 4K, where the highlight box takes 3.2 and 12.7 ms. Its ~40 circles flatten to ~740
+#: stroke joints, and Pillow draws a round joint per vertex. Re-run that scan when the catalogue
+#: or the rasteriser's stroke changes, and pin whatever is slowest here.
+WORST_SHAPE = {**(preset_shape_params("icon/grape") or {}), **BUDGET_BOX}
+
+
+def _median_raster_ms(params: dict[str, Any], width: int, height: int) -> float:
+    """Median CPU milliseconds of one raster, over RASTER_RUNS after a warm-up.
+
+    CPU time, not wall time: the raster is single-threaded Pillow and numpy work, so on a quiet
+    machine the two agree (measured to within 0.2 ms), while on a shared runner wall time also
+    counts the other pytest workers and coverage's neighbours taking the core.
+    """
+    rasterize_shape(params, width, height)
+    samples = []
+    for _ in range(RASTER_RUNS):
+        start = time.process_time()
+        rasterize_shape(params, width, height)
+        samples.append((time.process_time() - start) * 1000)
+    return statistics.median(samples)
+
+
+def test_the_worst_shape_is_the_grape_icon_at_the_budget_size() -> None:
+    # The guard below is only as good as the shape it times.
+    assert WORST_SHAPE["shape"] == "icon/grape"
+    assert (WORST_SHAPE["width"], WORST_SHAPE["height"]) == (60, 30)
+
+
+# The budget is the app's, and the app rasterises without a coverage tracer: CI runs this suite
+# under `--cov`, which on its own added a quarter to the grape icon's 1080p time (14.2 -> 17.9 ms
+# on the M1 Pro), so the timed call runs with coverage paused (pytest-cov's own marker).
+@pytest.mark.no_cover
+@pytest.mark.parametrize("frame", sorted(FRAME_SIZES))
+@pytest.mark.parametrize(
+    "params", [BUDGET_HIGHLIGHT, WORST_SHAPE], ids=["highlight-box", "worst-grape-icon"]
+)
+def test_a_shape_rasters_inside_its_budget(params: dict[str, Any], frame: str) -> None:
+    width, height = FRAME_SIZES[frame]
+    median = _median_raster_ms(params, width, height)
+    ceiling = RASTER_BUDGET_MS[frame] * CI_CEILING_FACTOR
+    assert median < ceiling, (
+        f"{params['shape']} at {frame}: {median:.1f} ms median CPU over {RASTER_RUNS} rasters; "
+        f"budget {RASTER_BUDGET_MS[frame]:.0f} ms, CI ceiling {ceiling:.0f} ms"
+    )
