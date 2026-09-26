@@ -600,7 +600,7 @@ appears in Credits; already-downloaded stickers work offline.
 
 ---
 
-## EL11 — Polish `[ ]`
+## EL11 — Polish `[~]`
 
 **Shrunk by the product-scope review of 2026-09-26** (README §7): two items are shown gaps in the
 editing loop and stay, one was already built, three are deferred with their numbers, and the
