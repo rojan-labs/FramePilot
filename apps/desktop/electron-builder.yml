@@ -23,6 +23,11 @@ files:
   - dist/**
   - renderer/**
   - '!**/*.map'
+  # The workspace packages main imports run from their `dist`; electron-builder copies each whole
+  # package directory, so their sources, build scripts, skill sources and caches rode along in the
+  # asar (tens of MiB, enough to put the Intel macOS installer over its budget).
+  - '!**/node_modules/@framepilot/*/{src,scripts,skills,coverage,.turbo}/**'
+  - '!**/node_modules/@framepilot/*/{tsconfig*.json,vitest.config.*,eslint.config.*,*.tsbuildinfo}'
 
 # The self-contained Python engine (PyInstaller onedir bundle, staged by
 # scripts/package-engine.mjs) ships OUTSIDE the asar under Resources/engine/ —
