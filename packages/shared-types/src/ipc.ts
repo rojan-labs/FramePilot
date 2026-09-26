@@ -2149,6 +2149,50 @@ export interface StockDownloadRequest {
   readonly operationId: string;
 }
 
+// --- Elements: stickers (plan/elements EL6a, 06 §2) ------------------------------------------
+
+/** Why a sticker could not be put into the project; each has one user sentence (02 §8). */
+export type ElementErrorCodeWire =
+  | 'unknown_element'
+  | 'library_missing'
+  | 'integrity_failed'
+  | 'disk_full'
+  | 'io_failed';
+
+/** Put the catalogue sticker `elementId` into the open project. Ids only, never a path. */
+export interface ElementMaterializeRequest {
+  readonly projectId: string;
+  readonly elementId: string;
+}
+
+/** The asset a materialised sticker becomes: an ordinary `image` with element provenance. */
+export interface ElementAssetWire {
+  readonly id: string;
+  /** Relative to the projects root, inside the project's media folder. */
+  readonly path: string;
+  readonly kind: 'image';
+  readonly media: { readonly width: number | null; readonly height: number | null };
+  /** The art's own size inside the file's transparent margin (the placement's `artFraction`). */
+  readonly sharpSize: number | null;
+  readonly source: {
+    readonly provider: string;
+    readonly remoteId: string;
+    readonly license: string;
+    readonly licenseUrl: string;
+    readonly attributionRequired: boolean;
+    readonly attribution: string;
+    readonly creator: string;
+    readonly sourceUrl: string;
+    readonly fetchedAt: string;
+  };
+  /** TRUE when the project already had the file and nothing was copied. */
+  readonly deduped: boolean;
+}
+
+export type ElementMaterializeResult =
+  | { readonly ok: true; readonly asset: ElementAssetWire }
+  | { readonly ok: false; readonly error: ElementErrorCodeWire; readonly detail?: string };
+
 export interface FramePilotBridge {
   ping(): Promise<'pong'>;
   /**
@@ -2281,6 +2325,11 @@ export interface FramePilotBridge {
   stockPreview?(remoteId: string): Promise<StockBytesResult>;
   /** Download one rendition into the project's media folder and derive its media. */
   stockDownload?(request: StockDownloadRequest): Promise<StockDownloadResult>;
+  /**
+   * Copy a catalogue sticker into the open project and return its asset (plan/elements EL6a).
+   * Desktop only; the caller places it with `buildAddStickerOps`.
+   */
+  elementsMaterialize?(request: ElementMaterializeRequest): Promise<ElementMaterializeResult>;
   /** Cancel an in-flight download by operation id (fire-and-forget). */
   stockDownloadCancel?(operationId: string): void;
   /** Subscribe to download progress; the returned function unsubscribes. */

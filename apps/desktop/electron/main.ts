@@ -102,6 +102,7 @@ import {
   type AiProvider,
   type ModelTier,
   type ProviderConfig,
+  loadStickerCatalog,
 } from '@framepilot/ai-sdk';
 import { createAutomaticTrackingExecutor } from './ai/automatic-tracking-executor.js';
 import { createMaskingExecutor, MASKING_EXECUTOR_TOOLS } from './ai/masking-executor.js';
@@ -145,6 +146,7 @@ import {
   type StockBytesResult,
   type StockDownloadRequest,
   type StockDownloadResult,
+  type ElementMaterializeResult,
   type StockQuotaSnapshot,
   type AnalyzeReferenceRequest,
   type AnalyzeReferenceResult,
@@ -255,6 +257,7 @@ import { previewTextRasterViaSidecar } from './render/preview-text-client.js';
 import { cacheDerivedMedia, sidecarDerive } from './media/derived-media-cache.js';
 import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
+import { ElementsLibrary, bundledStickersRoot } from './media/elements-library.js';
 
 import { StockQuotaStore } from './media/stock-quota.js';
 import {
@@ -936,6 +939,13 @@ function registerIpcHandlers(): void {
     },
   });
 
+  // Stickers (plan/elements EL6a): catalogue ids in, verified files copied into the project.
+  const elementsLibrary = new ElementsLibrary({
+    projectsRoot,
+    bundledRoot: () => bundledStickersRoot(dirname, app.isPackaged),
+    catalog: loadStickerCatalog,
+  });
+
   capabilityPackService = capabilityPackLocation
     .resolve()
     .then(({ activeRoot }) => createCapabilityPackService(activeRoot));
@@ -1541,6 +1551,20 @@ function registerIpcHandlers(): void {
     if (typeof operationId !== 'string') return;
     stockService.cancelDownload(operationId);
   });
+  ipcMain.handle(
+    IpcChannels.elementsMaterialize,
+    async (_event, request: unknown): Promise<ElementMaterializeResult> => {
+      requireLicense();
+      const req = request as { projectId?: unknown; elementId?: unknown } | null;
+      if (typeof req?.projectId !== 'string' || typeof req.elementId !== 'string') {
+        return { ok: false, error: 'unknown_element', detail: 'invalid request' };
+      }
+      return await elementsLibrary.materialize({
+        projectId: req.projectId,
+        elementId: req.elementId,
+      });
+    },
+  );
   ipcMain.handle(IpcChannels.stockQuota, async (): Promise<StockQuotaSnapshot> => {
     requireLicense();
     // Reads the last observation. Never triggers a provider request — a Settings

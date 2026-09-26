@@ -45,6 +45,8 @@ import type {
   StockSearchResult,
   StockBytesResult,
   StockDownloadRequest,
+  ElementMaterializeRequest,
+  ElementMaterializeResult,
   StockDownloadResult,
   StockDownloadProgressWire,
   StockQuotaSnapshot,
@@ -448,6 +450,24 @@ export async function musicDownload(
     };
   }
   return bridge.musicDownload(request);
+}
+
+/**
+ * Copy a catalogue sticker into the open project (plan/elements EL6a). Desktop only: the browser
+ * build has no project folder to copy into, so it hears `library_missing` with the reason.
+ */
+export async function elementsMaterialize(
+  request: ElementMaterializeRequest,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<ElementMaterializeResult> {
+  if (!bridge?.elementsMaterialize) {
+    return {
+      ok: false,
+      error: 'library_missing',
+      detail: 'Stickers are only available in the desktop app.',
+    };
+  }
+  return bridge.elementsMaterialize(request);
 }
 
 /** Cancel an in-flight download. No-op without a bridge. */
