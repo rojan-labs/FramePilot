@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "description": "FramePilot Electron desktop shell. Renderer is provided by @framepilot/web-editor.",
+  "homepage": "https://framepilot.app",
+  "author": {
+    "name": "FramePilot",
+    "email": "hello@framepilot.app"
+  },
   "license": "SEE LICENSE IN ../../LICENSE",
   "main": "dist/bootstrap.js",
   "scripts": {

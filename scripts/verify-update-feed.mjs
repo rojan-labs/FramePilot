@@ -2,7 +2,9 @@
 /**
  * Verify a desktop update feed before it is published.
  *
- * electron-updater trusts `latest*.yml` completely: it downloads whatever the
+ * electron-updater trusts the feed completely (`<channel>*.yml` — `stable-mac.yml`,
+ * `stable.yml`, `stable-linux.yml` for the `stable` channel `electron-builder.yml`
+ * publishes; `latest*.yml` without one): it downloads whatever the
  * feed names and checks the sha512 the feed states. That makes a malformed feed
  * the single worst artifact this project can publish — a feed pointing at a
  * missing file, or at a file whose hash no longer matches, breaks auto-update
@@ -51,14 +53,20 @@ if (!existsSync(directory)) {
   process.exit(1);
 }
 
-const feeds = readdirSync(directory).filter(
-  (entry) => entry.startsWith('latest') && entry.endsWith('.yml'),
-);
+/**
+ * The channels a feed can be named for: electron-builder writes `<channel>[-<platform>].yml` for
+ * the publish channel, and `latest` without one. The app follows `stable` or `beta`
+ * (`apps/desktop/electron/updater/channel.ts`); anything else in the directory, such as
+ * `builder-debug.yml`, is not a feed.
+ */
+const FEED_NAME = /^(?:latest|stable|beta)(?:-[a-z0-9]+)*\.yml$/;
+
+const feeds = readdirSync(directory).filter((entry) => FEED_NAME.test(entry));
 
 if (feeds.length === 0) {
   console.error(
-    `[update-feed] no latest*.yml in ${directory} — electron-builder did not emit a feed, so ` +
-      'publishing would leave clients with no update path.',
+    `[update-feed] no update feed (stable*.yml, beta*.yml or latest*.yml) in ${directory} — ` +
+      'electron-builder did not emit a feed, so publishing would leave clients with no update path.',
   );
   process.exit(1);
 }

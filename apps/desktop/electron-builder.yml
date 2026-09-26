@@ -95,6 +95,8 @@ linux:
 
 deb:
   packageName: framepilot
+  # The default file name is the package name too; name it the Debian way.
+  artifactName: framepilot_${version}_${arch}.${ext}
 
 nsis:
   oneClick: false
