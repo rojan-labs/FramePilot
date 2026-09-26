@@ -29,6 +29,7 @@ import re
 import signal
 import sqlite3
 import subprocess
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -7168,8 +7169,17 @@ def create_app(
         # codeql[py/path-injection]
         content_hash = _sha256_file(media_path)
         cache_path = media_path.with_name(f"{media_path.name}.reference.json")
+        # The sandbox proved the MEDIA path lives inside the root, not its sibling: a
+        # cache planted as a symlink (shared zip, git clone) points wherever it likes.
+        # Treat it as a miss; the write below replaces the link with a real file.
+        cache_is_link = cache_path.is_symlink()
+        if cache_is_link:
+            _log.warning(
+                "reference cache for %s is a symlink; ignoring it and re-analyzing",
+                media_path.name,
+            )
         # codeql[py/path-injection]
-        if not req.refresh and cache_path.is_file():
+        if not req.refresh and not cache_is_link and cache_path.is_file():
             try:
                 cached = json.loads(cache_path.read_text(encoding="utf-8"))
                 if cached.get("contentHash") == content_hash:
@@ -7195,8 +7205,8 @@ def create_app(
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         try:
             # codeql[py/path-injection]
-            cache_path.write_text(
-                json.dumps(response.model_dump(by_alias=True, exclude_none=True)), encoding="utf-8"
+            _replace_file_text(
+                cache_path, json.dumps(response.model_dump(by_alias=True, exclude_none=True))
             )
         except OSError as exc:
             _log.warning("reference cache not written for %s: %s", media_path.name, exc)
@@ -8456,6 +8466,36 @@ def _sha256_file(path: Path, *, chunk_bytes: int = 1 << 20) -> str:
         while chunk := handle.read(chunk_bytes):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _replace_file_text(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` by swapping a fresh sibling file into place.
+
+    WHY not ``path.write_text``: this writes beside user media, in a folder a shared
+    zip or a git clone controls. ``write_text`` follows a symlink planted at ``path``
+    and CREATES the target of a dangling one, so the engine would write outside the
+    projects root. ``Path.replace`` (``os.replace``) swaps the directory entry itself:
+    a link at ``path`` is replaced, never written through. The temp file is created
+    exclusively in the same directory (same filesystem, so the swap is atomic) and
+    removed if anything fails before the swap.
+
+    :param path: Destination file; its parent must already be a sandboxed directory.
+    :param text: UTF-8 text to store.
+    :raises OSError: If the temp file cannot be created, written, or swapped in.
+    """
+    descriptor, temp_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        temp_path.replace(path)
+    except BaseException:
+        # A failed cleanup must not mask the failure the caller needs to see.
+        with contextlib.suppress(OSError):
+            temp_path.unlink(missing_ok=True)
+        raise
 
 
 def _load_project(project_path: Path) -> Project:

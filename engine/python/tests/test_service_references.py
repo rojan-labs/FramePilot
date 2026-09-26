@@ -105,6 +105,97 @@ def test_a_changed_file_at_the_same_path_is_measured_again(tmp_path: Path) -> No
     assert second["image"]["width"] == 64
 
 
+def _projects_and_outside(tmp_path: Path) -> tuple[Path, Path]:
+    """A projects root and a sibling directory the engine must never write into."""
+    projects = tmp_path / "projects"
+    outside = tmp_path / "outside"
+    projects.mkdir()
+    outside.mkdir()
+    return projects, outside
+
+
+def test_a_symlinked_cache_file_is_never_written_through(tmp_path: Path) -> None:
+    """The cache sits beside user media, in a folder the user (or a shared zip, or a git
+    clone) controls. A ``<ref>.reference.json`` planted there as a symlink to a file
+    outside the projects root must not turn the analysis into a write to that file:
+    the sandbox proved the MEDIA path is inside the root, not whatever its sibling
+    link points at."""
+    projects, outside = _projects_and_outside(tmp_path)
+    logo = _logo(projects)
+    victim = outside / "victim.txt"
+    victim.write_text("keep", encoding="utf-8")
+    cache = logo.with_name("logo.png.reference.json")
+    cache.symlink_to(victim)
+    client = TestClient(create_app(Settings(projects_root=projects)))
+
+    response = client.post("/references/analyze", json={"input_path": str(logo)})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["kind"] == "image" and body["cached"] is False
+    assert body["image"]["width"] == 200
+    assert victim.read_text(encoding="utf-8") == "keep"
+    # The planted link is replaced by a real cache file, so the next attach is a hit.
+    assert not cache.is_symlink()
+    assert json.loads(cache.read_text(encoding="utf-8"))["contentHash"] == body["contentHash"]
+
+
+def test_a_dangling_cache_symlink_does_not_create_its_target(tmp_path: Path) -> None:
+    """A dangling link is worse than a live one: writing through it CREATES a file
+    wherever it points, outside the projects root."""
+    projects, outside = _projects_and_outside(tmp_path)
+    logo = _logo(projects)
+    target = outside / "created-by-the-engine.txt"
+    logo.with_name("logo.png.reference.json").symlink_to(target)
+    client = TestClient(create_app(Settings(projects_root=projects)))
+
+    response = client.post("/references/analyze", json={"input_path": str(logo)})
+
+    assert response.status_code == 200, response.text
+    assert not target.exists()
+    assert not target.is_symlink()
+
+
+def test_a_symlinked_cache_file_is_never_read(tmp_path: Path) -> None:
+    """The read side of the same link: a forged cache outside the root, carrying the
+    reference's real content hash, must not be served as the measurement."""
+    projects, outside = _projects_and_outside(tmp_path)
+    logo = _logo(projects)
+    client = TestClient(create_app(Settings(projects_root=projects)))
+    real = client.post("/references/analyze", json={"input_path": str(logo)}).json()
+    forged = outside / "forged.reference.json"
+    forged.write_text(
+        json.dumps({**real, "image": {**real["image"], "width": 9999}}), encoding="utf-8"
+    )
+    cache = logo.with_name("logo.png.reference.json")
+    cache.unlink()
+    cache.symlink_to(forged)
+
+    response = client.post("/references/analyze", json={"input_path": str(logo)})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["cached"] is False
+    assert response.json()["image"]["width"] == 200
+
+
+def test_a_cache_that_cannot_be_swapped_in_leaves_no_temp_file_behind(tmp_path: Path) -> None:
+    """The cache is written to a sibling temp file and swapped into place. When the swap
+    fails (here the cache name is taken by a directory) the answer still stands, and the
+    half-finished temp file must not litter the user's media folder."""
+    logo = _logo(tmp_path)
+    logo.with_name("logo.png.reference.json").mkdir()
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+
+    response = client.post("/references/analyze", json={"input_path": str(logo)})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["cached"] is False
+    assert sorted(entry.name for entry in logo.parent.iterdir()) == [
+        "logo.png",
+        "logo.png.reference.json",
+    ]
+
+
 def _decode(body: dict[str, object]) -> Image.Image:
     import base64
     import io
