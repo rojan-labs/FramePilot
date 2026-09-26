@@ -170,15 +170,22 @@ def _sub_path(
     return [_point_at(points, lengths, start), *inner, _point_at(points, lengths, end)]
 
 
-def _stroke_path(canvas: _Canvas, path: Sequence[Point], width: float, style: str) -> Mask:
-    """A dashed or dotted stroke along an open ``path`` (frame pixels)."""
-    points = [canvas.point(p) for p in path]
-    lengths = _path_length(points)
-    total = lengths[-1]
+def _stroke_paths(
+    canvas: _Canvas, paths: Sequence[Sequence[Point]], width: float, style: str
+) -> Mask:
+    """Dashed or dotted strokes along open ``paths`` (frame pixels), all in one mask.
+
+    Drawing only ever turns a pixel on, so one mask for every path is the union that a mask per
+    path merged with ``lighter`` made, without a full-size mask and a merge per path (an icon's
+    pieces each paid for both at 4K).
+    """
     w = width * canvas.scale
     line_width = max(1, round(w))
 
-    def draw(d: ImageDraw.ImageDraw) -> None:
+    def draw_path(d: ImageDraw.ImageDraw, path: Sequence[Point]) -> None:
+        points = [canvas.point(p) for p in path]
+        lengths = _path_length(points)
+        total = lengths[-1]
         if style == "dotted":
             radius = w / 2
             distance = 0.0
@@ -194,22 +201,28 @@ def _stroke_path(canvas: _Canvas, path: Sequence[Point], width: float, style: st
             _round_joined_line(d, segment, line_width)
             distance += period
 
+    def draw(d: ImageDraw.ImageDraw) -> None:
+        for path in paths:
+            draw_path(d, path)
+
     return canvas.mask(draw)
 
 
 def _filled(canvas: _Canvas, subpaths: Sequence[Subpath], even_odd: bool) -> Mask:
     """The closed pieces filled: their union, or with even-odd holes (a ring, a frame)."""
+    pieces = [points for points, closed in subpaths if closed and len(points) >= 3]
+    if not even_odd:
+        # Every piece into one mask: filling only ever turns a pixel on, so this is the union a
+        # mask per piece merged with ``lighter`` made, without a full-size mask and merge each.
+        def union(d: ImageDraw.ImageDraw) -> None:
+            for points in pieces:
+                d.polygon([canvas.point(p) for p in points], fill=255)
+
+        return canvas.mask(union)
     mask: Mask | None = None
-    for points, closed in subpaths:
-        if not closed or len(points) < 3:
-            continue
+    for points in pieces:
         piece = canvas.polygon(points)
-        if mask is None:
-            mask = piece
-        else:
-            mask = (
-                ImageChops.difference(mask, piece) if even_odd else ImageChops.lighter(mask, piece)
-            )
+        mask = piece if mask is None else ImageChops.difference(mask, piece)
     return mask if mask is not None else Image.new("L", canvas.size, 0)
 
 
@@ -218,15 +231,12 @@ def _stroked(
 ) -> Mask:
     """Every piece stroked along its centre line: round joins, and round or butt open ends."""
     if style != "solid":
-        masks = [
-            _stroke_path(canvas, [*points, points[0]] if closed else list(points), width, style)
+        paths = [
+            [*points, points[0]] if closed else points
             for points, closed in subpaths
             if len(points) > 1
         ]
-        mask = masks[0] if masks else Image.new("L", canvas.size, 0)
-        for other in masks[1:]:
-            mask = ImageChops.lighter(mask, other)
-        return mask
+        return _stroke_paths(canvas, paths, width, style)
     w = width * canvas.scale
     line_width = max(1, round(w))
 
@@ -278,7 +288,7 @@ def _box_masks(shape: ResolvedShape, canvas: _Canvas) -> tuple[Mask | None, Mask
 
         return fill, canvas.mask(ring)
     outline = box_outline(shape, 0.0, tolerance)
-    return fill, _stroke_path(canvas, [*outline, outline[0]], shape.stroke_width, style)
+    return fill, _stroke_paths(canvas, [[*outline, outline[0]]], shape.stroke_width, style)
 
 
 def _unit(a: Point, b: Point) -> tuple[float, float]:
@@ -400,7 +410,7 @@ def _segment_mask(shape: ResolvedShape, canvas: _Canvas) -> Mask:
     cap_mask = canvas.mask(caps)
     if style != "solid":
         return ImageChops.lighter(
-            _stroke_path(canvas, [line_start, line_end], w, style),
+            _stroke_paths(canvas, [[line_start, line_end]], w, style),
             cap_mask,
         )
     half = w / 2
