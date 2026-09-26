@@ -623,6 +623,11 @@ reuses.
 keyboard-shortcuts,render-and-export}.mdx`; `MANUAL_TESTING.md` Elements section (macOS and
       Windows); `docs/runbooks/elements.md`; one line each in `README.md` and `PRD.md`;
       `DESIGN_SYSTEM.md` token.
-- [ ] **EL12.6** The release gate of 13 §10, every box checked with evidence.
+- [ ] **EL12.6** The release gate of 13 §10, every box checked with evidence. It includes the
+      accessibility and UI passes moved from EL11.7, and **found in EL9:** `--surface-2` and
+      `--surface-3` are used 28 times in `styles.css` and defined in neither token system, so the
+      Elements tiles, chips, tabs and search boxes, the Sounds rows and the Photos/Videos tiles draw
+      no background (a pressed chip shows only its ring); the UI pass defines them in both themes and
+      refreshes the visual baselines it moves.
 
 **Last updated:** 2026-09-26
