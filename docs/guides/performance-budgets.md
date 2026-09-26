@@ -483,23 +483,27 @@ medium) exported `scale-plain` in 2,717 s wall / 4,687 s CPU and `scale-elements
 that runner needs ≈ 150 ms or less. Timed on the M1 Pro (the row's 20 lanes and its title over a 4K
 still, median CPU of 15 frames), they cost 235–244 ms a frame, spent on three wastes. MoviePy's
 `compose_on` blended each transparent layer over a frame-sized canvas: a 4K `Image.new` and an
-`alpha_composite` over 8.3 M pixels to place a 400 px sticker (≈ 5 ms a layer). Each still was
-LANCZOS-resized again every frame, picture and mask (≈ 3.5 ms a sticker). Each outline was redrawn
-from unchanged inputs (≈ 4.4 ms). All three are gone and no pixel moved:
+`alpha_composite` over 8.3 M pixels to place a 400 px sticker (≈ 5 ms a layer). Each keyframed still
+was LANCZOS-resized again every frame, picture and mask (≈ 3.5 ms a sticker). Each outline was
+redrawn from unchanged inputs (≈ 4.4 ms). All three are gone and no pixel moved:
 `render/bounded_composite.py` blends a layer over only the pixels it covers (Pillow's
 `alpha_composite` copies the destination wherever the source alpha is 0, so the rest of the frame
 never changed), and `render/still_resize.py` and `_apply_edge_styles` reuse their last result while
-its inputs are equal element for element. `test_element_layer_export.py` compares each with the
-definition it replaces, bit for bit, on the row and on the cases it lacks (off the frame's edges, a
-scale keyframe, a fade, an opaque still), and holds the result with operation counts (no resize or
-outline after a still's first frame, no frame-sized blend) and the timed ceiling, which the old path
-fails at 261 ms. The element work is now **66–69 ms a frame** (−72%): a static or outlined sticker
-1.3–1.4 ms, a turning one 9.3 ms, 7.7 ms of it Pillow's bicubic rotation of its picture and alpha,
-which changes every frame and is the next lever. Scaled to the runner (308 ms × 0.28) that is
-≈ 85–90 ms a frame, about **1.17×** on the full row; the plain arm's title is composited the bounded
-way too, about 5 ms of its ~500 ms frame. That is a projection, not the evidence: the row is
-re-measured by dispatching `gh workflow run preview-perf-full.yml -f variant=scale-elements` after
-this lands, and its number replaces this one.
+its inputs are equal element for element. Those entries share one process-wide budget of 256 MiB
+(`render/reuse_budget.py`: least recently used dropped first, none over 64 MiB, a dropped one simply
+recomputed), of which the row holds 30.5 MiB, so a Ken Burns slideshow of 24 animated 12 MP photos
+peaks at 1.19 GB of heap instead of the 1.90 GB an entry per photo held (about 3.7 GB instead of
+7.3 GB at 100 photos). `test_element_layer_export.py` compares each with the definition it replaces,
+bit for bit, on the row and on the cases it lacks (off the frame's edges, a scale keyframe, a fade,
+an opaque still), and holds the result with operation counts (no resize or outline after a still's
+first frame, no frame-sized blend) and the timed ceiling, which the old path fails at 261 ms. The
+element work is now **66–69 ms a frame** (−72%): a static or outlined sticker 1.3–1.4 ms, a turning
+one 9.3 ms, 7.7 ms of it Pillow's bicubic rotation of its picture and alpha, which changes every
+frame and is the next lever. Scaled to the runner (308 ms × 0.28) that is ≈ 85–90 ms a frame, about
+**1.17×** on the full row; the plain arm's title is composited the bounded way too, about 5 ms of
+its ~500 ms frame. That is a projection, not the evidence: the row is re-measured by dispatching
+`gh workflow run preview-perf-full.yml -f variant=scale-elements` after this lands, and its number
+replaces this one.
 
 **Human release steps** (run D, plan/elements 09; what no CI runner can judge):
 

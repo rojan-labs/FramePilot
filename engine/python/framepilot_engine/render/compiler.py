@@ -191,6 +191,7 @@ from framepilot_engine.render.pts_reader import (
     video_timing,
 )
 from framepilot_engine.render.resources import close_clip_tree
+from framepilot_engine.render.reuse_budget import ReuseSlot
 from framepilot_engine.render.shape_catalog import shape_descriptor
 from framepilot_engine.render.shape_geometry import shape_clip_params
 from framepilot_engine.render.shape_raster import rasterize_shape
@@ -1197,6 +1198,13 @@ class _StyledInputs:
     ) -> _StyledInputs:
         return cls(picture.copy(), alpha.copy(), opacity, (result[0].copy(), result[1].copy()))
 
+    @staticmethod
+    def size_of(
+        picture: np.ndarray, alpha: np.ndarray, result: tuple[np.ndarray, np.ndarray]
+    ) -> int:
+        """The bytes :meth:`keep` would hold."""
+        return int(picture.nbytes + alpha.nbytes + result[0].nbytes + result[1].nbytes)
+
     def matches(self, picture: np.ndarray, alpha: np.ndarray, opacity: float) -> bool:
         return (
             opacity == self.opacity
@@ -1231,8 +1239,8 @@ def _apply_edge_styles(
     :param still: ``True`` for a layer made from one picture (a still, a title). With a static
         cut-out its styled result is reused while its picture, alpha and opacity equal the
         previous frame's: ``apply_edge_styles`` is a pure function of them, so the reused result
-        is the one it would compute (``test_element_layer_export.py``). A video's frames differ
-        every frame, so it never compares them.
+        is the one it would compute (``test_element_layer_export.py``). The entry is held in the
+        process's reuse budget. A video's frames differ every frame, so it never compares them.
     """
     styles = clip_edge_styles(clip)
     if not styles or media_size is None:
@@ -1249,8 +1257,9 @@ def _apply_edge_styles(
     # opacity is read per instant anyway.
     static = alpha_stack is None or not alpha_stack.alpha_animated
     static_cut: list[Any] = []
-    reuse = still and static
-    styled_last: list[_StyledInputs] = []
+    # The last styled frame lives in the process's reuse budget (render/reuse_budget.py), which
+    # drops the least recently used entries when they outgrow it; a dropped one is redrawn.
+    slot = ReuseSlot() if still and static else None
 
     def evaluate(t: float, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         key = round(t * 1_000_000)
@@ -1274,12 +1283,17 @@ def _apply_edge_styles(
                 static_cut.append(cut)
         pixels = np.asarray(frame, dtype=np.uint8)
         opacity = layer_opacity_at(clip, t, transition)
-        if reuse and styled_last and styled_last[0].matches(pixels, alpha, opacity):
-            result = styled_last[0].styled()
+        last: _StyledInputs | None = None if slot is None else slot.get()
+        if last is not None and last.matches(pixels, alpha, opacity):
+            result = last.styled()
         else:
             result = apply_edge_styles(pixels, alpha, cut, styles, scale, opacity)
-            if reuse:
-                styled_last[:] = [_StyledInputs.keep(pixels, alpha, opacity, result)]
+            if slot is not None:
+                nbytes = _StyledInputs.size_of(pixels, alpha, result)
+                if slot.keeps(nbytes):
+                    slot.put(_StyledInputs.keep(pixels, alpha, opacity, result), nbytes)
+                else:
+                    slot.clear()
         if len(memo) > 2:
             memo.clear()
         memo[key] = result

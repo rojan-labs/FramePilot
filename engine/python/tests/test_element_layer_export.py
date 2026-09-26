@@ -11,6 +11,10 @@ of it serial Python work on the frame path. Three causes, each removed without c
 * A still's outline was redrawn every frame; ``compiler._apply_edge_styles`` reuses it while its
   picture, alpha and opacity repeat.
 
+Both reuses keep their entries in one process-wide byte budget (``render/reuse_budget.py``) that
+drops the least recently used, so a photo-heavy project cannot hold a second copy of every photo;
+the pixels are the same whether an entry was kept or dropped, which is tested here too.
+
 Each is compared here bit for bit with the definition it replaces, which is MoviePy's own
 (``CompositeVideoClip``, ``vfx.Resize``) or the old per-frame redraw, switched back in by
 monkeypatching, on the Scale row's own 20 sticker lanes and on the cases the row does not have.
@@ -18,8 +22,11 @@ monkeypatching, on the Scale row's own 20 sticker lanes and on the cases the row
 
 from __future__ import annotations
 
+import gc
 import statistics
+import threading
 import time
+import tracemalloc
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -29,7 +36,7 @@ import pytest
 from PIL import Image
 
 from framepilot_engine.media.assets import index_assets
-from framepilot_engine.render import bounded_composite, compiler, still_resize
+from framepilot_engine.render import bounded_composite, compiler, reuse_budget, still_resize
 from framepilot_engine.render.bounded_composite import (
     BoundedCompositeVideoClip,
     compose_layer_on,
@@ -38,6 +45,12 @@ from framepilot_engine.render.compiler import compile_timeline
 from framepilot_engine.render.edge_styles import apply_edge_styles
 from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.render.resources import close_clip_tree
+from framepilot_engine.render.reuse_budget import (
+    MAX_ENTRY_SHARE,
+    REUSE_BUDGET_BYTES,
+    ReuseBudget,
+    ReuseSlot,
+)
 from framepilot_engine.render.still_resize import ReusingResize
 from framepilot_engine.timeline.models import Project
 from tests.px5_scale_fixture import (
@@ -200,24 +213,39 @@ def media(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return base
 
 
+@pytest.fixture(scope="module")
+def old_frames(media: Path) -> list[np.ndarray]:
+    """The elements row and its edge cases through the definitions the new ones replace."""
+    with pytest.MonkeyPatch.context() as patch:
+        _old_definitions(patch)
+        return _frames(_elements_project(edge_cases=True), media, IDENTITY_TIMES)
+
+
+#: The row holds 30.5 MiB of entries: 16 MiB keeps some of them and drops the least recently used
+#: every frame (an outline's 2.2 MiB entry is still under its share), and 0 keeps none.
+EVICTING_BUDGETS = {"default": REUSE_BUDGET_BYTES, "evicting": 16 * 2**20, "keeping-none": 0}
+
+
+@pytest.mark.parametrize("budget_bytes", EVICTING_BUDGETS.values(), ids=EVICTING_BUDGETS.keys())
 def test_the_elements_row_exports_the_same_pixels_as_the_old_path(
-    media: Path, monkeypatch: pytest.MonkeyPatch
+    media: Path, old_frames: list[np.ndarray], budget_bytes: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project = _elements_project(edge_cases=True)
-    _old_definitions(monkeypatch)
-    before = _frames(project, media, IDENTITY_TIMES)
-    monkeypatch.undo()
-    after = _frames(project, media, IDENTITY_TIMES)
-    for t, old, new in zip(IDENTITY_TIMES, before, after, strict=True):
+    budget = ReuseBudget(budget_bytes)
+    monkeypatch.setattr(reuse_budget, "SHARED", budget)
+    after = _frames(_elements_project(edge_cases=True), media, IDENTITY_TIMES)
+    for t, old, new in zip(IDENTITY_TIMES, old_frames, after, strict=True):
         assert old.shape == new.shape == (HEIGHT, WIDTH, 3)
         assert np.array_equal(old, new), f"frame at {t:.4f} s differs from the old path"
     # Not vacuous: the stickers turn, scale and fade between these frames.
     assert not np.array_equal(after[0], after[1])
     assert not np.array_equal(after[3], after[4])
+    assert budget.held_bytes <= budget.budget_bytes
 
 
 @pytest.fixture
-def playing_row(media: Path) -> Iterator[Any]:
+def playing_row(media: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+    # The process's budget at its real size, empty, so what the row holds is measured alone.
+    monkeypatch.setattr(reuse_budget, "SHARED", ReuseBudget(REUSE_BUDGET_BYTES))
     composite = _compile(_elements_project(edge_cases=False), media)
     try:
         composite.get_frame(0.0)
@@ -250,6 +278,10 @@ def test_after_its_first_frame_the_row_resizes_and_outlines_nothing_again(
     for index in range(1, 5):
         playing_row.get_frame(index * 0.37)
     assert calls == {"resize": 0, "outline": 0}
+    # The budget keeps every entry the row needs (a picture and an alpha per sticker, and the
+    # five outlines) with room to spare: 30.5 MiB measured, under a quarter of the budget.
+    assert reuse_budget.SHARED.entry_count == 2 * ELEMENT_LAYERS + 5
+    assert reuse_budget.SHARED.held_bytes < REUSE_BUDGET_BYTES // 4
 
 
 def test_no_layer_is_blended_over_the_whole_frame(
@@ -427,3 +459,136 @@ def test_a_reused_resize_is_the_resize_moviepy_does(new_size: Any) -> None:
         assert np.array_equal(old.mask.get_frame(t), new.mask.get_frame(t))
         # What a caller does to a returned frame never reaches the next one.
         reused[...] = 0
+
+
+# --- The reuse budget --------------------------------------------------------------------------
+
+
+def _held_by(effect: type, pictures: list[np.ndarray], frames: int) -> int:
+    """Bytes a set of keyframed stills holds after ``frames`` rounds, beyond their pictures."""
+    from moviepy import ImageClip
+
+    gc.collect()
+    tracemalloc.start()
+    try:
+        clips = [
+            ImageClip(picture).with_duration(1.0).with_effects([effect(lambda t: 0.5)])
+            for picture in pictures
+        ]
+        for _ in range(frames):
+            for clip in clips:
+                clip.get_frame(0.2)
+        gc.collect()
+        return int(tracemalloc.get_traced_memory()[0])
+    finally:
+        tracemalloc.stop()
+
+
+def test_reuse_entries_stay_inside_the_budget_however_many_stills_play(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Twelve keyframed stills, each keeping a 1.8 MB entry (its 600 x 800 picture and the 300 x
+    # 400 resize), under an 8 MiB budget: the reuse may hold no more than the budget, measured in
+    # the bytes actually allocated, not in the budget's own count.
+    from moviepy.video.fx.Resize import Resize
+
+    budget = ReuseBudget(8 * 2**20)
+    monkeypatch.setattr(reuse_budget, "SHARED", budget)
+    rng = np.random.default_rng(11)
+    pictures = [rng.integers(0, 256, (600, 800, 3), dtype=np.uint8) for _ in range(12)]
+    extra = _held_by(ReusingResize, pictures, 2) - _held_by(Resize, pictures, 2)
+    # Four entries fit (7.2 MB): the budget is used, and never exceeded.
+    assert 6 * 2**20 < extra <= budget.budget_bytes + 2**20
+
+
+def test_the_budget_keeps_the_stills_played_last_and_resizes_the_rest_afresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from moviepy import ImageClip
+    from moviepy.video.fx.Resize import Resize
+
+    budget = ReuseBudget(8 * 2**20)
+    monkeypatch.setattr(reuse_budget, "SHARED", budget)
+    rng = np.random.default_rng(12)
+    pictures = [rng.integers(0, 256, (600, 800, 3), dtype=np.uint8) for _ in range(12)]
+    reusing = [
+        ImageClip(p).with_duration(1.0).with_effects([ReusingResize(lambda t: 0.5)])
+        for p in pictures
+    ]
+    plain = [
+        ImageClip(p).with_duration(1.0).with_effects([Resize(lambda t: 0.5)]) for p in pictures
+    ]
+    resizes = {"count": 0}
+    resizer = Resize.resizer
+
+    def counted(self: Any, pic: Any, new_size: Any) -> Any:
+        resizes["count"] += 1
+        return resizer(self, pic, new_size)
+
+    monkeypatch.setattr(Resize, "resizer", counted)
+    for clip, reference in zip(reusing, plain, strict=True):
+        assert np.array_equal(clip.get_frame(0.3), reference.get_frame(0.3))
+        assert budget.held_bytes <= budget.budget_bytes
+    # Four 1.8 MB entries fit in 8 MiB: the last four stills played reuse theirs, the first
+    # (dropped long ago) resizes again, and both give the same pixels.
+    resizes["count"] = 0
+    for clip in reusing[-4:]:
+        clip.get_frame(0.6)
+    assert resizes["count"] == 0
+    assert np.array_equal(reusing[0].get_frame(0.6), plain[0].get_frame(0.6))
+    assert resizes["count"] == 2  # the dropped still, and its MoviePy reference
+
+
+def test_the_budget_drops_the_least_recently_used_entry() -> None:
+    budget = ReuseBudget(400)
+    for key in (1, 2, 3, 4):
+        budget.put(key, f"entry {key}", 100)
+    assert budget.get(1) == "entry 1"  # 1 is now the most recent, 2 the least
+    budget.put(5, "entry 5", 100)
+    assert budget.get(2) is None
+    assert [budget.get(key) for key in (1, 3, 4, 5)] == ["entry 1", "entry 3", "entry 4", "entry 5"]
+    assert (budget.held_bytes, budget.entry_count) == (400, 4)
+    # A key's new entry replaces its old one in the count.
+    budget.put(3, "entry 3 again", 60)
+    assert (budget.held_bytes, budget.entry_count) == (360, 4)
+
+
+def test_an_entry_too_large_for_its_share_is_not_kept_and_its_old_one_goes() -> None:
+    budget = ReuseBudget(400)
+    share = 400 // MAX_ENTRY_SHARE
+    budget.put(1, "small", share)
+    budget.put(2, "neighbour", share)
+    assert budget.keeps(share) and not budget.keeps(share + 1)
+    budget.put(1, "too large", share + 1)
+    assert budget.get(1) is None
+    assert budget.get(2) == "neighbour"  # nothing else was pushed out to make room
+    assert (budget.held_bytes, budget.entry_count) == (share, 1)
+
+
+def test_a_slot_s_entry_goes_when_its_owner_is_collected() -> None:
+    budget = ReuseBudget(1000)
+    slot = ReuseSlot(budget)
+    slot.put("entry", 100)
+    assert (slot.get(), budget.held_bytes) == ("entry", 100)
+    del slot
+    gc.collect()
+    assert (budget.held_bytes, budget.entry_count) == (0, 0)
+
+
+def test_render_threads_share_one_budget_without_losing_count() -> None:
+    budget = ReuseBudget(10_000)
+    slots = [ReuseSlot(budget) for _ in range(8)]
+
+    def churn(slot: ReuseSlot) -> None:
+        for size in range(1, 400):
+            slot.put(size, size * 3)
+            slot.get()
+
+    threads = [threading.Thread(target=churn, args=(slot,)) for slot in slots]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    kept = [slot.get() for slot in slots]
+    assert budget.held_bytes == sum(3 * size for size in kept if size is not None)
+    assert budget.held_bytes <= budget.budget_bytes
