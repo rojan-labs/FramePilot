@@ -35,7 +35,9 @@ import hashlib
 import json
 import logging
 import math
+import os
 import re
+import stat
 import subprocess
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -399,6 +401,19 @@ def artifact_directory(base_dir: Path, key: str) -> Path | None:
         return None
 
 
+def regular_file(path: Path) -> bool:
+    """Whether ``path`` is itself a regular file: checked with ``lstat``, so a link never is.
+
+    WHY: artifact folders live inside the user's project, which a zip or a clone can fill with
+    links, and a check that follows one reads a file this engine never wrote.
+    """
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    return stat.S_ISREG(info.st_mode) and not stat.S_ISLNK(info.st_mode)
+
+
 def prepare_matte(
     mask: Any,
     clip: Any,
@@ -431,7 +446,9 @@ def prepare_matte(
     if mask.decontaminate:
         wanted.append(FOREGROUND_FILE)
     for name in wanted:
-        if name not in pinned or not (directory / name).is_file():
+        # Not ``is_file()``: it follows a link, and a linked file is not the one the pass
+        # wrote, whatever its digest says (a project unpacked from a zip keeps links).
+        if name not in pinned or not regular_file(directory / name):
             raise refuse(MatteRefusalCode.MISSING)
     for name in wanted:
         if file_sha256(directory / name) != pinned[name]:
