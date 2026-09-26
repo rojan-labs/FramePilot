@@ -40,9 +40,11 @@
  * ## One tab stop per grid
  *
  * Each tile's stop is a real button over its picture, named by the clip and
- * described by what Enter does there. Add, Overlay, Cancel and the credit link
- * sit out of the Tab order (Escape cancels a download), so 24 tiles are one stop,
- * not 72, before "Load more".
+ * described by what Enter does there. Only the ACTIVE tile's own controls — Add,
+ * Overlay (or Cancel, or "In this project") and the photographer's credit — follow
+ * it in the Tab order; every other tile's sit out of it. So 24 tiles cost one stop
+ * plus the active tile's few, not 72, before "Load more", and the credit link is
+ * still a place a keyboard can reach (Pexels asks for it; WCAG 2.1.1).
  *
  * ## Categories and shape
  *
@@ -1087,6 +1089,8 @@ function StockTile({
   const thumbnail = useObjectUrl(() => stockThumbnail(item.remoteId));
   const preview = useScrubPreview(item);
   const hintId = useId();
+  /** The tile's own controls follow its button in the Tab order only while it is the active one. */
+  const innerTabIndex = tabbable ? 0 : -1;
   const downloading = state.kind === 'downloading';
   const variant = tileVariant(item, targetHeight);
   const downloadBlocked = blockedReason !== null;
@@ -1137,6 +1141,16 @@ function StockTile({
       onPointerEnter={preview.onEnter}
       onPointerMove={preview.onMove}
       onPointerLeave={preview.onLeave}
+      // Focus anywhere in the tile makes it the active one (a click on another tile's Add
+      // moves the Tab stop with it) and is the keyboard's hover: a focused video tile previews.
+      onFocus={() => {
+        onFocus();
+        preview.onEnter();
+      }}
+      // Moving between the tile's own controls is not leaving it.
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) preview.onLeave();
+      }}
     >
       {/* The tile's one Tab stop, over its picture: a real button, named by the clip, so a
           screen reader is told what it is and what Enter does there. */}
@@ -1149,12 +1163,6 @@ function StockTile({
           downloading ? 'Escape' : overlayOffered && !inProject ? 'Enter Shift+Enter' : 'Enter'
         }
         aria-describedby={hintId}
-        onFocus={() => {
-          onFocus();
-          // The keyboard's hover: a focused video tile previews, as a pointed-at one does.
-          preview.onEnter();
-        }}
-        onBlur={preview.onLeave}
         onKeyDown={(event) => onKeyDown(event, index, item)}
         onClick={(event) => onActivate(event.shiftKey ? 'overlay' : 'cutaway')}
       >
@@ -1195,26 +1203,7 @@ function StockTile({
         </span>
       ) : null}
 
-      <div className="stock-tile-meta">
-        <span className="stock-tile-title">{item.title}</span>
-        {variant ? (
-          <span className="stock-tile-facts">
-            <span className="stock-tile-size">{variantLabel(variant)}</span>
-          </span>
-        ) : null}
-        {item.creator ? (
-          <span className="stock-tile-creator">
-            {item.creatorUrl ? (
-              <a href={item.creatorUrl} target="_blank" rel="noreferrer noopener" tabIndex={-1}>
-                {item.creator}
-              </a>
-            ) : (
-              item.creator
-            )}
-          </span>
-        ) : null}
-      </div>
-
+      {/* The actions come before the credit in the DOM, so Tab from the tile reaches them first. */}
       <div className="stock-tile-action">
         {downloading ? (
           <>
@@ -1235,7 +1224,7 @@ function StockTile({
             <button
               type="button"
               className="stock-cancel"
-              tabIndex={-1}
+              tabIndex={innerTabIndex}
               aria-label={`Cancel downloading ${item.title}`}
               title="Cancel (Escape)"
               onClick={() => onCancel(state.operationId)}
@@ -1248,7 +1237,7 @@ function StockTile({
             <button
               type="button"
               className="stock-present"
-              tabIndex={-1}
+              tabIndex={innerTabIndex}
               aria-label={`Show ${item.title} in Assets`}
               title="Show it in Assets"
               onClick={() => onActivate('cutaway')}
@@ -1260,13 +1249,13 @@ function StockTile({
           )
         ) : (
           <>
-            {/* Out of the Tab order, like everything in the tile but its own button: Enter
-                is this button's key. Blocked, it still answers a click — with the reason. */}
+            {/* In the Tab order only on the active tile. Blocked, it still answers a click —
+                with the reason. */}
             <Button
               variant="ghost"
               size="sm"
               type="button"
-              tabIndex={-1}
+              tabIndex={innerTabIndex}
               {...(downloadBlocked ? { 'aria-disabled': true } : {})}
               {...(failedAction === 'cutaway'
                 ? { 'aria-label': 'Retry adding at the playhead' }
@@ -1283,7 +1272,7 @@ function StockTile({
                 variant="ghost"
                 size="sm"
                 type="button"
-                tabIndex={-1}
+                tabIndex={innerTabIndex}
                 className="stock-overlay-action"
                 aria-label={
                   failedAction === 'overlay' ? 'Retry adding as an overlay' : 'Add as overlay'
@@ -1296,6 +1285,31 @@ function StockTile({
             ) : null}
           </>
         )}
+      </div>
+
+      <div className="stock-tile-meta">
+        <span className="stock-tile-title">{item.title}</span>
+        {variant ? (
+          <span className="stock-tile-facts">
+            <span className="stock-tile-size">{variantLabel(variant)}</span>
+          </span>
+        ) : null}
+        {item.creator ? (
+          <span className="stock-tile-creator">
+            {item.creatorUrl ? (
+              <a
+                href={item.creatorUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                tabIndex={innerTabIndex}
+              >
+                {item.creator}
+              </a>
+            ) : (
+              item.creator
+            )}
+          </span>
+        ) : null}
       </div>
 
       {state.kind === 'failed' && (

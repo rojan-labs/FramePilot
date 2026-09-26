@@ -7,6 +7,8 @@
  * substring-matches by default while RTL matches exactly, so an `aria-label`
  * that passes here can still break the e2e spec.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { Project } from '@framepilot/timeline-schema';
@@ -1620,12 +1622,115 @@ describe('PexelsBrowser — the tile as one keyboard stop (Enter adds, Shift+Ent
     );
     // The name already carries the title; the picture adds nothing to it.
     await waitFor(() => expect(main.querySelector('img')?.getAttribute('alt')).toBe(''));
-    // Everything else in the tile is out of the Tab order: one stop per grid.
-    expect(screen.getByRole('button', { name: 'Add' }).getAttribute('tabindex')).toBe('-1');
+    // The active tile's own controls follow it in the Tab order: its actions, then its credit.
+    expect(screen.getByRole('button', { name: 'Add' }).getAttribute('tabindex')).toBe('0');
     expect(screen.getByRole('button', { name: 'Add as overlay' }).getAttribute('tabindex')).toBe(
-      '-1',
+      '0',
     );
-    expect(screen.getByRole('link', { name: 'Ruvim' }).getAttribute('tabindex')).toBe('-1');
+    expect(screen.getByRole('link', { name: 'Ruvim' }).getAttribute('tabindex')).toBe('0');
+  });
+
+  /** A tile's own controls, in document (Tab) order. */
+  const innerControls = (index: number): HTMLElement[] => {
+    const tile = document.querySelectorAll<HTMLElement>('.stock-tile')[index]!;
+    return Array.from(tile.querySelectorAll<HTMLElement>('button:not(.stock-tile-main), a'));
+  };
+
+  it('lets Tab reach the active tile’s actions and credit, and no other tile’s', async () => {
+    bridge.search.mockResolvedValue(
+      okSearch([
+        wireItem(),
+        wireItem({
+          remoteId: '2',
+          title: 'Second',
+          creator: 'Ana',
+          creatorUrl: 'https://www.pexels.com/@ana',
+        }),
+      ]),
+    );
+    renderPanel();
+    await settle();
+    // The grid is one stop, plus the active tile's own controls: the photographer's credit is
+    // a link a keyboard user can follow too (WCAG 2.1.1; Pexels asks for the credit).
+    expect(
+      innerControls(0).map((control) => [
+        control.getAttribute('aria-label') ?? control.textContent,
+        control.getAttribute('tabindex'),
+      ]),
+    ).toEqual([
+      ['Add', '0'],
+      ['Add as overlay', '0'],
+      ['Ruvim', '0'],
+    ]);
+    expect(innerControls(1).map((control) => control.getAttribute('tabindex'))).toEqual([
+      '-1',
+      '-1',
+      '-1',
+    ]);
+    fireEvent.keyDown(tileMain(0), { key: 'ArrowRight' });
+    await waitFor(() =>
+      expect(innerControls(1).every((control) => control.getAttribute('tabindex') === '0')).toBe(
+        true,
+      ),
+    );
+    expect(innerControls(0).every((control) => control.getAttribute('tabindex') === '-1')).toBe(
+      true,
+    );
+  });
+
+  it('shows its actions and credit, clickable, while focus is inside the tile — not only on hover', () => {
+    // jsdom does not cascade the app stylesheet, so the rule itself is the contract checked here
+    // (the Photos e2e checks the computed style in a real browser).
+    const css = readFileSync(join(process.cwd(), 'src/styles.css'), 'utf-8');
+    const ruleFor = (selector: string): string => {
+      const at = css.indexOf(selector);
+      expect(at, `${selector} is styled`).toBeGreaterThanOrEqual(0);
+      return css.slice(at, css.indexOf('}', at));
+    };
+    const actions = ruleFor('.stock-tile:focus-within .stock-tile-action');
+    expect(actions).toContain('opacity: 1');
+    expect(actions).toContain('pointer-events: auto');
+    expect(ruleFor('.stock-tile:focus-within .stock-tile-meta')).toContain('opacity: 1');
+    expect(ruleFor('.stock-tile:focus-within .stock-tile-creator a')).toContain(
+      'pointer-events: auto',
+    );
+  });
+
+  it('makes a tile the active one when focus lands on one of its controls', async () => {
+    bridge.search.mockResolvedValue(
+      okSearch([wireItem(), wireItem({ remoteId: '2', title: 'Second' })]),
+    );
+    renderPanel();
+    await settle();
+    // A pointer click on the second tile's Add focuses it; the Tab stop follows.
+    act(() => innerControls(1)[0]!.focus());
+    await waitFor(() => expect(tileMain(1).getAttribute('tabindex')).toBe('0'));
+    expect(tileMain(0).getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('keeps previewing while focus moves within the tile, and stops when it leaves', async () => {
+    bridge.preview.mockResolvedValue({
+      ok: true,
+      contentType: 'video/mp4',
+      data: new ArrayBuffer(8),
+    });
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:preview');
+    globalThis.URL.revokeObjectURL = vi.fn();
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    renderPanel();
+    await settle();
+    await act(async () => {
+      tileMain().focus();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // Tab to the tile's own Add: still inside the tile, so the preview keeps going.
+    act(() => innerControls(0)[0]!.focus());
+    expect(pause).not.toHaveBeenCalled();
+    act(() => innerControls(0)[0]!.blur());
+    expect(pause).toHaveBeenCalled();
+    vi.restoreAllMocks();
   });
 
   it('points the stop at the reason when Add is blocked', async () => {

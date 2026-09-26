@@ -93,6 +93,8 @@ function item(remoteId: string, title: string, avgColor: string): Record<string,
     attributionRequired: false,
     attribution: 'Video by Sentinel on Pexels',
     creator: 'Sentinel',
+    // A link, as Pexels' own items carry one: the keyboard has to be able to reach it.
+    creatorUrl: 'https://www.pexels.com/@sentinel',
   };
 }
 
@@ -292,6 +294,21 @@ test('Videos: a category in the project’s shape, Add as overlay over the foota
   const tile = tileOf(results, RED_TITLE);
   await expect(tile).toBeVisible();
   await expectPanelAxeClean(page, 'Videos');
+
+  // --- from the keyboard: Tab from the active tile reaches its own actions — shown and
+  //     clickable without a hover — and then its photographer's credit ------------------------
+  await page.mouse.move(0, 0);
+  await tile.locator('.stock-tile-main').focus();
+  await page.keyboard.press('Tab');
+  await expect(tile.getByRole('button', { name: 'Add', exact: true })).toBeFocused();
+  const actions = tile.locator('.stock-tile-action');
+  await expect(actions).toHaveCSS('opacity', '1');
+  await expect(actions).toHaveCSS('pointer-events', 'auto');
+  await page.keyboard.press('Tab');
+  await expect(tile.getByRole('button', { name: 'Add as overlay', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(tile.getByRole('link', { name: 'Sentinel', exact: true })).toBeFocused();
+  await expect(tile.locator('.stock-tile-meta')).toHaveCSS('opacity', '1');
 
   // --- over the footage: Add is a cutaway and says why not; Add as overlay places it -----------
   await tile.hover();

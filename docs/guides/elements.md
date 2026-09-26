@@ -56,7 +56,9 @@ which opens Settings with the key field in view and the cursor in it.
   layer you dropped it on when it has room there, else on a new layer in front of your footage.
 - **Keyboard:** the grid is one Tab stop; the arrows move between tiles, Home and End jump to the
   ends. **Enter** adds the focused tile (or, over footage, says why Add can't), **Shift+Enter**
-  adds it as an overlay, and **Escape** cancels a download in progress. A focused video tile
+  adds it as an overlay, and **Escape** cancels a download in progress. **Tab** from the focused
+  tile reaches its own **Add** and **Overlay** buttons (or **Cancel**), shown without a hover, then
+  its photographer's credit; the other tiles' buttons stay out of the way. A focused video tile
   previews as a pointed-at one does, unless your system asks for reduced motion.
 - A tile's duration is shown on the picture; its size and photographer show when you point at it.
   A tile already in your project says **In this project**: click it (or press Enter on the tile)

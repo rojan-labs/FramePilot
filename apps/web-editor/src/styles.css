@@ -16027,6 +16027,13 @@ a.export-credits-license {
 .stock-tile-creator a {
   color: inherit;
 }
+/* The active tile's own controls are Tab stops: each shows where the keyboard is. */
+.stock-tile-creator a:focus-visible,
+.stock-cancel:focus-visible,
+.stock-present:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
 
 .stock-tile-action {
   position: absolute;
@@ -16039,6 +16046,8 @@ a.export-credits-license {
   gap: var(--space-1);
   align-items: center;
   justify-content: flex-end;
+  /* Above the meta scrim, which follows it in the DOM (the actions come first in Tab order). */
+  z-index: 2;
   opacity: 0;
   /* An invisible control must never take a click meant for the picture beneath it. */
   pointer-events: none;
