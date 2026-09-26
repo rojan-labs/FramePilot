@@ -670,8 +670,13 @@ jobs:
             src/preview/masks/matte-composite.perf.test.ts
       - name: pts probe on a multi-GB file and a two-hour file
         run: pnpm px5:pts-probe
-      - name: Export with masks and a 4K matte vs without (P13, 4-second window)
-        run: pnpm px5:export-ratio --window-seconds 4
+      # One plain export, then each variant against it under its own budget: masks + a 4K matte
+      # (P13, <= 1.5x) and 20 sticker layers (plan/elements 05 §7, <= 1.3x). Export is CPU-only, so
+      # these ratios are real evidence even here; they are LOGGED (job summary), not gated, because
+      # a 4-second window reads high (the matte's 1.32-1.45x here against 1.32x on the whole row).
+      # The whole row runs on demand in preview-perf-full.yml.
+      - name: Export time against the plain row (matte P13, 20 elements; 4-second window)
+        run: pnpm px5:export-ratio --window-seconds 4 --variants scale scale-elements
       - name: Scale row in the editor (invariants gate; timings are logged)
         env:
           FRAMEPILOT_RUN_PERF: '1'
