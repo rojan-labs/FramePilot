@@ -152,6 +152,63 @@ describe('Editor — feedback after every element add', () => {
     expect(selected(sticker.id)).toBe('true');
   });
 
+  it('swaps a sticker from the Inspector, says so, and gives the keyboard back to Replace…', async () => {
+    installDesktop({
+      elementsMaterialize: async ({ elementId }: { elementId: string }) => ({
+        ok: true,
+        asset: stickerAsset(elementId),
+      }),
+    });
+    mount();
+    openElementsTab('Stickers');
+    const search = await screen.findByRole('searchbox', { name: 'Search stickers' });
+    fireEvent.change(search, { target: { value: 'fire' } });
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: /^(Add Fire|Fire, sticker)$/ })[0]!);
+    });
+    await waitFor(() => expect(addedRegion().textContent).toBe('Added Fire at 0:00'));
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Inspector' }));
+    const replace = screen.getByRole('button', { name: 'Replace…' });
+    act(() => replace.focus());
+    fireEvent.click(replace);
+    // Replace mode: the keyboard is on the sticker search, which the banner describes.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('searchbox', { name: 'Search stickers' }),
+      ),
+    );
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search stickers' }), {
+      target: { value: 'red heart' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: /^Use Red heart/ })[0]!);
+    });
+    await waitFor(() => expect(addedRegion().textContent).toBe('Replaced Fire with Red heart'));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Replace…' })),
+    );
+
+    // Escape leaves a swap, and the keyboard goes back to Replace… too.
+    fireEvent.click(screen.getByRole('button', { name: 'Replace…' }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('searchbox', { name: 'Search stickers' }),
+      ),
+    );
+    fireEvent.keyDown(screen.getByRole('searchbox', { name: 'Search stickers' }), {
+      key: 'Escape',
+    });
+    // The search still holds "red heart": the first Escape clears it, the second leaves the swap.
+    fireEvent.keyDown(screen.getByRole('searchbox', { name: 'Search stickers' }), {
+      key: 'Escape',
+    });
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Replace…' })),
+    );
+    expect(screen.queryByText(/Pick a sticker to replace/)).toBeNull();
+  });
+
   it('selects and announces a Pexels clip added as a cutaway', async () => {
     installDesktop({
       stockQuota: async () => ({ kind: 'unmeasured' }),

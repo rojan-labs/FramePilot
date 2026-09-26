@@ -353,6 +353,18 @@ export function Editor({
     },
     [setLeftTab],
   );
+  /**
+   * The swap is over (a sticker was picked, or it was cancelled from the panel): the keyboard goes
+   * back to the Inspector's Replace…, where it was asked for, when the Inspector shows it. A swap
+   * left by choosing another Elements tab keeps focus on that tab.
+   */
+  const endStickerReplace = useCallback((returnFocus: boolean) => {
+    setStickerReplaceTarget(null);
+    if (!returnFocus) return;
+    requestAnimationFrame(() =>
+      document.querySelector<HTMLButtonElement>('.sticker-section-replace')?.focus(),
+    );
+  }, []);
   // NOT persisted, deliberately. Program/Source is a mode the interaction drives — clicking
   // an asset switches to Source by itself — not a layout preference. Restoring "Source" on
   // open, with no asset loaded, reopens the editor onto an empty monitor: a worse first
@@ -1016,7 +1028,7 @@ export function Editor({
           if (stickerReplaceTarget === null) return null;
           const target = stickerReplaceTarget;
           const patch = replaceStickerPatch(liveElementTarget(), target.clipId, asset, item.name);
-          setStickerReplaceTarget(null);
+          endStickerReplace(true);
           if (patch === null) return 'That sticker is no longer on the timeline. Add it again.';
           const refusal = applyStockPatch(
             liveEditor.current.applyPatchChecked,
@@ -1028,7 +1040,7 @@ export function Editor({
           announceAdded(stickerReplacedAnnouncement(target.name, item.name));
           return null;
         }}
-        onCancelStickerReplace={() => setStickerReplaceTarget(null)}
+        onCancelStickerReplace={endStickerReplace}
       />
     );
   }, [
@@ -1040,6 +1052,7 @@ export function Editor({
     stickerReplaceTarget,
     announceAdded,
     liveElementTarget,
+    endStickerReplace,
   ]);
   const openTransitionLibrary = useCallback(() => setLeftTab('transitions'), []);
   const aiFacingProject = useMemo(

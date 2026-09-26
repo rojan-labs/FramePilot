@@ -166,6 +166,15 @@ export function StickersBrowser({
   const searchRef = useRef<HTMLInputElement>(null);
   const [scrollArea, setScrollArea] = useState<HTMLDivElement | null>(null);
   const inProjectNoteId = useId();
+  const replaceNoteId = useId();
+  const replaceKey = replaceTarget?.clipId ?? null;
+  const loaded = catalog !== null;
+
+  // Entering replace mode puts the keyboard on the search, described by the banner, so the swap
+  // is announced where the next key goes and the replacement is one word away.
+  useEffect(() => {
+    if (replaceKey !== null && loaded) searchRef.current?.focus();
+  }, [replaceKey, loaded]);
 
   useEffect(() => {
     let live = true;
@@ -338,11 +347,18 @@ export function StickersBrowser({
         if (event.key === '/' && event.target !== searchRef.current) {
           event.preventDefault();
           searchRef.current?.focus();
+          return;
+        }
+        // Escape leaves a swap from anywhere in the panel (a search with words clears first).
+        if (event.key === 'Escape' && replaceTarget !== null && onCancelReplace !== undefined) {
+          event.preventDefault();
+          event.stopPropagation();
+          onCancelReplace();
         }
       }}
     >
       {replaceTarget !== null && (
-        <div className="stickers-replace" role="note">
+        <div className="stickers-replace" role="note" id={replaceNoteId}>
           <span>Pick a sticker to replace “{replaceTarget.name}”.</span>
           {onCancelReplace !== undefined && (
             <button type="button" className="stickers-replace-cancel" onClick={onCancelReplace}>
@@ -356,6 +372,7 @@ export function StickersBrowser({
         type="search"
         className="shapes-search"
         aria-label="Search stickers"
+        aria-describedby={replaceTarget !== null ? replaceNoteId : undefined}
         placeholder="Search stickers — try 🔥 or “party”"
         value={query}
         onChange={(event) => {

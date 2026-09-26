@@ -3,6 +3,7 @@
  * how it is remembered, and the keyboard model of the strip.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { Project } from '@framepilot/timeline-schema';
 import { ElementsPanel, availableElementsTabs, coerceElementsTab } from './ElementsPanel.js';
@@ -122,6 +123,59 @@ describe('ElementsPanel', () => {
     expect(screen.getByRole('tab', { name: 'Stickers' }).getAttribute('aria-selected')).toBe(
       'true',
     );
+    expect(screen.getByTestId('stickers').dataset.replacing).toBe('Fire');
+  });
+
+  it('leaves replace mode when another sub-tab is chosen, by click or by arrow key', () => {
+    const cancelled: string[] = [];
+    function Host(): JSX.Element {
+      const [target, setTarget] = useState<{ clipId: string; name: string } | null>({
+        clipId: 'c1',
+        name: 'Fire',
+      });
+      return (
+        <ElementsPanel
+          project={project}
+          placementBlockedReasonFor={() => null}
+          onAddStock={() => null}
+          stickerReplaceTarget={target}
+          onCancelStickerReplace={(returnFocus) => {
+            // Choosing a tab keeps the keyboard on the tab strip.
+            cancelled.push(returnFocus ? 'cancel and return focus' : 'cancel');
+            setTarget(null);
+          }}
+        />
+      );
+    }
+    render(<Host />);
+    // The tab clicked is the tab shown: choosing it cancels the swap rather than doing nothing.
+    fireEvent.click(screen.getByRole('tab', { name: 'Shapes' }));
+    expect(cancelled).toEqual(['cancel']);
+    expect(screen.getByRole('tab', { name: 'Shapes' }).getAttribute('aria-selected')).toBe('true');
+    cleanup();
+    cancelled.length = 0;
+    render(<Host />);
+    const stickers = screen.getByRole('tab', { name: 'Stickers' });
+    fireEvent.keyDown(stickers, { key: 'ArrowRight' });
+    expect(cancelled).toEqual(['cancel']);
+    const shapes = screen.getByRole('tab', { name: 'Shapes' });
+    expect(shapes.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(shapes);
+  });
+
+  it('keeps replace mode when Stickers itself is chosen again', () => {
+    const onCancelStickerReplace = vi.fn();
+    render(
+      <ElementsPanel
+        project={project}
+        placementBlockedReasonFor={() => null}
+        onAddStock={() => null}
+        stickerReplaceTarget={{ clipId: 'c1', name: 'Fire' }}
+        onCancelStickerReplace={onCancelStickerReplace}
+      />,
+    );
+    fireEvent.click(screen.getByRole('tab', { name: 'Stickers' }));
+    expect(onCancelStickerReplace).not.toHaveBeenCalled();
     expect(screen.getByTestId('stickers').dataset.replacing).toBe('Fire');
   });
 

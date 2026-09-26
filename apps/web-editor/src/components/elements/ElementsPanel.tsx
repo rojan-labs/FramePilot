@@ -77,7 +77,11 @@ export interface ElementsPanelProps {
   /** A sticker the Inspector asked to replace: the Stickers sub-tab opens in replace mode. */
   readonly stickerReplaceTarget?: StickerReplaceTarget | null;
   readonly onReplaceSticker?: (asset: ElementAssetWire, item: StickerItem) => string | null;
-  readonly onCancelStickerReplace?: () => void;
+  /**
+   * Leave replace mode. `returnFocus` is true when the panel's own Cancel or Escape ended it (the
+   * keyboard goes back to where the swap was asked for), false when another sub-tab was chosen.
+   */
+  readonly onCancelStickerReplace?: (returnFocus: boolean) => void;
 }
 
 export function ElementsPanel({
@@ -116,13 +120,26 @@ export function ElementsPanel({
     undefined,
   );
 
+  /**
+   * Show a sub-tab. Replacing a sticker holds the panel on Stickers; choosing any other tab is
+   * leaving the swap, so it cancels it — a tab that was clicked and then not shown would leave the
+   * keyboard on a tab that is not selected, with no way out but Cancel.
+   */
+  const chooseTab = useCallback(
+    (next: ElementsTab): void => {
+      if (stickerReplaceTarget !== null && next !== 'stickers') onCancelStickerReplace?.(false);
+      setTab(next);
+    },
+    [onCancelStickerReplace, setTab, stickerReplaceTarget],
+  );
+
   const onTabKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLButtonElement>, index: number): void => {
       const move = (to: number): void => {
         const next = available[(to + available.length) % available.length];
         if (next === undefined) return;
         event.preventDefault();
-        setTab(next);
+        chooseTab(next);
         tabRefs.current.get(next)?.focus();
       };
       switch (event.key) {
@@ -142,7 +159,7 @@ export function ElementsPanel({
           break;
       }
     },
-    [available, setTab],
+    [available, chooseTab],
   );
 
   if (tab === undefined) {
@@ -175,7 +192,7 @@ export function ElementsPanel({
             aria-selected={tab === id}
             aria-controls={`elements-tabpanel-${id}`}
             tabIndex={tab === id ? 0 : -1}
-            onClick={() => setTab(id)}
+            onClick={() => chooseTab(id)}
             onKeyDown={(event) => onTabKeyDown(event, index)}
           >
             {ELEMENTS_TAB_LABELS[id]}
@@ -213,7 +230,9 @@ export function ElementsPanel({
             }
             replaceTarget={stickerReplaceTarget}
             {...(onReplaceSticker ? { onReplaceSticker } : {})}
-            {...(onCancelStickerReplace ? { onCancelReplace: onCancelStickerReplace } : {})}
+            {...(onCancelStickerReplace
+              ? { onCancelReplace: () => onCancelStickerReplace(true) }
+              : {})}
           />
         )}
         {tab === 'shapes' && (

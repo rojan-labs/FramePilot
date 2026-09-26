@@ -264,6 +264,47 @@ describe('StickersBrowser', () => {
     expect(onCancelReplace).toHaveBeenCalled();
   });
 
+  it('takes focus to the search when replace mode opens, and says what it is replacing', async () => {
+    await open({
+      replaceTarget: { clipId: 'clip_1', name: 'Fire' },
+      onReplaceSticker: vi.fn(() => null),
+      onCancelReplace: vi.fn(),
+    });
+    const search = screen.getByRole('searchbox', { name: 'Search stickers' });
+    await waitFor(() => expect(document.activeElement).toBe(search));
+    const banner = document.getElementById(search.getAttribute('aria-describedby') ?? '');
+    expect(banner?.textContent).toContain('Pick a sticker to replace “Fire”.');
+  });
+
+  it('cancels replace mode with Escape, from the grid or an empty search', async () => {
+    const onCancelReplace = vi.fn();
+    await open({
+      replaceTarget: { clipId: 'clip_1', name: 'Fire' },
+      onReplaceSticker: vi.fn(() => null),
+      onCancelReplace,
+    });
+    const search = screen.getByRole('searchbox', { name: 'Search stickers' });
+    // With words in the box, Escape clears them first, as it always has.
+    fireEvent.change(search, { target: { value: 'hea' } });
+    fireEvent.keyDown(search, { key: 'Escape' });
+    expect(onCancelReplace).not.toHaveBeenCalled();
+    fireEvent.keyDown(search, { key: 'Escape' });
+    expect(onCancelReplace).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(tiles()[0]!, { key: 'Escape' });
+    expect(onCancelReplace).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves Escape alone when it is not replacing', async () => {
+    const onCancelReplace = vi.fn();
+    await open({ onCancelReplace });
+    const onWindowKey = vi.fn();
+    window.addEventListener('keydown', onWindowKey);
+    fireEvent.keyDown(tiles()[0]!, { key: 'Escape' });
+    window.removeEventListener('keydown', onWindowKey);
+    expect(onCancelReplace).not.toHaveBeenCalled();
+    expect(onWindowKey).toHaveBeenCalledTimes(1);
+  });
+
   it('narrows to one of the upstream groups', async () => {
     await open();
     fireEvent.click(screen.getByRole('button', { name: 'Symbols' }));

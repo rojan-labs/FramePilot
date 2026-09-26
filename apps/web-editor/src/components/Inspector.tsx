@@ -158,6 +158,14 @@ const SECTION_ICONS: Readonly<Record<string, LucideIcon>> = {
   effects: Sparkles,
 };
 
+/**
+ * The control a section asked for by name ("Animation…" in the clip menu) takes focus on: the
+ * first thing a person sets there.
+ */
+const SECTION_FIRST_CONTROL: Readonly<Record<string, string>> = {
+  animation: '[role="combobox"][aria-label="In animation"]',
+};
+
 /** What reset-all writes. Timing, transitions, fades, and ducking remain edit decisions. */
 const identityProperties = (from: ClipProperties): ClipProperties => ({
   transform: IDENTITY_TRANSFORM,
@@ -241,11 +249,15 @@ export function Inspector({
     if (focusSection === null) return;
     setPreferredTab(tabForSection(focusSection.id));
     if (!sectionState.isOpen(focusSection.id)) sectionState.setOpen(focusSection.id, true);
-    requestAnimationFrame(() =>
-      document
-        .querySelector(`[data-inspector-section="${focusSection.id}"]`)
-        ?.scrollIntoView({ block: 'nearest' }),
-    );
+    requestAnimationFrame(() => {
+      const section = document.querySelector<HTMLElement>(
+        `[data-inspector-section="${focusSection.id}"]`,
+      );
+      section?.scrollIntoView?.({ block: 'nearest' });
+      // And the keyboard with it: the next key edits the section, not what was focused before.
+      const first = SECTION_FIRST_CONTROL[focusSection.id];
+      if (first !== undefined) section?.querySelector<HTMLElement>(first)?.focus();
+    });
     // Once per request: the nonce, not the section state, says when to act.
   }, [focusNonce]);
 

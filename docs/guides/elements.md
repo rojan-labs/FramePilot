@@ -202,8 +202,9 @@ build:elements` has built the rest.)
   smaller or accept a softer look.
 - **Replace it** without losing your work: in the Inspector's **Sticker** section press
   **Replace…**, or right-click the clip and choose **Replace sticker…**. Elements opens on
-  Stickers; pick another and it takes the old one's place, with the same timing, position, size
-  and animation. **Cancel** leaves it as it was.
+  Stickers, with the keyboard in its search; pick another and it takes the old one's place, with
+  the same timing, position, size and animation, and the keyboard goes back to **Replace…**.
+  **Cancel** or Escape leaves it as it was; so does choosing another Elements tab.
 - **From the bin:** double-click a sticker in the Elements folder, or drag it onto the timeline, and
   it is placed exactly as the Stickers tab places it: never as full-frame footage.
 - **A sticker is not footage.** It is never analysed or indexed, it does not appear in Footage
@@ -226,8 +227,8 @@ to. Stickers need the desktop app: in the browser the Stickers tab is not shown.
 ## Animation: In, Out and Loop
 
 A sticker, a shape, a title or a picture on a graphics layer can come in, go out and loop while it
-is on screen. Right-click it on the timeline and choose **Animation…**, or find **Animation** on the
-Inspector's Basic tab.
+is on screen. Right-click it on the timeline and choose **Animation…** — the Inspector opens on the
+section with the keyboard on **In** — or find **Animation** on the Inspector's Basic tab.
 
 - **In and Out:** Fade, Pop, Slide left, Slide right, Slide up, Slide down, Wipe or Blur, each with
   a length (at most half the clip). A slide is named by the way it travels: **Slide left** comes in
