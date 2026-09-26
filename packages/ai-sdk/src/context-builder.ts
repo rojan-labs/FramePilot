@@ -39,6 +39,7 @@ import {
 import { detectTranscriptLoop, type TranscriptLoop } from './transcript-loop.js';
 import type { LedgerSnapshot } from './ledger.js';
 import { pictureFor, type PictureSlice } from './kernel/semantic-index/picture.js';
+import { withElementFacts } from './element-row-facts.js';
 import { withMaskFacts } from './masking/mask-row-facts.js';
 import { shotWords } from './kernel/context/shot-words.js';
 import { summarizePictureDigest } from './kernel/context/picture-digest.js';
@@ -1169,13 +1170,17 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // budgeter's repeated re-renders cost one derivation), and the digest reads asset rows
   // only. With no ledger, `pictureRowFacts` is empty and the digest is omitted — the
   // assembled prompt is then byte-identical to what it has always been.
-  // Masked clips say so on their row (AM4.1); a project without masks gets `facts` back
+  // Masked clips say so on their row (AM4.1), and stickers and shapes say what they are, where
+  // they sit and how they move (plan/elements EL8.2); a project with neither gets `facts` back
   // untouched, so its prompt does not move by a byte either.
-  const rowFacts = withMaskFacts(
+  const rowFacts = withElementFacts(
     project,
-    withRepeatedSourceFacts(
+    withMaskFacts(
       project,
-      input.ledger ? pictureRowFacts(pictureFor(project, projectIndex, input.ledger)) : undefined,
+      withRepeatedSourceFacts(
+        project,
+        input.ledger ? pictureRowFacts(pictureFor(project, projectIndex, input.ledger)) : undefined,
+      ),
     ),
   );
   const pictureDigest = summarizePictureDigest(input.ledger) ?? '';
