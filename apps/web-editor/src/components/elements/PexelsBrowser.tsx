@@ -756,7 +756,7 @@ export function PexelsBrowser({
             <p className="stock-blocked" role="status">
               {blockedReasonFor(items[0]!)}
               {onAddStockOverlay
-                ? ' Or choose Add as overlay to put a smaller picture over the footage.'
+                ? ' Or press Overlay to put a smaller picture over the footage.'
                 : ''}
             </p>
           ) : null}

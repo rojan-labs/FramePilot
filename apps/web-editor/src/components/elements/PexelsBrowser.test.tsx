@@ -1337,8 +1337,11 @@ describe('PexelsBrowser — categories, orientation, drag and Add as overlay (EL
     const overlay = screen.getByRole('button', { name: 'Add as overlay' });
     expect(overlay).toHaveProperty('disabled', false);
     expect(overlay.textContent).toContain('Overlay');
-    // The reason for the blocked Add points at the placement that works here.
-    expect(screen.getByRole('status').textContent).toMatch(/Add as overlay/);
+    // The reason for the blocked Add points at the placement that works here, by the label the
+    // tile shows.
+    expect(screen.getByRole('status').textContent).toMatch(
+      /press Overlay to put a smaller picture/,
+    );
   });
 
   it('downloads and hands the asset to the overlay placement, never to the cutaway', async () => {
