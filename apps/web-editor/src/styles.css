@@ -15479,27 +15479,52 @@ a.export-credits-license {
 
 /* Stickers sub-tab (plan/elements EL6a): square tiles, ~72 px at the default rail width. The
    same search and chips as Shapes; tiles show the sticker on the panel background. */
+/* The Stickers sub-tab (plan/elements EL6b.2): the search and chips stay put while the grid
+   scrolls, and the grid draws only the rows in view — each tile is placed by the virtualiser
+   (`transform`), so the list itself is just the height of the whole library. */
 .stickers-browser {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: var(--space-2);
   min-height: 0;
+}
+.stickers-chips {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-1);
+  padding-bottom: 2px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.stickers-chips .shapes-chip {
+  flex: none;
+  white-space: nowrap;
+}
+.stickers-scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .stickers-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
-  gap: var(--space-1);
+  position: relative;
   padding: 0;
   margin: 0;
   list-style: none;
 }
+.stickers-grid-cell {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
 .stickers-grid-tile {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
-  aspect-ratio: 1;
+  height: 100%;
   padding: var(--space-1);
   cursor: pointer;
   background: var(--surface-2);
@@ -15527,6 +15552,48 @@ a.export-credits-license {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+/* A packaged tile still on its way from main: the emoji itself holds the place. */
+.stickers-grid-glyph {
+  font-size: 1.75rem;
+  line-height: 1;
+}
+/* The project already holds this sticker; a click still adds another (02 §2.2). */
+.stickers-grid-held {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+}
+/* The favourite star shows on hover and focus, and stays on a favourite. */
+.stickers-grid-star {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: flex;
+  padding: 2px;
+  color: var(--text-secondary, var(--text));
+  cursor: pointer;
+  background: var(--surface);
+  border: 0;
+  border-radius: var(--radius-sm, 6px);
+  opacity: 0;
+}
+.stickers-grid-cell:hover .stickers-grid-star,
+.stickers-grid-cell:focus-within .stickers-grid-star,
+.stickers-grid-star[aria-pressed='true'] {
+  opacity: 1;
+}
+.stickers-grid-star[aria-pressed='true'] {
+  color: var(--accent);
+}
+.stickers-grid-star:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  opacity: 1;
 }
 .stickers-replace {
   display: flex;

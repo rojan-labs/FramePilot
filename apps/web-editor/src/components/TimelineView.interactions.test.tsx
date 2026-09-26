@@ -496,6 +496,44 @@ describe('TimelineView direct manipulation', () => {
     expect(graphic.querySelector('.clip-shape-glyph')).toBeTruthy();
   });
 
+  it('hands a sticker tile dropped on a lane to the host, by id, at the drop time', () => {
+    const onDropSticker = vi.fn();
+    function StickerHost(): JSX.Element {
+      const editor = useEditor(
+        { tracks: [...timeline.tracks, { id: 'o', type: 'overlay', clips: [] }] },
+        ['a'],
+      );
+      return <TimelineView editor={editor} assets={[]} fps={30} onDropSticker={onDropSticker} />;
+    }
+    const { container } = render(<StickerHost />);
+    const drop = (trackId: string): void => {
+      const lane = container.querySelector(`[data-track-id="${trackId}"]`) as HTMLElement;
+      const payload = encodeElementDrag({ kind: 'sticker', elementId: 'fire' });
+      const dataTransfer = {
+        getData: (type: string) => (type === ELEMENT_DND_TYPE ? payload : ''),
+        types: [ELEMENT_DND_TYPE],
+      };
+      const dropEvent = new MouseEvent('drop', { bubbles: true, clientX: 300 });
+      Object.defineProperty(dropEvent, 'dataTransfer', { value: dataTransfer });
+      fireEvent(lane, dropEvent);
+    };
+    // On a graphics lane it asks for that lane; on footage it leaves the lane to the placer.
+    drop('o');
+    drop('v');
+    expect(onDropSticker.mock.calls).toEqual([
+      ['fire', expect.any(Number), 'o'],
+      ['fire', expect.any(Number), undefined],
+    ]);
+    const [[, onGraphics], [, onFootage]] = onDropSticker.mock.calls as [
+      [string, number],
+      [string, number],
+    ];
+    expect(onGraphics).toBeGreaterThan(0);
+    expect(onFootage).toBe(onGraphics);
+    // Nothing is placed until main has copied the file in: the host does both.
+    expect(container.querySelectorAll('.clip-block')).toHaveLength(1);
+  });
+
   it('adds a new layer at the front via the Add-track menu (Phase 2 / TIMELINE-TOOLBAR-REORG)', () => {
     const { container } = render(<Host />);
     const before = container.querySelectorAll('[aria-label^="track "]').length;

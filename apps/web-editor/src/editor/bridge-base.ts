@@ -47,6 +47,8 @@ import type {
   StockDownloadRequest,
   ElementMaterializeRequest,
   ElementMaterializeResult,
+  ElementThumbnailRequest,
+  ElementThumbnailResult,
   StockDownloadResult,
   StockDownloadProgressWire,
   StockQuotaSnapshot,
@@ -468,6 +470,20 @@ export async function elementsMaterialize(
     };
   }
   return bridge.elementsMaterialize(request);
+}
+
+/**
+ * Tiles of packaged stickers, which the desktop installer ships outside the renderer's own files
+ * (plan/elements EL6b). An empty request asks only whether this build has the packaged set; a
+ * build without the channel (the browser, an older desktop) has none, so the panel lists the
+ * curated stickers alone.
+ */
+export async function elementsThumbnail(
+  request: ElementThumbnailRequest,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<ElementThumbnailResult> {
+  if (!bridge?.elementsThumbnail) return { ok: true, packaged: false, thumbs: [] };
+  return bridge.elementsThumbnail(request);
 }
 
 /** Cancel an in-flight download. No-op without a bridge. */

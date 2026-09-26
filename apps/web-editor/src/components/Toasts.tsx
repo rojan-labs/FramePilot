@@ -61,17 +61,36 @@ export function useToasts(): ToastQueue {
   return { toasts, push, dismiss };
 }
 
+/** A failure the host reports itself (one that never reached the validator). */
+export interface ToastNotice {
+  /** A new id raises a new toast; the same id again does not. */
+  readonly id: number;
+  readonly message: string;
+}
+
 export interface ToastsProps {
   /** When provided, rejected-patch issues are surfaced as error toasts. */
   readonly editor?: UseEditor;
+  /**
+   * A failure outside the patch path — a sticker dropped on the timeline that main could not
+   * copy into the project (plan/elements EL6b) — raised as an error toast.
+   */
+  readonly notice?: ToastNotice | null;
 }
 
 /**
  * The toast stack. Pass `editor` to auto-surface validation failures; the same
  * region can also be fed manually via the {@link useToasts} queue it owns.
  */
-export function Toasts({ editor }: ToastsProps): JSX.Element {
+export function Toasts({ editor, notice = null }: ToastsProps): JSX.Element {
   const { toasts, push, dismiss } = useToasts();
+  const lastNoticeId = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (notice === null || notice.id === lastNoticeId.current) return;
+    lastNoticeId.current = notice.id;
+    push({ tone: 'error', message: notice.message });
+  }, [notice, push]);
   // Track the last issue signature so we raise one toast per rejection, not per render.
   const lastIssueKey = useRef<string>('');
 

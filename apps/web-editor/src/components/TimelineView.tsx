@@ -217,6 +217,12 @@ export interface TimelineViewProps {
   /** Forwarded to {@link ClipContextMenu}'s "Replace sticker…"; absent where there is no panel. */
   readonly onReplaceSticker?: (clipId: string, name: string) => void;
   /**
+   * A sticker tile dropped on a lane (plan/elements EL6b): the host asks main to copy it into the
+   * project, then places it at `atSeconds` — on `trackId` when it is a graphics lane with room.
+   * Absent where there is no project folder to copy into (a drop does nothing).
+   */
+  readonly onDropSticker?: (elementId: string, atSeconds: number, trackId?: string) => void;
+  /**
    * Switch the left rail to the transitions library. Offered by the on-cut
    * popover as its "there is more than this" escape hatch; absent means this
    * host has no such rail (the timeline is embedded in tests and in the AI
@@ -1324,6 +1330,7 @@ export function TimelineView({
   onAskAiForClip,
   onRevealAssetInBin,
   onReplaceSticker,
+  onDropSticker,
   onOpenTransitionLibrary,
   tool = 'select',
   onItemActivate,
@@ -2605,6 +2612,11 @@ export function TimelineView({
     (track: Track, raw: string, atSeconds: number): void => {
       const payload = decodeElementDrag(raw);
       if (payload === null) return;
+      const graphicsLane = track.type === 'overlay' && !track.locked ? track.id : undefined;
+      if (payload.kind === 'sticker') {
+        onDropSticker?.(payload.elementId, Math.max(0, atSeconds), graphicsLane);
+        return;
+      }
       const added = addShapePatch(
         timeline,
         payload.presetId,
@@ -2612,14 +2624,14 @@ export function TimelineView({
         settings.defaultOverlaySeconds,
         {
           colour: payload.colour,
-          ...(track.type === 'overlay' && !track.locked ? { trackId: track.id } : {}),
+          ...(graphicsLane !== undefined ? { trackId: graphicsLane } : {}),
         },
       );
       if (added === null) return;
       applyPatch(added.patch);
       select(added.clipId);
     },
-    [timeline, applyPatch, select, settings.defaultOverlaySeconds],
+    [timeline, applyPatch, select, settings.defaultOverlaySeconds, onDropSticker],
   );
 
   // --- On-cut transitions (M3b) ---------------------------------------------
@@ -3035,8 +3047,9 @@ export function TimelineView({
                 onDropTextOverlay(track, value);
                 return;
               }
-              // A shape tile dragged from Elements lands at the drop time: on this lane when it
-              // is a graphics lane with room, else where a click would put it (EL5.2).
+              // A shape or sticker tile dragged from Elements lands at the drop time: on this
+              // lane when it is a graphics lane with room, else where a click would put it
+              // (EL5.2, EL6b).
               if (event.dataTransfer.types.includes(ELEMENT_DND_TYPE)) {
                 event.preventDefault();
                 onDropElement(track, event.dataTransfer.getData(ELEMENT_DND_TYPE), value);

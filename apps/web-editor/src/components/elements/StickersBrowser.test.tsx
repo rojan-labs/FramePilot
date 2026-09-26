@@ -1,12 +1,15 @@
 /**
- * The Stickers sub-tab (plan/elements EL6a.5): curated stickers by collection and search, a click
- * that asks main to copy the sticker in by id and then places it, the error sentences of 02 §8,
- * one Tab stop, and replace mode opened from the Inspector.
+ * The Stickers sub-tab (plan/elements EL6a.5, EL6b.2): stickers by collection, group and search, a
+ * click that asks main to copy the sticker in by id and then places it, the error sentences of
+ * 02 §8, one Tab stop, and replace mode opened from the Inspector; the whole library where the
+ * installer ships it, in a virtualised grid, with favourites, recents and a drag onto a lane.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { stickerCatalog, type StickerCatalog, type StickerItem } from '@framepilot/ai-sdk';
 import type { ElementAssetWire, ElementMaterializeResult } from '@framepilot/shared-types';
+import { ELEMENT_DND_TYPE, decodeElementDrag } from './element-dnd.js';
+import type { PackagedTileSource } from './packaged-tiles.js';
 import { StickersBrowser } from './StickersBrowser.js';
 
 const bridge = vi.hoisted(() => ({
@@ -16,7 +19,38 @@ const bridge = vi.hoisted(() => ({
 vi.mock('../../editor/bridge.js', () => ({
   elementsMaterialize: (request: { projectId: string; elementId: string }) =>
     bridge.materialize(request),
+  elementsThumbnail: async () => ({ ok: true, packaged: false, thumbs: [] }),
 }));
+
+// jsdom lays nothing out and has no `Element.scrollTo`. A browser scrolls and then says so, and
+// the sticker scroll area is as tall as the grid it holds, seen through a 480 px view.
+const VIEW_PX = 480;
+const inScrollArea = (element: HTMLElement): boolean =>
+  element.classList.contains('stickers-scroll');
+beforeEach(() => {
+  HTMLElement.prototype.scrollTo = function scrollTo(this: HTMLElement, options?: unknown) {
+    const top = (options as ScrollToOptions | undefined)?.top ?? 0;
+    this.scrollTop = top;
+    this.dispatchEvent(new Event('scroll'));
+  } as HTMLElement['scrollTo'];
+  Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+    configurable: true,
+    get(this: HTMLElement) {
+      const grid = this.firstElementChild as HTMLElement | null;
+      return inScrollArea(this) ? Number.parseFloat(grid?.style.height ?? '0') : 0;
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+    configurable: true,
+    get(this: HTMLElement) {
+      return inScrollArea(this) ? VIEW_PX : 0;
+    },
+  });
+});
+afterEach(() => {
+  Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
+  Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight');
+});
 
 const item = (
   id: string,
@@ -62,7 +96,7 @@ const CATALOG: StickerCatalog = stickerCatalog({
   items: [
     item('fire', 'Fire', '🔥', ['reactions'], 1),
     item('grinning_face', 'Grinning face', '😀', ['reactions'], 0),
-    item('red_heart', 'Red heart', '❤️', ['hearts'], 2),
+    { ...item('red_heart', 'Red heart', '❤️', ['hearts'], 2), group: 'Symbols' },
     (({ rank: _rank, ...rest }) => ({ ...rest, availability: 'packaged' as const }))(
       item('cat', 'Cat', '🐈', [], 0),
     ),
@@ -89,24 +123,42 @@ const asset = (id: string): ElementAssetWire => ({
   deduped: false,
 });
 
-async function open(props: Partial<Parameters<typeof StickersBrowser>[0]> = {}) {
-  const onAddSticker = vi.fn(() => null);
-  render(
+/** A main process that ships the packaged set (or not), its tiles `blob:<id>` once loaded. */
+function tileSource(packaged: boolean): PackagedTileSource & { load: ReturnType<typeof vi.fn> } {
+  const loaded = new Map<string, string>();
+  return {
+    present: async () => packaged,
+    url: (elementId) => loaded.get(elementId),
+    load: vi.fn(async (elementIds: readonly string[]) => {
+      for (const elementId of elementIds) loaded.set(elementId, `blob:${elementId}`);
+    }),
+  };
+}
+
+type Props = Parameters<typeof StickersBrowser>[0];
+
+async function open(props: Partial<Props> = {}) {
+  const onAddSticker = vi.fn<Props['onAddSticker']>(() => null);
+  const view = render(
     <StickersBrowser
-      project={{ id: 'p' }}
+      project={{ id: 'p', assets: [] }}
       onAddSticker={onAddSticker}
       loadCatalog={async () => CATALOG}
+      packagedTiles={tileSource(false)}
       {...props}
     />,
   );
   await screen.findByRole('list', { name: 'Stickers' });
-  return { onAddSticker };
+  return { onAddSticker, view };
 }
 
+/** The sticker tiles on screen (not their favourite stars). */
 const tiles = (): HTMLButtonElement[] =>
-  within(screen.getByRole('list', { name: 'Stickers' })).getAllByRole(
-    'button',
-  ) as HTMLButtonElement[];
+  within(screen.getByRole('list', { name: 'Stickers' }))
+    .getAllByRole('button')
+    .filter((button) => button.classList.contains('stickers-grid-tile')) as HTMLButtonElement[];
+
+const names = (): (string | null)[] => tiles().map((tile) => tile.getAttribute('aria-label'));
 
 beforeEach(() => {
   localStorage.clear();
@@ -117,23 +169,19 @@ afterEach(() => localStorage.clear());
 describe('StickersBrowser', () => {
   it('shows the curated stickers in collection order and none this build does not ship', async () => {
     await open();
-    expect(tiles().map((t) => t.getAttribute('aria-label'))).toEqual([
-      'Add Grinning face',
-      'Add Fire',
-      'Add Red heart',
-    ]);
+    expect(names()).toEqual(['Add Grinning face', 'Add Fire', 'Add Red heart']);
     expect(screen.getByText('Stickers: Fluent Emoji by Microsoft (MIT)')).toBeDefined();
   });
 
   it('narrows to a collection and finds a sticker by its glyph', async () => {
     await open();
     fireEvent.click(screen.getByRole('button', { name: 'Hearts' }));
-    expect(tiles().map((t) => t.getAttribute('aria-label'))).toEqual(['Add Red heart']);
+    expect(names()).toEqual(['Add Red heart']);
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search stickers' }), {
       target: { value: '🔥' },
     });
-    expect(tiles().map((t) => t.getAttribute('aria-label'))).toEqual(['Add Fire']);
+    expect(names()).toEqual(['Add Fire']);
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search stickers' }), {
       target: { value: 'zzz' },
     });
@@ -200,5 +248,109 @@ describe('StickersBrowser', () => {
     expect(onAddSticker).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onCancelReplace).toHaveBeenCalled();
+  });
+
+  it('narrows to one of the upstream groups', async () => {
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: 'Symbols' }));
+    expect(names()).toEqual(['Add Red heart']);
+  });
+
+  it('lists the whole library where the installer ships it, its tiles fetched from main', async () => {
+    const packagedTiles = tileSource(true);
+    await open({ packagedTiles });
+    await waitFor(() => expect(names()).toContain('Add Cat'));
+    expect(names()).toEqual(['Add Grinning face', 'Add Fire', 'Add Red heart', 'Add Cat']);
+    // Curated tiles are the renderer's own files; a packaged one is asked of main, then shown.
+    expect(packagedTiles.load).toHaveBeenCalledWith(['cat']);
+    const cat = screen.getByRole('button', { name: 'Add Cat' });
+    await waitFor(() => expect(cat.querySelector('img')?.getAttribute('src')).toBe('blob:cat'));
+    expect(
+      screen.getByRole('button', { name: 'Add Fire' }).querySelector('img')?.getAttribute('src'),
+    ).toBe('elements/stickers/thumbs/fire.webp');
+  });
+
+  it('keeps favourites: a star or F marks one, and the Favourites chip lists them', async () => {
+    const { view } = await open();
+    expect(screen.queryByRole('button', { name: 'Favourites' })).toBeNull();
+    const star = screen.getByRole('button', { name: 'Favourite Fire' });
+    expect(star.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(star);
+    expect(star.getAttribute('aria-pressed')).toBe('true');
+    const heart = screen.getByRole('button', { name: 'Add Red heart' });
+    act(() => heart.focus());
+    fireEvent.keyDown(heart, { key: 'f' });
+    fireEvent.click(screen.getByRole('button', { name: 'Favourites' }));
+    expect(names()).toEqual(['Add Red heart', 'Add Fire']);
+
+    // A view preference: it outlives the panel.
+    view.unmount();
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: 'Favourites' }));
+    expect(names()).toEqual(['Add Red heart', 'Add Fire']);
+  });
+
+  it('lists what was added lately under Recent, newest first', async () => {
+    bridge.materialize.mockImplementation(async ({ elementId }) => ({
+      ok: true,
+      asset: asset(elementId),
+    }));
+    const { onAddSticker } = await open();
+    expect(screen.queryByRole('button', { name: 'Recent' })).toBeNull();
+    for (const name of ['Add Fire', 'Add Red heart']) {
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name }));
+      });
+    }
+    await waitFor(() => expect(onAddSticker).toHaveBeenCalledTimes(2));
+    fireEvent.click(await screen.findByRole('button', { name: 'Recent' }));
+    expect(names()).toEqual(['Add Red heart', 'Add Fire']);
+  });
+
+  it('marks a sticker the project already holds, and still adds another', async () => {
+    await open({ project: { id: 'p', assets: [{ id: 'element_fluent3d_fire' }] } });
+    const fire = screen.getByRole('button', { name: 'Add Fire' });
+    expect(fire.getAttribute('aria-describedby')).not.toBeNull();
+    const note = document.getElementById(fire.getAttribute('aria-describedby')!);
+    expect(note?.textContent).toBe('Already in this project');
+    expect(fire.hasAttribute('disabled')).toBe(false);
+    expect(
+      screen.getByRole('button', { name: 'Add Red heart' }).getAttribute('aria-describedby'),
+    ).toBeNull();
+  });
+
+  it('puts the sticker’s id, and nothing else, on a drag to the timeline', async () => {
+    await open();
+    const data = new Map<string, string>();
+    fireEvent.dragStart(screen.getByRole('button', { name: 'Add Fire' }), {
+      dataTransfer: {
+        setData: (type: string, value: string) => data.set(type, value),
+        effectAllowed: 'none',
+      },
+    });
+    expect(decodeElementDrag(data.get(ELEMENT_DND_TYPE) ?? '')).toEqual({
+      kind: 'sticker',
+      elementId: 'fire',
+    });
+  });
+
+  it('draws only the rows in view of the whole library, and End still reaches the last', async () => {
+    const many = stickerCatalog({
+      ...CATALOG,
+      items: Array.from({ length: 1595 }, (_, index) =>
+        item(`s${String(index)}`, `S${String(index)}`, '⭐', [], index),
+      ),
+    });
+    await open({ loadCatalog: async () => many });
+    const shown = tiles();
+    expect(shown.length).toBeGreaterThan(0);
+    expect(shown.length).toBeLessThan(200);
+    expect(shown[0]!.closest('li')?.getAttribute('aria-setsize')).toBe('1595');
+    act(() => shown[0]!.focus());
+    fireEvent.keyDown(screen.getByRole('list', { name: 'Stickers' }), { key: 'End' });
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('Add S1594'),
+    );
+    expect(document.activeElement?.closest('li')?.getAttribute('aria-posinset')).toBe('1595');
   });
 });

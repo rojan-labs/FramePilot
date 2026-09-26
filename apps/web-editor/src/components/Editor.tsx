@@ -17,6 +17,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { Asset, Project } from '@framepilot/timeline-schema';
 import { DEFAULT_STOCK_STILL_SECONDS, type HistoryEntry } from '@framepilot/editor-core';
 import {
+  loadStickerCatalog,
   readMemory,
   recordRejected,
   type InteractionKeyframeRef,
@@ -63,8 +64,9 @@ import {
   addStockClipPatch,
   stockPlacementBlockedReason,
 } from '../editor/patch-builders.js';
-import { isDesktop } from '../editor/bridge.js';
-import { Toasts } from './Toasts.js';
+import { elementsMaterialize, isDesktop } from '../editor/bridge.js';
+import { placeDroppedSticker } from '../editor/sticker-drop.js';
+import { Toasts, type ToastNotice } from './Toasts.js';
 import { HistoryPanel } from './HistoryPanel.js';
 import { JobsRail } from './JobsPanel.js';
 import { FootageUnderstandingPanel } from './FootageUnderstandingPanel.js';
@@ -540,6 +542,43 @@ export function Editor({
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const { settings, update } = useSettings();
+  // The editor as of the latest render, for work that finishes after an await (a sticker drop
+  // waits for main's copy while edits go on).
+  const liveEditor = useRef(editor);
+  liveEditor.current = editor;
+  // A failure outside the patch path, raised as a toast (a dropped sticker main could not copy).
+  const [notice, setNotice] = useState<ToastNotice | null>(null);
+  const dropSticker = useCallback(
+    (elementId: string, atSeconds: number, trackId?: string): void => {
+      void placeDroppedSticker(
+        { materialize: elementsMaterialize, loadCatalog: loadStickerCatalog },
+        {
+          projectId: project.id,
+          elementId,
+          atSeconds,
+          durationSeconds: settings.defaultOverlaySeconds,
+          ...(trackId !== undefined ? { trackId } : {}),
+          target: () => {
+            const live = liveEditor.current.state;
+            return {
+              timeline: live.timeline,
+              assets: live.assets,
+              folders: live.folders,
+              resolution: project.resolution,
+            };
+          },
+        },
+      ).then((placed) => {
+        if (!placed.ok) {
+          setNotice((last) => ({ id: (last?.id ?? 0) + 1, message: placed.message }));
+          return;
+        }
+        liveEditor.current.applyPatch(placed.added.patch);
+        liveEditor.current.select(placed.added.clipId);
+      });
+    },
+    [project.id, project.resolution, settings.defaultOverlaySeconds],
+  );
   const toggleSnapping = useCallback(
     () => update({ snapping: !settings.snapping }),
     [update, settings.snapping],
@@ -881,7 +920,10 @@ export function Editor({
       sourceMonitorInteraction,
     ],
   );
-  const toastsEl = useMemo(() => <Toasts editor={editor} />, [nonPlayheadKey]);
+  const toastsEl = useMemo(
+    () => <Toasts editor={editor} notice={notice} />,
+    [nonPlayheadKey, notice],
+  );
   const toolbarEl = useMemo(
     () => (
       <Toolbar
@@ -920,6 +962,7 @@ export function Editor({
         onAskAiForClip={onAskAiForClip}
         onRevealAssetInBin={revealAssetInBin}
         onReplaceSticker={openStickerReplace}
+        onDropSticker={dropSticker}
         onOpenTransitionLibrary={openTransitionLibrary}
         tool={tool}
         selectedEffectLayerIds={selectedEffectLayerIds}
@@ -938,6 +981,7 @@ export function Editor({
       onItemActivate,
       revealAssetInBin,
       openTransitionLibrary,
+      dropSticker,
       tool,
       selectedEffectLayerIds,
     ],

@@ -111,6 +111,21 @@ function QueueHost({
   );
 }
 
+describe('Toasts (a notice from the host)', () => {
+  it('raises one error toast per notice, and none for the same notice again', () => {
+    const { rerender } = render(<Toasts notice={null} />);
+    const host = screen.getByLabelText('notifications');
+    expect(host.querySelectorAll('.toast')).toHaveLength(0);
+    const notice = { id: 1, message: "Couldn't add this sticker: there isn't enough disk space." };
+    rerender(<Toasts notice={notice} />);
+    rerender(<Toasts notice={{ ...notice }} />);
+    expect(host.querySelectorAll('.toast.is-error')).toHaveLength(1);
+    expect(host.textContent).toContain(notice.message);
+    rerender(<Toasts notice={{ id: 2, message: notice.message }} />);
+    expect(host.querySelectorAll('.toast.is-error')).toHaveLength(2);
+  });
+});
+
 describe('useToasts queue', () => {
   it('auto-dismisses a toast after its tone timeout', () => {
     vi.useFakeTimers();
