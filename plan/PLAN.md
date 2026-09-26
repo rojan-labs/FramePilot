@@ -10319,6 +10319,17 @@ stickers, CC BY 4.0 (EL10).
 - [ ] **EL11** Favourites/recents, skin tones, "Add as sticker", drop on monitor, follow subject,
   the browser build
 - [ ] **EL12** Docs, changelogs, desktop evidence runs, close-out
+- [ ] **Found in EL6a — the release workflow has never completed a build.** electron-builder
+  rejects the Linux executable name (`@framepilotdesktop`), macOS stops at "not a file", Windows
+  fails building editor-core. The release gate (EL12, "installer within budget") fixes it; the
+  WebP smoke it held now also runs in the PR lane (`frozen-engine-webp`).
+- [ ] **Found in EL6a — the CodeQL alert backlog (separate PR).** 57 alerts are open on `main`
+  (path and command-line injection in the sidecar's matte, PTS and service routes; ReDoS in
+  caption segmentation and eval metrics; an e2e request-forgery). PR #131 adds none (its set equals
+  `main`'s), but a PR over 300 files cannot be diffed by GitHub, so CodeQL attributes them all to
+  it. Every Python flow passes through `safety.resolve_within`: rewriting its containment check as
+  the normalise-then-`startswith` guard CodeQL recognises should clear most of them; triage the
+  rest one by one.
 
 **Last updated:** 2026-09-26
 
