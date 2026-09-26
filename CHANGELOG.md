@@ -56,6 +56,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   titles, stickers and shapes; resize and move it on the monitor like any clip. The assistant
   still places cutaways only.
 
+- **Lay your own image over the footage, and drop elements where you want them.** An image in
+  the media bin (a logo, a screenshot, a cut-out) has an **Add as overlay** button (or
+  ⌘/Ctrl+Shift+Enter on the focused card) that puts it over the footage at the playhead, centred at
+  40% of its fitted size, keeping its transparency. A sticker or shape tile dragged onto the
+  monitor lands at the playhead exactly where you let go. A sticker dragged onto the timeline now
+  counts as recent, as a click does.
+
 - **The assistant places elements like a careful editor.** It now knows each sticker and shape
   already on the timeline and where it sits, so "make all the highlight boxes red and thicker"
   restyles the boxes you have, in place, and "remove the stickers" removes only the stickers. Its
