@@ -22,6 +22,11 @@
  * The 60 Hz scroll is judged on a real display (a release step); here its frames and long tasks
  * are logged, and only what the grid draws and asks for is gated.
  *
+ * A click is timed on a settled editor (`settle`): the last add's edit pulse over, its save
+ * written, the main thread idle. Clicked back to back, the previous add's pulse and autosave (or
+ * the open's media work, for the first) fell inside the next click's window, and the same code
+ * read a 52 ms shape median on one run and 110 ms on the next.
+ *
  * What is real: the editor and its Elements panel, over main's own `ElementsLibrary` through the
  * desktop harness (`masking/fake-desktop.ts`); Electron itself is simulated there. A sticker's
  * copy crosses Playwright's page binding instead of Electron's IPC, which only adds to its time.
@@ -65,6 +70,12 @@ const SHAPE_CLICKS = 5;
 const SEARCH_WORDS = ['party', 'heart', 'rocket', '🔥'] as const;
 /** A screenful of tiles and its overscan: the grid never draws the library. */
 const MAX_DRAWN_TILES = 200;
+/**
+ * Before a timed click the editor is idle: this many idle callbacks in a row, each with at least
+ * {@link IDLE_CALLBACK_MS} of its idle period left, say no task, frame or animation is due.
+ */
+const QUIET_IDLE_CALLBACKS = 5;
+const IDLE_CALLBACK_MS = 10;
 /** A frame this late at 60 Hz is one the display missed (logged, never gated here). */
 const LATE_FRAME_MS = 25;
 const SECONDS = 3;
@@ -229,13 +240,53 @@ async function timeStickersOpen(page: Page): Promise<number> {
 }
 
 /**
- * Click the element `tile` (a CSS selector) inside the page and resolve with the milliseconds
- * until the frame after a clip that was not on the timeline before appears there.
+ * Resolve once the editor has finished what the page did last, so a timed click measures that
+ * click alone. The previous add's edit pulse (the timeline highlight, animated every frame for
+ * `EDIT_PULSE_MS`) is over, and the main thread goes idle: an open's media work, an autosave and
+ * a pulse each landed inside the next click's window before, and made its time the runner's.
  */
-async function timeClickToClip(page: Page, tile: string): Promise<number> {
+async function settle(page: Page): Promise<void> {
+  await expect(page.locator('section.timeline.is-edit-pulse')).toHaveCount(0);
+  await page.evaluate(
+    ({ needed, leftMs }) =>
+      new Promise<void>((resolve, reject) => {
+        let quiet = 0;
+        const timer = window.setTimeout(() => {
+          reject(
+            new Error(
+              'The editor did not go idle within ten seconds: something keeps the main thread busy while nothing is edited. Find it in the trace before timing a click.',
+            ),
+          );
+        }, 10_000);
+        const next = (deadline: IdleDeadline): void => {
+          quiet = !deadline.didTimeout && deadline.timeRemaining() >= leftMs ? quiet + 1 : 0;
+          if (quiet >= needed) {
+            window.clearTimeout(timer);
+            resolve();
+            return;
+          }
+          requestIdleCallback(next, { timeout: 1_000 });
+        };
+        requestIdleCallback(next, { timeout: 1_000 });
+      }),
+    { needed: QUIET_IDLE_CALLBACKS, leftMs: IDLE_CALLBACK_MS },
+  );
+}
+
+/** One timed click: when its clip reached the DOM, and the frame after (the timing gated). */
+interface ClickTiming {
+  readonly toDom: number;
+  readonly toFrame: number;
+}
+
+/**
+ * Click the element `tile` (a CSS selector) inside the page and resolve with the milliseconds
+ * until a clip that was not on the timeline before is in the DOM, and until the frame after.
+ */
+async function timeClickToClip(page: Page, tile: string): Promise<ClickTiming> {
   return page.evaluate(
     (tile) =>
-      new Promise<number>((resolve, reject) => {
+      new Promise<ClickTiming>((resolve, reject) => {
         const target = document.querySelector<HTMLElement>(tile);
         if (target === null) {
           reject(new Error(`Nothing matches ${tile}.`));
@@ -250,9 +301,10 @@ async function timeClickToClip(page: Page, tile: string): Promise<number> {
         let started = 0;
         const observer = new MutationObserver(() => {
           if (clipLabels().every((label) => before.has(label))) return;
+          const toDom = performance.now() - started;
           observer.disconnect();
           window.clearTimeout(timer);
-          requestAnimationFrame(() => resolve(performance.now() - started));
+          requestAnimationFrame(() => resolve({ toDom, toFrame: performance.now() - started }));
         });
         observer.observe(document.body, { childList: true, subtree: true });
         timer = window.setTimeout(() => {
@@ -432,23 +484,30 @@ test('Stickers: a click puts the sticker on the timeline within the budget', asy
   await showSubTab(page, 'Stickers');
   const search = page.getByRole('searchbox', { name: 'Search stickers', exact: true });
 
-  const clicks: number[] = [];
-  for (const name of STICKERS) {
+  const timings: ClickTiming[] = [];
+  for (const [index, name] of STICKERS.entries()) {
     // Found as a person finds one, by search; only the click is timed.
     await search.fill(name.toLowerCase());
     const tile = page.getByRole('button', { name: `${name}, sticker`, exact: true });
     await expect(tile).toBeEnabled();
-    clicks.push(
+    await settle(page);
+    timings.push(
       await timeClickToClip(page, `button.stickers-grid-tile[aria-label="${name}, sticker"]`),
     );
-    // The copy is done and the tile idle again before the next pick.
+    // The copy is done, the tile idle again and the add saved before the next pick.
     await expect(page.locator('.stickers-grid-cell[data-state="adding"]')).toHaveCount(0);
+    await savedProject(
+      desktop,
+      (document) => stickersOf(document).length === index + 1,
+      `${index + 1} stickers`,
+    );
   }
+  const clicks = timings.map((timing) => timing.toFrame);
 
   // Proven on the runner (median 56.5 ms on e399efd0, over 5× headroom), so gated at the budget.
   const gate = STICKER_CLICK_BUDGET_MS;
   console.info(
-    `[elements budgets] sticker click → clip on the timeline: median ${median(clicks).toFixed(1)} ms of ${listed(clicks)} (budget and gate ${gate} ms)`,
+    `[elements budgets] sticker click → clip on the timeline: median ${median(clicks).toFixed(1)} ms of ${listed(clicks)}; in the DOM at ${listed(timings.map((timing) => timing.toDom))} (budget and gate ${gate} ms)`,
   );
   // Every timed click copied a file into the project: none found it already there.
   const copies = desktop.results
@@ -474,16 +533,24 @@ test('Shapes: a click puts the shape on the timeline within the budget', async (
   await showSubTab(page, 'Shapes');
   await expect(page.locator('.shapes-grid-tile').nth(SHAPE_CLICKS - 1)).toBeVisible();
 
-  const clicks: number[] = [];
+  const timings: ClickTiming[] = [];
   for (let index = 0; index < SHAPE_CLICKS; index += 1) {
-    clicks.push(
+    await settle(page);
+    timings.push(
       await timeClickToClip(page, `.shapes-grid > li:nth-child(${index + 1}) .shapes-grid-tile`),
     );
+    // Saved before the next click, so no autosave lands inside the next one's window.
+    await savedProject(
+      desktop,
+      (document) => shapesOf(document).length === index + 1,
+      `${index + 1} shapes`,
+    );
   }
+  const clicks = timings.map((timing) => timing.toFrame);
 
   const gate = SHAPE_CLICK_BUDGET_MS * UNPROVEN_GATE_FACTOR;
   console.info(
-    `[elements budgets] shape click → clip on the timeline: median ${median(clicks).toFixed(1)} ms of ${listed(clicks)} (budget ${SHAPE_CLICK_BUDGET_MS} ms, gate ${gate} ms until headroom is known)`,
+    `[elements budgets] shape click → clip on the timeline: median ${median(clicks).toFixed(1)} ms of ${listed(clicks)}; in the DOM at ${listed(timings.map((timing) => timing.toDom))} (budget ${SHAPE_CLICK_BUDGET_MS} ms, gate ${gate} ms until headroom is known)`,
   );
   // Five different tiles made five different shapes.
   const saved = await savedProject(
