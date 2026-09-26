@@ -11,7 +11,7 @@
  * A sticker is not footage: no derive (its shape is in the catalogue) and no footage enrolment.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
+import { constants, realpathSync } from 'node:fs';
 import { mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@framepilot/shared-types';
@@ -48,8 +48,10 @@ export interface ElementsLibraryIO {
   /** The names in a folder; empty when there is no such folder. */
   readonly list: (dir: string) => Promise<readonly string[]>;
   /**
-   * A regular file's bytes, refusing (throwing) anything else — a folder, a device, a pipe — and
-   * a file larger than `maxBytes`, without reading it. For files outside the app's own archive.
+   * A regular file's bytes, refusing (throwing) anything else — a folder, a device, a pipe, a
+   * link — and a file larger than `maxBytes`, without reading it. For files outside the app's
+   * own archive, named by the real path that was checked: a link found in its place was swapped
+   * in after the check, so it is not followed.
    */
   readonly readBounded: (file: string, maxBytes: number) => Promise<Buffer>;
 }
@@ -85,13 +87,14 @@ export const nodeElementsLibraryIO: ElementsLibraryIO = {
     }
   },
   readBounded: async (file, maxBytes) => {
-    // Non-blocking, so a pipe planted in the set cannot hang main on open; POSIX only (Windows
-    // has no such flag, and no such files).
-    const handle = await open(file, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+    // Non-blocking, so a pipe planted in the set cannot hang main on open, and never through a
+    // link; POSIX only (Windows has neither flag, and no such files).
+    const flags = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0);
+    const handle = await open(file, flags);
     try {
       const info = await handle.stat();
       if (!info.isFile()) throw new Error('not a regular file');
-      if (info.size > maxBytes) throw new Error('larger than a sticker file may be');
+      if (info.size > maxBytes) throw new Error('larger than this file may be');
       // Exactly the size just checked, from the handle checked: a file that grows between the
       // two is read no further.
       const data = Buffer.alloc(info.size);
@@ -137,6 +140,16 @@ export const MAX_THUMBNAILS_PER_REQUEST = 96;
  */
 export const MAX_PACKAGED_STICKER_BYTES = 512 * 1024;
 export const MAX_PACKAGED_TILE_BYTES = 64 * 1024;
+/**
+ * What the packaged set's manifest may weigh. Main reads it at startup, so a pipe, a device or a
+ * huge file in its place must not hang or exhaust it; the shipped manifest is about 369 KB.
+ */
+export const MAX_PACKAGED_MANIFEST_BYTES = 2 * 1024 * 1024;
+/**
+ * The longest project id a materialize request may carry: checked before it becomes part of a
+ * path or a key, and far past any id the app makes.
+ */
+export const MAX_MATERIALIZE_PROJECT_ID_LENGTH = 256;
 /** A sticker's recorded pixel sizes stay within what a picture may be. */
 const MAX_STICKER_EDGE_PX = 8192;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
@@ -152,6 +165,30 @@ export function thumbnailRequestIds(request: unknown): readonly string[] | null 
   return ids.every((id): id is string => typeof id === 'string') ? ids : null;
 }
 
+type ElementMaterializeFailure = Extract<ElementMaterializeResult, { readonly ok: false }>;
+
+/**
+ * A `framepilot:elements:materialize` request, or the closed error it is answered with: ids that
+ * are not strings name no element (`unknown_element`), and a project id past
+ * {@link MAX_MATERIALIZE_PROJECT_ID_LENGTH} names no folder main will build a path for
+ * (`io_failed`, as for any project media folder it cannot write).
+ */
+export function materializeRequest(
+  request: unknown,
+): { readonly ok: true; readonly request: ElementMaterializeRequest } | ElementMaterializeFailure {
+  const req = request as { projectId?: unknown; elementId?: unknown } | null;
+  if (typeof req?.projectId !== 'string' || typeof req.elementId !== 'string') {
+    return { ok: false, error: 'unknown_element', detail: 'invalid request' };
+  }
+  if (req.projectId.length > MAX_MATERIALIZE_PROJECT_ID_LENGTH) {
+    log.warn('materialize: a project id past the cap was refused', {
+      length: req.projectId.length,
+    });
+    return { ok: false, error: 'io_failed' };
+  }
+  return { ok: true, request: { projectId: req.projectId, elementId: req.elementId } };
+}
+
 /** One packaged sticker as the packaging step encoded it (`build_library.py --packaged`). */
 interface PackagedEntry {
   readonly file: string;
@@ -164,10 +201,13 @@ interface PackagedEntry {
   readonly sharpSize: number;
 }
 
-/** A packaged set's manifest: the library commit it was built from, and its files. */
+/**
+ * A packaged set's manifest: the library commit it was built from, and its files. A `Map`, so a
+ * key such as `__proto__` stays an entry and no lookup reaches a prototype.
+ */
 interface PackagedManifest {
   readonly commit: string;
-  readonly items: Readonly<Record<string, PackagedEntry>>;
+  readonly items: ReadonlyMap<string, PackagedEntry>;
 }
 
 /** Where a sticker's file comes from, and what it must be. */
@@ -201,6 +241,24 @@ function packagedEntry(id: string, raw: unknown): PackagedEntry | null {
     if (!positiveInteger(edge, MAX_STICKER_EDGE_PX)) return null;
   }
   return entry as unknown as PackagedEntry;
+}
+
+/**
+ * `file` in the packaged set at `root` by its real path — every link, its own included,
+ * followed — once that path is checked to be in the set; throws when it leads out. The read opens
+ * this path, not the lexical one, so a link swapped in after the check cannot redirect it (and
+ * `readBounded` refuses a link found in its place). A file that is not there has no real path:
+ * its lexical one is returned, and opening it fails as missing.
+ */
+function inSetByRealPath(root: string, file: string): string {
+  const lexical = resolveWithin(root, file);
+  let real: string;
+  try {
+    real = realpathSync(lexical);
+  } catch {
+    return lexical;
+  }
+  return resolveWithin(root, real);
 }
 
 /** ENOSPC has one honest answer, and it is not "the copy failed". */
@@ -462,13 +520,13 @@ export class ElementsLibrary {
       };
     }
     const manifest = await this.packagedManifest(catalog);
-    const entry = manifest?.items[item.id];
+    const entry = manifest?.items.get(item.id);
     const root = this.options.packagedRoot?.() ?? null;
     if (entry === undefined || root === null) return null;
     let file: string;
     try {
-      // The real path: a file linked out of the set is not the sticker's.
-      file = resolveWithin(root, entry.file);
+      // The real path, which the read opens: a file linked out of the set is not the sticker's.
+      file = inSetByRealPath(root, entry.file);
     } catch {
       log.error('materialize: a packaged sticker file leads outside the set', {
         elementId: item.id,
@@ -487,36 +545,41 @@ export class ElementsLibrary {
   }
 
   /**
-   * The packaged set's manifest, read once. `null` when this build has no set, or has one built
-   * for another library commit (its files would not be the catalogue's stickers).
+   * The packaged set's manifest, read once. `null` when this build has no set, has one built for
+   * another library commit (its files would not be the catalogue's stickers), or has a manifest
+   * that is not a regular file within {@link MAX_PACKAGED_MANIFEST_BYTES} in the set.
    */
   private packagedManifest(catalog: StickerCatalog): Promise<PackagedManifest | null> {
     this.manifest ??= (async (): Promise<PackagedManifest | null> => {
       const root = this.options.packagedRoot?.() ?? null;
       if (root === null) return null;
+      let parsed: { commit?: unknown; items?: unknown } | null;
       try {
-        const parsed = JSON.parse(
-          (await this.io.readFile(path.join(root, 'manifest.json'))).toString('utf8'),
-        ) as { commit?: unknown; items?: unknown };
-        if (typeof parsed.items !== 'object' || parsed.items === null) return null;
-        if (parsed.commit !== catalog.commit) {
-          log.warn('the packaged sticker set was built for another library; it is not used', {});
-          return null;
-        }
-        const items: Record<string, PackagedEntry> = {};
-        for (const [id, raw] of Object.entries(parsed.items)) {
-          const entry = packagedEntry(id, raw);
-          if (entry === null) {
-            // One entry packaging could not have written means the manifest is not packaging's.
-            log.error('the packaged sticker manifest is malformed; the set is not used', {});
-            return null;
-          }
-          items[id] = entry;
-        }
-        return { commit: parsed.commit, items };
-      } catch {
+        const file = inSetByRealPath(root, 'manifest.json');
+        const data = await this.io.readBounded(file, MAX_PACKAGED_MANIFEST_BYTES);
+        parsed = JSON.parse(data.toString('utf8')) as typeof parsed;
+      } catch (error) {
+        log.warn('the packaged sticker manifest could not be read; the set is not used', {
+          error: String(error),
+        });
         return null;
       }
+      if (typeof parsed?.items !== 'object' || parsed.items === null) return null;
+      if (parsed.commit !== catalog.commit) {
+        log.warn('the packaged sticker set was built for another library; it is not used', {});
+        return null;
+      }
+      const items = new Map<string, PackagedEntry>();
+      for (const [id, raw] of Object.entries(parsed.items)) {
+        const entry = packagedEntry(id, raw);
+        if (entry === null) {
+          // One entry packaging could not have written means the manifest is not packaging's.
+          log.error('the packaged sticker manifest is malformed; the set is not used', {});
+          return null;
+        }
+        items.set(id, entry);
+      }
+      return { commit: parsed.commit, items };
     })();
     return this.manifest;
   }
@@ -540,11 +603,14 @@ export class ElementsLibrary {
     for (const elementId of elementIds.slice(0, MAX_THUMBNAILS_PER_REQUEST)) {
       if (!STICKER_ID_PATTERN.test(elementId)) continue;
       if (catalog.byId.get(elementId)?.availability !== 'packaged') continue;
-      const entry = manifest.items[elementId];
+      const entry = manifest.items.get(elementId);
       if (entry === undefined) continue;
       try {
         // In the set by its real path, a regular file, no larger than the manifest says.
-        const data = await this.io.readBounded(resolveWithin(root, entry.thumb), entry.thumbBytes);
+        const data = await this.io.readBounded(
+          inSetByRealPath(root, entry.thumb),
+          entry.thumbBytes,
+        );
         if (data.length !== entry.thumbBytes) throw new Error('not the size packaging wrote');
         thumbs.push({ elementId, webp: new Uint8Array(data) });
       } catch {

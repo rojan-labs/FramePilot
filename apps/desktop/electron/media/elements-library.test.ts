@@ -2,6 +2,7 @@
  * The Elements library in main (plan/elements EL6a.3, 06 §1): a catalogue id in, a verified file
  * copied into the project out, and every failure a closed code with nothing half-written.
  */
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   mkdtempSync,
@@ -19,12 +20,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { stickerCatalog, type StickerCatalog, type StickerItem } from '@framepilot/ai-sdk';
 import {
   ElementsLibrary,
+  MAX_MATERIALIZE_PROJECT_ID_LENGTH,
+  MAX_PACKAGED_MANIFEST_BYTES,
   MAX_PACKAGED_TILE_BYTES,
   MAX_THUMBNAILS_PER_REQUEST,
   bundledStickersRoot,
+  materializeRequest,
   nodeElementsLibraryIO,
   packagedStickersRoot,
   thumbnailRequestIds,
+  type ElementsLibraryIO,
 } from './elements-library.js';
 
 const FIRE = Buffer.from('RIFF----WEBPVP8L fire bytes');
@@ -417,13 +422,38 @@ describe('the packaged set (plan/elements EL6b)', () => {
     );
   }
 
-  function withPackaged(items: StickerItem[], set: string | null = packaged): ElementsLibrary {
+  function withPackaged(
+    items: StickerItem[],
+    set: string | null = packaged,
+    io: ElementsLibraryIO = nodeElementsLibraryIO,
+  ): ElementsLibrary {
     return new ElementsLibrary({
       projectsRoot: path.join(root, 'projects'),
       bundledRoot: () => bundled,
       packagedRoot: () => set,
       catalog: async () => catalog(items),
+      io,
     });
+  }
+
+  /**
+   * The node IO, except that the first read of a sticker file or tile (not the manifest) is
+   * preceded by `link` becoming a link to `target`: another process winning the race between the
+   * library's check of a path and its open.
+   */
+  function swapBeforeFirstRead(link: string, target: string): ElementsLibraryIO {
+    let swapped = false;
+    return {
+      ...nodeElementsLibraryIO,
+      readBounded: async (file, maxBytes) => {
+        if (!swapped && path.basename(file) !== 'manifest.json') {
+          swapped = true;
+          rmSync(link);
+          symlinkSync(target, link);
+        }
+        return nodeElementsLibraryIO.readBounded(file, maxBytes);
+      },
+    };
   }
 
   beforeEach(() => {
@@ -544,6 +574,122 @@ describe('the packaged set (plan/elements EL6b)', () => {
     ).toEqual({ ok: false, error: 'library_missing' });
   });
 
+  it('opens a packaged file by the real path it checked, so a link swapped in after the check is not followed', async () => {
+    const outside = mkdtempSync(path.join(tmpdir(), 'fp-outside-'));
+    // The same size as the real tile, so only where it is read from tells them apart.
+    const secret = Buffer.from('RIFF----WEBPVP8 secret thumb');
+    expect(secret.length).toBe(ROCKET_THUMB.length);
+    writeFileSync(path.join(outside, 'secret'), secret);
+    writeFileSync(path.join(outside, 'rocket.webp'), ROCKET);
+    const tile = path.join(packaged, 'thumbs', 'rocket.webp');
+    const full = path.join(packaged, 'full', 'rocket.webp');
+
+    // The tile itself becomes a link out of the set after it was checked: not served.
+    writeSet();
+    const tileSwap = swapBeforeFirstRead(tile, path.join(outside, 'secret'));
+    expect(await withPackaged([packagedItem()], packaged, tileSwap).thumbnails(['rocket'])).toEqual(
+      { ok: true, packaged: true, thumbs: [] },
+    );
+
+    // A tile linked to another file in the set is still served, from the file checked, even when
+    // the link is pointed out of the set after the check.
+    writeSet();
+    rmSync(tile);
+    writeFileSync(path.join(packaged, 'thumbs', 'rocket-real.webp'), ROCKET_THUMB);
+    symlinkSync(path.join(packaged, 'thumbs', 'rocket-real.webp'), tile);
+    const linkSwap = swapBeforeFirstRead(tile, path.join(outside, 'secret'));
+    const served = await withPackaged([packagedItem()], packaged, linkSwap).thumbnails(['rocket']);
+    expect(served.ok && served.thumbs.map((t) => [t.elementId, Buffer.from(t.webp)])).toEqual([
+      ['rocket', ROCKET_THUMB],
+    ]);
+
+    // The sticker file becomes a link out of the set after it was checked: missing, not copied,
+    // even though the file it now leads to has the recorded bytes.
+    writeSet();
+    const fullSwap = swapBeforeFirstRead(full, path.join(outside, 'rocket.webp'));
+    expect(
+      await withPackaged([packagedItem()], packaged, fullSwap).materialize({
+        projectId: 'p1',
+        elementId: 'rocket',
+      }),
+    ).toEqual({ ok: false, error: 'library_missing' });
+  });
+
+  it('reads the manifest bounded, so an oversized manifest means no packaged set', async () => {
+    writeSet();
+    const manifest = path.join(packaged, 'manifest.json');
+    // Still a valid manifest, padded past the limit with whitespace JSON allows.
+    const padded = `${readFileSync(manifest, 'utf8')}${' '.repeat(MAX_PACKAGED_MANIFEST_BYTES)}`;
+    writeFileSync(manifest, padded);
+    const reads: string[] = [];
+    const bounded: [string, number][] = [];
+    const lib = withPackaged([packagedItem()], packaged, {
+      ...nodeElementsLibraryIO,
+      readFile: async (file) => {
+        reads.push(path.basename(file));
+        return nodeElementsLibraryIO.readFile(file);
+      },
+      readBounded: async (file, maxBytes) => {
+        bounded.push([path.basename(file), maxBytes]);
+        return nodeElementsLibraryIO.readBounded(file, maxBytes);
+      },
+    });
+    expect(await lib.thumbnails([])).toEqual({ ok: true, packaged: false, thumbs: [] });
+    expect(await lib.materialize({ projectId: 'p1', elementId: 'rocket' })).toEqual({
+      ok: false,
+      error: 'library_missing',
+    });
+    expect(reads).not.toContain('manifest.json');
+    expect(bounded).toEqual([['manifest.json', MAX_PACKAGED_MANIFEST_BYTES]]);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'refuses a manifest that is a pipe without waiting on it',
+    async () => {
+      writeSet();
+      const manifest = path.join(packaged, 'manifest.json');
+      rmSync(manifest);
+      execFileSync('mkfifo', [manifest]);
+      expect(await withPackaged([packagedItem()]).thumbnails([])).toEqual({
+        ok: true,
+        packaged: false,
+        thumbs: [],
+      });
+    },
+    5_000,
+  );
+
+  it('keeps a manifest’s __proto__ key an ordinary entry, so it cannot supply entries never checked', async () => {
+    writeSet();
+    const valid = {
+      sha256: sha(ROCKET),
+      bytes: ROCKET.length,
+      thumbBytes: ROCKET_THUMB.length,
+      width: 318,
+      height: 318,
+      sharpSize: 256,
+    };
+    // A well-formed entry for the id `__proto__`, carrying a rocket entry that is not: if the key
+    // became the items' prototype, `rocket` would be found through it without being checked.
+    const proto = {
+      file: 'full/__proto__.webp',
+      thumb: 'thumbs/__proto__.webp',
+      ...valid,
+      rocket: { file: 'full/rocket.webp', thumb: 'thumbs/rocket.webp', ...valid, width: 'x' },
+    };
+    // Written as text: an object literal's `__proto__` sets its prototype, not a key.
+    writeFileSync(
+      path.join(packaged, 'manifest.json'),
+      `{"commit":"abc","items":{"__proto__":${JSON.stringify(proto)}}}`,
+    );
+    const lib = withPackaged([packagedItem()]);
+    expect(await lib.materialize({ projectId: 'p1', elementId: 'rocket' })).toEqual({
+      ok: false,
+      error: 'library_missing',
+    });
+    expect(await lib.thumbnails(['rocket'])).toEqual({ ok: true, packaged: true, thumbs: [] });
+  });
+
   it('reads the packaged set from the app’s resources, or the desktop app’s build folder in a dev tree', () => {
     const mainDir = path.join('/repo', 'apps', 'desktop', 'dist');
     expect(packagedStickersRoot(mainDir, true, '/App/Contents/Resources')).toBe(
@@ -552,6 +698,38 @@ describe('the packaged set (plan/elements EL6b)', () => {
     expect(packagedStickersRoot(mainDir, false, '/unused')).toBe(
       path.join('/repo', 'apps', 'desktop', 'elements-packaged'),
     );
+  });
+});
+
+describe('materializeRequest', () => {
+  it('takes two strings, and answers anything else with the code it has always had', () => {
+    expect(materializeRequest({ projectId: 'p1', elementId: 'fire', extra: 1 })).toEqual({
+      ok: true,
+      request: { projectId: 'p1', elementId: 'fire' },
+    });
+    for (const request of [
+      null,
+      'fire',
+      {},
+      { projectId: 'p1' },
+      { projectId: 1, elementId: 'fire' },
+      { projectId: 'p1', elementId: ['fire'] },
+    ]) {
+      expect(materializeRequest(request), JSON.stringify(request)).toEqual({
+        ok: false,
+        error: 'unknown_element',
+        detail: 'invalid request',
+      });
+    }
+  });
+
+  it('refuses a project id past the cap before it reaches a path, as a folder it cannot write', () => {
+    const longest = 'p'.repeat(MAX_MATERIALIZE_PROJECT_ID_LENGTH);
+    expect(materializeRequest({ projectId: longest, elementId: 'fire' }).ok).toBe(true);
+    expect(materializeRequest({ projectId: `${longest}p`, elementId: 'fire' })).toEqual({
+      ok: false,
+      error: 'io_failed',
+    });
   });
 });
 

@@ -261,6 +261,7 @@ import { StockService, isStockKind } from './media/stock-service.js';
 import {
   ElementsLibrary,
   bundledStickersRoot,
+  materializeRequest,
   packagedStickersRoot,
   thumbnailRequestIds,
 } from './media/elements-library.js';
@@ -1587,14 +1588,10 @@ function registerIpcHandlers(): void {
     IpcChannels.elementsMaterialize,
     async (_event, request: unknown): Promise<ElementMaterializeResult> => {
       requireLicense();
-      const req = request as { projectId?: unknown; elementId?: unknown } | null;
-      if (typeof req?.projectId !== 'string' || typeof req.elementId !== 'string') {
-        return { ok: false, error: 'unknown_element', detail: 'invalid request' };
-      }
-      return await elementsLibrary.materialize({
-        projectId: req.projectId,
-        elementId: req.elementId,
-      });
+      // Two strings, and a project id no longer than the cap before it reaches a path.
+      const parsed = materializeRequest(request);
+      if (!parsed.ok) return parsed;
+      return await elementsLibrary.materialize(parsed.request);
     },
   );
   ipcMain.handle(
