@@ -274,7 +274,9 @@ function loadInventory(): readonly InventoryRow[] {
 }
 
 function renderTable(rows: readonly InventoryRow[]): string {
-  const escape = (text: string): string => text.replace(/\|/g, '\\|');
+  // A backslash is escaped too: left bare, a cell ending in `\` would escape the pipe that
+  // closes it and merge two cells.
+  const escape = (text: string): string => text.replace(/[\\|]/g, '\\$&');
   const lines = [
     '| Matrix row | Case | Today’s program monitor | Why (first gate that decided) | Known divergence vs export (derived) | Pixel diff vs `frame_grab` |',
     '| --- | --- | --- | --- | --- | --- |',
