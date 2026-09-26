@@ -609,33 +609,43 @@ editing loop and stay, one was already built, three are deferred with their numb
 accessibility and UI passes join the release gate. Starts after EL9, whose overlay builder EL11.3
 reuses.
 
-- [ ] **EL11.1** Favourites and Recents (user settings store). **Built in EL6b.2**: the Stickers
+- [~] **EL11.1** Favourites and Recents (user settings store). **Built in EL6b.2**: the Stickers
       tab's All/Recent/Favourites chips and star persist through `useViewPreference`, which is the
       user settings store 04 §5 names. Left: a sticker **dragged** onto a lane is not recorded as
       recent (only a click is); record it in the browser when the drag ends in a copy, with a test.
-- [ ] **EL11.2** Skin tones — **deferred** (11 §2). Measured: 310 toned emoji × 5 tones = 1,550
+      _Built:_ `930c98bc` — the tile's `onDragEnd` records it when the drop was a copy; a drag let go
+      elsewhere records nothing.
+- [x] **EL11.2** Skin tones — **deferred** (11 §2). Measured: 310 toned emoji × 5 tones = 1,550
       files ≈ 37 MB with thumbnails; bundled, the packaged set goes from 32.2 MiB to ~70 MB against
       its 40 MB budget and the installer from 374 to ~409 MiB against 400; an on-demand pack needs
       EL10's download path first, which waits on a licence read.
-- [ ] **EL11.3** An **"Add as overlay"** button on the media bin's picture cards (the user's own
+- [~] **EL11.3** An **"Add as overlay"** button on the media bin's picture cards (the user's own
       images: a logo, a screenshot, a cut-out), placing through EL9.4's `buildAddStockOverlayOps`
       at the playhead — not sticker placement, which would give a user's file library behaviour
       (the Elements folder, re-copy on open, credits). Keyboard parity with the focused card; absent
       for audio and element assets; one undo. The user's own videos are the maintainer's call
       (it widens MD-E5 beyond Pexels media) and are not offered.
-- [ ] **EL11.4** Drop a sticker or shape tile onto the **layer monitor** at a position: one drop
+      _Built:_ `a6a0902e` — `addImageOverlayPatch` through `buildAddStockOverlayOps` (no asset
+      operation for a bin image), an overlay icon button on image cards only and ⌘/Ctrl+Shift+Enter
+      on the focused card, checked apply, selection and a polite announcement; ADR 0193 amendment;
+      e2e row importing a transparent PNG (`66f10ea7`, CI).
+- [~] **EL11.4** Drop a sticker or shape tile onto the **layer monitor** at a position: one drop
       zone on the frame accepting the elements drag payload, one pure screen-to-frame mapping
       (letterboxed and zoomed monitors), placing at the playhead through the existing `at` /
       `offset` builders; the new clip is selected. Photos, videos and bin assets on the monitor are
       deferred.
-- [ ] **EL11.5** Follow subject for stickers — **deferred** (11 §2): it needs the maintainer's
+      _Built:_ `a479d616` — `preview/frame-point.ts` (letterboxed, zoomed and panned monitors,
+      clamped), `editor/monitor-drop.ts` through `addShapePatch` / `placeDroppedSticker`, a drop
+      ring on the layer monitor's picture; e2e row: a box dropped at a point exports within 3 px of
+      it (`66f10ea7`, CI).
+- [x] **EL11.5** Follow subject for stickers — **deferred** (11 §2): it needs the maintainer's
       decision on MO-14 (a clip following a track: baked keyframes through `planTrackFollow`, or a
       `Clip.transformTrack` schema field), and `follow_subject` in the masking domain refuses to
       move a clip by that decision.
-- [ ] **EL11.6** Browser build — **decided: both halves stay absent**, as `ElementsPanel.test.tsx`
+- [x] **EL11.6** Browser build — **decided: both halves stay absent**, as `ElementsPanel.test.tsx`
       and `elements.spec.ts` already prove. A `Path2D` rasteriser would be the second geometry
       implementation ADR 0190 rejected; browser stickers need a project that stores imported bytes.
-- [ ] **EL11.7** Moved to EL12.6: `accessibility-responsive-auditor` and `ui-ux-critic` over every
+- [x] **EL11.7** Moved to EL12.6: `accessibility-responsive-auditor` and `ui-ux-critic` over every
       shipped Elements surface, each finding fixed or waived with a reason.
 
 ---
