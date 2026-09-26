@@ -54,6 +54,11 @@ export interface ToolContext {
    */
   readonly stockCutawayCap?: number;
   /**
+   * The host ships the whole sticker library (the desktop installer's packaged set, plan/elements
+   * EL6b), so `search_elements` offers every sticker, not only the curated ones every build has.
+   */
+  readonly packagedStickers?: boolean;
+  /**
    * The numbers the editor's CURRENT request binds to a size or position — a unit (`20%`,
    * `200px`) or a shape word (`width 0.5`, `20 from the left`) attached to each
    * (`masking/geometry-provenance.ts#geometryNumbersIn`, AM1.6). Numbers from earlier messages,

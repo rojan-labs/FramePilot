@@ -10311,7 +10311,7 @@ stickers, CC BY 4.0 (EL10).
 - [!] **EL6a** Stickers minimum slice, complete: 251 curated, materialise IPC, Stickers tab,
   credits, `add_sticker`, `add_clip` delegation for element assets, one eval case; green on
   `9633653c`; the eval run and one desktop run are human steps (`plan/elements/09-PHASES.md`)
-- [ ] **EL6b** The full 1,595 in the desktop installer, virtualised grid, outline and shadow
+- [~] **EL6b** The full 1,595 in the desktop installer, virtualised grid, outline and shadow
 - [ ] **EL7** Animation In/Out (layer transitions) and Loop (keyframes from a builder);
   `set_element_animation`
 - [ ] **EL8** Agent quality: critic checks, digest, skill craft pass, remaining eval cases, MCP

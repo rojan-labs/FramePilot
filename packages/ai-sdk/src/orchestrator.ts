@@ -1802,6 +1802,11 @@ export { ToolInvocationError };
 /** Optional collaborators the host injects into an {@link Orchestrator}. */
 export interface OrchestratorOptions {
   /**
+   * The host ships the whole sticker library (the desktop installer's packaged set, plan/elements
+   * EL6b): `search_elements` then offers every sticker `add_sticker` can place here.
+   */
+  readonly packagedStickers?: boolean;
+  /**
    * Runs analysis/action tools on the host (engine sidecar). Without it such
    * calls fail honestly — the orchestrator NEVER fabricates a host result.
    */
@@ -3675,6 +3680,8 @@ export class Orchestrator {
   private readonly effectObserver: EffectRuntimeObserver | undefined;
   /** See {@link OrchestratorOptions.tierProviders}. Empty unless the host opted in. */
   private readonly tierProviders: Partial<Record<ModelTier, AiProvider>>;
+  /** See {@link OrchestratorOptions.packagedStickers}. */
+  private readonly packagedStickers: boolean;
 
   public constructor(
     private readonly provider: AiProvider,
@@ -3687,6 +3694,7 @@ export class Orchestrator {
     this.replayRuntime = options.replayRuntime;
     this.effectObserver = options.effectObserver;
     this.tierProviders = options.tierProviders ?? {};
+    this.packagedStickers = options.packagedStickers === true;
   }
 
   /**
@@ -3845,6 +3853,7 @@ export class Orchestrator {
       userNumbers: geometryNumbersIn(input.userPrompt),
       userPickedCandidateIds: candidateIdsIn(editorWords(input)),
       ...(cap === undefined ? {} : { stockCutawayCap: cap }),
+      ...(this.packagedStickers ? { packagedStickers: true } : {}),
       ...(input.projectRevision === undefined ? {} : { projectRevision: input.projectRevision }),
       // The turn number is the conversation's own clock: the user's messages so far
       // plus the one being answered. Derived rather than plumbed, so every caller

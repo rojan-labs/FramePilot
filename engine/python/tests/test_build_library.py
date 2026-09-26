@@ -82,3 +82,74 @@ def test_a_byte_that_does_not_match_its_pin_is_refused(
     bad = {"inputs": {"a.png": {"sha256": hashlib.sha256(b"original").hexdigest()}}}
     with pytest.raises(SystemExit, match="does not match its pin"):
         library._pinned(bad, "a.png")
+
+
+def test_a_sticker_encodes_to_its_padded_file_and_an_unpadded_thumbnail(
+    library: ModuleType,
+) -> None:
+    import io
+
+    art = Image.new("RGBA", (256, 256), (255, 128, 0, 255))
+    full, thumb, side = library._encoded(art)
+    assert side == 318
+    with Image.open(io.BytesIO(full)) as decoded:
+        assert decoded.size == (318, 318)
+    with Image.open(io.BytesIO(thumb)) as decoded:
+        assert decoded.size == (144, 144)
+
+
+def test_the_packaged_manifest_carries_what_this_build_encoded(library: ModuleType) -> None:
+    entries = {
+        "rocket": {
+            "file": "full/rocket.webp",
+            "thumb": "thumbs/rocket.webp",
+            "bytes": 10,
+            "thumbBytes": 3,
+            "sha256": "a" * 64,
+            "width": 318,
+            "height": 318,
+            "sharpSize": 256,
+        },
+        "cat": {
+            "file": "full/cat.webp",
+            "thumb": "thumbs/cat.webp",
+            "bytes": 20,
+            "thumbBytes": 4,
+            "sha256": "b" * 64,
+            "width": 318,
+            "height": 318,
+            "sharpSize": 256,
+        },
+    }
+    manifest = library.packaged_manifest(entries, b"lock")
+    assert manifest["lockSha256"] == hashlib.sha256(b"lock").hexdigest()
+    assert manifest["totalBytes"] == 37
+    assert list(manifest["items"]) == ["cat", "rocket"]
+
+
+def test_a_packaged_set_is_rebuilt_only_when_the_lock_changes_or_a_file_is_gone(
+    library: ModuleType, tmp_path: Path
+) -> None:
+    import json
+
+    entries = {
+        "cat": {
+            "file": "full/cat.webp",
+            "thumb": "thumbs/cat.webp",
+            "bytes": 1,
+            "thumbBytes": 1,
+            "sha256": "b" * 64,
+            "width": 318,
+            "height": 318,
+            "sharpSize": 256,
+        }
+    }
+    (tmp_path / "full").mkdir()
+    (tmp_path / "thumbs").mkdir()
+    (tmp_path / "full" / "cat.webp").write_bytes(b"x")
+    (tmp_path / "thumbs" / "cat.webp").write_bytes(b"x")
+    (tmp_path / "manifest.json").write_text(json.dumps(library.packaged_manifest(entries, b"v1")))
+    assert library.packaged_is_current(tmp_path, b"v1")
+    assert not library.packaged_is_current(tmp_path, b"v2")
+    (tmp_path / "thumbs" / "cat.webp").unlink()
+    assert not library.packaged_is_current(tmp_path, b"v1")

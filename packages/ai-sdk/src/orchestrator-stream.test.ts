@@ -79,6 +79,17 @@ class FakeProvider implements AiProvider {
   }
 }
 
+/** Answers each request with the next scripted response and keeps every request it saw. */
+class SequencedProvider implements AiProvider {
+  public readonly name = 'mock' as const;
+  public readonly requests: AiCompletionRequest[] = [];
+  public constructor(private readonly responses: readonly AiResponse[]) {}
+  public async complete(request: AiCompletionRequest): Promise<AiResponse> {
+    this.requests.push(request);
+    return this.responses[Math.min(this.requests.length, this.responses.length) - 1]!;
+  }
+}
+
 /** Aborts mid-`complete()` so the abort trips inside a step, not at the loop top. */
 class AbortingProvider implements AiProvider {
   public readonly name = 'mock' as const;
@@ -6169,5 +6180,27 @@ describe('picture over picture is refused once, not once per placement (run 369e
     const log = fedBack(provider);
     expect(log).toMatch(/b_roll \[video\] 0 clips/);
     expect(log).not.toMatch(/hidden behind picture/);
+  });
+});
+
+describe('the whole sticker library reaches the agent only where the host ships it (EL6b)', () => {
+  const run = async (packagedStickers: boolean): Promise<string> => {
+    const provider = new SequencedProvider([
+      {
+        text: 'Looking for a dragon.',
+        toolCalls: [
+          { id: 's1', name: 'search_elements', arguments: { query: 'dragon', kind: 'sticker' } },
+        ],
+      },
+      { text: 'Done.' },
+    ]);
+    const orchestrator = new Orchestrator(provider, packagedStickers ? { packagedStickers } : {});
+    await drain(orchestrator.streamAgent(input, opts()));
+    return JSON.stringify(provider.requests.slice(1));
+  };
+
+  it('offers a packaged sticker on a desktop with the set, and not elsewhere', async () => {
+    expect(await run(true)).toContain('- dragon ');
+    expect(await run(false)).not.toContain('- dragon ');
   });
 });

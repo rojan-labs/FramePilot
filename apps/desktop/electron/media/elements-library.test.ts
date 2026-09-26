@@ -16,7 +16,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { stickerCatalog, type StickerCatalog, type StickerItem } from '@framepilot/ai-sdk';
-import { ElementsLibrary, bundledStickersRoot, nodeElementsLibraryIO } from './elements-library.js';
+import {
+  ElementsLibrary,
+  bundledStickersRoot,
+  nodeElementsLibraryIO,
+  packagedStickersRoot,
+} from './elements-library.js';
 
 const FIRE = Buffer.from('RIFF----WEBPVP8L fire bytes');
 const sha = (data: Buffer): string => createHash('sha256').update(data).digest('hex');
@@ -369,6 +374,122 @@ describe('bundledStickersRoot', () => {
     );
     expect(bundledStickersRoot(mainDir, false)).toBe(
       path.join('/repo', 'apps', 'web-editor', 'public', 'elements', 'stickers'),
+    );
+  });
+});
+
+describe('the packaged set (plan/elements EL6b)', () => {
+  const ROCKET = Buffer.from('RIFF----WEBPVP8L rocket bytes');
+  const ROCKET_THUMB = Buffer.from('RIFF----WEBPVP8 rocket thumb');
+  const packagedItem = (): StickerItem => {
+    const { file: _file, thumb: _thumb, sha256: _sha, bytes: _bytes, ...rest } = item('rocket');
+    return { ...rest, availability: 'packaged' };
+  };
+  let packaged: string;
+
+  function writeSet(entry: Record<string, unknown> = {}, commit = 'abc'): void {
+    mkdirSync(path.join(packaged, 'full'), { recursive: true });
+    mkdirSync(path.join(packaged, 'thumbs'), { recursive: true });
+    writeFileSync(path.join(packaged, 'full', 'rocket.webp'), ROCKET);
+    writeFileSync(path.join(packaged, 'thumbs', 'rocket.webp'), ROCKET_THUMB);
+    writeFileSync(
+      path.join(packaged, 'manifest.json'),
+      JSON.stringify({
+        commit,
+        items: {
+          rocket: {
+            file: 'full/rocket.webp',
+            thumb: 'thumbs/rocket.webp',
+            sha256: sha(ROCKET),
+            bytes: ROCKET.length,
+            width: 318,
+            height: 318,
+            sharpSize: 256,
+            ...entry,
+          },
+        },
+      }),
+    );
+  }
+
+  function withPackaged(items: StickerItem[], set: string | null = packaged): ElementsLibrary {
+    return new ElementsLibrary({
+      projectsRoot: path.join(root, 'projects'),
+      bundledRoot: () => bundled,
+      packagedRoot: () => set,
+      catalog: async () => catalog(items),
+    });
+  }
+
+  beforeEach(() => {
+    packaged = path.join(root, 'packaged');
+  });
+
+  it('copies a packaged sticker, verified against the manifest the set ships with', async () => {
+    writeSet();
+    const result = await withPackaged([item('fire'), packagedItem()]).materialize({
+      projectId: 'p1',
+      elementId: 'rocket',
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      asset: {
+        id: 'element_fluent3d_rocket',
+        path: 'media/p1/elements/fluent3d/rocket.webp',
+        media: { width: 318, height: 318 },
+        sharpSize: 256,
+      },
+    });
+    expect(
+      readFileSync(
+        path.join(root, 'projects', 'media', 'p1', 'elements', 'fluent3d', 'rocket.webp'),
+      ),
+    ).toEqual(ROCKET);
+  });
+
+  it('refuses a packaged sticker the set lacks, a set built for another library, a tampered file and a stray path', async () => {
+    const missing = await withPackaged([packagedItem()], null).materialize({
+      projectId: 'p1',
+      elementId: 'rocket',
+    });
+    expect(missing).toEqual({ ok: false, error: 'library_missing' });
+    writeSet({}, 'another-commit');
+    expect(
+      await withPackaged([packagedItem()]).materialize({ projectId: 'p1', elementId: 'rocket' }),
+    ).toEqual({ ok: false, error: 'library_missing' });
+    writeSet({ sha256: sha(Buffer.from('something else')) });
+    expect(
+      await withPackaged([packagedItem()]).materialize({ projectId: 'p1', elementId: 'rocket' }),
+    ).toEqual({ ok: false, error: 'integrity_failed' });
+    writeSet({ file: '../../secret.webp' });
+    expect(
+      await withPackaged([packagedItem()]).materialize({ projectId: 'p1', elementId: 'rocket' }),
+    ).toEqual({ ok: false, error: 'library_missing' });
+  });
+
+  it('serves packaged tiles, and says whether this build has the set at all', async () => {
+    expect(await withPackaged([packagedItem()], null).thumbnails([])).toEqual({
+      ok: true,
+      packaged: false,
+      thumbs: [],
+    });
+    writeSet();
+    const lib = withPackaged([item('fire'), packagedItem()]);
+    const answer = await lib.thumbnails(['rocket', 'fire', 'ghost', '../x']);
+    expect(answer.ok && answer.packaged).toBe(true);
+    // Only packaged stickers come over IPC; a bundled one is a same-origin file already.
+    expect(answer.ok && answer.thumbs.map((t) => [t.elementId, Buffer.from(t.webp)])).toEqual([
+      ['rocket', ROCKET_THUMB],
+    ]);
+  });
+
+  it('reads the packaged set from the app’s resources, or the desktop app’s build folder in a dev tree', () => {
+    const mainDir = path.join('/repo', 'apps', 'desktop', 'dist');
+    expect(packagedStickersRoot(mainDir, true, '/App/Contents/Resources')).toBe(
+      path.join('/App/Contents/Resources', 'elements', 'stickers'),
+    );
+    expect(packagedStickersRoot(mainDir, false, '/unused')).toBe(
+      path.join('/repo', 'apps', 'desktop', 'elements-packaged'),
     );
   });
 });

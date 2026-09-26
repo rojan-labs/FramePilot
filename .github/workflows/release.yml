@@ -90,6 +90,17 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # `desktop:dist` encodes the packaged stickers (plan/elements EL6b) from the pinned library;
+      # its inputs are pinned byte for byte, so the set is cached by the lock and rebuilt only
+      # when the library changes.
+      - name: Cache the pinned sticker library and the packaged set
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/framepilot/elements
+            apps/desktop/elements-packaged
+          key: packaged-stickers-${{ runner.os }}-${{ hashFiles('scripts/elements/fluent.lock.json', 'scripts/elements/collections.json', 'scripts/elements/build_library.py') }}
+
       # electron-builder's dmg-builder shells out to `which python`; macOS
       # machines often ship only `python3`. PYTHON_PATH is its documented
       # override (harmless if `python` exists).

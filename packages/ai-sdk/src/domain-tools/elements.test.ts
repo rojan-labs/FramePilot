@@ -243,6 +243,19 @@ describe('search_elements for stickers, and add_sticker', () => {
     ]);
   });
 
+  it('reaches the whole library only where the host ships it (EL6b)', async () => {
+    const tool = getTool('search_elements');
+    if (!tool || tool.kind !== 'read') throw new Error('search_elements is not a read tool');
+    const find = async (packagedStickers: boolean) =>
+      (await tool.read(
+        { query: 'dragon', kind: 'sticker' },
+        { project: project(), ...(packagedStickers ? { packagedStickers } : {}) },
+      )) as { results: { elementId: string }[] };
+    // A dragon is not in the curated set: only a desktop with the packaged set offers it.
+    expect((await find(false)).results.map((row) => row.elementId)).not.toContain('dragon');
+    expect((await find(true)).results.map((row) => row.elementId)).toContain('dragon');
+  });
+
   it('keeps a shape-only search free of the sticker catalogue', () => {
     const tool = getTool('search_elements');
     if (!tool || tool.kind !== 'read') throw new Error('search_elements is not a read tool');

@@ -147,6 +147,7 @@ import {
   type StockDownloadRequest,
   type StockDownloadResult,
   type ElementMaterializeResult,
+  type ElementThumbnailResult,
   type StockQuotaSnapshot,
   type AnalyzeReferenceRequest,
   type AnalyzeReferenceResult,
@@ -257,7 +258,12 @@ import { previewTextRasterViaSidecar } from './render/preview-text-client.js';
 import { cacheDerivedMedia, sidecarDerive } from './media/derived-media-cache.js';
 import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
-import { ElementsLibrary, bundledStickersRoot } from './media/elements-library.js';
+import {
+  ElementsLibrary,
+  MAX_THUMBNAILS_PER_REQUEST,
+  bundledStickersRoot,
+  packagedStickersRoot,
+} from './media/elements-library.js';
 import { createStickerHost } from './ai/sticker-host.js';
 
 import { StockQuotaStore } from './media/stock-quota.js';
@@ -944,9 +950,20 @@ function registerIpcHandlers(): void {
   const elementsLibrary = new ElementsLibrary({
     projectsRoot,
     bundledRoot: () => bundledStickersRoot(dirname, app.isPackaged),
+    // EL6b: the installer's packaged set, or the dev build's when `pnpm build:elements` made one.
+    packagedRoot: () => {
+      const root = packagedStickersRoot(dirname, app.isPackaged, process.resourcesPath);
+      return existsSync(root) ? root : null;
+    },
     catalog: loadStickerCatalog,
     // Counts only: whether it worked, the closed error code, and whether a copy was reused.
     onOutcome: (outcome) => appTelemetry?.recordEvent('element_materialize', { ...outcome }),
+  });
+  // EL6b: whether this build ships the packaged set, so the agent's search offers every sticker
+  // add_sticker can place here. Asked once; an empty thumbnail request answers exactly that.
+  let packagedStickers = false;
+  void elementsLibrary.thumbnails([]).then((answer) => {
+    packagedStickers = answer.ok && answer.packaged;
   });
   // Healing never stops a project opening: `heal` reports what it could not put back rather than
   // throwing, and this guard holds that even if a future change forgets to.
@@ -1577,6 +1594,18 @@ function registerIpcHandlers(): void {
         projectId: req.projectId,
         elementId: req.elementId,
       });
+    },
+  );
+  ipcMain.handle(
+    IpcChannels.elementsThumbnail,
+    async (_event, request: unknown): Promise<ElementThumbnailResult> => {
+      requireLicense();
+      const ids = (request as { elementIds?: unknown } | null)?.elementIds;
+      // Ids only, strings only, bounded: the library skips anything that is not a packaged id.
+      if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'string')) {
+        return { ok: false, error: 'unknown_element' };
+      }
+      return await elementsLibrary.thumbnails(ids.slice(0, MAX_THUMBNAILS_PER_REQUEST));
     },
   );
   ipcMain.handle(IpcChannels.stockQuota, async (): Promise<StockQuotaSnapshot> => {
@@ -3030,6 +3059,7 @@ function registerIpcHandlers(): void {
     const orchestratorOptions = {
       executor: toolExecutor,
       disabledTools: aiMaskingOff,
+      ...(packagedStickers ? { packagedStickers } : {}),
       ...(effectObserver === undefined ? {} : { effectObserver }),
       ...(name === 'mock' ? {} : buildTierProviders(name)),
     };

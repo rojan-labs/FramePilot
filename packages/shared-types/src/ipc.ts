@@ -2162,6 +2162,31 @@ export type ElementErrorCodeWire =
   | 'disk_full'
   | 'io_failed';
 
+/**
+ * `framepilot:elements:thumbnail` (plan/elements EL6b): tiles of packaged stickers, which live in
+ * the desktop installer's resources rather than the renderer's own files. Ids only; an empty
+ * list asks only whether this build has the packaged set.
+ */
+export interface ElementThumbnailRequest {
+  readonly elementIds: readonly string[];
+}
+
+/** One packaged sticker's tile, as WebP bytes the renderer turns into a `blob:` URL. */
+export interface ElementThumbnailWire {
+  readonly elementId: string;
+  readonly webp: Uint8Array;
+}
+
+export type ElementThumbnailResult =
+  | {
+      readonly ok: true;
+      /** This build ships the packaged set; without it the panel shows only curated stickers. */
+      readonly packaged: boolean;
+      /** The tiles found, in the order asked; an id that is not a packaged sticker is skipped. */
+      readonly thumbs: readonly ElementThumbnailWire[];
+    }
+  | { readonly ok: false; readonly error: ElementErrorCodeWire };
+
 /** Put the catalogue sticker `elementId` into the open project. Ids only, never a path. */
 export interface ElementMaterializeRequest {
   readonly projectId: string;
@@ -2333,6 +2358,8 @@ export interface FramePilotBridge {
    * Desktop only; the caller places it with `buildAddStickerOps`.
    */
   elementsMaterialize?(request: ElementMaterializeRequest): Promise<ElementMaterializeResult>;
+  /** Packaged stickers' tiles, and whether this build has the packaged set (EL6b). Desktop only. */
+  elementsThumbnail?(request: ElementThumbnailRequest): Promise<ElementThumbnailResult>;
   /** Cancel an in-flight download by operation id (fire-and-forget). */
   stockDownloadCancel?(operationId: string): void;
   /** Subscribe to download progress; the returned function unsubscribes. */

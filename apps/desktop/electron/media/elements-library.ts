@@ -18,9 +18,16 @@ import type {
   ElementAssetWire,
   ElementMaterializeRequest,
   ElementMaterializeResult,
+  ElementThumbnailResult,
+  ElementThumbnailWire,
 } from '@framepilot/shared-types';
 import { resolveWithin } from '@framepilot/shared-types/safety';
-import { STICKER_ID_PATTERN, stickerSourceUrl, type StickerCatalog } from '@framepilot/ai-sdk';
+import {
+  STICKER_ID_PATTERN,
+  stickerSourceUrl,
+  type StickerCatalog,
+  type StickerItem,
+} from '@framepilot/ai-sdk';
 import { ELEMENT_PROVIDERS } from '@framepilot/editor-core';
 import { mediaRelativeDir } from '../projects/media-import.js';
 import { sourcedAssetId } from './sourced-asset-id.js';
@@ -78,6 +85,11 @@ export interface ElementsLibraryOptions {
   readonly projectsRoot: string;
   /** The folder holding the bundled sticker files (`full/`, `thumbs/`). */
   readonly bundledRoot: () => string;
+  /**
+   * The desktop installer's packaged set (EL6b: every sticker the renderer does not ship, with
+   * its `manifest.json`), or `null` in a build without it; packaged stickers are then missing.
+   */
+  readonly packagedRoot?: () => string | null;
   /** The sticker catalogue (the generated one, loaded on first use). */
   readonly catalog: () => Promise<StickerCatalog>;
   readonly io?: ElementsLibraryIO;
@@ -92,6 +104,36 @@ export interface ElementsLibraryOptions {
 
 const sha256 = (data: Buffer): string => createHash('sha256').update(data).digest('hex');
 
+/** Tiles one thumbnail request may ask for: a screen of the grid, with room to scroll. */
+export const MAX_THUMBNAILS_PER_REQUEST = 96;
+
+/** One packaged sticker as the packaging step encoded it (`build_library.py --packaged`). */
+interface PackagedEntry {
+  readonly file: string;
+  readonly thumb: string;
+  readonly sha256: string;
+  readonly bytes: number;
+  readonly width: number;
+  readonly height: number;
+  readonly sharpSize: number;
+}
+
+/** A packaged set's manifest: the library commit it was built from, and its files. */
+interface PackagedManifest {
+  readonly commit: string;
+  readonly items: Readonly<Record<string, PackagedEntry>>;
+}
+
+/** Where a sticker's file comes from, and what it must be. */
+interface StickerSource {
+  readonly path: string;
+  readonly sha256: string;
+  readonly bytes: number | undefined;
+  readonly width: number | null;
+  readonly height: number | null;
+  readonly sharpSize: number | null;
+}
+
 /** ENOSPC has one honest answer, and it is not "the copy failed". */
 const isDiskFull = (error: unknown): boolean =>
   (error as { code?: string } | null)?.code === 'ENOSPC';
@@ -102,6 +144,8 @@ export class ElementsLibrary {
   private readonly inFlight = new Map<string, Promise<ElementMaterializeResult>>();
   /** Folders already swept of temporary files an earlier, crashed process left. */
   private readonly swept = new Set<string>();
+  /** The packaged set's manifest, read once; `null` when this build has no usable set. */
+  private manifest: Promise<PackagedManifest | null> | undefined;
 
   constructor(private readonly options: ElementsLibraryOptions) {
     this.io = options.io ?? nodeElementsLibraryIO;
@@ -223,17 +267,8 @@ export class ElementsLibrary {
     }
     const item = catalog.byId.get(request.elementId);
     if (item === undefined) return { ok: false, error: 'unknown_element' };
-    if (item.availability !== 'bundled' || item.file === undefined || item.sha256 === undefined) {
-      // A packaged sticker needs the desktop installer's set (EL6b), which this build lacks.
-      return { ok: false, error: 'library_missing' };
-    }
-    if (item.file !== bundledFile(item.id)) {
-      // The generator names every file after its id; anything else is not a file it wrote.
-      log.error('materialize: a catalogue entry names a file that is not its own', {
-        elementId: item.id,
-      });
-      return { ok: false, error: 'library_missing' };
-    }
+    const found = await this.sourceOf(item, catalog);
+    if (found === null) return { ok: false, error: 'library_missing' };
     const relativePath = stickerPath(request.projectId, catalog.library, item.id);
     let target: string;
     try {
@@ -250,8 +285,8 @@ export class ElementsLibrary {
       id: sourcedAssetId('element', catalog.library, item.id),
       path: relativePath,
       kind: 'image',
-      media: { width: item.width ?? null, height: item.height ?? null },
-      sharpSize: item.sharpSize ?? null,
+      media: { width: found.width, height: found.height },
+      sharpSize: found.sharpSize,
       source: {
         provider: catalog.provider,
         remoteId: item.id,
@@ -269,9 +304,9 @@ export class ElementsLibrary {
     try {
       // A copy of the wrong size is replaced without reading it.
       const size = await this.io.size(target);
-      if (size !== null && (item.bytes === undefined || size === item.bytes)) {
+      if (size !== null && (found.bytes === undefined || size === found.bytes)) {
         const present = await this.io.readFile(target);
-        if (sha256(present) === item.sha256) {
+        if (sha256(present) === found.sha256) {
           log.action('materialize', {
             elementId: item.id,
             deduped: true,
@@ -287,16 +322,22 @@ export class ElementsLibrary {
       });
     }
 
-    const source = path.join(this.options.bundledRoot(), item.file);
+    const source = found.path;
     let bytes: Buffer;
     try {
       bytes = await this.io.readFile(source);
     } catch {
-      log.error('materialize: bundled file missing', { elementId: item.id });
+      log.error('materialize: sticker file missing', {
+        elementId: item.id,
+        availability: item.availability,
+      });
       return { ok: false, error: 'library_missing' };
     }
-    if (sha256(bytes) !== item.sha256) {
-      log.error('materialize: bundled file does not match the catalogue', { elementId: item.id });
+    if (sha256(bytes) !== found.sha256) {
+      log.error('materialize: sticker file does not match its record', {
+        elementId: item.id,
+        availability: item.availability,
+      });
       return { ok: false, error: 'integrity_failed' };
     }
 
@@ -319,6 +360,111 @@ export class ElementsLibrary {
       ms: Date.now() - startedAt,
     });
     return { ok: true, asset: asset(false) };
+  }
+
+  /**
+   * Where `item`'s file is and what it must be: a bundled sticker from the renderer's folder,
+   * checked against the catalogue; a packaged one from the installer's set, checked against the
+   * manifest that set was built with. `null` when this build does not have it (a packaged sticker
+   * without the set, a set built for another library) or a record names a file that is not the
+   * sticker's own (the generator names every file after its id).
+   */
+  private async sourceOf(
+    item: StickerItem,
+    catalog: StickerCatalog,
+  ): Promise<StickerSource | null> {
+    if (item.availability === 'bundled') {
+      if (item.file !== bundledFile(item.id) || item.sha256 === undefined) {
+        log.error('materialize: a catalogue entry names a file that is not its own', {
+          elementId: item.id,
+        });
+        return null;
+      }
+      return {
+        path: path.join(this.options.bundledRoot(), item.file),
+        sha256: item.sha256,
+        bytes: item.bytes,
+        width: item.width ?? null,
+        height: item.height ?? null,
+        sharpSize: item.sharpSize ?? null,
+      };
+    }
+    const manifest = await this.packagedManifest(catalog);
+    const entry = manifest?.items[item.id];
+    const root = this.options.packagedRoot?.() ?? null;
+    if (entry === undefined || root === null) return null;
+    if (entry.file !== bundledFile(item.id)) {
+      log.error('materialize: the packaged manifest names a file that is not the sticker’s own', {
+        elementId: item.id,
+      });
+      return null;
+    }
+    return {
+      path: path.join(root, entry.file),
+      sha256: entry.sha256,
+      bytes: entry.bytes,
+      width: entry.width,
+      height: entry.height,
+      sharpSize: entry.sharpSize,
+    };
+  }
+
+  /**
+   * The packaged set's manifest, read once. `null` when this build has no set, or has one built
+   * for another library commit (its files would not be the catalogue's stickers).
+   */
+  private packagedManifest(catalog: StickerCatalog): Promise<PackagedManifest | null> {
+    this.manifest ??= (async (): Promise<PackagedManifest | null> => {
+      const root = this.options.packagedRoot?.() ?? null;
+      if (root === null) return null;
+      try {
+        const parsed = JSON.parse(
+          (await this.io.readFile(path.join(root, 'manifest.json'))).toString('utf8'),
+        ) as Partial<PackagedManifest>;
+        if (typeof parsed.items !== 'object' || parsed.items === null) return null;
+        if (parsed.commit !== catalog.commit) {
+          log.warn('the packaged sticker set was built for another library; it is not used', {});
+          return null;
+        }
+        return { commit: parsed.commit, items: parsed.items };
+      } catch {
+        return null;
+      }
+    })();
+    return this.manifest;
+  }
+
+  /**
+   * Packaged stickers' tiles (EL6b), for the Stickers tab to show as `blob:` URLs. Only packaged
+   * stickers come this way: a bundled one's tile is a file the renderer ships. An id that is not
+   * a packaged sticker in this build is skipped; an empty list asks only whether the set is here.
+   */
+  async thumbnails(elementIds: readonly string[]): Promise<ElementThumbnailResult> {
+    let catalog: StickerCatalog;
+    try {
+      catalog = await this.options.catalog();
+    } catch {
+      return { ok: false, error: 'library_missing' };
+    }
+    const manifest = await this.packagedManifest(catalog);
+    const root = this.options.packagedRoot?.() ?? null;
+    if (manifest === null || root === null) return { ok: true, packaged: false, thumbs: [] };
+    const thumbs: ElementThumbnailWire[] = [];
+    for (const elementId of elementIds.slice(0, MAX_THUMBNAILS_PER_REQUEST)) {
+      if (!STICKER_ID_PATTERN.test(elementId)) continue;
+      if (catalog.byId.get(elementId)?.availability !== 'packaged') continue;
+      const entry = manifest.items[elementId];
+      if (entry?.thumb !== `thumbs/${elementId}.webp`) continue;
+      try {
+        thumbs.push({
+          elementId,
+          webp: new Uint8Array(await this.io.readFile(path.join(root, entry.thumb))),
+        });
+      } catch {
+        log.warn('thumbnails: a packaged tile is missing', { elementId });
+      }
+    }
+    return { ok: true, packaged: true, thumbs };
   }
 
   /**
@@ -346,6 +492,23 @@ function stickerPath(projectId: string, library: string, itemId: string): string
 /** The bundled file the library build writes for an item. */
 function bundledFile(itemId: string): string {
   return `full/${itemId}.webp`;
+}
+
+/**
+ * Where the packaged sticker set is (EL6b): the installer's `extraResources`
+ * (`<resources>/elements/stickers`), or the folder `pnpm build:elements` writes in a development
+ * tree (`apps/desktop/elements-packaged`, absent until someone builds it).
+ *
+ * @param mainDir - The compiled main process's directory (`apps/desktop/dist`).
+ * @param resourcesPath - `process.resourcesPath` of the running app.
+ */
+export function packagedStickersRoot(
+  mainDir: string,
+  isPackaged: boolean,
+  resourcesPath: string,
+): string {
+  if (isPackaged) return path.join(resourcesPath, 'elements', 'stickers');
+  return path.resolve(mainDir, '..', 'elements-packaged');
 }
 
 /**

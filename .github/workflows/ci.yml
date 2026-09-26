@@ -732,5 +732,26 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      # The installer ships every sticker the renderer does not (plan/elements EL6b, MD-E1),
+      # encoded from the pinned library by `build:elements` as `dist` does. Its inputs are pinned
+      # byte for byte, so the set is cached by the lock; the check then holds every catalogued
+      # sticker placeable, verified against the manifest, with its licence, within its budget.
+      - name: Cache the pinned sticker library and the packaged set
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/framepilot/elements
+            apps/desktop/elements-packaged
+          key: packaged-stickers-${{ runner.os }}-${{ hashFiles('scripts/elements/fluent.lock.json', 'scripts/elements/collections.json', 'scripts/elements/build_library.py') }}
+      - name: Build the packaged sticker set as the installer does
+        working-directory: apps/desktop
+        run: pnpm run build:elements
+      - name: Every catalogued sticker is placeable, within budget
+        working-directory: apps/desktop
+        run: pnpm run check:elements

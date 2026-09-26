@@ -360,7 +360,7 @@ FRAMEPILOT_PYTHON_API_URL=http://127.0.0.1:8799 node packages/ai-sdk/scripts/mis
   folder and reopen (it comes back); undo each add. Record the export, the reopened project and
   any defect here.
 
-## EL6b — Stickers: the whole library `[ ]`
+## EL6b — Stickers: the whole library `[~]`
 
 Depends on EL6a, MD-E1, EL2b.1.
 

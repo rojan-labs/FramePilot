@@ -36,7 +36,7 @@ import re
 import sys
 import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -191,12 +191,30 @@ def write_catalog(catalog: dict[str, Any]) -> None:
     CATALOG.write_text(text, encoding="utf-8")
 
 
-def build() -> None:
-    lock = json.loads(LOCK.read_text(encoding="utf-8"))
+def _encoded_png(png: bytes) -> tuple[bytes, bytes, int, int]:
+    """:func:`_encoded` of an upstream PNG, plus its art width: a process pool's unit of work."""
+    art = Image.open(io.BytesIO(png)).convert("RGBA")
+    full, thumb, side = _encoded(art)
+    return full, thumb, side, art.width
+
+
+def _encoded(art: Image.Image) -> tuple[bytes, bytes, int]:
+    """A sticker's padded full file (lossless WebP), its thumbnail and the padded side."""
+    full = _webp(_padded(art), lossless=True)
+    thumb_image = art.copy()
+    thumb_image.thumbnail((THUMB_SIZE, THUMB_SIZE), Image.Resampling.LANCZOS)
+    thumb = _webp(thumb_image, lossless=False, quality=THUMB_QUALITY)
+    return full, thumb, art.width + 2 * round(art.width * PAD)
+
+
+def _library(
+    lock: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, list[str]], dict[str, int]]:
+    """The collections, every emoji's metadata, which collections each curated one is in, and
+    its rank: what decides a sticker's id, and whether it is bundled or packaged."""
     if lock["commit"] != COMMIT:
         raise SystemExit("build_library: fluent.lock.json pins another commit; run --lock.")
     collections = json.loads(COLLECTIONS.read_text(encoding="utf-8"))["collections"]
-    inputs = list(lock["inputs"])
     metas: dict[str, dict[str, Any]] = {}
     with ThreadPoolExecutor(max_workers=16) as pool:
         for folder, data in zip(
@@ -219,6 +237,13 @@ def build() -> None:
                 )
             member_of.setdefault(folder, []).append(collection["id"])
             rank.setdefault(folder, len(rank))
+    return collections, metas, member_of, rank
+
+
+def build() -> None:
+    lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    collections, metas, member_of, rank = _library(lock)
+    inputs = list(lock["inputs"])
 
     ids: dict[str, str] = {}
     items: list[dict[str, Any]] = []
@@ -248,13 +273,9 @@ def build() -> None:
         }
         if folder in member_of:
             art = Image.open(io.BytesIO(_pinned(lock, png_path))).convert("RGBA")
-            full = _webp(_padded(art), lossless=True)
-            thumb_image = art.copy()
-            thumb_image.thumbnail((THUMB_SIZE, THUMB_SIZE), Image.Resampling.LANCZOS)
-            thumb = _webp(thumb_image, lossless=False, quality=THUMB_QUALITY)
+            full, thumb, side = _encoded(art)
             (full_dir / f"{sticker_id}.webp").write_bytes(full)
             (thumb_dir / f"{sticker_id}.webp").write_bytes(thumb)
-            side = art.width + 2 * round(art.width * PAD)
             item |= {
                 "file": f"full/{sticker_id}.webp",
                 "thumb": f"thumbs/{sticker_id}.webp",
@@ -297,12 +318,113 @@ def build() -> None:
     )
 
 
+#: What the packaged set may weigh (MD-E1: 40 MB). Raising it is a decision made in the same PR.
+PACKAGED_BUDGET_BYTES = 40_000_000
+#: The manifest the packaged set carries: what the library verifies each copy against.
+MANIFEST = "manifest.json"
+
+
+def lock_digest(lock_bytes: bytes) -> str:
+    """The key the packaged set is cached by: the lock pins every byte it is built from."""
+    return hashlib.sha256(lock_bytes).hexdigest()
+
+
+def packaged_is_current(out: Path, lock_bytes: bytes) -> bool:
+    """Whether ``out`` already holds the packaged set for this lock, every file present."""
+    manifest_path = out / MANIFEST
+    if not manifest_path.is_file():
+        return False
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("lockSha256") != lock_digest(lock_bytes):
+        return False
+    return all(
+        (out / entry["file"]).is_file() and (out / entry["thumb"]).is_file()
+        for entry in manifest["items"].values()
+    )
+
+
+def packaged_manifest(entries: dict[str, dict[str, Any]], lock_bytes: bytes) -> dict[str, Any]:
+    """The packaged set's manifest: per sticker id, its files, the SHA-256 and size of the full
+    file as THIS build encoded it, its canvas and its sharp size.
+
+    Encoded here rather than pinned in the catalogue because a lossless WebP's bytes can differ
+    between build machines (the encoder's entropy estimates are floating point, with per-CPU
+    fast paths): the pixels are identical, the hash need not be. The inputs are pinned by the
+    lock either way.
+    """
+    return {
+        "spec": "Written by scripts/elements/build_library.py --packaged. The desktop library "
+        "verifies each copy against it. Do not edit.",
+        "commit": COMMIT,
+        "lockSha256": lock_digest(lock_bytes),
+        "totalBytes": sum(entry["bytes"] + entry["thumbBytes"] for entry in entries.values()),
+        "items": dict(sorted(entries.items())),
+    }
+
+
+def build_packaged(out: Path) -> None:
+    """Encode every sticker the committed set does not ship into ``out`` (the desktop
+    installer's ``extraResources``), with its licence and manifest; skipped when ``out`` already
+    holds this lock's set. Refuses a set over its budget."""
+    lock_bytes = LOCK.read_bytes()
+    if packaged_is_current(out, lock_bytes):
+        _log(f"packaged set in {out} is current for this lock; nothing to do")
+        return
+    lock = json.loads(lock_bytes)
+    _, metas, member_of, _ = _library(lock)
+    inputs = list(lock["inputs"])
+    (out / "full").mkdir(parents=True, exist_ok=True)
+    (out / "thumbs").mkdir(parents=True, exist_ok=True)
+    todo: list[tuple[str, bytes]] = []
+    for folder in lock["folders"]:
+        if folder in member_of:
+            continue
+        png_path = _default_png(inputs, folder)
+        assert png_path is not None
+        todo.append((item_id(metas[folder]["cldr"]), _pinned(lock, png_path)))
+    entries: dict[str, dict[str, Any]] = {}
+    # A lossless method-6 encode is about a second a sticker; one process per core makes the
+    # whole set minutes, not half an hour. `map` keeps the order, so the set is deterministic.
+    with ProcessPoolExecutor() as pool:
+        encoded = pool.map(_encoded_png, [png for _, png in todo], chunksize=16)
+        for (sticker_id, _), (full, thumb, side, sharp) in zip(todo, encoded, strict=True):
+            (out / "full" / f"{sticker_id}.webp").write_bytes(full)
+            (out / "thumbs" / f"{sticker_id}.webp").write_bytes(thumb)
+            entries[sticker_id] = {
+                "file": f"full/{sticker_id}.webp",
+                "thumb": f"thumbs/{sticker_id}.webp",
+                "sha256": hashlib.sha256(full).hexdigest(),
+                "bytes": len(full),
+                "thumbBytes": len(thumb),
+                "width": side,
+                "height": side,
+                "sharpSize": sharp,
+            }
+    manifest = packaged_manifest(entries, lock_bytes)
+    if manifest["totalBytes"] > PACKAGED_BUDGET_BYTES:
+        raise SystemExit(
+            "build_library: the packaged set is over its budget. Raise PACKAGED_BUDGET_BYTES in "
+            "the same change, with the reason, or ship fewer stickers."
+        )
+    (out / "LICENSE-fluent-emoji.txt").write_bytes(_pinned(lock, "LICENSE"))
+    (out / MANIFEST).write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+    _log(f"packaged {len(entries)} stickers into {out}: {manifest['totalBytes'] / 1e6:.2f} MB")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--lock", action="store_true", help="re-pin the upstream inputs")
+    parser.add_argument(
+        "--packaged",
+        type=Path,
+        metavar="DIR",
+        help="encode every sticker the committed set does not ship into DIR (desktop packaging)",
+    )
     args = parser.parse_args()
     if args.lock:
         make_lock()
+    elif args.packaged is not None:
+        build_packaged(args.packaged)
     else:
         build()
     return 0

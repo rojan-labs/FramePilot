@@ -256,7 +256,7 @@ export const ELEMENT_TOOLS: readonly ToolSpec[] = [
         limit: numeric(z.number().int().min(1).max(SEARCH_LIMIT_MAX)).optional(),
       })
       .strict(),
-    (a) => {
+    (a, ctx) => {
       const limit = a.limit ?? SEARCH_LIMIT_DEFAULT;
       const shapes = shapeRows(a.query, a.category);
       const head = {
@@ -271,11 +271,11 @@ export const ELEMENT_TOOLS: readonly ToolSpec[] = [
       }
       // The sticker catalogue is loaded on first use; a shape-only search never pays for it.
       return loadStickerCatalog().then((catalog) => {
-        const found = searchStickers(
-          catalog,
-          a.query,
-          a.collection !== undefined ? { collection: a.collection } : {},
-        );
+        const found = searchStickers(catalog, a.query, {
+          ...(a.collection !== undefined ? { collection: a.collection } : {}),
+          // Only a host that ships the packaged set can place a packaged sticker (EL6b).
+          ...(ctx.packagedStickers === true ? { includePackaged: true } : {}),
+        });
         const stickers = found.items.map(stickerRow);
         if (a.kind === 'sticker') {
           const results = stickers.slice(0, limit);
