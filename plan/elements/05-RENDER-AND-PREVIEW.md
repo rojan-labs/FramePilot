@@ -237,6 +237,16 @@ boundaries ±1 ms and across the loop wrap; the gates are the PX4 gates, unchang
 
 Raster caches follow the text-raster rules (bounded entries, keyed by pixel-affecting params).
 
+**As measured (release-gate review, 2026-09-26).** The monitor row's CI fixture (`scale-elements`)
+is 20 stickers, 5 of them turning and 5 outlined, rather than 10 stickers and 10 shapes: a shape
+reaches the monitor as an engine raster composited exactly like a sticker's texture, and the
+`preview-perf` job runs without the sidecar that draws shape rasters. CI holds the invariants
+(every layer drawn, one composite per frame, bounded caches, flat GPU pools) on a software GPU; the
+budget itself is run D on an M-series Mac, which should also record peak GPU memory and composite
+p95. The export ratio is logged by `px5_export_ratio.py` (`scale-elements` against `scale-plain`)
+in CI and measured on real footage in run D. The animated-sticker decode budget belongs to EL10's
+Definition of Done and is not claimed while EL10 waits on its licence read.
+
 ---
 
 ## 8. Oracle rows to add (PX4, `preview-parity-oracle.spec.ts`)
