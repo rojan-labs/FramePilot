@@ -18,7 +18,7 @@ import {
 } from '@framepilot/timeline-schema';
 import { useViewPreference } from '../../editor/useViewPreference.js';
 import { recolourPreset } from '../../editor/shape-builders.js';
-import { ELEMENT_DND_TYPE, encodeElementDrag } from './element-dnd.js';
+import { writeElementDrag } from './element-dnd.js';
 import { boxTileOutline, tileBoxFor } from './shape-tile-outline.js';
 import { useShapeIconPaths } from './useShapeIconPaths.js';
 import { useTileGrid } from './useTileGrid.js';
@@ -352,14 +352,15 @@ export function ShapesBrowser({ onAddShape }: ShapesBrowserProps): JSX.Element {
                   className="shapes-grid-tile"
                   tabIndex={index === focusIndex ? 0 : -1}
                   aria-label={`Add ${entry.preset.name}`}
-                  title={`Add ${entry.preset.name} at the playhead, or drag it onto a lane`}
+                  title={`Add ${entry.preset.name} at the playhead, or drag it onto a lane or the monitor`}
                   draggable
                   onDragStart={(event) => {
                     event.dataTransfer.effectAllowed = 'copy';
-                    event.dataTransfer.setData(
-                      ELEMENT_DND_TYPE,
-                      encodeElementDrag({ kind: 'shape', presetId: entry.preset.id, colour }),
-                    );
+                    writeElementDrag(event.dataTransfer, {
+                      kind: 'shape',
+                      presetId: entry.preset.id,
+                      colour,
+                    });
                   }}
                   onFocus={() => setActive(index)}
                   onClick={() => add(entry)}

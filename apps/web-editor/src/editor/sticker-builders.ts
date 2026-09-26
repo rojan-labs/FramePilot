@@ -68,10 +68,13 @@ export function addStickerPatch(
     start + durationSeconds,
     { ...options, artFraction: stickerArtFraction(wire) },
   );
+  // Where it sits is part of the edit: the same sticker dropped at two places on the monitor at
+  // the same moment is two different patches, so it never shares an id with the other.
+  const at = options.offset === undefined ? '' : `_${options.offset.x}_${options.offset.y}`;
   return {
     clipId: placed.clipId,
     patch: {
-      patchId: patchId(`sticker_${wire.id}_${placed.trackId}_${ms(start)}`),
+      patchId: patchId(`sticker_${wire.id}_${placed.trackId}_${ms(start)}${at}`),
       createdBy: 'user',
       reason: `Add sticker “${name}”`,
       operations: [...placed.operations],

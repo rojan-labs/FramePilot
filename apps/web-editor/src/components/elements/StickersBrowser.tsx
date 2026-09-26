@@ -25,7 +25,7 @@ import { elementsMaterialize } from '../../editor/bridge.js';
 import { stickerErrorSentence } from '../../editor/sticker-builders.js';
 import { useViewPreference } from '../../editor/useViewPreference.js';
 import { ICON_SIZE, Star } from '../icons.js';
-import { ELEMENT_DND_TYPE, encodeElementDrag } from './element-dnd.js';
+import { writeElementDrag } from './element-dnd.js';
 import { packagedTiles as appPackagedTiles, type PackagedTileSource } from './packaged-tiles.js';
 import { useTileGrid } from './useTileGrid.js';
 
@@ -443,16 +443,16 @@ export function StickersBrowser({
                     title={
                       replaceTarget !== null
                         ? `Use ${item.name} instead`
-                        : `Add ${item.name} at the playhead, or drag it onto a lane`
+                        : `Add ${item.name} at the playhead, or drag it onto a lane or the monitor`
                     }
                     disabled={busy !== null && busy !== item.id}
                     draggable={replaceTarget === null}
                     onDragStart={(event) => {
                       event.dataTransfer.effectAllowed = 'copy';
-                      event.dataTransfer.setData(
-                        ELEMENT_DND_TYPE,
-                        encodeElementDrag({ kind: 'sticker', elementId: item.id }),
-                      );
+                      writeElementDrag(event.dataTransfer, {
+                        kind: 'sticker',
+                        elementId: item.id,
+                      });
                     }}
                     // A lane or the monitor that took the drop ends the drag in a copy; the drop
                     // places the sticker, and it counts as used, as a click does. Recorded here

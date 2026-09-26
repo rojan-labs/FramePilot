@@ -68,6 +68,9 @@ import {
 } from '../editor/patch-builders.js';
 import { elementsMaterialize, isDesktop, stockDownload } from '../editor/bridge.js';
 import { placeDroppedSticker } from '../editor/sticker-drop.js';
+import { placeMonitorDrop, type MonitorDropItem } from '../editor/monitor-drop.js';
+import type { StickerTarget } from '../editor/sticker-builders.js';
+import type { FramePoint } from '../preview/frame-point.js';
 import { stockDownloads } from '../editor/download-registry.js';
 import { placeDroppedStock } from '../editor/stock-drop.js';
 import { applyStockPatch } from '../editor/stock-download.js';
@@ -571,6 +574,16 @@ export function Editor({
   // download ends seconds after the click, and an image laid over the picture from the bin lands
   // on a lane the bin cannot show, so each arrival is announced, politely.
   const [addedAnnouncement, setAddedAnnouncement] = useState('');
+  // What an element placement reads once main has copied a sticker in: the editor as it is then.
+  const liveElementTarget = useCallback((): StickerTarget => {
+    const live = liveEditor.current.state;
+    return {
+      timeline: live.timeline,
+      assets: live.assets,
+      folders: live.folders,
+      resolution: project.resolution,
+    };
+  }, [project.resolution]);
   const dropSticker = useCallback(
     (elementId: string, atSeconds: number, trackId?: string): void => {
       void placeDroppedSticker(
@@ -581,15 +594,7 @@ export function Editor({
           atSeconds,
           durationSeconds: settings.defaultOverlaySeconds,
           ...(trackId !== undefined ? { trackId } : {}),
-          target: () => {
-            const live = liveEditor.current.state;
-            return {
-              timeline: live.timeline,
-              assets: live.assets,
-              folders: live.folders,
-              resolution: project.resolution,
-            };
-          },
+          target: liveElementTarget,
         },
       ).then((placed) => {
         if (!placed.ok) {
@@ -600,7 +605,42 @@ export function Editor({
         liveEditor.current.select(placed.added.clipId);
       });
     },
-    [project.id, project.resolution, settings.defaultOverlaySeconds],
+    [project.id, liveElementTarget, settings.defaultOverlaySeconds],
+  );
+  /**
+   * A sticker or shape tile dropped on the program monitor (plan/elements EL11, 02 §3): added at
+   * the playhead, centred where it was dropped, and selected. A sticker main could not copy says
+   * why in the Stickers tab's words; a patch the timeline refuses is said, not quietly dropped.
+   */
+  const dropOnMonitor = useCallback(
+    (item: MonitorDropItem, point: FramePoint): void => {
+      void placeMonitorDrop(
+        { materialize: elementsMaterialize, loadCatalog: loadStickerCatalog },
+        {
+          item,
+          point,
+          projectId: project.id,
+          atSeconds: liveEditor.current.getPlayhead(),
+          durationSeconds: settings.defaultOverlaySeconds,
+          target: liveElementTarget,
+        },
+      ).then((placed) => {
+        const say = (message: string): void =>
+          setNotice((last) => ({ id: (last?.id ?? 0) + 1, message }));
+        if (!placed.ok) {
+          say(placed.message);
+          return;
+        }
+        const refusal = applyStockPatch(liveEditor.current.applyPatchChecked, placed.added.patch);
+        if (refusal !== null) {
+          say(refusal);
+          return;
+        }
+        // Selected, so the monitor shows its handles for the fine adjustment a drop invites.
+        liveEditor.current.select(placed.added.clipId);
+      });
+    },
+    [project.id, liveElementTarget, settings.defaultOverlaySeconds],
   );
   /**
    * A Photos or Videos tile dropped on the timeline (plan/elements EL9): downloaded through the
@@ -732,6 +772,8 @@ export function Editor({
     [editor.state.timeline, programAssetById, project.resolution],
   );
   const ProgramPreview = useWebCodecsPreview ? WebCodecsPreviewPlayer : PreviewPlayer;
+  // Stickers and shapes come from Elements, which the browser build does not offer.
+  const elementsOffered = visibleLeftTabs().some((tab) => tab.id === 'elements');
 
   /**
    * "Open the Inspector when I click something" (Settings → Editing).
@@ -1319,6 +1361,11 @@ export function Editor({
                 headerControlsHost={monitorHeaderControlsHost}
                 soloedTrackIds={trackLayout.soloedIds}
                 transcript={project.transcript}
+                // Only where Elements is offered (the desktop app), and only the layer
+                // compositor's monitor takes a drop (the legacy one is not a drop target).
+                {...(useWebCodecsPreview && elementsOffered
+                  ? { onDropElement: dropOnMonitor }
+                  : {})}
                 {...(onProjectChange
                   ? {
                       onChangeOrientation: (presetId: string) => {

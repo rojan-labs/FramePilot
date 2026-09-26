@@ -49,6 +49,40 @@ export function encodeElementDrag(payload: ElementDragPayload): string {
 }
 
 /**
+ * The drag type naming a tile's kind, which carries nothing but that name. A drop target can read
+ * the payload only on drop — during dragover it sees the types alone — so a target that takes some
+ * kinds and not others (the program monitor takes stickers and shapes, not photos or videos) reads
+ * the kind from here to show the right cursor before the drop, rather than taking a drop it then
+ * ignores.
+ */
+export function elementKindDndType(kind: ElementDragPayload['kind']): string {
+  return `${ELEMENT_DND_TYPE}-kind-${kind}`;
+}
+
+/**
+ * Put `payload` on a tile's drag: the payload under {@link ELEMENT_DND_TYPE}, and its kind under
+ * {@link elementKindDndType}.
+ */
+export function writeElementDrag(
+  dataTransfer: Pick<DataTransfer, 'setData'>,
+  payload: ElementDragPayload,
+): void {
+  dataTransfer.setData(ELEMENT_DND_TYPE, encodeElementDrag(payload));
+  dataTransfer.setData(elementKindDndType(payload.kind), payload.kind);
+}
+
+/**
+ * Whether a drag's types say it carries an element of one of `kinds` — readable during dragover,
+ * unlike the payload. The drop still decodes and checks the payload itself.
+ */
+export function dragCarriesElementKind(
+  types: readonly string[],
+  kinds: readonly ElementDragPayload['kind'][],
+): boolean {
+  return kinds.some((kind) => types.includes(elementKindDndType(kind)));
+}
+
+/**
  * The payload of a drop, or `null` when it is not one this build reads. The data comes from
  * another window as easily as from this one, so every field is checked.
  */

@@ -112,6 +112,30 @@ describe('placeDroppedSticker', () => {
     expect(applyProjectPatch(after, invertProjectPatch(project, patch))).toEqual(project);
   });
 
+  it('centres the sticker where it was dropped on the monitor, as one patch of its own', async () => {
+    const drop = { projectId: 'p', elementId: 'fire', atSeconds: 1, durationSeconds: 3, target };
+    const onMonitor = await placeDroppedSticker(deps({ ok: true, asset: wire }), {
+      ...drop,
+      offset: { x: -480, y: 270 },
+    });
+    if (!onMonitor.ok) throw new Error(onMonitor.message);
+    const after = applyProjectPatch(project, onMonitor.added.patch);
+    const clip = after.timeline.tracks
+      .flatMap((track) => track.clips)
+      .find((c) => c.id === onMonitor.added.clipId)!;
+    const base = (property: string) =>
+      clip.keyframes.find((k) => k.property === property && k.time === 0)?.value;
+    // The base transform the on-canvas handles write: canvas pixels from the frame centre.
+    expect([base('x'), base('y')]).toEqual([-480, 270]);
+    expect(applyProjectPatch(after, invertProjectPatch(project, onMonitor.added.patch))).toEqual(
+      project,
+    );
+    // The same sticker at the same moment, placed elsewhere, is a different edit.
+    const centred = await placeDroppedSticker(deps({ ok: true, asset: wire }), drop);
+    if (!centred.ok) throw new Error(centred.message);
+    expect(centred.added.patch.patchId).not.toBe(onMonitor.added.patch.patchId);
+  });
+
   it('says why, in the panel’s words, when main could not copy it', async () => {
     const placed = await placeDroppedSticker(deps({ ok: false, error: 'disk_full' }), {
       projectId: 'p',

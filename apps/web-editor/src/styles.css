@@ -3941,6 +3941,17 @@ g.mask-canvas-draft circle {
   container-type: size;
 }
 
+/* A sticker or shape tile held over the picture (plan/elements EL11): the canvas edge takes the
+   timeline's drop-target colour, so the frame reads as where the drop will land — the picture,
+   not the letterbox around it. `--tl-select` rather than `--accent`: the stage is dark in both
+   themes, and the minimal theme's near-black accent would vanish against it. A ring, not a fill,
+   so the picture under the pointer stays visible for aiming; no transition of its own. */
+.preview-frame.is-element-drop {
+  box-shadow:
+    0 0 0 2px var(--tl-select),
+    0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
 .preview-video {
   width: 100%;
   height: 100%;

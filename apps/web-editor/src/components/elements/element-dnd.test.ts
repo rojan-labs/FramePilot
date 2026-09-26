@@ -3,7 +3,14 @@
  * reads.
  */
 import { describe, expect, it } from 'vitest';
-import { decodeElementDrag, encodeElementDrag } from './element-dnd.js';
+import {
+  ELEMENT_DND_TYPE,
+  decodeElementDrag,
+  dragCarriesElementKind,
+  encodeElementDrag,
+  writeElementDrag,
+  type ElementDragPayload,
+} from './element-dnd.js';
 
 describe('element drag payload', () => {
   it('round-trips a shape drag', () => {
@@ -53,5 +60,29 @@ describe('element drag payload', () => {
         JSON.stringify({ kind: 'stock', mediaKind: 'video', remoteId: '1', path: '/etc/passwd' }),
       ),
     ).toEqual({ kind: 'stock', mediaKind: 'video', remoteId: '1' });
+  });
+
+  it('names the tile’s kind in the drag’s types, so a target can decide before the drop', () => {
+    // During dragover a target sees the types alone; the payload is readable only on drop.
+    const typesOf = (payload: ElementDragPayload): string[] => {
+      const data = new Map<string, string>();
+      writeElementDrag({ setData: (type, value) => data.set(type, value) }, payload);
+      expect(decodeElementDrag(data.get(ELEMENT_DND_TYPE)!)).toEqual(payload);
+      return [...data.keys()];
+    };
+    const sticker = typesOf({ kind: 'sticker', elementId: 'fire' });
+    const shape = typesOf({ kind: 'shape', presetId: 'rounded-rect/highlight', colour: null });
+    const photo = typesOf({ kind: 'stock', mediaKind: 'photo', remoteId: '1' });
+    // The program monitor takes stickers and shapes; photos and videos are not offered there yet.
+    const onMonitor = ['sticker', 'shape'] as const;
+    expect(dragCarriesElementKind(sticker, onMonitor)).toBe(true);
+    expect(dragCarriesElementKind(shape, onMonitor)).toBe(true);
+    expect(dragCarriesElementKind(photo, onMonitor)).toBe(false);
+    // A bin asset or a file from the desktop carries no element at all.
+    expect(dragCarriesElementKind(['application/x-framepilot-asset', 'Files'], onMonitor)).toBe(
+      false,
+    );
+    // The kind rides in the type name, which a browser lower-cases; nothing else rides with it.
+    for (const type of [...sticker, ...shape, ...photo]) expect(type).toBe(type.toLowerCase());
   });
 });

@@ -82,7 +82,7 @@ import {
   Square,
   X,
 } from '../icons.js';
-import { ELEMENT_DND_TYPE, encodeElementDrag } from './element-dnd.js';
+import { writeElementDrag } from './element-dnd.js';
 
 // The sentences live with the download flow the drop shares; re-exported for the panel's callers.
 export { stockErrorText };
@@ -1003,10 +1003,11 @@ function StockTile({
         // The provider id and the kind, nothing else: the drop asks main to download the item
         // it fetched itself, exactly as Add does (ADR 0139).
         event.dataTransfer.effectAllowed = 'copy';
-        event.dataTransfer.setData(
-          ELEMENT_DND_TYPE,
-          encodeElementDrag({ kind: 'stock', mediaKind: item.kind, remoteId: item.remoteId }),
-        );
+        writeElementDrag(event.dataTransfer, {
+          kind: 'stock',
+          mediaKind: item.kind,
+          remoteId: item.remoteId,
+        });
       }}
       style={{
         // The provider's own average colour and the item's own shape, so the tile

@@ -73,6 +73,13 @@ import { PreviewTextEditor } from './PreviewTextEditor.js';
 import { PreviewShapeEditor } from './PreviewShapeEditor.js';
 import { shapeHitRect, shapePivot } from '../preview/shape-handles.js';
 import { PreviewCaptionEditor } from './PreviewCaptionEditor.js';
+import type { MonitorDropItem } from '../editor/monitor-drop.js';
+import { clientPointToFrame, type FramePoint } from '../preview/frame-point.js';
+import {
+  ELEMENT_DND_TYPE,
+  decodeElementDrag,
+  dragCarriesElementKind,
+} from './elements/element-dnd.js';
 import {
   PreviewTransform,
   type ClipTransformValues,
@@ -83,6 +90,12 @@ const log = createLogger('web-editor:webcodecs-preview');
 
 /** No tracks soloed — the default when the caller doesn't pass any (mirrors PreviewPlayer). */
 const NO_SOLO: ReadonlySet<string> = new Set();
+
+/**
+ * The Elements tiles the monitor takes (plan/elements 02 §3). Photos, videos and bin assets on the
+ * monitor are deferred: their drags do not read as droppable here.
+ */
+const MONITOR_DROP_KINDS = ['sticker', 'shape'] as const;
 
 export interface WebCodecsPreviewPlayerProps {
   readonly editor: UseEditor;
@@ -105,6 +118,12 @@ export interface WebCodecsPreviewPlayerProps {
    * inside the canvas compositor. Absent = captions don't preview.
    */
   readonly transcript?: readonly TranscriptWord[];
+  /**
+   * A sticker or shape tile dropped on the picture (plan/elements EL11): what it is and where on
+   * the frame it was let go, for the host to place at the playhead. Only the layer compositor's
+   * monitor takes drops; absent, the monitor takes none.
+   */
+  readonly onDropElement?: (item: MonitorDropItem, point: FramePoint) => void;
 }
 
 const DEFAULT_RESOLUTION = { width: 1280, height: 720 } as const;
@@ -136,6 +155,7 @@ export function WebCodecsPreviewPlayer({
   headerControlsHost,
   soloedTrackIds = NO_SOLO,
   transcript,
+  onDropElement,
 }: WebCodecsPreviewPlayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewRef = useRef<HTMLElement>(null);
@@ -284,6 +304,39 @@ export function WebCodecsPreviewPlayer({
       rotation: values.rotation ?? 0,
     });
     if (patch) editor.applyPatch(patch);
+  };
+
+  // --- A sticker or shape dropped on the picture (plan/elements EL11, 02 §3) ------------------
+  // The frame is the drop zone: it is the picture itself, inside any letterbox and after any zoom
+  // or pan, so its box is where the drop lands on the frame. The legacy engine (kill switch) is not
+  // a drop target: it previews one picture layer, and a drop there could not be shown as placed.
+  const takesElementDrops = layered && onDropElement !== undefined;
+  const [elementDropOver, setElementDropOver] = useState(false);
+  const onFrameDragOver = (event: React.DragEvent<HTMLDivElement>): void => {
+    // Only the types are readable before the drop; the tile names its kind among them.
+    if (!dragCarriesElementKind(event.dataTransfer.types, MONITOR_DROP_KINDS)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setElementDropOver(true);
+  };
+  const onFrameDragLeave = (event: React.DragEvent<HTMLDivElement>): void => {
+    // Crossing onto the handles, a caption or a shape drawn on the picture is not leaving it.
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    setElementDropOver(false);
+  };
+  const onFrameDrop = (event: React.DragEvent<HTMLDivElement>): void => {
+    setElementDropOver(false);
+    const item = decodeElementDrag(event.dataTransfer.getData(ELEMENT_DND_TYPE));
+    if (item === null || item.kind === 'stock' || onDropElement === undefined) return;
+    event.preventDefault();
+    const point = clientPointToFrame(
+      { x: event.clientX, y: event.clientY },
+      event.currentTarget.getBoundingClientRect(),
+    );
+    if (point === null) return;
+    log.action('element dropped on the monitor', { kind: item.kind, x: point.x, y: point.y });
+    onDropElement(item, point);
   };
 
   const edl: EngineSegment[] = useMemo(
@@ -913,8 +966,11 @@ export function WebCodecsPreviewPlayer({
       )}
       <div className="preview-stage" ref={setStageHost}>
         <div
-          className="preview-frame"
+          className={`preview-frame${elementDropOver ? ' is-element-drop' : ''}`}
           ref={frameRef}
+          {...(takesElementDrops
+            ? { onDragOver: onFrameDragOver, onDragLeave: onFrameDragLeave, onDrop: onFrameDrop }
+            : {})}
           style={{
             ['--aspect' as string]: String(aspect),
             transform:
