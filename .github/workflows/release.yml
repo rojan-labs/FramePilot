@@ -149,6 +149,18 @@ jobs:
       # ADR 0114's hard line: no CV/ML payload inside the base installer. A leak
       # is silent — the build succeeds and the download just doubles — so it is
       # checked on every build rather than trusted to review.
+      # What an installer carries, largest first, so a budget overrun below names its cause in the
+      # log instead of needing the artefact downloaded.
+      - name: Largest files in the packaged app
+        if: always()
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for app in apps/desktop/release/*-unpacked apps/desktop/release/mac*/*.app; do
+            echo "== $app"
+            find "$app" -type f -size +4M -exec du -m {} + | sort -rn | head -25
+          done
+
       - name: Base installer must carry no Capability Pack payload
         run: node scripts/check-installer-budget.mjs --dir apps/desktop/release
 
