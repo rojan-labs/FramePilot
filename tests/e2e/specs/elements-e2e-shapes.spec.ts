@@ -1,7 +1,8 @@
 /**
- * Elements · Shapes end to end (plan/elements EL4a): add a highlight box from the Shapes tab,
+ * Elements · Shapes end to end (plan/elements EL4a, EL7): add a highlight box from the Shapes tab,
  * resize it on the monitor, recolour it in the Inspector, export, check the monitor draws what the
- * export draws, and undo it all.
+ * export draws, and undo it all; and animate a shape — Pop in and Pulse from the Animation section
+ * the clip menu opens — through the export and the undo.
  *
  * What is real: the editor (Elements → Shapes, the monitor handles, the Inspector's Shape
  * section, History), the engine's shape rasteriser behind the monitor (the sidecar's
@@ -28,7 +29,7 @@ import {
 } from './masking/session.js';
 import { expectPreviewMatchesExport } from './masking/parity.js';
 import { Workspace } from './masking/workspace.js';
-import type { Project } from '../../../packages/timeline-schema/dist/index.js';
+import { presetShapeParams, type Project } from '../../../packages/timeline-schema/dist/index.js';
 
 const SECONDS = 3;
 const NAME = 'Elements shapes';
@@ -131,6 +132,93 @@ test('Shapes: add a highlight box, resize it on the monitor, recolour it, export
     desktop,
     (doc) => shapesOf(doc).length === 0,
     'the project with the shape undone',
+  );
+  expect(clipsById(undone).get('clip_bg')).toMatchObject({ start: 0, end: SECONDS });
+});
+
+test('Animation: pop a shape in and pulse it from the clip menu, export, undo (EL7)', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(5 * 60_000);
+  const workspace = await Workspace.create('elements-animation');
+  await workspace.media([video('bg', 'blue', SECONDS)]);
+  const box = {
+    ...clip('overlay_1', { id: 'clip_box', assetId: '__shape__', start: 0, end: SECONDS }),
+    effects: [
+      {
+        id: 'clip_box__shape',
+        type: 'shape',
+        params: presetShapeParams('rounded-rect/highlight'),
+        keyframes: [],
+      },
+    ],
+  };
+  await workspace.writeProject(
+    project({
+      id: 'elements_animation',
+      name: NAME,
+      videos: [{ id: 'bg', seconds: SECONDS }],
+      tracks: [
+        { id: 'overlay_1', type: 'overlay', clips: [box] },
+        {
+          id: 'video_1',
+          type: 'video',
+          clips: [clip('video_1', { id: 'clip_bg', assetId: 'bg', start: 0, end: SECONDS })],
+        },
+      ],
+    }),
+  );
+  opened = await openInDesktop(page, testInfo, { workspace, sidecarUrl: sidecarUrl() }, NAME);
+  const { desktop } = opened;
+
+  // --- the clip menu opens the Inspector on the Animation section ---------------------------------
+  await page.getByLabel('clip clip_box', { exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Animation…', exact: true }).click();
+  const inAnimation = page.getByRole('combobox', { name: 'In animation', exact: true });
+  await expect(inAnimation).toBeVisible();
+
+  // --- Pop in, then Pulse: one edit each ----------------------------------------------------------
+  await inAnimation.click();
+  await page.getByRole('option', { name: 'Pop', exact: true }).click();
+  await savedProject(
+    desktop,
+    (doc) =>
+      clipsById(doc)
+        .get('clip_box')
+        ?.effects.some((e) => e.type === 'transition' && e.params.kind === 'zoom-out') === true,
+    'the box popping in',
+  );
+  await page.getByRole('combobox', { name: 'Loop animation', exact: true }).click();
+  await page.getByRole('option', { name: 'Pulse', exact: true }).click();
+  await savedProject(
+    desktop,
+    (doc) =>
+      clipsById(doc)
+        .get('clip_box')
+        ?.keyframes.some((k) => k.id.startsWith('loop__pulse__')) === true,
+    'the box pulsing',
+  );
+
+  // --- export: valid, and the monitor draws the export's frames mid-pop and on the pulse ------------
+  expectValidExport(await workspace.export('animation.mp4'), SECONDS);
+  await expectPreviewMatchesExport(page, workspace, [0.2, 1.25], 'animation', testInfo);
+
+  // --- undo: the pulse, then the pop ----------------------------------------------------------------
+  const undo = page
+    .getByRole('toolbar', { name: 'editor tools', exact: true })
+    .getByRole('button', { name: 'Undo', exact: true });
+  for (let step = 0; step < 2; step += 1) await undo.click();
+  const undone = await savedProject(
+    desktop,
+    (doc) => {
+      const shape = clipsById(doc).get('clip_box');
+      return (
+        shape !== undefined &&
+        !shape.effects.some((e) => e.type === 'transition') &&
+        !shape.keyframes.some((k) => k.id.startsWith('loop__'))
+      );
+    },
+    'the animation undone',
   );
   expect(clipsById(undone).get('clip_bg')).toMatchObject({ start: 0, end: SECONDS });
 });
