@@ -1483,6 +1483,27 @@ describe('callNoveltyKey (reconnaissance vs the analysis spin)', () => {
     );
   });
 
+  it('keys a sticker placement on where it goes, not just which sticker', () => {
+    // add_sticker is analysis-KIND (a host tool) but it places something: the same fire
+    // emoji at two moments is two edits, not one question asked twice. Dropping `start` as a
+    // tuning argument made the second placement score as learning nothing (plan/elements 12 F).
+    const at = (start: number): string =>
+      callNoveltyKey(c('add_sticker', { elementId: 'fire', start }));
+    expect(at(2)).not.toBe(at(8));
+    expect(at(2)).toBe(at(2));
+  });
+
+  it('keys an element search on its query and kind', () => {
+    const search = (args: Record<string, unknown>): string =>
+      callNoveltyKey(c('search_elements', args));
+    expect(search({ query: 'fire', kind: 'sticker' })).not.toBe(
+      search({ query: 'heart', kind: 'sticker' }),
+    );
+    expect(search({ query: 'arrow', kind: 'shape' })).not.toBe(
+      search({ query: 'arrow', kind: 'sticker' }),
+    );
+  });
+
   it('keys non-read, non-analysis calls on their full arguments', () => {
     // For load_skill, a changed argument really is a different question.
     expect(callNoveltyKey(c('load_skill', { name: 'beat-synced-editing' }))).not.toBe(

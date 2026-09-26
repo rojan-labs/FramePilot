@@ -148,9 +148,9 @@ describe('ElementsLibrary.materialize', () => {
       ok: false,
       error: 'library_missing',
     });
-    const packaged = library([
-      item('fire', { availability: 'packaged', file: undefined, sha256: undefined }),
-    ]);
+    // A packaged item carries no bundled file or hash at all (exactOptionalPropertyTypes).
+    const { file: _file, sha256: _sha256, ...unbundled } = item('fire');
+    const packaged = library([{ ...unbundled, availability: 'packaged' }]);
     expect(await packaged.materialize({ projectId: 'p1', elementId: 'fire' })).toEqual({
       ok: false,
       error: 'library_missing',

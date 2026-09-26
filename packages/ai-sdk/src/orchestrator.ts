@@ -1528,6 +1528,9 @@ function turnSignature(calls: readonly ToolCall[], revision: number): string {
  */
 const WINDOW_ARG_KEYS = new Set(['start', 'end']);
 
+/** Nothing dropped: every argument is part of what the call asks. */
+const NO_ARG_KEYS: ReadonlySet<string> = new Set();
+
 /**
  * Analysis arguments that TUNE a call without changing the question it asks: how many
  * results to return, how sensitive the detector is, which slice of an asset to look at,
@@ -1740,6 +1743,10 @@ function askQuestionFor(
 
 export function callNoveltyKey(call: ToolCall): string {
   const tool = getTool(call.name);
+  // `add_sticker` is analysis-KIND only because the desktop host runs it; it PLACES a sticker,
+  // and its `start`/`end` say where, not how closely to look. Dropped as tuning arguments, the
+  // same emoji at two moments keyed as one call and the second placement "learned nothing".
+  if (call.name === 'add_sticker') return `${call.name}:${identifyingArgs(call, NO_ARG_KEYS)}`;
   if (tool?.kind === 'analysis') {
     const assetId = (call.arguments as { assetId?: unknown }).assetId;
     // An asseted analysis keys on the asset alone — see the doc above: re-running

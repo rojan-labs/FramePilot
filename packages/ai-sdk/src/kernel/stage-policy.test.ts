@@ -222,6 +222,25 @@ describe('the locked plan is actually closed to re-analysis', () => {
     }
   });
 
+  it('finds and places elements in every stage: a sticker on a word is an edit', () => {
+    // search_elements reads a catalogue, not the footage (guidance); add_sticker sources and
+    // places; the shape tools mutate. None is re-analysis, so no stage may withhold one
+    // (plan/elements 12 F).
+    for (const name of ['search_elements', 'add_sticker', 'add_shape', 'set_shape_style']) {
+      const spec = getTool(name);
+      expect(spec, `${name} must be a registered tool`).toBeDefined();
+      for (const stage of RUN_STAGES) {
+        expect(
+          stageAllowsTool(stage, name, spec?.mutates === true),
+          `${name} is withheld in "${stage}"`,
+        ).toBe(true);
+      }
+    }
+    expect(toolRole('search_elements', false)).toBe('guidance');
+    expect(toolRole('add_sticker', false)).toBe('sourcing');
+    expect(toolRole('add_shape', true)).toBe('mutation');
+  });
+
   it('exempts only the named carve-outs — every other analysis tool still closes', () => {
     const analysisTools = TOOL_REGISTRY.filter(
       (tool) => toolRole(tool.name, tool.mutates) === 'analysis',

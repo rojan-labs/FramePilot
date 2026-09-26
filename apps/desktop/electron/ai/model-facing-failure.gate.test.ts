@@ -72,6 +72,7 @@ import { StockService } from '../media/stock-service.js';
 import { createStockHost, type StockHostIO } from './stock-host.js';
 import { trackingFailureNoteEntries } from './automatic-tracking-executor.js';
 import { maskingFailureNoteEntries } from './masking-executor.js';
+import { createStickerHost, stickerFailureNoteEntries } from './sticker-host.js';
 
 const TOOL_NAMES: readonly string[] = TOOL_REGISTRY.map((tool) => tool.name);
 
@@ -209,6 +210,23 @@ describe('every desktop host override names a next action', () => {
       // A varying number in a refusal breaks the repeated-failure guard (its text is the key).
       expect(note, `${tool}/${code}`).not.toMatch(/\d/);
       expect(TOOL_NAMES, `${tool} is not in the registry`).toContain(tool);
+    }
+    dead.assertNone();
+  });
+
+  it('for every sentence the sticker host can hand back', async () => {
+    const entries = stickerFailureNoteEntries();
+    // Every ElementErrorCodeWire: the table is typed as a total Record, so this grows on its own.
+    expect(entries.length).toBeGreaterThanOrEqual(5);
+    const dead = new DeadEnds();
+    for (const { code, note } of entries) {
+      dead.check(`add_sticker/${code}`, note);
+      expect(note, `add_sticker/${code}`).not.toMatch(/\d/);
+      // And it is exactly what the host hands back for that code.
+      const outcome = await createStickerHost({
+        materialize: async () => ({ ok: false, error: code }),
+      })(projectWithClipAtHead(), { elementId: 'fire' });
+      expect(outcome).toEqual({ status: 'failed', summary: note });
     }
     dead.assertNone();
   });

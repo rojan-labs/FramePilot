@@ -39,6 +39,20 @@ const FAILURE: Readonly<Record<ElementErrorCodeWire, string>> = {
     'folder can be written to; do not retry.',
 };
 
+/**
+ * Every failure sentence this host can hand back, keyed by code, for the model-facing failure
+ * gate (each must name a next action and carry no varying number).
+ */
+export function stickerFailureNoteEntries(): readonly {
+  readonly code: ElementErrorCodeWire;
+  readonly note: string;
+}[] {
+  return (Object.keys(FAILURE) as ElementErrorCodeWire[]).map((code) => ({
+    code,
+    note: FAILURE[code],
+  }));
+}
+
 /** Build the host function the sidecar executor calls for `add_sticker`. */
 export function createStickerHost(
   io: StickerHostIO,
