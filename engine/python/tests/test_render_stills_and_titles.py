@@ -380,3 +380,19 @@ def test_the_frame_plan_carries_a_titles_mask_and_edge_styles(media: Path) -> No
     layer = next(layer for layer in frame_plan_at(project, 1.0).layers if layer.clip_id == "t1")
     assert layer.mask is not None and [e["id"] for e in layer.mask["layers"]] == ["m"]
     assert [style["kind"] for style in layer.edge_styles] == ["stroke"]
+
+
+def test_a_title_slides_in_with_its_transition(media: Path) -> None:
+    """EL2b: a title takes a geometry transition as a picture does (the `text/slide-in` row)."""
+    slide = {
+        "id": "t1__transition",
+        "type": "transition",
+        "params": {"kind": "slide", "durationSeconds": 1.2},
+        "keyframes": [],
+    }
+    project = _project(_title({}, effects_extra=[slide]))
+    early, _ = _ink(_frame(project, media, 0.9))
+    settled, _ = _ink(_frame(project, media, 1.6))
+    # A slide rises from a frame-height below: part-way up it is still lower than its place.
+    assert early.size > 0 and settled.size > 0
+    assert float(early.mean()) > float(settled.mean()) + 40

@@ -5041,6 +5041,476 @@
           "frameEffects": []
         }
       ]
+    },
+    {
+      "id": "text-slide-in",
+      "row": "Text: titles sliding and dissolving in (EL2b)",
+      "description": "One title with a legacy slide, one with a catalog soft dissolve: their geometry and alpha ramps, as a picture's.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-text-slide-in",
+        "name": "text-slide-in",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "t2",
+              "type": "overlay",
+              "clips": [
+                {
+                  "id": "t2c",
+                  "assetId": "__text__",
+                  "trackId": "t2",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [
+                    {
+                      "id": "t2c__text",
+                      "type": "text",
+                      "params": {
+                        "text": "Dissolve",
+                        "fontSizePercent": 16,
+                        "yPercent": 70
+                      },
+                      "keyframes": []
+                    },
+                    {
+                      "id": "t2c__transition",
+                      "type": "transition",
+                      "params": {
+                        "kind": "soft-dissolve",
+                        "durationSeconds": 1.2
+                      },
+                      "keyframes": []
+                    }
+                  ],
+                  "keyframes": []
+                }
+              ]
+            },
+            {
+              "id": "t1",
+              "type": "overlay",
+              "clips": [
+                {
+                  "id": "t1c",
+                  "assetId": "__text__",
+                  "trackId": "t1",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [
+                    {
+                      "id": "t1c__text",
+                      "type": "text",
+                      "params": {
+                        "text": "Slide in",
+                        "fontSizePercent": 16,
+                        "yPercent": 35
+                      },
+                      "keyframes": []
+                    },
+                    {
+                      "id": "t1c__transition",
+                      "type": "transition",
+                      "params": {
+                        "kind": "slide",
+                        "durationSeconds": 1.2
+                      },
+                      "keyframes": []
+                    }
+                  ],
+                  "keyframes": []
+                }
+              ]
+            },
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.3,
+        0.7,
+        2.0
+      ],
+      "expected": [
+        {
+          "time": 0.3,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 0.3,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 0.3,
+                "frame": 9
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "text",
+              "role": "clip",
+              "trackId": "t1",
+              "clipId": "t1c",
+              "forClipId": null,
+              "localTime": 0.3,
+              "source": null,
+              "text": "Slide in",
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 640.0,
+                "anchorY": 792.0,
+                "rotation": 0.0,
+                "left": null,
+                "top": null,
+                "width": null,
+                "height": null
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": [
+                {
+                  "role": "in",
+                  "kind": "slide",
+                  "path": "legacy",
+                  "renderKind": "",
+                  "progress": 0.25,
+                  "eased": 0.25
+                }
+              ]
+            },
+            {
+              "kind": "text",
+              "role": "clip",
+              "trackId": "t2",
+              "clipId": "t2c",
+              "forClipId": null,
+              "localTime": 0.3,
+              "source": null,
+              "text": "Dissolve",
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 640.0,
+                "anchorY": 504.0,
+                "rotation": 0.0,
+                "left": null,
+                "top": null,
+                "width": null,
+                "height": null
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": [
+                {
+                  "role": "in",
+                  "kind": "soft-dissolve",
+                  "path": "catalog",
+                  "renderKind": "dissolve",
+                  "progress": 0.25,
+                  "eased": 0.125
+                }
+              ]
+            }
+          ],
+          "frameEffects": []
+        },
+        {
+          "time": 0.7,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 0.7,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 0.7,
+                "frame": 21
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "text",
+              "role": "clip",
+              "trackId": "t1",
+              "clipId": "t1c",
+              "forClipId": null,
+              "localTime": 0.7,
+              "source": null,
+              "text": "Slide in",
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 640.0,
+                "anchorY": 552.0,
+                "rotation": 0.0,
+                "left": null,
+                "top": null,
+                "width": null,
+                "height": null
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": [
+                {
+                  "role": "in",
+                  "kind": "slide",
+                  "path": "legacy",
+                  "renderKind": "",
+                  "progress": 0.5833333333333334,
+                  "eased": 0.5833333333333334
+                }
+              ]
+            },
+            {
+              "kind": "text",
+              "role": "clip",
+              "trackId": "t2",
+              "clipId": "t2c",
+              "forClipId": null,
+              "localTime": 0.7,
+              "source": null,
+              "text": "Dissolve",
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 640.0,
+                "anchorY": 504.0,
+                "rotation": 0.0,
+                "left": null,
+                "top": null,
+                "width": null,
+                "height": null
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": [
+                {
+                  "role": "in",
+                  "kind": "soft-dissolve",
+                  "path": "catalog",
+                  "renderKind": "dissolve",
+                  "progress": 0.5833333333333334,
+                  "eased": 0.6527777777777779
+                }
+              ]
+            }
+          ],
+          "frameEffects": []
+        },
+        {
+          "time": 2.0,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 2.0,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 2.0,
+                "frame": 60
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "text",
+              "role": "clip",
+              "trackId": "t1",
+              "clipId": "t1c",
+              "forClipId": null,
+              "localTime": 2.0,
+              "source": null,
+              "text": "Slide in",
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 640.0,
+                "anchorY": 252.0,
+                "rotation": 0.0,
+                "left": null,
+                "top": null,
+                "width": null,
+                "height": null
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "text",
+              "role": "clip",
+              "trackId": "t2",
+              "clipId": "t2c",
+              "forClipId": null,
+              "localTime": 2.0,
+              "source": null,
+              "text": "Dissolve",
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 640.0,
+                "anchorY": 504.0,
+                "rotation": 0.0,
+                "left": null,
+                "top": null,
+                "width": null,
+                "height": null
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        }
+      ]
     }
   ]
 }
