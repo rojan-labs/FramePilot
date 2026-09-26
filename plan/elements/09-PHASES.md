@@ -535,14 +535,40 @@ node packages/ai-sdk/scripts/mission-baseline.mjs --case <case> --runs 10 --yes`
 
 ## EL9 — Photos and Videos grow up `[~]`
 
-- [ ] **EL9.1** Category chips as curated queries (cached; each chip is one request, stated in the
+- [~] **EL9.1** Category chips as curated queries (cached; each chip is one request, stated in the
       quota strip).
-- [ ] **EL9.2** Orientation filter (default: the project's orientation).
-- [ ] **EL9.3** Drag a photo/video tile to the timeline (download, then place at the drop).
-- [ ] **EL9.4** **Add as overlay** for manual placement (MD-E5): a front lane, scaled to 40%,
+      _Built:_ a Curated/Popular chip and the ten categories in `PexelsBrowser.tsx`; one search per
+      chip, a repeat click spends nothing (a service-level cache test), "Each category is one
+      search of your Pexels allowance" in the quota strip; typing leaves the category.
+- [~] **EL9.2** Orientation filter (default: the project's orientation).
+      _Built:_ Any / Landscape / Portrait / Square, starting on the project's shape and sent as
+      Pexels' orientation parameter; on the Curated/Popular feed (which ignores it) it narrows the
+      loaded page instead of paying for the page again.
+- [~] **EL9.3** Drag a photo/video tile to the timeline (download, then place at the drop).
+      _Built:_ a `stock` drag payload of kind and remote id only (a strict id pattern; main
+      resolves the id against items it fetched, and refuses the other kind);
+      `buildDropStockOps` places full frame on the dropped picture lane when it is open and has
+      room, else on a new lane in front of the footage and under the graphics; one shared download
+      flow with Add (progress, Cancel, stated failures); desktop only.
+- [~] **EL9.4** **Add as overlay** for manual placement (MD-E5): a front lane, scaled to 40%,
       centred; ADR superseding ADR 0140's gating role for manual placement; the agent's rule is
       unchanged until measured.
-- [ ] **EL9.5** Tests (a panel-matrix row for each), docs.
+      _Built:_ `buildAddStockOverlayOps` beside `buildAddStockOps` (base scale 0.4 and a centred
+      x/y at time 0, the handles' keyframes; never refused for covering picture; a
+      picture-in-picture lane is reused; an overlay starting inside the programme ends with it);
+      ADR 0193; Add unchanged and its blocked note points at the Overlay button; a test holds the
+      agent to its cutaway rule. **Found and fixed:** a new picture lane — for an overlay, a drop
+      or a stock clip added into empty time, the agent's included — opened in front of titles,
+      stickers and shapes; it now opens under the lowest graphics lane (ADR 0191). A placement
+      the validator refuses now reaches the tile as a sentence, Retry repeats what failed, and an
+      arrival is announced in a polite live region.
+- [~] **EL9.5** Tests (a panel-matrix row for each), docs.
+      _Built:_ editor-core placement suites (apply and invert, one undo, lane rules, hidden and
+      locked lanes, determinism); web-editor panel, builder, drop, registry and announcement
+      tests; desktop kind-mismatch test; `elements-e2e-photos.spec.ts` (category in landscape, axe
+      in both themes, Add blocked over footage, Add as overlay checked in the exported pixels,
+      undo, redo, save and reopen, drag to a lane twice); `docs/guides/elements.md`,
+      `stock-sourcing.md`, CHANGELOG. **Found:** `--surface-2`/`--surface-3` undefined (EL12.6).
 
 ---
 
