@@ -870,6 +870,28 @@ describe('breakQuality — units a reader takes in as one thing', () => {
     // The next word opens a new clause, so the number is not attached to it.
     expect(breakQuality(speak('we had 8 and they'), 2)).toBe(plain('we had many and they'));
   });
+
+  it('reads a number through the closing quotes and brackets that trail it', () => {
+    for (const number of ['8"', '557,000)', "1,50,000'”]"]) {
+      const counted = speak(`there are ${number} principles here`);
+      const plain = speak('there are many principles here');
+      expect(breakQuality(counted, 2), number).toBeLessThan(breakQuality(plain, 2));
+    }
+  });
+
+  it('strips trailing closers in linear time on a hostile token', () => {
+    // 40,000 closing quotes ahead of a letter: the old trailing-closer pattern restarted a
+    // match at every quote, ran it to the letter and backed off, which is quadratic and took
+    // seconds. The anchored pattern takes well under a millisecond, so the ceiling is loose
+    // enough for a loaded CI box and still far below the quadratic time.
+    const words: TranscriptWord[] = [
+      { word: `${'"'.repeat(40_000)}x`, start: 0, end: 1 },
+      { word: 'next', start: 1, end: 2 },
+    ];
+    const started = performance.now();
+    segmentCaptions(words);
+    expect(performance.now() - started).toBeLessThan(200);
+  });
 });
 
 describe('packSegment — holdable breaks', () => {
