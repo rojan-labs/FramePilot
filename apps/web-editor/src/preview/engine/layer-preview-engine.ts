@@ -2010,6 +2010,11 @@ export class LayerPreviewEngine {
     });
     this.telemetry.renderScaleChanged(RENDER_SCALES[next] ?? 1);
     this.callbacks.onRenderScaleChange?.(RENDER_SCALES[next] ?? 1);
+    // Text rasters are drawn for the frame size, so the new size needs its own: ask now rather
+    // than at the next project frame, since until they land that text is left out of playback.
+    if (this.audioClock) {
+      this.prefetchText(projectFrameTime(this.audioClock.nowMediaUs() / 1_000_000, fps));
+    }
   }
 
   /**
