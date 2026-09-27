@@ -816,32 +816,64 @@ export interface PreviewTextRasterRequest {
   readonly clipEnd?: number;
   /** Timeline seconds of the frame to draw (motion and word states). */
   readonly frameTime?: number;
+  /**
+   * A styled caption only: the timeline seconds of a window of frames to draw in ONE call (the
+   * monitor's playback prefetch; at most {@link PREVIEW_CAPTION_MAX_FRAMES}). The result then
+   * carries `sequence`, and its top-level raster is the first of these frames. A host that cannot
+   * answer a window answers `frameTime` alone and leaves `sequence` out; the monitor then asks per
+   * frame.
+   */
+  readonly frameTimes?: readonly number[];
+}
+
+/** Most frame times one styled-caption window may ask for (`MAX_CAPTION_FRAMES` in the engine). */
+export const PREVIEW_CAPTION_MAX_FRAMES = 120;
+
+/** One text, caption or shape raster as the engine drew it. */
+export interface PreviewTextRasterImage {
+  readonly width: number;
+  readonly height: number;
+  /** Straight RGBA as Pillow stores it, row-major, top row first. */
+  readonly rgba: Uint8Array;
+  /**
+   * A caption's paste position, or a shape's untransformed top-left (the frame plan's
+   * `shape` bounds); `null` for a text clip (the frame plan places it).
+   */
+  readonly x: number | null;
+  readonly y: number | null;
+  /**
+   * A frosted-glass chip's coverage, `width` x `height` bytes: where the picture behind the
+   * caption is replaced by its blur. Absent without a frost.
+   */
+  readonly backdrop?: Uint8Array;
+  /** The frost's Gaussian standard deviation in output pixels (Pillow `GaussianBlur`). */
+  readonly backdropSigmaPx?: number;
 }
 
 export type PreviewTextRasterResult =
-  | {
+  | (PreviewTextRasterImage & {
       ok: true;
-      readonly width: number;
-      readonly height: number;
-      /** Straight RGBA as Pillow stores it, row-major, top row first. */
-      readonly rgba: Uint8Array;
-      /**
-       * A caption's paste position, or a shape's untransformed top-left (the frame plan's
-       * `shape` bounds); `null` for a text clip (the frame plan places it).
-       */
-      readonly x: number | null;
-      readonly y: number | null;
       /** True when a styled caption's raster changes with the frame time. */
       readonly animated?: boolean;
       /**
-       * A frosted-glass chip's coverage, `width` x `height` bytes: where the picture behind the
-       * caption is replaced by its blur. Absent without a frost.
+       * With `frameTimes`: each distinct raster once, and which one each requested time shows
+       * (`rasters[index[i]]` is drawn at `frameTimes[i]`). `index` is shorter than `frameTimes`
+       * when the engine's byte budget ran out; the frames past it were not drawn.
        */
-      readonly backdrop?: Uint8Array;
-      /** The frost's Gaussian standard deviation in output pixels (Pillow `GaussianBlur`). */
-      readonly backdropSigmaPx?: number;
-    }
-  | { ok: false; error: string };
+      readonly sequence?: {
+        readonly index: readonly number[];
+        readonly rasters: readonly PreviewTextRasterImage[];
+      };
+    })
+  | {
+      ok: false;
+      error: string;
+      /**
+       * True when the engine was unreachable, slow or failing (worth asking again soon); absent or
+       * false when it refused this request as undrawable (asking again would be refused again).
+       */
+      readonly transient?: boolean;
+    };
 
 /** `framepilot:references:analyze` — measure one attached reference file once. */
 export interface AnalyzeReferenceRequest {

@@ -7,7 +7,12 @@
  * rasteriser. No path, project or media crosses this channel: only text, style params and a
  * frame size. `fetch` is injected so this is unit-tested without a live sidecar.
  */
-import type { PreviewTextRasterRequest, PreviewTextRasterResult } from '../ipc/contract.js';
+import {
+  PREVIEW_CAPTION_MAX_FRAMES,
+  type PreviewTextRasterImage,
+  type PreviewTextRasterRequest,
+  type PreviewTextRasterResult,
+} from '../ipc/contract.js';
 
 /** The sidecar's own limits, checked here so a bad request never reaches it. */
 const MAX_FRAME_EDGE = 8192;
@@ -18,6 +23,13 @@ const MAX_CUE_WORDS = 400;
 const MAX_STYLE_JSON_LENGTH = 16_384;
 /** A single layer rasterises in milliseconds; a stuck sidecar must not stall the monitor. */
 const REQUEST_TIMEOUT_MS = 5_000;
+/**
+ * A window of caption frames is one build plus a sample per frame (5-25 ms each at the monitor's
+ * size), so it gets longer than one layer; the monitor asks well ahead of the playhead.
+ */
+const FRAMES_TIMEOUT_MS = 10_000;
+/** The binary header of `/preview/caption-frames` is a few kilobytes of JSON. */
+const MAX_FRAMES_HEADER_BYTES = 1024 * 1024;
 
 function invalid(req: unknown): string | null {
   const r = (req ?? {}) as Partial<PreviewTextRasterRequest>;
@@ -57,6 +69,17 @@ function invalidStyled(r: Partial<PreviewTextRasterRequest>): string | null {
     return 'Invalid caption span.';
   }
   if (r.frameTime !== undefined && !finite(r.frameTime)) return 'Invalid caption frame time.';
+  if (r.frameTimes !== undefined) {
+    const times: unknown = r.frameTimes;
+    if (
+      !Array.isArray(times) ||
+      times.length === 0 ||
+      times.length > PREVIEW_CAPTION_MAX_FRAMES ||
+      !times.every(finite)
+    ) {
+      return 'Invalid caption frame times.';
+    }
+  }
   const words = r.words ?? [];
   if (!Array.isArray(words) || words.length > MAX_CUE_WORDS) return 'Invalid caption words.';
   const wordOk = (word: unknown): boolean => {
@@ -119,6 +142,9 @@ export async function previewTextRasterViaSidecar(
   const reason = invalid(req);
   if (reason !== null) return { ok: false, error: reason };
   const r = req as PreviewTextRasterRequest;
+  if (r.frameTimes !== undefined && (r.trackStyle !== undefined || r.clipStyle !== undefined)) {
+    return captionFramesViaSidecar(baseUrl, r, r.frameTimes, fetchFn);
+  }
   let response: Response;
   try {
     response = await fetchFn(`${baseUrl}/preview/text-raster`, {
@@ -128,10 +154,9 @@ export async function previewTextRasterViaSidecar(
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
-    return { ok: false, error: `Engine unavailable: ${String(error)}` };
+    return { ok: false, error: `Engine unavailable: ${String(error)}`, transient: true };
   }
-  if (!response.ok)
-    return { ok: false, error: `Engine refused the text raster (${response.status}).` };
+  if (!response.ok) return refusal(response.status);
   const body = (await response.json()) as {
     width?: unknown;
     height?: unknown;
@@ -172,4 +197,154 @@ export async function previewTextRasterViaSidecar(
       ? {}
       : { backdrop, backdropSigmaPx: Number.isFinite(sigma) && sigma > 0 ? sigma : 0 }),
   };
+}
+
+/**
+ * A sidecar answer that is not a raster. 422 is the engine refusing this request as undrawable
+ * (asking again would be refused again); anything else is a sidecar in trouble — restarting,
+ * overloaded, failing — and worth asking again soon.
+ */
+function refusal(status: number): PreviewTextRasterResult {
+  return {
+    ok: false,
+    error: `Engine refused the text raster (${status}).`,
+    ...(status === 422 ? {} : { transient: true }),
+  };
+}
+
+/** The sidecar's wire body for a window of one styled cue's frames. */
+function captionFramesWireBody(
+  r: PreviewTextRasterRequest,
+  frameTimes: readonly number[],
+): Record<string, unknown> {
+  const { frame_time: _single, kind: _kind, ...styled } = previewTextWireBody(r);
+  return { ...styled, words: styled.words ?? [], frame_times: [...frameTimes] };
+}
+
+interface WireRaster {
+  readonly width: number;
+  readonly height: number;
+  readonly x: number | null;
+  readonly y: number | null;
+  readonly rgba: readonly [number, number];
+  readonly backdrop: readonly [number, number] | null;
+  readonly backdrop_sigma_px?: number;
+}
+
+/**
+ * A window of a styled cue's frames through `POST /preview/caption-frames`: one build of the
+ * export's caption layer, each distinct raster once, raw bytes rather than base64 JSON (a window
+ * of a karaoke cue is tens of megabytes). The rasters are views into the one response buffer, so
+ * the IPC clone copies it once.
+ */
+async function captionFramesViaSidecar(
+  baseUrl: string,
+  r: PreviewTextRasterRequest,
+  frameTimes: readonly number[],
+  fetchFn: typeof globalThis.fetch,
+): Promise<PreviewTextRasterResult> {
+  let response: Response;
+  let body: ArrayBuffer;
+  try {
+    response = await fetchFn(`${baseUrl}/preview/caption-frames`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(captionFramesWireBody(r, frameTimes)),
+      signal: AbortSignal.timeout(FRAMES_TIMEOUT_MS),
+    });
+    if (!response.ok) return refusal(response.status);
+    body = await response.arrayBuffer();
+  } catch (error) {
+    return { ok: false, error: `Engine unavailable: ${String(error)}`, transient: true };
+  }
+  const decoded = decodeCaptionFrames(body);
+  if (typeof decoded === 'string') return { ok: false, error: decoded, transient: true };
+  const first = decoded.rasters[decoded.index[0]!]!;
+  return {
+    ok: true,
+    ...first,
+    animated: decoded.animated,
+    sequence: { index: decoded.index, rasters: decoded.rasters },
+  };
+}
+
+/**
+ * Parse the binary body `encode_caption_frames` writes: a big-endian `uint32` header length, the
+ * header's JSON, then the bytes its `[offset, length]` pairs point into. Every span is checked
+ * against the body and every size against its raster, so a malformed answer is refused whole.
+ *
+ * @returns The rasters and index, or why the body was refused.
+ */
+export function decodeCaptionFrames(
+  body: ArrayBuffer,
+): { animated: boolean; index: number[]; rasters: PreviewTextRasterImage[] } | string {
+  const malformed = 'Engine returned malformed caption frames.';
+  if (body.byteLength < 4) return malformed;
+  const headerLength = new DataView(body).getUint32(0, false);
+  if (headerLength > MAX_FRAMES_HEADER_BYTES || 4 + headerLength > body.byteLength) {
+    return malformed;
+  }
+  let header: { animated?: unknown; index?: unknown; rasters?: unknown };
+  try {
+    header = JSON.parse(new TextDecoder().decode(new Uint8Array(body, 4, headerLength))) as {
+      animated?: unknown;
+      index?: unknown;
+      rasters?: unknown;
+    };
+  } catch {
+    return malformed;
+  }
+  const payloadStart = 4 + headerLength;
+  const payloadLength = body.byteLength - payloadStart;
+  const view = (span: unknown, expected: number): Uint8Array | null => {
+    if (!Array.isArray(span) || span.length !== 2) return null;
+    const [offset, length] = span as unknown[];
+    if (!Number.isInteger(offset) || !Number.isInteger(length)) return null;
+    const start = offset as number;
+    const size = length as number;
+    if (start < 0 || size !== expected || start + size > payloadLength) return null;
+    return new Uint8Array(body, payloadStart + start, size);
+  };
+  if (!Array.isArray(header.rasters) || header.rasters.length === 0) return malformed;
+  const rasters: PreviewTextRasterImage[] = [];
+  for (const entry of header.rasters as WireRaster[]) {
+    const width = Number(entry?.width);
+    const height = Number(entry?.height);
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+      return malformed;
+    }
+    const rgba = view(entry.rgba, width * height * 4);
+    if (rgba === null) return malformed;
+    const coordinate = (value: unknown): number | null =>
+      typeof value === 'number' ? value : null;
+    let backdrop: Uint8Array | undefined;
+    if (entry.backdrop !== null && entry.backdrop !== undefined) {
+      const coverage = view(entry.backdrop, width * height);
+      if (coverage === null) return malformed;
+      backdrop = coverage;
+    }
+    const sigma = Number(entry.backdrop_sigma_px);
+    rasters.push({
+      width,
+      height,
+      rgba,
+      x: coordinate(entry.x),
+      y: coordinate(entry.y),
+      ...(backdrop === undefined
+        ? {}
+        : { backdrop, backdropSigmaPx: Number.isFinite(sigma) && sigma > 0 ? sigma : 0 }),
+    });
+  }
+  const index = header.index;
+  if (
+    !Array.isArray(index) ||
+    index.length === 0 ||
+    !index.every(
+      (slot) =>
+        Number.isInteger(slot) && (slot as number) >= 0 && (slot as number) < rasters.length,
+    )
+  ) {
+    return malformed;
+  }
+  return { animated: header.animated === true, index: index as number[], rasters };
 }

@@ -157,6 +157,7 @@ export type {
   AiStreamReferenceProfile,
   AnalyzeReferenceRequest,
   AnalyzeReferenceResult,
+  PreviewTextRasterImage,
   PreviewTextRasterRequest,
   PreviewTextRasterResult,
   TranscriptionResult,
@@ -233,3 +234,5 @@ export type {
   LicenseActivateRequest,
   FramePilotBridge,
 } from '@framepilot/shared-types';
+/** Most frame times one styled-caption window may ask for (`MAX_CAPTION_FRAMES` in the engine). */
+export { PREVIEW_CAPTION_MAX_FRAMES } from '@framepilot/shared-types';
