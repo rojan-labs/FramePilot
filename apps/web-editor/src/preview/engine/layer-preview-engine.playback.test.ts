@@ -295,9 +295,13 @@ describe('LayerPreviewEngine transport', () => {
     await engine.play();
     refresh(1);
     await engine.setProject(project({ timeline: timeline() }));
+    await engine.setProject(project({ timeline: timeline() }));
     expect(engine.isPlaying).toBe(true);
     expect(playing).not.toHaveBeenCalledWith(false);
-    expect(clock.handovers).toBeGreaterThan(0);
+    // Handed over once for both changes, after the coalescing delay.
+    expect(clock.handovers).toBe(0);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(clock.handovers).toBe(1);
     engine.dispose();
   });
 

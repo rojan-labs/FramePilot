@@ -158,6 +158,12 @@ const CUT_PREFETCH_HORIZON_SEC = 1.5;
  * is shown without the late text, and shown again exactly when it lands.
  */
 const SEEK_TEXT_WAIT_MS = 1_500;
+/**
+ * Sound changes while playing (sources' tracks finishing decoding, an edit, a solo) are handed
+ * over together after this long: each handover rebuilds the whole remaining mix on the main
+ * thread, and a project's sources finish decoding within moments of each other.
+ */
+const SOUND_HANDOVER_COALESCE_MS = 150;
 
 /** Whether `promise` settles (either way) within `ms`. */
 function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
@@ -367,6 +373,8 @@ export class LayerPreviewEngine {
   private seekLoop: Promise<void> | null = null;
   /** The newest project handed to {@link setProject}; an older queued one is skipped. */
   private latestProject: LayerEngineProject | null = null;
+  /** A coalesced sound handover waiting to run (see {@link SOUND_HANDOVER_COALESCE_MS}). */
+  private soundHandover: ReturnType<typeof setTimeout> | undefined;
 
   private durationSec = 0;
   private audioCtx: AudioContext | undefined;
@@ -691,10 +699,14 @@ export class LayerPreviewEngine {
    * the clock is, without a seam.
    */
   private soundChanged(): void {
-    if (this.disposed || !this.playing || !this.audioClock) return;
-    this.audioClock.rescheduleContinuous((mediaStartUs) =>
-      this.audioSegmentsFrom(mediaStartUs / 1_000_000),
-    );
+    if (this.disposed || !this.playing || this.soundHandover !== undefined) return;
+    this.soundHandover = setTimeout(() => {
+      this.soundHandover = undefined;
+      if (this.disposed || !this.playing || !this.audioClock) return;
+      this.audioClock.rescheduleContinuous((mediaStartUs) =>
+        this.audioSegmentsFrom(mediaStartUs / 1_000_000),
+      );
+    }, SOUND_HANDOVER_COALESCE_MS);
   }
 
   private loadVideo(assetId: string, url: string): Promise<void> {
@@ -2178,6 +2190,10 @@ export class LayerPreviewEngine {
       this.pausedAtSec = Math.min(this.durationSec, Math.max(0, stoppedAt));
     }
     this.playing = false;
+    if (this.soundHandover !== undefined) {
+      clearTimeout(this.soundHandover);
+      this.soundHandover = undefined;
+    }
     this.telemetry.playbackStopped();
     this.audioClock?.clear();
     if (this.rafHandle !== undefined) {
