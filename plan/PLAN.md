@@ -25,6 +25,35 @@ craft tools. No new subsystem; every fix reuses an existing seam.
 Stickers · Shapes, CapCut-style, with large sticker and shape libraries. Sub-plan
 [`plan/elements/`](./elements/README.md); in progress on `feat/elements` (PR #131); phases EL0–EL12 in the "Elements library"
 section near the end of this file.
+**Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
+… not able to render the captions properly … 0 performance issues on preview").** Evidence: code
+audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68
+caption templates are time-varying; 720p build 5 ms / sample 7 ms median, 120 / 23 ms worst).
+Scope gate: no new subsystem; every fix is inside the existing monitor, sidecar route family and
+IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09-27`.
+- [x] **PB1** Engine samples a styled cue's frames in windows from one cached layer build
+  (`POST /preview/caption-frames`, binary, deduplicated); byte-identical to the single-frame route.
+- [x] **PB2** Desktop client carries a window on the existing text-raster channel; failures say
+  whether they are transient (unreachable/slow) or a refusal (422).
+- [x] **PB3** Monitor fetches caption windows 2 s ahead; playback never waits on text (stale-cue
+  stand-in, counted); paused frames exact with a 1.5 s bound; per-cue failure policy.
+- [x] **PB4** Transport: pause records the clock; seeks while playing continue; `setProject`
+  while playing loads-then-swaps and hands the sound over without a seam; queued projects coalesce;
+  paused seeks latest-wins with in-flight decode dedup; suspended audio pauses the monitor.
+- [x] **PB5** Tick does nothing inside a shown project frame; plan cache; decode-ahead nearest
+  first, stops at the clip's out point, cuts to other sources start 1.5 s ahead; sound decodes
+  after the first frame.
+- [x] **PB6** Rotated footage from a proxy is not turned twice (proxies are autorotated).
+- [x] **PB7** Compositor keeps still/raster/mask/coverage uploads across frames; GL pool bounded.
+- [~] **PB8** `framePlanAt` linear in active layers (per-timeline index, caption active check
+  first).
+- [ ] **PB9** Manual run on real media (recipe in the PR): long karaoke-captioned timeline, pause/
+  resume, edit while playing, scrub, phone footage via proxy. Pending maintainer.
+- [ ] **PB10** Follow-ups: rolling audio schedule for long automated beds (the whole remaining mix
+  is rebuilt on play and on each change while playing); rotate unproxied originals in the decode
+  worker, not on the main thread; cache a large still's resize; scrub shows the nearest decoded
+  frame while a keyframe seek runs; worker-side cancel of queued decodes.
+
 - [x] **EQ1** Engine requests keep `asset.media` (`ai-sdk/engine-view.ts`). Since mask v22 a cut-out
   resolves against the media size; `toModelProject` stripped it, so every review, `get_frame` and
   `measure_color` after `remove_background` 422/500'd ("media size is unknown" — 7 of 7 reviews
