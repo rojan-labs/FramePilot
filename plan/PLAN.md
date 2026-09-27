@@ -45,8 +45,9 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   after the first frame.
 - [x] **PB6** Rotated footage from a proxy is not turned twice (proxies are autorotated).
 - [x] **PB7** Compositor keeps still/raster/mask/coverage uploads across frames; GL pool bounded.
-- [~] **PB8** `framePlanAt` linear in active layers (per-timeline index, caption active check
-  first).
+- [x] **PB8** `framePlanAt` linear in active layers (per-timeline index, caption active check
+  first): 150 clips 742 µs → 1.5 µs a plan, 3×600 clips 43 ms → 3.4 µs; byte-identical on
+  110k plans (parity vectors + fuzzed timelines).
 - [ ] **PB9** Manual run on real media (recipe in the PR): long karaoke-captioned timeline, pause/
   resume, edit while playing, scrub, phone footage via proxy. Pending maintainer.
 - [ ] **PB10** Follow-ups: rolling audio schedule for long automated beds (the whole remaining mix
