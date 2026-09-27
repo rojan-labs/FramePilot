@@ -29,6 +29,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   position it can reach.
 - **Phone footage plays upright.** A rotated clip previewed from its proxy was turned twice and
   showed sideways while the export was upright.
+- **Long videos open in the preview.** A video longer than about 35 minutes at 60 fps (70 at
+  30 fps) failed to load in the monitor.
 - **Less work per frame.** The monitor no longer re-plans the frame on every screen refresh (four
   times per frame on a 120 Hz display), re-uploads photos, titles and captions to the GPU every
   frame, or waits for a whole clip's sound to decode before showing its first frame. Planning a
