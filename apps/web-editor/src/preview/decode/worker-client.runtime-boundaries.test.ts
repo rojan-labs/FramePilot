@@ -213,6 +213,28 @@ describe('DecodeWorkerClient teardown', () => {
     client.dispose();
   });
 
+  it('replays a source’s rotation when it rehydrates a replacement worker', async () => {
+    installWorker();
+    const client = new DecodeWorkerClient();
+    const initialLoad = client.loadSource('source-a', 'blob:source-a', { rotation: 90 });
+    await flushMicrotasks();
+    const failedWorker = latestWorker!;
+    expect(failedWorker.posted[0]).toMatchObject({ type: 'load', rotation: 90 });
+    completeLoad(failedWorker);
+    await initialLoad;
+
+    failedWorker.onerror?.({ message: 'decoder crashed' } as ErrorEvent);
+    void client.decodeRange('source-a', 0, 1).catch(() => undefined);
+    await flushMicrotasks();
+    // The replacement turns the planes upright too, or the picture comes back sideways.
+    expect(latestWorker!.posted[0]).toMatchObject({
+      type: 'load',
+      sourceId: 'source-a',
+      rotation: 90,
+    });
+    client.dispose();
+  });
+
   it('rejects an outstanding request when the client is disposed', async () => {
     installWorker();
     const client = new DecodeWorkerClient();

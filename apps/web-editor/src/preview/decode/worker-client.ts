@@ -74,7 +74,7 @@ export class DecodeWorkerClient {
   private inFlightPeak = 0;
   private disposed = false;
   /** Desired worker-owned source registrations. Replayed after a worker-level failure. */
-  private readonly sourceUrls = new Map<string, string>();
+  private readonly sourceUrls = new Map<string, { url: string; rotation: number }>();
   /** Matte artifact files (BR5.1), replayed the same way. */
   private readonly matteUrls = new Map<string, { url: string; expectedFrames: number }>();
   private workerNeedsRehydrate = false;
@@ -119,11 +119,12 @@ export class DecodeWorkerClient {
       this.rehydratePromise ??
       (async () => {
         const registrations = [...this.sourceUrls.entries()];
-        for (const [sourceId, url] of registrations) {
+        for (const [sourceId, { url, rotation }] of registrations) {
           await this.sendToWorker<Extract<WorkerResponse, { type: 'loaded' }>>(worker, {
             type: 'load',
             sourceId,
             url,
+            ...(rotation !== 0 ? { rotation } : {}),
           });
         }
         for (const [sourceId, { url, expectedFrames }] of [...this.matteUrls.entries()]) {
@@ -263,9 +264,14 @@ export class DecodeWorkerClient {
     return this.sendToWorker<T>(worker, request);
   }
 
+  /**
+   * @param options.rotation - Clockwise quarter turns the worker gives decoded `picture` output
+   *   so it stands upright (see `LoadSourceRequest.rotation`).
+   */
   async loadSource(
     sourceId: string,
     url: string,
+    options: { readonly rotation?: number } = {},
   ): Promise<{
     frameCount: number;
     frameDurationUs: number;
@@ -276,12 +282,14 @@ export class DecodeWorkerClient {
     fileBytes: ArrayBuffer;
     streamed: boolean;
   }> {
+    const rotation = options.rotation ?? 0;
     const response = await this.send<Extract<WorkerResponse, { type: 'loaded' }>>({
       type: 'load',
       sourceId,
       url,
+      ...(rotation !== 0 ? { rotation } : {}),
     });
-    this.sourceUrls.set(sourceId, url);
+    this.sourceUrls.set(sourceId, { url, rotation });
     return response;
   }
 

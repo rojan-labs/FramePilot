@@ -24,7 +24,7 @@
  * displayed"); the session translates to decode order internally via the
  * demuxed table, so B-frame footage decodes correctly.
  */
-import { copyI420, pictureTransfer, type DecodedPicture } from './decoded-picture.js';
+import { copyI420, pictureTransfer, rotateI420, type DecodedPicture } from './decoded-picture.js';
 import { DecoderPool, type PooledDecoderHolder } from './decoder-pool.js';
 import { MatteDecodeSession } from './matte-decode-session.js';
 import type { Ffv1Picture } from './ffv1/ffv1-decoder.js';
@@ -43,6 +43,12 @@ export interface LoadSourceRequest {
   requestId: number;
   sourceId: string;
   url: string;
+  /**
+   * Clockwise quarter turns the decoded planes need to stand upright (an original file of rotated
+   * footage; a proxy is written upright). `picture` output is turned here, off the main thread,
+   * where a 1080x1920 frame is millions of byte moves per frame.
+   */
+  rotation?: number;
 }
 
 export interface DecodeRangeRequest {
@@ -311,6 +317,8 @@ function httpRangeReader(url: string, size: number): ByteRangeReader {
 }
 
 class DecoderSession implements PooledDecoderHolder {
+  /** Clockwise quarter turns `picture` output is given before it is posted (see the load request). */
+  uprightTurns = 0;
   /** One decoder for the lifetime of this session — reused via reset() +
    * configure() across every seek, never replaced. Creating a fresh
    * VideoDecoder per seek leaked decoder instances and silently exhausted
@@ -762,7 +770,7 @@ class DecoderSession implements PooledDecoderHolder {
           };
         } else {
           frame.close();
-          picture = planes;
+          picture = this.uprightTurns === 0 ? planes : rotateI420(planes, this.uprightTurns);
         }
       } catch {
         picture = {
@@ -831,6 +839,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   try {
     if (request.type === 'load') {
       const session = new DecoderSession(request.sourceId, post);
+      session.uprightTurns = request.rotation ?? 0;
       sessions.get(request.sourceId)?.dispose();
       sessions.set(request.sourceId, session);
       const {

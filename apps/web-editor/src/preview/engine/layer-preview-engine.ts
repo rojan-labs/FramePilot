@@ -51,7 +51,7 @@ import { createLogger, type PreviewTextRasterRequest } from '@framepilot/shared-
 import { DecodeWorkerClient, type WorkerTraffic } from '../decode/worker-client.js';
 import type { WorkerStageReport } from '../decode/decode-worker.js';
 import { MatteDecodePool } from '../decode/matte-decode-pool.js';
-import { rotateI420, type DecodedPicture } from '../decode/decoded-picture.js';
+import type { DecodedPicture } from '../decode/decoded-picture.js';
 import { AudioMasterClock, type AudioSegment } from '../clock/audio-clock.js';
 import { projectFrameIndex, projectFrameTime } from '../clock/project-frame.js';
 import type { FrameEffectInstance } from './gl/frame-effects.js';
@@ -164,6 +164,20 @@ const SEEK_TEXT_WAIT_MS = 1_500;
  * thread, and a project's sources finish decoding within moments of each other.
  */
 const SOUND_HANDOVER_COALESCE_MS = 150;
+
+/**
+ * The clockwise quarter turns a source's decoded planes need to stand upright: the asset's
+ * rotation when `url` is its original file, none for its proxy. ffmpeg autorotates while it
+ * writes the proxy (`media/derive.py` passes no `-noautorotate`), so turning the proxy's planes
+ * again showed rotated phone footage sideways on the monitor while the export (the original,
+ * autorotated by ffmpeg) was upright.
+ */
+function uprightTurns(asset: Asset | undefined, url: string): number {
+  const rotation = asset?.media?.rotation ?? 0;
+  if (rotation === 0) return 0;
+  const proxy = asset?.media?.proxyPath;
+  return proxy && url === mediaSrc(proxy) ? 0 : rotation;
+}
 
 /** Whether `promise` settles (either way) within `ms`. */
 function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
@@ -568,7 +582,9 @@ export class LayerPreviewEngine {
     // The picture first: sources (demuxed, registered), stills, LUTs and the text font. What is
     // already loaded costs nothing; the project on screen keeps presenting meanwhile.
     await Promise.all([
-      ...[...wantedVideo].map(([assetId, url]) => this.loadVideo(assetId, url)),
+      ...[...wantedVideo].map(([assetId, url]) =>
+        this.loadVideo(assetId, url, uprightTurns(assetsById.get(assetId), url)),
+      ),
       ...[...wantedImages].map((url) => this.loadImage(url)),
       ...[...wantedLuts].map((path) => this.loadLut(path)),
       loadExportTextFont().then((ready) => {
@@ -709,14 +725,15 @@ export class LayerPreviewEngine {
     }, SOUND_HANDOVER_COALESCE_MS);
   }
 
-  private loadVideo(assetId: string, url: string): Promise<void> {
+  /** @param rotation - Quarter turns the decode worker gives the planes ({@link uprightTurns}). */
+  private loadVideo(assetId: string, url: string, rotation: number): Promise<void> {
     if (this.sources.get(assetId)?.url === url) return Promise.resolve();
     const inFlight = this.loadingSources.get(`${assetId}|${url}`);
     if (inFlight) return inFlight;
     const audioCtx = this.audioCtx;
     const load = (async () => {
       try {
-        const loaded = await this.client.loadSource(assetId, url);
+        const loaded = await this.client.loadSource(assetId, url, { rotation });
         if (this.disposed) return;
         const source: VideoSource = {
           url,
@@ -1033,22 +1050,6 @@ export class LayerPreviewEngine {
     return run;
   }
 
-  /**
-   * The quarter turns a source's decoded planes need to stand upright: the asset's rotation for
-   * the original file, none for its proxy. ffmpeg autorotates while it writes the proxy
-   * (`media/derive.py` passes no `-noautorotate`), so turning the proxy's planes again showed
-   * rotated phone footage sideways on the monitor while the export (the original, autorotated
-   * by ffmpeg) was upright.
-   */
-  private decodedRotation(assetId: string): number {
-    const asset = this.assetsById.get(assetId);
-    const rotation = asset?.media?.rotation ?? 0;
-    if (rotation === 0) return 0;
-    const proxy = asset?.media?.proxyPath;
-    const url = this.sources.get(assetId)?.url;
-    return proxy && url === mediaSrc(proxy) ? 0 : rotation;
-  }
-
   private async decodeRunNow(assetId: string, from: number, to: number): Promise<void> {
     const started = performance.now();
     const { pictures } = await this.stages.track(
@@ -1065,11 +1066,8 @@ export class LayerPreviewEngine {
         this.client.releasePicture(message);
         continue;
       }
-      const rotation = this.decodedRotation(assetId);
-      const picture =
-        message.picture.kind === 'i420' && rotation !== 0
-          ? rotateI420(message.picture, rotation)
-          : message.picture;
+      // Already upright: the decode worker turns an original's planes (`uprightTurns`).
+      const picture = message.picture;
       this.cache.set(key, {
         kind: 'picture',
         picture,

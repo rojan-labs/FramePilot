@@ -24,11 +24,14 @@ const decoder = vi.hoisted(() => ({
   immediate: true,
   /** The size the fake decoder hands frames back at (a proxy of a portrait clip is upright). */
   size: { width: 64, height: 36 },
+  /** Each source load and the quarter turns it asked the worker for. */
+  loads: [] as { url: string; rotation: number }[],
 }));
 
 vi.mock('../decode/worker-client.js', () => {
   class DecodeWorkerClient {
-    async loadSource() {
+    async loadSource(_sourceId: string, url: string, options: { rotation?: number } = {}) {
+      decoder.loads.push({ url, rotation: options.rotation ?? 0 });
       return {
         frameCount: 300,
         frameRate: 30,
@@ -258,6 +261,7 @@ const settle = async (): Promise<void> => {
 
 beforeEach(() => {
   decoder.calls = [];
+  decoder.loads = [];
   decoder.immediate = true;
   decoder.size = { width: 64, height: 36 };
   compositor.renders = [];
@@ -466,22 +470,18 @@ describe('LayerPreviewEngine text during playback', () => {
 });
 
 describe('LayerPreviewEngine rotated footage', () => {
-  it('turns an original file’s planes upright but not its (already upright) proxy’s', async () => {
+  it('has the worker turn an original file upright, but not its (already upright) proxy', async () => {
     const asset = videoAsset({ rotation: 90, proxyPath: 'proxies/a.mp4', width: 36, height: 64 });
-    decoder.size = { width: 36, height: 64 };
     const viaProxy = new LayerPreviewEngine(canvas());
     await viaProxy.setProject(project({ asset, url: mediaSrc('proxies/a.mp4') }));
-    const proxyPicture = viaProxy.debugPresentedPictures()[0];
     viaProxy.dispose();
-
-    decoder.size = { width: 64, height: 36 };
     const viaOriginal = new LayerPreviewEngine(canvas());
     await viaOriginal.setProject(project({ asset }));
-    const originalPicture = viaOriginal.debugPresentedPictures()[0];
     viaOriginal.dispose();
-
-    // The proxy was decoded upright (36x64) and stays so; the original's stored 64x36 is turned.
-    expect(proxyPicture).toMatchObject({ size: '36x64' });
-    expect(originalPicture).toMatchObject({ size: '36x64' });
+    // ffmpeg autorotated the proxy when it wrote it; only the original's planes need turning.
+    expect(decoder.loads).toEqual([
+      { url: mediaSrc('proxies/a.mp4'), rotation: 0 },
+      { url: mediaSrc('camera.mov'), rotation: 90 },
+    ]);
   });
 });
