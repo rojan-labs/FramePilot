@@ -84,6 +84,51 @@ interface KeyedTexture {
 }
 const INT_TABLE_BYTES = 4;
 
+/**
+ * Source uploads kept across frames ({@link GlResources.imageTarget}, {@link GlResources.bytesTarget},
+ * {@link GlResources.maskPlane}). A still, a title, caption or shape raster, a mask raster and a
+ * frosted chip's coverage are the same object frame after frame, and uploading them again every
+ * frame cost more than drawing them: a 12 MP still is 48 MB of texture upload per frame.
+ */
+const SOURCE_CACHE_BYTES = 256 * 1024 * 1024;
+const SOURCE_CACHE_ENTRIES = 64;
+/**
+ * Pooled targets the frame just drawn did not use are kept up to this many bytes, the least
+ * recently used deleted first. An animated scale (a zoom, a title pop) resizes to a new size
+ * every frame, and each of those sizes' targets used to stay allocated for the whole session.
+ *
+ * WHY a byte bound and no idle clock: a target is only deleted in the frame whose working set
+ * pushed the idle bytes over it, so a steady timeline's footprint stays flat (PX5 asserts it)
+ * instead of dropping at whatever later frame a clock ran out.
+ */
+const POOL_IDLE_BYTES = 128 * 1024 * 1024;
+
+type SourceFormat = Extract<TargetFormat, 'rgba8' | 'r8ui'>;
+
+/** A source upload kept by the identity of the object it was uploaded from. */
+interface KeptUpload {
+  readonly target: RenderTarget;
+  readonly bytes: number;
+  /** The frame it was uploaded in. */
+  readonly firstFrame: number;
+  /** The last frame that drew it: an upload that frame drew is never evicted during it. */
+  lastFrame: number;
+}
+
+/**
+ * Whether the pixels of `source` can never change under the same object, so an upload of it can
+ * be kept by identity. An `ImageBitmap` is immutable, and the rasterisers never write an
+ * `ImageData` after handing it over. A canvas or a video element is redrawn in place, and a
+ * `VideoFrame` is drawn once per project frame, so keeping it would only evict what repeats.
+ */
+function keepableImage(source: TexImageSource): boolean {
+  if (typeof ImageBitmap !== 'undefined' && source instanceof ImageBitmap) {
+    // A closed bitmap reports 0x0. It is never kept, and its upload fails as it always did.
+    return source.width > 0 && source.height > 0;
+  }
+  return typeof ImageData !== 'undefined' && source instanceof ImageData;
+}
+
 /** Shared GL objects for one context. */
 export class GlResources {
   private readonly programs = new Map<string, Program>();
@@ -100,11 +145,24 @@ export class GlResources {
   private readonly spareKeyed = new Map<string, WebGLTexture[]>();
   private allocatedBytes = 0;
   private allocatedTextures = 0;
+  /** Frames finished so far ({@link endFrame}): the clock idle targets and kept uploads age by. */
+  private frame = 0;
+  /** The frame each pooled target was last returned in, for {@link trimIdleTargets}. */
+  private readonly lastUsed = new WeakMap<RenderTarget, number>();
+  /** Kept uploads by source object. Weak: a source its owner dropped is not held alive here. */
+  private keptUploads = new WeakMap<object, KeptUpload>();
+  /** The kept uploads, least recently drawn first: what eviction walks. */
+  private readonly keptOrder = new Set<KeptUpload>();
+  private keptBytes = 0;
+  private frameSourceUploads = 0;
+  private frameSourceHits = 0;
+  private lastFrameSourceUploads = 0;
+  private lastFrameSourceHits = 0;
 
   /**
-   * Bytes of texture storage this context holds (pooled targets, planes and filter tables), by
-   * the formats' sizes. The pools never shrink before {@link dispose}, so this is also their
-   * high-water mark; PX5 reads it to show the pools stay bounded on a steady timeline.
+   * Bytes of texture storage this context holds (pooled targets, kept source uploads, planes and
+   * filter tables), by the formats' sizes. On a steady timeline it stops growing once every size
+   * the frame needs is allocated; PX5 reads it to show the pools stay bounded.
    */
   get poolBytes(): number {
     return this.allocatedBytes;
@@ -113,6 +171,24 @@ export class GlResources {
   /** Textures behind {@link poolBytes}. */
   get poolTextures(): number {
     return this.allocatedTextures;
+  }
+
+  /** Bytes of the source uploads kept across frames (part of {@link poolBytes}). */
+  get sourceCacheBytes(): number {
+    return this.keptBytes;
+  }
+
+  /** Source uploads kept across frames. */
+  get sourceCacheEntries(): number {
+    return this.keptOrder.size;
+  }
+
+  /**
+   * Keepable sources (stills, rasters, mask rasters, coverages) the last finished frame uploaded,
+   * 0 once a steady timeline's sources are kept, and those it drew from kept uploads instead.
+   */
+  get lastFrameSources(): { readonly uploads: number; readonly hits: number } {
+    return { uploads: this.lastFrameSourceUploads, hits: this.lastFrameSourceHits };
   }
 
   private account(bytes: number): void {
@@ -167,11 +243,18 @@ export class GlResources {
 
   /** A render target for this frame; returned to the pool by {@link endFrame}. */
   target(width: number, height: number, format: TargetFormat): RenderTarget {
-    const key = `${width}x${height}:${format}`;
-    const pooled = this.free.get(key)?.pop();
-    const target = pooled ?? this.createTarget(width, height, format);
+    const target = this.takeTarget(width, height, format);
     this.inUse.push(target);
     return target;
+  }
+
+  /** A pooled target of this size and format, or a new one; the caller owns it. */
+  private takeTarget(width: number, height: number, format: TargetFormat): RenderTarget {
+    const key = `${width}x${height}:${format}`;
+    const list = this.free.get(key);
+    const pooled = list?.pop();
+    if (list?.length === 0) this.free.delete(key);
+    return pooled ?? this.createTarget(width, height, format);
   }
 
   private createTarget(width: number, height: number, format: TargetFormat): RenderTarget {
@@ -217,10 +300,16 @@ export class GlResources {
   }
 
   recycle(target: RenderTarget): void {
+    this.returnToPool(target, this.frame);
+  }
+
+  /** Put `target` in the free pool as last used in frame `lastUsed`. */
+  private returnToPool(target: RenderTarget, lastUsed: number): void {
     const key = `${target.width}x${target.height}:${target.format}`;
     const list = this.free.get(key) ?? [];
     list.push(target);
     this.free.set(key, list);
+    this.lastUsed.set(target, lastUsed);
   }
 
   /**
@@ -280,24 +369,135 @@ export class GlResources {
     return texture;
   }
 
-  /** An `RGBA8` render target holding an image, canvas or `VideoFrame` exactly as decoded. */
+  /**
+   * An `RGBA8` render target holding an image, canvas or `VideoFrame` exactly as decoded. An
+   * `ImageBitmap` or `ImageData` drawn again in a later frame is served from the upload kept for
+   * that object ({@link keptUpload}), the same bytes on the GPU; read it, never draw into it.
+   */
   imageTarget(source: TexImageSource, width: number, height: number): RenderTarget {
     const gl = this.gl;
+    const upload = (): void =>
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    const keepable = keepableImage(source);
+    const kept = keepable ? this.keptUpload(source, width, height, 'rgba8', upload) : null;
+    if (kept !== null) return kept;
     const target = this.target(width, height, 'rgba8');
     this.useScratchUnit();
     gl.bindTexture(gl.TEXTURE_2D, target.texture);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    upload();
+    if (keepable) this.frameSourceUploads += 1;
     return target;
   }
 
-  /** An `RGBA8` render target holding straight RGBA bytes, rows top first. */
+  /**
+   * An `RGBA8` render target holding straight RGBA bytes, rows top first. Kept by the identity
+   * of `data` like {@link imageTarget}, so `data` must not be written after it is handed here.
+   */
   bytesTarget(data: Uint8Array, width: number, height: number): RenderTarget {
     const gl = this.gl;
+    const upload = (): void =>
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    const kept = this.keptUpload(data, width, height, 'rgba8', upload);
+    if (kept !== null) return kept;
     const target = this.target(width, height, 'rgba8');
     this.useScratchUnit();
     gl.bindTexture(gl.TEXTURE_2D, target.texture);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    upload();
+    this.frameSourceUploads += 1;
     return target;
+  }
+
+  /**
+   * A mask raster's coverage as the `R8UI` texture the mask shaders sample: {@link plane}, but
+   * kept by the identity of `data` like {@link imageTarget}. A still mask's raster is the same
+   * cached array frame after frame; `data` must not be written after it is handed here.
+   */
+  maskPlane(width: number, height: number, data: Uint8Array): WebGLTexture {
+    const gl = this.gl;
+    const { RED_INTEGER, UNSIGNED_BYTE } = gl;
+    const upload = (): void =>
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, RED_INTEGER, UNSIGNED_BYTE, data);
+    const kept = this.keptUpload(data, width, height, 'r8ui', upload);
+    if (kept !== null) return kept.texture;
+    this.frameSourceUploads += 1;
+    return this.plane(width, height, data);
+  }
+
+  /**
+   * The upload kept for `source`, uploaded into a kept target first when there is none, or
+   * `null` when the caller uploads it for this frame only (no room among the uploads this frame
+   * has not drawn, or the same object asked for at another size).
+   *
+   * Kept uploads live in pooled targets the cache owns; an evicted one goes back to the free
+   * pool, where the next upload of its size refills it instead of allocating. An upload no later
+   * frame draws again (an animated mask's or caption's per-frame raster) is evicted at the end
+   * of the next frame ({@link evictUnrepeated}), so those cost what they did before the cache.
+   *
+   * @param upload - Uploads the pixels into the texture bound on the scratch unit.
+   */
+  private keptUpload(
+    source: object,
+    width: number,
+    height: number,
+    format: SourceFormat,
+    upload: () => void,
+  ): RenderTarget | null {
+    const kept = this.keptUploads.get(source);
+    if (kept !== undefined && this.keptOrder.has(kept)) {
+      const { target } = kept;
+      if (target.width !== width || target.height !== height || target.format !== format) {
+        return null;
+      }
+      kept.lastFrame = this.frame;
+      this.keptOrder.delete(kept);
+      this.keptOrder.add(kept);
+      this.frameSourceHits += 1;
+      return target;
+    }
+    const bytes = width * height * TARGET_FORMAT_BYTES[format];
+    if (!this.makeKeptRoom(bytes)) return null;
+    const target = this.takeTarget(width, height, format);
+    this.useScratchUnit();
+    this.gl.bindTexture(this.gl.TEXTURE_2D, target.texture);
+    upload();
+    const entry: KeptUpload = { target, bytes, firstFrame: this.frame, lastFrame: this.frame };
+    this.keptUploads.set(source, entry);
+    this.keptOrder.add(entry);
+    this.keptBytes += bytes;
+    this.frameSourceUploads += 1;
+    return target;
+  }
+
+  /**
+   * Evict kept uploads, least recently drawn first, until `bytes` more fit both bounds. An upload
+   * this frame drew is never evicted (a pass may still read it), so this can fail.
+   */
+  private makeKeptRoom(bytes: number): boolean {
+    const fits = (): boolean =>
+      this.keptBytes + bytes <= SOURCE_CACHE_BYTES && this.keptOrder.size < SOURCE_CACHE_ENTRIES;
+    for (const entry of this.keptOrder) {
+      if (fits()) return true;
+      // Drawn uploads move to the back, so everything from here on was drawn this frame too.
+      if (entry.lastFrame === this.frame) break;
+      this.evictKept(entry);
+    }
+    return fits();
+  }
+
+  /** Stop keeping `entry`: its target goes back to the free pool as last used when it was drawn. */
+  private evictKept(entry: KeptUpload): void {
+    this.keptOrder.delete(entry);
+    this.keptBytes -= entry.bytes;
+    this.returnToPool(entry.target, entry.lastFrame);
+  }
+
+  /** Evict the uploads made in an earlier frame that no frame since has drawn again. */
+  private evictUnrepeated(): void {
+    for (const entry of this.keptOrder) {
+      if (entry.lastFrame === entry.firstFrame && entry.lastFrame < this.frame) {
+        this.evictKept(entry);
+      }
+    }
   }
 
   /**
@@ -450,7 +650,10 @@ export class GlResources {
     program.int(name, unit);
   }
 
-  /** Return this frame's transient targets and planes to their pools. */
+  /**
+   * Return this frame's transient targets and planes to their pools, and delete the pooled
+   * targets beyond {@link POOL_IDLE_BYTES} that this frame did not use.
+   */
   endFrame(): void {
     for (const target of this.inUse.splice(0)) this.recycle(target);
     for (const texture of this.planeInUse.splice(0)) {
@@ -458,6 +661,46 @@ export class GlResources {
       const list = this.planeTextures.get(key) ?? [];
       list.push(texture);
       this.planeTextures.set(key, list);
+    }
+    this.evictUnrepeated();
+    this.trimIdleTargets();
+    this.lastFrameSourceUploads = this.frameSourceUploads;
+    this.lastFrameSourceHits = this.frameSourceHits;
+    this.frameSourceUploads = 0;
+    this.frameSourceHits = 0;
+    this.frame += 1;
+  }
+
+  /**
+   * Delete the free targets this frame did not use, least recently used first, until what is
+   * left of them fits {@link POOL_IDLE_BYTES}. Only free targets are candidates: one this frame
+   * drew with is back in the pool as used now, and a kept upload is not in the pool at all.
+   */
+  private trimIdleTargets(): void {
+    const idle: RenderTarget[] = [];
+    let idleBytes = 0;
+    for (const list of this.free.values()) {
+      for (const target of list) {
+        if ((this.lastUsed.get(target) ?? -1) >= this.frame) continue;
+        idle.push(target);
+        idleBytes += targetBytes(target);
+      }
+    }
+    if (idleBytes <= POOL_IDLE_BYTES) return;
+    idle.sort((a, b) => (this.lastUsed.get(a) ?? -1) - (this.lastUsed.get(b) ?? -1));
+    const gl = this.gl;
+    for (const target of idle) {
+      if (idleBytes <= POOL_IDLE_BYTES) break;
+      const key = `${target.width}x${target.height}:${target.format}`;
+      const list = this.free.get(key)!;
+      list.splice(list.indexOf(target), 1);
+      if (list.length === 0) this.free.delete(key);
+      gl.deleteFramebuffer(target.framebuffer);
+      gl.deleteTexture(target.texture);
+      const bytes = targetBytes(target);
+      idleBytes -= bytes;
+      this.allocatedBytes -= bytes;
+      this.allocatedTextures -= 1;
     }
   }
 
@@ -474,6 +717,14 @@ export class GlResources {
       gl.deleteFramebuffer(target.framebuffer);
       gl.deleteTexture(target.texture);
     }
+    // An evicted upload is in the free pool (deleted above); these are the ones still kept.
+    for (const { target } of this.keptOrder) {
+      gl.deleteFramebuffer(target.framebuffer);
+      gl.deleteTexture(target.texture);
+    }
+    this.keptOrder.clear();
+    this.keptUploads = new WeakMap();
+    this.keptBytes = 0;
     for (const texture of this.dataTextures.values()) gl.deleteTexture(texture);
     for (const entry of this.keyedTextures.values()) gl.deleteTexture(entry.texture);
     this.keyedTextures.clear();
@@ -493,6 +744,10 @@ export class GlResources {
     this.allocatedBytes = 0;
     this.allocatedTextures = 0;
   }
+}
+
+function targetBytes(target: RenderTarget): number {
+  return target.width * target.height * TARGET_FORMAT_BYTES[target.format];
 }
 
 function setNearest(gl: WebGL2RenderingContext): void {

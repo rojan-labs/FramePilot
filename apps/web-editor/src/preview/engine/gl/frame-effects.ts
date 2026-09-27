@@ -733,7 +733,7 @@ export class FrameEffectRenderer {
         2,
         mask === null
           ? this.resources.plane(1, 1, OPAQUE_COVERAGE)
-          : this.resources.plane(mask.width, mask.height, mask.alpha8),
+          : this.resources.maskPlane(mask.width, mask.height, mask.alpha8),
       );
       program.ivec2('u_size', current.width, current.height);
       this.gl.uniform1f(program.location('u_strength'), strength);

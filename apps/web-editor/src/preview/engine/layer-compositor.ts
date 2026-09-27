@@ -155,7 +155,13 @@ const MASK_COMBINE_MODES = [
   'darken',
 ] as const;
 
-/** A picture the compositor can draw a {@link PictureRasterStep} from. */
+/**
+ * A picture the compositor can draw a {@link PictureRasterStep} from.
+ *
+ * An `image` that is an `ImageBitmap` or `ImageData`, and a raster's `image` and frost
+ * `coverage`, must never be written after they are handed over: the GPU keeps their uploads by
+ * object identity across frames (`GlResources.imageTarget`), so new pixels need a new object.
+ */
 export type LayerSource =
   | { readonly kind: 'decoded'; readonly key: string; readonly picture: DecodedPicture }
   | {
@@ -209,12 +215,30 @@ export type CompositeLayer =
       readonly aboveEffects?: boolean;
     };
 
+type CoverageBounds = { minX: number; minY: number; maxX: number; maxY: number } | null;
+
+/**
+ * Bounds by coverage mask. A chip's coverage is the same array on every frame of its cue, and
+ * scanning it cost a full pass over the chip per frame.
+ */
+const coverageBoundsCache = new WeakMap<
+  Uint8Array,
+  { readonly width: number; readonly height: number; readonly bounds: CoverageBounds }
+>();
+
+/** {@link scanCoverageBounds}, once per coverage mask and size. */
+function coverageBounds(coverage: Uint8Array, width: number, height: number): CoverageBounds {
+  const cached = coverageBoundsCache.get(coverage);
+  if (cached !== undefined && cached.width === width && cached.height === height) {
+    return cached.bounds;
+  }
+  const bounds = scanCoverageBounds(coverage, width, height);
+  coverageBoundsCache.set(coverage, { width, height, bounds });
+  return bounds;
+}
+
 /** The coverage rows/columns that carry any frost, or `null` for an empty chip. */
-function coverageBounds(
-  coverage: Uint8Array,
-  width: number,
-  height: number,
-): { minX: number; minY: number; maxX: number; maxY: number } | null {
+function scanCoverageBounds(coverage: Uint8Array, width: number, height: number): CoverageBounds {
   let minX = width;
   let minY = height;
   let maxX = -1;
@@ -450,6 +474,9 @@ export class LayerCompositor {
       r.endFrame();
       this.telemetry?.gauge('glPoolBytes', r.poolBytes);
       this.telemetry?.gauge('glPoolTargets', r.poolTextures);
+      this.telemetry?.gauge('glSourceCacheBytes', r.sourceCacheBytes);
+      this.telemetry?.gauge('glSourceUploads', r.lastFrameSources.uploads);
+      this.telemetry?.gauge('glSourceCacheHits', r.lastFrameSources.hits);
     }
   }
 
@@ -980,9 +1007,10 @@ export class LayerCompositor {
       } else if (raster !== null) {
         this.telemetry?.countMaskRasterCacheHit();
       }
+      // The cached raster is the same array while nothing moves, so its upload is kept too.
       return raster === null
         ? null
-        : { texture: this.resources.plane(width, height, raster.alpha8), scale: raster.scale };
+        : { texture: this.resources.maskPlane(width, height, raster.alpha8), scale: raster.scale };
     }
     if (readsPicture) {
       if (picture === null || picture.width !== width || picture.height !== height) return null;
