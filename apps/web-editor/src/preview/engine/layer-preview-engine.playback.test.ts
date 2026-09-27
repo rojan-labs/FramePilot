@@ -30,6 +30,7 @@ const decoder = vi.hoisted(() => ({
   /** Each source load and the quarter turns it asked the worker for. */
   loads: [] as { url: string; rotation: number }[],
   restarts: 0,
+  released: 0,
 }));
 
 vi.mock('../decode/worker-client.js', () => {
@@ -97,7 +98,9 @@ vi.mock('../decode/worker-client.js', () => {
         if (decoder.immediate) call.resolve();
       });
     }
-    releasePicture() {}
+    releasePicture() {
+      decoder.released++;
+    }
     closeFrame() {}
     async unloadSource() {}
     dispose() {}
@@ -301,6 +304,7 @@ beforeEach(() => {
   decoder.calls = [];
   decoder.loads = [];
   decoder.restarts = 0;
+  decoder.released = 0;
   decoder.immediate = true;
   decoder.size = { width: 64, height: 36 };
   compositor.renders = [];
@@ -594,6 +598,31 @@ describe('LayerPreviewEngine text during playback', () => {
     // Frame 24 never arrived: the cue's frame 15 (0.5 s) stands in, and the picture kept moving.
     expect(caption?.image?.data[0]).toBe(15);
     expect(engine.debugStats().textStale).toBeGreaterThan(0);
+    engine.dispose();
+  });
+});
+
+describe('LayerPreviewEngine source replacement', () => {
+  it('shows nothing decoded from the old file once an asset moves to its proxy', async () => {
+    const asset = videoAsset({ proxyPath: 'proxies/a.mp4' });
+    const engine = new LayerPreviewEngine(canvas());
+    await engine.setProject(project({ asset, url: mediaSrc('camera.mov') }));
+    expect(engine.debugStats().cachedFrames).toBeGreaterThan(0);
+    // A decode planned against the original is still out when the proxy lands.
+    decoder.immediate = false;
+    void engine.seek(2);
+    await settle();
+    const stale = decoder.calls.at(-1)!;
+    decoder.immediate = true;
+    await engine.setProject(project({ asset, url: mediaSrc('proxies/a.mp4') }));
+    const cachedAfterSwap = engine.debugStats().cachedFrames;
+    const released = decoder.released;
+    stale.resolve();
+    await settle();
+    // The original's frame numbers are not the proxy's: its late pictures are released, and
+    // what the cache holds now was decoded from the proxy.
+    expect(decoder.released - released).toBe(stale.to - stale.from + 1);
+    expect(engine.debugStats().cachedFrames).toBe(cachedAfterSwap);
     engine.dispose();
   });
 });

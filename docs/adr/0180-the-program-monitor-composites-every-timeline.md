@@ -115,8 +115,10 @@ timeout swapped the styled caption for the unstyled fallback for ten seconds.
    that frame; a styled caption frame that has not arrived is drawn with the nearest held frame of
    the same cue. Both are counted (`debugStats().textSkipped`, `textStale`, logged on pause).
 4. **A paused frame is exact.** It waits for its own rasters (at most 1.5 s, then it is shown
-   without the late text and redrawn when it lands), and pausing re-presents the frame that way, at
-   full resolution. The PX4 oracle reads paused frames, so what it measures is unchanged.
+   with the text it has — a caption's nearest held frame of its cue, else none — and redrawn when
+   the late text lands; the seek resolves only after that redraw, so a parity read waits for it),
+   and pausing re-presents the frame that way, at full resolution. The PX4 oracle reads paused
+   frames, so what it measures is unchanged.
 5. Refusals and outages are told apart: a 422 falls back to the approximate raster at once; an
    unreachable or slow sidecar is asked again after a second and falls back only after three
    failures in a row.

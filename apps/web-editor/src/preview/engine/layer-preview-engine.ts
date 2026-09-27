@@ -165,7 +165,8 @@ const CUT_PREFETCH_HORIZON_SEC = 1.5;
  * How long a paused frame waits for its text rasters. The engine answers in tens of
  * milliseconds; a sidecar busy exporting may take longer, and one that never answers must not
  * leave the monitor (and every seek queued behind it) on the previous frame. Past this the frame
- * is shown without the late text, and shown again exactly when it lands.
+ * is shown with the text it has (a styled caption's nearest held raster of its cue, else none),
+ * and shown again exactly when the late text lands.
  */
 const SEEK_TEXT_WAIT_MS = 1_500;
 /** How often a paused frame shown without its late text checks whether it should stop waiting. */
