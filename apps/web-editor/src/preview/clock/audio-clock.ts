@@ -95,17 +95,40 @@ export class AudioMasterClock {
     }
   }
 
-  /** Stop and discard any currently scheduled segments. */
-  clear(): void {
+  /**
+   * Stop and discard any currently scheduled segments, now or at context time `atSec` (a
+   * handover: the old sound plays until the new sound starts).
+   */
+  clear(atSec?: number): void {
     for (const node of this.sources) {
       try {
-        node.stop();
+        if (atSec === undefined) node.stop();
+        else node.stop(atSec);
       } catch {
         // Already stopped/ended — AudioBufferSourceNode.stop() throws in that case.
       }
     }
     this.sources = [];
     this.schedule = [];
+  }
+
+  /**
+   * Replace what is playing without a seam: the clock keeps its line (media time `nowMediaUs()`
+   * at `ctx.currentTime`), the new segments take over one scheduling lead from now, and the old
+   * ones stop exactly then. For a change while playing (an edit, a solo, a decoded soundtrack
+   * arriving); a seek uses {@link scheduleSegments}.
+   *
+   * @param segmentsFrom - The segments from a media time on (it is called with the handover time).
+   */
+  rescheduleContinuous(
+    segmentsFrom: (mediaStartUs: number) => readonly AudioSegment[],
+    leadSec = DEFAULT_SCHEDULE_LEAD_SEC,
+  ): void {
+    const handoverCtxSec = this.ctx.currentTime + leadSec;
+    const handoverUs = mediaTimeUsFromAnchor(this.anchor, handoverCtxSec);
+    this.clear(handoverCtxSec);
+    this.anchor = { mediaStartUs: handoverUs, ctxStartSec: handoverCtxSec, continuous: true };
+    this.startSegments(segmentsFrom(handoverUs));
   }
 
   /**
@@ -121,6 +144,11 @@ export class AudioMasterClock {
     this.clear();
     const firstCtxStartSec = this.ctx.currentTime + leadSec;
     this.anchor = { mediaStartUs, ctxStartSec: firstCtxStartSec };
+    this.startSegments(segments);
+  }
+
+  /** Schedule `segments` on the current anchor. */
+  private startSegments(segments: readonly AudioSegment[]): void {
     this.schedule = scheduleSegmentsOnTimeline(
       segments.map((seg) => ({
         mediaStartUs: seg.mediaStartUs,

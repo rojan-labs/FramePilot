@@ -45,6 +45,21 @@ describe('continuous timeline clock', () => {
     expect(scheduleSegmentsOnTimeline([], anchor)).toEqual([]);
     expect(mediaTimeUsFromAnchor(anchor, 11)).toBe(3_000_000);
   });
+
+  it('a handover anchor stays on the running line through its lead (no stall, no jump)', () => {
+    // Playing from 2 s at context 10 s; at context 12 s the sound is rescheduled with a 50 ms lead.
+    const handover = {
+      mediaStartUs: mediaTimeUsFromAnchor(anchor, 12.05),
+      ctxStartSec: 12.05,
+      continuous: true,
+    };
+    for (const ctxNow of [12, 12.02, 12.05, 13]) {
+      expect(mediaTimeUsFromAnchor(handover, ctxNow)).toBeCloseTo(
+        mediaTimeUsFromAnchor(anchor, ctxNow),
+        6,
+      );
+    }
+  });
 });
 
 describe('activeSegmentAt', () => {

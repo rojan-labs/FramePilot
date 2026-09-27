@@ -27,6 +27,12 @@ export interface ScheduledSegment {
 export interface TimelineClockAnchor {
   readonly mediaStartUs: number;
   readonly ctxStartSec: number;
+  /**
+   * A handover from a clock that was already running (a mid-playback reschedule): the anchor is
+   * the same line the old one was on, so it extrapolates through the scheduling lead instead of
+   * holding, and the picture neither stalls nor jumps.
+   */
+  readonly continuous?: boolean;
 }
 
 /** Place audible segments at their real project-time offsets from playback
@@ -46,7 +52,10 @@ export function scheduleSegmentsOnTimeline(
  * small scheduling lead, then advances monotonically regardless of whether the
  * active timeline span has an audio buffer. */
 export function mediaTimeUsFromAnchor(anchor: TimelineClockAnchor, ctxNowSec: number): number {
-  return anchor.mediaStartUs + Math.max(0, ctxNowSec - anchor.ctxStartSec) * 1_000_000;
+  const elapsed = ctxNowSec - anchor.ctxStartSec;
+  return (
+    anchor.mediaStartUs + (anchor.continuous === true ? elapsed : Math.max(0, elapsed)) * 1_000_000
+  );
 }
 
 /**
