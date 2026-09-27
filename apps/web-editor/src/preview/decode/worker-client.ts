@@ -54,6 +54,17 @@ export interface DecodePicturesResult {
   reconfigured: boolean;
 }
 
+/**
+ * A request the client gave up on because its worker was replaced ({@link DecodeWorkerClient.restart}):
+ * asking again goes to a fresh worker, so the caller should retry rather than report a failure.
+ */
+export class DecodeWorkerRestartedError extends Error {
+  constructor(reason: string) {
+    super(`Decode worker restarted: ${reason}`);
+    this.name = 'DecodeWorkerRestartedError';
+  }
+}
+
 export interface FrameAccounting {
   framesCreatedTotal: number;
   framesClosedTotal: number;
@@ -110,6 +121,22 @@ export class DecodeWorkerClient {
     this.worker = worker;
     this.workerNeedsRehydrate = this.sourceUrls.size > 0 || this.matteUrls.size > 0;
     return worker;
+  }
+
+  /**
+   * Replace a worker that has stopped answering (a decode call that never settled: a browser
+   * `flush()` or `copyTo()` promise that never resolves, which PX5.7 observed). Every waiting
+   * request is rejected with {@link DecodeWorkerRestartedError}, and the next request starts a
+   * new worker that reloads the registered sources first, as after a worker crash.
+   */
+  restart(reason: string): void {
+    const worker = this.worker;
+    if (this.disposed || worker === undefined) return;
+    log.warn('restarting the decode worker', { reason, pending: this.pending.size });
+    this.worker = undefined;
+    this.workerNeedsRehydrate = false;
+    worker.terminate();
+    this.failPending(new DecodeWorkerRestartedError(reason));
   }
 
   /** Restore successfully loaded sources before a replacement worker accepts dependent work. */

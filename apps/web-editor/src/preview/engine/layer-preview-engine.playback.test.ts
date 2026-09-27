@@ -16,6 +16,8 @@ interface DecodeCall {
   readonly from: number;
   readonly to: number;
   resolve: () => void;
+  fail: (error: Error) => void;
+  settled: boolean;
 }
 
 const decoder = vi.hoisted(() => ({
@@ -26,10 +28,17 @@ const decoder = vi.hoisted(() => ({
   size: { width: 64, height: 36 },
   /** Each source load and the quarter turns it asked the worker for. */
   loads: [] as { url: string; rotation: number }[],
+  restarts: 0,
 }));
 
 vi.mock('../decode/worker-client.js', () => {
+  class DecodeWorkerRestartedError extends Error {}
   class DecodeWorkerClient {
+    restart(reason: string) {
+      decoder.restarts++;
+      const waiting = decoder.calls.filter((call) => !call.settled);
+      for (const call of waiting) call.fail(new DecodeWorkerRestartedError(reason));
+    }
     async loadSource(_sourceId: string, url: string, options: { rotation?: number } = {}) {
       decoder.loads.push({ url, rotation: options.rotation ?? 0 });
       return {
@@ -65,15 +74,21 @@ vi.mock('../decode/worker-client.js', () => {
           },
         })),
       };
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         const call: DecodeCall = {
           assetId,
           from,
           to,
+          settled: false,
           resolve: () => {
+            call.settled = true;
             if (!onPicture) return resolve(answer);
             for (const picture of answer.pictures) onPicture(picture);
             resolve({ pictures: [] });
+          },
+          fail: (error) => {
+            call.settled = true;
+            reject(error);
           },
         };
         decoder.calls.push(call);
@@ -94,7 +109,7 @@ vi.mock('../decode/worker-client.js', () => {
       return { liveDecoders: 0, peakLiveDecoders: 0 };
     }
   }
-  return { DecodeWorkerClient };
+  return { DecodeWorkerClient, DecodeWorkerRestartedError };
 });
 
 vi.mock('../decode/matte-decode-pool.js', () => ({
@@ -276,6 +291,7 @@ const settle = async (): Promise<void> => {
 beforeEach(() => {
   decoder.calls = [];
   decoder.loads = [];
+  decoder.restarts = 0;
   decoder.immediate = true;
   decoder.size = { width: 64, height: 36 };
   compositor.renders = [];
@@ -377,6 +393,31 @@ describe('LayerPreviewEngine transport', () => {
       await vi.advanceTimersByTimeAsync(10);
       await later;
       expect(engine.currentTimeSec).toBe(5);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('restarts a decode worker that stopped answering and serves the seek it held', async () => {
+    // The hang report measures age with performance.now(), so it is faked too.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    try {
+      const errors = vi.fn();
+      const engine = new LayerPreviewEngine(canvas(), { onError: errors });
+      await engine.setProject(project());
+      decoder.calls = [];
+      decoder.immediate = false;
+      const seek = engine.seek(2);
+      // The decode never answers: PX5.7 names it after 10 s, and the worker is replaced.
+      await vi.advanceTimersByTimeAsync(10_500);
+      expect(decoder.restarts).toBe(1);
+      expect(decoder.calls.map((call) => call.from)).toEqual([60, 60]);
+      decoder.calls[1]!.resolve();
+      await vi.advanceTimersByTimeAsync(10);
+      await seek;
+      expect(engine.currentTimeSec).toBe(2);
+      expect(errors).not.toHaveBeenCalled();
       engine.dispose();
     } finally {
       vi.useRealTimers();

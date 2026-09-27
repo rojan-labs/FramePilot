@@ -48,7 +48,11 @@ import type {
 } from '@framepilot/timeline-schema';
 import { SHAPE_EFFECT_TYPE } from '@framepilot/timeline-schema';
 import { createLogger, type PreviewTextRasterRequest } from '@framepilot/shared-types';
-import { DecodeWorkerClient, type WorkerTraffic } from '../decode/worker-client.js';
+import {
+  DecodeWorkerClient,
+  DecodeWorkerRestartedError,
+  type WorkerTraffic,
+} from '../decode/worker-client.js';
 import type { DecodedPictureMessage, WorkerStageReport } from '../decode/decode-worker.js';
 import { MatteDecodePool } from '../decode/matte-decode-pool.js';
 import type { DecodedPicture } from '../decode/decoded-picture.js';
@@ -124,6 +128,12 @@ const DEFAULT_FPS = 30;
 const STAGE_STUCK_MS = 10_000;
 /** How long a hang report waits for the decode worker to say where it is. */
 const WORKER_STAGES_TIMEOUT_MS = 2_000;
+/**
+ * Least time between two decode-worker restarts. A decode stuck past {@link STAGE_STUCK_MS} is a
+ * promise that will not settle, and the worker is replaced; a machine that is only very slow must
+ * not be restarted over and over.
+ */
+const WORKER_RESTART_INTERVAL_MS = 30_000;
 /**
  * PX2.8 load shedding. Playback lowers the resolution the plan is rasterised at before anything
  * else, one step at a time, and only then lets presentation frames drop (a frame not ready on a
@@ -396,6 +406,8 @@ export class LayerPreviewEngine {
   private seekLoop: Promise<void> | null = null;
   /** The newest project handed to {@link setProject}; an older queued one is skipped. */
   private latestProject: LayerEngineProject | null = null;
+  /** When the decode worker was last restarted for a stuck decode (see {@link reportStuck}). */
+  private lastWorkerRestartMs: number | null = null;
   /** A coalesced sound handover waiting to run (see {@link SOUND_HANDOVER_COALESCE_MS}). */
   private soundHandover: ReturnType<typeof setTimeout> | undefined;
 
@@ -741,6 +753,7 @@ export class LayerPreviewEngine {
     if (inFlight) return inFlight;
     const audioCtx = this.audioCtx;
     const load = (async () => {
+      let restarted = false;
       try {
         const loaded = await this.client.loadSource(assetId, url, { rotation });
         if (this.disposed) return;
@@ -758,12 +771,15 @@ export class LayerPreviewEngine {
           void this.decodeSourceAudio(audioCtx, assetId, source, loaded.fileBytes);
         }
       } catch (err) {
-        if (!this.disposed) {
+        // The worker was replaced under this load (a stuck decode): load again, not an error.
+        if (err instanceof DecodeWorkerRestartedError) restarted = true;
+        else if (!this.disposed) {
           this.callbacks.onError?.(err instanceof Error ? err.message : String(err));
         }
       } finally {
         this.loadingSources.delete(`${assetId}|${url}`);
       }
+      if (restarted && !this.disposed) await this.loadVideo(assetId, url, rotation);
     })();
     this.loadingSources.set(`${assetId}|${url}`, load);
     return load;
@@ -1864,6 +1880,11 @@ export class LayerPreviewEngine {
       }
     } catch (err) {
       if (this.disposed || this.generation !== myGeneration) return;
+      if (err instanceof DecodeWorkerRestartedError) {
+        // The worker was replaced under this seek: ask again (unless a newer one is waiting).
+        this.seekTarget ??= clamped;
+        return;
+      }
       log.error('seek failed', { message: err instanceof Error ? err.message : String(err) });
       this.callbacks.onError?.(err instanceof Error ? err.message : String(err));
     }
@@ -2293,7 +2314,11 @@ export class LayerPreviewEngine {
     };
   }
 
-  /** A stage passed {@link STAGE_STUCK_MS}: say which, and where the decode worker is. */
+  /**
+   * A stage passed {@link STAGE_STUCK_MS}: say which, and where the decode worker is. A stuck
+   * decode then restarts the worker, so the monitor recovers instead of holding its picture
+   * until the editor is reloaded; the seek and windows it held are asked again.
+   */
   private reportStuck(stuck: readonly StageSnapshot[]): void {
     const named = stuck.map((s) => `${s.stage} [${s.detail}] ${Math.round(s.ageMs)} ms`);
     const silentForMs = this.client.debugTraffic().silentForMs;
@@ -2301,6 +2326,7 @@ export class LayerPreviewEngine {
       stages: named,
       workerSilentForMs: silentForMs === null ? null : Math.round(silentForMs),
     });
+    const decodeStuck = stuck.some((stage) => stage.stage === 'decode');
     void this.client
       .debugStages(WORKER_STAGES_TIMEOUT_MS)
       .then((sessions) => {
@@ -2316,7 +2342,20 @@ export class LayerPreviewEngine {
                 ),
         });
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      // After the report, so the worker's own account of where it is is read first.
+      .finally(() => {
+        if (!decodeStuck || this.disposed) return;
+        const now = performance.now();
+        if (
+          this.lastWorkerRestartMs !== null &&
+          now - this.lastWorkerRestartMs < WORKER_RESTART_INTERVAL_MS
+        ) {
+          return;
+        }
+        this.lastWorkerRestartMs = now;
+        this.client.restart(`a decode call has not settled (${named.join('; ')})`);
+      });
   }
 
   /** The last presented picture layers, back to front (the PX4 oracle's frame identity). */
