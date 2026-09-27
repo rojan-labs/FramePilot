@@ -439,15 +439,16 @@ describe('LayerPreviewEngine text during playback', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
       const engine = new LayerPreviewEngine(canvas());
-      const opened = engine.setProject(project({ timeline: timeline([captionTrack]) }));
+      void engine.setProject(project({ timeline: timeline([captionTrack]) }));
       await vi.advanceTimersByTimeAsync(100);
       // The paused frame waits for its caption (exact), so nothing is presented yet...
       expect(compositor.renders).toHaveLength(0);
       // ...but not forever: a sidecar that never answers leaves the frame shown without it.
       await vi.advanceTimersByTimeAsync(1_500);
-      await opened;
       expect(compositor.renders).toHaveLength(1);
+      // Playback is not held by the seek still waiting for that text.
       await engine.play();
+      expect(engine.isPlaying).toBe(true);
       for (const t of [0, 0.034, 0.067, 0.1]) {
         refresh(t);
         await vi.advanceTimersByTimeAsync(1);
@@ -457,6 +458,46 @@ describe('LayerPreviewEngine text during playback', () => {
       expect(engine.debugStats().textSkipped).toBeGreaterThan(0);
       // The cue's frames were asked for ahead of the playhead, as a window.
       expect(asked.some((req) => (req.frameTimes?.length ?? 0) > 1)).toBe(true);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('resolves a paused seek only once its late caption is drawn (a parity read waits for it)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      (window as unknown as { __fpTextRasterSource: unknown }).__fpTextRasterSource = (
+        req: PreviewTextRasterRequest,
+      ) =>
+        new Promise<PreviewTextRasterResult>((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                ok: true,
+                width: 1,
+                height: 1,
+                rgba: new Uint8Array([Math.round((req.frameTime ?? 0) * 30), 0, 0, 255]),
+                x: 0,
+                y: 0,
+                animated: true,
+              }),
+            2_000,
+          ),
+        );
+      const engine = new LayerPreviewEngine(canvas());
+      let opened = false;
+      void engine.setProject(project({ timeline: timeline([captionTrack]) })).then(() => {
+        opened = true;
+      });
+      // Shown without the caption at 1.5 s, but the seek is not done yet.
+      await vi.advanceTimersByTimeAsync(1_600);
+      expect(compositor.renders).toHaveLength(1);
+      expect(opened).toBe(false);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(opened).toBe(true);
+      const last = compositor.renders.at(-1)!.layers as { kind: string }[];
+      expect(last.some((layer) => layer.kind === 'raster')).toBe(true);
       engine.dispose();
     } finally {
       vi.useRealTimers();

@@ -158,6 +158,8 @@ const CUT_PREFETCH_HORIZON_SEC = 1.5;
  * is shown without the late text, and shown again exactly when it lands.
  */
 const SEEK_TEXT_WAIT_MS = 1_500;
+/** How often a paused frame shown without its late text checks whether it should stop waiting. */
+const TEXT_RECHECK_MS = 250;
 /**
  * Sound changes while playing (sources' tracks finishing decoding, an edit, a solo) are handed
  * over together after this long: each handover rebuilds the whole remaining mix on the main
@@ -1845,10 +1847,13 @@ export class LayerPreviewEngine {
             atSec: clamped,
             waitedMs: SEEK_TEXT_WAIT_MS,
           });
-          void texts.then(() => {
+          // The seek resolves once the frame is exact (a parity read awaits it), but playback or
+          // a newer seek stops the wait: a sidecar that never answers holds nobody up.
+          while (!(await settlesWithin(texts, TEXT_RECHECK_MS))) {
             if (this.disposed || this.playing || this.generation !== myGeneration) return;
-            this.present(current, clamped, true, true);
-          });
+          }
+          if (this.disposed || this.playing || this.generation !== myGeneration) return;
+          this.present(current, clamped, true, true);
         }
         this.evict(
           new Set([
