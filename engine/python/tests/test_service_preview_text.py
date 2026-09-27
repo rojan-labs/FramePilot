@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 from framepilot_engine.config import Settings
@@ -282,3 +283,171 @@ def test_a_styled_caption_without_its_span_is_refused(tmp_path: Path) -> None:
         },
     )
     assert response.status_code == 422
+
+
+# --- caption frames: one build, a window of frames, each exactly the single-frame raster ---------
+
+
+def _decode_frames(body: bytes) -> tuple[dict[str, object], list[dict[str, object]]]:
+    """Split ``POST /preview/caption-frames``'s binary body into its header and rasters."""
+    import json
+    import struct
+
+    (length,) = struct.unpack(">I", body[:4])
+    header = json.loads(body[4 : 4 + length])
+    payload = body[4 + length :]
+    rasters: list[dict[str, object]] = []
+    for described in header["rasters"]:
+        start, size = described["rgba"]
+        rgba = np.frombuffer(payload[start : start + size], dtype=np.uint8).reshape(
+            described["height"], described["width"], 4
+        )
+        backdrop = None
+        if described["backdrop"] is not None:
+            b_start, b_size = described["backdrop"]
+            backdrop = np.frombuffer(payload[b_start : b_start + b_size], dtype=np.uint8)
+        rasters.append({**described, "pixels": rgba, "coverage": backdrop})
+    return header, rasters
+
+
+def _frames_request(style: Mapping[str, object], times: list[float], size: tuple[int, int]) -> dict:
+    return {
+        "text": "top 1% of motion",
+        "track_style": style,
+        "words": _WORDS,
+        "clip_start": 1.0,
+        "clip_end": 2.5,
+        "frame_times": times,
+        "frame_width": size[0],
+        "frame_height": size[1],
+    }
+
+
+def test_caption_frames_are_the_single_frame_rasters_from_one_build(tmp_path: Path) -> None:
+    """Every frame of a window is byte-identical to asking for that frame alone."""
+    from framepilot_engine.render.preview_text import CAPTION_LAYER_CACHE
+
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    style = {"templateId": "karaoke"}
+    size = (640, 360)
+    times = [1.0 + n / 30 for n in range(0, 45, 3)]
+    misses_before = CAPTION_LAYER_CACHE.misses
+    response = client.post("/preview/caption-frames", json=_frames_request(style, times, size))
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/octet-stream"
+    header, rasters = _decode_frames(response.content)
+    assert header["animated"] is True
+    index = header["index"]
+    assert isinstance(index, list) and len(index) == len(times)
+    # One build served the whole window.
+    assert CAPTION_LAYER_CACHE.misses == misses_before + 1
+    for at, slot in zip(times, index, strict=True):
+        single = client.post(
+            "/preview/text-raster",
+            json={
+                "kind": "caption",
+                "text": "top 1% of motion",
+                "track_style": style,
+                "words": _WORDS,
+                "clip_start": 1.0,
+                "clip_end": 2.5,
+                "frame_time": at,
+                "frame_width": size[0],
+                "frame_height": size[1],
+            },
+        ).json()
+        raster = rasters[slot]
+        assert np.array_equal(raster["pixels"], _pixels(single)), at
+        assert (raster["x"], raster["y"]) == (single["x"], single["y"])
+    # The single-frame asks borrowed the same layer rather than building their own.
+    assert CAPTION_LAYER_CACHE.misses == misses_before + 1
+
+
+def test_cached_layer_samples_equal_a_fresh_build(tmp_path: Path) -> None:
+    """The cache changes no pixel: a borrowed layer equals one built from scratch per frame."""
+    from framepilot_engine.render.preview_text import CAPTION_LAYER_CACHE, styled_caption_frames
+
+    style = {"templateId": "pop"}
+    times = [1.05, 1.35, 1.35, 1.9, 2.45]
+    kwargs = {
+        "text": "top 1% of motion",
+        "words": _WORDS,
+        "track_style": style,
+        "clip_style": None,
+        "clip_start": 1.0,
+        "clip_end": 2.5,
+        "frame_width": 480,
+        "frame_height": 270,
+    }
+    batch = styled_caption_frames(**kwargs, frame_times=times)
+    # A repeated time is the same raster, not a second copy.
+    assert batch.index[1] == batch.index[2]
+    for at, slot in zip(times, batch.index, strict=True):
+        CAPTION_LAYER_CACHE.clear()
+        (fresh,) = styled_caption_frames(**kwargs, frame_times=[at]).rasters
+        assert np.array_equal(batch.rasters[slot].rgba, fresh.rgba), at
+        assert (batch.rasters[slot].x, batch.rasters[slot].y) == (fresh.x, fresh.y)
+
+
+def test_a_still_cue_is_one_raster_for_every_frame(tmp_path: Path) -> None:
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    static = {"fontFamily": "Inter", "fontWeight": 800, "position": "bottom"}
+    times = [1.0 + n / 30 for n in range(20)]
+    response = client.post(
+        "/preview/caption-frames", json=_frames_request(static, times, (640, 360))
+    )
+    assert response.status_code == 200, response.text
+    header, rasters = _decode_frames(response.content)
+    assert header["animated"] is False
+    assert len(rasters) == 1 and header["index"] == [0] * len(times)
+
+
+def test_a_frosted_cue_carries_its_coverage_in_the_frames(tmp_path: Path) -> None:
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    response = client.post(
+        "/preview/caption-frames",
+        json=_frames_request({"templateId": "glass"}, [1.2, 1.5], (640, 360)),
+    )
+    assert response.status_code == 200, response.text
+    _, rasters = _decode_frames(response.content)
+    for raster in rasters:
+        coverage = raster["coverage"]
+        assert isinstance(coverage, np.ndarray)
+        assert coverage.size == int(raster["width"]) * int(raster["height"])  # type: ignore[call-overload]
+        assert float(raster["backdrop_sigma_px"]) > 0  # type: ignore[arg-type]
+
+
+def test_caption_frames_stop_at_the_byte_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A window too large for one answer is cut short; the caller asks for the rest later."""
+    from framepilot_engine.render import preview_text
+
+    monkeypatch.setattr(preview_text, "MAX_CAPTION_FRAMES_BYTES", 1)
+    frames = preview_text.styled_caption_frames(
+        text="top 1% of motion",
+        words=_WORDS,
+        track_style={"templateId": "karaoke"},
+        clip_style=None,
+        clip_start=1.0,
+        clip_end=2.5,
+        frame_width=480,
+        frame_height=270,
+        frame_times=[1.0, 1.4, 1.9, 2.3],
+    )
+    # The first distinct raster is always sent, so the answer is never empty.
+    assert len(frames.rasters) == 1
+    assert 1 <= len(frames.index) < 4
+
+
+def test_caption_frames_refuse_what_they_cannot_draw(tmp_path: Path) -> None:
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+    unstyled = _frames_request({}, [1.2], (640, 360))
+    unstyled.pop("track_style")
+    assert client.post("/preview/caption-frames", json=unstyled).status_code == 422
+    too_many = _frames_request({"templateId": "pop"}, [1.0] * 121, (640, 360))
+    assert client.post("/preview/caption-frames", json=too_many).status_code == 422
+    none = _frames_request({"templateId": "pop"}, [], (640, 360))
+    assert client.post("/preview/caption-frames", json=none).status_code == 422
+    empty_span = {**_frames_request({"templateId": "pop"}, [1.2], (640, 360)), "clip_end": 1.0}
+    assert client.post("/preview/caption-frames", json=empty_span).status_code == 422

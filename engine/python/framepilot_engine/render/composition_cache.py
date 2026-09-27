@@ -69,7 +69,14 @@ class CompositionCache:
         self,
         max_entries: int = MAX_CACHED_COMPOSITIONS,
         max_concurrent_builds: int = MAX_CONCURRENT_BUILDS,
+        *,
+        name: str = "composition",
+        hit_log_level: int = logging.INFO,
     ) -> None:
+        self._name = name
+        # A cache consulted several times a second (the monitor's caption layers) logs its hits
+        # at DEBUG; the INFO line is for the expensive compositions, where a hit is news.
+        self._hit_log_level = hit_log_level
         self._entries: OrderedDict[str, _Entry] = OrderedDict()
         self._guard = threading.Condition()
         self._max_entries = max(1, max_entries)
@@ -98,7 +105,7 @@ class CompositionCache:
             self._entries.move_to_end(key)
             entry.pinned += 1
             self.hits += 1
-            _log.info("ACT composition cache hit: key=%s", key[:12])
+            _log.log(self._hit_log_level, "ACT %s cache hit: key=%s", self._name, key[:12])
             return entry
 
     def _build_and_install(self, key: str, build: Callable[[], Any]) -> _Entry:
