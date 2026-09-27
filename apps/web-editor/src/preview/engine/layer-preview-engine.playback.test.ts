@@ -1,0 +1,483 @@
+/**
+ * Playback and transport behaviour of the layer compositor's engine: the parts a user feels as
+ * "stuck" — pausing and resuming where you stopped, edits and seeks while playing, scrubbing, and
+ * text that has not arrived yet. The decode worker, the GPU compositor and Web Audio are fakes;
+ * the planning, caching and scheduling are the engine's own.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Asset, Timeline } from '@framepilot/timeline-schema';
+import type { PreviewTextRasterRequest, PreviewTextRasterResult } from '@framepilot/shared-types';
+import type { LayerEngineProject } from './layer-preview-engine.js';
+
+// --- fakes -------------------------------------------------------------------------------------
+
+interface DecodeCall {
+  readonly assetId: string;
+  readonly from: number;
+  readonly to: number;
+  resolve: () => void;
+}
+
+const decoder = vi.hoisted(() => ({
+  calls: [] as DecodeCall[],
+  /** Answer decodes at once (true) or hold them until the test resolves them. */
+  immediate: true,
+  /** The size the fake decoder hands frames back at (a proxy of a portrait clip is upright). */
+  size: { width: 64, height: 36 },
+}));
+
+vi.mock('../decode/worker-client.js', () => {
+  class DecodeWorkerClient {
+    async loadSource() {
+      return {
+        frameCount: 300,
+        frameRate: 30,
+        frameDurationUs: 33_333,
+        frameTimesSec: null,
+        presentationTimestampsUs: Array.from({ length: 300 }, (_, i) => Math.round(i * 33_333)),
+        fileBytes: new ArrayBuffer(0),
+      };
+    }
+    decodePictures(assetId: string, from: number, to: number) {
+      const { width, height } = decoder.size;
+      const answer = {
+        pictures: Array.from({ length: to - from + 1 }, (_, i) => ({
+          chunkIndex: from + i,
+          timestampUs: Math.round((from + i) * 33_333),
+          picture: {
+            kind: 'i420' as const,
+            width,
+            height,
+            y: new Uint8Array(width * height),
+            u: new Uint8Array((width * height) / 4),
+            v: new Uint8Array((width * height) / 4),
+            matrix: null,
+            fullRange: null,
+            byteLength: (width * height * 3) / 2,
+          },
+        })),
+      };
+      return new Promise((resolve) => {
+        const call: DecodeCall = { assetId, from, to, resolve: () => resolve(answer) };
+        decoder.calls.push(call);
+        if (decoder.immediate) call.resolve();
+      });
+    }
+    releasePicture() {}
+    closeFrame() {}
+    async unloadSource() {}
+    dispose() {}
+    debugTraffic() {
+      return { silentForMs: null, sent: [], received: [], pending: [] };
+    }
+    async debugStages() {
+      return [];
+    }
+    async decoderPoolStats() {
+      return { liveDecoders: 0, peakLiveDecoders: 0 };
+    }
+  }
+  return { DecodeWorkerClient };
+});
+
+vi.mock('../decode/matte-decode-pool.js', () => ({
+  MatteDecodePool: class {
+    dispose() {}
+  },
+}));
+
+const compositor = vi.hoisted(() => ({
+  renders: [] as { layers: readonly unknown[] }[],
+}));
+
+vi.mock('./layer-compositor.js', () => ({
+  LayerCompositor: class {
+    setTelemetry() {}
+    setLuts() {}
+    dispose() {}
+    render(size: { width: number; height: number }, layers: readonly unknown[]) {
+      compositor.renders.push({ layers });
+      return new ImageData(
+        new Uint8ClampedArray(size.width * size.height * 4),
+        size.width,
+        size.height,
+      );
+    }
+  },
+}));
+
+vi.mock('./raster/sws-host.js', () => ({ configureSwsUnscaledConverterFromHost: async () => {} }));
+
+vi.mock('../masks/mask-stack.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../masks/mask-stack.js')>()),
+  configureLegacyMaskArithmeticFromHost: async () => {},
+}));
+
+vi.mock('./text-raster.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./text-raster.js')>()),
+  loadExportTextFont: async () => false,
+}));
+
+vi.mock('../audio/program-audio.js', () => ({
+  ProgramAudio: class {
+    async retain() {}
+    segmentsFrom() {
+      return [];
+    }
+    dispose() {}
+  },
+}));
+
+const clock = vi.hoisted(() => ({
+  nowUs: 0,
+  scheduled: [] as number[],
+  handovers: 0,
+}));
+
+vi.mock('../clock/audio-clock.js', () => ({
+  AudioMasterClock: class {
+    contextState = 'running';
+    setGain() {}
+    async start() {}
+    clear() {}
+    scheduleSegments(_segments: unknown, mediaStartUs: number) {
+      clock.scheduled.push(mediaStartUs);
+      clock.nowUs = mediaStartUs;
+    }
+    rescheduleContinuous() {
+      clock.handovers++;
+    }
+    nowMediaUs() {
+      return clock.nowUs;
+    }
+  },
+}));
+
+class FakeImageData {
+  constructor(
+    readonly data: Uint8ClampedArray,
+    readonly width: number,
+    readonly height: number,
+  ) {}
+}
+
+class FakeAudioContext {
+  state = 'running';
+  onstatechange: (() => void) | null = null;
+  async decodeAudioData(): Promise<AudioBuffer> {
+    throw new Error('no audio');
+  }
+  async close() {}
+}
+
+let frameCallbacks: FrameRequestCallback[] = [];
+/** Run one display refresh at `timeSec` on the audio clock. */
+function refresh(timeSec: number): void {
+  clock.nowUs = Math.round(timeSec * 1_000_000);
+  const pending = frameCallbacks;
+  frameCallbacks = [];
+  for (const callback of pending) callback(0);
+}
+
+vi.stubGlobal('ImageData', FakeImageData);
+vi.stubGlobal('AudioContext', FakeAudioContext);
+vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+  frameCallbacks.push(callback);
+  return frameCallbacks.length;
+});
+vi.stubGlobal('cancelAnimationFrame', () => {
+  frameCallbacks = [];
+});
+
+const { LayerPreviewEngine } = await import('./layer-preview-engine.js');
+const { mediaSrc } = await import('../../editor/media.js');
+
+// --- fixtures ----------------------------------------------------------------------------------
+
+function canvas(): HTMLCanvasElement {
+  const ctx = {
+    canvas: { width: 64, height: 36 },
+    save() {},
+    restore() {},
+    putImageData() {},
+    drawImage() {},
+    globalCompositeOperation: 'source-over',
+    imageSmoothingEnabled: true,
+    globalAlpha: 1,
+    filter: 'none',
+  };
+  return { getContext: () => ctx } as unknown as HTMLCanvasElement;
+}
+
+const videoAsset = (media: Record<string, unknown> = {}): Asset =>
+  ({
+    id: 'a',
+    path: 'camera.mov',
+    kind: 'video',
+    durationSeconds: 10,
+    media: { width: 64, height: 36, fps: 30, ...media },
+  }) as unknown as Asset;
+
+const clip = (id: string, start: number, end: number, extra: Record<string, unknown> = {}) => ({
+  id,
+  assetId: 'a',
+  trackId: 'v1',
+  start,
+  end,
+  sourceStart: start,
+  sourceEnd: end,
+  effects: [],
+  keyframes: [],
+  ...extra,
+});
+
+function timeline(extraTracks: unknown[] = []): Timeline {
+  return {
+    tracks: [{ id: 'v1', type: 'video', clips: [clip('c1', 0, 10)] }, ...extraTracks],
+  } as unknown as Timeline;
+}
+
+function project(
+  overrides: { asset?: Asset; timeline?: Timeline; url?: string } = {},
+): LayerEngineProject {
+  const asset = overrides.asset ?? videoAsset();
+  return {
+    timeline: overrides.timeline ?? timeline(),
+    assets: [asset],
+    mediaUrls: new Map([['a', overrides.url ?? mediaSrc(asset.path)]]),
+    projectResolution: { width: 64, height: 36 },
+    canvasSize: { width: 64, height: 36 },
+    projectFps: 30,
+    burnCaptions: true,
+  };
+}
+
+const settle = async (): Promise<void> => {
+  for (let i = 0; i < 20; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+};
+
+beforeEach(() => {
+  decoder.calls = [];
+  decoder.immediate = true;
+  decoder.size = { width: 64, height: 36 };
+  compositor.renders = [];
+  clock.nowUs = 0;
+  clock.scheduled = [];
+  clock.handovers = 0;
+  frameCallbacks = [];
+});
+
+afterEach(() => {
+  delete (window as unknown as { __fpTextRasterSource?: unknown }).__fpTextRasterSource;
+});
+
+// --- tests -------------------------------------------------------------------------------------
+
+describe('LayerPreviewEngine transport', () => {
+  it('pauses where playback stopped and resumes from there', async () => {
+    const engine = new LayerPreviewEngine(canvas());
+    await engine.setProject(project());
+    await engine.play();
+    refresh(3.2);
+    engine.pause();
+    expect(engine.currentTimeSec).toBeCloseTo(3.2, 6);
+    await settle();
+    await engine.play();
+    // Resumed at the pause, not at 0 where the first play began.
+    expect(clock.scheduled.at(-1)).toBe(3_200_000);
+    engine.dispose();
+  });
+
+  it('keeps playing through a project change and hands the sound over', async () => {
+    const playing = vi.fn();
+    const engine = new LayerPreviewEngine(canvas(), { onPlayingChange: playing });
+    await engine.setProject(project());
+    await engine.play();
+    refresh(1);
+    await engine.setProject(project({ timeline: timeline() }));
+    expect(engine.isPlaying).toBe(true);
+    expect(playing).not.toHaveBeenCalledWith(false);
+    expect(clock.handovers).toBeGreaterThan(0);
+    engine.dispose();
+  });
+
+  it('continues playback from a seek made while playing', async () => {
+    const playing = vi.fn();
+    const times = vi.fn();
+    const engine = new LayerPreviewEngine(canvas(), {
+      onPlayingChange: playing,
+      onTimeUpdate: times,
+    });
+    await engine.setProject(project());
+    await engine.play();
+    refresh(1);
+    await engine.seek(6);
+    expect(engine.isPlaying).toBe(true);
+    expect(playing).not.toHaveBeenCalledWith(false);
+    expect(clock.scheduled.at(-1)).toBe(6_000_000);
+    expect(times).toHaveBeenLastCalledWith(6);
+    engine.dispose();
+  });
+
+  it('serves a burst of paused seeks one at a time, latest wins', async () => {
+    const engine = new LayerPreviewEngine(canvas());
+    await engine.setProject(project());
+    decoder.calls = [];
+    decoder.immediate = false;
+    const done = [1, 2, 3, 4].map((t) => engine.seek(t));
+    await settle();
+    // Only the first seek is decoding; the ones behind it collapsed into the latest.
+    expect(decoder.calls.map((call) => call.from)).toEqual([30]);
+    decoder.calls[0]!.resolve();
+    await settle();
+    expect(decoder.calls.map((call) => call.from)).toEqual([30, 120]);
+    decoder.calls[1]!.resolve();
+    await Promise.all(done);
+    expect(engine.currentTimeSec).toBe(4);
+    engine.dispose();
+  });
+
+  it('does no planning or compositing on a refresh inside a frame already shown', async () => {
+    const engine = new LayerPreviewEngine(canvas());
+    await engine.setProject(project());
+    await engine.play();
+    refresh(1);
+    await settle();
+    refresh(1.001);
+    const renders = compositor.renders.length;
+    const decodes = decoder.calls.length;
+    refresh(1.002);
+    refresh(1.003);
+    expect(compositor.renders.length).toBe(renders);
+    expect(decoder.calls.length).toBe(decodes);
+    expect(engine.debugStats().ticks).toBeGreaterThanOrEqual(4);
+    engine.dispose();
+  });
+});
+
+describe('LayerPreviewEngine text during playback', () => {
+  const captionTrack = {
+    id: 'cap',
+    type: 'caption',
+    captionStyle: { templateId: 'karaoke' },
+    clips: [
+      {
+        id: 'cue',
+        assetId: '__caption__',
+        trackId: 'cap',
+        start: 0,
+        end: 5,
+        sourceStart: 0,
+        sourceEnd: 5,
+        effects: [],
+        keyframes: [],
+        captionCue: {
+          text: 'hello there',
+          words: [
+            { word: 'hello', start: 0, end: 1 },
+            { word: 'there', start: 1, end: 2 },
+          ],
+        },
+      },
+    ],
+  };
+
+  it('never holds the playback picture for a caption that has not arrived', async () => {
+    const asked: PreviewTextRasterRequest[] = [];
+    (window as unknown as { __fpTextRasterSource: unknown }).__fpTextRasterSource = (
+      req: PreviewTextRasterRequest,
+    ) => {
+      asked.push(req);
+      return new Promise<PreviewTextRasterResult>(() => {});
+    };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const engine = new LayerPreviewEngine(canvas());
+      const opened = engine.setProject(project({ timeline: timeline([captionTrack]) }));
+      await vi.advanceTimersByTimeAsync(100);
+      // The paused frame waits for its caption (exact), so nothing is presented yet...
+      expect(compositor.renders).toHaveLength(0);
+      // ...but not forever: a sidecar that never answers leaves the frame shown without it.
+      await vi.advanceTimersByTimeAsync(1_500);
+      await opened;
+      expect(compositor.renders).toHaveLength(1);
+      await engine.play();
+      for (const t of [0, 0.034, 0.067, 0.1]) {
+        refresh(t);
+        await vi.advanceTimersByTimeAsync(1);
+      }
+      // Playback moves on: frames are composited without the caption, and counted.
+      expect(compositor.renders.length).toBeGreaterThan(1);
+      expect(engine.debugStats().textSkipped).toBeGreaterThan(0);
+      // The cue's frames were asked for ahead of the playhead, as a window.
+      expect(asked.some((req) => (req.frameTimes?.length ?? 0) > 1)).toBe(true);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('draws a caption frame that has not arrived with the nearest one of its cue', async () => {
+    const FPS = 30;
+    (window as unknown as { __fpTextRasterSource: unknown }).__fpTextRasterSource = async (
+      req: PreviewTextRasterRequest,
+    ): Promise<PreviewTextRasterResult> => {
+      const times = req.frameTimes ?? [req.frameTime ?? 0];
+      // Only frames up to 0.5 s ever arrive (a slow window past that).
+      const drawn = times.filter((t) => t <= 0.5);
+      const raster = (t: number) => ({
+        width: 1,
+        height: 1,
+        rgba: new Uint8Array([Math.round(t * FPS), 0, 0, 255]),
+        x: 0,
+        y: 0,
+      });
+      if (drawn.length === 0) return new Promise<PreviewTextRasterResult>(() => {});
+      return {
+        ok: true,
+        ...raster(drawn[0]!),
+        animated: true,
+        ...(req.frameTimes
+          ? { sequence: { index: drawn.map((_, i) => i), rasters: drawn.map(raster) } }
+          : {}),
+      };
+    };
+    const engine = new LayerPreviewEngine(canvas());
+    await engine.setProject(project({ timeline: timeline([captionTrack]) }));
+    await engine.play();
+    for (let frame = 0; frame <= 24; frame++) {
+      refresh(frame / FPS);
+      await settle();
+    }
+    const last = compositor.renders.at(-1)!.layers as {
+      kind: string;
+      image?: { data: Uint8ClampedArray };
+    }[];
+    const caption = last.find((layer) => layer.kind === 'raster');
+    // Frame 24 never arrived: the cue's frame 15 (0.5 s) stands in, and the picture kept moving.
+    expect(caption?.image?.data[0]).toBe(15);
+    expect(engine.debugStats().textStale).toBeGreaterThan(0);
+    engine.dispose();
+  });
+});
+
+describe('LayerPreviewEngine rotated footage', () => {
+  it('turns an original file’s planes upright but not its (already upright) proxy’s', async () => {
+    const asset = videoAsset({ rotation: 90, proxyPath: 'proxies/a.mp4', width: 36, height: 64 });
+    decoder.size = { width: 36, height: 64 };
+    const viaProxy = new LayerPreviewEngine(canvas());
+    await viaProxy.setProject(project({ asset, url: mediaSrc('proxies/a.mp4') }));
+    const proxyPicture = viaProxy.debugPresentedPictures()[0];
+    viaProxy.dispose();
+
+    decoder.size = { width: 64, height: 36 };
+    const viaOriginal = new LayerPreviewEngine(canvas());
+    await viaOriginal.setProject(project({ asset }));
+    const originalPicture = viaOriginal.debugPresentedPictures()[0];
+    viaOriginal.dispose();
+
+    // The proxy was decoded upright (36x64) and stays so; the original's stored 64x36 is turned.
+    expect(proxyPicture).toMatchObject({ size: '36x64' });
+    expect(originalPicture).toMatchObject({ size: '36x64' });
+  });
+});
