@@ -182,7 +182,7 @@ export function demuxAllVideoSamples(
     // would map ~2 frames early. Subtracting the minimum cts re-anchors both
     // the tables AND the chunk timestamps (which the decoder copies verbatim
     // onto output frames, keeping the output↔table lookup consistent).
-    const minCtsUs = Math.min(...sampleMeta.map((m) => m.ctsUs));
+    const minCtsUs = earliestCtsUs(sampleMeta);
     const chunks = rawInits.map((init) =>
       chunkFactory({ ...init, timestamp: init.timestamp - minCtsUs }),
     );
@@ -416,7 +416,7 @@ export async function demuxSampleTableStreaming(
     ctsUs: Math.round((sample.cts * 1_000_000) / sample.timescale),
     isSync: Boolean(sample.is_sync),
   }));
-  const minCtsUs = Math.min(...meta.map((m) => m.ctsUs));
+  const minCtsUs = earliestCtsUs(meta);
   const normalizedMeta = meta.map((m) => ({ ctsUs: m.ctsUs - minCtsUs, isSync: m.isSync }));
   return {
     config,
@@ -435,4 +435,15 @@ export async function demuxSampleTableStreaming(
     })),
     ...buildPresentationTables(normalizedMeta),
   };
+}
+
+/**
+ * The earliest composition time among `samples`, by a loop: spreading a whole sample table into
+ * `Math.min` passes one argument per sample, which throws a RangeError past V8's argument
+ * limit (between 100k and 125k samples: about 35 minutes of 60 fps video).
+ */
+export function earliestCtsUs(samples: readonly { readonly ctsUs: number }[]): number {
+  let min = Infinity;
+  for (const sample of samples) if (sample.ctsUs < min) min = sample.ctsUs;
+  return min;
 }
