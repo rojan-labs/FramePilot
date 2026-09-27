@@ -275,7 +275,11 @@ describe('styled caption windows (playback)', () => {
     const source = vi.fn(async (req: PreviewTextRasterRequest) =>
       down ? { ok: false as const, error: 'timeout', transient: true } : healthy(req),
     );
-    const store = new EngineTextRasters(source, approximate, () => clock);
+    // Retries wait on the test's own clock, a second each.
+    const wait = async (ms: number): Promise<void> => {
+      clock += ms;
+    };
+    const store = new EngineTextRasters(source, approximate, () => clock, wait);
     store.setFrameRate(FPS);
     store.prefetch(cue(0), [30, 31], 30);
     await settle();
@@ -283,23 +287,30 @@ describe('styled caption windows (playback)', () => {
     store.prefetch(cue(0), [32, 33], 32);
     await settle();
     // One timeout: the cue keeps drawing its own (stale) raster, not the plain caption.
+    store.beginFrame();
     expect(store.lookup(cue(33 / FPS), 'playback').state).toBe('ready');
+    store.endFrame(true);
     expect(approximate).not.toHaveBeenCalledWith(true);
-    // A paused frame of a cue with nothing held, after three timeouts in a row, falls back.
+    // A paused frame of a cue with nothing held: ensure asks again until three timeouts in a
+    // row, then the frame is drawn approximate (and may recover), never left undrawn.
     const other = (t: number) => ({ ...cue(t), text: 'another cue' });
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await store.ensure([other(2)]);
-      clock += 1_500;
-    }
-    clock -= 1_500;
+    const asked = source.mock.calls.length;
+    await store.ensure([other(2)]);
+    expect(source.mock.calls.length - asked).toBe(3);
+    store.beginFrame();
     expect(store.lookup(other(2)).state).toBe('fallback');
+    store.endFrame(true);
     expect(approximate).toHaveBeenLastCalledWith(true);
-    // Back up: the next ask succeeds and the monitor stops saying it is approximate.
+    expect(store.shownFrameCouldRecover()).toBe(true);
+    // Back up: the next ask succeeds, and the next frame drawn says it is exact again.
     down = false;
     clock += 1_500;
     await store.ensure([other(2)]);
+    store.beginFrame();
     expect(store.lookup(other(2)).state).toBe('ready');
+    store.endFrame(true);
     expect(approximate).toHaveBeenLastCalledWith(false);
+    expect(store.shownFrameCouldRecover()).toBe(false);
   });
 
   it('falls back at once when the engine refuses the cue', async () => {

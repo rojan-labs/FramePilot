@@ -57,6 +57,13 @@ const CUE_WINDOW_FRAMES = Math.min(15, PREVIEW_CAPTION_MAX_FRAMES);
 const MAX_SINGLES_IN_FLIGHT = 4;
 /** How far back from its frame a playback lookup looks for a stand-in raster of the same cue. */
 const MAX_STALE_FRAMES = 240;
+/**
+ * Seconds of a cue's frames kept around the playhead: one behind (a short rewind) and three ahead
+ * (the two-second prefetch horizon and a margin). Stepping backward through a long cue while
+ * paused would otherwise keep every frame ahead of it.
+ */
+const KEEP_BEHIND_SEC = 1;
+const KEEP_AHEAD_SEC = 3;
 /** Frame-index slack when deciding whether a time is on the project frame grid. */
 const GRID_EPSILON_FRAMES = 1e-3;
 
@@ -181,9 +188,15 @@ export class EngineTextRasters {
   private readonly inFlight = new Map<string, Promise<void>>();
   /** Failures by request key (singles) or static key (cues). */
   private readonly failures = new Map<string, Failure>();
-  /** Keys whose lookup is currently answered with the approximate fallback. */
-  private readonly fallbackKeys = new Set<string>();
   private approximate = false;
+  /**
+   * Between {@link beginFrame} and {@link endFrame}: whether this frame drew any approximate text,
+   * and whether any of it was for a failure worth asking again (not a refusal, not "no engine").
+   */
+  private framing = false;
+  private frameFallback = false;
+  private frameRetryable = false;
+  private lastFrameRetryable = false;
   private frameRate = 0;
   private useCounter = 0;
   private windowsInFlight = 0;
@@ -195,7 +208,36 @@ export class EngineTextRasters {
     private readonly source: TextRasterSource | null,
     private readonly onApproximateChange: (approximate: boolean) => void = () => {},
     private readonly now: () => number = () => Date.now(),
+    /** Waits between retries of a transient failure (a timer seam for tests). */
+    private readonly wait: (ms: number) => Promise<void> = (ms) =>
+      new Promise((resolve) => setTimeout(resolve, ms)),
   ) {}
+
+  /**
+   * The lookups of one composited frame follow; {@link endFrame} then sets "approximate" from what
+   * that frame drew, so the monitor says it exactly while such a frame is on screen.
+   */
+  beginFrame(): void {
+    this.framing = true;
+    this.frameFallback = false;
+    this.frameRetryable = false;
+  }
+
+  /** @param shown - The frame reached the monitor (a frame abandoned for a missing picture did not). */
+  endFrame(shown: boolean): void {
+    this.framing = false;
+    if (!shown) return;
+    this.lastFrameRetryable = this.frameRetryable;
+    this.setApproximate(this.frameFallback);
+  }
+
+  /**
+   * Whether the frame on screen drew approximate text for an engine that was unreachable or slow:
+   * asking again later may give the exact text.
+   */
+  shownFrameCouldRecover(): boolean {
+    return this.lastFrameRetryable;
+  }
 
   /** The project frame rate: playback asks for `k / fps`, and cue frames are kept by `k`. */
   setFrameRate(fps: number): void {
@@ -222,7 +264,7 @@ export class EngineTextRasters {
   }
 
   lookup(req: PreviewTextRasterRequest, mode: TextRasterLookupMode = 'exact'): TextRasterLookup {
-    if (this.source === null) return this.fallback('no-engine');
+    if (this.source === null) return this.fallback(null);
     if (!movesWithTime(req)) return this.lookupSingle(textRasterKey(req), req);
     const staticKey = staticTextRasterKey(req);
     const cue = this.cues.get(staticKey);
@@ -230,10 +272,7 @@ export class EngineTextRasters {
     const frameTime = req.frameTime!;
     const frame = this.frameIndexOf(frameTime);
     const exact = this.heldFrame(cue, frame, req);
-    if (exact !== null) {
-      this.clearFallback(staticKey);
-      return { state: 'ready', raster: exact };
-    }
+    if (exact !== null) return { state: 'ready', raster: exact };
     const failure = this.activeFailure(staticKey);
     if (mode === 'playback') {
       // Heal a gap the scheduler has not covered (a seek into the middle of a cue, a window
@@ -243,17 +282,22 @@ export class EngineTextRasters {
       }
       const nearest = cue ? this.nearestFrame(cue, frame) : null;
       if (nearest !== null) return { state: 'ready', raster: nearest, stale: true };
-      if (failure !== null && this.showsFallback(failure)) return this.fallback(staticKey);
+      if (failure !== null && this.showsFallback(failure)) return this.fallback(failure);
       return { state: 'pending' };
     }
     if (failure !== null) {
-      return this.showsFallback(failure) ? this.fallback(staticKey) : { state: 'pending' };
+      return this.showsFallback(failure) ? this.fallback(failure) : { state: 'pending' };
     }
     void this.fetchSingleFrame(req);
     return { state: 'pending' };
   }
 
-  /** Resolve once every request is ready or has failed (a paused frame's exact rasters). */
+  /**
+   * Resolve once every request is ready or has settled on a failure (a paused frame's exact
+   * rasters). A transient failure is asked again, a second apart, until it succeeds or has failed
+   * {@link TRANSIENT_FAILURES_TO_FALL_BACK} times, so a paused frame is drawn either exact or
+   * visibly approximate: one timeout, or a sidecar still starting, no longer leaves it undrawn.
+   */
   async ensure(reqs: readonly PreviewTextRasterRequest[]): Promise<void> {
     if (this.source === null) return;
     const byCue = new Map<string, PreviewTextRasterRequest[]>();
@@ -261,20 +305,46 @@ export class EngineTextRasters {
     for (const req of reqs) {
       if (!movesWithTime(req)) {
         const key = textRasterKey(req);
-        if (this.singles.has(key) || this.activeFailure(key) !== null) continue;
-        waits.push(this.fetchSingle(key, req));
+        if (this.singles.has(key) || this.settledFailure(key)) continue;
+        waits.push(this.retrying(key, () => this.fetchSingle(key, req)));
         continue;
       }
       const staticKey = staticTextRasterKey(req);
       const cue = this.cues.get(staticKey);
       if (this.heldFrame(cue, this.frameIndexOf(req.frameTime!), req) !== null) continue;
-      if (this.activeFailure(staticKey) !== null) continue;
+      if (this.settledFailure(staticKey)) continue;
       const group = byCue.get(staticKey) ?? [];
       group.push(req);
       byCue.set(staticKey, group);
     }
-    for (const group of byCue.values()) waits.push(this.ensureCueFrames(group));
+    for (const [staticKey, group] of byCue) {
+      waits.push(this.retrying(staticKey, () => this.ensureCueFrames(group)));
+    }
     await Promise.all(waits);
+  }
+
+  /**
+   * `attempt`, and again after each transient failure of `key` (a second apart, counting from
+   * the failure) until it succeeds, is refused, or the streak reaches the fallback.
+   */
+  private async retrying(key: string, attempt: () => Promise<void>): Promise<void> {
+    for (;;) {
+      const before = this.failures.get(key);
+      if (before?.transient === true && before.count < TRANSIENT_FAILURES_TO_FALL_BACK) {
+        const elapsed = this.now() - before.at;
+        if (elapsed < RETRY_AFTER_TRANSIENT_MS) await this.wait(RETRY_AFTER_TRANSIENT_MS - elapsed);
+      }
+      await attempt();
+      const failure = this.failures.get(key);
+      if (failure === undefined || !failure.transient) return;
+      if (failure.count >= TRANSIENT_FAILURES_TO_FALL_BACK) return;
+    }
+  }
+
+  /** A failure still in force that a paused frame should show as approximate, not wait out. */
+  private settledFailure(key: string): boolean {
+    const failure = this.activeFailure(key);
+    return failure !== null && this.showsFallback(failure);
   }
 
   /**
@@ -293,7 +363,7 @@ export class EngineTextRasters {
     if (this.source === null || !movesWithTime({ ...req, frameTime: 0 })) return;
     if (this.frameRate <= 0) return;
     const staticKey = staticTextRasterKey(req);
-    if (playheadFrame !== null) this.releasePassedFrames(staticKey, playheadFrame);
+    if (playheadFrame !== null) this.releaseFramesAwayFrom(staticKey, playheadFrame);
     if (this.activeFailure(staticKey) !== null) return;
     this.prefetchFrames(req, frames);
   }
@@ -428,7 +498,6 @@ export class EngineTextRasters {
         return;
       }
       this.failures.delete(staticKey);
-      this.clearFallback(staticKey);
       const cue = this.cueOf(staticKey);
       if (result.animated !== true) {
         cue.still = toRaster(result);
@@ -477,14 +546,19 @@ export class EngineTextRasters {
     this.storeSingle(textRasterKey(req), raster);
   }
 
-  /** Drop a cue's frames more than a second behind the playhead (they are not shown again). */
-  private releasePassedFrames(staticKey: string, playheadFrame: number): void {
+  /**
+   * Drop a cue's frames outside {@link KEEP_BEHIND_SEC} behind and {@link KEEP_AHEAD_SEC} ahead of
+   * the playhead: frames it has passed are not shown again, and far-ahead ones are asked for again
+   * when the prefetch reaches them.
+   */
+  private releaseFramesAwayFrom(staticKey: string, playheadFrame: number): void {
     const cue = this.cues.get(staticKey);
     if (!cue || cue.frames.size === 0) return;
-    const keepFrom = playheadFrame - Math.max(1, Math.round(this.frameRate));
+    const keepFrom = playheadFrame - Math.max(1, Math.round(this.frameRate * KEEP_BEHIND_SEC));
+    const keepTo = playheadFrame + Math.max(1, Math.round(this.frameRate * KEEP_AHEAD_SEC));
     let dropped = false;
     for (const frame of cue.frames.keys()) {
-      if (frame >= keepFrom) continue;
+      if (frame >= keepFrom && frame <= keepTo) continue;
       cue.frames.delete(frame);
       dropped = true;
     }
@@ -508,12 +582,11 @@ export class EngineTextRasters {
     const held = this.singles.get(key);
     if (held) {
       held.lastUsed = ++this.useCounter;
-      this.clearFallback(key);
       return { state: 'ready', raster: held.raster };
     }
     const failure = this.activeFailure(key);
     if (failure !== null) {
-      return this.showsFallback(failure) ? this.fallback(key) : { state: 'pending' };
+      return this.showsFallback(failure) ? this.fallback(failure) : { state: 'pending' };
     }
     void this.fetchSingle(key, req);
     return { state: 'pending' };
@@ -529,7 +602,6 @@ export class EngineTextRasters {
         return;
       }
       this.failures.delete(key);
-      this.clearFallback(key);
       this.storeSingle(key, toRaster(result));
       this.makeRoom();
     })().finally(() => this.inFlight.delete(key));
@@ -593,15 +665,20 @@ export class EngineTextRasters {
     return !failure.transient || failure.count >= TRANSIENT_FAILURES_TO_FALL_BACK;
   }
 
-  private fallback(key: string): TextRasterLookup {
-    this.fallbackKeys.add(key);
-    this.setApproximate(true);
+  /**
+   * The approximate canvas raster stands in. Inside a frame it is noted for {@link endFrame};
+   * outside one (a caller not composing) the monitor is told at once.
+   *
+   * @param failure - Why, or `null` when there is no engine at all.
+   */
+  private fallback(failure: Failure | null): TextRasterLookup {
+    if (this.framing) {
+      this.frameFallback = true;
+      if (failure?.transient === true) this.frameRetryable = true;
+    } else {
+      this.setApproximate(true);
+    }
     return { state: 'fallback' };
-  }
-
-  private clearFallback(key: string): void {
-    if (!this.fallbackKeys.delete(key)) return;
-    if (this.fallbackKeys.size === 0) this.setApproximate(false);
   }
 
   /** Evict least recently used rasters until both bounds hold. */

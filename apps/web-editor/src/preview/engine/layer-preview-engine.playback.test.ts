@@ -18,6 +18,7 @@ interface DecodeCall {
   resolve: () => void;
   fail: (error: Error) => void;
   settled: boolean;
+  readonly startedAt: number;
 }
 
 const decoder = vi.hoisted(() => ({
@@ -79,6 +80,7 @@ vi.mock('../decode/worker-client.js', () => {
           assetId,
           from,
           to,
+          startedAt: performance.now(),
           settled: false,
           resolve: () => {
             call.settled = true;
@@ -103,7 +105,14 @@ vi.mock('../decode/worker-client.js', () => {
       return { silentForMs: null, sent: [], received: [], pending: [] };
     }
     async debugStages() {
-      return [];
+      // The worker's own account: each unanswered decode sits in a decode step.
+      return decoder.calls
+        .filter((call) => !call.settled)
+        .map((call) => ({
+          sourceId: call.assetId,
+          stage: 'await-output',
+          ageMs: performance.now() - call.startedAt,
+        }));
     }
     async decoderPoolStats() {
       return { liveDecoders: 0, peakLiveDecoders: 0 };
@@ -376,7 +385,7 @@ describe('LayerPreviewEngine transport', () => {
   });
 
   it('does not let one stalled paused seek hold the ones behind it', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
     try {
       const engine = new LayerPreviewEngine(canvas());
       await engine.setProject(project());
@@ -477,7 +486,7 @@ describe('LayerPreviewEngine text during playback', () => {
       asked.push(req);
       return new Promise<PreviewTextRasterResult>(() => {});
     };
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
     try {
       const engine = new LayerPreviewEngine(canvas());
       void engine.setProject(project({ timeline: timeline([captionTrack]) }));
@@ -506,7 +515,7 @@ describe('LayerPreviewEngine text during playback', () => {
   });
 
   it('resolves a paused seek only once its late caption is drawn (a parity read waits for it)', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
     try {
       (window as unknown as { __fpTextRasterSource: unknown }).__fpTextRasterSource = (
         req: PreviewTextRasterRequest,
@@ -590,7 +599,7 @@ describe('LayerPreviewEngine text during playback', () => {
 });
 
 describe('LayerPreviewEngine rotated footage', () => {
-  it('has the worker turn an original file upright, but not its (already upright) proxy', async () => {
+  it('gives the worker the asset’s rotation for its original and its proxy alike', async () => {
     const asset = videoAsset({ rotation: 90, proxyPath: 'proxies/a.mp4', width: 36, height: 64 });
     const viaProxy = new LayerPreviewEngine(canvas());
     await viaProxy.setProject(project({ asset, url: mediaSrc('proxies/a.mp4') }));
@@ -598,9 +607,10 @@ describe('LayerPreviewEngine rotated footage', () => {
     const viaOriginal = new LayerPreviewEngine(canvas());
     await viaOriginal.setProject(project({ asset }));
     viaOriginal.dispose();
-    // ffmpeg autorotated the proxy when it wrote it; only the original's planes need turning.
+    // The worker applies it only to a file whose own display matrix is turned (an original);
+    // a proxy ffmpeg autorotated carries none (see mp4-demuxer's displayRotationCw).
     expect(decoder.loads).toEqual([
-      { url: mediaSrc('proxies/a.mp4'), rotation: 0 },
+      { url: mediaSrc('proxies/a.mp4'), rotation: 90 },
       { url: mediaSrc('camera.mov'), rotation: 90 },
     ]);
   });
