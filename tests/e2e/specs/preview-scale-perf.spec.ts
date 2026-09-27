@@ -429,6 +429,10 @@ test.describe('PX5 Scale row', () => {
       // Recorded, not assumed: a transport that stopped by itself under load is a finding.
       const pause = page.getByRole('button', { name: 'pause', exact: true });
       const stillPlaying = await pause.isVisible();
+      // The pools are read while still playing: pausing re-presents the paused frame exactly, at
+      // full resolution with its own text rasters, which is a different frame from playback's
+      // (possibly shed) ones and may take targets and uploads of its own.
+      const beforePause = await guard('telemetry before pause', snapshot(page));
       if (stillPlaying) await pause.click();
       const played = await guard('telemetry after playback', snapshot(page));
       // PX5.3: which path the last presented matte came from, so a run says what it measured.
@@ -463,6 +467,7 @@ test.describe('PX5 Scale row', () => {
         matteDecode: played.channels.matteDecode,
         gauges: played.gauges,
         glPoolBytesMidway: midway.gauges.glPoolBytes.current,
+        glPoolBytesBeforePause: beforePause.gauges.glPoolBytes.current,
         renderScaleChangesMidway: midway.playback.renderScaleChanges,
         layersWhilePlaying,
         mattes: presentedMattes.map(({ tier, fromTier, alphaFromTier, state }) => ({
@@ -524,9 +529,12 @@ test.describe('PX5 Scale row', () => {
         Math.ceil(result.playback.presentedFrames * COMPOSITES_PER_FRAME_SLACK) +
           result.playback.renderScaleChanges,
       );
-      if (played.playback.renderScaleChanges === midway.playback.renderScaleChanges) {
+      if (
+        stillPlaying &&
+        beforePause.playback.renderScaleChanges === midway.playback.renderScaleChanges
+      ) {
         expect(
-          result.gauges.glPoolBytes.current,
+          result.glPoolBytesBeforePause,
           'the GL pools stop growing on a steady timeline',
         ).toBe(result.glPoolBytesMidway);
       }
