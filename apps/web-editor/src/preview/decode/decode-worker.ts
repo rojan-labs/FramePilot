@@ -44,9 +44,10 @@ export interface LoadSourceRequest {
   sourceId: string;
   url: string;
   /**
-   * Clockwise quarter turns the decoded planes need to stand upright (an original file of rotated
-   * footage; a proxy is written upright). `picture` output is turned here, off the main thread,
-   * where a 1080x1920 frame is millions of byte moves per frame.
+   * The asset's clockwise display rotation (`Asset.media.rotation`). The worker turns `picture`
+   * output by it when THIS file carries a display rotation of its own (a phone original), as
+   * ffmpeg's autorotate does for the export; a proxy ffmpeg wrote is already upright and carries
+   * none. Done here, off the main thread, where a 1080x1920 frame is millions of byte moves.
    */
   rotation?: number;
 }
@@ -393,6 +394,7 @@ class DecoderSession implements PooledDecoderHolder {
     codec: string;
     fileBytes: ArrayBuffer;
     streamed: boolean;
+    displayRotationCw: number;
   }> {
     // Probe with a small range: a server that honours it reports the size; one that ignores it
     // (a plain static route) sends the whole file, which is then used as-is.
@@ -416,6 +418,7 @@ class DecoderSession implements PooledDecoderHolder {
         codec: this.table.config.codec,
         fileBytes: new ArrayBuffer(0),
         streamed: true,
+        displayRotationCw: streamed.displayRotationCw,
       };
     }
     let arrayBuffer: ArrayBuffer;
@@ -441,6 +444,7 @@ class DecoderSession implements PooledDecoderHolder {
       codec: this.table.config.codec,
       fileBytes: arrayBuffer,
       streamed: false,
+      displayRotationCw: demuxed.displayRotationCw,
     };
   }
 
@@ -839,7 +843,6 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   try {
     if (request.type === 'load') {
       const session = new DecoderSession(request.sourceId, post);
-      session.uprightTurns = request.rotation ?? 0;
       sessions.get(request.sourceId)?.dispose();
       sessions.set(request.sourceId, session);
       const {
@@ -851,7 +854,11 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         codec,
         fileBytes,
         streamed,
+        displayRotationCw,
       } = await session.load(request.url);
+      // The file says whether it is stored turned; the asset says by how much (the amount the
+      // export's autorotate and the frame plan's display size agree on).
+      session.uprightTurns = displayRotationCw !== 0 ? (request.rotation ?? 0) : 0;
       post(
         {
           type: 'loaded',

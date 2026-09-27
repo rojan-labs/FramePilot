@@ -55,6 +55,26 @@ export interface DemuxedSampleTable {
    * (`render/pts_reader.py`) numbers these frames by pts, and the frame plan follows it.
    */
   frameTimesSec: number[] | null;
+  /**
+   * The clockwise quarter turn the file's own display matrix (`tkhd`) asks for, 0 for none: what
+   * ffmpeg's autorotate applies when the export reads this file. A proxy written by ffmpeg is
+   * already turned and carries none; a phone original carries its rotation.
+   */
+  displayRotationCw: number;
+}
+
+/**
+ * The clockwise display rotation of an ISO BMFF track matrix (`[a b u c d v x y w]`, `a..d` in
+ * 16.16 fixed point), in whole degrees 0-359: 0 for the identity (and for any scale without a
+ * turn). The angle is ffmpeg's `-av_display_rotation_get` sense, as `get_rotation` reads it.
+ */
+export function displayRotationCw(matrix: ArrayLike<number> | undefined): number {
+  if (matrix === undefined || matrix.length < 5) return 0;
+  const a = matrix[0]!;
+  const b = matrix[1]!;
+  if (a === 0 && b === 0) return 0;
+  const degrees = Math.round((Math.atan2(b, a) * 180) / Math.PI);
+  return ((degrees % 360) + 360) % 360;
 }
 
 /**
@@ -119,6 +139,7 @@ export function demuxAllVideoSamples(
     const sampleMeta: { ctsUs: number; isSync: boolean }[] = [];
     const ctsTicks: number[] = [];
     let timescale = 0;
+    let rotationCw = 0;
     let config: VideoDecoderConfig | undefined;
     let frameDurationUs: number | undefined;
     let frameRate: number | undefined;
@@ -138,6 +159,7 @@ export function demuxAllVideoSamples(
         return;
       }
       const { width: codedWidth, height: codedHeight } = track.video;
+      rotationCw = displayRotationCw(track.matrix);
 
       file.onSamples = (_trackId, _user, samples) => {
         for (const sample of samples) {
@@ -193,6 +215,7 @@ export function demuxAllVideoSamples(
       frameDurationUs,
       frameRate: frameRate ?? 0,
       frameTimesSec: variableFrameTimes(ctsTicks, timescale),
+      displayRotationCw: rotationCw,
       ...buildPresentationTables(normalizedMeta),
     });
   });
@@ -426,6 +449,7 @@ export async function demuxSampleTableStreaming(
       samples.map((sample) => sample.cts),
       first.timescale,
     ),
+    displayRotationCw: displayRotationCw(track.matrix),
     samples: samples.map((sample, index) => ({
       offset: sample.offset,
       size: sample.size,
