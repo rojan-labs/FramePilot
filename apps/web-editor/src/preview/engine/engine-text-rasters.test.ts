@@ -202,6 +202,30 @@ describe('styled caption windows (playback)', () => {
     expect(store.stats().bytes).toBe(3 * 4);
   });
 
+  it('asks for a long horizon in small windows, two at a time, nearest first', async () => {
+    const answers: (() => void)[] = [];
+    const inner = windowed();
+    const source = vi.fn(
+      (req: PreviewTextRasterRequest) =>
+        new Promise<Awaited<ReturnType<typeof inner>>>((resolve) =>
+          answers.push(() => void inner(req).then(resolve)),
+        ),
+    );
+    const store = new EngineTextRasters(source);
+    store.setFrameRate(FPS);
+    const horizon = Array.from({ length: 60 }, (_, i) => 30 + i);
+    store.prefetch(cue(0), horizon, 30);
+    store.prefetch(cue(0), horizon, 30);
+    store.prefetch(cue(0), horizon, 30);
+    expect(source.mock.calls.map(([req]) => req.frameTimes?.length)).toEqual([15, 15]);
+    expect(source.mock.calls[0]![0].frameTimes![0]).toBe(1);
+    answers.shift()!();
+    await settle();
+    store.prefetch(cue(0), horizon, 30);
+    expect(source.mock.calls).toHaveLength(3);
+    expect(source.mock.calls[2]![0].frameTimes![0]).toBeCloseTo(60 / FPS, 9);
+  });
+
   it('never waits in playback: a missing frame shows the nearest one of the cue', async () => {
     const source = windowed();
     const store = new EngineTextRasters(source);

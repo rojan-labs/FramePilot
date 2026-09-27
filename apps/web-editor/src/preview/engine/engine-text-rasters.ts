@@ -47,6 +47,12 @@ const RETRY_AFTER_TRANSIENT_MS = 1_000;
 const TRANSIENT_FAILURES_TO_FALL_BACK = 3;
 /** Caption windows in flight at once: the sidecar also serves exports, analysis and the agent. */
 const MAX_WINDOWS_IN_FLIGHT = 2;
+/**
+ * Frames per caption window. The engine samples a frame in 5-25 ms, so a window answers in about a
+ * tenth of a second and the nearest frames come back first; a whole two-second horizon in one
+ * call took half a second and, for a karaoke cue, tens of megabytes per answer.
+ */
+const CUE_WINDOW_FRAMES = Math.min(15, PREVIEW_CAPTION_MAX_FRAMES);
 /** Per-frame requests in flight at once, for a host that cannot answer a window. */
 const MAX_SINGLES_IN_FLIGHT = 4;
 /** How far back from its frame a playback lookup looks for a stand-in raster of the same cue. */
@@ -362,7 +368,7 @@ export class EngineTextRasters {
       return;
     }
     if (this.windowsInFlight >= MAX_WINDOWS_IN_FLIGHT) return;
-    const window = wanted.slice(0, PREVIEW_CAPTION_MAX_FRAMES);
+    const window = wanted.slice(0, CUE_WINDOW_FRAMES);
     for (const frame of window) cue.inFlight.add(frame);
     this.windowsInFlight++;
     this.windowsRequested++;
