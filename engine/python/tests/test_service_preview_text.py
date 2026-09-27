@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -310,7 +311,9 @@ def _decode_frames(body: bytes) -> tuple[dict[str, object], list[dict[str, objec
     return header, rasters
 
 
-def _frames_request(style: Mapping[str, object], times: list[float], size: tuple[int, int]) -> dict:
+def _frames_request(
+    style: Mapping[str, object], times: list[float], size: tuple[int, int]
+) -> dict[str, Any]:
     return {
         "text": "top 1% of motion",
         "track_style": style,
@@ -369,7 +372,7 @@ def test_cached_layer_samples_equal_a_fresh_build(tmp_path: Path) -> None:
 
     style = {"templateId": "pop"}
     times = [1.05, 1.35, 1.35, 1.9, 2.45]
-    kwargs = {
+    kwargs: dict[str, Any] = {
         "text": "top 1% of motion",
         "words": _WORDS,
         "track_style": style,
