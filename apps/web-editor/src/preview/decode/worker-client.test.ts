@@ -143,6 +143,44 @@ describe('DecodeWorkerClient frame hygiene', () => {
   });
 });
 
+describe('DecodeWorkerClient picture streaming', () => {
+  const pictureMessage = (chunkIndex: number, frame: unknown): WorkerResponse =>
+    ({
+      type: 'picture',
+      requestId: 1,
+      sourceId: 'main',
+      chunkIndex,
+      timestampUs: chunkIndex * 33_333,
+      picture: { kind: 'frame', frame, width: 1, height: 1, byteLength: 4 },
+    }) as unknown as WorkerResponse;
+
+  it('hands each picture over the moment it arrives, before the range is done', async () => {
+    const client = new DecodeWorkerClient();
+    const arrived: number[] = [];
+    const pending = client.decodePictures('main', 0, 1, (message) =>
+      arrived.push(message.chunkIndex),
+    );
+    await flushMicrotasks();
+    const worker = FakeWorker.latest!;
+    const first = fakeFrame();
+    worker.deliver(pictureMessage(0, first));
+    // A cut's incoming picture is usable now, not after the rest of the window.
+    expect(arrived).toEqual([0]);
+    worker.deliver(pictureMessage(1, fakeFrame()));
+    worker.deliver({
+      type: 'rangeDone',
+      requestId: 1,
+      decodeDurationMs: 1,
+      reconfigured: false,
+    } as unknown as WorkerResponse);
+    const result = await pending;
+    expect(arrived).toEqual([0, 1]);
+    // The handler owns what it was handed: nothing is collected twice or closed under it.
+    expect(result.pictures).toHaveLength(0);
+    expect(first.closed).toBe(false);
+  });
+});
+
 describe('DecodeWorkerClient hang report (PX5.7)', () => {
   it('reports where each source is when the worker answers', async () => {
     const client = new DecodeWorkerClient();

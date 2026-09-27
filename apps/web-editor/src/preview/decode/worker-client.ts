@@ -69,6 +69,8 @@ export class DecodeWorkerClient {
   >();
   private frameWaiters = new Map<number, DecodedFrameMessage[]>();
   private pictureWaiters = new Map<number, DecodedPictureMessage[]>();
+  /** Requests whose pictures are handed over as they arrive (see {@link decodePictures}). */
+  private pictureHandlers = new Map<number, (message: DecodedPictureMessage) => void>();
   private framesCreatedTotal = 0;
   private framesClosedTotal = 0;
   private inFlightPeak = 0;
@@ -204,6 +206,11 @@ export class DecodeWorkerClient {
           this.inFlightPeak,
           this.framesCreatedTotal - this.framesClosedTotal,
         );
+      }
+      const handler = this.pictureHandlers.get(message.requestId);
+      if (handler) {
+        handler(message);
+        return;
       }
       const waiter = this.pictureWaiters.get(message.requestId);
       if (waiter) {
@@ -426,14 +433,22 @@ export class DecodeWorkerClient {
    * compositor. Same streaming session and cancellation rules as {@link decodeRange}; the
    * caller owns the returned pictures (see {@link releasePicture}).
    */
+  /**
+   * @param onPicture - Take each picture the moment the worker posts it, instead of all of them
+   *   when the range is done; the result's `pictures` is then empty. It owns the pictures it is
+   *   handed (release them with {@link releasePicture}). A playback window of eight frames made
+   *   its first frame, a cut's incoming picture, wait for the other seven.
+   */
   async decodePictures(
     sourceId: string,
     fromChunkIndex: number,
     toChunkIndex: number,
+    onPicture?: (message: DecodedPictureMessage) => void,
   ): Promise<DecodePicturesResult> {
     const worker = await this.ensureWorkerReady();
     const requestId = this.nextRequestId++;
     this.pictureWaiters.set(requestId, []);
+    if (onPicture) this.pictureHandlers.set(requestId, onPicture);
     const rangeDone = new Promise<{ decodeDurationMs: number; reconfigured: boolean }>(
       (resolve, reject) => {
         this.pending.set(requestId, {
@@ -467,6 +482,7 @@ export class DecodeWorkerClient {
     } finally {
       const collected = this.pictureWaiters.get(requestId) ?? [];
       this.pictureWaiters.delete(requestId);
+      this.pictureHandlers.delete(requestId);
       this.pending.delete(requestId);
       if (!delivered) for (const message of collected) this.releasePicture(message);
     }
@@ -495,5 +511,6 @@ export class DecodeWorkerClient {
       for (const message of collected) this.releasePicture(message);
     }
     this.pictureWaiters.clear();
+    this.pictureHandlers.clear();
   }
 }

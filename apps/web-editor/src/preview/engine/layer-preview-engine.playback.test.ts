@@ -41,7 +41,12 @@ vi.mock('../decode/worker-client.js', () => {
         fileBytes: new ArrayBuffer(0),
       };
     }
-    decodePictures(assetId: string, from: number, to: number) {
+    decodePictures(
+      assetId: string,
+      from: number,
+      to: number,
+      onPicture?: (message: unknown) => void,
+    ) {
       const { width, height } = decoder.size;
       const answer = {
         pictures: Array.from({ length: to - from + 1 }, (_, i) => ({
@@ -61,7 +66,16 @@ vi.mock('../decode/worker-client.js', () => {
         })),
       };
       return new Promise((resolve) => {
-        const call: DecodeCall = { assetId, from, to, resolve: () => resolve(answer) };
+        const call: DecodeCall = {
+          assetId,
+          from,
+          to,
+          resolve: () => {
+            if (!onPicture) return resolve(answer);
+            for (const picture of answer.pictures) onPicture(picture);
+            resolve({ pictures: [] });
+          },
+        };
         decoder.calls.push(call);
         if (decoder.immediate) call.resolve();
       });

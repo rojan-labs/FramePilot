@@ -49,7 +49,7 @@ import type {
 import { SHAPE_EFFECT_TYPE } from '@framepilot/timeline-schema';
 import { createLogger, type PreviewTextRasterRequest } from '@framepilot/shared-types';
 import { DecodeWorkerClient, type WorkerTraffic } from '../decode/worker-client.js';
-import type { WorkerStageReport } from '../decode/decode-worker.js';
+import type { DecodedPictureMessage, WorkerStageReport } from '../decode/decode-worker.js';
 import { MatteDecodePool } from '../decode/matte-decode-pool.js';
 import type { DecodedPicture } from '../decode/decoded-picture.js';
 import { AudioMasterClock, type AudioSegment } from '../clock/audio-clock.js';
@@ -1052,30 +1052,36 @@ export class LayerPreviewEngine {
 
   private async decodeRunNow(assetId: string, from: number, to: number): Promise<void> {
     const started = performance.now();
-    const { pictures } = await this.stages.track(
+    // Each picture goes into the cache as it arrives, so the tick can show the first frame of a
+    // window (a cut's incoming picture) without waiting for the rest of it.
+    await this.stages.track(
       'decode',
       `${assetId} ${from}-${to}`,
-      this.client.decodePictures(assetId, from, to),
+      this.client.decodePictures(assetId, from, to, (message) =>
+        this.storePicture(assetId, message),
+      ),
     );
     const decodeMs = performance.now() - started;
     this.dbg.maxDecodeMs = Math.max(this.dbg.maxDecodeMs, decodeMs);
     this.telemetry.record('decode', decodeMs);
-    for (const message of pictures) {
-      const key = pictureKey(assetId, message.chunkIndex);
-      if (this.disposed || !this.sources.has(assetId) || this.cache.has(key)) {
-        this.client.releasePicture(message);
-        continue;
-      }
-      // Already upright: the decode worker turns an original's planes (`uprightTurns`).
-      const picture = message.picture;
-      this.cache.set(key, {
-        kind: 'picture',
-        picture,
-        timestampUs: message.timestampUs,
-        lastUsed: ++this.useCounter,
-      });
-      this.cacheBytes += picture.byteLength;
+  }
+
+  /** Keep one decoded picture of `assetId` (or release it: disposed, source gone, already held). */
+  private storePicture(assetId: string, message: DecodedPictureMessage): void {
+    const key = pictureKey(assetId, message.chunkIndex);
+    if (this.disposed || !this.sources.has(assetId) || this.cache.has(key)) {
+      this.client.releasePicture(message);
+      return;
     }
+    // Already upright: the decode worker turns an original's planes (`uprightTurns`).
+    const picture = message.picture;
+    this.cache.set(key, {
+      kind: 'picture',
+      picture,
+      timestampUs: message.timestampUs,
+      lastUsed: ++this.useCounter,
+    });
+    this.cacheBytes += picture.byteLength;
     this.telemetry.gauge('pictureCacheBytes', this.cacheBytes);
   }
 
