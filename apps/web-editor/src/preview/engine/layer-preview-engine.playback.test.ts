@@ -359,6 +359,30 @@ describe('LayerPreviewEngine transport', () => {
     engine.dispose();
   });
 
+  it('does not let one stalled paused seek hold the ones behind it', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const engine = new LayerPreviewEngine(canvas());
+      await engine.setProject(project());
+      decoder.calls = [];
+      decoder.immediate = false;
+      void engine.seek(2);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(decoder.calls.map((call) => call.from)).toEqual([60]);
+      // The decode for 2 s never answers; the user moves on.
+      const later = engine.seek(5);
+      await vi.advanceTimersByTimeAsync(2_100);
+      expect(decoder.calls.map((call) => call.from)).toEqual([60, 150]);
+      decoder.calls[1]!.resolve();
+      await vi.advanceTimersByTimeAsync(10);
+      await later;
+      expect(engine.currentTimeSec).toBe(5);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does no planning or compositing on a refresh inside a frame already shown', async () => {
     const engine = new LayerPreviewEngine(canvas());
     await engine.setProject(project());

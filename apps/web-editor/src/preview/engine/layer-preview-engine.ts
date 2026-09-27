@@ -164,6 +164,13 @@ const SEEK_TEXT_WAIT_MS = 1_500;
  * thread, and a project's sources finish decoding within moments of each other.
  */
 const SOUND_HANDOVER_COALESCE_MS = 150;
+/**
+ * How long one paused seek may hold the seeks queued behind it. A seek waits on stages that
+ * normally take milliseconds (a decode, a matte frame, a mask's track); one that never settles
+ * must not leave the monitor on the previous frame for every later seek. Past this, a newer seek
+ * is served, and the stalled one gives up its frame when it does settle.
+ */
+const SEEK_STALL_MS = 2_000;
 
 /**
  * The clockwise quarter turns a source's decoded planes need to stand upright: the asset's
@@ -1736,7 +1743,16 @@ export class LayerPreviewEngine {
           this.reposition(target);
           return;
         }
-        await this.seekNow(target);
+        const running = this.seekNow(target);
+        while (!(await settlesWithin(running, SEEK_STALL_MS))) {
+          if (this.seekTarget === null) continue;
+          log.warn('a paused seek is stalled; serving the newer one', {
+            stalledAtSec: target,
+            waitedMs: SEEK_STALL_MS,
+          });
+          // The newer seek's generation makes the stalled one drop its frame when it settles.
+          break;
+        }
       }
     } finally {
       this.seekLoop = null;
