@@ -53,7 +53,9 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
 - [x] **PB10a** Rotated originals are turned upright in the decode worker (not the main thread);
   decoded pictures reach the cache as they arrive (a cut's first frame no longer waits for its
   window); the MP4 demuxer no longer overflows V8's argument limit past ~35 min at 60 fps; one
-  stalled paused seek no longer holds the ones behind it; sound handovers coalesce.
+  stalled paused seek no longer holds the ones behind it; sound handovers coalesce; a decode
+  worker that stops answering is restarted (at most every 30 s) and the seek or load it held is
+  retried; caption windows are 15 frames.
 - [ ] **PB10** Follow-ups, by user impact:
   1. **Long unproxied sources play silent.** Proxies stop at 15 min
      (`DEFAULT_PROXY_MAX_DURATION_SECONDS`); an original over 256 MB is range-read by the worker
@@ -62,9 +64,7 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   2. Rolling audio schedule for long automated beds (the whole remaining mix is rebuilt on play
      and on each coalesced change while playing).
   3. Scrub shows the nearest decoded frame while a long-GOP keyframe seek runs.
-  4. A decode call that never answers blocks its source's worker queue (reported by PX5.7 after
-     10 s); reset the session instead.
-  5. Cache a large still's resize (a 12 MP photo is Lanczos-resized every frame on the GPU).
+  4. Cache a large still's resize (a 12 MP photo is Lanczos-resized every frame on the GPU).
 
 - [x] **EQ1** Engine requests keep `asset.media` (`ai-sdk/engine-view.ts`). Since mask v22 a cut-out
   resolves against the media size; `toModelProject` stripped it, so every review, `get_frame` and
