@@ -286,6 +286,7 @@ from framepilot_engine.render.frame_grab import (
     DEFAULT_MAX_DIMENSION,
     FrameGrabError,
     grab_frame,
+    source_view_project,
 )
 from framepilot_engine.render.frame_hashes import (
     FrameHashDeadline,
@@ -1005,8 +1006,20 @@ class RenderFrameRequest(AnalysisProjectSource):
     review — the one picture guaranteed not to answer the question.
     """
 
-    time_seconds: float = Field(
+    time_seconds: float | None = Field(
+        default=None,
         description="Timeline time to grab, in seconds. Clamped into the timeline.",
+    )
+    asset_id: str | None = Field(
+        default=None,
+        description=(
+            "Show this source file as shot instead of the timeline: its own frame size, "
+            "uncropped, nothing over it (``frame_grab.source_view_project``)."
+        ),
+    )
+    source_seconds: float | None = Field(
+        default=None,
+        description="With ``asset_id``: the time in the SOURCE file. Clamped into the file.",
     )
     max_dimension: int = Field(
         default=DEFAULT_MAX_DIMENSION,
@@ -1017,6 +1030,16 @@ class RenderFrameRequest(AnalysisProjectSource):
         default=True,
         description="Draw caption text into the frame. Soft captions are invisible otherwise.",
     )
+
+    @model_validator(mode="after")
+    def _timeline_or_source(self) -> RenderFrameRequest:
+        if (self.time_seconds is None) == (self.asset_id is None):
+            raise ValueError(
+                "Provide exactly one of time_seconds (the edit) or asset_id (a source)."
+            )
+        if self.source_seconds is not None and self.asset_id is None:
+            raise ValueError("source_seconds needs asset_id.")
+        return self
 
 
 #: The share of the frame's width a title may take: 4 % margin each side, the same
@@ -6640,14 +6663,26 @@ def create_app(
             # Same bargain as `/render/preview`: this compiles the timeline and decodes at
             # project resolution, so indexing pauses around it (plan VU8 §8.3).
             with index_governor.foreground("a frame grab"):
-                frame = grab_frame(
-                    project,
-                    media_base,
-                    req.time_seconds,
-                    max_dimension=req.max_dimension,
-                    image_format=req.image_format,
-                    burn_captions=req.burn_captions,
-                )
+                if req.asset_id is not None:
+                    view, _length = source_view_project(project, req.asset_id)
+                    frame = grab_frame(
+                        view,
+                        media_base,
+                        req.source_seconds or 0.0,
+                        max_dimension=req.max_dimension,
+                        image_format=req.image_format,
+                        burn_captions=False,
+                    )
+                else:
+                    assert req.time_seconds is not None  # the validator's exactly-one rule
+                    frame = grab_frame(
+                        project,
+                        media_base,
+                        req.time_seconds,
+                        max_dimension=req.max_dimension,
+                        image_format=req.image_format,
+                        burn_captions=req.burn_captions,
+                    )
         except FrameGrabError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         _log.info(

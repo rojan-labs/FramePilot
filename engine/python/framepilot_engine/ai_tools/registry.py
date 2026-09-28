@@ -500,6 +500,26 @@ class PunchInArgs(BaseModel):
     end_time: float | None = Field(default=None, alias="endTime", ge=0.0)
 
 
+class ReframePointArg(BaseModel):
+    """Where the reframing window's centre sits in the source, as 0..1 fractions."""
+
+    model_config = _STRICT
+    x: float = Field(ge=0.0, le=1.0)
+    y: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class ReframePanArgs(BaseModel):
+    """A reframe that holds on, or pans across, a wider source; mirrors TS ``reframe_pan``."""
+
+    model_config = _STRICT
+    clip_id: str = Field(alias="clipId", min_length=1)
+    from_: ReframePointArg = Field(alias="from")
+    to: ReframePointArg | None = None
+    easing: Literal["linear", "ease-in", "ease-out", "ease-in-out", "hold", "bezier"] | None = None
+    start_time: float | None = Field(default=None, alias="startTime", ge=0.0)
+    end_time: float | None = Field(default=None, alias="endTime", ge=0.0)
+
+
 class ApplyColorGradeArgs(BaseModel):
     model_config = _STRICT
     clip_id: str = Field(alias="clipId")
@@ -1121,9 +1141,34 @@ class GetFrameArgs(BaseModel):
     """
 
     model_config = _STRICT
-    time_seconds: float = Field(alias="timeSeconds")
+    time_seconds: float | None = Field(
+        default=None,
+        alias="timeSeconds",
+        ge=0.0,
+        description="A moment of the EDIT, in timeline seconds. Omit when you pass assetId.",
+    )
+    asset_id: str | None = Field(
+        default=None,
+        alias="assetId",
+        min_length=1,
+        description="Look at this media file as shot instead of the edit. Omit timeSeconds.",
+    )
+    source_seconds: float | None = Field(
+        default=None,
+        alias="sourceSeconds",
+        ge=0.0,
+        description="With assetId: the moment in the SOURCE file (default its start).",
+    )
     max_dimension: int | None = Field(default=None, alias="maxDimension", ge=128, le=1280)
     burn_captions: bool | None = Field(default=None, alias="burnCaptions")
+
+    @model_validator(mode="after")
+    def _edit_or_source(self) -> GetFrameArgs:
+        if (self.time_seconds is None) == (self.asset_id is None):
+            raise ValueError("get_frame takes exactly one of timeSeconds or assetId.")
+        if self.source_seconds is not None and self.asset_id is None:
+            raise ValueError("sourceSeconds needs assetId.")
+        return self
 
 
 class DetectBeatsArgs(BaseModel):
@@ -1767,6 +1812,13 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "changes nothing rather than failing.",
         kind="mutate",
         input_model=RemoveKeyframesArgs,
+        mutating=True,
+    ),
+    "reframe_pan": _spec(
+        "reframe_pan",
+        "Reframe a clip whose shape differs from the frame by where the window sits in the source.",
+        kind="mutate",
+        input_model=ReframePanArgs,
         mutating=True,
     ),
     "punch_in": _spec(

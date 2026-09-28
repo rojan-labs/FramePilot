@@ -1,7 +1,7 @@
 ---
 name: audio-polish
 description: Balance dialogue, music, and ambience with the current clip-gain and track controls; diagnose level jumps, design stepped ducks, and verify by listening.
-tools: [get_timeline, adjust_audio, split_clip, set_track_flags, analyze_silence, render_preview, search_music, add_music]
+tools: [get_timeline, adjust_audio, split_clip, set_track_flags, analyze_silence, get_frame, search_music, add_music]
 ---
 
 # Audio polish

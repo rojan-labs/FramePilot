@@ -486,3 +486,95 @@ class TestLosslessFullResolution:
         frame = grab_frame(project, base, 0.5)
         assert frame.media_type == "image/jpeg"
         assert max(frame.width, frame.height) == 512
+
+
+class TestSourceView:
+    """``get_frame`` with an asset: the source as shot, not the edit (run ``6cb12e30``).
+
+    The run could only see a clip through the timeline — after placing it, through its crop —
+    and re-cropped a shot the wrong way because the subject sat in the part of the 16:9
+    frame the 9:16 crop hid.
+    """
+
+    @staticmethod
+    def _portrait_cropped(base: Path) -> Project:
+        project = _video_project(seconds=2.0, width=360, height=640)
+        data = project.model_dump(by_alias=True, mode="json")
+        data["assets"][0]["durationSeconds"] = 2.0
+        data["assets"][0]["media"] = {"width": 640, "height": 360}
+        clip = data["timeline"]["tracks"][0]["clips"][0]
+        clip["crop"] = {"x": 0.34, "y": 0.0, "width": 0.316, "height": 1.0}
+        return Project.model_validate(data)
+
+    def test_the_view_is_the_whole_source_frame_at_its_own_size(
+        self, project_with_media: tuple[Project, Path]
+    ) -> None:
+        pytest.importorskip("PIL")
+        from framepilot_engine.render.frame_grab import source_view_project
+
+        _, base = project_with_media
+        project = self._portrait_cropped(base)
+        view, length = source_view_project(project, "a1")
+        assert (view.resolution.width, view.resolution.height) == (640, 360)
+        assert length == pytest.approx(2.0)
+        [track] = view.timeline.tracks
+        [clip] = track.clips
+        assert clip.crop is None
+        timeline_frame = grab_frame(project, base, 1.0)
+        source_frame = grab_frame(view, base, 1.0, burn_captions=False)
+        # The edit is portrait; the source is the landscape frame the crop was cut from.
+        assert timeline_frame.height > timeline_frame.width
+        assert source_frame.width > source_frame.height
+
+    def test_refuses_an_asset_the_project_does_not_hold(
+        self, project_with_media: tuple[Project, Path]
+    ) -> None:
+        from framepilot_engine.render.frame_grab import source_view_project
+
+        project, _ = project_with_media
+        with pytest.raises(FrameGrabError, match="Asset not found: nope"):
+            source_view_project(project, "nope")
+
+    def test_route_serves_a_source_frame_by_asset_and_source_time(
+        self, project_with_media: tuple[Project, Path]
+    ) -> None:
+        pytest.importorskip("PIL")
+        from fastapi.testclient import TestClient
+
+        from framepilot_engine.config import Settings
+        from framepilot_engine.service import create_app
+
+        _, base = project_with_media
+        project = self._portrait_cropped(base)
+        client = TestClient(create_app(Settings(projects_root=base)))
+        response = client.post(
+            "/render/frame",
+            json={
+                "project": project.model_dump(by_alias=True, mode="json"),
+                "asset_id": "a1",
+                "source_seconds": 1.5,
+            },
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["time_seconds"] == pytest.approx(1.5)
+        assert body["width"] > body["height"]
+
+    def test_route_takes_the_edit_or_a_source_never_both(
+        self, project_with_media: tuple[Project, Path]
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from framepilot_engine.config import Settings
+        from framepilot_engine.service import create_app
+
+        project, base = project_with_media
+        client = TestClient(create_app(Settings(projects_root=base)))
+        document = project.model_dump(by_alias=True, mode="json")
+        both = client.post(
+            "/render/frame",
+            json={"project": document, "time_seconds": 1.0, "asset_id": "a1"},
+        )
+        neither = client.post("/render/frame", json={"project": document})
+        assert both.status_code == 422
+        assert neither.status_code == 422

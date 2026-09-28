@@ -52,6 +52,43 @@ describe('get_frame — the tool surface', () => {
   });
 });
 
+describe('get_frame — a source file as shot', () => {
+  // Run 6cb12e30 could only see clips through the timeline — after placing them, through
+  // their crop — and re-cropped the passenger shot onto a dark silhouette, because the
+  // passenger sat in the part of the 16:9 frame it never saw.
+  it('takes an asset and a source time instead of a timeline time', () => {
+    const tool = getTool('get_frame')!;
+    expect(tool.parse({ assetId: 'asset_passenger', sourceSeconds: 4 })).toEqual({
+      assetId: 'asset_passenger',
+      sourceSeconds: 4,
+    });
+    expect(tool.parse({ assetId: 'asset_passenger' })).toEqual({ assetId: 'asset_passenger' });
+  });
+
+  it('takes the edit or a source, never both, and a source time only with a source', () => {
+    const tool = getTool('get_frame')!;
+    expect(() => tool.parse({ timeSeconds: 1, assetId: 'a' })).toThrow(/exactly one/);
+    expect(() => tool.parse({ timeSeconds: 1, sourceSeconds: 2 })).toThrow(/needs assetId/);
+  });
+
+  it('asks the engine for the source view, not a timeline moment', () => {
+    const body = frameBody(project, { assetId: 'asset_passenger', sourceSeconds: 4 });
+    expect(body).toMatchObject({ project, asset_id: 'asset_passenger', source_seconds: 4 });
+    expect(body).not.toHaveProperty('time_seconds');
+  });
+
+  it('says it is the uncropped source, so the model never mistakes it for the edit', () => {
+    const outcome = unwrapFrame(
+      { assetId: 'asset_passenger', sourceSeconds: 4 },
+      { ...engineResponse, width: 512, height: 288, time_seconds: 4, duration_seconds: 19 },
+    );
+    expect(outcome.summary).toBe(
+      'Looked at asset_passenger as shot at 4.00s (the whole uncropped source frame)',
+    );
+    expect(outcome.data).toMatchObject({ assetId: 'asset_passenger', timeSeconds: 4 });
+  });
+});
+
 describe('supportsVision — who gets offered the tool', () => {
   it('recognises the multimodal families', () => {
     expect(supportsVision('anthropic', 'claude-sonnet-5')).toBe(true);

@@ -57,7 +57,7 @@ from framepilot_engine.render.composition_cache import (
 )
 from framepilot_engine.render.picture_window import PictureWindow, picture_window_at
 from framepilot_engine.render.presets import ExportPreset
-from framepilot_engine.timeline.models import Project
+from framepilot_engine.timeline.models import Clip, Project, Resolution, Timeline, Track
 
 _log = logging.getLogger(__name__)
 
@@ -233,6 +233,65 @@ def _whole_timeline_frame(
         raise
     except Exception as exc:
         raise FrameGrabError(f"Could not read the frame at {at:.3f}s: {exc}") from exc
+
+
+#: A still has no length of its own; this is how long its one-clip view holds it.
+_STILL_VIEW_SECONDS = 5.0
+
+#: The frame a view falls back to for a source whose size was never probed.
+_UNPROBED_VIEW_SIZE = (1920, 1080)
+
+
+def source_view_project(project: Project, asset_id: str) -> tuple[Project, float]:
+    """A timeline that plays one asset as shot — its own frame size, uncropped, nothing over it.
+
+    WHY: ``get_frame`` renders the EDIT, so it can only show a clip after it is placed, and
+    then only through its crop. Run ``6cb12e30`` was told to look at every clip before
+    cutting, could not (the visual index had not reached them), placed 26 clips on a blind
+    centre crop, and re-cropped the passenger shot from the one cropped timeline frame it
+    could see — the wrong way, onto a dark silhouette, because the passenger sat on the
+    other side of the full 16:9 frame it never saw.
+
+    Rendered through the same compiler as everything else rather than a second decoder, so
+    rotation, anamorphic pixels, variable frame rates and stills are read the way the export
+    reads them, and the windowed grab keeps it to one reader.
+
+    :returns: The one-clip project and the asset's length in seconds.
+    :raises FrameGrabError: For an unknown asset or one with no picture.
+    """
+    asset = next((candidate for candidate in project.assets if candidate.id == asset_id), None)
+    if asset is None:
+        raise FrameGrabError(
+            f"Asset not found: {asset_id}. Use an id from list_assets or the media bin."
+        )
+    if asset.kind not in ("video", "image"):
+        raise FrameGrabError(f"{asset_id} is {asset.kind}, which has no picture to show.")
+    size = asset.media.display_size() if asset.media is not None else None
+    width, height = (round(size[0]), round(size[1])) if size else _UNPROBED_VIEW_SIZE
+    duration = (
+        _STILL_VIEW_SECONDS
+        if asset.kind == "image"
+        else float(asset.duration_seconds or 0.0) or _STILL_VIEW_SECONDS
+    )
+    clip = Clip(
+        id="source_view",
+        asset_id=asset.id,
+        track_id="source_view",
+        start=0.0,
+        end=duration,
+        source_start=0.0,
+        source_end=duration,
+    )
+    view = project.model_copy(
+        update={
+            "resolution": Resolution(width=max(2, width), height=max(2, height)),
+            "timeline": Timeline(tracks=[Track(id="source_view", type="video", clips=[clip])]),
+            "transcript": [],
+            "markers": [],
+            "history": [],
+        }
+    )
+    return view, duration
 
 
 def grab_frame(

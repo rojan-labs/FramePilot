@@ -10,7 +10,14 @@
  * The resolver-backed `professional_motion` lives in `professional-motion.ts`.
  */
 import { z } from 'zod/v4';
-import { punchInKeyframes, syntheticClipKind, type Easing } from '@framepilot/editor-core';
+import {
+  assetDisplaySize,
+  planAutomaticReframe,
+  punchInKeyframes,
+  syntheticClipKind,
+  type Easing,
+  type Operation,
+} from '@framepilot/editor-core';
 import type { Keyframe, Timeline } from '@framepilot/timeline-schema';
 import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool } from './tool-factories.js';
@@ -151,6 +158,120 @@ export const MOTION_TOOLS: readonly ToolSpec[] = [
         easing: a.easing as Easing | undefined,
       });
       return [{ type: 'add_keyframes', clipId: a.clipId, keyframes }];
+    },
+  ),
+  mutateTool(
+    {
+      // Reframing that MOVES. `set_clip_crop` is a fixed rectangle, and nothing else could
+      // express "a slow pan across the 16:9 frame inside the 9:16 window" without the model
+      // reconstructing the compiler's cover arithmetic from nothing. Run `6cb12e30`'s brief
+      // asked for exactly that on every aerial, and for the window to follow its subjects;
+      // the run delivered static centre crops. The arithmetic is `planAutomaticReframe`'s —
+      // derived from the render compiler's own placement formula — fed two positions.
+      name: 'reframe_pan',
+      description:
+        'Reframe a clip whose shape differs from the frame (16:9 into 9:16) by where the ' +
+        'frame sits in the SOURCE: from = the window centre as a fraction of the source ' +
+        '(x: 0 left … 1 right, y: 0 top … 1 bottom, default 0.5), to = where it ends, for a ' +
+        'slow eased pan across the shot; omit to to hold on that spot. Choose the positions ' +
+        'by looking at the source first with get_frame { assetId }. Fills the frame at the ' +
+        'smallest zoom that covers it, and replaces the clip crop and any x/y/scale ' +
+        'keyframes. Times are clip-relative; the window defaults to the whole clip.',
+    },
+    z
+      .object({
+        clipId: z.string().min(1),
+        from: z
+          .object({
+            x: numeric(z.number().min(0).max(1)),
+            y: numeric(z.number().min(0).max(1)).optional(),
+          })
+          .strict(),
+        to: z
+          .object({
+            x: numeric(z.number().min(0).max(1)),
+            y: numeric(z.number().min(0).max(1)).optional(),
+          })
+          .strict()
+          .optional(),
+        easing: easingEnum.optional(),
+        startTime: seconds.optional(),
+        endTime: seconds.optional(),
+      })
+      .strict(),
+    (a, ctx) => {
+      const clip = ctx.project.timeline.tracks
+        .flatMap((track) => track.clips)
+        .find((candidate) => candidate.id === a.clipId);
+      if (clip === undefined) {
+        throw new Error(`Clip not found: ${a.clipId}. get_clips lists the real ids.`);
+      }
+      const asset = ctx.project.assets.find((candidate) => candidate.id === clip.assetId);
+      const size = assetDisplaySize(asset?.media);
+      if (size === null) {
+        throw new ToolRefusalError(
+          `The source size of ${a.clipId} has not been measured, so a pan cannot be placed ` +
+            'on it. Use set_clip_crop for a fixed reframe instead.',
+        );
+      }
+      const fps = ctx.project.fps;
+      const clipSeconds = clip.end - clip.start;
+      const startTime = Math.min(a.startTime ?? 0, clipSeconds);
+      const endTime = Math.min(a.endTime ?? clipSeconds, clipSeconds);
+      const firstFrame = Math.round(startTime * fps);
+      const lastFrame = Math.max(firstFrame, Math.round(endTime * fps));
+      const at = (point: { x: number; y?: number | undefined }, frame: number) => ({
+        frame,
+        box: { x: point.x, y: point.y ?? 0.5, width: 0, height: 0 },
+        confidence: 1,
+        occluded: false,
+      });
+      const end = a.to ?? a.from;
+      const plan = planAutomaticReframe({
+        samples:
+          lastFrame > firstFrame
+            ? [at(a.from, firstFrame), at(end, lastFrame)]
+            : [at(a.from, firstFrame)],
+        source: size,
+        target: ctx.project.resolution,
+        rate: { numerator: fps, denominator: 1 },
+        firstClipFrame: firstFrame,
+        // Two positions, not a jittery track: nothing to damp, and damping between two
+        // samples a clip apart would cut the pan short.
+        maxPanPixelsPerFrame: Number.POSITIVE_INFINITY,
+        easing: (a.easing ?? 'ease-in-out') as Easing,
+      });
+      if (plan.status !== 'planned') {
+        throw new ToolRefusalError(
+          plan.code === 'no_reframe_needed'
+            ? `${a.clipId} already has the frame's shape, so there is nothing to pan across.`
+            : plan.detail,
+        );
+      }
+      const ops: Operation[] = [];
+      if (clip.crop !== undefined) ops.push({ type: 'set_clip_crop', clipId: clip.id, crop: null });
+      const owned = ['x', 'y', 'scale'] as const;
+      const existing = owned.filter((property) =>
+        clip.keyframes.some((keyframe) => keyframe.property === property),
+      );
+      if (existing.length > 0) {
+        ops.push({
+          type: 'remove_keyframes',
+          clipId: clip.id,
+          targets: existing.map((property) => ({ property })),
+        });
+      }
+      const keyframes: Keyframe[] = owned.flatMap((property) =>
+        plan.points[property].map((point) => ({
+          id: id('reframe', clip.id, property, point.frame),
+          time: point.frame / fps,
+          property,
+          value: point.value,
+          easing: point.easing,
+        })),
+      );
+      ops.push({ type: 'add_keyframes', clipId: clip.id, keyframes });
+      return ops;
     },
   ),
 ];

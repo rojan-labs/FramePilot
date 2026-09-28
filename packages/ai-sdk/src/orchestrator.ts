@@ -3413,17 +3413,24 @@ export function summarizeReadResult(
         typeof obj.width === 'number' && typeof obj.height === 'number' && obj.width > 0
           ? ` ${obj.width}×${obj.height}`
           : '';
+      // A source frame is a moment of a FILE, uncropped — not of the edit.
+      const source = typeof obj.assetId === 'string' ? obj.assetId : undefined;
+      const span = source === undefined ? 'timeline' : 'file';
       const duration =
         typeof obj.durationSeconds === 'number'
-          ? ` of a ${round2(obj.durationSeconds)}s timeline`
+          ? ` of a ${round2(obj.durationSeconds)}s ${span}`
           : '';
       // A clamped frame is a different moment than the one asked about. Saying so is the
       // difference between "the end looks wrong" and reasoning about the wrong frame.
       const clamped =
         obj.clamped === true && typeof obj.requestedTimeSeconds === 'number'
-          ? ` — CLAMPED from the ${round2(obj.requestedTimeSeconds)}s you asked for, which is outside the timeline`
+          ? ` — CLAMPED from the ${round2(obj.requestedTimeSeconds)}s you asked for, which is outside the ${span}`
           : '';
-      return `frame at ${round2(obj.timeSeconds)}s${duration},${size} attached to this turn as an image${clamped}`;
+      const what =
+        source === undefined
+          ? 'frame'
+          : `${source} as shot (whole uncropped source frame, not the edit)`;
+      return `${what} at ${round2(obj.timeSeconds)}s${duration},${size} attached to this turn as an image${clamped}`;
     }
     case 'index_media': {
       // A progress record, not a record list — but previewJson still cut it, and "how far

@@ -195,6 +195,10 @@ const LOOK_AT_YOUR_WORK_INSTRUCTION = [
   'Be sparing and deliberate: one frame per call, each costs real context, so pick the few',
   'moments that settle the question (the busiest shot, a typical one) rather than sweeping',
   'the timeline. Two well-chosen frames beat ten.',
+  // Run `6cb12e30` could only see a clip after placing it, through its crop, and moved the
+  // passenger crop the wrong way — the passenger sat in the part of the frame it never saw.
+  'get_frame with assetId shows a source file as shot, uncropped: look there to choose a',
+  'shot and to see where its subject is BEFORE you set a crop for another aspect ratio.',
 ];
 
 /** The contract up to the point the vision paragraph belongs at. */

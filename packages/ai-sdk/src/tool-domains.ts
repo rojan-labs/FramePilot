@@ -76,7 +76,8 @@ export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string
     'grade the picture — the colour and look pass of a professional edit: match shots to each other, even out exposure, apply a cinematic look, grade directly (measure_color, always available, reads what is on screen first)',
   // `set_clip_crop` lives here; a summary without "crop" or "reframe" left the one static
   // reframing tool undiscoverable to a request that asked for exactly that.
-  motion: 'keyframes, punch-ins, camera moves, speed ramps and reframing crops',
+  motion:
+    'keyframes, punch-ins, camera moves, speed ramps, and reframing — a crop, or a pan across a wider source',
   effects:
     'effects, transitions, blend modes and on-screen text — titles in any catalogue font, and restyling them; browse what is available; verify fit',
   // Plan/elements: the words a screen-recording or product-demo request uses.
@@ -207,6 +208,7 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'add_keyframes',
     'remove_keyframes',
     'punch_in',
+    'reframe_pan',
     'set_clip_speed',
     'set_clip_speed_ramp',
     'set_clip_crop',

@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 117,
+  "toolCount": 118,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -2371,10 +2371,12 @@
           "object"
         ],
         "additionalProperties": false,
-        "required": [
-          "timeSeconds"
-        ],
         "properties": {
+          "assetId": {
+            "type": [
+              "string"
+            ]
+          },
           "burnCaptions": {
             "type": [
               "boolean"
@@ -2386,6 +2388,12 @@
             ],
             "minimum": 128,
             "maximum": 1280
+          },
+          "sourceSeconds": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
           },
           "timeSeconds": {
             "type": [
@@ -4297,6 +4305,104 @@
               "frame",
               "source"
             ]
+          }
+        }
+      }
+    },
+    "reframe_pan": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId",
+          "from"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "easing": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "bezier",
+              "ease-in",
+              "ease-in-out",
+              "ease-out",
+              "hold",
+              "linear"
+            ]
+          },
+          "endTime": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "from": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "x"
+            ],
+            "properties": {
+              "x": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "y": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "startTime": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "to": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "x"
+            ],
+            "properties": {
+              "x": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "y": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
           }
         }
       }

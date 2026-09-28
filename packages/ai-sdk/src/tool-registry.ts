@@ -441,7 +441,21 @@ const getFrameSchema = z
   .object({
     // Timeline time, not source time: the model reasons about the edit, and every other
     // timing tool in this registry is timeline-relative too.
-    timeSeconds: seconds,
+    timeSeconds: seconds
+      .optional()
+      .describe('A moment of the EDIT, in timeline seconds. Omit when you pass assetId.'),
+    // A source file as shot — the whole uncropped frame, before it is placed or cropped.
+    // Run `6cb12e30` could only see clips through the timeline (after placing them, through
+    // their crop), put 26 of them on a blind centre crop, and re-cropped the passenger shot
+    // the wrong way because the passenger sat in the part of the 16:9 frame it never saw.
+    assetId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Look at this media file as shot instead of the edit. Omit timeSeconds.'),
+    sourceSeconds: seconds
+      .optional()
+      .describe('With assetId: the moment in the SOURCE file (default its start).'),
     // Small default (see the engine's DEFAULT_MAX_DIMENSION): an image costs input
     // tokens in proportion to its pixels, and most framing/legibility questions are
     // answered at 512px. Raised only when the question is genuinely about fine detail.
@@ -450,7 +464,18 @@ const getFrameSchema = z
     // "do the captions look right?" is the most common reason to look at one.
     burnCaptions: boolean().optional(),
   })
-  .strict();
+  .strict()
+  // Top-level exclusivity is enforced here rather than as a schema `oneOf`, which the
+  // Anthropic API refuses under `input_schema` (see `tool-input-contract.ts#mapTimeParameters`);
+  // the field descriptions carry the rule to the model.
+  .refine((a) => (a.timeSeconds === undefined) !== (a.assetId === undefined), {
+    message:
+      'get_frame takes timeSeconds (a moment of the edit) or assetId (a source file as shot), ' +
+      'exactly one of them.',
+  })
+  .refine((a) => a.sourceSeconds === undefined || a.assetId !== undefined, {
+    message: 'sourceSeconds is a time in a source file, so it needs assetId.',
+  });
 const sessionContextSchema = z.object({}).strict();
 const analysisTools: ToolSpec[] = [
   analysisTool(
@@ -458,7 +483,10 @@ const analysisTools: ToolSpec[] = [
       name: 'get_frame',
       description:
         'LOOK at the edit: render one frame of the timeline at a given time and see it as ' +
-        'an image. Use it to CHECK your own work visually — caption placement and ' +
+        'an image — or, with assetId (+ sourceSeconds), a media file as shot: its whole ' +
+        'uncropped frame, before it is placed or cropped. Look at a source to choose a shot ' +
+        'and to see where its subject is before you set a crop. Use it to CHECK your own ' +
+        'work visually — caption placement and ' +
         'legibility, framing after a punch-in or reframe, whether a title collides with ' +
         'the footage, whether a grade reads as intended. Prefer it over guessing from ' +
         'numbers whenever the question is about how something LOOKS. It renders through ' +

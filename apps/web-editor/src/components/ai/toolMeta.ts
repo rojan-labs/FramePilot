@@ -179,6 +179,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   caption_the_edit: { label: 'Captioning the edit', Icon: Captions },
   add_keyframes: { label: 'Add keyframes', Icon: SlidersHorizontal },
   punch_in: { label: 'Punch in', Icon: ZoomIn },
+  reframe_pan: { label: 'Reframe', Icon: ZoomIn },
   apply_color_grade: { label: 'Color grade', Icon: Palette },
   adjust_audio: { label: 'Adjust audio', Icon: Volume2 },
   add_transition: { label: 'Add transition', Icon: ArrowLeftRight },
