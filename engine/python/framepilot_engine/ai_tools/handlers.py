@@ -1032,7 +1032,13 @@ def set_caption_style(args: SetCaptionStyleArgs, ctx: ToolContext) -> Operations
 
 
 def set_clip_speed(args: SetClipSpeedArgs, ctx: ToolContext) -> Operations:
-    return [{"type": "set_clip_speed", "clipId": args.clip_id, "speed": args.speed}]
+    """Mirror of ``domain-tools/timeline.ts#set_clip_speed``: ``0`` freezes, a negative reverses."""
+    speed: float | None = args.speed
+    if args.playback == "freeze":
+        speed = 0.0
+    elif args.playback == "reverse":
+        speed = -(args.speed if args.speed is not None else 1.0)
+    return [{"type": "set_clip_speed", "clipId": args.clip_id, "speed": speed}]
 
 
 def set_clip_crop(args: SetClipCropArgs, ctx: ToolContext) -> Operations:

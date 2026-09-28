@@ -1035,11 +1035,29 @@ class DiscoverCaptionStylesArgs(BaseModel):
 
 
 class SetClipSpeedArgs(BaseModel):
-    """Set a clip's constant playback speed (schema v6 time-remap). ``None`` resets to 1x."""
+    """Set a clip's constant playback speed (schema v6 time-remap). ``None`` resets to 1x.
+
+    Mirrors ``domain-tools/timeline.ts#set_clip_speed``: ``playback`` ``"reverse"`` plays the
+    clip backwards (``speed`` optional, default 1x) and ``"freeze"`` holds its first frame and
+    takes no ``speed`` (schema v15, ADR 0090).
+    """
 
     model_config = _STRICT
     clip_id: str = Field(alias="clipId")
-    speed: float | None = Field(gt=0.0)
+    speed: float | None = Field(default=None, gt=0.0)
+    playback: Literal["forward", "reverse", "freeze"] | None = None
+
+    @model_validator(mode="after")
+    def _speed_matches_playback(self) -> SetClipSpeedArgs:
+        # ``"speed" in model_fields_set`` separates an omitted speed from ``speed: null``
+        # (reset to 1x), which the TS refine tells apart as ``undefined`` vs ``null``.
+        given = "speed" in self.model_fields_set
+        valid = not given if self.playback == "freeze" else self.playback == "reverse" or given
+        if not valid:
+            raise ValueError(
+                'Give speed (a rate, or null for 1x) - or playback: "freeze", which takes no speed.'
+            )
+        return self
 
 
 class SetClipCropArgs(BaseModel):

@@ -1955,6 +1955,32 @@ describe('per-clip styling edits (schema v5–v8) — caption/speed/crop/blend',
     expect(() => build('set_clip_speed', { clipId: 'clip_a', speed: 0 })).toThrow(ZodError);
   });
 
+  it('set_clip_speed freezes and reverses through playback, never through a sign on speed', () => {
+    // Schema v15: 0 is a freeze frame, a negative rate plays backwards. Run 6cb12e30 was
+    // asked for a freeze-frame and reported it "not built" — the tool took only a rate.
+    expect(build('set_clip_speed', { clipId: 'clip_a', playback: 'freeze' })).toEqual([
+      { type: 'set_clip_speed', clipId: 'clip_a', speed: 0 },
+    ]);
+    expect(build('set_clip_speed', { clipId: 'clip_a', playback: 'reverse' })).toEqual([
+      { type: 'set_clip_speed', clipId: 'clip_a', speed: -1 },
+    ]);
+    expect(build('set_clip_speed', { clipId: 'clip_a', playback: 'reverse', speed: 2 })).toEqual([
+      { type: 'set_clip_speed', clipId: 'clip_a', speed: -2 },
+    ]);
+    expect(build('set_clip_speed', { clipId: 'clip_a', playback: 'forward', speed: 2 })).toEqual([
+      { type: 'set_clip_speed', clipId: 'clip_a', speed: 2 },
+    ]);
+    // A freeze takes no rate, a negative rate is still refused, and forward needs a rate.
+    expect(() =>
+      build('set_clip_speed', { clipId: 'clip_a', playback: 'freeze', speed: 2 }),
+    ).toThrow(ZodError);
+    expect(() => build('set_clip_speed', { clipId: 'clip_a', speed: -1 })).toThrow(ZodError);
+    expect(() => build('set_clip_speed', { clipId: 'clip_a' })).toThrow(ZodError);
+    expect(() => build('set_clip_speed', { clipId: 'clip_a', playback: 'forward' })).toThrow(
+      ZodError,
+    );
+  });
+
   it('set_clip_crop builds an op with a rect, and null clears the crop', () => {
     const crop = { x: 0.25, y: 0, width: 0.5, height: 1 };
     expect(build('set_clip_crop', { clipId: 'clip_a', crop })).toEqual([

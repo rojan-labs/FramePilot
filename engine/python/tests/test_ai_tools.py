@@ -119,6 +119,10 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     "set_caption_style": (True, True),
     "set_clip_speed": (True, True),
     "set_clip_crop": (True, True),
+    # A moving reframe (a pan across a wider source) and a title restyle: both emit
+    # operations that already exist (keyframes; set_effect_params).
+    "reframe_pan": (True, True),
+    "set_text_style": (True, True),
     "set_clip_blend_mode": (True, True),
     "add_asset": (True, True),
     "manage_assets": (True, True),
@@ -1375,6 +1379,30 @@ def test_set_clip_speed_rejects_non_positive(ctx: ToolContext) -> None:
         run_tool("set_clip_speed", {"clipId": "A", "speed": 0.0}, ctx)
     with pytest.raises(ToolInputError):
         run_tool("set_clip_speed", {"clipId": "A", "speed": -1.0}, ctx)
+
+
+def test_set_clip_speed_playback_freezes_and_reverses(ctx: ToolContext) -> None:
+    def speed_of(args: dict[str, object]) -> object:
+        result = run_tool("set_clip_speed", {"clipId": "A", **args}, ctx)
+        assert result.operations is not None
+        return result.operations[0]["speed"]
+
+    assert speed_of({"playback": "freeze"}) == 0.0
+    assert speed_of({"playback": "reverse"}) == -1.0
+    assert speed_of({"playback": "reverse", "speed": 2.0}) == -2.0
+    assert speed_of({"playback": "forward", "speed": 2.0}) == 2.0
+    assert speed_of({"playback": "reverse", "speed": None}) == -1.0
+
+
+def test_set_clip_speed_playback_refusals(ctx: ToolContext) -> None:
+    for args in (
+        {"playback": "freeze", "speed": 2.0},
+        {"playback": "freeze", "speed": None},
+        {"playback": "forward"},
+        {},
+    ):
+        with pytest.raises(ToolInputError):
+            run_tool("set_clip_speed", {"clipId": "A", **args}, ctx)
 
 
 def test_set_clip_crop(ctx: ToolContext) -> None:

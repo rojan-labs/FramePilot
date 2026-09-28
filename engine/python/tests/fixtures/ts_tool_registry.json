@@ -5655,13 +5655,22 @@
         ],
         "additionalProperties": false,
         "required": [
-          "clipId",
-          "speed"
+          "clipId"
         ],
         "properties": {
           "clipId": {
             "type": [
               "string"
+            ]
+          },
+          "playback": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "forward",
+              "freeze",
+              "reverse"
             ]
           },
           "speed": {

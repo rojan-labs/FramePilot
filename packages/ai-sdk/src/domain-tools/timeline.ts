@@ -58,6 +58,24 @@ function trackCarriesSound(track: Track): boolean {
 }
 
 /**
+ * The stored speed for `set_clip_speed`'s rate and direction (schema v15, ADR 0090): `0` is a
+ * freeze frame and a negative rate plays backwards.
+ *
+ * Direction is its own argument rather than a sign on `speed` for the reason the Inspector's
+ * Speed panel keeps them apart: "play it backwards" is not a thought about a minus sign, and a
+ * stray one would silently flip the clip. Run `6cb12e30` was asked for a freeze-frame and
+ * reported it "not built" because the tool only took a positive rate.
+ */
+function signedClipSpeed(a: {
+  readonly speed?: number | null | undefined;
+  readonly playback?: 'forward' | 'reverse' | 'freeze' | undefined;
+}): number | null {
+  if (a.playback === 'freeze') return 0;
+  if (a.playback === 'reverse') return -(a.speed ?? 1);
+  return a.speed ?? null;
+}
+
+/**
  * The refusal for one more stock cutaway than the brief asked for, or `null` when the
  * placement is within the cap (or no cap was stated).
  *
@@ -1672,11 +1690,31 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         "Set a clip's constant playback speed (schema v6 time-remap): 2 plays it 2× " +
         'faster, 0.5 at half speed. speed: null resets to 1×. The clip’s timeline length ' +
         'is recomputed from its (unchanged) source in/out points, so a speed-up shortens ' +
-        'the clip and a slow-down lengthens it.',
+        'the clip and a slow-down lengthens it. playback: "reverse" plays it backwards ' +
+        '(at speed, default 1×). playback: "freeze" (no speed) holds the clip’s FIRST ' +
+        'frame, silent, for the length the clip already has — to freeze a moment for N ' +
+        'seconds, split_clip at that moment and N seconds later, then freeze the middle ' +
+        'piece.',
       capabilities: ['edit', 'timing'],
     },
-    z.object({ clipId: z.string(), speed: numeric(z.number().positive().nullable()) }).strict(),
-    (a) => [{ type: 'set_clip_speed', clipId: a.clipId, speed: a.speed }],
+    z
+      .object({
+        clipId: z.string(),
+        speed: numeric(z.number().positive().nullable()).optional(),
+        playback: z.enum(['forward', 'reverse', 'freeze']).optional(),
+      })
+      .strict()
+      .refine(
+        (a) =>
+          a.playback === 'freeze'
+            ? a.speed === undefined
+            : a.playback === 'reverse' || a.speed !== undefined,
+        {
+          message:
+            'Give speed (a rate, or null for 1×) — or playback: "freeze", which takes no speed.',
+        },
+      ),
+    (a) => [{ type: 'set_clip_speed', clipId: a.clipId, speed: signedClipSpeed(a) }],
   ),
   mutateTool(
     {
