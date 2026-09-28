@@ -14,7 +14,6 @@
  * desktop executor routes on them, exactly as it does for `track_subject_automatically`.
  */
 import { z } from 'zod/v4';
-import { CAPTION_FONT_CATALOG } from '@framepilot/timeline-schema/caption-fonts';
 import {
   EDGE_STYLE_CATALOG,
   EDGE_STYLE_EFFECT_TYPE,
@@ -69,7 +68,7 @@ import {
   buildShapePresetMaskOps,
   type CreateShapeMaskIntent,
 } from '../masking/shape-presets.js';
-import { boolean, numeric, seconds } from './tool-args.js';
+import { boolean, bundledFontFamily, cssFontWeight, numeric, seconds } from './tool-args.js';
 import { analysisTool, jsonSchema, mutateTool, readTool } from './tool-factories.js';
 import { MAX_TITLE_BOX_WIDTH_PERCENT, largestFittingSizePercent } from '../overlay-fit.js';
 
@@ -625,12 +624,6 @@ function refineMaskOps(args: z.infer<typeof RefineMaskArgsSchema>, ctx: ToolCont
   return chain.operations;
 }
 
-/** The bundled families a title can be drawn in — the caption font catalog, `render/fonts`. */
-const TITLE_FONT_FAMILIES = CAPTION_FONT_CATALOG.map((font) => font.family) as [
-  string,
-  ...string[],
-];
-
 const TextStyleSchema = z
   .object({
     sizePercent: numeric(z.number().positive().max(100)).optional(),
@@ -638,8 +631,8 @@ const TextStyleSchema = z
     align: z.enum(['left', 'center', 'right']).optional(),
     xPercent: numeric(z.number().min(0).max(100)).optional(),
     yPercent: numeric(z.number().min(0).max(100)).optional(),
-    fontFamily: z.enum(TITLE_FONT_FAMILIES).optional(),
-    fontWeight: numeric(z.number().int().min(100).max(900)).optional(),
+    fontFamily: bundledFontFamily.optional(),
+    fontWeight: cssFontWeight.optional(),
   })
   .strict();
 

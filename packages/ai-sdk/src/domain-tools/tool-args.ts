@@ -9,6 +9,7 @@
  * numbers several providers emit. `numeric` is not decoration on `z.number()`.
  */
 import { z } from 'zod/v4';
+import { CAPTION_FONT_CATALOG } from '@framepilot/timeline-schema/caption-fonts';
 
 /**
  * Coerce a JSON scalar a model emitted as a *string* back to a number when it is
@@ -90,3 +91,16 @@ export const seconds = numeric(z.number().nonnegative());
 /** Deterministic id so identical inputs yield identical effect/keyframe ids. */
 export const id = (...parts: (string | number)[]): string =>
   parts.map((p) => (typeof p === 'number' ? Math.round(p * 1000) : p)).join('_');
+
+/**
+ * A font family the renderer bundles: the caption font catalog, `render/fonts`. An enum, not
+ * a free string, because the export falls back to its default face for a family it cannot
+ * resolve while the preview draws whatever the browser has — a named family outside this list
+ * would look right on screen and wrong in the file.
+ */
+export const bundledFontFamily = z.enum(
+  CAPTION_FONT_CATALOG.map((font) => font.family) as [string, ...string[]],
+);
+
+/** A CSS font weight, as the bundled variable families take it. */
+export const cssFontWeight = numeric(z.number().int().min(100).max(900));

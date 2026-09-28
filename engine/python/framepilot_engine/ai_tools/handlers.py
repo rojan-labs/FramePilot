@@ -72,6 +72,10 @@ from framepilot_engine.ai_tools.registry import (
     _ShapeStyleArgs,
 )
 from framepilot_engine.ai_tools.skills_generated import SKILLS
+from framepilot_engine.ai_tools.text_overlay_styles import (
+    text_overlay_style_params,
+    weight_the_family_has,
+)
 from framepilot_engine.effects.keyframes import punch_in_keyframes
 from framepilot_engine.render.caption_templates import get_caption_template, load_catalog
 from framepilot_engine.render.captions import _font_manifest
@@ -778,19 +782,28 @@ def add_text_layer(args: AddTextLayerArgs, ctx: ToolContext) -> Operations:
             "clipId": clip_id,
         }
     ]
-    params = {
-        key: value
-        for key, value in (
-            ("fontSizePercent", args.size_percent),
-            ("color", args.color),
-            ("background", args.background),
-            ("align", args.align),
-            ("boxWidthPercent", args.box_width_percent),
-            ("xPercent", args.x_percent),
-            ("yPercent", args.y_percent),
-        )
-        if value is not None
-    }
+    # ``style`` writes a catalog look whole (the web editor's ``textOverlayLookParams``); every
+    # explicit arg then overrides the one field it names, as in the TS tool.
+    params: dict[str, Any] = {} if args.style is None else text_overlay_style_params(args.style)
+    params.update(
+        {
+            key: value
+            for key, value in (
+                ("fontFamily", args.font_family),
+                ("fontWeight", args.font_weight),
+                ("fontSizePercent", args.size_percent),
+                ("color", args.color),
+                ("background", args.background),
+                ("align", args.align),
+                ("boxWidthPercent", args.box_width_percent),
+                ("xPercent", args.x_percent),
+                ("yPercent", args.y_percent),
+            )
+            if value is not None
+        }
+    )
+    if "fontWeight" in params:
+        params["fontWeight"] = weight_the_family_has(params.get("fontFamily"), params["fontWeight"])
     if params:
         ops.append(
             {

@@ -1,7 +1,7 @@
 ---
 name: titles-and-text
-description: Design concise title cards, lower thirds, labels, and emphasis text with readable timing, semantic purpose, safe placement, and consistent motion.
-tools: [get_timeline, get_mapped_transcript, add_text_layer, add_keyframes, trim_clip]
+description: Design text overlays — headings, lower thirds, labels, callouts, quotes and emphasis text — in the designed text overlay styles and bundled fonts, with readable timing, semantic purpose, safe placement, and consistent motion.
+tools: [get_timeline, get_mapped_transcript, discover_text_overlay_styles, add_text_layer, add_keyframes, trim_clip]
 ---
 
 # Titles and text
@@ -35,6 +35,17 @@ One card, one idea. Text must add meaning the audio or picture does not already 
 - Aim for 3–7 words and at least `max(1.5s, words/3 + 0.5s)`.
 - Lower thirds enter after the face/voice is established and usually hold 3–5s.
 - Keep one motion language; 0.2–0.4s opacity/position entrances are usually enough.
+- Start from a designed style rather than bare text. `discover_text_overlay_styles` lists
+  each style by category with what it looks like (typeface, colour, size, where it sits, how
+  it stands off the picture); pass the id as `add_text_layer` `style` and the whole look
+  comes with it — outline, shadow or chip included. Pass `category` to see one group.
+- Change only what the brief asks for: any styling arg you pass beside `style` (a colour,
+  a size, a position, `fontFamily`/`fontWeight`) overrides just that field of the style.
+- One family of styles per piece: a lower-thirds style for every name, one headline style for
+  every section card. Mixing looks reads as inconsistency, not variety.
+- Match the style to the job: `lower-thirds` for names and roles, `headlines` for hooks and
+  section cards, `callouts` for a word or number to notice, `social` for calls to action,
+  `quotes` for a line someone said.
 
 ## Decision framework
 

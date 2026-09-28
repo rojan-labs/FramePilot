@@ -53,7 +53,7 @@ import { clampParamsForKind } from '@framepilot/timeline-schema/effect-params';
 import {
   getTextOverlayStyle,
   parseTextOverlayTypography,
-  type TextOverlayLook,
+  textOverlayLookParams,
   type TextOverlayTypography,
 } from '@framepilot/timeline-schema/text-overlay-styles';
 import {
@@ -1944,27 +1944,10 @@ export function addTextOverlayPatch(
 }
 
 /**
- * The params a text overlay template writes: its whole look, and the id it came from. The text and the
- * animation stay the author's.
+ * The params a text overlay style writes: its whole look, and the id it came from. Shared with the
+ * AI's `add_text_layer`, so a style is one patch whichever of them applied it.
  */
-export function textOverlayLookParams(
-  look: TextOverlayLook,
-  templateId: string,
-): Partial<TextOverlayParams> {
-  return {
-    fontFamily: look.fontFamily,
-    fontWeight: look.fontWeight,
-    color: look.color,
-    fontSizePercent: look.fontSizePercent,
-    align: look.align,
-    boxWidthPercent: look.boxWidthPercent,
-    xPercent: look.xPercent,
-    yPercent: look.yPercent,
-    background: look.background,
-    typography: look.typography,
-    templateId,
-  };
-}
+export { textOverlayLookParams };
 
 /**
  * The lane a new text overlay goes on: the one aimed at (a drop), else the first overlay lane that can

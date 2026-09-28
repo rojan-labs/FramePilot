@@ -2400,6 +2400,35 @@ function catalogDigest(
   ].join('\n');
 }
 
+/**
+ * The text overlay styles as the model reads them: grouped by category, each id with its
+ * one-line look. The look IS the point of the call — an id like "sticker" or "chrome" does
+ * not say what lands on screen — so it is rendered here rather than left in the payload.
+ * `undefined` for a payload of another shape (the house rule: never report an empty result
+ * about something that was not a result).
+ */
+function textOverlayStyleDigest(obj: Record<string, unknown>): string | undefined {
+  if (!Array.isArray(obj.styles)) return undefined;
+  const styles = obj.styles as Record<string, unknown>[];
+  const note = typeof obj.note === 'string' ? [obj.note] : [];
+  if (styles.length === 0) {
+    const asked = typeof obj.query === 'string' ? ` "${obj.query}"` : '';
+    return `no text overlay style matches${asked} (${String(obj.total ?? 0)} in catalog); browse a category or the whole list`;
+  }
+  const byCategory = new Map<string, string[]>();
+  for (const style of styles) {
+    const category = String(style.category ?? 'other');
+    const entries = byCategory.get(category) ?? [];
+    entries.push(`${String(style.styleId)} (${String(style.look ?? '')})`);
+    byCategory.set(category, entries);
+  }
+  return [
+    ...note,
+    `${String(styles.length)} of ${String(obj.total ?? styles.length)} text overlay styles — pass the id as add_text_layer \`style\`:`,
+    ...[...byCategory.entries()].map(([category, entries]) => `${category}: ${entries.join('; ')}`),
+  ].join('\n');
+}
+
 function assetsDigest(assets: readonly Asset[]): string {
   return `${assets.length} asset${assets.length === 1 ? '' : 's'}:\n${boundedRecords(
     assets,
@@ -3259,6 +3288,8 @@ export function summarizeReadResult(
         catalogDigest(obj, 'transitions', 'kind', 'transitions') ??
         previewJson(value, ANALYSIS_PREVIEW_MAX)
       );
+    case 'discover_text_overlay_styles':
+      return textOverlayStyleDigest(obj) ?? previewJson(value, ANALYSIS_PREVIEW_MAX);
     case 'search_elements':
       return elementSearchDigest(obj) ?? previewJson(value, ANALYSIS_PREVIEW_MAX);
     case 'detect_subjects': {
