@@ -27,13 +27,13 @@ def _raster(params: dict[str, object], text: str = "LAUNCH DAY") -> np.ndarray:
     return rasterize_text_overlay(text, {**BASE, **params}, W, H)
 
 
-def test_a_title_without_typography_is_drawn_exactly_as_before() -> None:
+def test_a_text_overlay_without_typography_is_drawn_exactly_as_before() -> None:
     assert text_overlay_caption_style(BASE, H) is None
     plain = _raster({})
     assert np.array_equal(plain, rasterize_text_overlay("LAUNCH DAY", dict(BASE), W, H))
 
 
-def test_a_typed_title_is_the_caption_rasterizers_own_image() -> None:
+def test_a_typed_text_overlay_is_the_caption_rasterizers_own_image() -> None:
     params = {**BASE, "typography": {"outlineColor": "#000000", "outlineWidth": 2}}
     style = text_overlay_caption_style(params, H)
     assert style is not None
@@ -41,7 +41,7 @@ def test_a_typed_title_is_the_caption_rasterizers_own_image() -> None:
     assert np.array_equal(rasterize_text_overlay("LAUNCH DAY", params, W, H), expected)
 
 
-def test_the_title_keeps_its_own_size_family_weight_colour_and_wrap() -> None:
+def test_the_text_overlay_keeps_its_own_size_family_weight_colour_and_wrap() -> None:
     style = text_overlay_caption_style(
         {**BASE, "align": "left", "boxWidthPercent": 60, "typography": {}}, H
     )
@@ -80,7 +80,7 @@ def test_case_and_letter_spacing_reach_the_layout() -> None:
     assert tracked.shape[1] > _raster({"typography": {}}, text="GO").shape[1]
 
 
-def test_the_chip_colour_is_the_titles_background_and_its_shape_the_typography() -> None:
+def test_the_chip_colour_is_the_overlays_background_and_its_shape_the_typography() -> None:
     no_chip = text_overlay_caption_style({**BASE, "typography": {"background": {"radius": 0.5}}}, H)
     assert no_chip is not None and no_chip.background is None
     chip = text_overlay_caption_style(
@@ -95,11 +95,11 @@ def test_the_chip_colour_is_the_titles_background_and_its_shape_the_typography()
     assert chip.background.color == "#ffd60a"
     assert chip.background.radius == 0.5
     assert chip.background.padding_x == 0.6
-    # A text overlay has no backdrop pass: the frost is never passed on.
-    assert chip.background.blur is None
+    # Frosted glass is part of the chip's shape (test_text_overlay_frost.py draws it).
+    assert chip.background.blur == 0.4
 
 
-def test_word_timed_and_positional_caption_fields_never_reach_a_title() -> None:
+def test_word_timed_and_positional_caption_fields_never_reach_a_text_overlay() -> None:
     style = text_overlay_caption_style(
         {
             **BASE,
@@ -118,7 +118,7 @@ def test_word_timed_and_positional_caption_fields_never_reach_a_title() -> None:
     assert style.position is None and style.x_percent is None and style.rotation is None
 
 
-def test_an_invalid_typography_draws_the_plain_title_instead_of_failing() -> None:
+def test_an_invalid_typography_draws_the_plain_text_overlay_instead_of_failing() -> None:
     params = {**BASE, "typography": {"textOpacity": 7}}
     assert text_overlay_caption_style(params, H) is None
     assert np.array_equal(
@@ -127,7 +127,7 @@ def test_an_invalid_typography_draws_the_plain_title_instead_of_failing() -> Non
     )
 
 
-def test_a_turning_typed_title_is_drawn_in_its_rotation_safe_square() -> None:
+def test_a_turning_typed_text_overlay_is_drawn_in_its_rotation_safe_square() -> None:
     params = {**BASE, "typography": {}}
     turning = rasterize_text_overlay("LAUNCH DAY", params, W, H, rotates=True)
     assert turning.shape[0] == turning.shape[1]
@@ -152,7 +152,7 @@ def test_the_export_refuses_exactly_what_the_preview_refuses() -> None:
     assert text_overlay_caption_style({**BASE, "typography": {"lineHeight": 3}}, H) is not None
 
 
-def test_a_typed_title_with_no_family_or_size_takes_the_editors_defaults() -> None:
+def test_a_typed_text_overlay_with_no_family_or_size_takes_the_editors_defaults() -> None:
     # The agent's add_text_layer stores neither; the preview draws Inter at 8% of the height.
     style = text_overlay_caption_style({"typography": {}}, H)
     assert style is not None

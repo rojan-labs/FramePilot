@@ -41,8 +41,8 @@ resolved and drawn here.
 
 TYPOGRAPHY (2026-09-28). A text overlay may carry ``typography``: the caption style's LINE-level
 fields (case, italic, letter spacing, line height, see-through letters, outline, shadow, and the
-chip's shape). A text overlay with it is drawn by the caption rasterizer itself
-(:func:`~framepilot_engine.render.captions.render_caption_raster`) through
+chip's shape, frosted glass included). A text overlay with it is drawn by the caption rasterizer
+itself (:func:`~framepilot_engine.render.captions.render_caption_raster`) through
 :func:`text_overlay_caption_style`, so it draws exactly as a caption in the same look does, in the
 export and in the desktop monitor alike. A text overlay without it keeps this module's own
 drawing (and its fixed black stroke), byte for byte. Excluded: everything word-timed or animated
@@ -112,12 +112,14 @@ TEXT_OVERLAY_TYPOGRAPHY_FIELDS: tuple[str, ...] = (
     "shadow",
 )
 #: The chip fields a text overlay takes from ``typography.background``. Its colour is the text
-#: overlay's own ``background`` param (the Inspector's switch), and ``blur`` is left out: a
-#: frosted chip blurs the delivered picture behind it, which only the caption compositor does.
+#: overlay's own ``background`` param (the Inspector's switch). ``blur`` makes the chip frosted
+#: glass: the picture composited beneath the text overlay is blurred through the chip's coverage
+#: (:class:`TextOverlayRaster`, ``compiler.py`` ``_composite_frosted``).
 _TEXT_OVERLAY_CHIP_FIELDS: tuple[str, ...] = (
     "radius",
     "paddingX",
     "paddingY",
+    "blur",
     "borderColor",
     "borderWidth",
 )
@@ -385,7 +387,7 @@ def _typography_problem(typography: Mapping[str, Any]) -> str | None:
     if chip is not None:
         shape_ok = isinstance(chip, Mapping) and all(
             _non_negative(chip[key])
-            for key in ("radius", "paddingX", "paddingY", "borderWidth")
+            for key in ("radius", "paddingX", "paddingY", "blur", "borderWidth")
             if key in chip
         )
         border = chip.get("borderColor") if isinstance(chip, Mapping) else None
@@ -513,6 +515,48 @@ def render_text_overlay_image(
         y += line_height + line_gap
 
     return np.asarray(image, dtype=np.uint8)
+
+
+@dataclass(frozen=True)
+class TextOverlayRaster:
+    """A text overlay's RGBA raster and, for a frosted chip, where to blur behind it.
+
+    ``backdrop`` is an ``(H, W)`` ``uint8`` coverage mask the SAME size as ``image``, so the
+    compiler places both through one transform: the picture beneath the text overlay is replaced
+    by its Gaussian blur, ``backdrop_sigma_px`` wide, wherever the coverage is. ``None`` for a
+    chip that is not frosted (the common case).
+    """
+
+    image: np.ndarray
+    backdrop: np.ndarray | None = None
+    backdrop_sigma_px: float = 0.0
+
+
+def rasterize_text_overlay_layers(
+    text: str,
+    style_params: Mapping[str, Any],
+    frame_width: int,
+    frame_height: int,
+    *,
+    rotates: bool = False,
+) -> TextOverlayRaster:
+    """:func:`rasterize_text_overlay` plus a frosted chip's backdrop coverage.
+
+    The export's compiler and the desktop monitor's raster route both call this, so the coverage
+    the monitor blurs through is the export's own.
+    """
+    styled = text_overlay_caption_style(style_params, frame_height)
+    if styled is None:
+        return TextOverlayRaster(
+            rasterize_text_overlay(text, style_params, frame_width, frame_height, rotates=rotates)
+        )
+    raster = render_caption_raster(text, frame_width, frame_height, style=styled)
+    image = rotation_safe(raster.image) if rotates else raster.image
+    if raster.backdrop is None:
+        return TextOverlayRaster(image)
+    coverage = raster.backdrop[..., np.newaxis]
+    backdrop = rotation_safe(coverage)[..., 0] if rotates else raster.backdrop
+    return TextOverlayRaster(image, backdrop, raster.backdrop_sigma_px)
 
 
 def rasterize_text_overlay(
