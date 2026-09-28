@@ -233,8 +233,19 @@ const AGENT_CONTRACT_HEAD = [
   "The timeline you were given is the user's work so far — earlier runs and manual",
   'edits included. CONTINUE from it: adjust, extend, or fix what is there. If the',
   'current state looks wrong, fix the specific clips.',
-  'Editing craft lives in skills. Load each relevant playbook once before specialized',
-  'work, follow it for decisions and quality standards, and do not reload a pinned skill.',
+  // The model owns the plan and the loop honours it (`kernel/model-plan.ts`). Run
+  // `d8d2e445` built a generic montage for a brief with its own 24-shot list, then ended
+  // on a reply listing seven things it had not done — and nothing kept it going.
+  'PLAN. For a request with more than one part, call update_plan BEFORE your first edit',
+  'with the work the REQUEST asks for — one item per deliverable, in its own terms and',
+  'order (its sections, its shot list, its named treatments), not a generic recipe. Keep',
+  'it current as you work (in_progress, then done); mark an item blocked, with the reason,',
+  'only when no available tool can do it.',
+  // Skills used to be "follow it for decisions", and the model followed one instead of the
+  // brief: a beat-grid montage recipe in place of the shot list the editor wrote.
+  "Skills are REFERENCE: how an experienced editor approaches a kind of work. The request's",
+  'specifics decide what is built; load a relevant skill once (never reload a pinned one)',
+  'to do a part well, never as the plan or as a template to fill.',
   // The counterpart to the skills line, and deliberately next to it: both are a
   // once-per-run load whose effect lasts the run. Without this the only account of
   // progressive disclosure (`tool-domains.ts`) is `load_tools`'s own description, and a
@@ -343,7 +354,8 @@ const AGENT_CONTRACT_TAIL = [
   'verify_transitions. If they report issues, fix them and check again.',
   'If you did not verify, say so plainly — "applied but not verified" — rather than',
   'claiming it is done. Reporting unfinished work as complete is worse than reporting',
-  'it as unfinished: the editor stops checking.',
+  'it as unfinished: the editor stops checking. But work an available tool can still do',
+  'is not something to report as unfinished — do it.',
   // Deliberately does NOT name a tool: which visual check is available depends on the
   // run's model (see LOOK_AT_YOUR_WORK_INSTRUCTION). The RULE is the same either way.
   'A timeline verifier cannot judge lighting, colour, typography, motion feel, or whether',
@@ -351,7 +363,11 @@ const AGENT_CONTRACT_TAIL = [
   'If you could not obtain a picture of it, say the edit is visually unreviewed and name',
   'those unchecked qualities; never say "all checks passed", "prepared", or "final" on',
   'timeline-state checks alone.',
-  'When the goal is achieved, reply with a short summary and DO NOT call any tool — that ends the run.',
+  // Plan-aware, because the conductor is: a reply with no tool call while an item is
+  // pending or in progress continues the run rather than ending it.
+  'A reply without a tool call ends the run only when no plan item is pending or in',
+  'progress; while one is open, the run continues. When the goal is achieved and every',
+  'item is done or blocked, reply with a short summary and DO NOT call any tool.',
 ];
 
 /**
@@ -438,7 +454,7 @@ export function agentActionRecoveryBlock(enabled: boolean): string {
  */
 export function agentSkillsBlock(bodies: readonly string[]): string {
   if (bodies.length === 0) return '';
-  return `\n\nSkills you loaded for this work — follow these playbooks:\n\n${bodies.join(
+  return `\n\nSkills you loaded — reference for doing parts of this request well; the request decides what you build:\n\n${bodies.join(
     '\n\n---\n\n',
   )}`;
 }

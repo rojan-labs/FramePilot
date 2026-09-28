@@ -8,6 +8,7 @@ import {
   SYSTEM_PROMPT,
   agentActionRecoveryBlock,
   agentModeInstruction,
+  agentSkillsBlock,
   classifierSystemPrompt,
 } from './prompts.js';
 
@@ -103,6 +104,32 @@ describe('agentModeInstruction', () => {
     expect(text).toContain('TWO TIMEBASES');
     expect(text).toContain('call map_time or get_mapped_transcript');
     expect(text).toContain('Do NOT compute offsets');
+  });
+
+  it('makes the model own a plan in the request’s terms, and ends the run only when it is closed', () => {
+    // Run d8d2e445 ended on a reply listing seven things it had not done.
+    const text = agentModeInstruction();
+    expect(text).toContain('call update_plan BEFORE your first edit');
+    expect(text).toContain(
+      'in its own terms and\norder (its sections, its shot list, its named treatments)',
+    );
+    expect(text).toContain(
+      'A reply without a tool call ends the run only when no plan item is pending',
+    );
+    expect(text).not.toContain(
+      'When the goal is achieved, reply with a short summary and DO NOT call any tool — that ends the run.',
+    );
+    // Unfinished-work honesty stays, but work a tool can still do is not a report item.
+    expect(text).toContain('Reporting unfinished work as complete is worse');
+    expect(text).toContain('is not something to report as unfinished — do it.');
+  });
+
+  it('frames skills as reference, never as the plan or a template', () => {
+    const text = agentModeInstruction();
+    expect(text).toContain('Skills are REFERENCE');
+    expect(text).toContain('never as the plan or as a template to fill');
+    expect(text).not.toContain('follow it for decisions');
+    expect(agentSkillsBlock(['body'])).not.toContain('follow these playbooks');
   });
 
   it('separates application from committed-state verification', () => {
