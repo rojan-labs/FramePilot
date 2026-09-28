@@ -176,7 +176,7 @@ export function PreviewTextEditor({
   };
 
   const style = textOverlayStyle(shown, timeInClip, duration);
-  // A typed title's box hugs its longest line, as the engine's raster does. Not while typing:
+  // A typed text overlay's box hugs its longest line, as the engine's raster does. Not while typing:
   // the lines move under the caret, and the box settles when the edit commits.
   useHugLines(
     boxRef,

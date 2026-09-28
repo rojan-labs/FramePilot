@@ -10433,64 +10433,64 @@ stickers, CC BY 4.0 (EL10).
   the archive at packaging so main checks the set against it
   (`docs/runbooks/security-hardening.md`, 2026-09-26 packaged set review).
 
-## Text panel — title templates in caption typography — `[x]` done (2026-09-28, follow-ups in TX7)
+## Text panel — text overlay templates in caption typography — `[x]` done (2026-09-28, follow-ups in TX7)
 
 Maintainer (2026-09-28): "the Overlay panel is not nice … the typography should sync with the
 captions typography … rethink the overlay panel exploring the competitors … there should be
 templates of the text overlays". Branch `rjach/Overlay-Typography`.
 
-Scope gate. **Outcome:** a creator adds a designed title (heading, lower third, callout, quote,
+Scope gate. **Outcome:** a creator adds a designed text overlay (heading, lower third, callout, quote,
 subscribe card) in one click, in the same fonts and looks their captions use, and the export
-draws exactly that. **Gap:** the Text panel builds a title from a form whose style tiles and
-9-point position were preview-only (never saved, never exported); titles offer six system font
+draws exactly that. **Gap:** the Text panel builds a text overlay from a form whose style tiles and
+9-point position were preview-only (never saved, never exported); text overlays offer six system font
 names the export does not bundle, and none of the caption typography (outline, shadow, chip,
-case, spacing, italic, see-through letters). **Slice:** title typography = the caption style's
+case, spacing, italic, see-through letters). **Slice:** text overlay typography = the caption style's
 line-level fields, drawn by the caption rasterizer the export and the desktop monitor already
-share; a pure-data title template catalog; a template-first panel; the Inspector's font list and
+share; a pure-data text overlay template catalog; a template-first panel; the Inspector's font list and
 typography controls from the caption catalog. **Reuse:** `CaptionStyle` fields and
 `render_caption_raster`, `captionLineCss`/`captionBoxCss`, the bundled caption fonts,
 `add_text_overlay` + `set_effect_params` (the `add_text_layer` pattern), the lane allocator.
-**Deferred:** frosted-glass chips on titles (the title pipeline has no backdrop pass), per-word
-accent/highlight on titles (word-timed), animated caption entrances on titles (titles animate
+**Deferred:** frosted-glass chips on text overlays (the text overlay pipeline has no backdrop pass), per-word
+accent/highlight on text overlays (word-timed), animated caption entrances on text overlays (text overlays animate
 through the Animation section's layer transitions), an AI `template` argument. **Evidence:**
-engine raster tests for styled titles (typography changes pixels, legacy titles unchanged),
+engine raster tests for styled text overlays (typography changes pixels, legacy text overlays unchanged),
 catalog tests (fonts bundled, weights in range, hex colours), panel/Inspector component tests.
 
-- [x] **TX1** Title typography: `TextOverlayParams.typography` (caption-style line fields) and one
-  mapping to a `CaptionStyle` per runtime; the engine draws a typed title through
-  `render_caption_raster` (export + desktop monitor), untyped titles unchanged. (`f45a9e91`,
+- [x] **TX1** Text overlay typography: `TextOverlayParams.typography` (caption-style line fields) and one
+  mapping to a `CaptionStyle` per runtime; the engine draws a typed text overlay through
+  `render_caption_raster` (export + desktop monitor), untyped text overlays unchanged. (`f45a9e91`,
   `393c4cfc`; engine tests `test_text_overlay_typography.py`.)
-- [x] **TX2** Overlay style catalog (`timeline-schema/title-templates.ts`): 59 styles of their own in
+- [x] **TX2** Overlay style catalog (`timeline-schema/text-overlay-styles.ts`): 59 styles of their own in
   eight categories (Script and Retro & fun added), catalog invariants tested (fonts, weights,
   italics, hex, separation layer, unique names, >= 5 per category). (`2eafb36c`, `9c569a75`)
   **Maintainer correction (2026-09-28):** "whatever fonts are available on the captions they should
   be available on the overlay … multiple styles of overlays as templates". The first revision
   mapped the 68 caption templates across as "Caption looks"; that was not wanted and is reverted.
   Captions and overlays share fonts and the typography vocabulary, not each other's looks.
-- [x] **TX3** Browser preview draws title typography (DOM title and on-canvas editor through the
+- [x] **TX3** Browser preview draws text overlay typography (DOM text overlay and on-canvas editor through the
   caption CSS). The typed box reserves the caption renderer's padding, so it wraps where the
   export does (`26f8f43e`). The desktop hit target over the engine raster paints nothing.
 - [x] **TX4** Text panel rebuilt with Styles and Fonts tabs: quick add, search, category chips,
   Recent, a live style grid (click adds at the playhead and selects; drag onto a lane; Apply
-  restyles the selected title), titles from every lane; Fonts lists all 92 caption fonts in their
-  own face (click sets the selected title's font or adds a heading in it; lazy rows). A project
+  restyles the selected text overlay), text overlays from every lane; Fonts lists all 92 caption fonts in their
+  own face (click sets the selected text overlay's font or adds a heading in it; lazy rows). A project
   without an overlay lane gets one. (`07b0611a`, `5c54a620`, `8125362b`)
 - [x] **TX4b** Review fixes (`f1ab2314`): desktop hit target could paint a changed chip over the
-  raster (shorthand/longhand style keys); wrapped titles' chip wider in the preview than the export
-  (`useHugLines`); engine accepted typography the preview rejects; typed titles with no stored
+  raster (shorthand/longhand style keys); wrapped text overlays' chip wider in the preview than the export
+  (`useHugLines`); engine accepted typography the preview rejects; typed text overlays with no stored
   family/size used Pillow's default face in the export.
 - [x] **TX5** Inspector: bundled caption fonts through the shared `FontFamilySelect`, weights from
-  the family, italic only where shipped, and the typography rows. A plain title converts from
-  `PLAIN_TITLE_TYPOGRAPHY`. (`c8605b01`)
-- [x] **TX6** Docs: ADR 0194, `docs/guides/text-and-titles.md`, CHANGELOG, website changelog.
+  the family, italic only where shipped, and the typography rows. A plain text overlay converts from
+  `PLAIN_TEXT_OVERLAY_TYPOGRAPHY`. (`c8605b01`)
+- [x] **TX6** Docs: ADR 0194, `docs/guides/text-overlays.md`, CHANGELOG, website changelog.
 - Evidence: engine contact sheet of 20 templates through `rasterize_text_overlay` (the export
   call) matched the panel tiles; the panel, restyle and Inspector were checked in the running app.
   That check found three defects (a project with no overlay lane had every button disabled; the
   grid collapsed to one column; the 9:16 lower third wrapped), and the engine sheet found the wrap
   gap fixed in TX3. All are fixed.
 - [ ] **TX7** Follow-ups (not started): an optional `template` on the agent's `add_text_layer`
-  (a prompt/golden change); frosted chips on titles (needs a backdrop pass in the title
-  pipeline); saved user styles ("Your styles"); two titles may share a derived clip id after a
+  (a prompt/golden change); frosted chips on text overlays (needs a backdrop pass in the text overlay
+  pipeline); saved user styles ("Your styles"); two text overlays may share a derived clip id after a
   lane move (pre-existing, also true of `add_text_layer`); typography in the browser-only canvas fallback
   raster (`text-raster.ts`); the caption preview's own chipless wrap padding (captions reserve no
   padding in CSS but the engine wraps inside 0.35 em a side); `title_metrics` and

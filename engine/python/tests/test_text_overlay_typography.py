@@ -1,9 +1,9 @@
-"""A title with ``typography`` is drawn in the caption typography (``render/text_overlay.py``).
+"""A text overlay with ``typography`` is drawn in the caption typography (``text_overlay.py``).
 
-Titles and captions used to be two typographies: a caption had the whole caption vocabulary
-(outline, shadow, chip, case, spacing, see-through letters) while a title had a colour, a family
-and a fixed black stroke. A title that carries ``typography`` is now drawn by the caption
-rasterizer, so a title set in a caption look draws as that caption does — in the export and in
+Text overlays and captions used to be two typographies: a caption had the whole caption
+vocabulary (outline, shadow, chip, case, spacing, see-through letters) while a text overlay had a
+colour, a family and a fixed black stroke. A text overlay that carries ``typography`` is now drawn
+by the caption rasterizer, so it draws as a caption in the same look does, in the export and in
 the desktop monitor, which both call :func:`rasterize_text_overlay`.
 """
 
@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 
 from framepilot_engine.render.captions import render_caption_raster
-from framepilot_engine.render.text_overlay import rasterize_text_overlay, title_caption_style
+from framepilot_engine.render.text_overlay import rasterize_text_overlay, text_overlay_caption_style
 
 W, H = 1080, 1920
 BASE: dict[str, object] = {
@@ -28,21 +28,21 @@ def _raster(params: dict[str, object], text: str = "LAUNCH DAY") -> np.ndarray:
 
 
 def test_a_title_without_typography_is_drawn_exactly_as_before() -> None:
-    assert title_caption_style(BASE, H) is None
+    assert text_overlay_caption_style(BASE, H) is None
     plain = _raster({})
     assert np.array_equal(plain, rasterize_text_overlay("LAUNCH DAY", dict(BASE), W, H))
 
 
 def test_a_typed_title_is_the_caption_rasterizers_own_image() -> None:
     params = {**BASE, "typography": {"outlineColor": "#000000", "outlineWidth": 2}}
-    style = title_caption_style(params, H)
+    style = text_overlay_caption_style(params, H)
     assert style is not None
     expected = render_caption_raster("LAUNCH DAY", W, H, style=style).image
     assert np.array_equal(rasterize_text_overlay("LAUNCH DAY", params, W, H), expected)
 
 
 def test_the_title_keeps_its_own_size_family_weight_colour_and_wrap() -> None:
-    style = title_caption_style(
+    style = text_overlay_caption_style(
         {**BASE, "align": "left", "boxWidthPercent": 60, "typography": {}}, H
     )
     assert style is not None
@@ -52,7 +52,7 @@ def test_the_title_keeps_its_own_size_family_weight_colour_and_wrap() -> None:
     assert style.text_align == "left"
     assert style.max_width_percent == 60
     assert style.display == "phrase"
-    # floor(H / 22 * fontScale) lands on the title's own size, floor(H * 8 / 100).
+    # floor(H / 22 * fontScale) lands on the text overlay's own size, floor(H * 8 / 100).
     assert int(H / 22 * (style.font_scale or 0)) == int(H * 8 / 100)
 
 
@@ -81,9 +81,9 @@ def test_case_and_letter_spacing_reach_the_layout() -> None:
 
 
 def test_the_chip_colour_is_the_titles_background_and_its_shape_the_typography() -> None:
-    no_chip = title_caption_style({**BASE, "typography": {"background": {"radius": 0.5}}}, H)
+    no_chip = text_overlay_caption_style({**BASE, "typography": {"background": {"radius": 0.5}}}, H)
     assert no_chip is not None and no_chip.background is None
-    chip = title_caption_style(
+    chip = text_overlay_caption_style(
         {
             **BASE,
             "background": "#ffd60a",
@@ -95,12 +95,12 @@ def test_the_chip_colour_is_the_titles_background_and_its_shape_the_typography()
     assert chip.background.color == "#ffd60a"
     assert chip.background.radius == 0.5
     assert chip.background.padding_x == 0.6
-    # A title has no backdrop pass: the frost is never passed on.
+    # A text overlay has no backdrop pass: the frost is never passed on.
     assert chip.background.blur is None
 
 
 def test_word_timed_and_positional_caption_fields_never_reach_a_title() -> None:
-    style = title_caption_style(
+    style = text_overlay_caption_style(
         {
             **BASE,
             "typography": {
@@ -120,7 +120,7 @@ def test_word_timed_and_positional_caption_fields_never_reach_a_title() -> None:
 
 def test_an_invalid_typography_draws_the_plain_title_instead_of_failing() -> None:
     params = {**BASE, "typography": {"textOpacity": 7}}
-    assert title_caption_style(params, H) is None
+    assert text_overlay_caption_style(params, H) is None
     assert np.array_equal(
         rasterize_text_overlay("LAUNCH DAY", params, W, H),
         rasterize_text_overlay("LAUNCH DAY", dict(BASE), W, H),
@@ -134,9 +134,9 @@ def test_a_turning_typed_title_is_drawn_in_its_rotation_safe_square() -> None:
 
 
 def test_the_export_refuses_exactly_what_the_preview_refuses() -> None:
-    # The preview parses typography with TitleTypographySchema and draws the plain title when it
-    # does not parse; the export must agree about every one of these, or the two show different
-    # looks for the same title.
+    # The preview parses typography with TextOverlayTypographySchema and draws the plain text
+    # overlay when it does not parse; the export must agree about every one of these, or the two
+    # show different looks for the same text overlay.
     for bad in (
         {"lineHeight": 4},
         {"lineHeight": 0.5},
@@ -148,17 +148,17 @@ def test_the_export_refuses_exactly_what_the_preview_refuses() -> None:
         {"background": {"radius": -0.2}},
         {"letterSpacing": "wide"},
     ):
-        assert title_caption_style({**BASE, "typography": bad}, H) is None, bad
-    assert title_caption_style({**BASE, "typography": {"lineHeight": 3}}, H) is not None
+        assert text_overlay_caption_style({**BASE, "typography": bad}, H) is None, bad
+    assert text_overlay_caption_style({**BASE, "typography": {"lineHeight": 3}}, H) is not None
 
 
 def test_a_typed_title_with_no_family_or_size_takes_the_editors_defaults() -> None:
     # The agent's add_text_layer stores neither; the preview draws Inter at 8% of the height.
-    style = title_caption_style({"typography": {}}, H)
+    style = text_overlay_caption_style({"typography": {}}, H)
     assert style is not None
     assert style.font_family == "Inter"
     assert int(H / 22 * (style.font_scale or 0)) == int(H * 8 / 100)
-    # A title that stores a size in pixels keeps it.
-    sized = title_caption_style({"fontSize": 120, "typography": {}}, H)
+    # A text overlay that stores a size in pixels keeps it.
+    sized = text_overlay_caption_style({"fontSize": 120, "typography": {}}, H)
     assert sized is not None
     assert int(H / 22 * (sized.font_scale or 0)) == 120

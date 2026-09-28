@@ -1,50 +1,50 @@
 /**
- * Text panel (the left rail's "Text" tab): titles from styles, in every font captions have.
+ * Text panel (the left rail's "Text" tab): text overlays from styles, in every font captions have.
  *
  * Shaped by what creators already know from CapCut, Clipchamp, Canva and VEED (the 2026-09-28
  * survey in plan/PLAN.md "Text panel"). Two tabs, as CapCut's text panel has:
  *
  * - **Styles:** quick Heading / Subheading / Body buttons, a search, category chips, a Recent row
- *   and a grid of overlay styles, each drawn in its real font and look. A click adds the title at
+ *   and a grid of overlay styles, each drawn in its real font and look. A click adds the text overlay at
  *   the playhead and selects it, so the Inspector and the on-canvas box are ready to edit it; a
- *   tile dragged onto a lane adds it there. With a title selected, every tile also offers Apply,
- *   which restyles that title and leaves its text and place alone.
- * - **Fonts:** every bundled caption font (`TextFontsTab`). A click sets the selected title's
+ *   tile dragged onto a lane adds it there. With a text overlay selected, every tile also offers Apply,
+ *   which restyles that text overlay and leaves its text and place alone.
+ * - **Fonts:** every bundled caption font (`TextFontsTab`). A click sets the selected text overlay's
  *   font, or adds a heading in it.
  *
- * Everything a tile shows is what the title will be: a style is a complete look written into the
- * title's params (`title-templates.ts`), drawn by the caption rasterizer in the export and the
- * desktop monitor, and by the same caption CSS here (`titleTypographyCss`).
+ * Everything a tile shows is what the text overlay will be: a style is a complete look written into the
+ * text overlay's params (`text-overlay-styles.ts`), drawn by the caption rasterizer in the export and the
+ * desktop monitor, and by the same caption CSS here (`textOverlayTypographyCss`).
  *
- * The list under the styles holds the titles already on the timeline: click to go to one and
+ * The list under the styles holds the text overlays already on the timeline: click to go to one and
  * select it, double-click to edit its words, or delete it.
  */
 import { memo, useCallback, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { Clip, Timeline } from '@framepilot/timeline-schema';
 import {
-  DEFAULT_TITLE_TEMPLATE_ID,
-  TITLE_TEMPLATE_CATALOG,
-  TITLE_TEMPLATE_CATEGORIES,
-  getTitleTemplate,
-  type TitleTemplate,
-  type TitleTemplateCategory,
-} from '@framepilot/timeline-schema/title-templates';
+  DEFAULT_TEXT_OVERLAY_STYLE_ID,
+  TEXT_OVERLAY_STYLE_CATALOG,
+  TEXT_OVERLAY_STYLE_CATEGORIES,
+  getTextOverlayStyle,
+  type TextOverlayStyle,
+  type TextOverlayStyleCategory,
+} from '@framepilot/timeline-schema/text-overlay-styles';
 import type { UseEditor } from '../editor/useEditor.js';
 import {
   DEFAULT_TEXT_PARAMS,
-  addTitleFromTemplatePatch,
-  applyTitleTemplatePatch,
+  addTextOverlayFromStylePatch,
+  applyTextOverlayStylePatch,
   deleteClipPatch,
   readTextParams,
   setTextParamsPatch,
   textEffectOf,
-  titleLookParams,
+  textOverlayLookParams,
   type TextOverlayParams,
 } from '../editor/patch-builders.js';
-import { titleTypographyCss } from '../editor/textOverlay.js';
+import { textOverlayTypographyCss } from '../editor/textOverlay.js';
 import { useSettings } from '../editor/useSettings.js';
 import { useViewPreference } from '../editor/useViewPreference.js';
-import { titleFontParams } from '../editor/titleFonts.js';
+import { textOverlayFontParams } from '../editor/textOverlayFonts.js';
 import { useTileGrid } from './elements/useTileGrid.js';
 import { TextFontsTab } from './TextFontsTab.js';
 import { Check, ICON_SIZE, Trash2 } from './icons.js';
@@ -56,22 +56,22 @@ export interface OverlaysPanelProps {
 }
 
 /**
- * DnD payload type for dragging a title template from this panel onto a timeline lane. The
- * payload is a title template id; anything else (older builds sent `text` / `title`) adds the
+ * DnD payload type for dragging a text overlay template from this panel onto a timeline lane. The
+ * payload is a text overlay template id; anything else (older builds sent `text` / `text overlay`) adds the
  * default template. Mirrors `ASSET_DND_TYPE` / `TRANSITION_DND_TYPE`.
  */
 export const TEXT_OVERLAY_DND_TYPE = 'application/x-framepilot-text-overlay';
 
 /** The template a dropped payload names, or the default one for a payload from an older build. */
-export function titleTemplateForDrop(payload: string): string {
-  return getTitleTemplate(payload) ? payload : DEFAULT_TITLE_TEMPLATE_ID;
+export function textOverlayStyleForDrop(payload: string): string {
+  return getTextOverlayStyle(payload) ? payload : DEFAULT_TEXT_OVERLAY_STYLE_ID;
 }
 
-type CategoryChip = 'all' | TitleTemplateCategory;
+type CategoryChip = 'all' | TextOverlayStyleCategory;
 
 const CHIPS: readonly { readonly id: CategoryChip; readonly label: string }[] = [
   { id: 'all', label: 'All' },
-  ...TITLE_TEMPLATE_CATEGORIES,
+  ...TEXT_OVERLAY_STYLE_CATEGORIES,
 ];
 
 /** Quick-add buttons, largest first (the Canva / VN hierarchy). */
@@ -96,22 +96,24 @@ const coerceChip = (raw: unknown): CategoryChip | undefined =>
   CHIPS.some((chip) => chip.id === raw) ? (raw as CategoryChip) : undefined;
 const coerceRecent = (raw: unknown): readonly string[] | undefined =>
   Array.isArray(raw)
-    ? raw.filter((id): id is string => typeof id === 'string' && getTitleTemplate(id) !== undefined)
+    ? raw.filter(
+        (id): id is string => typeof id === 'string' && getTextOverlayStyle(id) !== undefined,
+      )
     : undefined;
 
 /**
- * A tile's sample text, drawn by the same caption CSS the title will be, scaled to the tile. The
+ * A tile's sample text, drawn by the same caption CSS the text overlay will be, scaled to the tile. The
  * size keeps the template's proportion (a big number reads bigger than a lower third) inside a
  * legible range. Built once per template: the catalog is static.
  */
 const TILE_STYLES: ReadonlyMap<string, CSSProperties> = new Map(
-  TITLE_TEMPLATE_CATALOG.map((template) => {
+  TEXT_OVERLAY_STYLE_CATALOG.map((template) => {
     const params: TextOverlayParams = {
       ...DEFAULT_TEXT_PARAMS,
-      ...titleLookParams(template.look, template.id),
+      ...textOverlayLookParams(template.look, template.id),
       text: template.sampleText,
     };
-    const css = titleTypographyCss(params) ?? {};
+    const css = textOverlayTypographyCss(params) ?? {};
     return [
       template.id,
       {
@@ -126,11 +128,11 @@ const TILE_STYLES: ReadonlyMap<string, CSSProperties> = new Map(
 );
 
 const CATEGORY_LABEL: ReadonlyMap<string, string> = new Map(
-  TITLE_TEMPLATE_CATEGORIES.map((category) => [category.id, category.label]),
+  TEXT_OVERLAY_STYLE_CATEGORIES.map((category) => [category.id, category.label]),
 );
 
 /** Whether `template` answers `query` by its name, sample text, category or font. */
-function matchesQuery(template: TitleTemplate, query: string): boolean {
+function matchesQuery(template: TextOverlayStyle, query: string): boolean {
   const haystack = [
     template.label,
     template.sampleText,
@@ -145,8 +147,8 @@ function matchesQuery(template: TitleTemplate, query: string): boolean {
     .every((word) => haystack.includes(word));
 }
 
-/** Every title on the timeline (every lane a title can be on), in time order. */
-function titlesOnTimeline(timeline: Timeline): readonly Clip[] {
+/** Every text overlay on the timeline (every lane a text overlay can be on), in time order. */
+function textOverlaysOnTimeline(timeline: Timeline): readonly Clip[] {
   return timeline.tracks
     .filter((track) => track.type !== 'caption')
     .flatMap((track) => track.clips)
@@ -169,10 +171,10 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
   const [editing, setEditing] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
 
-  const titles = useMemo(() => titlesOnTimeline(timeline), [timeline]);
+  const textOverlays = useMemo(() => textOverlaysOnTimeline(timeline), [timeline]);
   const selectedTitle = useMemo(
-    () => titles.find((clip) => selectedIds.includes(clip.id)),
-    [titles, selectedIds],
+    () => textOverlays.find((clip) => selectedIds.includes(clip.id)),
+    [textOverlays, selectedIds],
   );
   const appliedTemplateId = selectedTitle ? readTextParams(selectedTitle).templateId : undefined;
 
@@ -184,7 +186,7 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
   const add = (templateId: string): void => {
     const start = editor.getPlayhead();
     // No lane named: the first overlay lane with room, or a new one on top.
-    const built = addTitleFromTemplatePatch(
+    const built = addTextOverlayFromStylePatch(
       timeline,
       undefined,
       templateId,
@@ -195,37 +197,43 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
     editor.applyPatch(built.patch);
     editor.select(built.clipId);
     remember(templateId);
-    setNotice(`${getTitleTemplate(templateId)?.label ?? 'Title'} added at the playhead.`);
+    setNotice(`${getTextOverlayStyle(templateId)?.label ?? 'Text overlay'} added at the playhead.`);
   };
 
   const apply = (templateId: string): void => {
     if (!selectedTitle) return;
-    const patch = applyTitleTemplatePatch(timeline, selectedTitle.id, templateId);
+    const patch = applyTextOverlayStylePatch(timeline, selectedTitle.id, templateId);
     if (!patch) return;
     editor.applyPatch(patch);
     remember(templateId);
-    setNotice(`Selected title restyled as ${getTitleTemplate(templateId)?.label ?? 'a template'}.`);
+    setNotice(
+      `Selected text overlay restyled as ${getTextOverlayStyle(templateId)?.label ?? 'a template'}.`,
+    );
   };
 
-  /** Fonts tab: set the selected title's font, or add a heading in it at the playhead. */
+  /** Fonts tab: set the selected text overlay's font, or add a heading in it at the playhead. */
   const pickFont = (family: string): void => {
     if (selectedTitle) {
       const params = readTextParams(selectedTitle);
-      const patch = setTextParamsPatch(timeline, selectedTitle.id, titleFontParams(params, family));
+      const patch = setTextParamsPatch(
+        timeline,
+        selectedTitle.id,
+        textOverlayFontParams(params, family),
+      );
       if (patch) editor.applyPatch(patch);
-      setNotice(`Selected title set in ${family}.`);
+      setNotice(`Selected text overlay set in ${family}.`);
       return;
     }
-    const heading = getTitleTemplate(DEFAULT_TITLE_TEMPLATE_ID)!;
+    const heading = getTextOverlayStyle(DEFAULT_TEXT_OVERLAY_STYLE_ID)!;
     const start = editor.getPlayhead();
-    const built = addTitleFromTemplatePatch(
+    const built = addTextOverlayFromStylePatch(
       timeline,
       undefined,
       heading.id,
       start,
       start + settings.defaultOverlaySeconds,
       undefined,
-      titleFontParams(
+      textOverlayFontParams(
         { fontWeight: heading.look.fontWeight, typography: heading.look.typography },
         family,
       ),
@@ -241,7 +249,7 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
     if (patch) editor.applyPatch(patch);
   };
 
-  /** Inline text edit: one reversible `set_effect_params`, keeping the title's look and place. */
+  /** Inline text edit: one reversible `set_effect_params`, keeping the text overlay's look and place. */
   const commitEdit = (clip: Clip, nextText: string): void => {
     setEditing(null);
     if (nextText.trim() === '' || nextText === readTextParams(clip).text) return;
@@ -292,7 +300,7 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
         data-ui="input"
         data-size="sm"
         aria-label="Search text styles"
-        placeholder={`Search ${String(TITLE_TEMPLATE_CATALOG.length)} styles`}
+        placeholder={`Search ${String(TEXT_OVERLAY_STYLE_CATALOG.length)} styles`}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         onKeyDown={(event) => {
@@ -320,22 +328,23 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
 
       {selectedTitle && (
         <p className="text-panel-hint">
-          <strong>Apply</strong> restyles the selected title; a click on a style adds a new one.
+          <strong>Apply</strong> restyles the selected text overlay; a click on a style adds a new
+          one.
         </p>
       )}
 
       <div className="text-panel-scroll">
         <TemplateSections query={trimmed} chip={chip} recent={recent} tileProps={tileProps} />
 
-        <section className="text-panel-section" aria-label="titles on the timeline">
+        <section className="text-panel-section" aria-label="text overlays on the timeline">
           <h3 className="text-panel-heading">
-            On the timeline{titles.length > 0 ? ` · ${String(titles.length)}` : ''}
+            On the timeline{textOverlays.length > 0 ? ` · ${String(textOverlays.length)}` : ''}
           </h3>
-          {titles.length === 0 ? (
-            <p className="panel-empty">No titles yet.</p>
+          {textOverlays.length === 0 ? (
+            <p className="panel-empty">No text overlays yet.</p>
           ) : (
             <ul className="ov-list" aria-label="overlay list">
-              {titles.map((clip) => (
+              {textOverlays.map((clip) => (
                 <OverlayRow
                   key={clip.id}
                   clip={clip}
@@ -431,7 +440,7 @@ function TemplateSections({
   readonly tileProps: TileProps;
 }): JSX.Element {
   if (query !== '') {
-    const matches = TITLE_TEMPLATE_CATALOG.filter((template) => matchesQuery(template, query));
+    const matches = TEXT_OVERLAY_STYLE_CATALOG.filter((template) => matchesQuery(template, query));
     return matches.length === 0 ? (
       <p className="stock-note">
         Nothing matched “{query}”. Try a style or a font — “neon”, “lower third”, “serif”.
@@ -444,24 +453,26 @@ function TemplateSections({
     return (
       <TemplateGrid
         label={`${CATEGORY_LABEL.get(chip) ?? ''} text styles`}
-        templates={TITLE_TEMPLATE_CATALOG.filter((template) => template.category === chip)}
+        templates={TEXT_OVERLAY_STYLE_CATALOG.filter((template) => template.category === chip)}
         {...tileProps}
       />
     );
   }
   const recentTemplates = recent
-    .map((id) => getTitleTemplate(id))
-    .filter((template): template is TitleTemplate => template !== undefined);
+    .map((id) => getTextOverlayStyle(id))
+    .filter((template): template is TextOverlayStyle => template !== undefined);
   return (
     <>
       {recentTemplates.length > 0 && (
-        <TemplateSection title="Recent" templates={recentTemplates} tileProps={tileProps} />
+        <TemplateSection heading="Recent" templates={recentTemplates} tileProps={tileProps} />
       )}
-      {TITLE_TEMPLATE_CATEGORIES.map((category) => (
+      {TEXT_OVERLAY_STYLE_CATEGORIES.map((category) => (
         <TemplateSection
           key={category.id}
-          title={category.label}
-          templates={TITLE_TEMPLATE_CATALOG.filter((template) => template.category === category.id)}
+          heading={category.label}
+          templates={TEXT_OVERLAY_STYLE_CATALOG.filter(
+            (template) => template.category === category.id,
+          )}
           tileProps={tileProps}
         />
       ))}
@@ -470,18 +481,18 @@ function TemplateSections({
 }
 
 function TemplateSection({
-  title,
+  heading,
   templates,
   tileProps,
 }: {
-  readonly title: string;
-  readonly templates: readonly TitleTemplate[];
+  readonly heading: string;
+  readonly templates: readonly TextOverlayStyle[];
   readonly tileProps: TileProps;
 }): JSX.Element {
   return (
-    <section className="text-panel-section" aria-label={`${title} text styles`}>
-      <h3 className="text-panel-heading">{title}</h3>
-      <TemplateGrid label={`${title} text styles`} templates={templates} {...tileProps} />
+    <section className="text-panel-section" aria-label={`${heading} text styles`}>
+      <h3 className="text-panel-heading">{heading}</h3>
+      <TemplateGrid label={`${heading} text styles`} templates={templates} {...tileProps} />
     </section>
   );
 }
@@ -493,7 +504,7 @@ function TemplateGrid({
   ...tileProps
 }: TileProps & {
   readonly label: string;
-  readonly templates: readonly TitleTemplate[];
+  readonly templates: readonly TextOverlayStyle[];
 }): JSX.Element {
   const { gridRef, focusIndex, setActive, onGridKey } = useTileGrid(
     templates.length,
@@ -528,7 +539,7 @@ const TemplateTile = memo(function TemplateTile({
   onAdd,
   onApply,
 }: {
-  readonly template: TitleTemplate;
+  readonly template: TextOverlayStyle;
   readonly index: number;
   readonly tabbable: boolean;
   readonly applied: boolean;
@@ -543,7 +554,7 @@ const TemplateTile = memo(function TemplateTile({
         type="button"
         className="text-tile-add"
         tabIndex={tabbable ? 0 : -1}
-        aria-label={`Add ${template.label} title`}
+        aria-label={`Add ${template.label} text overlay`}
         title={`Add ${template.label} at the playhead, or drag it onto the timeline`}
         draggable
         onDragStart={(event) => {
@@ -568,7 +579,7 @@ const TemplateTile = memo(function TemplateTile({
           type="button"
           className="text-tile-apply"
           tabIndex={tabbable ? 0 : -1}
-          aria-label={`apply ${template.label} to the selected title`}
+          aria-label={`apply ${template.label} to the selected text overlay`}
           onClick={() => onApply(template.id)}
         >
           Apply

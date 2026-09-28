@@ -2557,7 +2557,7 @@ g.mask-canvas-draft circle {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Restyle the selected title: shown on hover and keyboard focus, always reachable by Tab. */
+/* Restyle the selected text overlay: shown on hover and keyboard focus, always reachable by Tab. */
 .text-tile-apply {
   position: absolute;
   top: var(--space-1);

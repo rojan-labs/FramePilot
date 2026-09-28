@@ -1,5 +1,5 @@
 /**
- * The title template catalog and title typography (`title-templates.ts`).
+ * The text overlay template catalog and text overlay typography (`text-overlay-styles.ts`).
  *
  * The catalog is pure data drawn by the engine's caption rasterizer; these tests keep every look
  * drawable exactly as the tile shows it: bundled families only, weights and italics the family
@@ -11,23 +11,23 @@ import { CAPTION_FONT_CATALOG, getCaptionFont } from './caption-fonts.js';
 import { CaptionStyleSchema } from './index.js';
 import {
   CAPTION_FONT_HEIGHT_PERCENT,
-  DEFAULT_TITLE_TEMPLATE_ID,
-  TITLE_TEMPLATE_CATALOG,
-  TITLE_TEMPLATE_CATEGORIES,
-  TitleTypographySchema,
-  getTitleTemplate,
-  parseTitleTypography,
-  titleCaptionStyle,
-  type TitleStyleParams,
-} from './title-templates.js';
+  DEFAULT_TEXT_OVERLAY_STYLE_ID,
+  TEXT_OVERLAY_STYLE_CATALOG,
+  TEXT_OVERLAY_STYLE_CATEGORIES,
+  TextOverlayTypographySchema,
+  getTextOverlayStyle,
+  parseTextOverlayTypography,
+  textOverlayCaptionStyle,
+  type TextOverlayStyleParams,
+} from './text-overlay-styles.js';
 
 const HEX = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
 
-describe('TITLE_TEMPLATE_CATALOG', () => {
+describe('TEXT_OVERLAY_STYLE_CATALOG', () => {
   it('has unique kebab-case ids and a sample text for every template', () => {
-    const ids = TITLE_TEMPLATE_CATALOG.map((t) => t.id);
+    const ids = TEXT_OVERLAY_STYLE_CATALOG.map((t) => t.id);
     expect(new Set(ids).size).toBe(ids.length);
-    for (const template of TITLE_TEMPLATE_CATALOG) {
+    for (const template of TEXT_OVERLAY_STYLE_CATALOG) {
       expect(template.id).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
       expect(template.label.length).toBeGreaterThan(0);
       expect(template.sampleText.trim().length).toBeGreaterThan(0);
@@ -35,30 +35,30 @@ describe('TITLE_TEMPLATE_CATALOG', () => {
   });
 
   it('names every template differently, so a search never shows two tiles of one name', () => {
-    const labels = TITLE_TEMPLATE_CATALOG.map((t) => t.label.toLowerCase());
+    const labels = TEXT_OVERLAY_STYLE_CATALOG.map((t) => t.label.toLowerCase());
     expect(new Set(labels).size).toBe(labels.length);
   });
 
   it('fills every category, and the default template exists', () => {
-    const used = new Set(TITLE_TEMPLATE_CATALOG.map((t) => t.category));
-    for (const category of TITLE_TEMPLATE_CATEGORIES) expect(used).toContain(category.id);
-    expect(getTitleTemplate(DEFAULT_TITLE_TEMPLATE_ID)?.category).toBe('basic');
-    expect(getTitleTemplate('nope')).toBeUndefined();
+    const used = new Set(TEXT_OVERLAY_STYLE_CATALOG.map((t) => t.category));
+    for (const category of TEXT_OVERLAY_STYLE_CATEGORIES) expect(used).toContain(category.id);
+    expect(getTextOverlayStyle(DEFAULT_TEXT_OVERLAY_STYLE_ID)?.category).toBe('basic');
+    expect(getTextOverlayStyle('nope')).toBeUndefined();
   });
 
   it('offers many styles in every category, drawn in many different fonts', () => {
-    expect(TITLE_TEMPLATE_CATALOG.length).toBeGreaterThanOrEqual(50);
-    for (const category of TITLE_TEMPLATE_CATEGORIES) {
-      const count = TITLE_TEMPLATE_CATALOG.filter((t) => t.category === category.id).length;
+    expect(TEXT_OVERLAY_STYLE_CATALOG.length).toBeGreaterThanOrEqual(50);
+    for (const category of TEXT_OVERLAY_STYLE_CATEGORIES) {
+      const count = TEXT_OVERLAY_STYLE_CATALOG.filter((t) => t.category === category.id).length;
       expect(count, category.id).toBeGreaterThanOrEqual(5);
     }
-    const families = new Set(TITLE_TEMPLATE_CATALOG.map((t) => t.look.fontFamily));
+    const families = new Set(TEXT_OVERLAY_STYLE_CATALOG.map((t) => t.look.fontFamily));
     expect(families.size).toBeGreaterThanOrEqual(35);
   });
 
   it('draws only bundled families, at weights and in styles the family ships', () => {
     const bundled = new Set(CAPTION_FONT_CATALOG.map((font) => font.family));
-    for (const { id, look } of TITLE_TEMPLATE_CATALOG) {
+    for (const { id, look } of TEXT_OVERLAY_STYLE_CATALOG) {
       expect(bundled.has(look.fontFamily), `${id}: ${look.fontFamily}`).toBe(true);
       const font = getCaptionFont(look.fontFamily)!;
       expect(look.fontWeight, id).toBeGreaterThanOrEqual(font.minWeight);
@@ -70,18 +70,18 @@ describe('TITLE_TEMPLATE_CATALOG', () => {
   });
 
   it('uses hex colours only and a valid typography', () => {
-    for (const { id, look } of TITLE_TEMPLATE_CATALOG) {
+    for (const { id, look } of TEXT_OVERLAY_STYLE_CATALOG) {
       expect(look.color, id).toMatch(HEX);
       if (look.background !== null) expect(look.background, id).toMatch(HEX);
       if (look.typography.outlineColor) expect(look.typography.outlineColor, id).toMatch(HEX);
       if (look.typography.shadow) expect(look.typography.shadow.color, id).toMatch(HEX);
-      const parsed = TitleTypographySchema.safeParse(look.typography);
+      const parsed = TextOverlayTypographySchema.safeParse(look.typography);
       expect(parsed.success, `${id}: ${parsed.error?.message}`).toBe(true);
     }
   });
 
   it('keeps a separation layer on every hand-made look', () => {
-    for (const { id, look } of TITLE_TEMPLATE_CATALOG) {
+    for (const { id, look } of TEXT_OVERLAY_STYLE_CATALOG) {
       const t = look.typography;
       const separated =
         look.background !== null || t.shadow !== undefined || (t.outlineWidth ?? 0) > 0;
@@ -89,8 +89,8 @@ describe('TITLE_TEMPLATE_CATALOG', () => {
     }
   });
 
-  it('places every title inside the frame at a sane size', () => {
-    for (const { id, look } of TITLE_TEMPLATE_CATALOG) {
+  it('places every text overlay inside the frame at a sane size', () => {
+    for (const { id, look } of TEXT_OVERLAY_STYLE_CATALOG) {
       expect(look.fontSizePercent, id).toBeGreaterThan(2);
       expect(look.fontSizePercent, id).toBeLessThanOrEqual(40);
       for (const value of [look.xPercent, look.yPercent, look.boxWidthPercent]) {
@@ -101,8 +101,8 @@ describe('TITLE_TEMPLATE_CATALOG', () => {
   });
 });
 
-describe('titleCaptionStyle', () => {
-  const plain: TitleStyleParams = {
+describe('textOverlayCaptionStyle', () => {
+  const plain: TextOverlayStyleParams = {
     fontFamily: 'Anton',
     fontWeight: 400,
     color: '#ffffff',
@@ -112,12 +112,12 @@ describe('titleCaptionStyle', () => {
     background: null,
   };
 
-  it('is undefined for a plain title, which keeps its own drawing', () => {
-    expect(titleCaptionStyle(plain)).toBeUndefined();
+  it('is undefined for a plain text overlay, which keeps its own drawing', () => {
+    expect(textOverlayCaptionStyle(plain)).toBeUndefined();
   });
 
-  it('keeps the title authoritative for family, weight, colour, size, alignment and wrap', () => {
-    const style = titleCaptionStyle({ ...plain, typography: { outlineWidth: 2 } })!;
+  it('keeps the text overlay authoritative for family, weight, colour, size, alignment and wrap', () => {
+    const style = textOverlayCaptionStyle({ ...plain, typography: { outlineWidth: 2 } })!;
     expect(CaptionStyleSchema.safeParse(style).success).toBe(true);
     expect(style).toMatchObject({
       display: 'phrase',
@@ -132,12 +132,13 @@ describe('titleCaptionStyle', () => {
     expect(style.position).toBeUndefined();
   });
 
-  it('takes the chip colour from the title and its shape from the typography', () => {
+  it('takes the chip colour from the text overlay and its shape from the typography', () => {
     expect(
-      titleCaptionStyle({ ...plain, typography: { background: { radius: 0.4 } } })!.background,
+      textOverlayCaptionStyle({ ...plain, typography: { background: { radius: 0.4 } } })!
+        .background,
     ).toBeUndefined();
     expect(
-      titleCaptionStyle({
+      textOverlayCaptionStyle({
         ...plain,
         background: '#ffd60a',
         typography: { background: { radius: 0.4 } },
@@ -146,18 +147,18 @@ describe('titleCaptionStyle', () => {
   });
 });
 
-describe('parseTitleTypography', () => {
+describe('parseTextOverlayTypography', () => {
   it('reads a valid typography and refuses anything else', () => {
-    expect(parseTitleTypography({ textTransform: 'uppercase' })).toEqual({
+    expect(parseTextOverlayTypography({ textTransform: 'uppercase' })).toEqual({
       textTransform: 'uppercase',
     });
-    expect(parseTitleTypography(undefined)).toBeUndefined();
-    expect(parseTitleTypography({ textOpacity: 7 })).toBeUndefined();
-    expect(parseTitleTypography('bold')).toBeUndefined();
+    expect(parseTextOverlayTypography(undefined)).toBeUndefined();
+    expect(parseTextOverlayTypography({ textOpacity: 7 })).toBeUndefined();
+    expect(parseTextOverlayTypography('bold')).toBeUndefined();
   });
 
   it('never lets a frosted blur or a word-timed field through', () => {
-    const parsed = parseTitleTypography({
+    const parsed = parseTextOverlayTypography({
       background: { radius: 0.2, blur: 0.4 },
       highlight: { enabled: true },
     })!;

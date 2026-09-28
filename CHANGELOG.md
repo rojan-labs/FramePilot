@@ -9,28 +9,28 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 - **A redesigned Text panel, with Styles and Fonts.** Add a heading, subheading or body text in
-  one click, or choose from 59 ready-made overlay styles in eight categories (Basic, Titles, Lower
+  one click, or choose from 59 ready-made overlay styles in eight categories (Basic, Headlines, Lower
   thirds, Callouts, Social, Quotes, Script, Retro & fun). Each style is drawn in its real font.
-  Click to add it at the playhead (the new title is selected), drag it onto a lane, or, with a
-  title selected, press **Apply** to restyle it without moving it. Search finds styles by name,
+  Click to add it at the playhead (the new text overlay is selected), drag it onto a lane, or, with a
+  text overlay selected, press **Apply** to restyle it without moving it. Search finds styles by name,
   category or font, and a Recent row keeps the styles you last used. The **Fonts** tab lists every
-  caption font: click one to set the selected title in it, or to add a heading in it. See
-  `docs/guides/text-and-titles.md` and ADR 0194.
-- **Titles take the caption typography.** A title now has the same 92 bundled fonts as captions,
+  caption font: click one to set the selected text overlay in it, or to add a heading in it. See
+  `docs/guides/text-overlays.md` and ADR 0194.
+- **Text overlays take the caption typography.** A text overlay now has the same 92 bundled fonts as captions,
   plus case, italic, letter spacing, line height, see-through letters, outline, shadow and a
   rounded background. The export and the desktop monitor draw it with the caption renderer itself,
-  so the title and the captions beside it match.
+  so the text overlay and the captions beside it match.
 
 ### Fixed
 
-- **A title keeps its font in the export.** The title Inspector offered Georgia, Impact, Courier
+- **A text overlay keeps its font in the export.** The text overlay Inspector offered Georgia, Impact, Courier
   New, Arial and Verdana, which are not bundled: the export used whatever the machine had, or
-  Pillow's default face. Titles added from the panel or dropped on the timeline also stored only
-  their text, so the export drew them in the default face while the preview showed Inter. Titles
-  now use bundled fonts, and new titles carry their whole look.
-- **A title can be added to any project.** A project without an overlay lane (the demo, for
+  Pillow's default face. Text overlays added from the panel or dropped on the timeline also stored only
+  their text, so the export drew them in the default face while the preview showed Inter. Text overlays
+  now use bundled fonts, and new text overlays carry their whole look.
+- **A text overlay can be added to any project.** A project without an overlay lane (the demo, for
   one) had every Text panel button disabled. A new overlay lane is made on top instead.
-- **Editing a title's words in the list keeps its style.** The inline edit deleted the title and
+- **Editing a text overlay's words in the list keeps its style.** The inline edit deleted the text overlay and
   added a plain one in its place.
 
 ### Fixed

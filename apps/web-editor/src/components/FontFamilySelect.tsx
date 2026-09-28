@@ -1,12 +1,12 @@
 /**
- * The one font list for everything that sets type: caption cues, the caption track and titles.
+ * The one font list for everything that sets type: caption cues, the caption track and text overlays.
  *
  * Every bundled family (`caption-fonts.ts`), grouped by category and drawn in its own face, so
  * the list is a specimen. Only bundled families are offered because they are the only ones both
  * renderers draw: a system font the editor's machine happens to have would change face in the
  * export, and again on another machine.
  *
- * A stored family that is not bundled (a title from before titles took the caption fonts, say
+ * A stored family that is not bundled (a text overlay from before text overlays took the caption fonts, say
  * "Georgia") is still shown, marked, so the control never pretends it is something else; picking
  * any family from the list replaces it.
  */

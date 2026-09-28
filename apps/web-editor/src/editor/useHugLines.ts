@@ -1,9 +1,9 @@
 /**
- * Narrow a wrapped title's box to its longest line, as the engine's raster is.
+ * Narrow a wrapped text overlay's box to its longest line, as the engine's raster is.
  *
  * CSS cannot do this on its own: a box whose text wraps stays as wide as its `max-width`, never
- * as wide as its longest line. The engine sizes a title's chip to the longest line plus padding
- * (`captions.py`), so without this a selected two-line title's chip jumps wider in the monitor
+ * as wide as its longest line. The engine sizes a text overlay's chip to the longest line plus padding
+ * (`captions.py`), so without this a selected two-line text overlay's chip jumps wider in the monitor
  * than it exports, and left- or right-aligned lines shift sideways. One line needs nothing:
  * `width: max-content` already hugs it.
  */
@@ -35,10 +35,7 @@ export function huggedWidth(box: HTMLElement, text: HTMLElement): number | null 
   const css = getComputedStyle(box);
   const px = (value: string): number => parseFloat(value) || 0;
   const frame =
-    px(css.paddingLeft) +
-    px(css.paddingRight) +
-    px(css.borderLeftWidth) +
-    px(css.borderRightWidth);
+    px(css.paddingLeft) + px(css.paddingRight) + px(css.borderLeftWidth) + px(css.borderRightWidth);
   // One pixel of slack so the narrower box never re-wraps its own longest line.
   const width = Math.ceil(longest + frame + 1);
   return width < box.offsetWidth ? width : null;

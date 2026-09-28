@@ -1,9 +1,9 @@
 /**
- * The Text panel's Fonts tab: every font captions have, for titles too.
+ * The Text panel's Fonts tab: every font captions have, for text overlays too.
  *
  * The list is the bundled caption families (`caption-fonts.ts`), each drawn in its own face, so
- * whatever a caption can be set in, a title can be set in. With a title selected, a click sets
- * that title's font (keeping it to a weight and style the family ships, `titleFontParams`);
+ * whatever a caption can be set in, a text overlay can be set in. With a text overlay selected, a click sets
+ * that text overlay's font (keeping it to a weight and style the family ships, `textOverlayFontParams`);
  * with none selected, a click adds a heading in that font at the playhead. CapCut and Canva
  * behave the same way.
  *
@@ -17,7 +17,7 @@ import {
   type CaptionFontFamily,
 } from '@framepilot/timeline-schema/caption-fonts';
 import { useViewPreference } from '../editor/useViewPreference.js';
-import { fontHasItalic, fontWeightsFor } from '../editor/titleFonts.js';
+import { fontHasItalic, fontWeightsFor } from '../editor/textOverlayFonts.js';
 import { useTileGrid } from './elements/useTileGrid.js';
 import { FONT_CATEGORIES } from './FontFamilySelect.js';
 import { Check, ICON_SIZE } from './icons.js';
@@ -54,9 +54,9 @@ function fontFacts(family: string): string {
 }
 
 export interface TextFontsTabProps {
-  /** The selected title's family, when a title is selected. */
+  /** The selected text overlay's family, when a text overlay is selected. */
   readonly currentFamily: string | undefined;
-  /** Set the selected title's font, or add a heading in it when none is selected. */
+  /** Set the selected text overlay's font, or add a heading in it when none is selected. */
   readonly onPick: (family: string) => void;
 }
 
@@ -120,7 +120,7 @@ export function TextFontsTab({ currentFamily, onPick }: TextFontsTabProps): JSX.
       )}
       <p className="text-panel-hint">
         {selecting
-          ? 'Click a font to use it for the selected title.'
+          ? 'Click a font to use it for the selected text overlay.'
           : 'The same fonts as captions. Click one to add a heading in it.'}
       </p>
       <div className="text-panel-scroll">
@@ -172,7 +172,7 @@ const FontRow = memo(function FontRow({
         tabIndex={tabbable ? 0 : -1}
         aria-pressed={selecting ? current : undefined}
         aria-label={
-          selecting ? `Use ${family} for the selected title` : `Add a heading in ${family}`
+          selecting ? `Use ${family} for the selected text overlay` : `Add a heading in ${family}`
         }
         onFocus={() => onFocus(index)}
         onClick={() => onPick(family)}

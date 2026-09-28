@@ -1,5 +1,5 @@
 /**
- * A wrapped title's box narrows to its longest line (the engine's chip does); one line and
+ * A wrapped text overlay's box narrows to its longest line (the engine's chip does); one line and
  * environments without Range geometry are left to CSS.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';

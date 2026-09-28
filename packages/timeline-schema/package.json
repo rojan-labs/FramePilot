@@ -18,9 +18,9 @@
       "types": "./dist/caption-templates.d.ts",
       "default": "./dist/caption-templates.js"
     },
-    "./title-templates": {
-      "types": "./dist/title-templates.d.ts",
-      "default": "./dist/title-templates.js"
+    "./text-overlay-styles": {
+      "types": "./dist/text-overlay-styles.d.ts",
+      "default": "./dist/text-overlay-styles.js"
     },
     "./caption-fonts": {
       "types": "./dist/caption-fonts.d.ts",

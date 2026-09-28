@@ -1,36 +1,36 @@
 /**
- * @framepilot/timeline-schema/title-templates — title (text overlay) typography and the title
+ * @framepilot/timeline-schema/text-overlay-styles — text overlay (text overlay) typography and the text overlay
  * template catalog.
  *
- * WHY titles take the caption typography. A caption carries the whole caption vocabulary
- * (outline, shadow, chip shape, case, tracking, see-through letters) while a title had a colour,
- * a family and a fixed black stroke, so a title could never match the captions beside it. A
- * title's `text` effect may now carry {@link TitleTypography} — the caption style's LINE-level
- * fields — and a title that does is drawn by the caption rasterizer itself
- * (`engine/python/framepilot_engine/render/text_overlay.py#title_caption_style`, the same call
+ * WHY text overlays take the caption typography. A caption carries the whole caption vocabulary
+ * (outline, shadow, chip shape, case, tracking, see-through letters) while a text overlay had a colour,
+ * a family and a fixed black stroke, so a text overlay could never match the captions beside it. A
+ * text overlay's `text` effect may now carry {@link TextOverlayTypography} — the caption style's LINE-level
+ * fields — and a text overlay that does is drawn by the caption rasterizer itself
+ * (`engine/python/framepilot_engine/render/text_overlay.py#text_overlay_caption_style`, the same call
  * the export and the desktop monitor make). The preview reads the same mapping,
- * {@link titleCaptionStyle}, through the caption CSS (`captionPreview.ts`).
+ * {@link textOverlayCaptionStyle}, through the caption CSS (`captionPreview.ts`).
  *
- * The title's own params stay authoritative for what they already said — family, weight,
+ * The text overlay's own params stay authoritative for what they already said — family, weight,
  * colour, size, alignment, wrap width and whether there is a chip — so the Inspector, the
  * on-canvas editor and the AI's `add_text_layer` keep working unchanged.
  *
- * Left out on titles, by design: the frosted chip blur (a title has no backdrop pass), and
- * everything word-timed or animated (highlight, accent, entrances, loops) — a title animates
+ * Left out on text overlays, by design: the frosted chip blur (a text overlay has no backdrop pass), and
+ * everything word-timed or animated (highlight, accent, entrances, loops) — a text overlay animates
  * through its layer transitions.
  *
- * The catalog is PURE DATA, like the caption catalog: a template is a complete {@link TitleLook}
- * that the editor writes into the title's params when it is applied. Nothing resolves a template
- * id at render time, so revising a template never changes a title already placed.
+ * The catalog is PURE DATA, like the caption catalog: a template is a complete {@link TextOverlayLook}
+ * that the editor writes into the text overlay's params when it is applied. Nothing resolves a template
+ * id at render time, so revising a template never changes a text overlay already placed.
  */
 import { CaptionBackgroundSchema, CaptionStyleSchema, type CaptionStyle } from './index.js';
 import { z } from 'zod/v4';
 
 /**
- * The caption-style fields a title's `typography` carries. Mirrors `TITLE_TYPOGRAPHY_FIELDS` in
+ * The caption-style fields a text overlay's `typography` carries. Mirrors `TEXT_OVERLAY_TYPOGRAPHY_FIELDS` in
  * `render/text_overlay.py`; the chip's shape rides in `background`.
  */
-export const TITLE_TYPOGRAPHY_FIELDS = [
+export const TEXT_OVERLAY_TYPOGRAPHY_FIELDS = [
   'fontStyle',
   'textTransform',
   'letterSpacing',
@@ -42,14 +42,14 @@ export const TITLE_TYPOGRAPHY_FIELDS = [
 ] as const;
 
 /**
- * The chip's shape (radius, padding, rim). Its colour is the title's own `background` param —
+ * The chip's shape (radius, padding, rim). Its colour is the text overlay's own `background` param —
  * the Inspector's on/off switch — and `blur` is excluded: only the caption compositor has a
  * backdrop pass.
  */
-export const TitleChipShapeSchema = CaptionBackgroundSchema.omit({ color: true, blur: true });
+export const TextOverlayChipSchema = CaptionBackgroundSchema.omit({ color: true, blur: true });
 
-/** A title's caption typography (see the module doc). */
-export const TitleTypographySchema = CaptionStyleSchema.pick({
+/** A text overlay's caption typography (see the module doc). */
+export const TextOverlayTypographySchema = CaptionStyleSchema.pick({
   fontStyle: true,
   textTransform: true,
   letterSpacing: true,
@@ -58,39 +58,39 @@ export const TitleTypographySchema = CaptionStyleSchema.pick({
   outlineColor: true,
   outlineWidth: true,
   shadow: true,
-}).extend({ background: TitleChipShapeSchema.optional() });
+}).extend({ background: TextOverlayChipSchema.optional() });
 
-export type TitleChipShape = z.infer<typeof TitleChipShapeSchema>;
-export type TitleTypography = z.infer<typeof TitleTypographySchema>;
+export type TextOverlayChip = z.infer<typeof TextOverlayChipSchema>;
+export type TextOverlayTypography = z.infer<typeof TextOverlayTypographySchema>;
 
 /**
- * The typography a PLAIN title (one with no `typography`) is drawn with, in caption terms: the
+ * The typography a PLAIN text overlay (one with no `typography`) is drawn with, in caption terms: the
  * engine's fixed black stroke of a twelfth of the font size (`render_text_overlay_image`), which
  * is 16/12 sixteenths, and its square box padded by two strokes. The Inspector shows a plain
- * title's typography as this and seeds the first edit with it, so converting a title to the
+ * text overlay's typography as this and seeds the first edit with it, so converting a text overlay to the
  * caption typography keeps the look it had.
  */
-export const PLAIN_TITLE_TYPOGRAPHY: TitleTypography = {
+export const PLAIN_TEXT_OVERLAY_TYPOGRAPHY: TextOverlayTypography = {
   outlineColor: '#000000',
   outlineWidth: 16 / 12,
   background: { radius: 0, paddingX: 1 / 6, paddingY: 1 / 6 },
 };
 
-/** Horizontal alignment of a title's lines. */
-export type TitleAlign = 'left' | 'center' | 'right';
+/** Horizontal alignment of a text overlay's lines. */
+export type TextOverlayAlign = 'left' | 'center' | 'right';
 
 /**
- * Everything a template decides about a title: the params it writes (the same keys as the web
+ * Everything a template decides about a text overlay: the params it writes (the same keys as the web
  * editor's `TextOverlayParams`, minus the text and the animation, which stay the author's).
  */
-export interface TitleLook {
+export interface TextOverlayLook {
   readonly fontFamily: string;
   readonly fontWeight: number;
   /** Letter colour, `#rrggbb[aa]` (the engine parses hex only). */
   readonly color: string;
   /** Glyph size as a percentage of the frame HEIGHT. */
   readonly fontSizePercent: number;
-  readonly align: TitleAlign;
+  readonly align: TextOverlayAlign;
   /** Wrap width as a percentage of the frame width. */
   readonly boxWidthPercent: number;
   /** Box centre as a percentage of each axis, origin top-left. */
@@ -98,37 +98,37 @@ export interface TitleLook {
   readonly yPercent: number;
   /** Chip colour, or `null` for no chip. */
   readonly background: string | null;
-  readonly typography: TitleTypography;
+  readonly typography: TextOverlayTypography;
 }
 
-/** The inputs {@link titleCaptionStyle} reads: a title's params, as stored or as defaulted. */
-export interface TitleStyleParams {
+/** The inputs {@link textOverlayCaptionStyle} reads: a text overlay's params, as stored or as defaulted. */
+export interface TextOverlayStyleParams {
   readonly fontFamily: string;
   readonly fontWeight: number;
   readonly color: string;
   readonly fontSizePercent: number;
-  readonly align: TitleAlign;
+  readonly align: TextOverlayAlign;
   readonly boxWidthPercent: number;
   readonly background: string | null;
-  readonly typography?: TitleTypography | undefined;
+  readonly typography?: TextOverlayTypography | undefined;
 }
 
 /**
  * A caption's base glyph height as a percentage of the frame height (the engine's
  * `_FONT_HEIGHT_FRACTION` = 1/22, the preview's `CAPTION_FONT_CQH`). A caption's size is this
- * times its `fontScale`, which is how a title's `fontSizePercent` becomes a caption scale.
+ * times its `fontScale`, which is how a text overlay's `fontSizePercent` becomes a caption scale.
  */
 export const CAPTION_FONT_HEIGHT_PERCENT = 100 / 22;
 
 const MIN_BOX_WIDTH_PERCENT = 5;
 
 /**
- * The caption style a title with `typography` is drawn in (the web twin of the engine's
- * `title_caption_style`); `undefined` for a plain title, which keeps its own drawing.
+ * The caption style a text overlay with `typography` is drawn in (the web twin of the engine's
+ * `text_overlay_caption_style`); `undefined` for a plain text overlay, which keeps its own drawing.
  *
- * Nothing positional is included: a title is placed by its `xPercent`/`yPercent` and transform.
+ * Nothing positional is included: a text overlay is placed by its `xPercent`/`yPercent` and transform.
  */
-export function titleCaptionStyle(params: TitleStyleParams): CaptionStyle | undefined {
+export function textOverlayCaptionStyle(params: TextOverlayStyleParams): CaptionStyle | undefined {
   const typography = params.typography;
   if (typography === undefined) return undefined;
   const { background: chip, ...line } = typography;
@@ -150,26 +150,26 @@ export function titleCaptionStyle(params: TitleStyleParams): CaptionStyle | unde
 
 /**
  * Read a stored `typography` param: the parsed value, or `undefined` when it is absent or does
- * not validate (the engine then draws the plain title too, so the preview agrees with it).
+ * not validate (the engine then draws the plain text overlay too, so the preview agrees with it).
  */
-export function parseTitleTypography(value: unknown): TitleTypography | undefined {
+export function parseTextOverlayTypography(value: unknown): TextOverlayTypography | undefined {
   if (value === undefined || value === null) return undefined;
-  const parsed = TitleTypographySchema.safeParse(value);
+  const parsed = TextOverlayTypographySchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }
 
 // --------------------------------------------------------------------------- catalog
 
 /** Gallery grouping in the Text panel. */
-export type TitleTemplateCategory =
-  'basic' | 'titles' | 'lower-thirds' | 'callouts' | 'social' | 'quotes' | 'script' | 'retro';
+export type TextOverlayStyleCategory =
+  'basic' | 'headlines' | 'lower-thirds' | 'callouts' | 'social' | 'quotes' | 'script' | 'retro';
 
-export const TITLE_TEMPLATE_CATEGORIES: readonly {
-  readonly id: TitleTemplateCategory;
+export const TEXT_OVERLAY_STYLE_CATEGORIES: readonly {
+  readonly id: TextOverlayStyleCategory;
   readonly label: string;
 }[] = [
   { id: 'basic', label: 'Basic' },
-  { id: 'titles', label: 'Titles' },
+  { id: 'headlines', label: 'Headlines' },
   { id: 'lower-thirds', label: 'Lower thirds' },
   { id: 'callouts', label: 'Callouts' },
   { id: 'social', label: 'Social' },
@@ -178,18 +178,18 @@ export const TITLE_TEMPLATE_CATEGORIES: readonly {
   { id: 'retro', label: 'Retro & fun' },
 ];
 
-export interface TitleTemplate {
-  /** Stable id, stored on the title as `templateId` for provenance. Never rename. */
+export interface TextOverlayStyle {
+  /** Stable id, stored on the text overlay as `templateId` for provenance. Never rename. */
   readonly id: string;
   readonly label: string;
-  readonly category: TitleTemplateCategory;
-  /** The text a new title from this template starts with, and its tile shows. */
+  readonly category: TextOverlayStyleCategory;
+  /** The text a new text overlay from this template starts with, and its tile shows. */
   readonly sampleText: string;
-  readonly look: TitleLook;
+  readonly look: TextOverlayLook;
 }
 
 // Palette and separation layers. Every look keeps a separation layer (outline, shadow or chip):
-// a title is drawn over footage nobody chose for it, and plain white text vanishes on a sky.
+// a text overlay is drawn over footage nobody chose for it, and plain white text vanishes on a sky.
 // Units, as in the caption catalog: shadow blur/offsets are fractions of the font size;
 // outlineWidth and borderWidth are sixteenths of it.
 const WHITE = '#ffffff';
@@ -213,7 +213,7 @@ const HARD_DROP = { color: '#000000', blur: 0, offsetX: 0.05, offsetY: 0.07 } as
 /** A coloured glow: zero offset, a wide blur in the letter colour. */
 const glow = (color: string) => ({ color, blur: 0.55, offsetX: 0, offsetY: 0 }) as const;
 
-/** Centre-frame placement, the default for a title. */
+/** Centre-frame placement, the default for a text overlay. */
 const CENTRE = { align: 'center', boxWidthPercent: 80, xPercent: 50, yPercent: 50 } as const;
 /** Upper third: a hook sits above the subject's face. */
 const UPPER = { align: 'center', boxWidthPercent: 84, xPercent: 50, yPercent: 22 } as const;
@@ -226,12 +226,12 @@ const UPPER = { align: 'center', boxWidthPercent: 84, xPercent: 50, yPercent: 22
 const LOWER_THIRD = { align: 'left', boxWidthPercent: 76, xPercent: 42, yPercent: 76 } as const;
 
 function look(
-  fields: Omit<TitleLook, 'background' | 'typography'> & Partial<TitleLook>,
-): TitleLook {
+  fields: Omit<TextOverlayLook, 'background' | 'typography'> & Partial<TextOverlayLook>,
+): TextOverlayLook {
   return { background: null, typography: {}, ...fields };
 }
 
-const HAND_MADE: readonly TitleTemplate[] = [
+const HAND_MADE: readonly TextOverlayStyle[] = [
   // ------------------------------------------------------------------ basic
   {
     id: 'heading',
@@ -323,11 +323,11 @@ const HAND_MADE: readonly TitleTemplate[] = [
       },
     }),
   },
-  // ----------------------------------------------------------------- titles
+  // ----------------------------------------------------------------- text overlays
   {
     id: 'impact-title',
-    label: 'Big title',
-    category: 'titles',
+    label: 'Big headline',
+    category: 'headlines',
     sampleText: 'Big news',
     look: look({
       ...CENTRE,
@@ -346,7 +346,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
   {
     id: 'cinematic',
     label: 'Cinematic',
-    category: 'titles',
+    category: 'headlines',
     sampleText: 'The long road',
     look: look({
       ...CENTRE,
@@ -360,7 +360,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
   {
     id: 'hook',
     label: 'Hook',
-    category: 'titles',
+    category: 'headlines',
     sampleText: 'Stop scrolling',
     look: look({
       ...UPPER,
@@ -378,7 +378,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
   {
     id: 'neon',
     label: 'Neon sign',
-    category: 'titles',
+    category: 'headlines',
     sampleText: 'Night mode',
     look: look({
       ...CENTRE,
@@ -392,7 +392,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
   {
     id: 'retro-pop',
     label: 'Retro pop',
-    category: 'titles',
+    category: 'headlines',
     sampleText: 'Game on',
     look: look({
       ...CENTRE,
@@ -406,7 +406,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
   {
     id: 'editorial',
     label: 'Editorial',
-    category: 'titles',
+    category: 'headlines',
     sampleText: 'Slow mornings',
     look: look({
       ...CENTRE,
@@ -420,7 +420,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
   {
     id: 'terminal',
     label: 'Terminal',
-    category: 'titles',
+    category: 'headlines',
     sampleText: '> ship it',
     look: look({
       ...CENTRE,
@@ -768,11 +768,11 @@ const HAND_MADE: readonly TitleTemplate[] = [
       typography: { background: { radius: 0.12, paddingX: 0.5, paddingY: 0.25 } },
     }),
   },
-  // ----------------------------------------------------- titles (more)
+  // ----------------------------------------------------- text overlays (more)
   {
     id: 'poster',
     label: 'Poster',
-    category: 'titles',
+    category: 'headlines',
     sampleText: 'Summer drop',
     look: look({
       ...CENTRE,
@@ -786,7 +786,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
   {
     id: 'luxury',
     label: 'Luxury',
-    category: 'titles',
+    category: 'headlines',
     sampleText: 'The collection',
     look: look({
       ...CENTRE,
@@ -800,7 +800,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
   {
     id: 'block',
     label: 'Block',
-    category: 'titles',
+    category: 'headlines',
     sampleText: 'Part two',
     look: look({
       ...CENTRE,
@@ -1154,17 +1154,17 @@ const HAND_MADE: readonly TitleTemplate[] = [
   },
 ];
 
-/** Every title template, in gallery order. */
-export const TITLE_TEMPLATE_CATALOG: readonly TitleTemplate[] = HAND_MADE;
+/** Every text overlay template, in gallery order. */
+export const TEXT_OVERLAY_STYLE_CATALOG: readonly TextOverlayStyle[] = HAND_MADE;
 
 /** The template a plain "add text" (a timeline drop, the Heading button) uses. */
-export const DEFAULT_TITLE_TEMPLATE_ID = 'heading';
+export const DEFAULT_TEXT_OVERLAY_STYLE_ID = 'heading';
 
-const BY_ID: ReadonlyMap<string, TitleTemplate> = new Map(
-  TITLE_TEMPLATE_CATALOG.map((template) => [template.id, template]),
+const BY_ID: ReadonlyMap<string, TextOverlayStyle> = new Map(
+  TEXT_OVERLAY_STYLE_CATALOG.map((template) => [template.id, template]),
 );
 
-/** Look up a title template by id. */
-export function getTitleTemplate(id: string): TitleTemplate | undefined {
+/** Look up a text overlay template by id. */
+export function getTextOverlayStyle(id: string): TextOverlayStyle | undefined {
   return BY_ID.get(id);
 }

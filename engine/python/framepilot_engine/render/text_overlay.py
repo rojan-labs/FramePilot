@@ -39,15 +39,14 @@ designed caption fonts everywhere else.
 Position is applied by the compiler (it owns placement); everything else is
 resolved and drawn here.
 
-TYPOGRAPHY (2026-09-28). A title may carry ``typography``: the caption style's LINE-level fields
-(case, italic, letter spacing, line height, see-through letters, outline, shadow, and the chip's
-shape). A title with it is drawn by the caption rasterizer itself
+TYPOGRAPHY (2026-09-28). A text overlay may carry ``typography``: the caption style's LINE-level
+fields (case, italic, letter spacing, line height, see-through letters, outline, shadow, and the
+chip's shape). A text overlay with it is drawn by the caption rasterizer itself
 (:func:`~framepilot_engine.render.captions.render_caption_raster`) through
-:func:`title_caption_style`, so a title set in a caption look draws exactly as that caption does,
-in the export and in the desktop monitor alike. A title without it keeps this module's own
-drawing (and its fixed black stroke), byte for byte. Excluded from a title: the chip's frosted
-blur (a title has no backdrop pass), and everything word-timed or animated (highlight, accent,
-entrances, loops) — a title animates through its layer transitions.
+:func:`text_overlay_caption_style`, so it draws exactly as a caption in the same look does, in the
+export and in the desktop monitor alike. A text overlay without it keeps this module's own
+drawing (and its fixed black stroke), byte for byte. Excluded: everything word-timed or animated
+(highlight, accent, entrances, loops); a text overlay animates through its layer transitions.
 
 WHAT IS NOT HERE YET: ``inAnimation`` / ``outAnimation`` / ``animDurationSeconds``.
 The preview animates those from the playhead; this module does not, so a text
@@ -100,9 +99,9 @@ _OUTLINE_COLOR: tuple[int, int, int, int] = (0, 0, 0, 255)
 
 _Font = ImageFont.FreeTypeFont | ImageFont.ImageFont
 
-#: The caption-style fields a title's ``typography`` carries (camelCase, as the project stores
-#: them). Mirrors ``TITLE_TYPOGRAPHY_FIELDS`` in the timeline-schema ``title-templates.ts``.
-TITLE_TYPOGRAPHY_FIELDS: tuple[str, ...] = (
+#: The caption-style fields a text overlay's ``typography`` carries (camelCase, as the project
+#: stores them). Mirrors ``TEXT_OVERLAY_TYPOGRAPHY_FIELDS`` in ``text-overlay-styles.ts``.
+TEXT_OVERLAY_TYPOGRAPHY_FIELDS: tuple[str, ...] = (
     "fontStyle",
     "textTransform",
     "letterSpacing",
@@ -112,10 +111,10 @@ TITLE_TYPOGRAPHY_FIELDS: tuple[str, ...] = (
     "outlineWidth",
     "shadow",
 )
-#: The chip fields a title takes from ``typography.background``. Its colour is the title's own
-#: ``background`` param (the Inspector's switch), and ``blur`` is left out: a frosted chip blurs
-#: the delivered picture behind it, which only the caption compositor does.
-_TITLE_CHIP_FIELDS: tuple[str, ...] = (
+#: The chip fields a text overlay takes from ``typography.background``. Its colour is the text
+#: overlay's own ``background`` param (the Inspector's switch), and ``blur`` is left out: a
+#: frosted chip blurs the delivered picture behind it, which only the caption compositor does.
+_TEXT_OVERLAY_CHIP_FIELDS: tuple[str, ...] = (
     "radius",
     "paddingX",
     "paddingY",
@@ -239,15 +238,15 @@ def text_overlay_layout(
     )
 
 
-def title_caption_style(params: Mapping[str, Any], frame_height: int) -> CaptionStyle | None:
-    """The caption style a title with ``typography`` is drawn in, or ``None`` for a plain title.
+def text_overlay_caption_style(params: Mapping[str, Any], frame_height: int) -> CaptionStyle | None:
+    """The caption style a text overlay with ``typography`` is drawn in; ``None`` for a plain one.
 
-    The title's own params stay authoritative for what they already said — family, weight,
+    The text overlay's own params stay authoritative for what they already said — family, weight,
     colour, size, alignment, wrap width and whether there is a chip — and ``typography`` adds
     the rest of the caption vocabulary. Nothing positional is passed: the raster is placed by
-    the title's ``xPercent``/``yPercent`` and transform, as every title is.
+    the text overlay's ``xPercent``/``yPercent`` and transform, as every text overlay is.
 
-    A ``typography`` that does not validate draws the plain title rather than failing the
+    A ``typography`` that does not validate draws the plain text overlay rather than failing the
     render (a cosmetic param must never fail a compile), and says so in the log.
 
     :param params: The ``text`` effect's params.
@@ -258,17 +257,20 @@ def title_caption_style(params: Mapping[str, Any], frame_height: int) -> Caption
         return None
     problem = _typography_problem(typography)
     if problem is not None:
-        log.warning("Title typography is invalid (%s); drawing the plain title instead.", problem)
+        log.warning(
+            "Text overlay typography is invalid (%s); drawing the plain text overlay instead.",
+            problem,
+        )
         return None
     layout = text_overlay_layout(_with_editor_defaults(params), 1, frame_height)
     box_percent = _percent(params.get("boxWidthPercent"), _DEFAULT_BOX_WIDTH_PERCENT)
     style: dict[str, Any] = {
-        key: typography[key] for key in TITLE_TYPOGRAPHY_FIELDS if key in typography
+        key: typography[key] for key in TEXT_OVERLAY_TYPOGRAPHY_FIELDS if key in typography
     }
     style.update(
         display="phrase",
         # The caption renderer sizes its font as floor(height / 22 * fontScale). Half a pixel
-        # over the title's size makes that floor land on exactly the size the title resolved.
+        # over the text overlay's size makes that floor land on exactly the size it resolved to.
         fontScale=(layout.font_size + 0.5) / (frame_height * _CAPTION_FONT_HEIGHT_FRACTION),
         fontWeight=layout.font_weight,
         textColor=_hex_color(layout.color),
@@ -283,18 +285,21 @@ def title_caption_style(params: Mapping[str, Any], frame_height: int) -> Caption
         shape = chip if isinstance(chip, Mapping) else {}
         style["background"] = {
             "color": background,
-            **{key: shape[key] for key in _TITLE_CHIP_FIELDS if key in shape},
+            **{key: shape[key] for key in _TEXT_OVERLAY_CHIP_FIELDS if key in shape},
         }
     try:
         return CaptionStyle.model_validate(style)
     except ValidationError as exc:
-        log.warning("Title typography is invalid; drawing the plain title instead: %s", exc)
+        log.warning(
+            "Text overlay typography is invalid; drawing the plain text overlay instead: %s", exc
+        )
         return None
 
 
-#: The web editor's defaults for a title (``DEFAULT_TEXT_PARAMS``): what the preview draws a typed
-#: title in when the project stores no family or size (the agent's ``add_text_layer`` writes
-#: neither). The plain path keeps its own historic defaults, byte for byte.
+#: The web editor's defaults for a text overlay (``DEFAULT_TEXT_PARAMS``): what the preview draws
+#: a typed text overlay in when the project stores no family or size (the agent's
+#: ``add_text_layer`` writes neither). The plain path keeps its own historic defaults, byte for
+#: byte.
 _EDITOR_DEFAULT_FAMILY = "Inter"
 _EDITOR_DEFAULT_SIZE_PERCENT = 8.0
 _TEXT_TRANSFORMS = frozenset({"none", "uppercase", "lowercase"})
@@ -323,12 +328,12 @@ def _non_negative(value: Any) -> bool:
 
 
 def _typography_problem(typography: Mapping[str, Any]) -> str | None:
-    """Why ``typography`` fails ``TitleTypographySchema`` (``title-templates.ts``), or ``None``.
+    """Why ``typography`` fails ``TextOverlayTypographySchema`` (``text-overlay-styles.ts``).
 
-    The preview reads a title's typography through that schema and draws the plain title when it
-    does not parse, so the export must refuse exactly the same values or the two disagree about
-    which look a title has. The pydantic ``CaptionStyle`` is looser (it bounds only the letter
-    opacity), hence these checks.
+    ``None`` when it passes. The preview reads a text overlay's typography through that schema
+    and draws the plain text overlay when it does not parse, so the export must refuse exactly
+    the same values or the two disagree about which look a text overlay has. The pydantic
+    ``CaptionStyle`` is looser (it bounds only the letter opacity), hence these checks.
     """
     checks: list[tuple[str, bool]] = [
         (
@@ -529,7 +534,7 @@ def rasterize_text_overlay(
         diagonal (plan/elements EL2b.4), as a turning shape is (ADR 0190); its centre, and so its
         placement, stays where it was.
     """
-    styled = title_caption_style(style_params, frame_height)
+    styled = text_overlay_caption_style(style_params, frame_height)
     if styled is not None:
         image = render_caption_raster(text, frame_width, frame_height, style=styled).image
         return rotation_safe(image) if rotates else image

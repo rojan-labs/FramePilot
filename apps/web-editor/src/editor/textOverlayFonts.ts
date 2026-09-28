@@ -1,7 +1,7 @@
 /**
- * What a font change means for a title, shared by the Text panel's Fonts tab and the Inspector.
+ * What a font change means for a text overlay, shared by the Text panel's Fonts tab and the Inspector.
  *
- * Only bundled caption families are offered (`caption-fonts.ts`), and a title only asks a family
+ * Only bundled caption families are offered (`caption-fonts.ts`), and a text overlay only asks a family
  * for what it ships: neither renderer fakes a weight or an italic, so a request for one the
  * family lacks would show one thing in the panel and export another.
  */
@@ -39,10 +39,10 @@ export function nearestFontWeight(family: string, weight: number): number {
 }
 
 /**
- * The params that set a title in `family`: the family, the nearest weight it ships, and, when
- * the title asked for an italic this family cannot draw, its typography without the italic.
+ * The params that set a text overlay in `family`: the family, the nearest weight it ships, and, when
+ * the text overlay asked for an italic this family cannot draw, its typography without the italic.
  */
-export function titleFontParams(
+export function textOverlayFontParams(
   params: Pick<TextOverlayParams, 'fontWeight' | 'typography'>,
   family: string,
 ): Partial<TextOverlayParams> {

@@ -1,14 +1,14 @@
 /**
- * The Text section: titles take the caption fonts and the caption typography. Each control is
- * one `set_effect_params`; a plain title's first typography edit starts from the stroke it was
+ * The Text section: text overlays take the caption fonts and the caption typography. Each control is
+ * one `set_effect_params`; a plain text overlay's first typography edit starts from the stroke it was
  * drawn with, so converting it keeps its look.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { Clip, Timeline } from '@framepilot/timeline-schema';
-import { PLAIN_TITLE_TYPOGRAPHY } from '@framepilot/timeline-schema/title-templates';
+import { PLAIN_TEXT_OVERLAY_TYPOGRAPHY } from '@framepilot/timeline-schema/text-overlay-styles';
 import type { UseEditor } from '../../../editor/useEditor.js';
-import { fontHasItalic, fontWeightsFor } from '../../../editor/titleFonts.js';
+import { fontHasItalic, fontWeightsFor } from '../../../editor/textOverlayFonts.js';
 import { TextOverlayInspector } from './TextSection.js';
 
 function titleClip(params: Record<string, unknown>): Clip {
@@ -61,11 +61,11 @@ describe('TextOverlayInspector', () => {
     );
   });
 
-  it('converts a plain title on its first typography edit, keeping its stroke', () => {
+  it('converts a plain text overlay on its first typography edit, keeping its stroke', () => {
     const { written } = renderTitle({ fontFamily: 'Inter' });
     choose('text case', /UPPERCASE/);
     expect(written()).toEqual({
-      typography: { ...PLAIN_TITLE_TYPOGRAPHY, textTransform: 'uppercase' },
+      typography: { ...PLAIN_TEXT_OVERLAY_TYPOGRAPHY, textTransform: 'uppercase' },
     });
   });
 
@@ -111,7 +111,7 @@ describe('TextOverlayInspector', () => {
     });
   });
 
-  it('shapes the chip from the typography when the title has a background', () => {
+  it('shapes the chip from the typography when the text overlay has a background', () => {
     renderTitle({ fontFamily: 'Inter', background: '#ffd60a', typography: {} });
     expect(screen.getByLabelText('background corner radius')).toBeDefined();
   });

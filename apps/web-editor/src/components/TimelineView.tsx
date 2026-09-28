@@ -99,7 +99,7 @@ import {
   addEffectLayerPatch,
   addShapePatch,
   placeElementAssetPatch,
-  addTitleFromTemplatePatch,
+  addTextOverlayFromStylePatch,
   duplicateEffectLayerPatch,
   moveEffectLayerPatch,
   removeEffectLayerPatch,
@@ -131,7 +131,7 @@ import {
   trimClipPatch,
 } from '../editor/patch-builders.js';
 import { ASSET_DND_TYPE } from './MediaBin.js';
-import { TEXT_OVERLAY_DND_TYPE, titleTemplateForDrop } from './OverlaysPanel.js';
+import { TEXT_OVERLAY_DND_TYPE, textOverlayStyleForDrop } from './OverlaysPanel.js';
 import { ELEMENT_DND_TYPE, decodeElementDrag } from './elements/element-dnd.js';
 import { ShapeClipGlyph } from './elements/ShapeClipGlyph.js';
 import { TRANSITION_DND_TYPE } from './transition-catalog.js';
@@ -2619,10 +2619,10 @@ export function TimelineView({
       const start = Math.max(0, atSeconds);
       // A tile from the Text panel names its template; the lane under the cursor is the one
       // aimed at, and the allocator stacks it on a new layer when that lane is taken.
-      const added = addTitleFromTemplatePatch(
+      const added = addTextOverlayFromStylePatch(
         timeline,
         track.id,
-        titleTemplateForDrop(payload),
+        textOverlayStyleForDrop(payload),
         start,
         start + settings.defaultOverlaySeconds,
       );
@@ -3085,7 +3085,7 @@ export function TimelineView({
                 }
                 return;
               }
-              // A text style dragged from the Text panel adds that title at the drop position.
+              // A text style dragged from the Text panel adds that text overlay at the drop position.
               if (event.dataTransfer.types.includes(TEXT_OVERLAY_DND_TYPE)) {
                 event.preventDefault();
                 onDropTextOverlay(track, event.dataTransfer.getData(TEXT_OVERLAY_DND_TYPE), value);

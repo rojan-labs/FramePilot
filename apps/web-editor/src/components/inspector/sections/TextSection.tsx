@@ -4,10 +4,10 @@
  */
 import type { Clip } from '@framepilot/timeline-schema';
 import {
-  PLAIN_TITLE_TYPOGRAPHY,
-  type TitleChipShape,
-  type TitleTypography,
-} from '@framepilot/timeline-schema/title-templates';
+  PLAIN_TEXT_OVERLAY_TYPOGRAPHY,
+  type TextOverlayChip,
+  type TextOverlayTypography,
+} from '@framepilot/timeline-schema/text-overlay-styles';
 import type { UseEditor } from '../../../editor/useEditor.js';
 import {
   TEXT_ALIGNMENTS,
@@ -18,7 +18,11 @@ import {
 import { ScrubNumber } from '../../ScrubNumber.js';
 import { Checkbox } from '../../Checkbox.js';
 import { FontFamilySelect } from '../../FontFamilySelect.js';
-import { fontHasItalic, fontWeightsFor, titleFontParams } from '../../../editor/titleFonts.js';
+import {
+  fontHasItalic,
+  fontWeightsFor,
+  textOverlayFontParams,
+} from '../../../editor/textOverlayFonts.js';
 import { LabeledSelect } from '../LabeledSelect.js';
 import { InspectorRow } from '../InspectorRow.js';
 
@@ -48,7 +52,7 @@ const DEFAULT_CHIP_RADIUS = 0.35;
 const DEFAULT_CHIP_PADDING = 0.35;
 
 /** The preset a stored shadow matches, or `soft` for any hand-tuned one. */
-function shadowPresetOf(shadow: TitleTypography['shadow']): ShadowPreset {
+function shadowPresetOf(shadow: TextOverlayTypography['shadow']): ShadowPreset {
   if (shadow === undefined) return 'none';
   const match = SHADOW_PRESET_IDS.find((id) => {
     const preset = SHADOW_PRESETS[id];
@@ -68,10 +72,10 @@ function opaque(color: string): string {
 }
 
 /** `typography` without `key` (turning a property off removes it rather than zeroing it). */
-function without<K extends keyof TitleTypography>(
-  typography: TitleTypography,
+function without<K extends keyof TextOverlayTypography>(
+  typography: TextOverlayTypography,
   key: K,
-): TitleTypography {
+): TextOverlayTypography {
   const { [key]: _removed, ...rest } = typography;
   return rest;
 }
@@ -82,9 +86,9 @@ function without<K extends keyof TitleTypography>(
  * clip (via `key`) so it always reflects the selected overlay's real params. The
  * program monitor shows a live styled preview of the same params.
  *
- * Titles take the caption typography (`title-templates.ts`): the same bundled fonts as captions,
+ * Text overlays take the caption typography (`text-overlay-styles.ts`): the same bundled fonts as captions,
  * and case, italic, tracking, line height, see-through letters, outline, shadow and chip shape.
- * A plain title reads as {@link PLAIN_TITLE_TYPOGRAPHY} (its fixed black stroke), and its first
+ * A plain text overlay reads as {@link PLAIN_TEXT_OVERLAY_TYPOGRAPHY} (its fixed black stroke), and its first
  * typography edit starts from that, so converting it keeps the look it had.
  */
 export function TextOverlayInspector({
@@ -95,15 +99,15 @@ export function TextOverlayInspector({
   readonly clip: Clip;
 }): JSX.Element {
   const params = readTextParams(clip);
-  const typography = params.typography ?? PLAIN_TITLE_TYPOGRAPHY;
+  const typography = params.typography ?? PLAIN_TEXT_OVERLAY_TYPOGRAPHY;
   const commit = (patch: Partial<TextOverlayParams>): void => {
     const built = setTextParamsPatch(editor.state.timeline, clip.id, patch);
     if (built) editor.applyPatch(built);
   };
-  const setTypography = (next: TitleTypography): void => commit({ typography: next });
-  const merge = (fields: Partial<TitleTypography>): void =>
+  const setTypography = (next: TextOverlayTypography): void => commit({ typography: next });
+  const merge = (fields: Partial<TextOverlayTypography>): void =>
     setTypography({ ...typography, ...fields });
-  const setChip = (fields: Partial<TitleChipShape>): void =>
+  const setChip = (fields: Partial<TextOverlayChip>): void =>
     merge({ background: { ...typography.background, ...fields } });
 
   const weights = fontWeightsFor(params.fontFamily);
@@ -114,9 +118,9 @@ export function TextOverlayInspector({
   const outlineOn = typography.outlineColor !== undefined && (typography.outlineWidth ?? 0) > 0;
   const shadow = typography.shadow;
 
-  // A family change keeps the title to a weight and style the new family ships.
+  // A family change keeps the text overlay to a weight and style the new family ships.
   const changeFamily = (family: string): void =>
-    commit(titleFontParams({ fontWeight: params.fontWeight, typography }, family));
+    commit(textOverlayFontParams({ fontWeight: params.fontWeight, typography }, family));
 
   return (
     <>

@@ -16,7 +16,7 @@
  */
 import type { CSSProperties } from 'react';
 import { titleEnvelopeFromParams } from '@framepilot/editor-core';
-import { titleCaptionStyle } from '@framepilot/timeline-schema/title-templates';
+import { textOverlayCaptionStyle } from '@framepilot/timeline-schema/text-overlay-styles';
 import {
   OUTLINE_WIDTH_UNITS_PER_EM,
   captionBoxCss,
@@ -64,23 +64,23 @@ export function textOverlayAnimationState(
   return { opacity: envelope.opacity, dyFrame: envelope.dy, scale: envelope.scale };
 }
 
-/** The caption renderer's default line height, when a title's typography names none. */
+/** The caption renderer's default line height, when a text overlay's typography names none. */
 const CAPTION_LINE_HEIGHT = 1.25;
 /** The caption renderer's chip padding (em) when the style names none, chip or not. */
 const CAPTION_CHIP_PADDING = 0.35;
 
 /**
- * The caption typography CSS of a title that carries `typography` (the caption CSS a caption in
- * the same look gets, `captionPreview.ts`), or `null` for a plain title.
+ * The caption typography CSS of a text overlay that carries `typography` (the caption CSS a caption in
+ * the same look gets, `captionPreview.ts`), or `null` for a plain text overlay.
  *
  * One approximation, for see-through letters: the caption preview draws those as three stacked
- * copies so the outline and shadow stop at the letter's edge, as the export does. A title is one
+ * copies so the outline and shadow stop at the letter's edge, as the export does. A text overlay is one
  * editable element, so its outline is a CSS stroke of the export's width, centred on the glyph
  * edge — the same weight of line, half of it inside the letter. The desktop monitor draws the
- * engine's own raster underneath, so this matters only for the selected title and the browser.
+ * engine's own raster underneath, so this matters only for the selected text overlay and the browser.
  */
-export function titleTypographyCss(params: TextOverlayParams): CSSProperties | null {
-  const style = titleCaptionStyle(params);
+export function textOverlayTypographyCss(params: TextOverlayParams): CSSProperties | null {
+  const style = textOverlayCaptionStyle(params);
   if (style === undefined) return null;
   const resolved = resolveCaptionStyle(style);
   const chip = resolved.background;
@@ -103,7 +103,7 @@ export function titleTypographyCss(params: TextOverlayParams): CSSProperties | n
   if (resolved.outlineColor !== undefined && outline > 0) {
     css.WebkitTextStroke = `${outline / OUTLINE_WIDTH_UNITS_PER_EM}em ${resolved.outlineColor}`;
   } else if (captionTextOpacity(resolved) === 0) {
-    // Hollow letters with no ring would draw nothing at all; keep a hairline so the title can
+    // Hollow letters with no ring would draw nothing at all; keep a hairline so the text overlay can
     // still be found and edited.
     css.WebkitTextStroke = `1px ${resolved.textColor ?? '#ffffff'}`;
   }
@@ -139,15 +139,15 @@ export function textOverlayStyle(
     whiteSpace: 'pre-wrap',
     pointerEvents: 'none',
   };
-  const typography = titleTypographyCss(params);
+  const typography = textOverlayTypographyCss(params);
   if (typography !== null) {
-    // The engine draws a typed title's raster tight around its lines and centres it on
+    // The engine draws a typed text overlay's raster tight around its lines and centres it on
     // x/y, so the box is as wide as its text, up to the wrap width, and the chip hugs it.
     return {
       ...box,
       ...typography,
       width: 'max-content',
-      // Clamped as both mappings clamp the wrap width (`titleCaptionStyle`, the engine's).
+      // Clamped as both mappings clamp the wrap width (`textOverlayCaptionStyle`, the engine's).
       maxWidth: `${Math.min(100, Math.max(5, params.boxWidthPercent))}%`,
     };
   }
@@ -169,8 +169,8 @@ export function textOverlayStyle(
 }
 
 /**
- * What a title's hit target over the engine's raster of it adds to {@link textOverlayStyle}: it
- * keeps the title's box and wrap so it covers the same letters, and paints nothing (no fill,
+ * What a text overlay's hit target over the engine's raster of it adds to {@link textOverlayStyle}: it
+ * keeps the text overlay's box and wrap so it covers the same letters, and paints nothing (no fill,
  * chip, outline, shadow, rim or frost). Every paint key `textOverlayStyle` can produce is
  * overridden here by the SAME key. React writes only the style keys that changed, so a shorthand
  * on one side and a longhand on the other would let a later change show through.
