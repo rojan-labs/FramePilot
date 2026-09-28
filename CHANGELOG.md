@@ -8,13 +8,28 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **One bounding box for everything on the monitor.** Select a clip, a still, a sticker, a shape
+  or a text overlay and it gets the same box: a thin blue frame with eight handles and a rotation
+  lollipop. Drag inside to move it (a short dead zone keeps a click a click; Shift locks the axis,
+  Alt turns snapping off). Drag a corner or an edge to resize it: the proportions hold unless you
+  hold Shift, which stretches it freely, and Alt resizes about the centre. It never turns inside
+  out. Drag the lollipop, or just outside a corner, to rotate it (Shift steps 15°). Cursors turn
+  with the box, a readout shows the size or angle, and the arrow keys nudge, scale and rotate.
+  The box works at any monitor zoom, and its handles stay crisp and reachable past the frame's
+  edge. On a text overlay, a corner scales the words, a side changes the wrap width, and a
+  double-click types into it. Every drag is one undo step, and the monitor shows the real
+  picture live while you drag. See ADR 0195 and `docs/guides/monitor-bounding-box.md`.
+- **Frosted-glass text overlays.** A text overlay's background can now blur the video behind it,
+  like the frosted caption boxes. The Inspector's **Frost** row sets it, and the frosted styles in
+  the Text panel use it. The export and both monitors draw it the same way, through the overlay's
+  own position, size, rotation and transitions.
 - **Clips can be stretched.** A picture, sticker, text overlay or shape can now be squashed or
   stretched freely, not only zoomed: the new `scaleX`/`scaleY` keyframes multiply the uniform
   `scale` per axis (1 = unstretched), about the layer's centre and before its rotation. The export
   and both monitors draw it identically, so the bounding box's Shift-drag resize is what you get in
   the file. Projects without a stretch render exactly as before.
 - **A redesigned Text panel, with Styles and Fonts.** Add a heading, subheading or body text in
-  one click, or choose from 59 ready-made overlay styles in eight categories (Basic, Headlines, Lower
+  one click, or choose from 60 ready-made overlay styles in eight categories (Basic, Headlines, Lower
   thirds, Callouts, Social, Quotes, Script, Retro & fun). Each style is drawn in its real font.
   Click to add it at the playhead (the new text overlay is selected), drag it onto a lane, or, with a
   text overlay selected, press **Apply** to restyle it without moving it. Search finds styles by name,
@@ -29,6 +44,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   name" or "a bold hook at the top" and the assistant can pick one of the designed styles, in
   its real font and look, and change just the colour, size or position you asked for. It can
   also set any bundled font and weight. Text that would run off the frame is fitted to it.
+  The assistant's messages and tools call them text overlays: a title, a description, a label
+  or anything else you put on screen.
 
 ### Fixed
 
@@ -41,6 +58,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   one) had every Text panel button disabled. A new overlay lane is made on top instead.
 - **Editing a text overlay's words in the list keeps its style.** The inline edit deleted the text overlay and
   added a plain one in its place.
+- **A turned clip shows turned in the browser preview.** The browser monitor dropped a clip's
+  rotation, so a rotated picture sat upright there while the export turned it.
 
 ### Fixed
 

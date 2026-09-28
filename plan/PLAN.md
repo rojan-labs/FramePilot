@@ -10433,7 +10433,7 @@ stickers, CC BY 4.0 (EL10).
   the archive at packaging so main checks the set against it
   (`docs/runbooks/security-hardening.md`, 2026-09-26 packaged set review).
 
-## Text panel — text overlay templates in caption typography — `[x]` done (2026-09-28, follow-ups in TX7)
+## Text panel — text overlay templates in caption typography — `[x]` done (2026-09-28, follow-ups filed in TX7)
 
 Maintainer (2026-09-28): "the Overlay panel is not nice … the typography should sync with the
 captions typography … rethink the overlay panel exploring the competitors … there should be
@@ -10497,13 +10497,34 @@ catalog tests (fonts bundled, weights in range, hex colours), panel/Inspector co
   request (skills manifest +27, tool definitions +9/10); with the `effects` domain loaded
   `add_text_layer` grows 372 → 945 tokens (font enum ~300, style enum ~180) plus ~150 for the
   discovery tool.
-- [ ] **TX7** Follow-ups (not started): frosted chips on text overlays (needs a backdrop pass in the text overlay
-  pipeline); saved user styles ("Your styles"); two text overlays may share a derived clip id after a
-  lane move (pre-existing, also true of `add_text_layer`); typography in the browser-only canvas fallback
-  raster (`text-raster.ts`); the caption preview's own chipless wrap padding (captions reserve no
-  padding in CSS but the engine wraps inside 0.35 em a side); `title_metrics` and
-  `subject_layout` measuring the typed layout.
+- [x] **TX9** Frosted-glass chips on text overlays (maintainer, 2026-09-28: "frosted glass
+  backgrounds also needs to be added … make sure export and preview does same"). The chip's `blur`
+  is a backdrop pass placed through the layer's own geometric steps (`_place_text_backdrop`),
+  blurred under it by the per-layer compositor `_composite_frosted`. It is mirrored in the
+  desktop/browser compositor (`frostCoverageStep`, `pasteBlurred`), and the Inspector has a
+  **Frost** row. (`3afbf3a1`, `0fa48cce`, `c910bb0d`, `7fd35f4d`; engine
+  `test_text_overlay_frost.py`, compositor upload tests.) The autonomous `discover_styles`
+  routes `text_overlays` too (`bcdee904`).
+- [x] **TX7** Follow-ups, filed as issues (2026-09-28): frost ignores the overlay's masks and
+  edge styles (#141); typography in the browser-only fallback raster `text-raster.ts` (#142);
+  duplicate derived text clip id after a lane move, pre-existing (#143); the caption preview's
+  chipless wrap padding (#144); saved user styles (#145); `title_metrics` / `subject_layout`
+  measure the plain layout (#146). The fit's remaining gaps are noted on #135.
 - [x] **BB1** Non-uniform stretch (scaleX/scaleY) in the transform model, export and preview
+  (`328a4cfe`, `0934eb68`, `6e2bdc60`, `97e669be`), the AI surface (`c087830a`) and the
+  Inspector's Stretch X/Y rows (`7fd35f4d`).
+- [x] **BB2** One bounding box for every layer (ADR 0195, `docs/guides/monitor-bounding-box.md`).
+  - Pure project-pixel geometry (`41c58aa9`), the UI-only `TransformBox` and its adapters
+    (`5d55afa1`).
+  - Pictures on both monitors with live compositor preview (`3c00459b`), text overlays
+    (`03431a05`) and box shapes (`9e6caac0`), one patch per gesture.
+  - `PreviewTransform` deleted. The browser monitor now draws rotation and stretch.
+  - Evidence: geometry/adapter/component tests, and the e2e selectors moved to the box's names.
+- [x] **BB3** The box draws in an unclipped, unscaled chrome layer over the frame (`075be913`). The
+  lollipop and readout move to where the monitor leaves room (`ed404a33`). Checked in the running
+  app: the se-handle resize kept the aspect (360×640 → 256×455), the full-frame clip's lollipop
+  sat inside the top edge and turned the clip (-76°), and at 200% zoom the chrome stayed
+  1.5 px / 8 px.
 
 **Last updated:** 2026-09-28
 

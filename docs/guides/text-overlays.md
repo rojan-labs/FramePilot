@@ -1,7 +1,8 @@
 # Text and text overlays
 
-Text overlays (text overlays) are added from the **Text** tab of the left rail and edited in the
-Inspector's **Text** tab and on the monitor. Every font captions have is available to them, and
+Text overlays are any words you put on screen: a title, a description, a label, a quote, a call to
+action. They are added from the **Text** tab of the left rail and edited in the Inspector's **Text**
+tab and on the monitor. Every font captions have is available to them, and
 they are drawn with the same typography engine
 ([ADR 0194](../adr/0194-text-overlays-take-the-caption-typography.md)).
 
@@ -16,7 +17,7 @@ The panel has two tabs, **Styles** and **Fonts**.
 - **Search** matches a template's name, sample text, category or font ("neon", "lower thirds",
   "serif").
 - **Categories:** Basic, Headlines, Lower thirds, Callouts, Social, Quotes, Script, and Retro & fun,
-  59 styles in all. "All" shows every category, after a **Recent** row of the styles you last
+  60 styles in all. "All" shows every category, after a **Recent** row of the styles you last
   used.
 - **Click a tile** to add that text overlay at the playhead. The new text overlay is selected, ready to edit.
   **Drag a tile** onto a lane to add it at the drop point.
@@ -46,6 +47,32 @@ refused.
 - **Typography:** case, letter spacing, line height, letter opacity (see-through letters), outline
   (colour and width) and shadow (None, Soft, Halo, Hard, Glow; a coloured shadow keeps its colour).
 - **Layout:** wrap width, position, and a background chip with its corners and padding.
+- **Frost:** frosted glass behind the chip, which blurs the video under it (0 is off). It is drawn
+  through the text overlay's own position, size, rotation and transitions, in the export and both
+  monitors.
+- **Position & size:** Stretch X and Stretch Y squash or stretch the letters on top of the uniform
+  scale.
+
+## On the monitor
+
+The selected text overlay gets the monitor's bounding box ([guide](monitor-bounding-box.md)):
+
+- Drag inside it to move it.
+- Drag a corner to scale the words and the wrap width together.
+- Drag the left or right side to reflow the words: a new wrap width, the same size.
+- **Shift**-drag any handle to stretch the letters.
+- Drag the lollipop to turn it.
+- Double-click to type.
+
+The box hugs the words as the export lays them out, so its size is the size of the ink on screen.
+
+## The assistant
+
+The assistant knows the styles. `add_text_layer` takes a `style` id and applies the whole look;
+any colour, size, position, font or weight you ask for overrides just that field.
+`discover_text_overlay_styles` lists the styles with one line describing each (typeface, colour,
+size, placement, separation). The `text-overlays` skill tells it when to use which. It can also
+stretch or squash a text overlay (`add_keyframes` with `scaleX`/`scaleY`).
 
 A text overlay made before this change has no typography and keeps its original look (a fixed black
 stroke). Its first typography edit starts from that stroke, so nothing jumps.
@@ -67,8 +94,13 @@ stroke). Its first typography edit starts from that stroke, so nothing jumps.
 
 ## Limits
 
-- No frosted-glass chip on text overlays (a text overlay has no backdrop pass).
+- Frosted glass ignores the text overlay's masks and edge styles: it frosts the chip's whole area
+  ([#141](https://github.com/rojan-labs/FramePilot/issues/141)).
 - No per-word highlight, accent or caption entrance on text overlays. Animate a text overlay with In/Out/Loop
   (Inspector → Basic → Animation).
 - The browser-only fallback preview (no engine) draws text overlays without typography and says "Preview
-  text approximate". The desktop app is exact.
+  text approximate" ([#142](https://github.com/rojan-labs/FramePilot/issues/142)). The desktop app is
+  exact.
+- The assistant's fit measures the face, weight and case, not tracking, outline or chip padding
+  ([#146](https://github.com/rojan-labs/FramePilot/issues/146), [#135](https://github.com/rojan-labs/FramePilot/issues/135)).
+- Saved styles of your own are not there yet ([#145](https://github.com/rojan-labs/FramePilot/issues/145)).

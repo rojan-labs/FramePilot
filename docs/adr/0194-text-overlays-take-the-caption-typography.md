@@ -7,13 +7,13 @@
   as templates", and a Text panel redesigned after the competitors'.
 - **Relates to:** ADR 0069 (caption templates are catalog data), ADR 0185 (see-through letters and
   frosted chips), ADR 0180 (the program monitor composites every timeline), plan/PLAN.md "Text
-  panel — text overlay templates in caption typography" (TX1–TX6).
+  panel — text overlay templates in caption typography" (TX1–TX8).
 
 ## Context
 
 FramePilot had two typographies. A caption carried the whole caption vocabulary (92 bundled
 families, outline, shadow, chip shape, case, tracking, line height, see-through letters) and two
-renderers held to one another. A text overlay (a text overlay) had a colour, a family, a weight and a
+renderers held to one another. A text overlay had a colour, a family, a weight and a
 fixed black stroke. Its Inspector offered six font names, five of them not bundled, which the
 export looked up on whatever machine it ran on. The Text panel's "style templates" and 9-point
 position were preview-only and never saved. A text overlay could not match the captions beside it, and
@@ -38,7 +38,7 @@ the preview showed Inter.
    caption renderer's padding with or without a chip, so it wraps where the export does. A
    wrapped text overlay's box is narrowed to its longest line after layout (`useHugLines`), as the
    engine's chip is, since CSS alone cannot shrink a wrapped box.
-4. **Overlay styles are pure data** (`TEXT_OVERLAY_STYLE_CATALOG`): 59 styles of their own in eight
+4. **Overlay styles are pure data** (`TEXT_OVERLAY_STYLE_CATALOG`): 60 styles of their own in eight
    categories (Basic, Headlines, Lower thirds, Callouts, Social, Quotes, Script, Retro & fun).
    Applying a style writes the whole look into the params, and nothing resolves a template id at
    render time. The caption templates are NOT offered as overlay styles: what captions and
@@ -68,3 +68,25 @@ the preview showed Inter.
   not draw typography. The desktop monitor draws the engine's raster and is exact.
 - Follow-ups: a `template` argument on `add_text_layer`; frosted text overlays; saved user styles; the
   caption preview's own chipless wrap padding (the same gap point 3 closes for text overlays).
+
+## Amendment (2026-09-28, same branch)
+
+The maintainer asked for three of the deferred items in the same change: "let [the] AI assistant
+know what styles are available on overlays", "frosted glass backgrounds also needs to be added",
+and "make sure export and preview does same for the styling of overlays". Points 7 and the
+follow-ups above change as follows:
+
+- **Frosted chips are included.** A text overlay's chip may carry `blur`. The export places the
+  backdrop coverage through the layer's own geometric steps (`_place_text_backdrop`: the coverage
+  mask, the clip's fade and wipe, its catalog transition, and its placement). It blurs the picture
+  under that coverage (3σ of margin) in a per-layer compositor, `_composite_frosted`: a MoviePy
+  layer sees only its own pixels, and frost needs the picture composited beneath it. The desktop and browser compositors mirror it (`frostCoverageStep`,
+  `pasteBlurred`). The overlay's masks and edge styles do not cut the frost yet (#141).
+- **The agent applies styles.** `add_text_layer` takes `style` (a catalog id), applied through the
+  shared `textOverlayLookParams`, and `discover_text_overlay_styles` lists the catalog. The
+  catalog is exported to the engine as JSON (`schema:generate`) for the Python twin. The fit
+  still measures the plain layout (#146, #135).
+- **Everything the model reads says "text overlay".** It may be a title, a description or
+  anything else, so the skill is `text-overlays`, not `titles-and-text`.
+- The remaining follow-ups are tracked as issues: saved user styles (#145), the browser fallback
+  raster (#142), and the caption preview's chipless wrap padding (#144).

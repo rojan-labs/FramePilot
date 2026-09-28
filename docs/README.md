@@ -131,6 +131,7 @@ follow its supersession notes. Important current boundaries include:
 - Elements: shapes are drawn by the engine (0190), an element is an overlay (0191), loops are
   keyframes (0192), and Pexels media may be a manual picture-in-picture (0193).
 - Text overlays take the caption typography, drawn by the caption rasterizer (0194).
+- One bounding box moves, resizes, stretches and rotates every layer on the monitor (0195).
 
 ADRs are historical records. Do not silently rewrite an accepted decision to describe a new
 architecture. Add or supersede an ADR when the decision changes.
