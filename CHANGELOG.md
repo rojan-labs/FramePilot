@@ -20,6 +20,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   plus case, italic, letter spacing, line height, see-through letters, outline, shadow and a
   rounded background. The export and the desktop monitor draw it with the caption renderer itself,
   so the text overlay and the captions beside it match.
+- **The assistant can use the text overlay styles and fonts.** Ask for "a lower third with her
+  name" or "a bold hook at the top" and the assistant can pick one of the designed styles, in
+  its real font and look, and change just the colour, size or position you asked for. It can
+  also set any bundled font and weight. Text that would run off the frame is fitted to it.
 
 ### Fixed
 

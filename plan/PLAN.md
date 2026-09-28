@@ -10488,8 +10488,16 @@ catalog tests (fonts bundled, weights in range, hex colours), panel/Inspector co
   That check found three defects (a project with no overlay lane had every button disabled; the
   grid collapsed to one column; the 9:16 lower third wrapped), and the engine sheet found the wrap
   gap fixed in TX3. All are fixed.
-- [ ] **TX7** Follow-ups (not started): an optional `template` on the agent's `add_text_layer`
-  (a prompt/golden change); frosted chips on text overlays (needs a backdrop pass in the text overlay
+- [x] **TX8** The assistant can use the text overlay styles: `add_text_layer` takes `style` (a
+  catalog id enum; its whole look via the shared `textOverlayLookParams`, explicit args override
+  field by field) and `fontFamily`/`fontWeight` (bundled fonts enum); the fit measures the style's
+  face and case and keeps a widened box in frame. `discover_text_overlay_styles` lists the styles
+  with a look line derived from the data; `titles-and-text` skill updated. Python twin mirrors it
+  from a packaged catalog copy (`schema:generate`, drift-tested). Goldens: +36/37 tokens per
+  request (skills manifest +27, tool definitions +9/10); with the `effects` domain loaded
+  `add_text_layer` grows 372 → 945 tokens (font enum ~300, style enum ~180) plus ~150 for the
+  discovery tool.
+- [ ] **TX7** Follow-ups (not started): frosted chips on text overlays (needs a backdrop pass in the text overlay
   pipeline); saved user styles ("Your styles"); two text overlays may share a derived clip id after a
   lane move (pre-existing, also true of `add_text_layer`); typography in the browser-only canvas fallback
   raster (`text-raster.ts`); the caption preview's own chipless wrap padding (captions reserve no
