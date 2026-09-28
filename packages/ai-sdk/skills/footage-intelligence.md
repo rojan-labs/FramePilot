@@ -40,6 +40,8 @@ Retrieve before assuming, then decide. Evidence gathering is valuable only when 
 - A clip the index has not reached can still be LOOKED at: `get_frame { assetId, sourceSeconds }`
   shows the source as shot, whether or not it is on the timeline. A few frames across it (start,
   middle, end) are enough to judge focus, exposure, shake and where the subject sits.
+- To look at MANY sources at once (every clip before cutting), `get_frame { sources: [{ assetId }, …] }`
+  tiles up to 12 of them as shot on one numbered sheet; then single-source `get_frame` for a close look.
 - Compare candidates by story value, visual clarity, motion completion, composition, novelty, and cost.
 - `read_edit_signals` reports what is measurably there; choosing the move is yours. A signal it echoes back is only as real as the evidence you passed in.
 - Check `timeBase` before you act on a map time. `timeline` is directly actionable; `asset` is that footage's own source seconds, and so is any asset named in `unplacedAssets` — those are still in the bin, so place them before cutting to one. `describe_footage` and `search_visual` always answer in asset seconds; `map_time` converts.

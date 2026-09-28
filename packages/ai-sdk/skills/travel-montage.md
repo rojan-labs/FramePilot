@@ -46,7 +46,8 @@ wrote the journey, your craft goes into executing it well, not into re-deciding 
 ## Professional heuristics
 
 - **Realising a given shot list:** resolve every row to a real asset and source moment first
-  (look with `get_frame { assetId, sourceSeconds }` where the map has not reached a clip), then
+  (look with `get_frame { sources: [{ assetId }, …] }` — up to 12 clips as shot on one sheet —
+  where the map has not reached them), then
   place the list with `add_clips` at its durations, then work through each row's treatments.
   "Snap cuts to the beat" moves each planned boundary to the nearest onset — it never changes
   the shot count, the order, or the act proportions. A row you cannot do as written (asset

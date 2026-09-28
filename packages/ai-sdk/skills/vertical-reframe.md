@@ -43,6 +43,8 @@ differently shaped sequence arrives with a CENTRED crop, which is a guess, not a
 - `get_frame { assetId, sourceSeconds }` shows a source file as shot: the whole uncropped
   frame. Look there FIRST — the timeline only shows a placed clip through its crop, so the
   part of the frame the crop hides is exactly where a subject you are missing is.
+- Many clips to reframe? `get_frame { sources: [{ assetId }, …] }` shows up to 12 sources as
+  shot on one numbered sheet — see where every subject sits in one call, then crop each.
 - After reframing, `get_frame { timeSeconds }` shows the delivered frame; check the subject
   is in the window and clear of the platform UI zones.
 
