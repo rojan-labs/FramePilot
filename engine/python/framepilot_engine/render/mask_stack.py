@@ -632,6 +632,7 @@ def mask_alpha(
     picture: PictureSource | None = None,
     layer_matte: LayerMatteSource | None = None,
     frame_placement: FramePlacementSource | None = None,
+    frame_geometry_size: tuple[float, float] | None = None,
 ) -> FloatArray:
     """One mask's alpha (after invert and opacity) on the clip's frame at a source instant.
 
@@ -643,9 +644,13 @@ def mask_alpha(
     :param layer_matte: Supplies a ``layer`` mask's source frame and the clip's placement.
     :param frame_placement: Where the clip's raster lands on the output frame; required when
         ``mask`` is fixed to the frame (``space: 'frame'``, MK9.1).
+    :param frame_geometry_size: The frame a frame-space mask's geometry is authored in (the
+        project's, :func:`frame_space_alpha`); ``None`` when it is the frame drawn on.
     """
     if _is_frame_space(mask) and not isinstance(clip, FrameOwner):
-        return frame_space_alpha(mask, clip, width, height, source_time, frame_placement)
+        return frame_space_alpha(
+            mask, clip, width, height, source_time, frame_placement, frame_geometry_size
+        )
     return _drawn_alpha(
         mask,
         clip,
@@ -668,14 +673,20 @@ def frame_space_alpha(
     height: int,
     source_time: float,
     frame_placement: FramePlacementSource | None,
+    geometry_size: tuple[float, float] | None = None,
 ) -> FloatArray:
     """A frame-space clip mask (MK9.1) on the clip's ``width`` x ``height`` raster.
 
     The mask is drawn on the OUTPUT FRAME in frame pixels, exactly as an adjustment lane's mask
-    is (identity mapping, the same rasteriser), invert and opacity included, then read back onto
-    the clip at the frame pixel each of its pixel centres lands on (:func:`sample_plane`, the
-    track matte's mapping). So it stays put on the frame while the picture under it moves,
-    scales or rotates. A clip pixel that lands off the frame reads 0: nothing there is visible.
+    is (the same rasteriser), invert and opacity included, then read back onto the clip at the
+    frame pixel each of its pixel centres lands on (:func:`sample_plane`, the track matte's
+    mapping). So it stays put on the frame while the picture under it moves, scales or rotates.
+    A clip pixel that lands off the frame reads 0: nothing there is visible.
+
+    :param geometry_size: The frame the mask's geometry is authored in: the PROJECT's, which the
+        editor draws it on. A render at another size (a frame grab, a review render) maps it onto
+        its own frame through it, as a source mask maps through its media size. ``None``: the
+        frame drawn on is that frame (the mapping is then the identity).
     """
     if frame_placement is None:
         raise MaskStackRefusal(
@@ -686,7 +697,7 @@ def frame_space_alpha(
     drawn = _drawn_alpha(
         mask,
         FrameOwner(str(clip.id)),
-        (float(frame_w), float(frame_h)),
+        geometry_size if geometry_size is not None else (float(frame_w), float(frame_h)),
         frame_w,
         frame_h,
         source_time,
@@ -771,6 +782,7 @@ def stack_alpha(
     picture: PictureSource | None = None,
     layer_matte: LayerMatteSource | None = None,
     frame_placement: FramePlacementSource | None = None,
+    frame_geometry_size: tuple[float, float] | None = None,
 ) -> FloatArray:
     """The combined alpha of an ordered (top first) stack of enabled masks.
 
@@ -795,6 +807,7 @@ def stack_alpha(
             picture,
             layer_matte,
             frame_placement,
+            frame_geometry_size,
         )
         accumulated = combine(accumulated, alpha, str(mask.mode.value))
     return quantize_alpha(accumulated).astype(np.float64) / 255.0
@@ -994,6 +1007,8 @@ class ClipMaskStacks:
     #: Where the clip's raster lands on the output frame at CLIP-RELATIVE ``t`` (MK9.1); bound
     #: by the compiler, which alone knows the clip's placement. Needed by frame-space masks.
     placements: Callable[[float, int, int], tuple[PicturePlacement, tuple[int, int]]] | None = None
+    #: The frame frame-space masks are authored in (the project's); ``None``: the frame drawn on.
+    frame_geometry_size: tuple[float, float] | None = None
 
     def _placement_at(self, t: float) -> FramePlacementSource | None:
         bound = self.placements
@@ -1054,6 +1069,7 @@ class ClipMaskStacks:
             picture,
             self._layer_mattes_at(t),
             self._placement_at(t),
+            self.frame_geometry_size,
         )
 
     def effect_alpha_at(
@@ -1081,6 +1097,7 @@ class ClipMaskStacks:
             picture,
             self._layer_mattes_at(t),
             self._placement_at(t),
+            self.frame_geometry_size,
         )
 
     @property
@@ -1130,6 +1147,7 @@ def clip_mask_stacks(
     layer_mattes: Callable[[Any, float, int, int], tuple[LayerMatteFrame, PicturePlacement]]
     | None = None,
     placements: Callable[[float, int, int], tuple[PicturePlacement, tuple[int, int]]] | None = None,
+    frame_geometry_size: tuple[float, float] | None = None,
 ) -> ClipMaskStacks | None:
     """A clip's enabled mask stacks, refused up front if export cannot draw one faithfully.
 
@@ -1140,6 +1158,8 @@ def clip_mask_stacks(
         only checking renderability (before any reader opens).
     :param placements: Where the clip's raster lands on the output frame at clip-relative ``t``
         and the frame size; required to DRAW a frame-space mask (MK9.1).
+    :param frame_geometry_size: The frame frame-space masks are authored in, the project's, when
+        the frame drawn on is another size (:func:`frame_space_alpha`).
     :raises MaskStackRefusal: When a mask needs a renderer that has not shipped.
     """
     enabled = [mask for mask in (getattr(clip, "masks", None) or []) if mask.enabled]
@@ -1180,6 +1200,7 @@ def clip_mask_stacks(
         tracks=dict(tracks or {}),
         layer_mattes=layer_mattes,
         placements=placements,
+        frame_geometry_size=frame_geometry_size,
     )
 
 

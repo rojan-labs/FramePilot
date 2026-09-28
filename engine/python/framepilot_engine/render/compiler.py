@@ -534,6 +534,7 @@ def _compile_image_clip(
             layer_mattes, clip, target, transition, project_size=project_size
         ),
         _frame_placement_binding(clip, target, transition, project_size=project_size),
+        project_size=project_size,
     )
     source = _apply_color_grade(source, clip, lut_base_dir, stacks)
     source = _apply_transition_blur(source, transition)
@@ -594,6 +595,7 @@ def _compile_text_clip(
             layer_mattes, clip, target, transition, centre, project_size=project_size
         ),
         _frame_placement_binding(clip, target, transition, centre, project_size=project_size),
+        project_size=project_size,
     )
     layer = _apply_transition_blur(layer, transition)
     own_alpha = layer.mask
@@ -875,11 +877,24 @@ def _clip_mask_stacks(
     layer_mattes: Callable[[Any, float, int, int], tuple[LayerMatteFrame, PicturePlacement]]
     | None = None,
     placements: Callable[[float, int, int], tuple[PicturePlacement, tuple[int, int]]] | None = None,
+    *,
+    project_size: tuple[int, int] | None = None,
 ) -> ClipMaskStacks | None:
-    """The clip's v22 mask stacks, or a :class:`CompileError` naming why export refuses one."""
+    """The clip's v22 mask stacks, or a :class:`CompileError` naming why export refuses one.
+
+    :param project_size: The project's frame, which frame-space masks are authored in; needed
+        with ``placements`` whenever the target frame may be another size.
+    """
     try:
         return clip_mask_stacks(
-            clip, media_size, mattes, decoded_size, tracks, layer_mattes, placements
+            clip,
+            media_size,
+            mattes,
+            decoded_size,
+            tracks,
+            layer_mattes,
+            placements,
+            None if project_size is None else (float(project_size[0]), float(project_size[1])),
         )
     except MaskStackRefusal as exc:
         raise CompileError(str(exc)) from exc
@@ -1991,6 +2006,7 @@ def compile_timeline(
                             _frame_placement_binding(
                                 clip, target, legacy_transition(clip), project_size=project_size
                             ),
+                            project_size=project_size,
                         )
                         source = _apply_matte_decontamination(source, stacks)
                         source = _apply_color_grade(source, clip, lut_base_dir, stacks)
@@ -2095,7 +2111,9 @@ def compile_timeline(
                 [layer for layer, _ in video_layers], size=target, bg_color=(0, 0, 0)
             ).with_fps(fps)
         picture_end = composite.duration
-        composite = apply_effect_layers(composite, project.timeline, fps=fps)
+        composite = apply_effect_layers(
+            composite, project.timeline, fps=fps, project_size=project_size
+        )
         # Burned captions go on AFTER the effect layers. A look restyles the picture; the
         # captions are delivery text with a design of their own, and the preview draws them as
         # a DOM overlay the effect stage never reaches. Composited before it, the captured
