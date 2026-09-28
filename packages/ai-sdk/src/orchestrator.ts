@@ -573,12 +573,12 @@ const DEFAULT_MAX_OPS_PER_TURN = AGENT_MAX_OPS_PER_TURN;
 const DEFAULT_MAX_OPS_PER_RUN = AGENT_MAX_OPS_PER_RUN;
 const USER_WAIT_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 
-/** How many recent step notes the agent context keeps verbatim before digesting (B4). */
 /** How much of one title's words and style a `get_clip` digest carries. */
 const TITLE_DIGEST_CHARS = 400;
 
 /** The default when no executor declares anything unroutable: nothing is withheld. */
 const EMPTY_TOOL_NAMES: ReadonlySet<string> = new Set();
+/** How many recent step notes the agent context keeps verbatim before digesting (B4). */
 const AGENT_LOG_RECENT = 6;
 
 /** A tool's picture as its card carries it: the bytes and what they show, nothing else. */
