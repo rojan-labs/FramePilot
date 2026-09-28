@@ -3841,6 +3841,8 @@
               "opacity",
               "rotation",
               "scale",
+              "scaleX",
+              "scaleY",
               "x",
               "y"
             ]

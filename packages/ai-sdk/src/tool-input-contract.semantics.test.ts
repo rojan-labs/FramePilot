@@ -53,6 +53,8 @@ describe('keyframe vocabulary and value domains', () => {
   it('accepts the renderer properties and skips unusable entries', () => {
     accepts('add_keyframes', { keyframes: [{ property: 'scale', value: 1.2 }] });
     accepts('add_keyframes', { keyframes: [{ property: 'x', value: -40 }] });
+    accepts('add_keyframes', { keyframes: [{ property: 'scaleX', value: 1.4 }] });
+    accepts('add_keyframes', { keyframes: [{ property: 'scaleY', value: 0.6 }] });
     // A non-numeric value is the schema's problem, not this layer's — it must not throw
     // a misleading range error on top of the type error the schema already reports.
     accepts('add_keyframes', { keyframes: [{ property: 'scale', value: 'big' }] });
@@ -64,6 +66,8 @@ describe('keyframe vocabulary and value domains', () => {
     rejects('add_keyframes', { keyframes: [{ property: 'blur', value: 2 }] }, /must be one of/i);
     rejects('add_keyframes', { keyframes: [{ property: 42, value: 2 }] }, /must be one of/i);
     rejects('add_keyframes', { keyframes: [{ property: 'scale', value: 0 }] }, /> 0/);
+    rejects('add_keyframes', { keyframes: [{ property: 'scaleX', value: 0 }] }, /stretch.*> 0/);
+    rejects('add_keyframes', { keyframes: [{ property: 'scaleY', value: -1 }] }, /stretch.*> 0/);
     rejects('add_keyframes', { keyframes: [{ property: 'opacity', value: 1.5 }] }, /0\.\.1/);
   });
 });
@@ -129,7 +133,7 @@ describe('provider-facing schemas advertise the runtime rules', () => {
     const keyframes = (parameters.properties as Record<string, { items?: unknown }>).keyframes;
     const property = (keyframes as { items: { properties: Record<string, { enum?: string[] }> } })
       .items.properties.property;
-    expect(property.enum).toEqual(['scale', 'x', 'y', 'rotation', 'opacity']);
+    expect(property.enum).toEqual(['scale', 'x', 'y', 'rotation', 'opacity', 'scaleX', 'scaleY']);
   });
 
   it('publishes the normalized tracker bounds', () => {

@@ -5,7 +5,8 @@ import {
   AUDIO_DYNAMICS_PARAMETER_CONTRACTS,
   AUDIO_EQ_PARAMETER_CONTRACTS,
   AUDIO_PARAMETER_CONTRACTS,
-  CLIP_KEYFRAME_PROPERTIES,
+  CLIP_STRETCH_PROPERTIES,
+  CLIP_TRANSFORM_PROPERTIES,
   COLOR_GRADE_PARAMETER_CONTRACTS,
   EDITOR_COMMAND_TYPES,
   type AnyOperation,
@@ -324,14 +325,27 @@ const timelineCapabilities = TIMELINE_SEEDS.map((seed) => ({
 
 const motionPropertyMetadata = {
   scale: { unit: 'ratio', bounds: { minExclusive: 0 }, default: 1 },
+  scaleX: { unit: 'ratio', bounds: { minExclusive: 0 }, default: 1 },
+  scaleY: { unit: 'ratio', bounds: { minExclusive: 0 }, default: 1 },
   x: { unit: 'pixels', default: 0 },
   y: { unit: 'pixels', default: 0 },
   rotation: { unit: 'degrees', default: 0 },
   opacity: { unit: 'ratio', bounds: { min: 0, max: 1 }, default: 1 },
 } as const;
 
-const motionCapabilities = CLIP_KEYFRAME_PROPERTIES.map((property) => ({
-  id: `motion.clip.${property}`,
+/** The stretch reads differently from the others: it distorts, so it says what it is for. */
+const STRETCH_PROPERTIES = new Set<string>(CLIP_STRETCH_PROPERTIES);
+const motionPropertyDescription = (property: string): string =>
+  STRETCH_PROPERTIES.has(property)
+    ? `Stretch or squash a clip along one axis with ${property} (1 = none), on top of the uniform scale; written as keyframes.`
+    : `Animate or set a clip's ${property} over time; written as keyframes, so it can hold a value or ramp between them.`;
+
+/** Capability ids are lowercase (`scaleX` → `scale-x`); the property keeps its camelCase name. */
+const capabilityIdSegment = (property: string): string =>
+  property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+
+const motionCapabilities = CLIP_TRANSFORM_PROPERTIES.map((property) => ({
+  id: `motion.clip.${capabilityIdSegment(property)}`,
   kind: 'property' as const,
   domain: 'motion' as const,
   appliesTo: ['clip', 'keyframe'] as const,
@@ -344,7 +358,7 @@ const motionCapabilities = CLIP_KEYFRAME_PROPERTIES.map((property) => ({
   verifier: 'editor-core:clipKeyframeContractIssue',
   inverter: PATCH_INVERTER,
   operationTypes: ['add_keyframes'] satisfies OperationType[],
-  description: `Animate or set a clip's ${property} over time; written as keyframes, so it can hold a value or ramp between them.`,
+  description: motionPropertyDescription(property),
   availability: { state: 'available' as const, reason: AVAILABLE_REASON },
 }));
 

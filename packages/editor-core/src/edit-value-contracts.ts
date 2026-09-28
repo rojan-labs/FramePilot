@@ -2,9 +2,8 @@ import type { Effect, Keyframe } from '@framepilot/timeline-schema';
 import { CLIP_BLUR_EFFECT_TYPE, MAX_CLIP_BLUR_AMOUNT } from './clip-blur.js';
 
 /**
- * The uniform clip transform properties every editing surface offers: the Inspector, the motion
- * commands and loops, and the AI tools (`packages/ai-sdk` builds its `add_keyframes` enum from
- * this list, and `engine/python/.../ai_tools/contract_overrides.py` mirrors it).
+ * The uniform clip transform properties: the ones the loop presets animate and every editing
+ * surface offers. The AI tools take these plus the stretch ({@link CLIP_TRANSFORM_PROPERTIES}).
  */
 export const CLIP_KEYFRAME_PROPERTIES = ['scale', 'x', 'y', 'rotation', 'opacity'] as const;
 export type ClipKeyframeProperty = (typeof CLIP_KEYFRAME_PROPERTIES)[number];
@@ -14,12 +13,17 @@ export type ClipKeyframeProperty = (typeof CLIP_KEYFRAME_PROPERTIES)[number];
  * fit × scale × scaleX and its height fit × scale × scaleY, in its own axes before rotation
  * (`effects/transform.py`). `scale` stays the one zoom punch-ins and Ken Burns write; the stretch
  * is what the bounding box's freeform (Shift) resize writes. Kept apart from
- * {@link CLIP_KEYFRAME_PROPERTIES} until the AI tool surface (and its engine mirror) takes it.
+ * {@link CLIP_KEYFRAME_PROPERTIES} so the uniform-only surfaces (the loop presets) never offer
+ * a distortion by accident.
  */
 export const CLIP_STRETCH_PROPERTIES = ['scaleX', 'scaleY'] as const;
 export type ClipStretchProperty = (typeof CLIP_STRETCH_PROPERTIES)[number];
 
-/** Every clip keyframe property the renderers composite, and so the validator accepts. */
+/**
+ * Every clip keyframe property the renderers composite, and so the validator accepts. The AI
+ * surface is built from this list (`packages/ai-sdk` `add_keyframes` enum, the motion commands),
+ * and `engine/python/.../ai_tools/contract_overrides.py` mirrors it.
+ */
 export const CLIP_TRANSFORM_PROPERTIES = [
   ...CLIP_KEYFRAME_PROPERTIES,
   ...CLIP_STRETCH_PROPERTIES,
