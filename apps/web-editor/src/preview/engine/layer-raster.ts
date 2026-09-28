@@ -39,7 +39,7 @@ import {
 export const DECODE_CAP_HEADROOM = 1.25;
 
 /** Transform properties the compiler places (`RENDERED_TRANSFORM_PROPERTIES`). */
-const RENDERED_TRANSFORM_PROPERTIES = new Set(['scale', 'x', 'y', 'rotation']);
+const RENDERED_TRANSFORM_PROPERTIES = new Set(['scale', 'scaleX', 'scaleY', 'x', 'y', 'rotation']);
 const LEGACY_GEOMETRY_KINDS = new Set(['push', 'zoom', 'slide']);
 /** `LEGACY_KINDS` of `frame_plan.py`: the pre-catalog envelope path. */
 const LEGACY_KINDS = new Set([
@@ -379,11 +379,15 @@ export function pictureRasterStep(
     y = pyInt((target.height - h) / 2);
   } else {
     const scale = base * authoredScale;
-    resize = { width: pyInt(scale * placed.width), height: pyInt(scale * placed.height) };
+    // `layer_axis_scales_at`: a `scaleX`/`scaleY` stretch multiplies each axis (× 1 exactly when
+    // the layer has none), and MoviePy truncates the per-axis size as it truncates a factor's.
+    const scaleX = scale * (geometry.stretchX ?? 1);
+    const scaleY = scale * (geometry.stretchY ?? 1);
+    resize = { width: pyInt(scaleX * placed.width), height: pyInt(scaleY * placed.height) };
     if (resize.width === placed.width && resize.height === placed.height) resize = null;
     // `layer_position_at` keeps float sizes: centre + offset − float width / 2.
-    x = pyInt(geometry.anchorX - (placed.width * scale) / 2);
-    y = pyInt(geometry.anchorY - (placed.height * scale) / 2);
+    x = pyInt(geometry.anchorX - (placed.width * scaleX) / 2);
+    y = pyInt(geometry.anchorY - (placed.height * scaleY) / 2);
   }
   if (resize !== null && (resize.width <= 0 || resize.height <= 0)) return null;
 
@@ -541,13 +545,15 @@ export function textRasterStep(
     x = pyInt(centre.x - raster.width / 2);
     y = pyInt(centre.y - raster.height / 2);
   } else {
-    const scale = geometry.scale;
-    const width = pyInt(scale * raster.width);
-    const height = pyInt(scale * raster.height);
+    // Base scale 1 (`fit_to_frame=False`), then the stretch per axis (`layer_axis_scales_at`).
+    const scaleX = geometry.scale * (geometry.stretchX ?? 1);
+    const scaleY = geometry.scale * (geometry.stretchY ?? 1);
+    const width = pyInt(scaleX * raster.width);
+    const height = pyInt(scaleY * raster.height);
     if (width <= 0 || height <= 0) return null;
     if (width !== raster.width || height !== raster.height) resize = { width, height };
-    x = pyInt(geometry.anchorX - (raster.width * scale) / 2);
-    y = pyInt(geometry.anchorY - (raster.height * scale) / 2);
+    x = pyInt(geometry.anchorX - (raster.width * scaleX) / 2);
+    y = pyInt(geometry.anchorY - (raster.height * scaleY) / 2);
   }
   return {
     assetId: `text:${clip.id}`,

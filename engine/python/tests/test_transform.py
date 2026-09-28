@@ -10,6 +10,7 @@ from framepilot_engine.effects.transform import (
     deferred_transform_properties,
     evaluate_clip_transform,
     has_rendered_transform,
+    has_stretch,
 )
 from framepilot_engine.timeline.models import Clip, Keyframe
 
@@ -82,3 +83,30 @@ def test_deferred_properties_empty_now_opacity_renders() -> None:
     clip = _clip(_kf("scale", 0.0, 1.0), _kf("opacity", 0.0, 1.0))
     assert deferred_transform_properties(clip) == []
     assert deferred_transform_properties(_clip(_kf("scale", 0.0, 1.0))) == []
+
+
+def test_stretch_is_identity_when_absent() -> None:
+    transform = evaluate_clip_transform(_clip(_kf("scale", 0.0, 2.0)), 1.0)
+    assert (transform.scale_x, transform.scale_y) == (1.0, 1.0)
+    assert has_stretch(_clip(_kf("scale", 0.0, 2.0))) is False
+
+
+def test_stretch_animates_each_axis_independently_of_scale() -> None:
+    clip = _clip(
+        _kf("scale", 0.0, 2.0),
+        _kf("scaleX", 0.0, 1.0),
+        _kf("scaleX", 2.0, 3.0),
+        _kf("scaleY", 0.0, 0.5),
+    )
+    transform = evaluate_clip_transform(clip, 1.0)
+    # `scale` is untouched: the stretch multiplies it, it does not replace it.
+    assert transform.scale == 2.0
+    assert transform.scale_x == pytest.approx(2.0)
+    assert transform.scale_y == 0.5
+    assert has_stretch(clip) is True
+
+
+def test_stretch_is_a_rendered_geometry_property() -> None:
+    assert has_rendered_transform(_clip(_kf("scaleX", 0.0, 1.5))) is True
+    assert has_rendered_transform(_clip(_kf("scaleY", 0.0, 0.5))) is True
+    assert deferred_transform_properties(_clip(_kf("scaleX", 0.0, 1.5))) == []

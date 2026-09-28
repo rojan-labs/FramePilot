@@ -30,6 +30,7 @@ import type { Clip } from '@framepilot/timeline-schema';
 import { evaluateKeyframes } from '@framepilot/editor-core';
 import {
   ANIMATABLE_DEFAULTS,
+  poseProperties,
   type AnimatableProperty,
   animatedProperties,
 } from '../inspector/keyframe-state.js';
@@ -85,7 +86,7 @@ export function clipKeyframeIntent(clip: Clip, clipTime: number): ClipKeyframeIn
 
   const animated = animatedProperties(clip.keyframes);
   const targets: readonly AnimatableProperty[] =
-    animated.length > 0 ? animated : (Object.keys(ANIMATABLE_DEFAULTS) as AnimatableProperty[]);
+    animated.length > 0 ? animated : poseProperties(clip.keyframes);
 
   return {
     kind: 'add',

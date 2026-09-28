@@ -143,6 +143,31 @@ describe('framePlanAt', () => {
     expect(geometry?.anchorY).toBeCloseTo(960, 9);
   });
 
+  it('stretches each axis by scale × scaleX/scaleY around the same centre', () => {
+    const kf = (property: string, value: number) =>
+      ({ id: property, time: 0, property, value, easing: 'linear' }) as const;
+    const plan = (keyframes: Clip['keyframes']) =>
+      framePlanAt(
+        { tracks: [track('v', 'video', [clip('c', 'v', 0, 4, { keyframes })])] },
+        ASSETS,
+        1,
+        FRAME,
+      ).layers[0]?.geometry;
+    const plain = plan([kf('scale', 0.5)]);
+    expect(plain).not.toHaveProperty('stretchX');
+    expect(plain).not.toHaveProperty('stretchY');
+    const stretched = plan([kf('scale', 0.5), kf('scaleX', 2), kf('scaleY', 0.75), kf('x', 40)]);
+    // 1920x1080 fits 1280x720 at 2/3; × 0.5 uniform; × 2 across, × 0.75 down.
+    expect(stretched?.scale).toBeCloseTo(1 / 3, 12);
+    expect(stretched?.stretchX).toBe(2);
+    expect(stretched?.stretchY).toBe(0.75);
+    expect(stretched?.width).toBeCloseTo(1280, 9);
+    expect(stretched?.height).toBeCloseTo(270, 9);
+    expect(stretched?.anchorX).toBeCloseTo(640 + 40, 9);
+    expect(stretched?.anchorY).toBeCloseTo(360, 9);
+    expect(stretched?.left).toBeCloseTo(40, 9);
+  });
+
   it('places a still with its crop and opacity, as the export does', () => {
     const still = clip('s', 'v', 0, 4, {
       assetId: 'png',

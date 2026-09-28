@@ -158,6 +158,7 @@ _HOST_DELEGATED_TOOLS = frozenset(
         "verify_transitions",
         "discover_effects",
         "discover_transitions",
+        "discover_text_overlay_styles",
         "read_edit_signals",
         "apply_effect",
         "move_effect",

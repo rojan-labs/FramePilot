@@ -24,6 +24,9 @@ The initial manifest contains only shipped contracts:
   `professional_edit`;
 - clip `scale`, `x`, `y`, `rotation`, and `opacity` animation properties from
   `CLIP_KEYFRAME_PROPERTIES`;
+  the non-uniform `scaleX`/`scaleY` stretch (`CLIP_STRETCH_PROPERTIES`) renders and validates but is
+  not in the manifest or the `add_keyframes` tool enum yet, because that enum is mirrored by the
+  engine's `ai_tools/contract_overrides.py`;
 - the seven parametric color-grade properties from `COLOR_GRADE_PARAMETER_CONTRACTS`;
 - clip gain from `AUDIO_PARAMETER_CONTRACTS`.
 

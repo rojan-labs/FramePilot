@@ -69,7 +69,7 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 import numpy as np
 
@@ -98,6 +98,7 @@ from framepilot_engine.effects.transform import (
     deferred_transform_properties,
     evaluate_clip_transform,
     has_rendered_transform,
+    has_stretch,
 )
 from framepilot_engine.media.assets import AssetIndex
 from framepilot_engine.render import transition_passes, transitions
@@ -136,6 +137,7 @@ from framepilot_engine.render.frame_plan import (
     exit_plays_reversed,
     fit_scale,
     frame_plan_at,
+    layer_axis_scales_at,
     layer_matte_sources,
     layer_opacity_at,
     layer_position_at,
@@ -196,7 +198,10 @@ from framepilot_engine.render.reuse_budget import ReuseSlot
 from framepilot_engine.render.shape_catalog import shape_descriptor
 from framepilot_engine.render.shape_geometry import shape_clip_params
 from framepilot_engine.render.shape_raster import rasterize_shape
-from framepilot_engine.render.text_overlay import rasterize_text_overlay, text_overlay_layout
+from framepilot_engine.render.text_overlay import (
+    rasterize_text_overlay_layers,
+    text_overlay_layout,
+)
 from framepilot_engine.render.tracks import TrackArtifact, TrackRefusal, prepare_track
 from framepilot_engine.safety import PathTraversalError, resolve_within
 from framepilot_engine.timeline.models import (
@@ -555,7 +560,7 @@ def _compile_text_clip(
     target: tuple[int, int],
     project_size: tuple[int, int] | None = None,
     layer_mattes: LayerMatteResolver | None = None,
-) -> Any | None:
+) -> _PictureLayer | None:
     """Rasterize a text overlay and place it, honouring the clip's own transform.
 
     The transform is why this goes through :func:`_place_video_clip` rather than a bare
@@ -569,6 +574,11 @@ def _compile_text_clip(
     and its edge styles, which trace its glyphs. A title has no source picture, so a style's
     lengths are frame pixels at the project's own size (``project_size``), scaled with the frame;
     its ``x``/``y`` keyframes are project pixels too, converted the same way.
+
+    A frosted chip (``typography.background.blur``) comes back as the layer's :class:`_Frost`:
+    its coverage placed through the same transform, opacity, fade, wipe and catalog transition
+    as the letters, so the blur beneath follows the text overlay wherever it moves. The mask
+    stack and edge styles qualify the letters' own colours and are not applied to it.
     """
     content = text_overlay_text(clip)
     if content is None:
@@ -576,8 +586,8 @@ def _compile_text_clip(
     text, style_params = content
     layout = text_overlay_layout(style_params, target[0], target[1])
     rotates = ROTATION in animated_properties(clip)
-    image = rasterize_text_overlay(text, style_params, target[0], target[1], rotates=rotates)
-    layer = image_clip_cls(image, transparent=True).with_duration(clip.end - clip.start)
+    drawn = rasterize_text_overlay_layers(text, style_params, target[0], target[1], rotates=rotates)
+    layer = image_clip_cls(drawn.image, transparent=True).with_duration(clip.end - clip.start)
     # EL2a: a title's opacity, In/Out envelope and transitions render, as the frame plan says.
     use_legacy = _uses_legacy_transition_path(clip)
     transition = legacy_transition(clip)
@@ -618,6 +628,61 @@ def _compile_text_clip(
         transition,
         fit_to_frame=False,
         centre=(layout.centre_x, layout.centre_y),
+        still=True,
+        project_size=project_size,
+    )
+    frost = (
+        None
+        if drawn.backdrop is None or drawn.backdrop_sigma_px <= 0
+        else _Frost(
+            _place_text_backdrop(
+                image_clip_cls,
+                drawn.backdrop,
+                clip,
+                target,
+                transition,
+                use_legacy,
+                centre,
+                project_size=project_size,
+            ),
+            drawn.backdrop_sigma_px,
+        )
+    )
+    return _PictureLayer(placed.with_start(clip.start), clip.blend_mode, frost)
+
+
+def _place_text_backdrop(
+    image_clip_cls: Any,
+    coverage: np.ndarray,
+    clip: Clip,
+    target: tuple[int, int],
+    transition: transitions.Transition | None,
+    use_legacy: bool,
+    centre: tuple[float, float],
+    *,
+    project_size: tuple[int, int] | None,
+) -> Any:
+    """A frosted chip's coverage, placed exactly as its text overlay's letters are.
+
+    White picture, the coverage as its mask, then the letters' own geometric steps: opacity,
+    fade and wipe (``_attach_mask`` without the stack), the catalog transition and
+    :func:`_place_video_clip`. The desktop compositor runs the same steps on the same coverage
+    (``layer-compositor.ts`` ``frostCoverageStep``).
+    """
+    duration = clip.end - clip.start
+    height, width = coverage.shape
+    white = np.full((height, width, 3), 255, dtype=np.uint8)
+    mask = image_clip_cls(coverage.astype(np.float64) / 255.0, is_mask=True).with_duration(duration)
+    backdrop = image_clip_cls(white).with_duration(duration).with_mask(mask)
+    backdrop = _attach_mask(backdrop, clip, transition, None, None, with_stack=False)
+    backdrop = _apply_catalog_transition(backdrop, clip, use_legacy)
+    placed = _place_video_clip(
+        backdrop,
+        clip,
+        target,
+        transition,
+        fit_to_frame=False,
+        centre=centre,
         still=True,
         project_size=project_size,
     )
@@ -728,6 +793,13 @@ def _place_video_clip(
     def scale_at(t: float) -> float:
         return base_scale * layer_scale_at(clip, t, transition)
 
+    # A stretched layer (scaleX/scaleY) resizes to a per-axis pixel size; MoviePy truncates a
+    # (w, h) exactly as it truncates ``scale * size``. An unstretched one keeps the uniform
+    # factor, so its resize is the one it always was.
+    def size_at(t: float) -> tuple[float, float]:
+        scale_x, scale_y = layer_axis_scales_at(clip, t, base_scale, transition)
+        return (clip_w * scale_x, clip_h * scale_y)
+
     def position_at(t: float) -> tuple[float, float]:
         return layer_position_at(
             clip,
@@ -740,14 +812,21 @@ def _place_video_clip(
             project_size=project_size,
         )
 
-    placed = _resized(source, scale_at, still)
+    placed = _resized(source, size_at if has_stretch(clip) else scale_at, still)
     if ROTATION in animated_properties(clip):
         placed = placed.rotated(lambda t: evaluate_clip_transform(clip, t).rotation, expand=False)
     return placed.with_position(position_at)
 
 
-def _resized(source: VideoClip, new_size: float | Callable[[float], float], still: bool) -> Any:
+def _resized(
+    source: VideoClip,
+    new_size: float | Callable[[float], float] | Callable[[float], tuple[float, float]],
+    still: bool,
+) -> Any:
     """``source.resized(new_size)``; for a still, the same resize, reused while nothing changes.
+
+    ``new_size`` is a factor, or a function of time returning a factor or a ``(width, height)``
+    in pixels (a stretched layer), as MoviePy's ``Resize`` takes it.
 
     MoviePy resizes a layer again on every frame, and a still's picture is usually the same
     picture every frame; :class:`~framepilot_engine.render.still_resize.ReusingResize` returns
@@ -940,7 +1019,7 @@ def picture_placement_at(
             x = int(centre[0] - clip_w * base_scale / 2)
             y = int(centre[1] - clip_h * base_scale / 2)
         return PicturePlacement(clip_w, clip_h, width, height, 0.0, x, y)
-    scale = base_scale * layer_scale_at(clip, t, transition)
+    scale_x, scale_y = layer_axis_scales_at(clip, t, base_scale, transition)
     centre_xy = centre if centre is not None else (target_w / 2, target_h / 2)
     left, top = layer_position_at(
         clip,
@@ -958,7 +1037,7 @@ def picture_placement_at(
         else 0.0
     )
     return PicturePlacement(
-        clip_w, clip_h, int(clip_w * scale), int(clip_h * scale), rotation, int(left), int(top)
+        clip_w, clip_h, int(clip_w * scale_x), int(clip_h * scale_y), rotation, int(left), int(top)
     )
 
 
@@ -1920,12 +1999,12 @@ def compile_timeline(
         if on_progress is not None and total_clips:
             on_progress(min(1.0, prepared / total_clips))
 
-    picture_by_track: list[list[tuple[Any, str | None]]] = []
+    picture_by_track: list[list[_PictureLayer]] = []
     audio_layers: list[Any] = []
     opened: list[Any] = []
     try:
         for track in project.timeline.tracks:
-            track_pictures: list[tuple[Any, str | None]] = []
+            track_pictures: list[_PictureLayer] = []
             # Clips in sequence order, so a transition can find the shot on the other side of
             # its cut and borrow that shot's material for the ramp (see `_underlay_layer`).
             ordered = clips_in_sequence(track)
@@ -1956,7 +2035,7 @@ def compile_timeline(
                         if matte_sources.consumes(track.id, clip.id, None):
                             layer_mattes.add(track.id, clip.id, picture)
                         else:
-                            track_pictures.append((picture, clip.blend_mode))
+                            track_pictures.append(_PictureLayer(picture, clip.blend_mode))
                     else:
                         # P7.5: when the clip is a plain fit — nothing animated, nothing
                         # cropped, no transition bending its geometry — its displayed size
@@ -2047,11 +2126,15 @@ def compile_timeline(
                             if matte_sources.consumes(track.id, resolved_neighbour.id, clip.id):
                                 layer_mattes.add(track.id, clip.id, underlay)
                             else:
-                                track_pictures.append((underlay, resolved_neighbour.blend_mode))
+                                track_pictures.append(
+                                    _PictureLayer(underlay, resolved_neighbour.blend_mode)
+                                )
                         if matte_sources.consumes(track.id, clip.id, None):
                             layer_mattes.add(track.id, clip.id, placed.with_start(clip.start))
                         else:
-                            track_pictures.append((placed.with_start(clip.start), clip.blend_mode))
+                            track_pictures.append(
+                                _PictureLayer(placed.with_start(clip.start), clip.blend_mode)
+                            )
                 elif kind == "audio":
                     if track.muted:
                         continue
@@ -2065,26 +2148,32 @@ def compile_timeline(
                 elif kind in ("text", "shape"):
                     if track.hidden:
                         continue
-                    graphic = (
-                        _compile_text_clip(ImageClip, clip, target, project_size, layer_mattes)
-                        if kind == "text"
-                        else _compile_shape_clip(ImageClip, clip, target, project_size=project_size)
-                    )
+                    if kind == "text":
+                        graphic = _compile_text_clip(
+                            ImageClip, clip, target, project_size, layer_mattes
+                        )
+                    else:
+                        shape = _compile_shape_clip(
+                            ImageClip, clip, target, project_size=project_size
+                        )
+                        graphic = None if shape is None else _PictureLayer(shape, clip.blend_mode)
                     if graphic is not None:
-                        opened.append(graphic)
+                        opened.append(graphic.picture)
+                        if graphic.frost is not None:
+                            opened.append(graphic.frost.backdrop)
                         if matte_sources.consumes(track.id, clip.id, None):
-                            layer_mattes.add(track.id, clip.id, graphic)
+                            layer_mattes.add(track.id, clip.id, graphic.picture)
                         else:
-                            track_pictures.append((graphic, clip.blend_mode))
+                            track_pictures.append(graphic)
             picture_by_track.append(track_pictures)
 
-        video_layers: list[tuple[Any, str | None]] = []
+        video_layers: list[_PictureLayer] = []
         for track_pictures in back_to_front(picture_by_track):
             video_layers.extend(track_pictures)
 
         if not video_layers and audio_layers:
             video_layers.append(
-                (
+                _PictureLayer(
                     ColorClip(
                         size=target,
                         color=(0, 0, 0),
@@ -2103,12 +2192,18 @@ def compile_timeline(
                 "Timeline has no renderable video clips; rendering requires at least "
                 "one video clip (caption/overlay-only timelines come later)."
             )
-        has_blend_mode = any(mode is not None and mode != "normal" for _, mode in video_layers)
-        if has_blend_mode:
+        has_blend_mode = any(
+            layer.blend_mode is not None and layer.blend_mode != "normal" for layer in video_layers
+        )
+        if any(layer.frost is not None for layer in video_layers):
+            # A frosted text overlay blurs the picture composited BENEATH it, which no MoviePy
+            # layer can see: the layers are composited one by one, frosting first.
+            composite = _composite_frosted(video_layers, target, fps)
+        elif has_blend_mode:
             composite = _composite_with_blend_modes(video_layers, target, fps)
         else:
             composite = BoundedCompositeVideoClip(
-                [layer for layer, _ in video_layers], size=target, bg_color=(0, 0, 0)
+                [layer.picture for layer in video_layers], size=target, bg_color=(0, 0, 0)
             ).with_fps(fps)
         picture_end = composite.duration
         composite = apply_effect_layers(
@@ -2128,7 +2223,10 @@ def compile_timeline(
                 composite = _composite_captions(composite, captions, fps)
             elif any(caption.blend_mode not in (None, "normal") for caption in captions):
                 composite = _composite_with_blend_modes(
-                    [(composite, None), *((c.picture, c.blend_mode) for c in captions)],
+                    [
+                        _PictureLayer(composite, None),
+                        *(_PictureLayer(c.picture, c.blend_mode) for c in captions),
+                    ],
                     target,
                     fps,
                 )
@@ -2154,14 +2252,35 @@ def compile_timeline(
         raise
 
 
+class _Frost(NamedTuple):
+    """A frosted chip on a picture layer (a text overlay's, ``typography.background.blur``).
+
+    ``backdrop`` is placed exactly like the layer and carries the chip's coverage as its mask:
+    where the picture composited beneath the layer is replaced by its Gaussian blur,
+    ``sigma_px`` wide, before the layer itself goes on.
+    """
+
+    backdrop: Any
+    sigma_px: float
+
+
+class _PictureLayer(NamedTuple):
+    """One picture layer of the frame, back to front: its placed clip, blend mode and frost."""
+
+    picture: Any
+    blend_mode: str | None
+    frost: _Frost | None = None
+
+
 def _composite_with_blend_modes(
-    video_layers: list[tuple[Any, str | None]], target: tuple[int, int], fps: float
+    video_layers: Sequence[_PictureLayer], target: tuple[int, int], fps: float
 ) -> VideoClip:
     from framepilot_engine.render.bounded_composite import BoundedCompositeVideoClip
 
-    first_layer, _ = video_layers[0]
-    running: VideoClip = BoundedCompositeVideoClip([first_layer], size=target, bg_color=(0, 0, 0))
-    for layer, mode in video_layers[1:]:
+    running: VideoClip = BoundedCompositeVideoClip(
+        [video_layers[0].picture], size=target, bg_color=(0, 0, 0)
+    )
+    for layer, mode, _frost in video_layers[1:]:
         if mode is None or mode == "normal":
             running = BoundedCompositeVideoClip([running, layer], size=target, bg_color=(0, 0, 0))
         else:
@@ -2522,6 +2641,86 @@ def _composite_captions(base: VideoClip, captions: Sequence[_CaptionLayer], fps:
     return result
 
 
+def _composite_frosted(
+    layers: Sequence[_PictureLayer], target: tuple[int, int], fps: float
+) -> VideoClip:
+    """Composite the picture layers one by one, blurring beneath each frosted chip first.
+
+    WHY a compositor of its own: a frosted text overlay replaces the picture composited beneath
+    it with a blurred copy of that picture, and a MoviePy layer only sees its own pixels. Each
+    layer is drawn with MoviePy's own ``compose_on`` (the geometry the plain composite uses) and
+    its blend mode; only a timeline with a frosted chip takes this path.
+    """
+    from moviepy import VideoClip as _VideoClip
+    from PIL import Image
+
+    ends = [float(layer.picture.end) for layer in layers if layer.picture.end is not None]
+    duration = max(ends) if ends else 0.0
+
+    def frame_at(t: float) -> np.ndarray:
+        frame = Image.new("RGBA", target, (0, 0, 0, 255))
+        for layer in layers:
+            if not layer.picture.is_playing(t):
+                continue
+            frost = layer.frost
+            if frost is not None and frost.backdrop.is_playing(t):
+                frame = _frost_under_layer(frame, frost.backdrop, t, frost.sigma_px)
+            frame = _draw_layer_on(frame, layer.picture, layer.blend_mode, t)
+        return np.asarray(frame.convert("RGB"), dtype=np.uint8)
+
+    result = _VideoClip(frame_function=frame_at).with_duration(duration).with_fps(fps)
+    # Only reachable from `frame_at`'s closure; `close_clip_tree` walks this list.
+    result._framepilot_children = [
+        *(layer.picture for layer in layers),
+        *(layer.frost.backdrop for layer in layers if layer.frost is not None),
+    ]
+    return result
+
+
+def _frost_under_layer(frame: Any, backdrop: Any, t: float, sigma_px: float) -> Any:
+    """Blur the picture under a layer's frosted chip, through its placed coverage.
+
+    The crop blurred is the placed backdrop's whole box plus the blur's reach (3 sigma): the
+    desktop compositor blurs the same crop (``layer-compositor.ts`` ``frostPlaced``), which knows
+    the placed box but not where inside it the transformed coverage ends.
+    """
+    from moviepy.tools import compute_position
+
+    local = t - backdrop.start
+    coverage = np.asarray(backdrop.mask.get_frame(local), dtype=np.float64)
+    height, width = coverage.shape
+    x, y = compute_position((width, height), frame.size, backdrop.pos(local), backdrop.relative_pos)
+    x, y = int(x), int(y)
+    reach = math.ceil(3.0 * sigma_px)
+    box = (
+        max(0, x - reach),
+        max(0, y - reach),
+        min(frame.width, x + width + reach),
+        min(frame.height, y + height + reach),
+    )
+    return _blur_through(frame, coverage, (x, y), box, sigma_px)
+
+
+def _blur_through(
+    frame: Any,
+    coverage: np.ndarray,
+    at: tuple[int, int],
+    box: tuple[int, int, int, int],
+    sigma_px: float,
+) -> Any:
+    """Replace ``frame`` inside ``coverage`` (placed at ``at``) by the Gaussian blur of ``box``."""
+    from PIL import Image, ImageFilter
+
+    left, top, right, bottom = box
+    if right <= left or bottom <= top:
+        return frame
+    blurred = frame.crop(box).filter(ImageFilter.GaussianBlur(sigma_px))
+    placed = Image.new("L", frame.size, 0)
+    placed.paste(Image.fromarray(np.round(coverage * 255.0).astype(np.uint8), "L"), at)
+    frame.paste(blurred, (left, top), placed.crop(box))
+    return frame
+
+
 def _frost_behind(frame: Any, backdrop: Any, t: float, sigma_px: float) -> Any:
     """Replace the picture under the chip's coverage with its Gaussian blur.
 
@@ -2529,7 +2728,6 @@ def _frost_behind(frame: Any, backdrop: Any, t: float, sigma_px: float) -> Any:
     caption-sized chip costs a caption-sized blur, not a full-frame one.
     """
     from moviepy.tools import compute_position
-    from PIL import Image, ImageFilter
 
     local = t - backdrop.start
     coverage = np.asarray(backdrop.mask.get_frame(local), dtype=np.float64)
@@ -2540,27 +2738,27 @@ def _frost_behind(frame: Any, backdrop: Any, t: float, sigma_px: float) -> Any:
     x, y = compute_position((width, height), frame.size, backdrop.pos(local), backdrop.relative_pos)
     x, y = int(x), int(y)
     reach = math.ceil(3.0 * sigma_px)
-    left = max(0, x + int(cols.min()) - reach)
-    top = max(0, y + int(rows.min()) - reach)
-    right = min(frame.width, x + int(cols.max()) + 1 + reach)
-    bottom = min(frame.height, y + int(rows.max()) + 1 + reach)
-    if right <= left or bottom <= top:
-        return frame
-    blurred = frame.crop((left, top, right, bottom)).filter(ImageFilter.GaussianBlur(sigma_px))
-    placed = Image.new("L", frame.size, 0)
-    placed.paste(Image.fromarray(np.round(coverage * 255.0).astype(np.uint8), "L"), (x, y))
-    frame.paste(blurred, (left, top), placed.crop((left, top, right, bottom)))
-    return frame
+    box = (
+        max(0, x + int(cols.min()) - reach),
+        max(0, y + int(rows.min()) - reach),
+        min(frame.width, x + int(cols.max()) + 1 + reach),
+        min(frame.height, y + int(rows.max()) + 1 + reach),
+    )
+    return _blur_through(frame, coverage, (x, y), box, sigma_px)
 
 
 def _draw_caption_on(frame: Any, caption: _CaptionLayer, t: float) -> Any:
     """Composite one placed caption over ``frame``, honouring its blend mode."""
+    return _draw_layer_on(frame, caption.picture, caption.blend_mode, t)
+
+
+def _draw_layer_on(frame: Any, picture: Any, mode: str | None, t: float) -> Any:
+    """Composite one placed layer over ``frame``, honouring its blend mode."""
     from PIL import Image
 
-    mode = caption.blend_mode
     if mode is None or mode == "normal":
-        return caption.picture.compose_on(frame, t)
-    layer = caption.picture.compose_on(Image.new("RGBA", frame.size, (0, 0, 0, 0)), t)
+        return picture.compose_on(frame, t)
+    layer = picture.compose_on(Image.new("RGBA", frame.size, (0, 0, 0, 0)), t)
     top = np.asarray(layer, dtype=np.float64) / 255.0
     base = np.asarray(frame.convert("RGB"), dtype=np.float64) / 255.0
     alpha = top[:, :, 3:4]

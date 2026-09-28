@@ -39,6 +39,15 @@ designed caption fonts everywhere else.
 Position is applied by the compiler (it owns placement); everything else is
 resolved and drawn here.
 
+TYPOGRAPHY (2026-09-28). A text overlay may carry ``typography``: the caption style's LINE-level
+fields (case, italic, letter spacing, line height, see-through letters, outline, shadow, and the
+chip's shape, frosted glass included). A text overlay with it is drawn by the caption rasterizer
+itself (:func:`~framepilot_engine.render.captions.render_caption_raster`) through
+:func:`text_overlay_caption_style`, so it draws exactly as a caption in the same look does, in the
+export and in the desktop monitor alike. A text overlay without it keeps this module's own
+drawing (and its fixed black stroke), byte for byte. Excluded: everything word-timed or animated
+(highlight, accent, entrances, loops); a text overlay animates through its layer transitions.
+
 WHAT IS NOT HERE YET: ``inAnimation`` / ``outAnimation`` / ``animDurationSeconds``.
 The preview animates those from the playhead; this module does not, so a text
 overlay a person animates in the Inspector still exports without its entrance.
@@ -53,6 +62,7 @@ mirroring :mod:`framepilot_engine.render.captions` (which this module reuses
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -60,8 +70,15 @@ from typing import Any
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+from pydantic import ValidationError
 
-from framepilot_engine.render.captions import _load_font, wrap_lines
+from framepilot_engine.render.captions import (
+    _FONT_HEIGHT_FRACTION as _CAPTION_FONT_HEIGHT_FRACTION,
+)
+from framepilot_engine.render.captions import _load_font, render_caption_raster, wrap_lines
+from framepilot_engine.timeline.models import CaptionStyle
+
+log = logging.getLogger(__name__)
 
 # Text overlay occupies at most this fraction of the frame width (safe area).
 _MAX_WIDTH_FRACTION = 0.85
@@ -81,6 +98,32 @@ _MAX_WEIGHT = 900
 _OUTLINE_COLOR: tuple[int, int, int, int] = (0, 0, 0, 255)
 
 _Font = ImageFont.FreeTypeFont | ImageFont.ImageFont
+
+#: The caption-style fields a text overlay's ``typography`` carries (camelCase, as the project
+#: stores them). Mirrors ``TEXT_OVERLAY_TYPOGRAPHY_FIELDS`` in ``text-overlay-styles.ts``.
+TEXT_OVERLAY_TYPOGRAPHY_FIELDS: tuple[str, ...] = (
+    "fontStyle",
+    "textTransform",
+    "letterSpacing",
+    "lineHeight",
+    "textOpacity",
+    "outlineColor",
+    "outlineWidth",
+    "shadow",
+)
+#: The chip fields a text overlay takes from ``typography.background``. Its colour is the text
+#: overlay's own ``background`` param (the Inspector's switch). ``blur`` makes the chip frosted
+#: glass: the picture composited beneath the text overlay is blurred through the chip's coverage
+#: (:class:`TextOverlayRaster`, ``compiler.py`` ``_composite_frosted``).
+_TEXT_OVERLAY_CHIP_FIELDS: tuple[str, ...] = (
+    "radius",
+    "paddingX",
+    "paddingY",
+    "blur",
+    "borderColor",
+    "borderWidth",
+)
+_MIN_BOX_WIDTH_PERCENT = 5.0
 
 
 def _font_size_for(frame_height: int) -> int:
@@ -197,6 +240,174 @@ def text_overlay_layout(
     )
 
 
+def text_overlay_caption_style(params: Mapping[str, Any], frame_height: int) -> CaptionStyle | None:
+    """The caption style a text overlay with ``typography`` is drawn in; ``None`` for a plain one.
+
+    The text overlay's own params stay authoritative for what they already said — family, weight,
+    colour, size, alignment, wrap width and whether there is a chip — and ``typography`` adds
+    the rest of the caption vocabulary. Nothing positional is passed: the raster is placed by
+    the text overlay's ``xPercent``/``yPercent`` and transform, as every text overlay is.
+
+    A ``typography`` that does not validate draws the plain text overlay rather than failing the
+    render (a cosmetic param must never fail a compile), and says so in the log.
+
+    :param params: The ``text`` effect's params.
+    :param frame_height: Height of the delivered frame, which the font size is relative to.
+    """
+    typography = params.get("typography")
+    if not isinstance(typography, Mapping):
+        return None
+    problem = _typography_problem(typography)
+    if problem is not None:
+        log.warning(
+            "Text overlay typography is invalid (%s); drawing the plain text overlay instead.",
+            problem,
+        )
+        return None
+    layout = text_overlay_layout(_with_editor_defaults(params), 1, frame_height)
+    box_percent = _percent(params.get("boxWidthPercent"), _DEFAULT_BOX_WIDTH_PERCENT)
+    style: dict[str, Any] = {
+        key: typography[key] for key in TEXT_OVERLAY_TYPOGRAPHY_FIELDS if key in typography
+    }
+    style.update(
+        display="phrase",
+        # The caption renderer sizes its font as floor(height / 22 * fontScale). Half a pixel
+        # over the text overlay's size makes that floor land on exactly the size it resolved to.
+        fontScale=(layout.font_size + 0.5) / (frame_height * _CAPTION_FONT_HEIGHT_FRACTION),
+        fontWeight=layout.font_weight,
+        textColor=_hex_color(layout.color),
+        textAlign=layout.align,
+        maxWidthPercent=min(max(box_percent, _MIN_BOX_WIDTH_PERCENT), 100.0),
+    )
+    if layout.font_family is not None:
+        style["fontFamily"] = layout.font_family
+    background = params.get("background")
+    if isinstance(background, str) and background.strip():
+        chip = typography.get("background")
+        shape = chip if isinstance(chip, Mapping) else {}
+        style["background"] = {
+            "color": background,
+            **{key: shape[key] for key in _TEXT_OVERLAY_CHIP_FIELDS if key in shape},
+        }
+    try:
+        return CaptionStyle.model_validate(style)
+    except ValidationError as exc:
+        log.warning(
+            "Text overlay typography is invalid; drawing the plain text overlay instead: %s", exc
+        )
+        return None
+
+
+#: The web editor's defaults for a text overlay (``DEFAULT_TEXT_PARAMS``): what the preview draws
+#: a typed text overlay in when the project stores no family or size (the agent's
+#: ``add_text_layer`` writes neither). The plain path keeps its own historic defaults, byte for
+#: byte.
+_EDITOR_DEFAULT_FAMILY = "Inter"
+_EDITOR_DEFAULT_SIZE_PERCENT = 8.0
+_TEXT_TRANSFORMS = frozenset({"none", "uppercase", "lowercase"})
+_FONT_STYLES = frozenset({"normal", "italic"})
+#: ``CaptionStyleSchema.lineHeight``'s range, which the preview's parse enforces.
+_LINE_HEIGHT_RANGE = (0.7, 3.0)
+
+
+def _with_editor_defaults(params: Mapping[str, Any]) -> Mapping[str, Any]:
+    """``params`` with the editor's family and size filled in where the project stores none."""
+    filled = dict(params)
+    family = filled.get("fontFamily")
+    if not (isinstance(family, str) and family.strip()):
+        filled["fontFamily"] = _EDITOR_DEFAULT_FAMILY
+    if filled.get("fontSizePercent") is None and filled.get("fontSize") is None:
+        filled["fontSizePercent"] = _EDITOR_DEFAULT_SIZE_PERCENT
+    return filled
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _non_negative(value: Any) -> bool:
+    return _is_number(value) and value >= 0
+
+
+def _typography_problem(typography: Mapping[str, Any]) -> str | None:
+    """Why ``typography`` fails ``TextOverlayTypographySchema`` (``text-overlay-styles.ts``).
+
+    ``None`` when it passes. The preview reads a text overlay's typography through that schema
+    and draws the plain text overlay when it does not parse, so the export must refuse exactly
+    the same values or the two disagree about which look a text overlay has. The pydantic
+    ``CaptionStyle`` is looser (it bounds only the letter opacity), hence these checks.
+    """
+    checks: list[tuple[str, bool]] = [
+        (
+            "textTransform",
+            "textTransform" not in typography or typography["textTransform"] in _TEXT_TRANSFORMS,
+        ),
+        ("fontStyle", "fontStyle" not in typography or typography["fontStyle"] in _FONT_STYLES),
+        (
+            "letterSpacing",
+            "letterSpacing" not in typography or _is_number(typography["letterSpacing"]),
+        ),
+        (
+            "lineHeight",
+            "lineHeight" not in typography
+            or (
+                _is_number(typography["lineHeight"])
+                and _LINE_HEIGHT_RANGE[0] <= typography["lineHeight"] <= _LINE_HEIGHT_RANGE[1]
+            ),
+        ),
+        (
+            "textOpacity",
+            "textOpacity" not in typography
+            or (_is_number(typography["textOpacity"]) and 0 <= typography["textOpacity"] <= 1),
+        ),
+        (
+            "outlineColor",
+            "outlineColor" not in typography
+            or (isinstance(typography["outlineColor"], str) and bool(typography["outlineColor"])),
+        ),
+        (
+            "outlineWidth",
+            "outlineWidth" not in typography or _non_negative(typography["outlineWidth"]),
+        ),
+    ]
+    shadow = typography.get("shadow")
+    if shadow is not None:
+        checks.append(
+            (
+                "shadow",
+                isinstance(shadow, Mapping)
+                and isinstance(shadow.get("color"), str)
+                and bool(shadow.get("color"))
+                and _non_negative(shadow.get("blur"))
+                and _is_number(shadow.get("offsetX"))
+                and _is_number(shadow.get("offsetY")),
+            )
+        )
+    chip = typography.get("background")
+    if chip is not None:
+        shape_ok = isinstance(chip, Mapping) and all(
+            _non_negative(chip[key])
+            for key in ("radius", "paddingX", "paddingY", "blur", "borderWidth")
+            if key in chip
+        )
+        border = chip.get("borderColor") if isinstance(chip, Mapping) else None
+        checks.append(
+            (
+                "background",
+                shape_ok and (border is None or (isinstance(border, str) and border != "")),
+            )
+        )
+    for field, ok in checks:
+        if not ok:
+            return field
+    return None
+
+
+def _hex_color(rgba: tuple[int, int, int, int]) -> str:
+    r, g, b, a = rgba
+    return f"#{r:02x}{g:02x}{b:02x}{a:02x}"
+
+
 def _basic_features(font: Any) -> list[str] | None:
     """The OpenType features that make libraqm draw what basic layout draws.
 
@@ -306,6 +517,48 @@ def render_text_overlay_image(
     return np.asarray(image, dtype=np.uint8)
 
 
+@dataclass(frozen=True)
+class TextOverlayRaster:
+    """A text overlay's RGBA raster and, for a frosted chip, where to blur behind it.
+
+    ``backdrop`` is an ``(H, W)`` ``uint8`` coverage mask the SAME size as ``image``, so the
+    compiler places both through one transform: the picture beneath the text overlay is replaced
+    by its Gaussian blur, ``backdrop_sigma_px`` wide, wherever the coverage is. ``None`` for a
+    chip that is not frosted (the common case).
+    """
+
+    image: np.ndarray
+    backdrop: np.ndarray | None = None
+    backdrop_sigma_px: float = 0.0
+
+
+def rasterize_text_overlay_layers(
+    text: str,
+    style_params: Mapping[str, Any],
+    frame_width: int,
+    frame_height: int,
+    *,
+    rotates: bool = False,
+) -> TextOverlayRaster:
+    """:func:`rasterize_text_overlay` plus a frosted chip's backdrop coverage.
+
+    The export's compiler and the desktop monitor's raster route both call this, so the coverage
+    the monitor blurs through is the export's own.
+    """
+    styled = text_overlay_caption_style(style_params, frame_height)
+    if styled is None:
+        return TextOverlayRaster(
+            rasterize_text_overlay(text, style_params, frame_width, frame_height, rotates=rotates)
+        )
+    raster = render_caption_raster(text, frame_width, frame_height, style=styled)
+    image = rotation_safe(raster.image) if rotates else raster.image
+    if raster.backdrop is None:
+        return TextOverlayRaster(image)
+    coverage = raster.backdrop[..., np.newaxis]
+    backdrop = rotation_safe(coverage)[..., 0] if rotates else raster.backdrop
+    return TextOverlayRaster(image, backdrop, raster.backdrop_sigma_px)
+
+
 def rasterize_text_overlay(
     text: str,
     style_params: Mapping[str, Any],
@@ -325,6 +578,10 @@ def rasterize_text_overlay(
         diagonal (plan/elements EL2b.4), as a turning shape is (ADR 0190); its centre, and so its
         placement, stays where it was.
     """
+    styled = text_overlay_caption_style(style_params, frame_height)
+    if styled is not None:
+        image = render_caption_raster(text, frame_width, frame_height, style=styled).image
+        return rotation_safe(image) if rotates else image
     layout = text_overlay_layout(style_params, frame_width, frame_height)
     image = render_text_overlay_image(
         text,

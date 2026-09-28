@@ -487,7 +487,7 @@ const analysisTools: ToolSpec[] = [
         'uncropped frame, before it is placed or cropped. Look at a source to choose a shot ' +
         'and to see where its subject is before you set a crop. Use it to CHECK your own ' +
         'work visually — caption placement and ' +
-        'legibility, framing after a punch-in or reframe, whether a title collides with ' +
+        'legibility, framing after a punch-in or reframe, whether a text overlay collides with ' +
         'the footage, whether a grade reads as intended. Prefer it over guessing from ' +
         'numbers whenever the question is about how something LOOKS. It renders through ' +
         'the same engine as the final export, so what you see is what will be delivered. ' +

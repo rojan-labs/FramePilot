@@ -3,7 +3,7 @@ import { edgeStyleParamsIssue, effectLayersOf, masksOf } from '@framepilot/timel
 import { paramsForKind } from '@framepilot/timeline-schema/effect-params';
 import {
   AUDIO_FADE_CURVES,
-  CLIP_KEYFRAME_PROPERTIES,
+  CLIP_TRANSFORM_PROPERTIES,
   audioAutomationContractIssue,
   audioDynamicsContractIssue,
   audioEqContractIssue,
@@ -152,12 +152,12 @@ function assertKeyframes(op: Extract<Operation, { type: 'add_keyframes' }>): voi
 }
 
 function assertKeyframeTargets(op: Extract<Operation, { type: 'remove_keyframes' }>): void {
-  const supported = new Set<string>(CLIP_KEYFRAME_PROPERTIES);
+  const supported = new Set<string>(CLIP_TRANSFORM_PROPERTIES);
   for (const target of op.targets) {
     if (!supported.has(target.property)) {
       throw new OperationContractError(
         `remove_keyframes property "${target.property}" is unsupported. ` +
-          `Supported properties: ${CLIP_KEYFRAME_PROPERTIES.join(', ')}.`,
+          `Supported properties: ${CLIP_TRANSFORM_PROPERTIES.join(', ')}.`,
       );
     }
     if (target.time !== undefined) {

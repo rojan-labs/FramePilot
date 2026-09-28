@@ -73,7 +73,9 @@ export const MOTION_TOOLS: readonly ToolSpec[] = [
       name: 'add_keyframes',
       description:
         'Animate a clip property (e.g. scale, opacity, x, y) with keyframes; times are ' +
-        "seconds from the clip's start. For a simple zoom, prefer punch_in.",
+        "seconds from the clip's start. For a simple zoom, prefer punch_in. scaleX/scaleY " +
+        'stretch or squash one axis (1 = none) — only when asked to stretch or squash; ' +
+        'zooms use scale.',
     },
     z.object({ clipId: z.string(), keyframes: z.array(keyframeSchema).min(1) }).strict(),
     (a, ctx) => {

@@ -971,172 +971,267 @@ input[type='checkbox']:focus-visible {
   cursor: pointer;
   z-index: 2;
 }
-.preview-transform {
+/* The bounding box's layer: the frame's on-screen rectangle, unclipped and unscaled
+   (components/transform-box/TransformChrome.tsx), so handles reach past the frame's edge and stay
+   crisp at every zoom. Click-through except the box itself. */
+.transform-chrome {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+}
+
+/* ---- On-canvas bounding box (components/transform-box) --------------------------------------
+   Figma/Premiere-grade chrome at a fixed SCREEN size: the box is placed in frame percentages and
+   turned with a CSS rotate (never a CSS scale), so its 1.5 px rule and 8 px handles stay crisp
+   at every monitor zoom. One accent, used only for the selection. */
+.transform-box {
+  --tb-accent: #0066ff;
+  --tb-handle: 8px;
   position: absolute;
   box-sizing: border-box;
-  border: 1px solid rgba(255, 255, 255, 0.98);
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.72),
-    0 1px 3px rgba(0, 0, 0, 0.35);
+  border: 1.5px solid var(--tb-accent);
+  /* A faint dark halo keeps the rule readable over a white sky or a blue one. */
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.35);
+  transform-origin: 50% 50%;
   cursor: move;
-  z-index: 3;
+  z-index: 4;
   touch-action: none;
+  user-select: none;
+  /* The monitor's object layers are click-through (pointer-events: none) so empty areas reach
+     the picture below; the selected layer's box takes the pointer back. */
+  pointer-events: auto;
 }
-.preview-transform:focus-visible {
-  outline: 2px solid var(--tl-select);
-  outline-offset: 2px;
-}
-.preview-transform-handle {
-  position: absolute;
-  width: 9px;
-  height: 9px;
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.82);
-  border-radius: 1px;
-  touch-action: none;
-}
-.preview-transform-handle:focus-visible {
-  outline: 2px solid #fff;
-  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.72);
-  outline-offset: 2px;
-}
-.preview-transform-handle--nw {
-  top: -5px;
-  left: -5px;
-  cursor: nwse-resize;
-}
-.preview-transform-handle--ne {
-  top: -5px;
-  right: -5px;
-  cursor: nesw-resize;
-}
-.preview-transform-handle--sw {
-  bottom: -5px;
-  left: -5px;
-  cursor: nesw-resize;
-}
-.preview-transform-handle--se {
-  bottom: -5px;
-  right: -5px;
-  cursor: nwse-resize;
-}
-
-/* ---- Rotation handle (revamp Phase 3) ---------------------------------- */
-/* On a stalk above the box — the convention every NLE and design tool shares, so
-   it is never mistaken for a resize corner. Round, where the corners are square:
-   shape, not colour, is what tells them apart (design direction §3). */
-.preview-transform-rotate {
-  position: absolute;
-  top: -26px;
-  left: 50%;
-  width: 10px;
-  height: 10px;
-  transform: translateX(-50%);
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.82);
-  border-radius: 50%;
-  cursor: grab;
-  touch-action: none;
-}
-
-/* The stalk connecting it to the box, so the handle reads as attached rather than
-   as a stray dot floating over the picture. */
-.preview-transform-rotate::before {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  width: 1.5px;
-  height: 14px;
-  transform: translateX(-50%);
-  background: #fff;
-  box-shadow: 1px 0 rgba(0, 0, 0, 0.6);
-}
-
-.preview-transform-rotate:active {
+.transform-box.is-move {
   cursor: grabbing;
 }
-
-.preview-transform-rotate:focus-visible {
-  outline: 2px solid #fff;
-  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.72);
+.transform-box.is-passive {
+  pointer-events: none;
+  border-style: dashed;
+}
+.transform-box:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--tb-accent) 45%, transparent);
+  outline-offset: 3px;
+}
+.transform-box-handle {
+  position: absolute;
+  width: var(--tb-handle);
+  height: var(--tb-handle);
+  margin: calc(var(--tb-handle) / -2) 0 0 calc(var(--tb-handle) / -2);
+  box-sizing: border-box;
+  background: #fff;
+  border: 1px solid var(--tb-accent);
+  border-radius: 1.5px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.28),
+    0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  touch-action: none;
+  transition:
+    transform 0.08s ease,
+    background-color 0.08s ease;
+}
+/* A bigger invisible target than the 8 px square it draws: easy to grab, still minimal. */
+.transform-box-handle::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+.transform-box-handle:hover {
+  transform: scale(1.2);
+}
+.transform-box-handle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--tb-accent) 45%, transparent);
   outline-offset: 2px;
 }
-
-/* Live angle readout during a rotation. A rotation you cannot read is a rotation
-   you cannot match on a second clip. */
-.preview-transform-readout {
-  position: absolute;
-  top: -46px;
+.transform-box-handle--nw {
+  left: 0;
+  top: 0;
+}
+.transform-box-handle--n {
   left: 50%;
-  transform: translateX(-50%);
-  padding: 1px var(--space-1);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xs);
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  top: 0;
+}
+.transform-box-handle--ne {
+  left: 100%;
+  top: 0;
+}
+.transform-box-handle--e {
+  left: 100%;
+  top: 50%;
+}
+.transform-box-handle--se {
+  left: 100%;
+  top: 100%;
+}
+.transform-box-handle--s {
+  left: 50%;
+  top: 100%;
+}
+.transform-box-handle--sw {
+  left: 0;
+  top: 100%;
+}
+.transform-box-handle--w {
+  left: 0;
+  top: 50%;
+}
+/* Edge handles read as bars along their edge, corners as squares. */
+.transform-box-handle--n,
+.transform-box-handle--s {
+  width: 14px;
+  margin-left: -7px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 3px;
+}
+.transform-box-handle--e,
+.transform-box-handle--w {
+  width: 6px;
+  margin-left: -3px;
+  height: 14px;
+  margin-top: -7px;
+  border-radius: 3px;
+}
+/* Rotation: invisible zones just outside each corner… */
+.transform-box-rotate-zone {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  touch-action: none;
+}
+.transform-box-rotate-zone--nw {
+  left: -22px;
+  top: -22px;
+}
+.transform-box-rotate-zone--ne {
+  right: -22px;
+  top: -22px;
+}
+.transform-box-rotate-zone--se {
+  right: -22px;
+  bottom: -22px;
+}
+.transform-box-rotate-zone--sw {
+  left: -22px;
+  bottom: -22px;
+}
+/* …and a lollipop on a stalk above the top edge. */
+.transform-box-stalk {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  width: 1.5px;
+  height: 20px;
+  margin-left: -0.75px;
+  background: var(--tb-accent);
   pointer-events: none;
 }
-
-/* Reset. Hover-revealed: chrome recedes until asked for, but it stays in the
-   accessibility tree and in layout at all times, so nothing reflows when it
-   appears and a keyboard user can always reach it. */
-.preview-transform-reset {
+.transform-box-rotate {
   position: absolute;
-  top: -2px;
-  right: -28px;
+  left: 50%;
+  bottom: calc(100% + 20px);
+  width: 10px;
+  height: 10px;
+  margin: 0 0 -5px -5px;
+  box-sizing: border-box;
+  background: #fff;
+  border: 1.5px solid var(--tb-accent);
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  touch-action: none;
+}
+.transform-box-rotate::before {
+  content: '';
+  position: absolute;
+  inset: -7px;
+}
+.transform-box-rotate:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--tb-accent) 45%, transparent);
+  outline-offset: 2px;
+}
+/* No room above (a full-frame layer against the monitor's edge): the lollipop hangs below the
+   box, or, with no room there either, sits just inside the top edge. The box measures which. */
+.transform-box[data-lollipop='below'] .transform-box-stalk {
+  top: 100%;
+  bottom: auto;
+}
+.transform-box[data-lollipop='below'] .transform-box-rotate {
+  top: calc(100% + 20px);
+  bottom: auto;
+  margin: -5px 0 0 -5px;
+}
+.transform-box[data-lollipop='inside'] .transform-box-stalk {
+  top: 0;
+  bottom: auto;
+}
+.transform-box[data-lollipop='inside'] .transform-box-rotate {
+  top: 20px;
+  bottom: auto;
+  margin: -5px 0 0 -5px;
+}
+.transform-box-reset {
+  position: absolute;
+  top: -12px;
+  right: -40px;
   display: grid;
   place-items: center;
-  width: var(--monitor-btn-size);
-  height: var(--monitor-btn-size);
+  width: 24px;
+  height: 24px;
   padding: 0;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
+  color: #1a1a1a;
   cursor: pointer;
-  opacity: 0;
-  transition:
-    opacity var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
-
-.preview-transform:hover .preview-transform-reset,
-.preview-transform-reset:focus-visible {
-  opacity: 1;
+.transform-box-reset:hover {
+  color: var(--tb-accent);
 }
-
-.preview-transform-reset:hover {
-  color: var(--text-primary);
+.transform-box-reset:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--tb-accent) 45%, transparent);
+  outline-offset: 2px;
 }
-
-/* ---- Alignment guides -------------------------------------------------- */
-/* Drawn across the whole FRAME, not the box: the point is where the box sits
-   relative to the frame, so a guide clipped to the box would say nothing. Only
-   present mid-snap, so the canvas is clean at rest. */
-.preview-align-guide {
+.transform-box-readout {
   position: absolute;
-  z-index: 4;
-  background: var(--accent);
+  left: 50%;
+  top: calc(100% + 10px);
+  padding: 2px 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  white-space: nowrap;
+  color: #fff;
+  background: var(--tb-accent);
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   pointer-events: none;
 }
-
-.preview-align-guide--v {
+.transform-box[data-readout='inside'] .transform-box-readout {
+  top: auto;
+  bottom: 10px;
+}
+.transform-box-guide {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  background: #ff3dcb;
+}
+.transform-box-guide--v {
   top: 0;
   bottom: 0;
   width: 1px;
-  transform: translateX(-0.5px);
+  margin-left: -0.5px;
 }
-
-.preview-align-guide--h {
+.transform-box-guide--h {
   left: 0;
   right: 0;
   height: 1px;
-  transform: translateY(-0.5px);
+  margin-top: -0.5px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .transform-box-handle {
+    transition: none;
+  }
 }
 
 /* ---- Mask tools (MK4.1) ------------------------------------------------ */
@@ -2402,17 +2497,269 @@ g.mask-canvas-draft circle {
   color: var(--text-tertiary);
 }
 
-/* ---- Overlays panel (master-prompt §3.4) -------------------------------- */
-.ov-types {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+/* ---- Text panel (plan/PLAN.md "Text panel") ------------------------------ */
+/* Quick add, search and chips stay put; the template grids and the timeline list scroll below
+   them, as on Elements. */
+.text-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  height: 100%;
+  min-height: 0;
+}
+.text-panel .panel-head {
+  margin-bottom: 0;
+}
+
+/* Heading / Subheading / Body, each drawn at its own rank (the Canva and VN hierarchy). */
+.text-quick {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
   gap: var(--space-1);
-  margin-bottom: var(--space-3);
+}
+.text-quick-add {
+  width: 100%;
+  padding: 6px var(--space-3);
+  font-family: 'Inter', var(--font-sans, sans-serif);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+.text-quick-add:hover {
+  background: var(--surface-3);
+  border-color: var(--accent);
+}
+.text-quick-add:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.text-quick-add--heading {
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+.text-quick-add--subheading {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.text-quick-add--body {
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--text-secondary, var(--text));
+}
+
+.text-panel-hint {
+  flex-shrink: 0;
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.text-panel-scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.text-panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.text-panel-heading {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* Two columns at the rail's usual width, more as it is widened. */
+.text-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-2);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.text-tile {
+  position: relative;
+}
+.text-tile-add {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+  padding: 0 0 var(--space-1);
+  color: var(--text);
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+  overflow: hidden;
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+.text-tile-add:hover {
+  border-color: var(--accent);
+}
+.text-tile-add:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.text-tile.is-applied .text-tile-add {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+/* A stand-in for footage, the same in both themes: a template is judged against a picture, and
+   white letters on the light theme's panel would be invisible (as on the shape tiles). */
+.text-tile-preview {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  container-type: size;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 20% 15%, rgba(255, 255, 255, 0.16), transparent 60%),
+    linear-gradient(160deg, #4a5160 0%, #2b2f38 55%, #1c1e24 100%);
+}
+.text-tile-sample {
+  display: inline-block;
+  line-height: 1.15;
+  white-space: pre-wrap;
+  pointer-events: none;
+}
+.text-tile-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0 var(--space-2);
+  overflow: hidden;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Restyle the selected text overlay: shown on hover and keyboard focus, always reachable by Tab. */
+.text-tile-apply {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  padding: 2px var(--space-2);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent-text);
+  cursor: pointer;
+  background: var(--accent);
+  border: 0;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.text-tile:hover .text-tile-apply,
+.text-tile:focus-within .text-tile-apply {
+  opacity: 1;
+}
+.text-tile-apply:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+@media (hover: none) {
+  .text-tile-apply {
+    opacity: 1;
+  }
+}
+
+/* Styles and Fonts share one column: controls on top, only the list below scrolls. */
+.text-panel-tab {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+}
+
+/* Fonts tab: one row per bundled family, drawn in its own face. Rows off screen skip layout
+   and paint, so a family's file is only fetched when its row comes into view. */
+.text-font-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.text-font-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 44px;
+}
+.text-font-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'name check'
+    'facts check';
+  align-items: center;
+  column-gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: 4px var(--space-2);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+.text-font-row:hover {
+  background: var(--bg-hover);
+  border-color: var(--line);
+}
+.text-font-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.text-font-row.is-current {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.text-font-name {
+  grid-area: name;
+  overflow: hidden;
+  font-size: 1.05rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-synthesis: none;
+}
+.text-font-facts {
+  grid-area: facts;
+  font-size: 0.68rem;
+  color: var(--text-tertiary);
+}
+.text-font-check {
+  grid-area: check;
+  color: var(--accent);
 }
 
 /* Shapes and stickers moved to Elements (plan/elements EL4a): one line points there. */
 .ov-elements-link {
-  margin: 0 0 var(--space-3);
+  margin: 0;
   font-size: 0.78rem;
   color: var(--muted);
 }
@@ -2428,192 +2775,6 @@ g.mask-canvas-draft circle {
 .ov-elements-link .link-button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
-}
-
-.ov-type-wrap {
-  display: flex;
-}
-
-.ov-type {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: var(--space-2) var(--space-1);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  font-size: 0.68rem;
-  cursor: pointer;
-  transition:
-    border-color var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
-}
-
-.ov-type:not(:disabled):hover {
-  color: var(--text-primary);
-  border-color: var(--border-strong);
-}
-
-.ov-type.is-active {
-  border-color: var(--accent);
-  color: var(--text-primary);
-  background: var(--accent-subtle);
-}
-
-.ov-type:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.ov-preview {
-  display: flex;
-  aspect-ratio: 9 / 16;
-  max-height: 150px;
-  margin: 0 auto var(--space-3);
-  padding: var(--space-2);
-  background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-}
-
-.ov-preview-text {
-  font-size: 0.8rem;
-  border-radius: var(--radius-xs);
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-
-.ov-templates {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-1);
-}
-
-.ov-template {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  color: var(--text-tertiary);
-  font-size: 0.66rem;
-  cursor: pointer;
-}
-
-.ov-template-swatch {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  font-size: 0.72rem;
-  transition: border-color var(--dur-fast) var(--ease);
-}
-
-.ov-template.is-active .ov-template-swatch {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-subtle);
-}
-
-.ov-template.is-active .ov-template-label {
-  color: var(--text-primary);
-}
-
-.ov-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 28px);
-  grid-template-rows: repeat(3, 28px);
-  gap: var(--space-1);
-  width: max-content;
-}
-
-.ov-dot {
-  display: grid;
-  place-items: center;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition:
-    background var(--dur-fast) var(--ease),
-    border-color var(--dur-fast) var(--ease);
-}
-
-.ov-dot::after {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-tertiary);
-}
-
-.ov-dot:hover {
-  border-color: var(--border-strong);
-}
-
-.ov-dot.is-active {
-  border-color: var(--accent);
-  background: var(--accent-subtle);
-}
-
-.ov-dot.is-active::after {
-  background: var(--accent);
-}
-
-.ov-timing {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--space-2);
-}
-
-.ov-timing label {
-  flex: 1 1 4rem;
-  min-width: 0;
-}
-
-.ov-timing input {
-  width: 100%;
-}
-
-.ov-timing label {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 0.7rem;
-  color: var(--text-secondary);
-}
-
-.ov-timing input {
-  width: 4.5rem;
-  padding: var(--space-1) var(--space-2);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: 0.8rem;
-}
-
-.ov-at-playhead {
-  padding: var(--space-1) var(--space-2);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  font-size: 0.72rem;
-  cursor: pointer;
-}
-
-.ov-at-playhead:hover {
-  color: var(--text-primary);
-  border-color: var(--border-strong);
 }
 
 .ov-list {
@@ -2635,6 +2796,10 @@ g.mask-canvas-draft circle {
 
 .ov-row:hover {
   background: var(--bg-hover);
+}
+
+.ov-row.is-selected {
+  background: var(--accent-soft);
 }
 
 .ov-row-time {
@@ -4402,41 +4567,18 @@ g.mask-canvas-draft circle {
    the move cursor, and the width handles. */
 .preview-text-edit {
   margin: 0;
-  outline: 1px solid rgba(255, 255, 255, 0.98);
-  outline-offset: 2px;
-  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.9));
-  cursor: move;
 }
 
+/* While typing, the words take the pointer (caret, selection) and show the text cursor; the
+   bounding box around them goes passive (dashed, click-through). */
 .preview-text-edit.is-editing {
   cursor: text;
-  outline-style: dashed;
 }
 
 .preview-text-edit-content {
   outline: none;
   min-width: 1ch;
   min-height: 1em;
-}
-
-.preview-text-handle {
-  position: absolute;
-  top: 50%;
-  width: 8px;
-  height: 22px;
-  transform: translateY(-50%);
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.82);
-  border-radius: 1px;
-  cursor: ew-resize;
-}
-
-.preview-text-handle--l {
-  left: -6px;
-}
-
-.preview-text-handle--r {
-  right: -6px;
 }
 
 /* Caption direct manipulation uses the same quiet white NLE selection language

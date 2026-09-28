@@ -59,4 +59,4 @@ Reduce amplitude before changing timing. If the motion still distracts, remove i
 
 ## Related skills
 
-`motion-design`, `titles-and-text`, `vertical-reframe`, `beat-synced-editing`.
+`motion-design`, `text-overlays`, `vertical-reframe`, `beat-synced-editing`.

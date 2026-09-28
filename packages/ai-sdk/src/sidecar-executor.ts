@@ -931,7 +931,7 @@ export function unwrapSubjectLayout(data: unknown): HostToolOutcome {
           ? `the closest is ${position} (${pct(title.occluded)} covered). `
           : '';
     lines.push(
-      `- title at size ${size}, ${pct(title.width)} × ${pct(title.height)} of the frame: ` +
+      `- text overlay at size ${size}, ${pct(title.width)} × ${pct(title.height)} of the frame: ` +
         verdict +
         String(title.note ?? ''),
     );
@@ -942,7 +942,7 @@ export function unwrapSubjectLayout(data: unknown): HostToolOutcome {
     summary:
       title === null || title === undefined
         ? `Measured where the subject sits on ${record.clipId}`
-        : `Measured where the subject sits on ${record.clipId} and where the title reads behind them`,
+        : `Measured where the subject sits on ${record.clipId} and where the text overlay reads behind them`,
     data: { ...record, reading },
   };
 }

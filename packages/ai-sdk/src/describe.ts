@@ -141,6 +141,7 @@ const TOOL_VERBS: Record<string, string> = {
   discover_caption_styles: 'Browsing caption styles for',
   discover_effects: 'Browsing effects for',
   discover_transitions: 'Browsing transitions for',
+  discover_text_overlay_styles: 'Browsing text overlay styles for',
   recall_evidence: 'Recalling what it found about',
   apply_effect: 'Adding an effect to',
   set_track_caption_style: 'Styling the caption track as',
@@ -226,6 +227,7 @@ const SUBJECT_ARG_KEYS: Record<string, readonly string[]> = {
   discover_caption_styles: ['query', 'category'],
   discover_effects: ['query', 'queries', 'category', 'categories', 'shelf'],
   discover_transitions: ['query', 'queries', 'category', 'categories'],
+  discover_text_overlay_styles: ['query', 'category'],
   recall_evidence: ['query'],
   // The catalog entry chosen, not the clip it lands on — "Adding a whip pan" tells the
   // user what they are getting; "Adding a transition" does not.

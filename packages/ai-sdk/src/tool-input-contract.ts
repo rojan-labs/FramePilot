@@ -1,6 +1,7 @@
 import {
   AUDIO_PARAMETER_CONTRACTS,
-  CLIP_KEYFRAME_PROPERTIES,
+  CLIP_STRETCH_PROPERTIES,
+  CLIP_TRANSFORM_PROPERTIES,
   COLOR_GRADE_PARAMETER_CONTRACTS,
   transitionEligibility,
 } from '@framepilot/editor-core';
@@ -89,9 +90,12 @@ function assertMapTime(value: Record<string, unknown>): void {
   }
 }
 
+/** The stretch multipliers size a layer on one axis, so like `scale` they must stay > 0. */
+const STRETCH_KEYFRAME_PROPERTIES = new Set<string>(CLIP_STRETCH_PROPERTIES);
+
 function assertKeyframes(value: Record<string, unknown>): void {
   if (!Array.isArray(value.keyframes)) return;
-  const supported = new Set<string>(CLIP_KEYFRAME_PROPERTIES);
+  const supported = new Set<string>(CLIP_TRANSFORM_PROPERTIES);
   for (const [index, raw] of value.keyframes.entries()) {
     const keyframe = record(raw);
     if (!keyframe) continue;
@@ -99,13 +103,19 @@ function assertKeyframes(value: Record<string, unknown>): void {
     if (typeof property !== 'string' || !supported.has(property)) {
       throw new ToolInputContractError(
         'add_keyframes',
-        `keyframes[${String(index)}].property must be one of ${CLIP_KEYFRAME_PROPERTIES.join(', ')}.`,
+        `keyframes[${String(index)}].property must be one of ${CLIP_TRANSFORM_PROPERTIES.join(', ')}.`,
       );
     }
     const amount = keyframe.value;
     if (typeof amount !== 'number' || !Number.isFinite(amount)) continue;
     if (property === 'scale' && amount <= 0) {
       throw new ToolInputContractError('add_keyframes', 'Scale keyframe values must be > 0.');
+    }
+    if (STRETCH_KEYFRAME_PROPERTIES.has(property) && amount <= 0) {
+      throw new ToolInputContractError(
+        'add_keyframes',
+        `${property} is a stretch multiplier (1 = none); its keyframe values must be > 0.`,
+      );
     }
     if (property === 'opacity' && (amount < 0 || amount > 1)) {
       throw new ToolInputContractError(
@@ -322,7 +332,7 @@ function keyframeParameters(parameters: ToolParameterSchema): ToolParameterSchem
   const keyframes = record(properties.keyframes);
   const items = record(keyframes?.items);
   const itemProperties = objectProperties(items ?? {});
-  itemProperties.property = { type: 'string', enum: [...CLIP_KEYFRAME_PROPERTIES] };
+  itemProperties.property = { type: 'string', enum: [...CLIP_TRANSFORM_PROPERTIES] };
   return {
     ...parameters,
     properties: {

@@ -16,7 +16,7 @@ Caption generation, subtitle styling, short-form retention captions, or caption 
 
 ## When not to use
 
-Do not use title layers as captions, caption before cuts are locked, or manually convert source transcript times.
+Do not use text overlays as captions, caption before cuts are locked, or manually convert source transcript times.
 
 ## Required inputs
 
@@ -82,4 +82,4 @@ If verification fails, re-run `caption_the_edit` — it re-derives every cue fro
 
 ## Related skills
 
-`titles-and-text`, `short-form-pacing`, `vertical-reframe`, `finishing-and-delivery`.
+`text-overlays`, `short-form-pacing`, `vertical-reframe`, `finishing-and-delivery`.

@@ -341,7 +341,7 @@ describe('stickers-and-callouts (plan/elements EL8.3)', () => {
     expect(body).toMatch(/never delete and re-add/iu);
     expect(body).toMatch(/Remove the stickers/u);
     expect(body).toMatch(/`delete_clip` on each/u);
-    expect(body).toMatch(/footage, shapes and titles/u);
+    expect(body).toMatch(/footage, shapes and text overlays/u);
   });
 
   it('keeps elements clear of faces, captions, the frame edge and platform buttons, three at most', () => {

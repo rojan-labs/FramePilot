@@ -1,41 +1,42 @@
 /**
- * On-monitor handles for a selected shape (plan/elements EL4a): drag the body to move it, a side
- * or corner to resize a box, an end to aim an arrow or a line. One patch per gesture: the outline
- * follows the pointer live and the change commits once, on release. Arrow keys nudge (Shift for a
- * bigger step), one patch per press.
+ * On-monitor handles for a selected shape (plan/elements EL4a).
  *
- * The handle layer sits inside the clip's transform at the playhead (translated, turned and scaled
- * about the shape's centre, as the export places the raster), and the geometry lives in
- * `preview/shape-handles.ts`.
+ * A box shape (a rectangle, a badge, an icon…) is edited in the bounding box ({@link TransformBox}):
+ * drag to move it, a corner or edge to resize it (the aspect held unless Shift is pressed, Alt from
+ * the centre; a shape stretches natively, so a free resize is just a new width and height), and
+ * the lollipop to turn it (the clip's rotation). A line or an arrow keeps its two end handles:
+ * drag an end to aim it, the line to move it.
  *
- * **Keyboard.** The shape's body is one stop, named by what the shape is ("Move Arrow"); the
- * arrows move it. The resize and endpoint handles are pointer-only and hidden from assistive tech:
- * activated, they would do nothing, and the Inspector's Box and Ends fields are the keyboard route
- * to the same edits. (Shift to keep the aspect, Alt to resize from the centre, snapping and a
- * rotation handle — which the sticker box has — are not offered for shapes yet.)
+ * One gesture is one {@link ShapeCommit}: the caller applies it as one patch. While a gesture is
+ * live, {@link PreviewShapeEditorProps.onLive} reports the params and transform it would store, so
+ * the monitor can draw the shape itself following the hand rather than an outline.
+ *
+ * **Keyboard.** The box's arrows move the shape a pixel (Shift, ten), its corners scale it, the
+ * rotation handle turns it; a line's body moves it by the percent steps it always did.
  */
 import { useRef, useState } from 'react';
+import { SHAPE_LIMITS } from '@framepilot/timeline-schema';
 import {
-  BOX_HANDLES,
   NUDGE_PERCENT,
-  boxDragChanges,
-  boxRect,
   segmentDragChanges,
   shapePivot,
   toShapeDelta,
-  type BoxHandle,
   type SegmentHandle,
 } from '../preview/shape-handles.js';
+import {
+  shapeBoxOf,
+  shapeEditAfter,
+  type PictureBaseTransform,
+} from '../preview/transform-box/adapters.js';
+import type { Box, TransformGesture } from '../preview/transform-box/geometry.js';
+import { TransformBox } from './transform-box/TransformBox.js';
 
 type Params = Readonly<Record<string, unknown>>;
 
-export interface ShapeHandleTransform {
-  /** Offsets in output pixels, as the clip's `x`/`y` keyframes store them. */
-  readonly x: number;
-  readonly y: number;
-  readonly scale: number;
-  /** Degrees, counter-clockwise, as the export turns the layer. */
-  readonly rotation: number;
+/** One committed shape edit: the params that changed, the new transform when it changed. */
+export interface ShapeCommit {
+  readonly params?: Record<string, number>;
+  readonly transform?: PictureBaseTransform;
 }
 
 export interface PreviewShapeEditorProps {
@@ -45,13 +46,18 @@ export interface PreviewShapeEditorProps {
   readonly params: Params;
   /** The project frame, in output pixels. */
   readonly resolution: { readonly width: number; readonly height: number };
-  readonly transform: ShapeHandleTransform;
-  /** Commit one gesture's changes as one patch. */
-  readonly onCommit: (changes: Record<string, number>) => void;
+  /** The clip's transform at the playhead (offsets in output pixels, degrees anticlockwise). */
+  readonly transform: PictureBaseTransform;
+  /** The clip's stored (time-0) transform, which a turn edits. */
+  readonly baseTransform?: PictureBaseTransform;
+  /** Commit one gesture's edit as one patch. */
+  readonly onCommit: (edit: ShapeCommit) => void;
+  /** A live gesture's edit, `null` when it ends: lets the monitor draw the shape following it. */
+  readonly onLive?: (edit: ShapeCommit | null) => void;
 }
 
 interface Drag {
-  readonly handle: BoxHandle | SegmentHandle;
+  readonly handle: SegmentHandle;
   readonly startX: number;
   readonly startY: number;
   readonly frame: DOMRect;
@@ -71,13 +77,93 @@ export function PreviewShapeEditor({
   params,
   resolution,
   transform,
+  baseTransform = transform,
   onCommit,
+  onLive,
 }: PreviewShapeEditorProps): JSX.Element {
+  const segment = params.x1 !== undefined && params.x1 !== null;
+  return segment ? (
+    <SegmentEditor
+      clipId={clipId}
+      name={name}
+      params={params}
+      resolution={resolution}
+      transform={transform}
+      onCommit={onCommit}
+      {...(onLive === undefined ? {} : { onLive })}
+    />
+  ) : (
+    <BoxShapeEditor
+      name={name}
+      params={params}
+      resolution={resolution}
+      transform={transform}
+      baseTransform={baseTransform}
+      onCommit={onCommit}
+      {...(onLive === undefined ? {} : { onLive })}
+    />
+  );
+}
+
+/** A box shape in the bounding box. */
+function BoxShapeEditor({
+  name,
+  params,
+  resolution,
+  transform,
+  baseTransform,
+  onCommit,
+  onLive,
+}: Omit<PreviewShapeEditorProps, 'clipId' | 'baseTransform'> & {
+  readonly baseTransform: PictureBaseTransform;
+}): JSX.Element {
+  const shape = {
+    x: num(params, 'x'),
+    y: num(params, 'y'),
+    width: num(params, 'width'),
+    height: num(params, 'height'),
+  };
+  const box: Box = shapeBoxOf(shape, transform, resolution);
+  const editFor = (next: Box, gesture: TransformGesture): ShapeCommit => {
+    const edit = shapeEditAfter(shape, baseTransform, box, next, gesture, resolution, SHAPE_LIMITS);
+    const changed: Record<string, number> = {};
+    for (const key of ['x', 'y', 'width', 'height'] as const) {
+      if (edit.params[key] !== shape[key]) changed[key] = edit.params[key];
+    }
+    const turned = edit.transform.rotation !== baseTransform.rotation;
+    return {
+      ...(Object.keys(changed).length > 0 ? { params: changed } : {}),
+      ...(turned ? { transform: edit.transform } : {}),
+    };
+  };
+  return (
+    <TransformBox
+      box={box}
+      resolution={resolution}
+      label={`Move ${name}`}
+      rotateLabel={`Rotate ${name}`}
+      onPreview={(next, gesture) => onLive?.(next === null ? null : editFor(next, gesture))}
+      onCommit={(next, gesture) => {
+        const edit = editFor(next, gesture);
+        if (edit.params !== undefined || edit.transform !== undefined) onCommit(edit);
+      }}
+    />
+  );
+}
+
+/** A line or an arrow: its two ends, drawn inside the clip's transform. */
+function SegmentEditor({
+  clipId,
+  name,
+  params,
+  resolution,
+  transform,
+  onCommit,
+  onLive,
+}: Omit<PreviewShapeEditorProps, 'baseTransform'>): JSX.Element {
   const layerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<Drag | null>(null);
   const [live, setLive] = useState<Record<string, number> | null>(null);
-  const aspect = resolution.width / resolution.height;
-  const segment = params.x1 !== undefined && params.x1 !== null;
   const shown: Params = live === null ? params : { ...params, ...live };
 
   const changesFor = (drag: Drag, event: { clientX: number; clientY: number }) => {
@@ -88,13 +174,12 @@ export function PreviewShapeEditor({
       drag.frame.height,
       transform.rotation,
       transform.scale,
+      { x: transform.scaleX, y: transform.scaleY },
     );
-    return segment
-      ? segmentDragChanges(params, drag.handle as SegmentHandle, dx, dy)
-      : boxDragChanges(params, drag.handle as BoxHandle, dx, dy, aspect);
+    return segmentDragChanges(params, drag.handle, dx, dy);
   };
 
-  const begin = (handle: BoxHandle | SegmentHandle) => (event: React.PointerEvent) => {
+  const begin = (handle: SegmentHandle) => (event: React.PointerEvent) => {
     // The frame the handles are laid out in: the unturned parent of the handle layer.
     const frame = layerRef.current?.parentElement?.getBoundingClientRect();
     if (!frame || frame.width === 0 || frame.height === 0) return;
@@ -106,15 +191,18 @@ export function PreviewShapeEditor({
   const move = (event: React.PointerEvent): void => {
     const drag = dragRef.current;
     if (drag === null) return;
-    setLive(changesFor(drag, event));
+    const changes = changesFor(drag, event);
+    setLive(changes);
+    onLive?.({ params: changes });
   };
   const end = (event: React.PointerEvent): void => {
     const drag = dragRef.current;
     if (drag === null) return;
     dragRef.current = null;
     setLive(null);
+    onLive?.(null);
     const moved = event.clientX !== drag.startX || event.clientY !== drag.startY;
-    if (moved) onCommit(changesFor(drag, event));
+    if (moved) onCommit({ params: changesFor(drag, event) });
   };
   const nudge = (event: React.KeyboardEvent): void => {
     const step = event.shiftKey ? NUDGE_PERCENT.coarse : NUDGE_PERCENT.fine;
@@ -129,11 +217,7 @@ export function PreviewShapeEditor({
     event.preventDefault();
     // The arrows are this shape's now, not the editor's frame steps as well.
     event.stopPropagation();
-    onCommit(
-      segment
-        ? segmentDragChanges(params, 'move', d[0], d[1])
-        : boxDragChanges(params, 'move', d[0], d[1], aspect),
-    );
+    onCommit({ params: segmentDragChanges(params, 'move', d[0], d[1]) });
   };
 
   const pivot = shapePivot(shown);
@@ -142,83 +226,49 @@ export function PreviewShapeEditor({
     transform:
       `translate(${(transform.x / resolution.width) * 100}%, ` +
       `${(transform.y / resolution.height) * 100}%) ` +
-      `rotate(${-transform.rotation}deg) scale(${transform.scale})`,
+      `rotate(${-transform.rotation}deg) ` +
+      `scale(${transform.scale * transform.scaleX}, ${transform.scale * transform.scaleY})`,
   };
   const handlers = { onPointerMove: move, onPointerUp: end, onPointerCancel: end };
-
-  if (segment) {
-    const [x1, y1, x2, y2] = ['x1', 'y1', 'x2', 'y2'].map((key) => num(shown, key)) as [
-      number,
-      number,
-      number,
-      number,
-    ];
-    return (
-      <div ref={layerRef} className="preview-shape-editor" data-clip-id={clipId} style={layerStyle}>
-        <svg className="preview-shape-editor-line" viewBox="0 0 100 100" preserveAspectRatio="none">
-          <line
-            x1={x1}
-            y1={y1}
-            x2={x2}
-            y2={y2}
-            role="button"
-            tabIndex={0}
-            aria-label={`Move ${name}`}
-            aria-keyshortcuts={NUDGE_KEYS}
-            onPointerDown={begin('move')}
-            onKeyDown={nudge}
-            {...handlers}
-          />
-        </svg>
-        {(
-          [
-            ['start', x1, y1],
-            ['end', x2, y2],
-          ] as const
-        ).map(([handle, x, y]) => (
-          <span
-            key={handle}
-            className="preview-shape-handle is-end"
-            data-end={handle}
-            style={{ left: `${x}%`, top: `${y}%` }}
-            aria-hidden="true"
-            onPointerDown={begin(handle)}
-            {...handlers}
-          />
-        ))}
-      </div>
-    );
-  }
-
-  const rect = boxRect(shown, aspect);
+  const [x1, y1, x2, y2] = ['x1', 'y1', 'x2', 'y2'].map((key) => num(shown, key)) as [
+    number,
+    number,
+    number,
+    number,
+  ];
   return (
     <div ref={layerRef} className="preview-shape-editor" data-clip-id={clipId} style={layerStyle}>
-      <div
-        className="preview-shape-box"
-        style={{
-          left: `${rect.left}%`,
-          top: `${rect.top}%`,
-          width: `${rect.width}%`,
-          height: `${rect.height}%`,
-        }}
-        role="button"
-        tabIndex={0}
-        aria-label={`Move ${name}`}
-        aria-keyshortcuts={NUDGE_KEYS}
-        onPointerDown={begin('move')}
-        onKeyDown={nudge}
-        {...handlers}
-      >
-        {BOX_HANDLES.map((handle) => (
-          <span
-            key={handle}
-            className={`preview-shape-handle is-${handle}`}
-            aria-hidden="true"
-            onPointerDown={begin(handle)}
-            {...handlers}
-          />
-        ))}
-      </div>
+      <svg className="preview-shape-editor-line" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <line
+          x1={x1}
+          y1={y1}
+          x2={x2}
+          y2={y2}
+          role="button"
+          tabIndex={0}
+          aria-label={`Move ${name}`}
+          aria-keyshortcuts={NUDGE_KEYS}
+          onPointerDown={begin('move')}
+          onKeyDown={nudge}
+          {...handlers}
+        />
+      </svg>
+      {(
+        [
+          ['start', x1, y1],
+          ['end', x2, y2],
+        ] as const
+      ).map(([handle, x, y]) => (
+        <span
+          key={handle}
+          className="preview-shape-handle is-end"
+          data-end={handle}
+          style={{ left: `${x}%`, top: `${y}%` }}
+          aria-hidden="true"
+          onPointerDown={begin(handle)}
+          {...handlers}
+        />
+      ))}
     </div>
   );
 }

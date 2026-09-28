@@ -565,6 +565,28 @@ def authored_offset_at(
     return (transform.x * scale_x, transform.y * scale_y)
 
 
+def layer_stretch_at(clip: Clip, t: float) -> tuple[float, float]:
+    """The clip's non-uniform stretch ``(scaleX, scaleY)`` at clip-local ``t``; ``(1, 1)`` when
+    it keyframes neither. It multiplies :func:`layer_scale_at` per axis, in the layer's own axes
+    (before rotation), so a squashed picture still turns about its centre."""
+    transform = evaluate_clip_transform(clip, t)
+    return transform.scale_x, transform.scale_y
+
+
+def layer_axis_scales_at(
+    clip: Clip, t: float, base_scale: float, transition: transitions.Transition | None
+) -> tuple[float, float]:
+    """The layer's horizontal and vertical scale at clip-local ``t``, base fit included.
+
+    ``base x layer_scale_at x stretch`` per axis. Unstretched, both equal the uniform
+    ``base_scale * layer_scale_at(...)`` bit for bit (a product with 1.0 is exact), so every
+    size computed from these is the size computed before the stretch existed.
+    """
+    scale = base_scale * layer_scale_at(clip, t, transition)
+    stretch_x, stretch_y = layer_stretch_at(clip, t)
+    return scale * stretch_x, scale * stretch_y
+
+
 def layer_position_at(
     clip: Clip,
     t: float,
@@ -585,9 +607,9 @@ def layer_position_at(
     clip_w, clip_h = source_size
     centre_x, centre_y = centre
     offset_x, offset_y = authored_offset_at(clip, t, target, project_size)
-    scale = base_scale * layer_scale_at(clip, t, transition)
-    width = clip_w * scale
-    height = clip_h * scale
+    scale_x, scale_y = layer_axis_scales_at(clip, t, base_scale, transition)
+    width = clip_w * scale_x
+    height = clip_h * scale_y
     dx, dy = (
         transitions.offset_at(transition, t, target_w, target_h)
         if transition is not None and transitions.affects_geometry(transition)
@@ -722,7 +744,14 @@ class LayerSource:
 @dataclass(frozen=True)
 class LayerGeometry:
     """Where a layer lands. ``left/top/width/height`` are ``None`` for text and captions,
-    whose raster size depends on font metrics only the pixel stage has."""
+    whose raster size depends on font metrics only the pixel stage has.
+
+    ``scale`` is the uniform scale (base fit x authored ``scale`` x a title's pop x a geometry
+    transition's zoom); ``stretch_x``/``stretch_y`` are the clip's ``scaleX``/``scaleY`` on top
+    of it, so the layer's horizontal scale is ``scale * stretch_x`` and its vertical
+    ``scale * stretch_y``. They are written only when the layer is stretched, so plans of
+    unstretched layers are unchanged.
+    """
 
     base_scale: float
     scale: float
@@ -733,9 +762,17 @@ class LayerGeometry:
     top: float | None = None
     width: float | None = None
     height: float | None = None
+    stretch_x: float = 1.0
+    stretch_y: float = 1.0
 
     def to_json(self) -> dict[str, Any]:
+        stretch: dict[str, Any] = (
+            {"stretchX": self.stretch_x, "stretchY": self.stretch_y}
+            if self.stretch_x != 1.0 or self.stretch_y != 1.0
+            else {}
+        )
         return {
+            **stretch,
             "baseScale": self.base_scale,
             "scale": self.scale,
             "anchorX": self.anchor_x,
@@ -893,6 +930,7 @@ def _picture_geometry(
     base = fit_scale(source_size, ctx.target, fit_to_frame=True)
     centre = (ctx.target[0] / 2, ctx.target[1] / 2)
     scale = base * layer_scale_at(clip, local, transition)
+    stretch_x, stretch_y = layer_stretch_at(clip, local)
     left, top = layer_position_at(
         clip,
         local,
@@ -903,8 +941,8 @@ def _picture_geometry(
         transition,
         project_size=ctx.project_size,
     )
-    width = source_size[0] * scale
-    height = source_size[1] * scale
+    width = source_size[0] * (scale * stretch_x)
+    height = source_size[1] * (scale * stretch_y)
     return LayerGeometry(
         base_scale=base,
         scale=scale,
@@ -915,6 +953,8 @@ def _picture_geometry(
         top=top,
         width=width,
         height=height,
+        stretch_x=stretch_x,
+        stretch_y=stretch_y,
     )
 
 
@@ -1088,6 +1128,8 @@ def _text_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer | None:
             anchor_x=layout.centre_x + offset_x + dx,
             anchor_y=layout.centre_y + offset_y + dy,
             rotation=transform.rotation,
+            stretch_x=transform.scale_x,
+            stretch_y=transform.scale_y,
         ),
         opacity=layer_opacity_at(clip, local, transition),
         blend_mode=_blend(clip),
@@ -1120,8 +1162,8 @@ def _shape_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer | None:
     offset_x, offset_y = authored_offset_at(clip, local, ctx.target, ctx.project_size)
     anchor_x = centre_x + offset_x + dx
     anchor_y = centre_y + offset_y + dy
-    width = bounds.width * scale
-    height = bounds.height * scale
+    width = bounds.width * (scale * transform.scale_x)
+    height = bounds.height * (scale * transform.scale_y)
     return PlanLayer(
         kind="shape",
         role="clip",
@@ -1139,6 +1181,8 @@ def _shape_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer | None:
             top=anchor_y - height / 2,
             width=width,
             height=height,
+            stretch_x=transform.scale_x,
+            stretch_y=transform.scale_y,
         ),
         opacity=layer_opacity_at(clip, local, transition),
         blend_mode=_blend(clip),

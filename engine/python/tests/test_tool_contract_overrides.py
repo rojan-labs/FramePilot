@@ -95,6 +95,19 @@ def test_clip_keyframes_match_renderer_vocabulary_and_value_domains() -> None:
     )
 
 
+def test_clip_keyframes_take_the_per_axis_stretch_and_keep_it_positive() -> None:
+    for prop in ("scaleX", "scaleY"):
+        validate(
+            "add_keyframes",
+            {"clipId": "clip", "keyframes": [{"time": 0, "property": prop, "value": 1.4}]},
+        )
+        for bad in (0, -0.5):
+            rejects(
+                "add_keyframes",
+                {"clipId": "clip", "keyframes": [{"time": 0, "property": prop, "value": bad}]},
+            )
+
+
 def test_punch_in_rejects_inverted_explicit_window() -> None:
     rejects("punch_in", {"clipId": "clip", "startTime": 4, "endTime": 2})
 

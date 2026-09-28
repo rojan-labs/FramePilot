@@ -1,4 +1,4 @@
-# ADR 0195 — The router reads what a request asks for; patterns do not
+# ADR 0196 — The router reads what a request asks for; patterns do not
 
 - **Status:** Accepted
 - **Date:** 2026-09-28

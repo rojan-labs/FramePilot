@@ -45,7 +45,15 @@ describe('rotationToCanvasRadians', () => {
 describe('pictureTransformAt', () => {
   it('is the identity for a clip with no keyframes', () => {
     const t = pictureTransformAt([], 0, CANVAS, RESOLUTION);
-    expect(t).toEqual({ scale: 1, rotationRad: -0, alpha: 1, dxPx: 0, dyPx: 0 });
+    expect(t).toEqual({
+      scale: 1,
+      scaleX: 1,
+      scaleY: 1,
+      rotationRad: -0,
+      alpha: 1,
+      dxPx: 0,
+      dyPx: 0,
+    });
   });
 
   it('leaves un-keyframed properties alone (mirrors evaluate_clip_transform)', () => {
@@ -150,7 +158,14 @@ describe('pictureTransformAt', () => {
 
 describe('baseTransformOf', () => {
   it('is the identity for a clip with no keyframes', () => {
-    expect(baseTransformOf([])).toEqual({ scale: 1, x: 0, y: 0, rotation: 0 });
+    expect(baseTransformOf([])).toEqual({
+      scale: 1,
+      x: 0,
+      y: 0,
+      rotation: 0,
+      scaleX: 1,
+      scaleY: 1,
+    });
   });
 
   it('reads TIME 0, not the playhead', () => {
@@ -162,8 +177,75 @@ describe('baseTransformOf', () => {
   });
 
   it('picks up every handle-writable property', () => {
-    const keyframes = [kf('scale', 2), kf('x', 10), kf('y', -20), kf('rotation', 45)];
-    expect(baseTransformOf(keyframes)).toEqual({ scale: 2, x: 10, y: -20, rotation: 45 });
+    const keyframes = [
+      kf('scale', 2),
+      kf('x', 10),
+      kf('y', -20),
+      kf('rotation', 45),
+      kf('scaleX', 1.5),
+      kf('scaleY', 0.5),
+    ];
+    expect(baseTransformOf(keyframes)).toEqual({
+      scale: 2,
+      x: 10,
+      y: -20,
+      rotation: 45,
+      scaleX: 1.5,
+      scaleY: 0.5,
+    });
+  });
+});
+
+describe('stretch (scaleX/scaleY)', () => {
+  it('draws scale × stretch per axis and leaves the uniform scale alone', () => {
+    const t = pictureTransformAt([kf('scale', 2), kf('scaleX', 1.5)], 0, CANVAS, RESOLUTION, {
+      ...NO_TRANSITION,
+      scale: 0.5,
+    });
+    expect(t.scale).toBe(1);
+    expect(t.scaleX).toBe(1.5);
+    expect(t.scaleY).toBe(1);
+  });
+
+  it('is the uniform scale on both axes when the clip has no stretch', () => {
+    const t = pictureTransformAt([kf('scale', 2)], 0, CANVAS, RESOLUTION);
+    expect([t.scaleX, t.scaleY]).toEqual([2, 2]);
+  });
+
+  it('writes no stretch keyframes for an unstretched drag', () => {
+    const result = withBaseTransform([], { scale: 2, x: 0, y: 0, scaleX: 1, scaleY: 1 });
+    expect(result.some((k) => k.property === 'scaleX' || k.property === 'scaleY')).toBe(false);
+  });
+
+  it('writes a stretch that is not 1, replacing only its time-0 keyframe', () => {
+    const result = withBaseTransform([kf('scaleX', 1.2, 0), kf('scaleX', 2, 3)], {
+      scale: 1,
+      x: 0,
+      y: 0,
+      scaleX: 1.8,
+      scaleY: 0.6,
+    });
+    expect(
+      result.filter((k) => k.property === 'scaleX' && k.time === 0).map((k) => k.value),
+    ).toEqual([1.8]);
+    expect(result.find((k) => k.property === 'scaleX' && k.time === 3)?.value).toBe(2);
+    expect(result.find((k) => k.property === 'scaleY')?.value).toBe(0.6);
+  });
+
+  it('writes a stretch back to 1 when the clip already has one, so un-stretching previews', () => {
+    const result = withBaseTransform([kf('scaleY', 0.5, 0)], {
+      scale: 1,
+      x: 0,
+      y: 0,
+      scaleY: 1,
+    });
+    expect(result.filter((k) => k.property === 'scaleY').map((k) => k.value)).toEqual([1]);
+    expect(pictureTransformAt(result, 0, CANVAS, RESOLUTION).scaleY).toBe(1);
+  });
+
+  it('leaves the clip stretch alone when the drag does not mention it', () => {
+    const result = withBaseTransform([kf('scaleX', 1.5, 0)], { scale: 2, x: 0, y: 0 });
+    expect(pictureTransformAt(result, 0, CANVAS, RESOLUTION).scaleX).toBe(3);
   });
 });
 

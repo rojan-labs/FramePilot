@@ -217,6 +217,7 @@ describe('analyze_media', () => {
 describe('discover_styles', () => {
   it.each([
     ['captions', 'discover_caption_styles'],
+    ['text_overlays', 'discover_text_overlay_styles'],
     ['effects', 'discover_effects'],
     ['transitions', 'discover_transitions'],
   ])('kind %j → %s', (kind, inner) => {

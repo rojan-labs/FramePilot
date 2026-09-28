@@ -284,6 +284,8 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   // Same reasoning for the transition catalog: static shipped data, so its
   // result stays cacheable across edits.
   discover_transitions: { role: 'guidance', scope: 'revision_independent' },
+  // And for the text overlay style catalog `add_text_layer` applies by id.
+  discover_text_overlay_styles: { role: 'guidance', scope: 'revision_independent' },
   apply_effect: { role: 'mutation', scope: 'timeline_dependent' },
   move_effect: { role: 'mutation', scope: 'timeline_dependent' },
   resize_effect: { role: 'mutation', scope: 'timeline_dependent' },

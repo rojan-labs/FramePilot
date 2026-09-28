@@ -2436,7 +2436,7 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
       },
     });
     expect(note).toContain(
-      'title "Alarm at 5. No regrets." (fontSizePercent 2.8, color #F5EFE6) [effect text__titles_6133__text]',
+      'text overlay "Alarm at 5. No regrets." (fontSizePercent 2.8, color #F5EFE6) [effect text__titles_6133__text]',
     );
   });
 

@@ -196,6 +196,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   set_clip_blend_mode: { label: 'Set blend mode', Icon: Layers },
   discover_effects: { label: 'Browse effects', Icon: Search },
   discover_transitions: { label: 'Browse transitions', Icon: Search },
+  discover_text_overlay_styles: { label: 'Browse text styles', Icon: Search },
   apply_effect: { label: 'Add effect', Icon: Sparkles },
   move_effect: { label: 'Move effect', Icon: ArrowLeftRight },
   resize_effect: { label: 'Retime effect', Icon: Gauge },

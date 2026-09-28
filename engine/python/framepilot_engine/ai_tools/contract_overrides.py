@@ -21,7 +21,10 @@ from framepilot_engine.ai_tools.registry import (
 )
 
 _STRICT = ConfigDict(extra="forbid", populate_by_name=True)
-_KEYFRAME_PROPERTIES = {"scale", "x", "y", "rotation", "opacity"}
+# Mirrors editor-core CLIP_TRANSFORM_PROPERTIES: the uniform transform plus the per-axis stretch.
+_KEYFRAME_PROPERTIES = {"scale", "x", "y", "rotation", "opacity", "scaleX", "scaleY"}
+# The properties that size a layer; a value <= 0 draws nothing (or mirrors it), so refuse it.
+_POSITIVE_KEYFRAME_PROPERTIES = {"scale", "scaleX", "scaleY"}
 _COLOR_RANGES: dict[str, tuple[float, float]] = {
     "exposure": (-5.0, 5.0),
     "contrast": (-1.0, 1.0),
@@ -278,8 +281,8 @@ class _KeyframeArg(BaseModel):
     def _renderer_contract(self) -> _KeyframeArg:
         if self.property not in _KEYFRAME_PROPERTIES:
             raise ValueError(f"unsupported keyframe property: {self.property}")
-        if self.property == "scale" and self.value <= 0:
-            raise ValueError("scale keyframes must be greater than zero")
+        if self.property in _POSITIVE_KEYFRAME_PROPERTIES and self.value <= 0:
+            raise ValueError(f"{self.property} keyframes must be greater than zero")
         if self.property == "opacity" and not 0.0 <= self.value <= 1.0:
             raise ValueError("opacity keyframes must be within 0..1")
         return self

@@ -337,6 +337,23 @@ function timelineForCanvas(timeline: Timeline, ratio: number): Timeline {
   };
 }
 
+/**
+ * A frosted chip's coverage (one byte per pixel, as the engine sends it) as white pixels whose
+ * ALPHA is the coverage: the form the compositor places through a layer's own steps, where
+ * opacity and wipe scale the alpha as they do the letters'. Built once per coverage array: the
+ * GPU keeps an upload by the image's identity (`GlResources.imageTarget`).
+ */
+const frostCoverageImages = new WeakMap<Uint8Array, ImageData>();
+function frostCoverageImage(coverage: Uint8Array, width: number, height: number): ImageData {
+  const cached = frostCoverageImages.get(coverage);
+  if (cached !== undefined && cached.width === width && cached.height === height) return cached;
+  const texels = new Uint8ClampedArray(width * height * 4).fill(255);
+  for (let i = 0; i < width * height; i++) texels[i * 4 + 3] = coverage[i] ?? 0;
+  const image = new ImageData(texels, width, height);
+  frostCoverageImages.set(coverage, image);
+  return image;
+}
+
 export class LayerPreviewEngine {
   private readonly client = new DecodeWorkerClient();
   /** PX5.7: every asynchronous stage a seek or decode-ahead waits on, for a hang report. */
@@ -1247,6 +1264,17 @@ export class LayerPreviewEngine {
           width: raster.width,
           height: raster.height,
         },
+        ...(raster.backdrop === null || !(raster.backdrop.sigmaPx > 0)
+          ? {}
+          : {
+              frost: {
+                key: `text-frost:${textRasterKey(request)}`,
+                coverage: frostCoverageImage(raster.backdrop.coverage, raster.width, raster.height),
+                width: raster.width,
+                height: raster.height,
+                sigmaPx: raster.backdrop.sigmaPx,
+              },
+            }),
       };
     }
     if (!this.textFontReady) return null;

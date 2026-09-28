@@ -201,6 +201,59 @@ describe('professional_motion domain tool', () => {
     });
   });
 
+  it('stretches one axis from its identity of 1, leaving the uniform scale alone', () => {
+    const base = project();
+    const edited = dispatch(base, context(base), {
+      intent: 'animate_to',
+      property: 'scaleX',
+      value: 1.5,
+      durationFrames: 15,
+    });
+    const keyframes = edited.tracks[0]!.clips[0]!.keyframes;
+    expect(
+      keyframes
+        .filter((keyframe) => keyframe.property === 'scaleX')
+        .map((keyframe) => [keyframe.time, keyframe.value]),
+    ).toEqual([
+      [2, 1],
+      [2.5, 1.5],
+    ]);
+    expect(keyframes.filter((keyframe) => keyframe.property === 'scale')).toHaveLength(2);
+  });
+
+  it('refuses a canvas-cover squash even while the uniform scale covers the frame', () => {
+    const base = project();
+    const interaction = context(base).interaction!;
+    // scale is 1.1 at the playhead: a 0.8 vertical squash leaves the layer 0.88 frames tall.
+    const squash = MotionObjectiveSchema.parse({
+      intent: 'animate_to',
+      property: 'scaleY',
+      value: 0.8,
+      durationFrames: 15,
+      constraintPolicy: 'cover_canvas',
+    });
+    expect(resolveMotionObjective({ project: base, interaction, objective: squash })).toMatchObject(
+      { status: 'rejected', code: 'canvas_coverage_violation' },
+    );
+    const widen = MotionObjectiveSchema.parse({ ...squash, value: 1.2 });
+    expect(resolveMotionObjective({ project: base, interaction, objective: widen })).toMatchObject({
+      status: 'resolved',
+      commands: [{ property: 'scaleY' }],
+    });
+  });
+
+  it('refuses a stretch the renderer cannot draw', () => {
+    const base = project();
+    expect(() =>
+      dispatch(base, context(base), {
+        intent: 'animate_to',
+        property: 'scaleX',
+        value: 0,
+        durationFrames: 15,
+      }),
+    ).toThrow(/greater than 0/);
+  });
+
   it('requires two historical points before continuing motion', () => {
     const base = project();
     base.timeline.tracks[0]!.clips[0]!.keyframes =

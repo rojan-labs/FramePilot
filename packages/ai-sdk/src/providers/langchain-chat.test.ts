@@ -529,7 +529,7 @@ describe('LangChainChatProvider.stream', () => {
       {
         content: '',
         tool_call_chunks: [
-          { index: 4, id: 'e', name: 'load_skill', args: '{"name":"titles-and-text"}' },
+          { index: 4, id: 'e', name: 'load_skill', args: '{"name":"text-overlays"}' },
         ],
       },
       { content: '', tool_call_chunks: [{ index: 5, id: 'f', name: 'load_skill', args: '{' }] },
@@ -541,7 +541,7 @@ describe('LangChainChatProvider.stream', () => {
         { id: 'b', name: 'list_assets', arguments: {} },
         { id: 'c', name: 'get_timeline_summary', arguments: {} },
         { id: 'd', name: 'load_skill', arguments: { name: 'hook-crafting' } },
-        { id: 'e', name: 'load_skill', arguments: { name: 'titles-and-text' } },
+        { id: 'e', name: 'load_skill', arguments: { name: 'text-overlays' } },
         { id: 'f', name: 'load_skill', arguments: { name: 'short-form-pacing' } },
       ],
     );

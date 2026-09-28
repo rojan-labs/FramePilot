@@ -79,7 +79,7 @@ export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string
   motion:
     'keyframes, punch-ins, camera moves, speed ramps, and reframing — a crop, or a pan across a wider source',
   effects:
-    'effects, transitions, blend modes and on-screen text — titles in any catalogue font, and restyling them; browse what is available; verify fit',
+    'effects, transitions, blend modes and on-screen text — text overlays in designed styles and bundled fonts, and restyling them; browse what is available; verify fit',
   // Plan/elements: the words a screen-recording or product-demo request uses.
   elements:
     'stickers and emoji, and shapes over the picture — highlight boxes, arrows, circles, markers, underlines, callouts, numbered badges, stars, icons; find, place, restyle and move them, and animate them in, out and on a loop',
@@ -228,6 +228,7 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'set_clip_blend_mode',
     'discover_effects',
     'discover_transitions',
+    'discover_text_overlay_styles',
     'verify_transitions',
   ],
   elements: [

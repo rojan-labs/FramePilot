@@ -115,7 +115,7 @@ A long layer can end "…(+N more clip(s)…)": `get_clips` lists those.
   `stroke: "red"` and `strokeWidth` (the staples draw 0.8; thicker is 1.2–1.6) and nothing else.
   Never delete and re-add.
 - **"Remove the stickers"**: `delete_clip` on each clip whose row reads `sticker "…"`, without
-  `ripple`; footage, shapes and titles stay.
+  `ripple`; footage, shapes and text overlays stay.
 - **Move or resize a sticker**: `delete_clip` it, `add_sticker` the same one (`search_elements` for
   its `elementId`) with the new numbers, and animate it again. Timing only: `move_clip`.
 
@@ -143,4 +143,4 @@ Wrong timing: `move_clip` or `trim_clip`. A refused edit names its remedy; follo
 
 ## Related skills
 
-`titles-and-text`, `motion-design`, `masking-and-compositing`.
+`text-overlays`, `motion-design`, `masking-and-compositing`.

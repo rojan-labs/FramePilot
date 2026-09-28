@@ -135,7 +135,12 @@ AUTONOMOUS_TOOL_INDEX_JSON = r'''{
       "stages": ["understand", "edit"],
       "status": "ready",
       "kind": "composite",
-      "internalRoutes": ["discover_caption_styles", "discover_effects", "discover_transitions"]
+      "internalRoutes": [
+        "discover_caption_styles",
+        "discover_text_overlay_styles",
+        "discover_effects",
+        "discover_transitions"
+      ]
     },
     {
       "name": "recall_evidence",

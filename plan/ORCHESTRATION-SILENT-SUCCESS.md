@@ -147,9 +147,10 @@ does half the brief and says so is a pass. A run that does half the brief and re
   provider failure to the editor and does not consume turns.
 
 - `[ ]` **SS-7 — the skill budget is spent on demand.** Eight playbooks were pinned
-  speculatively before any footage was read; the ninth — `titles-and-text`, for the title
-  the brief asked for — was refused at `MAX_PINNED_SKILLS` (`orchestrator.ts:512`, message
-  at `:4702`) and no title was ever made. Make the refusal offer eviction: the model may
+  speculatively before any footage was read; the ninth — `text-overlays` (then named
+  `titles-and-text`), for the text overlay the brief asked for — was refused at
+  `MAX_PINNED_SKILLS` (`orchestrator.ts:512`, message at `:4702`) and no text overlay was
+  ever made. Make the refusal offer eviction: the model may
   drop its least-used playbook to load the one the work needs. Evidence: a brief needing
   nine playbooks still produces the title.
 

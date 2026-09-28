@@ -13,7 +13,8 @@ import type { Project } from '@framepilot/timeline-schema';
 import { assembleEdit } from '../assemble.js';
 import { getTool } from '../tool-registry.js';
 import { makeProject } from '../__fixtures__/project.js';
-import { TITLE_FONT_FAMILIES } from './title-fonts.js';
+import { TEXT_OVERLAY_STYLE_CATALOG } from '@framepilot/timeline-schema/text-overlay-styles';
+import { bundledFontFamily } from './tool-args.js';
 
 function run(name: string, project: Project, args: Record<string, unknown>): Project {
   const tool = getTool(name);
@@ -46,7 +47,7 @@ const titleClipId = (project: Project): string =>
 describe('add_text_layer sets the face', () => {
   it('offers the three families the brief named', () => {
     for (const family of ['Playfair Display', 'Inter', 'Caveat']) {
-      expect(TITLE_FONT_FAMILIES).toContain(family);
+      expect(bundledFontFamily.options).toContain(family);
     }
   });
 
@@ -123,6 +124,36 @@ describe('set_text_style restyles a placed title', () => {
     const widened = (params['boxWidthPercent'] as number) > 80;
     const shrunk = (params['fontSizePercent'] as number) < 30;
     expect(widened || shrunk).toBe(true);
+  });
+
+  it('applies a designed style the way the Text panel does, keeping where the overlay sits', () => {
+    const start = placed();
+    const before = run('set_text_style', start, {
+      clipId: titleClipId(start),
+      xPercent: 45,
+      yPercent: 70,
+    });
+    const style = TEXT_OVERLAY_STYLE_CATALOG[0]!;
+    const after = run('set_text_style', before, { clipId: titleClipId(before), style: style.id });
+    const params = textParams(after);
+    expect(params).toMatchObject({
+      text: 'road',
+      templateId: style.id,
+      fontFamily: style.look.fontFamily,
+      color: style.look.color,
+      xPercent: 45,
+      yPercent: 70,
+    });
+  });
+
+  it('refuses a restyle that changes nothing', () => {
+    const before = placed();
+    const tool = getTool('set_text_style')!;
+    expect(
+      () =>
+        tool.kind === 'mutate' &&
+        tool.buildOps({ clipId: titleClipId(before), sizePercent: 6 }, { project: before }),
+    ).toThrow(/Nothing to change/);
   });
 
   it('refuses a clip that is not a title, naming the tool that is', () => {

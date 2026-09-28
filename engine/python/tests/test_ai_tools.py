@@ -29,6 +29,7 @@ from framepilot_engine.ai_tools import (
 from framepilot_engine.ai_tools.contract_overrides import MAX_CLIPS_PER_BATCH
 from framepilot_engine.ai_tools.handlers import _derive_id
 from framepilot_engine.ai_tools.registry import TOOL_REGISTRY, NoArgs, ToolSpec
+from framepilot_engine.ai_tools.text_overlay_styles import text_overlay_style_params
 from framepilot_engine.timeline.models import (
     Asset,
     AssetMedia,
@@ -99,6 +100,7 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     # catalog, so it is available but non-mutating.
     "discover_effects": (True, False),
     "discover_transitions": (True, False),
+    "discover_text_overlay_styles": (True, False),
     "apply_effect": (True, True),
     "move_effect": (True, True),
     "resize_effect": (True, True),
@@ -930,6 +932,81 @@ def test_add_text_layer_carries_style_into_the_effect_params(
     # The style must target the effect the first op creates on that clip, not a guess.
     assert style["effectId"] == f"{style['clipId']}__text"
     _assert_patch_ok(result, project)
+
+
+def _text_params(result: ToolResult) -> dict[str, Any]:
+    assert result.operations is not None
+    assert [op["type"] for op in result.operations] == ["add_text_overlay", "set_effect_params"]
+    params: dict[str, Any] = result.operations[1]["params"]
+    return params
+
+
+def test_add_text_layer_style_writes_the_whole_look(ctx: ToolContext, project: Project) -> None:
+    """A style is written as the web editor's Text panel writes it: every look field + its id."""
+    result = run_tool(
+        "add_text_layer",
+        {"trackId": "ov", "text": "Jane Doe", "start": 0.0, "end": 3.0, "style": "heading"},
+        ctx,
+    )
+    assert _text_params(result) == text_overlay_style_params("heading")
+    assert _text_params(result)["templateId"] == "heading"
+    _assert_patch_ok(result, project)
+
+
+def test_add_text_layer_explicit_args_override_the_style_field_by_field(
+    ctx: ToolContext, project: Project
+) -> None:
+    result = run_tool(
+        "add_text_layer",
+        {
+            "trackId": "ov",
+            "text": "Jane Doe",
+            "start": 0.0,
+            "end": 3.0,
+            "style": "heading",
+            "color": "#ff2d55",
+            "yPercent": 80,
+        },
+        ctx,
+    )
+    expected = {**text_overlay_style_params("heading"), "color": "#ff2d55", "yPercent": 80}
+    assert _text_params(result) == expected
+    _assert_patch_ok(result, project)
+
+
+def test_add_text_layer_holds_a_named_family_to_the_weights_it_ships(ctx: ToolContext) -> None:
+    """Bebas Neue ships one weight; the heading's 800 would be a weight nothing draws."""
+    result = run_tool(
+        "add_text_layer",
+        {
+            "trackId": "ov",
+            "text": "Hi",
+            "start": 0.0,
+            "end": 2.0,
+            "style": "heading",
+            "fontFamily": "Bebas Neue",
+        },
+        ctx,
+    )
+    params = _text_params(result)
+    assert params["fontFamily"] == "Bebas Neue"
+    assert params["fontWeight"] == 400
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [{"style": "not-a-style"}, {"fontFamily": "Comic Sans MS"}, {"fontWeight": 950}],
+    ids=["unknown style", "unbundled family", "weight out of range"],
+)
+def test_add_text_layer_refuses_what_the_catalogs_do_not_ship(
+    ctx: ToolContext, extra: dict[str, Any]
+) -> None:
+    with pytest.raises(ToolInputError):
+        run_tool(
+            "add_text_layer",
+            {"trackId": "ov", "text": "Hi", "start": 0.0, "end": 2.0, **extra},
+            ctx,
+        )
 
 
 def test_add_caption_layer(ctx: ToolContext, project: Project) -> None:

@@ -1467,7 +1467,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       description:
         'Create a new empty track (a "layer") to get a free lane for clips that ' +
         'would otherwise overlap. Clips on one track can never overlap, so this is ' +
-        'how you stack simultaneous elements — titles, captions, overlays, an audio ' +
+        'how you stack simultaneous elements — text overlays, captions, other overlays, an audio ' +
         'bed, or full-frame picture over existing footage — when no existing track ' +
         'has a free range. You rarely need it for picture: add_clip opens a front ' +
         "layer itself when the shot has to go over what is already there. `type` is the track's advisory role " +
@@ -1514,7 +1514,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       description:
         'Reorder a track to a new z-order slot. toIndex 0 is the visual front ' +
         '(nearer the viewer); clips are untouched. Use to put an overlay above the ' +
-        'footage it should cover, or push b-roll behind a title.',
+        'footage it should cover, or push b-roll behind a text overlay.',
       capabilities: ['edit', 'tracks'],
     },
     z.object({ trackId: z.string(), toIndex: numeric(z.number().int().nonnegative()) }).strict(),

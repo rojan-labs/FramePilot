@@ -1,9 +1,9 @@
 /** Professional motion objectives resolved into deterministic editor-core commands. */
 import { z } from 'zod/v4';
 import {
-  CLIP_KEYFRAME_PROPERTIES,
+  CLIP_TRANSFORM_PROPERTIES,
   evaluateKeyframes,
-  type ClipKeyframeProperty,
+  type ClipTransformKeyframeProperty,
   type Easing,
   type MotionCommand,
 } from '@framepilot/editor-core';
@@ -20,7 +20,7 @@ const KEYFRAME_TIME_EPSILON = 0.001;
 export const MotionObjectiveSchema = z
   .object({
     intent: z.enum(['animate_to', 'continue']),
-    property: z.enum(CLIP_KEYFRAME_PROPERTIES).optional(),
+    property: z.enum(CLIP_TRANSFORM_PROPERTIES).optional(),
     value: z.number().finite().optional(),
     durationFrames: z.number().int().positive().max(MAX_MOTION_DURATION_FRAMES),
     easing: z.enum(['linear', 'ease-in', 'ease-out', 'ease-in-out', 'hold', 'bezier']).optional(),
@@ -137,15 +137,15 @@ function resolveClip(
 function resolveProperty(
   input: ResolveMotionObjectiveInput,
   clip: Clip,
-): ClipKeyframeProperty | MotionControllerRejection {
+): ClipTransformKeyframeProperty | MotionControllerRejection {
   if (input.objective.property !== undefined) return input.objective.property;
   const selected = [
     ...new Set(
       (input.interaction.selection.keyframes ?? [])
         .filter((keyframe) => keyframe.clipId === clip.id)
         .map((keyframe) => keyframe.property)
-        .filter((property): property is ClipKeyframeProperty =>
-          CLIP_KEYFRAME_PROPERTIES.includes(property as ClipKeyframeProperty),
+        .filter((property): property is ClipTransformKeyframeProperty =>
+          CLIP_TRANSFORM_PROPERTIES.includes(property as ClipTransformKeyframeProperty),
         ),
     ),
   ];
@@ -166,8 +166,16 @@ function resolveProperty(
   return selected[0]!;
 }
 
-function defaultValue(property: ClipKeyframeProperty): number {
-  return property === 'scale' || property === 'opacity' ? 1 : 0;
+/** The multiplier properties rest at 1 (no zoom, no stretch, fully opaque); the offsets at 0. */
+const IDENTITY_ONE_PROPERTIES = new Set<ClipTransformKeyframeProperty>([
+  'scale',
+  'scaleX',
+  'scaleY',
+  'opacity',
+]);
+
+function defaultValue(property: ClipTransformKeyframeProperty): number {
+  return IDENTITY_ONE_PROPERTIES.has(property) ? 1 : 0;
 }
 
 function clipFrame(time: number, rate: ReturnType<typeof rationalFrameRate>): number {
@@ -182,7 +190,7 @@ function stableMotionValue(value: number): number {
 function selectedAnchorTime(
   input: ResolveMotionObjectiveInput,
   clip: Clip,
-  property: ClipKeyframeProperty,
+  property: ClipTransformKeyframeProperty,
 ): number | undefined {
   const selectedTimes = (input.interaction.selection.keyframes ?? [])
     .filter((keyframe) => keyframe.clipId === clip.id && keyframe.property === property)
@@ -194,7 +202,7 @@ function selectedAnchorTime(
 function continuationPoints(
   input: ResolveMotionObjectiveInput,
   clip: Clip,
-  property: ClipKeyframeProperty,
+  property: ClipTransformKeyframeProperty,
   rate: ReturnType<typeof rationalFrameRate>,
 ): readonly MotionCommand['points'][number][] | MotionControllerRejection {
   const points = clip.keyframes
@@ -238,7 +246,7 @@ function continuationPoints(
 function animatePoints(
   input: ResolveMotionObjectiveInput,
   clip: Clip,
-  property: ClipKeyframeProperty,
+  property: ClipTransformKeyframeProperty,
   rate: ReturnType<typeof rationalFrameRate>,
 ): readonly MotionCommand['points'][number][] | MotionControllerRejection {
   const relativeTime = input.interaction.playhead.seconds - clip.start;
@@ -299,16 +307,27 @@ function canvasCoverageIssue(
   for (let frame = start; frame <= end; frame += 1) {
     const time = (frame * command.rate.denominator) / command.rate.numerator;
     const scale = evaluateKeyframes(keyframes, 'scale', time) ?? 1;
+    const scaleX = evaluateKeyframes(keyframes, 'scaleX', time) ?? 1;
+    const scaleY = evaluateKeyframes(keyframes, 'scaleY', time) ?? 1;
     const x = evaluateKeyframes(keyframes, 'x', time) ?? 0;
     const y = evaluateKeyframes(keyframes, 'y', time) ?? 0;
     const rotation = evaluateKeyframes(keyframes, 'rotation', time) ?? 0;
     if (Math.abs(rotation) > 1e-6) {
       return `cover_canvas cannot prove coverage with rotation ${rotation}° at clip frame ${frame}.`;
     }
-    const xLimit = (input.project.resolution.width * (scale - 1)) / 2;
-    const yLimit = (input.project.resolution.height * (scale - 1)) / 2;
-    if (scale < 1 || Math.abs(x) > xLimit + 1e-6 || Math.abs(y) > yLimit + 1e-6) {
-      return `Transform exposes the canvas at clip frame ${frame} (scale=${scale}, x=${x}, y=${y}).`;
+    // The stretch sizes each axis on its own (width = fit × scale × scaleX), so a squash
+    // below 1 on either axis can expose the canvas even when the uniform scale covers it.
+    const widthFactor = scale * scaleX;
+    const heightFactor = scale * scaleY;
+    const xLimit = (input.project.resolution.width * (widthFactor - 1)) / 2;
+    const yLimit = (input.project.resolution.height * (heightFactor - 1)) / 2;
+    if (
+      widthFactor < 1 ||
+      heightFactor < 1 ||
+      Math.abs(x) > xLimit + 1e-6 ||
+      Math.abs(y) > yLimit + 1e-6
+    ) {
+      return `Transform exposes the canvas at clip frame ${frame} (scale=${scale}, scaleX=${scaleX}, scaleY=${scaleY}, x=${x}, y=${y}).`;
     }
   }
   return undefined;

@@ -35,22 +35,48 @@ import type { Keyframe } from '@framepilot/timeline-schema';
  * The clip properties that get a keyframe diamond.
  *
  * Exactly the set the render composites — `evaluate_clip_transform`'s
- * `TRANSFORM_PROPERTIES` (`scale`/`x`/`y`/`rotation`/`opacity`), all five of which the
- * preview also composites since Phase 3-1. **Nothing is listed here that the export
- * would ignore**: a diamond on a property the render drops would animate the preview
- * and not the finished video, which is the render-honesty rule inverted.
+ * `TRANSFORM_PROPERTIES` (`scale`/`x`/`y`/`rotation`/`opacity`, and the `scaleX`/`scaleY`
+ * stretch the bounding box's freeform resize writes on top of `scale`), all of which the
+ * preview also composites. **Nothing is listed here that the export would ignore**: a
+ * diamond on a property the render drops would animate the preview and not the finished
+ * video, which is the render-honesty rule inverted.
  *
  * Notably absent: clip **volume**. Audio gain is an effect param (`adjust_audio` →
  * `audio_gain`), not a keyframed clip property, so there is no curve for a diamond to
  * write. Animating it is a real feature, but it is an engine slice, not a UI one.
  */
-export const ANIMATABLE_PROPERTIES = ['scale', 'x', 'y', 'rotation', 'opacity'] as const;
+export const ANIMATABLE_PROPERTIES = [
+  'scale',
+  'scaleX',
+  'scaleY',
+  'x',
+  'y',
+  'rotation',
+  'opacity',
+] as const;
 
 export type AnimatableProperty = (typeof ANIMATABLE_PROPERTIES)[number];
+
+/** The stretch pair: animatable, but only part of a clip's pose once the clip is stretched. */
+const STRETCH_PROPERTIES: ReadonlySet<string> = new Set(['scaleX', 'scaleY']);
+
+/**
+ * The properties a pose records on a clip: the uniform transform and opacity always, the stretch
+ * only when the clip already carries it, so recording a pose on an unstretched clip never adds two
+ * identity lanes nobody asked for.
+ */
+export function poseProperties(keyframes: readonly Keyframe[]): readonly AnimatableProperty[] {
+  const carried = new Set(keyframes.map((keyframe) => keyframe.property));
+  return ANIMATABLE_PROPERTIES.filter(
+    (property) => !STRETCH_PROPERTIES.has(property) || carried.has(property),
+  );
+}
 
 /** The identity value each animatable property falls back to with no keyframes. */
 export const ANIMATABLE_DEFAULTS: Readonly<Record<AnimatableProperty, number>> = {
   scale: 1,
+  scaleX: 1,
+  scaleY: 1,
   x: 0,
   y: 0,
   rotation: 0,

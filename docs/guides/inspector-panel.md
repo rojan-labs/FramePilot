@@ -36,7 +36,7 @@ size** section, as for a photo.
 
 ## Animation
 
-A sticker, shape, title or picture on a graphics layer gets an **Animation** section on the Basic
+A sticker, shape, text overlay or picture on a graphics layer gets an **Animation** section on the Basic
 tab: **In** and **Out** (a preset and a length each) and **Loop** (a preset, its speed and its
 amount), each change one undo. "Animation…" on the clip's right-click menu opens it. A loop set
 before the clip was lengthened offers **Re-apply**. A title's In and Out live here, not on the Text

@@ -28,7 +28,7 @@ from framepilot_engine.render.captions import render_caption_image
 from framepilot_engine.render.composition_cache import CompositionCache
 from framepilot_engine.render.shape_catalog import shape_params_problem
 from framepilot_engine.render.shape_raster import rasterize_shape
-from framepilot_engine.render.text_overlay import rasterize_text_overlay
+from framepilot_engine.render.text_overlay import rasterize_text_overlay_layers
 from framepilot_engine.timeline.synthetic_assets import CAPTION_ASSET_ID
 
 #: Largest output frame edge the route rasterises for (the export's own 8K ceiling).
@@ -106,8 +106,16 @@ def text_overlay_raster(
     raw = params.get("text")
     text = "" if raw is None else str(raw)
     _check_text(text)
-    rgba = rasterize_text_overlay(text, params, frame_width, frame_height, rotates=rotates)
-    return PreviewTextRaster(rgba=rgba, x=None, y=None)
+    drawn = rasterize_text_overlay_layers(text, params, frame_width, frame_height, rotates=rotates)
+    # A frosted chip's coverage rides along, the size of the raster: the monitor places it with
+    # the letters' own transform and blurs the picture beneath through it, as the export does.
+    return PreviewTextRaster(
+        rgba=drawn.image,
+        x=None,
+        y=None,
+        backdrop=drawn.backdrop,
+        backdrop_sigma_px=drawn.backdrop_sigma_px,
+    )
 
 
 def shape_raster(

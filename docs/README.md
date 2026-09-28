@@ -95,6 +95,7 @@ the prose must be corrected.
 - [`guides/context-and-memory.md`](guides/context-and-memory.md)
 - [`guides/transcription.md`](guides/transcription.md)
 - [`guides/captions.md`](guides/captions.md)
+- [`guides/text-overlays.md`](guides/text-overlays.md)
 - [`guides/transitions.md`](guides/transitions.md)
 - [`guides/elements.md`](guides/elements.md)
 - [`guides/stock-sourcing.md`](guides/stock-sourcing.md)
@@ -129,6 +130,10 @@ follow its supersession notes. Important current boundaries include:
 - Model vision through export-compiler frame inspection.
 - Elements: shapes are drawn by the engine (0190), an element is an overlay (0191), loops are
   keyframes (0192), and Pexels media may be a manual picture-in-picture (0193).
+- Text overlays take the caption typography, drawn by the caption rasterizer (0194).
+- One bounding box moves, resizes, stretches and rotates every layer on the monitor (0195).
+- The router reads a request's finished length and what it continues, quote-grounded; no
+  pattern reads a request (0196).
 
 ADRs are historical records. Do not silently rewrite an accepted decision to describe a new
 architecture. Add or supersede an ADR when the decision changes.

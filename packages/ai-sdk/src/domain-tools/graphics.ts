@@ -26,6 +26,15 @@ import {
   searchTransitions,
 } from '@framepilot/timeline-schema/transition-catalog';
 import { transitionParamsForKind } from '@framepilot/timeline-schema/transition-params';
+import { getCaptionFont } from '@framepilot/timeline-schema/caption-fonts';
+import {
+  TEXT_OVERLAY_STYLE_CATALOG,
+  TEXT_OVERLAY_STYLE_CATEGORIES,
+  getTextOverlayStyle,
+  textOverlayLookParams,
+  type TextOverlayStyle,
+  type TextOverlayTypography,
+} from '@framepilot/timeline-schema/text-overlay-styles';
 import {
   createLaneAllocator,
   type Operation,
@@ -38,8 +47,8 @@ import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
 import { ToolRefusalError } from '../tool-refusal.js';
 import type { ToolContext } from '../tool-context.js';
-import { type TitleFont, largestFittingSizePercent, overflowingWords } from '../overlay-fit.js';
-import { titleFontFamily, titleFontWeight } from './title-fonts.js';
+import { largestFittingSizePercent, overflowingWords, type TitleFont } from '../overlay-fit.js';
+import { describeTextOverlayLook } from '../text-overlay-style-facts.js';
 import {
   TRANSITION_REASONS,
   type CutawayTransitionDecision,
@@ -48,7 +57,16 @@ import {
   planCutawayTransitions,
   planTransitions,
 } from './transition-planning.js';
-import { boolean, filterString, filterStringList, id, numeric, seconds } from './tool-args.js';
+import {
+  boolean,
+  bundledFontFamily,
+  cssFontWeight,
+  filterString,
+  filterStringList,
+  id,
+  numeric,
+  seconds,
+} from './tool-args.js';
 
 /**
  * The widest a text box may be widened to in order to keep the size the editor asked for.
@@ -58,6 +76,188 @@ import { boolean, filterString, filterStringList, id, numeric, seconds } from '.
  * visible margin, and text that still does not fit comes down in size instead.
  */
 const MAX_BOX_WIDTH_PERCENT = 92;
+
+/**
+ * Every text overlay style id, as `add_text_layer`'s `style` enum: a style the catalog does not
+ * hold is refused by the schema, before any op is built, instead of landing as an overlay whose
+ * look nobody chose.
+ */
+const TEXT_OVERLAY_STYLE_IDS = TEXT_OVERLAY_STYLE_CATALOG.map((style) => style.id) as [
+  string,
+  ...string[],
+];
+
+const TEXT_OVERLAY_STYLE_CATEGORY_IDS = TEXT_OVERLAY_STYLE_CATEGORIES.map(
+  (category) => category.id,
+) as [string, ...string[]];
+
+/**
+ * The text as the renderer sets it. A style that capitalises draws capitals, which are far
+ * wider than the lower case the model wrote, so the fit has to measure what is drawn.
+ */
+function textAsDrawn(text: string, typography: TextOverlayTypography | undefined): string {
+  if (typography?.textTransform === 'uppercase') return text.toUpperCase();
+  if (typography?.textTransform === 'lowercase') return text.toLowerCase();
+  return text;
+}
+
+/**
+ * The weight a bundled family can actually draw. A family named over a style carries the
+ * style's weight with it (a heavy 800 heading, re-set in a single-weight script face), and
+ * neither renderer synthesises a weight the file lacks — so the param says what is drawn.
+ */
+function weightTheFamilyHas(family: unknown, weight: unknown): number | undefined {
+  if (typeof weight !== 'number') return undefined;
+  const font = typeof family === 'string' ? getCaptionFont(family) : undefined;
+  if (font === undefined) return weight;
+  return Math.min(font.maxWeight, Math.max(font.minWeight, weight));
+}
+
+/**
+ * Keep a box that the fit widened inside the frame: a box of width `w` centred at `x` spans
+ * `x ± w/2`, and a lower third placed near the left edge would otherwise start off-frame.
+ */
+function centreKeepingBoxInFrame(xPercent: number, boxWidthPercent: number): number {
+  const half = boxWidthPercent / 2;
+  return Math.min(100 - half, Math.max(half, xPercent));
+}
+
+/**
+ * The params of a new text overlay with its words fitted to the frame (see the handler for
+ * why it fits rather than refuses). Returns `params` with `fontSizePercent`,
+ * `boxWidthPercent` and `xPercent` adjusted where the words would not fit; unchanged when the
+ * size or the box is unknown, since a renderer default is not a value anyone chose.
+ */
+function fitTextOverlayParams(
+  text: string,
+  params: Readonly<Record<string, unknown>>,
+  typography: TextOverlayTypography | undefined,
+  resolution: { readonly width: number; readonly height: number },
+): Record<string, unknown> {
+  const askedSize = params.fontSizePercent;
+  const askedBox = params.boxWidthPercent;
+  if (typeof askedSize !== 'number' || typeof askedBox !== 'number') return { ...params };
+  let sizePercent = askedSize;
+  let boxWidthPercent = askedBox;
+  const drawn = textAsDrawn(text, typography);
+  const font: TitleFont | undefined =
+    typeof params.fontFamily === 'string'
+      ? {
+          fontFamily: params.fontFamily,
+          ...(typeof params.fontWeight === 'number' ? { fontWeight: params.fontWeight } : {}),
+        }
+      : undefined;
+  const fitInput = { text: drawn, fontFamily: font?.fontFamily, fontWeight: font?.fontWeight };
+  const over = overflowingWords(
+    { ...fitInput, fontSizePercent: sizePercent, boxWidthPercent },
+    resolution,
+  )[0];
+  if (over === undefined) return { ...params };
+  if (over.requiredBoxWidthPercent <= MAX_BOX_WIDTH_PERCENT) {
+    boxWidthPercent = over.requiredBoxWidthPercent;
+  }
+  // Re-measure rather than trust the widen: `requiredBoxWidthPercent` answers for the widest
+  // word, and the box may also have been left where it was. Whatever still overflows comes
+  // down in size, against the box as it now stands.
+  if (
+    overflowingWords({ ...fitInput, fontSizePercent: sizePercent, boxWidthPercent }, resolution)
+      .length > 0
+  ) {
+    const fits = largestFittingSizePercent(drawn, boxWidthPercent, resolution, font);
+    if (fits === undefined || fits <= 0) {
+      // Not arithmetic this can solve — the text has no measurable width, or the frame has
+      // none. That is still worth saying out loud.
+      throw new ToolRefusalError(
+        `"${over.word}" cannot be fitted in this frame at any size. Shorten the ` +
+          'text, or split it across two overlays.',
+        { refusalCause: 'text_does_not_fit' },
+      );
+    }
+    sizePercent = fits;
+  }
+  return {
+    ...params,
+    fontSizePercent: sizePercent,
+    boxWidthPercent,
+    ...(typeof params.xPercent === 'number'
+      ? { xPercent: centreKeepingBoxInFrame(params.xPercent, boxWidthPercent) }
+      : {}),
+  };
+}
+
+/**
+ * The styling args `add_text_layer` takes besides `style`, in the `text` effect's own param
+ * names. Each overrides the one field of a style it names.
+ */
+function authoredTextParams(a: {
+  readonly sizePercent?: number | undefined;
+  readonly color?: string | undefined;
+  readonly background?: string | undefined;
+  readonly align?: 'left' | 'center' | 'right' | undefined;
+  readonly boxWidthPercent?: number | undefined;
+  readonly xPercent?: number | undefined;
+  readonly yPercent?: number | undefined;
+  readonly fontFamily?: string | undefined;
+  readonly fontWeight?: number | undefined;
+}): Record<string, unknown> {
+  const named: Record<string, unknown> = {
+    fontFamily: a.fontFamily,
+    fontWeight: a.fontWeight,
+    color: a.color,
+    fontSizePercent: a.sizePercent,
+    align: a.align,
+    boxWidthPercent: a.boxWidthPercent,
+    xPercent: a.xPercent,
+    yPercent: a.yPercent,
+    background: a.background,
+  };
+  return Object.fromEntries(Object.entries(named).filter(([, value]) => value !== undefined));
+}
+
+/**
+ * A style's look as a restyle applies it: everything but where the overlay sits and how wide
+ * it wraps. `applyTextOverlayStylePatch` (the Text panel) keeps those too — restyling should not
+ * move an overlay the author placed — so one style id is one look whichever host applied it.
+ */
+function restyleLookOf(style: TextOverlayStyle): Record<string, unknown> {
+  const {
+    xPercent: _x,
+    yPercent: _y,
+    boxWidthPercent: _box,
+    ...look
+  } = textOverlayLookParams(style.look, style.id);
+  return Object.fromEntries(Object.entries(look).filter(([, value]) => value !== undefined));
+}
+
+/** A stored `typography` param as the fit reads it; anything else is no typography. */
+function typographyOf(value: unknown): TextOverlayTypography | undefined {
+  return typeof value === 'object' && value !== null ? (value as TextOverlayTypography) : undefined;
+}
+
+/** A style's catalog entry as the model reads it: id, name, group, and what it looks like. */
+function styleListing(style: TextOverlayStyle): Record<string, unknown> {
+  return {
+    styleId: style.id,
+    label: style.label,
+    category: style.category,
+    look: describeTextOverlayLook(style.look),
+  };
+}
+
+/** The styles a query and an optional category select, matched on every field shown. */
+function matchTextOverlayStyles(
+  query: string | undefined,
+  category: string | undefined,
+): TextOverlayStyle[] {
+  return TEXT_OVERLAY_STYLE_CATALOG.filter(
+    (style) =>
+      (category === undefined || style.category === category) &&
+      (query === undefined ||
+        [style.id, style.label, style.category, describeTextOverlayLook(style.look)].some((value) =>
+          value.toLocaleLowerCase().includes(query),
+        )),
+  );
+}
 
 /**
  * The effect lane to apply to: the named one, else the first that exists.
@@ -111,66 +311,6 @@ function findOverlayWithSameText(
     }
   }
   return undefined;
-}
-
-/** The face a title's arguments name, in the shape the fit arithmetic measures. */
-function titleFontOf(args: {
-  readonly fontFamily?: string | undefined;
-  readonly fontWeight?: number | undefined;
-}): TitleFont | undefined {
-  if (args.fontFamily === undefined) return undefined;
-  return {
-    fontFamily: args.fontFamily,
-    ...(args.fontWeight === undefined ? {} : { fontWeight: args.fontWeight }),
-  };
-}
-
-/**
- * A title's size and box, fitted so every word fits its box — see `add_text_layer`'s note
- * on why a title too big is fitted rather than refused. Widening the box is preferred where
- * it is enough, because that KEEPS the size asked for; shrinking is the fallback for text no
- * box can hold. Measured in the title's own face: a heavy display face runs wider than the
- * default, and fitting it by the default's widths would let it spill out of the frame.
- *
- * Shared by `add_text_layer` and `set_text_style`, so a restyle cannot place what a fresh
- * title would have been fitted out of.
- */
-function fitTitle(
-  text: string,
-  requestedSize: number | undefined,
-  requestedBox: number | undefined,
-  font: TitleFont | undefined,
-  resolution: { readonly width: number; readonly height: number },
-): { readonly sizePercent: number | undefined; readonly boxWidthPercent: number | undefined } {
-  let sizePercent = requestedSize;
-  let boxWidthPercent = requestedBox;
-  if (sizePercent === undefined || boxWidthPercent === undefined) {
-    return { sizePercent, boxWidthPercent };
-  }
-  const measure = (size: number, box: number) =>
-    overflowingWords({ text, fontSizePercent: size, boxWidthPercent: box, ...font }, resolution);
-  const over = measure(sizePercent, boxWidthPercent)[0];
-  if (over === undefined) return { sizePercent, boxWidthPercent };
-  if (over.requiredBoxWidthPercent <= MAX_BOX_WIDTH_PERCENT) {
-    boxWidthPercent = over.requiredBoxWidthPercent;
-  }
-  // Re-measure rather than trust the widen: `requiredBoxWidthPercent` answers for the widest
-  // word, and the box may also have been left where it was. Whatever still overflows comes
-  // down in size, against the box as it now stands.
-  if (measure(sizePercent, boxWidthPercent).length > 0) {
-    const fits = largestFittingSizePercent(text, boxWidthPercent, resolution, font);
-    if (fits === undefined || fits <= 0) {
-      // Not arithmetic this can solve — the text has no measurable width, or the frame has
-      // none. That is still worth saying out loud.
-      throw new ToolRefusalError(
-        `"${over.word}" cannot be fitted in this frame at any size. Shorten the text, or ` +
-          'split it across two overlays.',
-        { refusalCause: 'text_does_not_fit' },
-      );
-    }
-    sizePercent = fits;
-  }
-  return { sizePercent, boxWidthPercent };
 }
 
 /**
@@ -492,6 +632,49 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
     noArgs,
     (_args, ctx) => verifyTransitions(ctx.project),
   ),
+  readTool(
+    {
+      name: 'discover_text_overlay_styles',
+      description:
+        'Browse the designed text overlay styles add_text_layer can apply by `style` — ' +
+        'headings, lower thirds, callouts, social, quotes, script and retro looks. Each ' +
+        'comes with one line saying what it puts on screen (typeface, colour, size, where ' +
+        'it sits, how it stands off the picture). Filter by category or search by name, ' +
+        'font or colour.',
+      capabilities: ['inspect'],
+    },
+    z
+      .object({
+        query: filterString(),
+        category: z.enum(TEXT_OVERLAY_STYLE_CATEGORY_IDS).optional(),
+      })
+      .strict(),
+    (a) => {
+      const query = a.query?.toLocaleLowerCase();
+      const strict = matchTextOverlayStyles(query, a.category);
+      // A name searched in the wrong category is still the style that was meant: drop the
+      // category rather than answer "none" (the caption catalog learned this the hard way).
+      const nearMisses =
+        strict.length === 0 && query !== undefined && a.category !== undefined
+          ? matchTextOverlayStyles(query, undefined)
+          : [];
+      const styles = strict.length > 0 ? strict : nearMisses;
+      return {
+        matched: strict.length,
+        total: TEXT_OVERLAY_STYLE_CATALOG.length,
+        ...(nearMisses.length > 0
+          ? {
+              note:
+                `No style matches "${a.query ?? ''}" in "${a.category ?? ''}"; the ` +
+                `${String(nearMisses.length)} below match it in their own category.`,
+            }
+          : {}),
+        ...(a.query === undefined ? {} : { query: a.query }),
+        categories: TEXT_OVERLAY_STYLE_CATEGORY_IDS,
+        styles: styles.map(styleListing),
+      };
+    },
+  ),
   mutateTool(
     {
       name: 'add_text_layer',
@@ -500,14 +683,16 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         'Simultaneous text elements are fine: clips on one track cannot overlap, so if ' +
         'the track you name is already busy over that range the overlay is placed on ' +
         'another free overlay track, or a new one, and the result reports where it ' +
-        'landed. Style it here: sizePercent is the glyph ' +
+        'landed. Style it here. `style` applies a designed text overlay style whole — ' +
+        'typeface, size, colour, outline/shadow/chip and placement (ids and what each ' +
+        'looks like: discover_text_overlay_styles); any other styling arg you also pass ' +
+        'overrides just that field of the style. sizePercent is the glyph ' +
         'height as a percentage of the frame (8 is a caption, 18+ is a headline that ' +
         'dominates the frame), xPercent/yPercent place the box centre (50/50 is the ' +
-        'middle, y 15 is a title card near the top), and color/background/align/' +
-        'boxWidthPercent do what they say. fontFamily sets the face — any family in the ' +
-        'bundled catalogue, e.g. "Inter", "Playfair Display", "Caveat", "Archivo Black" — ' +
-        'and fontWeight its weight (100–900). Everything renders exactly as the preview ' +
-        'shows it. To change a title later, set_text_style. For motion, follow this with ' +
+        'middle, y 15 is near the top), fontFamily (a bundled family) and fontWeight set ' +
+        'the typeface, and color/background/align/' +
+        'boxWidthPercent do what they say. Everything renders exactly as the preview ' +
+        'shows it. To restyle it later, set_text_style. For motion, follow this with ' +
         'punch_in on the clip it creates.',
     },
     z
@@ -524,8 +709,10 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         boxWidthPercent: numeric(z.number().positive().max(100)).optional(),
         xPercent: numeric(z.number().min(0).max(100)).optional(),
         yPercent: numeric(z.number().min(0).max(100)).optional(),
-        fontFamily: titleFontFamily.optional(),
-        fontWeight: titleFontWeight.optional(),
+        /** A text overlay style id; the other styling args override its fields one by one. */
+        style: z.enum(TEXT_OVERLAY_STYLE_IDS).optional(),
+        fontFamily: bundledFontFamily.optional(),
+        fontWeight: cssFontWeight.optional(),
       })
       .strict(),
     (a, ctx) => {
@@ -593,11 +780,22 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       // Widening the box is preferred where it is enough, because that KEEPS the size the
       // editor asked for; shrinking is the fallback for text no box can hold. The chosen
       // values ride the ops, so the applied patch states the size that was really used.
-      const { sizePercent, boxWidthPercent } = fitTitle(
+      //
+      // A style's own size and box are fitted the same way: a style is a starting look, not a
+      // promise that any text fits its box, and "SUBSCRIBERS" set in a 12%-high retro face is
+      // the same overflow whoever picked the size. The fit measures the face and the case the
+      // overlay is drawn in.
+      const style = a.style === undefined ? undefined : getTextOverlayStyle(a.style);
+      const requested: Record<string, unknown> = {
+        ...(style === undefined ? {} : textOverlayLookParams(style.look, style.id)),
+        ...authoredTextParams(a),
+      };
+      const weight = weightTheFamilyHas(requested.fontFamily, requested.fontWeight);
+      if (weight !== undefined) requested.fontWeight = weight;
+      const params = fitTextOverlayParams(
         a.text,
-        a.sizePercent,
-        a.boxWidthPercent,
-        titleFontOf(a),
+        requested,
+        style?.look.typography,
         ctx.project.resolution,
       );
       const placed = createLaneAllocator(ctx.project.timeline).allocate(a.trackId, a.start, a.end);
@@ -619,17 +817,6 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       // text overlay already reads its styling from (the Inspector writes it, the preview
       // reads it, and the renderer resolves it), and one shared vocabulary is worth more
       // than a shorter call. Undo still removes both in one step — they are one patch.
-      const params: Record<string, unknown> = {
-        ...(sizePercent === undefined ? {} : { fontSizePercent: sizePercent }),
-        ...(a.color === undefined ? {} : { color: a.color }),
-        ...(a.background === undefined ? {} : { background: a.background }),
-        ...(a.align === undefined ? {} : { align: a.align }),
-        ...(boxWidthPercent === undefined ? {} : { boxWidthPercent }),
-        ...(a.xPercent === undefined ? {} : { xPercent: a.xPercent }),
-        ...(a.yPercent === undefined ? {} : { yPercent: a.yPercent }),
-        ...(a.fontFamily === undefined ? {} : { fontFamily: a.fontFamily }),
-        ...(a.fontWeight === undefined ? {} : { fontWeight: a.fontWeight }),
-      };
       if (Object.keys(params).length > 0) {
         ops.push({
           type: 'set_effect_params',
@@ -649,16 +836,19 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       // and told the editor it could not enlarge its titles.
       name: 'set_text_style',
       description:
-        'Restyle a title or other text overlay already on the timeline — its words, size, ' +
-        'font, weight, colour, background, alignment, box width or position. Pass the ' +
-        'clipId add_text_layer created and only the values to change; the same units as ' +
-        'add_text_layer, and the title is re-fitted to its box the same way. Timing and ' +
-        'track stay as they are (move_clip / trim_clip change those).',
+        'Restyle a text overlay already on the timeline — its words, a designed `style` ' +
+        '(ids and looks: discover_text_overlay_styles; applied the way the Text panel ' +
+        'applies it, keeping the overlay where it sits), size, font, weight, colour, ' +
+        'background, alignment, box width or position. Pass the clipId add_text_layer ' +
+        "created and only what changes, in add_text_layer's units; a styling arg overrides " +
+        'that field of the style, and the words are re-fitted to the box the same way. ' +
+        'Timing and track stay as they are (move_clip / trim_clip change those).',
     },
     z
       .object({
         clipId: z.string().min(1),
         text: z.string().min(1).optional(),
+        style: z.enum(TEXT_OVERLAY_STYLE_IDS).optional(),
         sizePercent: numeric(z.number().positive().max(100)).optional(),
         color: z.string().optional(),
         background: z.string().optional(),
@@ -666,8 +856,8 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         boxWidthPercent: numeric(z.number().positive().max(100)).optional(),
         xPercent: numeric(z.number().min(0).max(100)).optional(),
         yPercent: numeric(z.number().min(0).max(100)).optional(),
-        fontFamily: titleFontFamily.optional(),
-        fontWeight: titleFontWeight.optional(),
+        fontFamily: bundledFontFamily.optional(),
+        fontWeight: cssFontWeight.optional(),
       })
       .strict(),
     (a, ctx) => {
@@ -677,54 +867,44 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       if (clip === undefined) {
         throw new Error(
           `Clip not found: ${a.clipId}. Use the clipId add_text_layer returned, or get_clips ` +
-            'on the title track to read it.',
+            'on the overlay track to read it.',
         );
       }
       const effect = clip.effects.find((candidate) => candidate.type === 'text');
       if (syntheticClipKind(clip.assetId) !== 'text' || effect === undefined) {
         throw new ToolRefusalError(
-          `${a.clipId} is not a text overlay — set_text_style restyles titles made with ` +
+          `${a.clipId} is not a text overlay — set_text_style restyles overlays made with ` +
             'add_text_layer. A shape is set_shape_style; captions are set_caption_style.',
         );
       }
-      const { clipId: _clipId, sizePercent: askedSize, ...rest } = a;
-      const existing = effect.params;
-      const current = {
-        text: typeof existing['text'] === 'string' ? existing['text'] : '',
-        size:
-          typeof existing['fontSizePercent'] === 'number' ? existing['fontSizePercent'] : undefined,
-        box:
-          typeof existing['boxWidthPercent'] === 'number' ? existing['boxWidthPercent'] : undefined,
-        fontFamily: typeof existing['fontFamily'] === 'string' ? existing['fontFamily'] : undefined,
-        fontWeight: typeof existing['fontWeight'] === 'number' ? existing['fontWeight'] : undefined,
-      };
-      // Fit the title as it WILL be — new words in the old box, a heavier face at the old
+      // Fit the overlay as it WILL be — new words in the old box, a heavier face at the old
       // size — not as it is, so a restyle cannot push a word out of the frame.
-      const fitted = fitTitle(
-        a.text ?? current.text,
-        askedSize ?? current.size,
-        a.boxWidthPercent ?? current.box,
-        titleFontOf({
-          fontFamily: a.fontFamily ?? current.fontFamily,
-          fontWeight: a.fontWeight ?? current.fontWeight,
-        }),
+      const style = a.style === undefined ? undefined : getTextOverlayStyle(a.style);
+      const merged: Record<string, unknown> = {
+        ...effect.params,
+        ...(style === undefined ? {} : restyleLookOf(style)),
+        ...authoredTextParams(a),
+        ...(a.text === undefined ? {} : { text: a.text }),
+      };
+      const weight = weightTheFamilyHas(merged.fontFamily, merged.fontWeight);
+      if (weight !== undefined) merged.fontWeight = weight;
+      const fitted = fitTextOverlayParams(
+        typeof merged.text === 'string' ? merged.text : '',
+        merged,
+        typographyOf(merged.typography),
         ctx.project.resolution,
       );
-      const params: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(rest)) {
-        if (value !== undefined && key !== 'boxWidthPercent') params[key] = value;
-      }
-      if (fitted.sizePercent !== undefined && fitted.sizePercent !== current.size) {
-        params['fontSizePercent'] = fitted.sizePercent;
-      }
-      if (fitted.boxWidthPercent !== undefined && fitted.boxWidthPercent !== current.box) {
-        params['boxWidthPercent'] = fitted.boxWidthPercent;
-      }
+      const params = Object.fromEntries(
+        Object.entries(fitted).filter(
+          ([key, value]) =>
+            value !== undefined && JSON.stringify(value) !== JSON.stringify(effect.params[key]),
+        ),
+      );
       if (Object.keys(params).length === 0) {
         throw new ToolRefusalError(
-          `Nothing to change on ${a.clipId}: name at least one of text, sizePercent, color, ` +
-            'background, align, boxWidthPercent, xPercent, yPercent, fontFamily or fontWeight ' +
-            'with a value different from what it already has.',
+          `Nothing to change on ${a.clipId}: name at least one of text, style, sizePercent, ` +
+            'color, background, align, boxWidthPercent, xPercent, yPercent, fontFamily or ' +
+            'fontWeight with a value different from what it already has.',
         );
       }
       return [{ type: 'set_effect_params', clipId: clip.id, effectId: effect.id, params }];
@@ -1007,7 +1187,7 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
               `clip ${owner.id}, not an effect layer — adjust_effect retunes layers placed ` +
               'with apply_effect. ' +
               (kind === 'text'
-                ? `Restyle the title with set_text_style (clipId "${owner.id}").`
+                ? `Restyle the text overlay with set_text_style (clipId "${owner.id}").`
                 : 'Change it with the tool that made it, or read it with get_clip.'),
           );
         }

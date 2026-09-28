@@ -253,6 +253,9 @@ uniform ivec2 u_blurSize;
 uniform sampler2D u_coverage;
 uniform ivec2 u_position;
 uniform ivec2 u_size;
+// Which channel of u_coverage carries the coverage: 0 (red) for a caption chip's mask as the
+// engine sends it, 3 (alpha) for a text overlay's coverage placed through its layer's own steps.
+uniform int u_channel;
 out vec4 o_color;
 uint div255(uint v) { uint t = v + 128u; return ((t >> 8u) + t) >> 8u; }
 void main() {
@@ -265,7 +268,7 @@ void main() {
     o_color = vec4(dst) / 255.0;
     return;
   }
-  uint m = uint(texelFetch(u_coverage, q, 0).r * 255.0 + 0.5);
+  uint m = uint(texelFetch(u_coverage, q, 0)[u_channel] * 255.0 + 0.5);
   if (m == 0u) {
     o_color = vec4(dst) / 255.0;
     return;

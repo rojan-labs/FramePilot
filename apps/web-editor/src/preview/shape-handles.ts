@@ -130,7 +130,7 @@ export function segmentDragChanges(
  * A pointer delta on screen, carried into the shape's own space in percent of each frame axis.
  *
  * The handle layer is drawn rotated by the clip's `rotation` (the export's counter-clockwise
- * degrees, so CSS `rotate(-θ)`) and scaled by its `scale`; this undoes both, in pixels, before
+ * degrees, so CSS `rotate(-θ)`) and scaled by its `scale` and stretch; this undoes both, in pixels, before
  * converting to percent, because the two axes have different pixel sizes.
  */
 export function toShapeDelta(
@@ -140,11 +140,14 @@ export function toShapeDelta(
   frameHeightPx: number,
   rotationDegrees: number,
   scale: number,
+  stretch: { readonly x: number; readonly y: number } = { x: 1, y: 1 },
 ): { readonly dx: number; readonly dy: number } {
   const theta = (rotationDegrees * Math.PI) / 180;
-  const s = scale === 0 ? 1 : scale;
-  const localX = (dxPx * Math.cos(theta) - dyPx * Math.sin(theta)) / s;
-  const localY = (dxPx * Math.sin(theta) + dyPx * Math.cos(theta)) / s;
+  // Per axis: the uniform scale times the clip's stretch (scaleX/scaleY), in its own axes.
+  const sx = scale * stretch.x === 0 ? 1 : scale * stretch.x;
+  const sy = scale * stretch.y === 0 ? 1 : scale * stretch.y;
+  const localX = (dxPx * Math.cos(theta) - dyPx * Math.sin(theta)) / sx;
+  const localY = (dxPx * Math.sin(theta) + dyPx * Math.cos(theta)) / sy;
   return { dx: (localX / frameWidthPx) * 100, dy: (localY / frameHeightPx) * 100 };
 }
 

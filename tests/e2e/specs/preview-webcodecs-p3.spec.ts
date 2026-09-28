@@ -263,12 +263,13 @@ test('P3b: preview selection mirrors the timeline and isolates objects on double
     }),
   );
 
-  // Timeline selection must be visible in the program monitor, using neutral
-  // white editor chrome rather than the application accent colour.
+  // Timeline selection must be visible in the program monitor, as the bounding box: a thin
+  // selection-blue rule (the maintainer's 2026-09-28 spec, `#0066ff`) with handles.
   await clip(page, 'text_1').click();
   const textSelection = page.getByRole('group', { name: 'edit text overlay' });
   await expect(textSelection).toBeVisible();
-  await expect(textSelection).toHaveCSS('outline-color', 'rgba(255, 255, 255, 0.98)');
+  await expect(textSelection).toHaveCSS('border-top-color', 'rgb(0, 102, 255)');
+  await expect(page.getByRole('slider', { name: 'Resize handle se' })).toBeVisible();
 
   // Return to no selection, then exercise the preview itself. One click resolves
   // to the background picture; a double-click at the same object isolates it.
