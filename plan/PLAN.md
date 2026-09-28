@@ -25,6 +25,32 @@ craft tools. No new subsystem; every fix reuses an existing seam.
 Stickers · Shapes, CapCut-style, with large sticker and shape libraries. Sub-plan
 [`plan/elements/`](./elements/README.md); in progress on `feat/elements` (PR #131); phases EL0–EL12 in the "Elements library"
 section near the end of this file.
+**Agent run audit (2026-09-28, maintainer: "it keeps on saying goal not met and redoing things
+… not able to load proper tools").** Evidence: desktop run `6cb12e30` (`run.md` + the conversation
+JSON + the project file + real-media renders). Scope gate: no new subsystem; two small tools
+(`set_text_style`, `reframe_pan`) complete existing half-built capabilities (fonts the renderers
+already draw; `planAutomaticReframe`, exported and unused). ADR 0194. Branch
+`fix/agent-run-audit-2026-09-28`.
+- [x] **AR1** Durable effect record is the value's JSON projection (measure_color crashed runs).
+- [x] **AR2** History keeps one assistant message per turn (narration crowded out the brief).
+- [x] **AR3** Router reads the deliverable length (quote-grounded) and continuations; regex
+  duration reader deleted; one reading feeds objective, criteria and Critic (ADR 0194).
+- [x] **AR4** Capability truth: keyword-triggered labels and the keyword "Not attempted" receipt
+  deleted; registry-derived domain list; domain summaries corrected; stale "cannot track" text.
+- [x] **AR5** Provenance: auto-applied memory reasons labelled as earlier runs' words; DECIDED says
+  who decided; warning readings stay run-local.
+- [x] **AR6** Titles: `fontFamily`/`fontWeight` on `add_text_layer`; `set_text_style`;
+  `adjust_effect` resolves clip effect ids.
+- [x] **AR7** `professional_audio` takes `clipIds` (agent runs have no selection).
+- [x] **AR8** Review: an authored fade/dip to black is not a defect; findings jump to the frame.
+- [x] **AR9** `get_frame` ~25 s → ~1 s (windowed compile, pixel-identical).
+- [x] **AR10** `get_frame { assetId }` shows a source as shot; `reframe_pan`; skills updated.
+- [x] **AR11** `add_transitions` takes a named `kind` per cut; `get_clip` digest shows titles;
+  silent turns' patch reasons name their operations.
+- [~] **AR12** Keyframed x/y scaled to the render size (downscaled grabs/reviews mis-placed pans).
+- [ ] **AR13** Follow-ups filed: #135 typography (tracking, italic, shadow), #136 remaining regex
+  acceptance readers, #137 subject-following reframe, #138 professional_motion/color targets,
+  #139 punch_in over a pan.
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

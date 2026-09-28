@@ -8,6 +8,31 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A long brief no longer traps the AI on a length nobody asked for.** The target length of the
+  finished video used to be pulled out of the request by pattern, and "use only the best 2–4s of
+  each shot" was read as "make a 3-second video". The AI then spent the rest of the run being told
+  its correct 60-second reel was wrong, stopped to explain itself again and again, and ended with
+  an error after doing the work. The length is now read by the AI that routes your message, only
+  from words that are really in your request, and every length check says which words it came
+  from.
+- **"Continue" messages keep your brief.** A follow-up such as "load the tools and complete the
+  task" used to replace the original request as what the AI was working toward, and its history
+  was filled with its own progress notes instead of your brief. Follow-ups now carry on with the
+  request they refer to.
+- **Colour matching no longer stops the run.** Measuring a shot's colour ended the whole run with
+  "The AI run stopped unexpectedly".
+- **The AI stops claiming it cannot do things it can.** It was told, wrongly, that it could not
+  track a subject or find sound effects, and that you had chosen the default font. It could
+  track subjects with the masking tools, sound effects were in the music search all along, and
+  nobody chose a font. The run summary no longer claims you asked for things you did not ("you asked
+  for stock" from "no stock transitions").
+- **Music fades out when you ask.** The AI can fade, level and EQ a clip it names itself; before,
+  it needed you to select the clip first and gave up in agent runs.
+- **A fade to black is not reported as a black-frame defect.** The self-review flagged the fade
+  you asked for, and the AI "fixed" it by ending the fade half-way.
+- **Looking at a frame takes about a second, not half a minute.** A frame check re-built the
+  whole timeline; it now builds only the clips on screen, pixel-identical to the export.
+
 - **The preview keeps playing through captions.** Every caption template animates, so the desktop
   monitor needed a new caption image from the engine for every frame, asked for them one at a
   time, and held the whole picture while one was out: playback froze at nearly every caption. The
@@ -46,6 +71,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Saved projects, credits and the agent's photo and video tools are unchanged.
 
 ### Added
+
+- **Designer fonts on titles.** The AI can set any of the bundled fonts and weights on a title,
+  and restyle a title it already placed — words, size, font, colour and position — instead of
+  deleting and re-adding it.
+- **The AI looks at your clips before cutting them.** It can see any clip as it was shot, whole
+  and uncropped, whether or not it is on the timeline — so it picks shots and aims vertical crops
+  from what is actually in the frame.
+- **Moving vertical reframes.** The AI can pan the 9:16 window across a wide shot, eased, instead
+  of a fixed centre crop.
+- **Named transitions in one pass.** When you name the transition for a cut (a whip pan, a light
+  leak), the AI places that one; the rest are still chosen for you.
 
 - **Shapes, in Elements.** A new **Shapes** sub-tab adds the six callouts a screen recording or
   a product demo needs: a highlight box, a filled box, an ellipse, a translucent marker, an arrow
