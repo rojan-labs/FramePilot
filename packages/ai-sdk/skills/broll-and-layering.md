@@ -112,4 +112,4 @@ is missing, which is more useful than a generic substitute. If a seam remains di
 
 ## Related skills
 
-`footage-intelligence`, `titles-and-text`, `stickers-and-callouts`, `cut-and-transition-grammar`, `cinematic-storytelling`.
+`footage-intelligence`, `text-overlays`, `stickers-and-callouts`, `cut-and-transition-grammar`, `cinematic-storytelling`.

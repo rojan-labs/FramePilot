@@ -143,4 +143,4 @@ Wrong timing: `move_clip` or `trim_clip`. A refused edit names its remedy; follo
 
 ## Related skills
 
-`titles-and-text`, `motion-design`, `masking-and-compositing`.
+`text-overlays`, `motion-design`, `masking-and-compositing`.

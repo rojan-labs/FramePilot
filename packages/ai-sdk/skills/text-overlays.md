@@ -1,10 +1,10 @@
 ---
-name: titles-and-text
+name: text-overlays
 description: Design text overlays — headings, lower thirds, labels, callouts, quotes and emphasis text — in the designed text overlay styles and bundled fonts, with readable timing, semantic purpose, safe placement, and consistent motion.
 tools: [get_timeline, get_mapped_transcript, discover_text_overlay_styles, add_text_layer, add_keyframes, trim_clip]
 ---
 
-# Titles and text
+# Text overlays
 
 ## Purpose
 
@@ -12,7 +12,7 @@ Add a second information voice that structures or enriches the edit without dupl
 
 ## When to use
 
-Titles, lower thirds, section cards, statistics, step labels, and hook overlays.
+Headings, lower thirds, section cards, statistics, step labels, and hook overlays — a title card is one kind of text overlay.
 
 ## When not to use
 
@@ -24,11 +24,11 @@ Message hierarchy, audience, frame/safe area, mapped timing, and existing captio
 
 ## Expected outputs
 
-Short readable text clips, consistent placement, and restrained entrance/exit motion.
+Short readable text overlays, consistent placement, and restrained entrance/exit motion.
 
 ## Core philosophy
 
-One card, one idea. Text must add meaning the audio or picture does not already provide.
+One text overlay, one idea. Text must add meaning the audio or picture does not already provide.
 
 ## Professional heuristics
 

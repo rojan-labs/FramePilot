@@ -82,4 +82,4 @@ If verification fails, re-run `caption_the_edit` — it re-derives every cue fro
 
 ## Related skills
 
-`titles-and-text`, `short-form-pacing`, `vertical-reframe`, `finishing-and-delivery`.
+`text-overlays`, `short-form-pacing`, `vertical-reframe`, `finishing-and-delivery`.

@@ -284,7 +284,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -312,7 +312,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 4,
+            "tokenEstimate": 5,
             "type": "system",
           },
           {
@@ -716,7 +716,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -744,7 +744,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 24,
+            "tokenEstimate": 25,
             "type": "system",
           },
           {
@@ -1012,7 +1012,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -1047,7 +1047,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s12",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 27,
+            "tokenEstimate": 28,
             "type": "system",
           },
           {
@@ -1471,7 +1471,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -1499,7 +1499,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 66,
+            "tokenEstimate": 67,
             "type": "system",
           },
           {
@@ -1772,7 +1772,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -1800,7 +1800,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 137,
+            "tokenEstimate": 138,
             "type": "system",
           },
           {
@@ -2073,7 +2073,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -2108,7 +2108,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s12",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 208,
+            "tokenEstimate": 209,
             "type": "system",
           },
           {
@@ -2672,7 +2672,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -2707,7 +2707,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s12",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 279,
+            "tokenEstimate": 280,
             "type": "system",
           },
           {
@@ -3434,7 +3434,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -3462,7 +3462,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 4,
+            "tokenEstimate": 5,
             "type": "system",
           },
           {
@@ -3824,7 +3824,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -3852,7 +3852,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 4,
+            "tokenEstimate": 5,
             "type": "system",
           },
           {
@@ -4370,7 +4370,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -4398,7 +4398,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 4,
+            "tokenEstimate": 5,
             "type": "system",
           },
           {
@@ -4514,7 +4514,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -4542,7 +4542,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 16,
+            "tokenEstimate": 17,
             "type": "system",
           },
           {
@@ -4791,7 +4791,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -4819,7 +4819,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 4,
+            "tokenEstimate": 5,
             "type": "system",
           },
           {
@@ -5268,7 +5268,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -5296,7 +5296,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 4,
+            "tokenEstimate": 5,
             "type": "system",
           },
           {
@@ -5563,7 +5563,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -5591,7 +5591,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 49,
+            "tokenEstimate": 50,
             "type": "system",
           },
           {
@@ -6077,7 +6077,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -6105,7 +6105,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 4,
+            "tokenEstimate": 5,
             "type": "system",
           },
           {
@@ -6509,7 +6509,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -6537,7 +6537,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 24,
+            "tokenEstimate": 25,
             "type": "system",
           },
           {
@@ -7058,7 +7058,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -7086,7 +7086,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 4,
+            "tokenEstimate": 5,
             "type": "system",
           },
           {
@@ -7507,7 +7507,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -7535,7 +7535,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 24,
+            "tokenEstimate": 25,
             "type": "system",
           },
           {
@@ -8056,7 +8056,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -8084,7 +8084,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 4,
+            "tokenEstimate": 5,
             "type": "system",
           },
           {
@@ -8761,7 +8761,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -8789,7 +8789,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 4,
+            "tokenEstimate": 5,
             "type": "system",
           },
           {
@@ -9442,7 +9442,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -9477,7 +9477,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s12",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 4,
+            "tokenEstimate": 5,
             "type": "system",
           },
           {
@@ -9940,7 +9940,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -9975,7 +9975,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s12",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 22,
+            "tokenEstimate": 23,
             "type": "system",
           },
           {
@@ -10261,7 +10261,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -10303,7 +10303,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s13",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 26,
+            "tokenEstimate": 27,
             "type": "system",
           },
           {
@@ -11192,7 +11192,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -11220,7 +11220,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 7,
+            "tokenEstimate": 8,
             "type": "system",
           },
           {
@@ -11999,7 +11999,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -12027,7 +12027,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 11,
+            "tokenEstimate": 12,
             "type": "system",
           },
           {
@@ -12375,7 +12375,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -12403,7 +12403,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 4,
+            "tokenEstimate": 5,
             "type": "system",
           },
           {
@@ -12685,7 +12685,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -12713,7 +12713,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 23,
+            "tokenEstimate": 24,
             "type": "system",
           },
           {
@@ -13118,7 +13118,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -13146,7 +13146,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 43,
+            "tokenEstimate": 44,
             "type": "system",
           },
           {
@@ -13667,7 +13667,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -13695,7 +13695,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 4,
+            "tokenEstimate": 5,
             "type": "system",
           },
           {
@@ -14000,7 +14000,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -14028,7 +14028,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 47,
+            "tokenEstimate": 48,
             "type": "system",
           },
           {
@@ -14342,7 +14342,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -14377,7 +14377,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s12",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 155,
+            "tokenEstimate": 156,
             "type": "system",
           },
           {
@@ -14900,7 +14900,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -14928,7 +14928,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 4,
+            "tokenEstimate": 5,
             "type": "system",
           },
           {
@@ -15176,7 +15176,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "skills manifest",
-            "tokenEstimate": 1994,
+            "tokenEstimate": 1993,
             "type": "skill",
           },
           {
@@ -15204,7 +15204,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 4,
+            "tokenEstimate": 5,
             "type": "system",
           },
           {

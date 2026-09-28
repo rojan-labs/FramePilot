@@ -58,4 +58,4 @@ Remove the lowest-priority motion first, then reduce travel and duration. If hie
 
 ## Related skills
 
-`keyframe-animation`, `titles-and-text`, `cut-and-transition-grammar`, `broll-and-layering`.
+`keyframe-animation`, `text-overlays`, `cut-and-transition-grammar`, `broll-and-layering`.

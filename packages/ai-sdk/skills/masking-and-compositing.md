@@ -139,4 +139,4 @@ follow it rather than retrying.
 
 ## Related skills
 
-`color-grading`, `titles-and-text`, `broll-and-layering`.
+`color-grading`, `text-overlays`, `broll-and-layering`.
