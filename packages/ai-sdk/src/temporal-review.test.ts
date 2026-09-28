@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   TemporalEvidenceRequestSchema,
+  authoredBlackFrames,
   planTemporalEvidence,
   planTemporalEvidenceForEdit,
   reviewTemporalEvidence,
   type TemporalEvidenceRequest,
   type TemporalEvidenceResult,
 } from './temporal-review.js';
+import { applyProjectPatch } from '@framepilot/editor-core';
 import { makeProject } from './__fixtures__/project.js';
 import type { EditResult } from './assemble.js';
 
@@ -566,6 +568,8 @@ describe('reviewTemporalEvidence', () => {
     );
     // A real flash at a real cut keeps its own numbers — that is a defect an edit can fix.
     expect(report.checks[0]?.issues.join(' ')).toMatch(/Unexpected black frame\(s\): 0/);
+    // And the finding sits on that frame, not on its window's start.
+    expect(report.checks[0]?.atFrame).toBe(0);
   });
 
   it('checks comparison continuity and legal scopes', () => {
@@ -869,6 +873,137 @@ describe('representative frames assert what they measure', () => {
     expect(report.checks[1]).toMatchObject({ status: 'fail' });
     expect(report.checks[1]?.issues.join(' ')).toBe('Program midpoint is black (frame 541).');
     expect(report.checks[2]?.issues.join(' ')).toBe('Program ending is black (frame 1083).');
+  });
+
+  describe('a black frame the edit itself authored is not a defect', () => {
+    // Run 6cb12e30: briefed "fade to black with the music", the model faded beach-sunset's
+    // opacity 1 → 0 over the last 1.5 s; the review said "Program ending is black" and
+    // "Fix only these", and the model ended the fade at 0.35 instead — undoing the brief.
+    const fadingOut = (keyframes: unknown[], extra: Record<string, unknown> = {}) =>
+      makeProject({
+        fps: 30,
+        timeline: {
+          revision: 7,
+          tracks: [
+            {
+              id: 'v1',
+              type: 'video',
+              clips: [
+                {
+                  id: 'sunset',
+                  assetId: 'asset_1',
+                  trackId: 'v1',
+                  start: 0,
+                  end: 10,
+                  sourceStart: 0,
+                  sourceEnd: 10,
+                  effects: [],
+                  keyframes,
+                  ...extra,
+                },
+              ],
+            },
+          ],
+        },
+      } as never);
+    const opacity = (time: number, value: number) => ({
+      id: `kf_${String(time)}`,
+      time,
+      property: 'opacity',
+      value,
+      easing: 'linear',
+    });
+
+    it('excuses an ending the picture fades out to', () => {
+      const authored = authoredBlackFrames(fadingOut([opacity(8.5, 1), opacity(9.9, 0)]));
+      expect(authored(299)).toBe(true);
+      const report = reviewTemporalEvidence(
+        [requestAt(299, 'Program ending')],
+        [frameAt(299, 1)],
+        authored,
+      );
+      expect(report.ok).toBe(true);
+    });
+
+    it('still reports black where the picture is authored visible', () => {
+      const authored = authoredBlackFrames(fadingOut([opacity(8.5, 1), opacity(9.9, 0)]));
+      // Mid-programme the clip is at full opacity: black there is a rendering defect.
+      expect(authored(150)).toBe(false);
+      const report = reviewTemporalEvidence(
+        [requestAt(150, 'Program midpoint')],
+        [frameAt(150, 1)],
+        authored,
+      );
+      expect(report.checks[0]?.issues.join(' ')).toBe('Program midpoint is black (frame 150).');
+    });
+
+    it('never excuses a frame with no picture at all — that is a gap', () => {
+      const authored = authoredBlackFrames(fadingOut([]));
+      // 12 s is past the only clip's end: nothing is on the timeline there.
+      expect(authored(360)).toBe(false);
+    });
+
+    it('excuses the black point of a Fade to Black transition', () => {
+      const cut = makeProject({
+        fps: 30,
+        timeline: {
+          revision: 7,
+          tracks: [
+            {
+              id: 'v1',
+              type: 'video',
+              clips: [
+                {
+                  id: 'a',
+                  assetId: 'asset_1',
+                  trackId: 'v1',
+                  start: 0,
+                  end: 5,
+                  sourceStart: 0,
+                  sourceEnd: 5,
+                  effects: [],
+                  keyframes: [],
+                },
+                {
+                  id: 'b',
+                  assetId: 'asset_1',
+                  trackId: 'v1',
+                  start: 5,
+                  end: 10,
+                  sourceStart: 1,
+                  sourceEnd: 6,
+                  effects: [],
+                  keyframes: [],
+                },
+              ],
+            },
+          ],
+        },
+      } as never);
+      // Built by the real operation, so the fixture is the shape the timeline really holds.
+      const project = applyProjectPatch(cut, {
+        patchId: 'p' as never,
+        createdBy: 'agent',
+        reason: 'dip',
+        operations: [
+          {
+            type: 'add_transition',
+            trackId: 'v1',
+            fromClipId: 'a',
+            toClipId: 'b',
+            kind: 'fade-to-black',
+            durationSeconds: 0.8,
+          },
+        ],
+      } as never);
+      const authored = authoredBlackFrames(project);
+      // The dip runs 5.0–5.8s on the incoming shot (start-aligned), through black.
+      expect(authored(150)).toBe(true);
+      expect(authored(160)).toBe(true);
+      // Outside it both shots are plain picture.
+      expect(authored(60)).toBe(false);
+      expect(authored(200)).toBe(false);
+    });
   });
 
   it('a frame request without checks still only measures', () => {

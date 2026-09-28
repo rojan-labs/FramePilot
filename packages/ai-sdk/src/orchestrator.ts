@@ -187,6 +187,7 @@ import { type ModelTier } from './kernel/proposers/types.js';
 import { type RunRecording, createRecordingEffectRuntime } from './kernel/replay/replay.js';
 import type { TemporalEvidenceAcquirer } from './temporal-evidence-client.js';
 import {
+  authoredBlackFrames,
   planTemporalEvidenceForEdit,
   reviewTemporalEvidence,
   type TemporalEvidenceRequest,
@@ -3595,13 +3596,15 @@ export function requestFrame(request: TemporalEvidenceRequest): number | undefin
  */
 export function failingReviewSecond(
   requests: readonly TemporalEvidenceRequest[],
-  failing: readonly { readonly requestId: string }[],
+  failing: readonly { readonly requestId: string; readonly atFrame?: number }[],
   fps: number,
 ): number | undefined {
   if (!(Number.isFinite(fps) && fps > 0)) return undefined;
   const frameById = new Map(requests.map((request) => [request.requestId, requestFrame(request)]));
+  // The evidence's own offending frame first; the request's window start only when the
+  // evidence named none.
   const frames = failing
-    .map((check) => frameById.get(check.requestId))
+    .map((check) => check.atFrame ?? frameById.get(check.requestId))
     .filter((frame): frame is number => frame !== undefined);
   return frames.length === 0 ? undefined : Math.min(...frames) / fps;
 }
@@ -8533,7 +8536,11 @@ export class Orchestrator {
     });
     if (requests.length === 0) return null;
     const acquisition = await acquire(workingProject, requests, signal);
-    const report = reviewTemporalEvidence(requests, acquisition.results);
+    const report = reviewTemporalEvidence(
+      requests,
+      acquisition.results,
+      authoredBlackFrames(workingProject),
+    );
     const passed = critique(workingProject, { temporal: report }).checks.some(
       (check) => check.id === 'temporal_evidence' && check.status === 'pass',
     );
