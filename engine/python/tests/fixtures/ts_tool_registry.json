@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 116,
+  "toolCount": 117,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -717,6 +717,112 @@
               "number"
             ],
             "minimum": 0
+          },
+          "fontFamily": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "Abril Fatface",
+              "Alfa Slab One",
+              "Amatic SC",
+              "Anton",
+              "Archivo Black",
+              "Bangers",
+              "Barlow",
+              "Barlow Condensed",
+              "Bebas Neue",
+              "Big Shoulders",
+              "Bodoni Moda",
+              "Bricolage Grotesque",
+              "Bungee",
+              "Caveat",
+              "Caveat Brush",
+              "Chewy",
+              "Cinzel",
+              "Courier Prime",
+              "DM Sans",
+              "DM Serif Display",
+              "Dancing Script",
+              "Exo 2",
+              "Figtree",
+              "Fraunces",
+              "Fredoka",
+              "Geist",
+              "Gloock",
+              "Gloria Hallelujah",
+              "Great Vibes",
+              "Homemade Apple",
+              "IBM Plex Mono",
+              "Instrument Serif",
+              "Inter",
+              "JetBrains Mono",
+              "Josefin Sans",
+              "Kanit",
+              "Kaushan Script",
+              "Knewave",
+              "Lato",
+              "League Gothic",
+              "League Spartan",
+              "Lexend",
+              "Libre Baskerville",
+              "Lilita One",
+              "Lobster",
+              "Lora",
+              "Luckiest Guy",
+              "Manrope",
+              "Merriweather",
+              "Montserrat",
+              "Mr Dafoe",
+              "Nunito",
+              "Open Sans",
+              "Orbitron",
+              "Oswald",
+              "Outfit",
+              "Pacifico",
+              "Passion One",
+              "Patrick Hand",
+              "Paytone One",
+              "Permanent Marker",
+              "Playfair Display",
+              "Plus Jakarta Sans",
+              "Poppins",
+              "Prata",
+              "Press Start 2P",
+              "Quicksand",
+              "Raleway",
+              "Righteous",
+              "Roboto",
+              "Roboto Slab",
+              "Rock Salt",
+              "Rubik",
+              "Rubik Mono One",
+              "Russo One",
+              "Sacramento",
+              "Satisfy",
+              "Shadows Into Light",
+              "Shrikhand",
+              "Silkscreen",
+              "Sora",
+              "Space Grotesk",
+              "Space Mono",
+              "Staatliches",
+              "Syne",
+              "Teko",
+              "Titan One",
+              "Unbounded",
+              "Urbanist",
+              "VT323",
+              "Yellowtail",
+              "Young Serif"
+            ]
+          },
+          "fontWeight": {
+            "type": [
+              "integer"
+            ],
+            "minimum": 100,
+            "maximum": 900
           },
           "sizePercent": {
             "type": [
@@ -5839,6 +5945,187 @@
             ],
             "minimum": 0.05,
             "maximum": 10
+          }
+        }
+      }
+    },
+    "set_text_style": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId"
+        ],
+        "properties": {
+          "align": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "center",
+              "left",
+              "right"
+            ]
+          },
+          "background": {
+            "type": [
+              "string"
+            ]
+          },
+          "boxWidthPercent": {
+            "type": [
+              "number"
+            ],
+            "maximum": 100,
+            "exclusiveMinimum": 0
+          },
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "color": {
+            "type": [
+              "string"
+            ]
+          },
+          "fontFamily": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "Abril Fatface",
+              "Alfa Slab One",
+              "Amatic SC",
+              "Anton",
+              "Archivo Black",
+              "Bangers",
+              "Barlow",
+              "Barlow Condensed",
+              "Bebas Neue",
+              "Big Shoulders",
+              "Bodoni Moda",
+              "Bricolage Grotesque",
+              "Bungee",
+              "Caveat",
+              "Caveat Brush",
+              "Chewy",
+              "Cinzel",
+              "Courier Prime",
+              "DM Sans",
+              "DM Serif Display",
+              "Dancing Script",
+              "Exo 2",
+              "Figtree",
+              "Fraunces",
+              "Fredoka",
+              "Geist",
+              "Gloock",
+              "Gloria Hallelujah",
+              "Great Vibes",
+              "Homemade Apple",
+              "IBM Plex Mono",
+              "Instrument Serif",
+              "Inter",
+              "JetBrains Mono",
+              "Josefin Sans",
+              "Kanit",
+              "Kaushan Script",
+              "Knewave",
+              "Lato",
+              "League Gothic",
+              "League Spartan",
+              "Lexend",
+              "Libre Baskerville",
+              "Lilita One",
+              "Lobster",
+              "Lora",
+              "Luckiest Guy",
+              "Manrope",
+              "Merriweather",
+              "Montserrat",
+              "Mr Dafoe",
+              "Nunito",
+              "Open Sans",
+              "Orbitron",
+              "Oswald",
+              "Outfit",
+              "Pacifico",
+              "Passion One",
+              "Patrick Hand",
+              "Paytone One",
+              "Permanent Marker",
+              "Playfair Display",
+              "Plus Jakarta Sans",
+              "Poppins",
+              "Prata",
+              "Press Start 2P",
+              "Quicksand",
+              "Raleway",
+              "Righteous",
+              "Roboto",
+              "Roboto Slab",
+              "Rock Salt",
+              "Rubik",
+              "Rubik Mono One",
+              "Russo One",
+              "Sacramento",
+              "Satisfy",
+              "Shadows Into Light",
+              "Shrikhand",
+              "Silkscreen",
+              "Sora",
+              "Space Grotesk",
+              "Space Mono",
+              "Staatliches",
+              "Syne",
+              "Teko",
+              "Titan One",
+              "Unbounded",
+              "Urbanist",
+              "VT323",
+              "Yellowtail",
+              "Young Serif"
+            ]
+          },
+          "fontWeight": {
+            "type": [
+              "integer"
+            ],
+            "minimum": 100,
+            "maximum": 900
+          },
+          "sizePercent": {
+            "type": [
+              "number"
+            ],
+            "maximum": 100,
+            "exclusiveMinimum": 0
+          },
+          "text": {
+            "type": [
+              "string"
+            ]
+          },
+          "xPercent": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "yPercent": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 100
           }
         }
       }

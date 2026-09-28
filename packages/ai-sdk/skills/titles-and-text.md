@@ -1,7 +1,7 @@
 ---
 name: titles-and-text
-description: Design concise title cards, lower thirds, labels, and emphasis text with readable timing, semantic purpose, safe placement, and consistent motion.
-tools: [get_timeline, get_mapped_transcript, add_text_layer, add_keyframes, trim_clip]
+description: Design title cards, lower thirds, labels and emphasis text — typeface (any bundled font), weight, hierarchy, readable timing, safe placement and consistent motion; restyle existing titles.
+tools: [get_timeline, get_mapped_transcript, add_text_layer, set_text_style, set_element_animation, add_keyframes, trim_clip]
 ---
 
 # Titles and text
@@ -35,6 +35,21 @@ One card, one idea. Text must add meaning the audio or picture does not already 
 - Aim for 3–7 words and at least `max(1.5s, words/3 + 0.5s)`.
 - Lower thirds enter after the face/voice is established and usually hold 3–5s.
 - Keep one motion language; 0.2–0.4s opacity/position entrances are usually enough.
+
+## Type
+
+- `add_text_layer` takes `fontFamily` (any bundled family: serif display faces such as
+  "Playfair Display" or "DM Serif Display", sans such as "Inter" or "Space Grotesk",
+  hand/script faces such as "Caveat") and `fontWeight` (100–900). A brief's named font
+  that is not bundled gets its closest bundled equivalent, and you say which.
+- Build a hierarchy from two faces at most: a display face for the title, a sans for
+  labels. Keep one family per role across the whole edit.
+- Change a placed title with `set_text_style` (words, size, font, weight, colour,
+  position) — never delete and re-add it. Animate it in and out with
+  `set_element_animation`.
+- There is no letter-spacing (tracking) control. Do not fake it with spaces between the
+  letters: each letter then reads, wraps and fits as a separate word. Use a wide face or a
+  heavier weight, and say tracking was not available.
 
 ## Decision framework
 

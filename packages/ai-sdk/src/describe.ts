@@ -85,6 +85,7 @@ const TOOL_VERBS: Record<string, string> = {
   move_clip: 'Moving',
   add_clip: 'Adding a clip',
   add_text_layer: 'Adding a text layer to',
+  set_text_style: 'Restyling the text on',
   search_elements: 'Finding an element',
   add_sticker: 'Adding a sticker',
   add_shape: 'Adding a shape',

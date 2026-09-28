@@ -788,6 +788,8 @@ def add_text_layer(args: AddTextLayerArgs, ctx: ToolContext) -> Operations:
             ("boxWidthPercent", args.box_width_percent),
             ("xPercent", args.x_percent),
             ("yPercent", args.y_percent),
+            ("fontFamily", args.font_family),
+            ("fontWeight", args.font_weight),
         )
         if value is not None
     }

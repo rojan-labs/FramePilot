@@ -38,7 +38,8 @@ import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
 import { ToolRefusalError } from '../tool-refusal.js';
 import type { ToolContext } from '../tool-context.js';
-import { largestFittingSizePercent, overflowingWords } from '../overlay-fit.js';
+import { type TitleFont, largestFittingSizePercent, overflowingWords } from '../overlay-fit.js';
+import { titleFontFamily, titleFontWeight } from './title-fonts.js';
 import {
   TRANSITION_REASONS,
   type CutawayTransitionDecision,
@@ -110,6 +111,66 @@ function findOverlayWithSameText(
     }
   }
   return undefined;
+}
+
+/** The face a title's arguments name, in the shape the fit arithmetic measures. */
+function titleFontOf(args: {
+  readonly fontFamily?: string | undefined;
+  readonly fontWeight?: number | undefined;
+}): TitleFont | undefined {
+  if (args.fontFamily === undefined) return undefined;
+  return {
+    fontFamily: args.fontFamily,
+    ...(args.fontWeight === undefined ? {} : { fontWeight: args.fontWeight }),
+  };
+}
+
+/**
+ * A title's size and box, fitted so every word fits its box — see `add_text_layer`'s note
+ * on why a title too big is fitted rather than refused. Widening the box is preferred where
+ * it is enough, because that KEEPS the size asked for; shrinking is the fallback for text no
+ * box can hold. Measured in the title's own face: a heavy display face runs wider than the
+ * default, and fitting it by the default's widths would let it spill out of the frame.
+ *
+ * Shared by `add_text_layer` and `set_text_style`, so a restyle cannot place what a fresh
+ * title would have been fitted out of.
+ */
+function fitTitle(
+  text: string,
+  requestedSize: number | undefined,
+  requestedBox: number | undefined,
+  font: TitleFont | undefined,
+  resolution: { readonly width: number; readonly height: number },
+): { readonly sizePercent: number | undefined; readonly boxWidthPercent: number | undefined } {
+  let sizePercent = requestedSize;
+  let boxWidthPercent = requestedBox;
+  if (sizePercent === undefined || boxWidthPercent === undefined) {
+    return { sizePercent, boxWidthPercent };
+  }
+  const measure = (size: number, box: number) =>
+    overflowingWords({ text, fontSizePercent: size, boxWidthPercent: box, ...font }, resolution);
+  const over = measure(sizePercent, boxWidthPercent)[0];
+  if (over === undefined) return { sizePercent, boxWidthPercent };
+  if (over.requiredBoxWidthPercent <= MAX_BOX_WIDTH_PERCENT) {
+    boxWidthPercent = over.requiredBoxWidthPercent;
+  }
+  // Re-measure rather than trust the widen: `requiredBoxWidthPercent` answers for the widest
+  // word, and the box may also have been left where it was. Whatever still overflows comes
+  // down in size, against the box as it now stands.
+  if (measure(sizePercent, boxWidthPercent).length > 0) {
+    const fits = largestFittingSizePercent(text, boxWidthPercent, resolution, font);
+    if (fits === undefined || fits <= 0) {
+      // Not arithmetic this can solve — the text has no measurable width, or the frame has
+      // none. That is still worth saying out loud.
+      throw new ToolRefusalError(
+        `"${over.word}" cannot be fitted in this frame at any size. Shorten the text, or ` +
+          'split it across two overlays.',
+        { refusalCause: 'text_does_not_fit' },
+      );
+    }
+    sizePercent = fits;
+  }
+  return { sizePercent, boxWidthPercent };
 }
 
 /** Arguments `add_transition` resolves a kind and a length from. */
@@ -400,8 +461,11 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         'height as a percentage of the frame (8 is a caption, 18+ is a headline that ' +
         'dominates the frame), xPercent/yPercent place the box centre (50/50 is the ' +
         'middle, y 15 is a title card near the top), and color/background/align/' +
-        'boxWidthPercent do what they say. Everything renders exactly as the preview ' +
-        'shows it. For motion, follow this with punch_in on the clip it creates.',
+        'boxWidthPercent do what they say. fontFamily sets the face — any family in the ' +
+        'bundled catalogue, e.g. "Inter", "Playfair Display", "Caveat", "Archivo Black" — ' +
+        'and fontWeight its weight (100–900). Everything renders exactly as the preview ' +
+        'shows it. To change a title later, set_text_style. For motion, follow this with ' +
+        'punch_in on the clip it creates.',
     },
     z
       .object({
@@ -417,6 +481,8 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         boxWidthPercent: numeric(z.number().positive().max(100)).optional(),
         xPercent: numeric(z.number().min(0).max(100)).optional(),
         yPercent: numeric(z.number().min(0).max(100)).optional(),
+        fontFamily: titleFontFamily.optional(),
+        fontWeight: titleFontWeight.optional(),
       })
       .strict(),
     (a, ctx) => {
@@ -460,8 +526,8 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         throw new ToolRefusalError(
           `"${clampTitle(a.text)}" is already on screen from ${round2(a.start)}s to ` +
             `${round2(a.end)}s, on ${duplicate.trackId}. Adding it again would composite ` +
-            'the same words on top of themselves. Change that overlay with ' +
-            'set_effect_params, move it with move_clip, or write different text.',
+            'the same words on top of themselves. Restyle that overlay with ' +
+            'set_text_style, move it with move_clip, or write different text.',
         );
       }
       // A word that cannot fit its box runs out the sides of the frame in the preview and
@@ -484,40 +550,13 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       // Widening the box is preferred where it is enough, because that KEEPS the size the
       // editor asked for; shrinking is the fallback for text no box can hold. The chosen
       // values ride the ops, so the applied patch states the size that was really used.
-      let sizePercent = a.sizePercent;
-      let boxWidthPercent = a.boxWidthPercent;
-      if (sizePercent !== undefined && boxWidthPercent !== undefined) {
-        const over = overflowingWords(
-          { text: a.text, fontSizePercent: sizePercent, boxWidthPercent },
-          ctx.project.resolution,
-        )[0];
-        if (over !== undefined) {
-          if (over.requiredBoxWidthPercent <= MAX_BOX_WIDTH_PERCENT) {
-            boxWidthPercent = over.requiredBoxWidthPercent;
-          }
-          // Re-measure rather than trust the widen: `requiredBoxWidthPercent` answers for
-          // the widest word, and the box may also have been left where it was. Whatever
-          // still overflows comes down in size, against the box as it now stands.
-          if (
-            overflowingWords(
-              { text: a.text, fontSizePercent: sizePercent, boxWidthPercent },
-              ctx.project.resolution,
-            ).length > 0
-          ) {
-            const fits = largestFittingSizePercent(a.text, boxWidthPercent, ctx.project.resolution);
-            if (fits === undefined || fits <= 0) {
-              // Not arithmetic this can solve — the text has no measurable width, or the
-              // frame has none. That is still worth saying out loud.
-              throw new ToolRefusalError(
-                `"${over.word}" cannot be fitted in this frame at any size. Shorten the ` +
-                  'text, or split it across two overlays.',
-                { refusalCause: 'text_does_not_fit' },
-              );
-            }
-            sizePercent = fits;
-          }
-        }
-      }
+      const { sizePercent, boxWidthPercent } = fitTitle(
+        a.text,
+        a.sizePercent,
+        a.boxWidthPercent,
+        titleFontOf(a),
+        ctx.project.resolution,
+      );
       const placed = createLaneAllocator(ctx.project.timeline).allocate(a.trackId, a.start, a.end);
       const trackId = placed.trackId;
       const clipId = textOverlayClipId(trackId, a.start);
@@ -545,6 +584,8 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         ...(boxWidthPercent === undefined ? {} : { boxWidthPercent }),
         ...(a.xPercent === undefined ? {} : { xPercent: a.xPercent }),
         ...(a.yPercent === undefined ? {} : { yPercent: a.yPercent }),
+        ...(a.fontFamily === undefined ? {} : { fontFamily: a.fontFamily }),
+        ...(a.fontWeight === undefined ? {} : { fontWeight: a.fontWeight }),
       };
       if (Object.keys(params).length > 0) {
         ops.push({
@@ -555,6 +596,95 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         });
       }
       return ops;
+    },
+  ),
+  mutateTool(
+    {
+      // The restyle half of `add_text_layer`. Without it the only way to change a title the
+      // run had placed was to delete it and add it again: run `6cb12e30` tried
+      // `adjust_effect` on a title's own effect id, was refused "Effect layer not found",
+      // and told the editor it could not enlarge its titles.
+      name: 'set_text_style',
+      description:
+        'Restyle a title or other text overlay already on the timeline — its words, size, ' +
+        'font, weight, colour, background, alignment, box width or position. Pass the ' +
+        'clipId add_text_layer created and only the values to change; the same units as ' +
+        'add_text_layer, and the title is re-fitted to its box the same way. Timing and ' +
+        'track stay as they are (move_clip / trim_clip change those).',
+    },
+    z
+      .object({
+        clipId: z.string().min(1),
+        text: z.string().min(1).optional(),
+        sizePercent: numeric(z.number().positive().max(100)).optional(),
+        color: z.string().optional(),
+        background: z.string().optional(),
+        align: z.enum(['left', 'center', 'right']).optional(),
+        boxWidthPercent: numeric(z.number().positive().max(100)).optional(),
+        xPercent: numeric(z.number().min(0).max(100)).optional(),
+        yPercent: numeric(z.number().min(0).max(100)).optional(),
+        fontFamily: titleFontFamily.optional(),
+        fontWeight: titleFontWeight.optional(),
+      })
+      .strict(),
+    (a, ctx) => {
+      const clip = ctx.project.timeline.tracks
+        .flatMap((track) => track.clips)
+        .find((candidate) => candidate.id === a.clipId);
+      if (clip === undefined) {
+        throw new Error(
+          `Clip not found: ${a.clipId}. Use the clipId add_text_layer returned, or get_clips ` +
+            'on the title track to read it.',
+        );
+      }
+      const effect = clip.effects.find((candidate) => candidate.type === 'text');
+      if (syntheticClipKind(clip.assetId) !== 'text' || effect === undefined) {
+        throw new ToolRefusalError(
+          `${a.clipId} is not a text overlay — set_text_style restyles titles made with ` +
+            'add_text_layer. A shape is set_shape_style; captions are set_caption_style.',
+        );
+      }
+      const { clipId: _clipId, sizePercent: askedSize, ...rest } = a;
+      const existing = effect.params;
+      const current = {
+        text: typeof existing['text'] === 'string' ? existing['text'] : '',
+        size:
+          typeof existing['fontSizePercent'] === 'number' ? existing['fontSizePercent'] : undefined,
+        box:
+          typeof existing['boxWidthPercent'] === 'number' ? existing['boxWidthPercent'] : undefined,
+        fontFamily: typeof existing['fontFamily'] === 'string' ? existing['fontFamily'] : undefined,
+        fontWeight: typeof existing['fontWeight'] === 'number' ? existing['fontWeight'] : undefined,
+      };
+      // Fit the title as it WILL be — new words in the old box, a heavier face at the old
+      // size — not as it is, so a restyle cannot push a word out of the frame.
+      const fitted = fitTitle(
+        a.text ?? current.text,
+        askedSize ?? current.size,
+        a.boxWidthPercent ?? current.box,
+        titleFontOf({
+          fontFamily: a.fontFamily ?? current.fontFamily,
+          fontWeight: a.fontWeight ?? current.fontWeight,
+        }),
+        ctx.project.resolution,
+      );
+      const params: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(rest)) {
+        if (value !== undefined && key !== 'boxWidthPercent') params[key] = value;
+      }
+      if (fitted.sizePercent !== undefined && fitted.sizePercent !== current.size) {
+        params['fontSizePercent'] = fitted.sizePercent;
+      }
+      if (fitted.boxWidthPercent !== undefined && fitted.boxWidthPercent !== current.box) {
+        params['boxWidthPercent'] = fitted.boxWidthPercent;
+      }
+      if (Object.keys(params).length === 0) {
+        throw new ToolRefusalError(
+          `Nothing to change on ${a.clipId}: name at least one of text, sizePercent, color, ` +
+            'background, align, boxWidthPercent, xPercent, yPercent, fontFamily or fontWeight ' +
+            'with a value different from what it already has.',
+        );
+      }
+      return [{ type: 'set_effect_params', clipId: clip.id, effectId: effect.id, params }];
     },
   ),
   mutateTool(
@@ -794,8 +924,8 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
     {
       name: 'adjust_effect',
       description:
-        'Retune an applied effect. `params` is a PARTIAL patch — send only the ' +
-        'values to change. `intensity` (0–1) is the master strength every effect ' +
+        'Retune an effect layer placed with apply_effect (its layerId). `params` is a ' +
+        'PARTIAL patch — send only the values to change. `intensity` (0–1) is the master strength every effect ' +
         'honours; pass null to reset it to full. Call discover_effects for the ' +
         'valid parameter names and ranges of the effect’s kind.',
       capabilities: ['edit', 'effects'],
@@ -807,14 +937,39 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         intensity: numeric(z.number().min(0).max(1)).nullable().optional(),
       })
       .strict(),
-    (a) => [
-      {
-        type: 'set_effect_layer_params',
-        layerId: a.layerId,
-        ...(a.params !== undefined ? { params: a.params } : {}),
-        ...(a.intensity !== undefined ? { intensity: a.intensity } : {}),
-      },
-    ],
+    (a, ctx) => {
+      const isLayer = ctx.project.timeline.tracks.some((track) =>
+        (track.effectLayers ?? []).some((layer) => layer.id === a.layerId),
+      );
+      if (!isLayer) {
+        // Resolve the id before emitting an op for it. This always emitted the effect-LAYER op,
+        // so a clip's own effect id — the `<clipId>__text` a title's patch carries — was
+        // refused as "Effect layer not found" with no way forward, and run `6cb12e30` told
+        // the editor its titles could not be enlarged.
+        const owner = ctx.project.timeline.tracks
+          .flatMap((track) => track.clips)
+          .find((clip) => clip.effects.some((effect) => effect.id === a.layerId));
+        if (owner !== undefined) {
+          const kind = owner.effects.find((effect) => effect.id === a.layerId)?.type;
+          throw new ToolRefusalError(
+            `${a.layerId} is ${kind === 'text' ? 'the text of' : `a ${String(kind)} effect on`} ` +
+              `clip ${owner.id}, not an effect layer — adjust_effect retunes layers placed ` +
+              'with apply_effect. ' +
+              (kind === 'text'
+                ? `Restyle the title with set_text_style (clipId "${owner.id}").`
+                : 'Change it with the tool that made it, or read it with get_clip.'),
+          );
+        }
+      }
+      return [
+        {
+          type: 'set_effect_layer_params',
+          layerId: a.layerId,
+          ...(a.params !== undefined ? { params: a.params } : {}),
+          ...(a.intensity !== undefined ? { intensity: a.intensity } : {}),
+        },
+      ];
+    },
   ),
   mutateTool(
     {

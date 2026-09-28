@@ -30,12 +30,23 @@ validates their arguments (it never runs ffmpeg itself).
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from enum import StrEnum
+from importlib import resources
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    WithJsonSchema,
+    field_validator,
+    model_validator,
+)
 
 from framepilot_engine.ai_tools.tool_descriptions_generated import TOOL_DESCRIPTIONS
 from framepilot_engine.render.caption_templates import load_catalog
@@ -231,6 +242,38 @@ class AddTrackArgs(BaseModel):
     id: FilterStr = None
 
 
+def _title_font_families() -> tuple[str, ...]:
+    """The bundled families a title can be drawn in (``render/fonts/manifest.json``).
+
+    The same catalogue the TS ``title-fonts.ts`` reads (both are generated from
+    ``@framepilot/timeline-schema/caption-fonts``), so the two registries accept one list.
+    """
+    payload = (
+        resources.files("framepilot_engine.render")
+        .joinpath("fonts", "manifest.json")
+        .read_text(encoding="utf-8")
+    )
+    families = json.loads(payload).get("families", {})
+    return tuple(families) if isinstance(families, dict) else ()
+
+
+_TITLE_FONT_FAMILIES = _title_font_families()
+
+
+def _known_title_font(value: str) -> str:
+    if value not in _TITLE_FONT_FAMILIES:
+        raise ValueError(f"{value!r} is not a bundled font family.")
+    return value
+
+
+#: A title's family: any bundled family. Validated here and advertised as the enum it is.
+TitleFontFamily = Annotated[
+    str,
+    AfterValidator(_known_title_font),
+    WithJsonSchema({"type": "string", "enum": list(_TITLE_FONT_FAMILIES)}),
+]
+
+
 class AddTextLayerArgs(BaseModel):
     """Text overlay plus its styling.
 
@@ -252,6 +295,25 @@ class AddTextLayerArgs(BaseModel):
     box_width_percent: float | None = Field(default=None, alias="boxWidthPercent", gt=0.0, le=100.0)
     x_percent: float | None = Field(default=None, alias="xPercent", ge=0.0, le=100.0)
     y_percent: float | None = Field(default=None, alias="yPercent", ge=0.0, le=100.0)
+    font_family: TitleFontFamily | None = Field(default=None, alias="fontFamily")
+    font_weight: int | None = Field(default=None, alias="fontWeight", ge=100, le=900)
+
+
+class SetTextStyleArgs(BaseModel):
+    """Restyle one text overlay; mirrors the TS ``set_text_style`` schema."""
+
+    model_config = _STRICT
+    clip_id: str = Field(alias="clipId", min_length=1)
+    text: str | None = Field(default=None, min_length=1)
+    size_percent: float | None = Field(default=None, alias="sizePercent", gt=0.0, le=100.0)
+    color: str | None = None
+    background: str | None = None
+    align: Literal["left", "center", "right"] | None = None
+    box_width_percent: float | None = Field(default=None, alias="boxWidthPercent", gt=0.0, le=100.0)
+    x_percent: float | None = Field(default=None, alias="xPercent", ge=0.0, le=100.0)
+    y_percent: float | None = Field(default=None, alias="yPercent", ge=0.0, le=100.0)
+    font_family: TitleFontFamily | None = Field(default=None, alias="fontFamily")
+    font_weight: int | None = Field(default=None, alias="fontWeight", ge=100, le=900)
 
 
 class ShapeBoxArg(BaseModel):
@@ -1639,6 +1701,13 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "shows it. For motion, follow this with punch_in on the clip it creates.",
         kind="mutate",
         input_model=AddTextLayerArgs,
+        mutating=True,
+    ),
+    "set_text_style": _spec(
+        "set_text_style",
+        "Restyle a title or other text overlay already on the timeline.",
+        kind="mutate",
+        input_model=SetTextStyleArgs,
         mutating=True,
     ),
     "search_elements": _spec(

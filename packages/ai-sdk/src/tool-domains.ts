@@ -78,7 +78,7 @@ export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string
   // reframing tool undiscoverable to a request that asked for exactly that.
   motion: 'keyframes, punch-ins, camera moves, speed ramps and reframing crops',
   effects:
-    'effects, transitions, blend modes and on-screen text; browse what is available; verify fit',
+    'effects, transitions, blend modes and on-screen text — titles in any catalogue font, and restyling them; browse what is available; verify fit',
   // Plan/elements: the words a screen-recording or product-demo request uses.
   elements:
     'stickers and emoji, and shapes over the picture — highlight boxes, arrows, circles, markers, underlines, callouts, numbered badges, stars, icons; find, place, restyle and move them, and animate them in, out and on a loop',
@@ -214,6 +214,7 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
   ],
   effects: [
     'add_text_layer',
+    'set_text_style',
     'add_transition',
     'add_transitions',
     'apply_effect',

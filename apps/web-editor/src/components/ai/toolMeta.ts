@@ -169,6 +169,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   remove_track: { label: 'Remove track', Icon: Trash2 },
   move_track: { label: 'Reorder track', Icon: ArrowLeftRight },
   add_text_layer: { label: 'Add text', Icon: Type },
+  set_text_style: { label: 'Restyle text', Icon: Type },
   search_elements: { label: 'Find a sticker or shape', Icon: Search },
   add_sticker: { label: 'Add a sticker', Icon: Smile },
   add_shape: { label: 'Add a shape', Icon: Shapes },
