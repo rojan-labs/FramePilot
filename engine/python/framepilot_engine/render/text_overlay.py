@@ -39,6 +39,16 @@ designed caption fonts everywhere else.
 Position is applied by the compiler (it owns placement); everything else is
 resolved and drawn here.
 
+TYPOGRAPHY (2026-09-28). A title may carry ``typography``: the caption style's LINE-level fields
+(case, italic, letter spacing, line height, see-through letters, outline, shadow, and the chip's
+shape). A title with it is drawn by the caption rasterizer itself
+(:func:`~framepilot_engine.render.captions.render_caption_raster`) through
+:func:`title_caption_style`, so a title set in a caption look draws exactly as that caption does,
+in the export and in the desktop monitor alike. A title without it keeps this module's own
+drawing (and its fixed black stroke), byte for byte. Excluded from a title: the chip's frosted
+blur (a title has no backdrop pass), and everything word-timed or animated (highlight, accent,
+entrances, loops) — a title animates through its layer transitions.
+
 WHAT IS NOT HERE YET: ``inAnimation`` / ``outAnimation`` / ``animDurationSeconds``.
 The preview animates those from the playhead; this module does not, so a text
 overlay a person animates in the Inspector still exports without its entrance.
@@ -53,6 +63,7 @@ mirroring :mod:`framepilot_engine.render.captions` (which this module reuses
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -60,8 +71,15 @@ from typing import Any
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+from pydantic import ValidationError
 
-from framepilot_engine.render.captions import _load_font, wrap_lines
+from framepilot_engine.render.captions import (
+    _FONT_HEIGHT_FRACTION as _CAPTION_FONT_HEIGHT_FRACTION,
+)
+from framepilot_engine.render.captions import _load_font, render_caption_raster, wrap_lines
+from framepilot_engine.timeline.models import CaptionStyle
+
+log = logging.getLogger(__name__)
 
 # Text overlay occupies at most this fraction of the frame width (safe area).
 _MAX_WIDTH_FRACTION = 0.85
@@ -81,6 +99,30 @@ _MAX_WEIGHT = 900
 _OUTLINE_COLOR: tuple[int, int, int, int] = (0, 0, 0, 255)
 
 _Font = ImageFont.FreeTypeFont | ImageFont.ImageFont
+
+#: The caption-style fields a title's ``typography`` carries (camelCase, as the project stores
+#: them). Mirrors ``TITLE_TYPOGRAPHY_FIELDS`` in the timeline-schema ``title-templates.ts``.
+TITLE_TYPOGRAPHY_FIELDS: tuple[str, ...] = (
+    "fontStyle",
+    "textTransform",
+    "letterSpacing",
+    "lineHeight",
+    "textOpacity",
+    "outlineColor",
+    "outlineWidth",
+    "shadow",
+)
+#: The chip fields a title takes from ``typography.background``. Its colour is the title's own
+#: ``background`` param (the Inspector's switch), and ``blur`` is left out: a frosted chip blurs
+#: the delivered picture behind it, which only the caption compositor does.
+_TITLE_CHIP_FIELDS: tuple[str, ...] = (
+    "radius",
+    "paddingX",
+    "paddingY",
+    "borderColor",
+    "borderWidth",
+)
+_MIN_BOX_WIDTH_PERCENT = 5.0
 
 
 def _font_size_for(frame_height: int) -> int:
@@ -195,6 +237,60 @@ def text_overlay_layout(
         font_family=family.strip() if isinstance(family, str) and family.strip() else None,
         font_weight=font_weight,
     )
+
+
+def title_caption_style(params: Mapping[str, Any], frame_height: int) -> CaptionStyle | None:
+    """The caption style a title with ``typography`` is drawn in, or ``None`` for a plain title.
+
+    The title's own params stay authoritative for what they already said — family, weight,
+    colour, size, alignment, wrap width and whether there is a chip — and ``typography`` adds
+    the rest of the caption vocabulary. Nothing positional is passed: the raster is placed by
+    the title's ``xPercent``/``yPercent`` and transform, as every title is.
+
+    A ``typography`` that does not validate draws the plain title rather than failing the
+    render (a cosmetic param must never fail a compile), and says so in the log.
+
+    :param params: The ``text`` effect's params.
+    :param frame_height: Height of the delivered frame, which the font size is relative to.
+    """
+    typography = params.get("typography")
+    if not isinstance(typography, Mapping):
+        return None
+    layout = text_overlay_layout(params, 1, frame_height)
+    box_percent = _percent(params.get("boxWidthPercent"), _DEFAULT_BOX_WIDTH_PERCENT)
+    style: dict[str, Any] = {
+        key: typography[key] for key in TITLE_TYPOGRAPHY_FIELDS if key in typography
+    }
+    style.update(
+        display="phrase",
+        # The caption renderer sizes its font as floor(height / 22 * fontScale). Half a pixel
+        # over the title's size makes that floor land on exactly the size the title resolved.
+        fontScale=(layout.font_size + 0.5) / (frame_height * _CAPTION_FONT_HEIGHT_FRACTION),
+        fontWeight=layout.font_weight,
+        textColor=_hex_color(layout.color),
+        textAlign=layout.align,
+        maxWidthPercent=min(max(box_percent, _MIN_BOX_WIDTH_PERCENT), 100.0),
+    )
+    if layout.font_family is not None:
+        style["fontFamily"] = layout.font_family
+    background = params.get("background")
+    if isinstance(background, str) and background.strip():
+        chip = typography.get("background")
+        shape = chip if isinstance(chip, Mapping) else {}
+        style["background"] = {
+            "color": background,
+            **{key: shape[key] for key in _TITLE_CHIP_FIELDS if key in shape},
+        }
+    try:
+        return CaptionStyle.model_validate(style)
+    except ValidationError as exc:
+        log.warning("Title typography is invalid; drawing the plain title instead: %s", exc)
+        return None
+
+
+def _hex_color(rgba: tuple[int, int, int, int]) -> str:
+    r, g, b, a = rgba
+    return f"#{r:02x}{g:02x}{b:02x}{a:02x}"
 
 
 def _basic_features(font: Any) -> list[str] | None:
@@ -325,6 +421,10 @@ def rasterize_text_overlay(
         diagonal (plan/elements EL2b.4), as a turning shape is (ADR 0190); its centre, and so its
         placement, stays where it was.
     """
+    styled = title_caption_style(style_params, frame_height)
+    if styled is not None:
+        image = render_caption_raster(text, frame_width, frame_height, style=styled).image
+        return rotation_safe(image) if rotates else image
     layout = text_overlay_layout(style_params, frame_width, frame_height)
     image = render_text_overlay_image(
         text,

@@ -10433,7 +10433,43 @@ stickers, CC BY 4.0 (EL10).
   the archive at packaging so main checks the set against it
   (`docs/runbooks/security-hardening.md`, 2026-09-26 packaged set review).
 
-**Last updated:** 2026-09-26
+## Text panel — title templates in caption typography — `[~]` in progress (2026-09-28)
+
+Maintainer (2026-09-28): "the Overlay panel is not nice … the typography should sync with the
+captions typography … rethink the overlay panel exploring the competitors … there should be
+templates of the text overlays". Branch `rjach/Overlay-Typography`.
+
+Scope gate. **Outcome:** a creator adds a designed title (heading, lower third, callout, quote,
+subscribe card) in one click, in the same fonts and looks their captions use, and the export
+draws exactly that. **Gap:** the Text panel builds a title from a form whose style tiles and
+9-point position were preview-only (never saved, never exported); titles offer six system font
+names the export does not bundle, and none of the caption typography (outline, shadow, chip,
+case, spacing, italic, see-through letters). **Slice:** title typography = the caption style's
+line-level fields, drawn by the caption rasterizer the export and the desktop monitor already
+share; a pure-data title template catalog; a template-first panel; the Inspector's font list and
+typography controls from the caption catalog. **Reuse:** `CaptionStyle` fields and
+`render_caption_raster`, `captionLineCss`/`captionBoxCss`, the bundled caption fonts,
+`add_text_overlay` + `set_effect_params` (the `add_text_layer` pattern), the lane allocator.
+**Deferred:** frosted-glass chips on titles (the title pipeline has no backdrop pass), per-word
+accent/highlight on titles (word-timed), animated caption entrances on titles (titles animate
+through the Animation section's layer transitions), an AI `template` argument. **Evidence:**
+engine raster tests for styled titles (typography changes pixels, legacy titles unchanged),
+catalog tests (fonts bundled, weights in range, hex colours), panel/Inspector component tests.
+
+- [~] **TX1** Title typography: `TextOverlayParams.typography` (caption-style line fields) and one
+  mapping to a `CaptionStyle` per runtime; the engine draws a typed title through
+  `render_caption_raster` (export + desktop monitor), untyped titles unchanged.
+- [ ] **TX2** Title template catalog (`timeline-schema/title-templates.ts`), pure data, plus caption
+  looks as title looks; catalog invariants tested.
+- [ ] **TX3** Browser preview draws title typography (DOM title, on-canvas editor, canvas painter).
+- [ ] **TX4** Text panel rebuilt: search, quick add (heading/subheading/body), category chips,
+  live template grid (click adds at the playhead and selects; drag onto a lane; apply to the
+  selected title), titles-on-the-timeline list.
+- [ ] **TX5** Inspector: bundled caption fonts (shared picker), weights from the family, and the
+  typography controls (case, italic, spacing, line height, outline, shadow, chip, opacity).
+- [ ] **TX6** Docs: ADR, guide, CHANGELOG, website changelog.
+
+**Last updated:** 2026-09-28
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
