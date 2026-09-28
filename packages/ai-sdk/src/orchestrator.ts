@@ -1425,9 +1425,9 @@ export function autoReframeNote(toolName: string, ops: readonly AnyOperation[]):
   if (crops === 0) return '';
   return (
     ` — ${String(crops)} clip${crops === 1 ? '' : 's'} auto-reframed with a CENTRED crop, a ` +
-    'guess made with no subject evidence. If the action sits off-centre, set_clip_crop with ' +
-    'a rect that follows it (get_frame shows the frame; track_object measures nothing), and ' +
-    'say which you did.'
+    'guess made with no subject evidence. Look at each source as shot with get_frame ' +
+    '{ assetId, sourceSeconds } — the timeline only shows it through this crop — and aim it ' +
+    'with set_clip_crop, or reframe_pan for a moving window, and say which you did.'
   );
 }
 
