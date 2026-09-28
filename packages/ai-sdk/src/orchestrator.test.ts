@@ -2411,6 +2411,31 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
     expect(note).toContain('cue (0 words, from revision ?): hello');
   });
 
+  it("get_clip: shows a title's words and style, which are what a title is read for", () => {
+    // Run 6cb12e30 read eleven titles and then recalled every one, because the digest
+    // said only "effects: text".
+    const note = summarizeReadResult('get_clip', {
+      trackId: 'titles',
+      clip: {
+        id: 'text__titles_6133',
+        assetId: '__text__',
+        trackId: 'titles',
+        start: 6.133,
+        end: 7.533,
+        effects: [
+          {
+            id: 'text__titles_6133__text',
+            type: 'text',
+            params: { text: 'Alarm at 5. No regrets.', fontSizePercent: 2.8, color: '#F5EFE6' },
+          },
+        ],
+      },
+    });
+    expect(note).toContain(
+      'title "Alarm at 5. No regrets." (fontSizePercent 2.8, color #F5EFE6) [effect text__titles_6133__text]',
+    );
+  });
+
   it('get_mapped_transcript: treats a payload with no word list as no speech', () => {
     expect(summarizeReadResult('get_mapped_transcript', { revision: 3 })).toContain(
       'no mapped words',

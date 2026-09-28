@@ -574,6 +574,9 @@ const DEFAULT_MAX_OPS_PER_RUN = AGENT_MAX_OPS_PER_RUN;
 const USER_WAIT_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 
 /** How many recent step notes the agent context keeps verbatim before digesting (B4). */
+/** How much of one title's words and style a `get_clip` digest carries. */
+const TITLE_DIGEST_CHARS = 400;
+
 /** The default when no executor declares anything unroutable: nothing is withheld. */
 const EMPTY_TOOL_NAMES: ReadonlySet<string> = new Set();
 const AGENT_LOG_RECENT = 6;
@@ -3017,6 +3020,23 @@ export function summarizeReadResult(
       >[];
       if (effects.length > 0) {
         lines.push(`effects: ${effects.map((e) => String(e.type)).join(', ')}`);
+      }
+      // A title's words and style ARE what a title is read for. Listing only the effect's
+      // type ("effects: text") sent run `6cb12e30` to recall_evidence after every one of
+      // eleven get_clip calls, just to learn what each title said.
+      for (const effect of effects) {
+        if (effect.type !== 'text') continue;
+        const { text, ...style } = (effect.params ?? {}) as Record<string, unknown>;
+        const styled = Object.entries(style)
+          .filter(([, v]) => v !== undefined && v !== null)
+          .map(([k, v]) => `${k} ${typeof v === 'string' ? v : JSON.stringify(v)}`)
+          .join(', ');
+        lines.push(
+          `title "${String(text ?? '')}" (${styled || 'default style'}) [effect ${String(effect.id)}]`.slice(
+            0,
+            TITLE_DIGEST_CHARS,
+          ),
+        );
       }
       if (clip.captionStyle) {
         lines.push(`cue style override: ${captionStyleLine(clip.captionStyle as CaptionStyle)}`);
