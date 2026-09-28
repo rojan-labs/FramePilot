@@ -1,5 +1,5 @@
 /** Executable outcome evals for every animatable clip motion property. */
-import { compileMotionCommand, type ClipKeyframeProperty } from '@framepilot/editor-core';
+import { compileMotionCommand, type ClipTransformKeyframeProperty } from '@framepilot/editor-core';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import { resolveMotionObjective, MotionObjectiveSchema } from './controllers/motion-controller.js';
 import { captureEditorInteractionContext } from './editor-context/interaction-context.js';
@@ -65,7 +65,7 @@ function motionFixture(): ProfessionalEvalFixture {
 interface MotionEvalSpec {
   readonly fixtureId: string;
   readonly capabilityId: string;
-  readonly property: ClipKeyframeProperty;
+  readonly property: ClipTransformKeyframeProperty;
   /** A legal in-contract endpoint for this property. */
   readonly value: number;
 }
