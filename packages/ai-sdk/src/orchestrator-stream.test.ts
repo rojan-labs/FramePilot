@@ -6002,6 +6002,11 @@ describe('update_plan keeps a run going while its plan has open items (run d8d2e
     expect(provider.requests[1]!.messages.at(-1)!.content).toContain(
       'Plan saved (1 pending, 1 in progress). Next: “Tighten the intro”.',
     );
+    // Blocking an item is answered with what the run has not tried: harness run 8 blocked
+    // SFX as "no SFX assets" without ever loading `sourcing`, which names sound effects.
+    const blockedAnswer = provider.requests[3]!.messages.at(-1)!.content;
+    expect(blockedAnswer).toContain('Before leaving an item blocked: you have not loaded');
+    expect(blockedAnswer).toContain('color (grade the picture');
     // One checklist, drawn by the tool and updated in place: its last state is the plan's.
     const view = reduceEvents(events);
     const plans = view.nodes.filter((node) => node.kind === 'plan');
