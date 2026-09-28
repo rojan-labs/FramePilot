@@ -98,6 +98,7 @@ from framepilot_engine.effects.transform import (
     deferred_transform_properties,
     evaluate_clip_transform,
     has_rendered_transform,
+    has_stretch,
 )
 from framepilot_engine.media.assets import AssetIndex
 from framepilot_engine.render import transition_passes, transitions
@@ -136,6 +137,7 @@ from framepilot_engine.render.frame_plan import (
     exit_plays_reversed,
     fit_scale,
     frame_plan_at,
+    layer_axis_scales_at,
     layer_matte_sources,
     layer_opacity_at,
     layer_position_at,
@@ -745,19 +747,33 @@ def _place_video_clip(
     def scale_at(t: float) -> float:
         return base_scale * layer_scale_at(clip, t, transition)
 
+    # A stretched layer (scaleX/scaleY) resizes to a per-axis pixel size; MoviePy truncates a
+    # (w, h) exactly as it truncates ``scale * size``. An unstretched one keeps the uniform
+    # factor, so its resize is the one it always was.
+    def size_at(t: float) -> tuple[float, float]:
+        scale_x, scale_y = layer_axis_scales_at(clip, t, base_scale, transition)
+        return (clip_w * scale_x, clip_h * scale_y)
+
     def position_at(t: float) -> tuple[float, float]:
         return layer_position_at(
             clip, t, (clip_w, clip_h), base_scale, target, (centre_x, centre_y), transition
         )
 
-    placed = _resized(source, scale_at, still)
+    placed = _resized(source, size_at if has_stretch(clip) else scale_at, still)
     if ROTATION in animated_properties(clip):
         placed = placed.rotated(lambda t: evaluate_clip_transform(clip, t).rotation, expand=False)
     return placed.with_position(position_at)
 
 
-def _resized(source: VideoClip, new_size: float | Callable[[float], float], still: bool) -> Any:
+def _resized(
+    source: VideoClip,
+    new_size: float | Callable[[float], float] | Callable[[float], tuple[float, float]],
+    still: bool,
+) -> Any:
     """``source.resized(new_size)``; for a still, the same resize, reused while nothing changes.
+
+    ``new_size`` is a factor, or a function of time returning a factor or a ``(width, height)``
+    in pixels (a stretched layer), as MoviePy's ``Resize`` takes it.
 
     MoviePy resizes a layer again on every frame, and a still's picture is usually the same
     picture every frame; :class:`~framepilot_engine.render.still_resize.ReusingResize` returns
@@ -933,7 +949,7 @@ def picture_placement_at(
             x = int(centre[0] - clip_w * base_scale / 2)
             y = int(centre[1] - clip_h * base_scale / 2)
         return PicturePlacement(clip_w, clip_h, width, height, 0.0, x, y)
-    scale = base_scale * layer_scale_at(clip, t, transition)
+    scale_x, scale_y = layer_axis_scales_at(clip, t, base_scale, transition)
     centre_xy = centre if centre is not None else (target_w / 2, target_h / 2)
     left, top = layer_position_at(
         clip, t, (clip_w, clip_h), base_scale, target, centre_xy, transition
@@ -944,7 +960,7 @@ def picture_placement_at(
         else 0.0
     )
     return PicturePlacement(
-        clip_w, clip_h, int(clip_w * scale), int(clip_h * scale), rotation, int(left), int(top)
+        clip_w, clip_h, int(clip_w * scale_x), int(clip_h * scale_y), rotation, int(left), int(top)
     )
 
 
