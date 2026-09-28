@@ -61,6 +61,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A punch-in on a panned shot zooms in on the pan instead of adding black bars.** A slow pan
+  on a wide shot in a vertical video fills the frame by zooming in. A punch-in used to replace
+  that zoom, so the shot shrank back to a letterboxed fit. The assistant had to remove every pan
+  before it could punch in. A punch-in now zooms on top of the clip's existing zoom, the pan
+  keeps moving, and undo restores the pan exactly.
 - **The assistant fixes what the review of its last edit finds.** The review of the final edit
   used to arrive after the run had ended, so it could only be reported ("came back after the run
   had finished, so nothing was done about it"). When the assistant says it is done, it now waits

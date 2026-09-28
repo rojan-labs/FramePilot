@@ -331,6 +331,30 @@ get_frame({
   same pixels. The Python registry and its strict contract override mirror the schema. The MCP
   server does not forward `sources` yet.
 
+### A punch-in on a panned clip: `punch_in` over `reframe_pan`
+
+`reframe_pan` fills the frame with `scale` keyframes (the cover zoom, about 3.16 for a 16:9
+source in a 9:16 frame) plus `x`/`y` offsets. `punch_in` used to write absolute `scale` values
+(1.0 → 1.2), which replaced that zoom and letterboxed the shot (issue #139). Run 4 of the travel
+brief removed 22 pans by hand before it could punch in.
+
+- **Rule:** if the clip already has `scale` keyframes, the punch **multiplies** them:
+  `result(t) = existing(t) × punch(t)`. The punch curve holds `fromScale` before its window and
+  `toScale` after it, like any keyframe curve. On a clip with no scale animation this is the
+  same as the plain punch, which still writes a single `add_keyframes`. `x`/`y` are not
+  touched, so the pan keeps moving while the punch zooms in.
+- **Ops:** `remove_keyframes { property: "scale" }`, then `add_keyframes` with the composed
+  curve. Keyframes outside the window are rescaled by the held factor and keep their easing and
+  handles. Inside the window, the result is sampled at both window edges and at every existing
+  keyframe between them. The result is exact when the existing zoom is constant across the
+  window, which is always true for `reframe_pan`. Both ops invert to a snapshot of the clip's
+  track, so undo restores the old keyframes exactly.
+- **Errors:** a factor below 1 that would take a clip that fills the frame below its cover
+  zoom is refused with "keep fromScale and toScale at 1 or above". A zoom-out that stays at or
+  above the cover is allowed.
+- **Mirror:** `engine/python/framepilot_engine/ai_tools/handlers.py` `punch_in` builds the same
+  operations.
+
 ---
 
 ## When a patch is rejected

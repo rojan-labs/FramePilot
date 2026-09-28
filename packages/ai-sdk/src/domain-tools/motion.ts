@@ -12,13 +12,16 @@
 import { z } from 'zod/v4';
 import {
   assetDisplaySize,
+  evaluateKeyframes,
+  evaluateSortedCurve,
+  KEYFRAME_REPLACE_EPSILON,
   planAutomaticReframe,
   punchInKeyframes,
   syntheticClipKind,
   type Easing,
   type Operation,
 } from '@framepilot/editor-core';
-import type { Keyframe, Timeline } from '@framepilot/timeline-schema';
+import type { Clip, Keyframe, Project, Timeline } from '@framepilot/timeline-schema';
 import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool } from './tool-factories.js';
 import { ToolRefusalError } from '../tool-refusal.js';
@@ -60,6 +63,139 @@ function refuseCaptionKeyframes(timeline: Timeline, clipId: string): void {
     return;
   }
 }
+/**
+ * The smallest `scale` at which a clip's picture fills the frame, or `null` when that is not
+ * how the clip fills it (a crop does the reframing) or the source was never measured. The
+ * render compiler's fit-then-scale formula, as `planAutomaticReframe` derives it.
+ */
+function coverScaleOf(project: Project, clip: Clip): number | null {
+  if (clip.crop != null) return null;
+  const asset = project.assets.find((candidate) => candidate.id === clip.assetId);
+  const size = assetDisplaySize(asset?.media);
+  if (size === null) return null;
+  const { width, height } = project.resolution;
+  const fit = Math.min(width / size.width, height / size.height);
+  return Math.max(width / size.width, height / size.height) / fit;
+}
+
+/**
+ * Compose a punch-in onto a clip's EXISTING scale curve: result(t) = existing(t) × punch(t).
+ *
+ * Issue #139. A reframe_pan's scale keyframes ARE the zoom that fills the frame (≈3.16 for
+ * 16:9 in 9:16); a punch-in that wrote absolute 1.0 → 1.2 replaced it and the picture fell
+ * back to a letterboxed fit, so run 4 of the travel brief stripped 22 pans by hand before it
+ * could punch in. Multiplying instead makes a punch-in mean the same thing on every clip —
+ * on an unanimated clip existing(t) ≡ 1 and this is exactly the plain punch.
+ *
+ * The punch curve holds `fromScale` before its window and `toScale` after it, as any keyframe
+ * curve does, so every existing keyframe outside the window is rescaled by that held factor
+ * (keeping its easing and handles — scaling a segment by a constant keeps its shape). Inside
+ * the window the curve is sampled at the window edges and at each existing keyframe time
+ * between them. With a constant existing zoom (every reframe_pan) the result is exact: two
+ * keyframes on the punch's own easing. With existing keyframes inside the window the
+ * interior segments are linear, and an eased segment the window edge cuts through keeps its
+ * endpoints but not its exact curvature — the approximation this representation allows.
+ * x/y are untouched, so a pan keeps panning underneath the push-in.
+ */
+function composePunchOnScale(
+  existing: readonly Keyframe[],
+  punch: readonly Keyframe[],
+  idPrefix: string,
+): Keyframe[] {
+  const base = [...existing].sort((a, b) => a.time - b.time);
+  const [first, last] = [punch[0]!, punch[punch.length - 1]!];
+  const startTime = first.time;
+  const endTime = last.time;
+  const baseAt = (time: number): number => evaluateSortedCurve(base, time)!;
+  const factorAt = (time: number): number => evaluateKeyframes(punch, first.property, time)!;
+  const idAt = (time: number): string =>
+    `${idPrefix}__${first.property}__${Math.round(time * 1000)}`;
+  const outside = (keyframe: Keyframe): Keyframe => ({
+    ...keyframe,
+    value: keyframe.value * factorAt(keyframe.time),
+  });
+  const before = base.filter((k) => k.time < startTime - KEYFRAME_REPLACE_EPSILON);
+  const after = base.filter((k) => k.time > endTime + KEYFRAME_REPLACE_EPSILON);
+  const interior = base.filter(
+    (k) =>
+      k.time > startTime + KEYFRAME_REPLACE_EPSILON && k.time < endTime - KEYFRAME_REPLACE_EPSILON,
+  );
+  const windowEasing = interior.length === 0 ? first.easing : 'linear';
+  // The keyframe at the window's end also starts the segment AFTER it, so it carries the
+  // existing curve's easing there — the part of the old curve the punch does not own.
+  const governingEnd = base.filter((k) => k.time <= endTime + KEYFRAME_REPLACE_EPSILON).at(-1);
+  const sample = (time: number, easing: string): Keyframe => ({
+    id: idAt(time),
+    time,
+    property: first.property,
+    value: baseAt(time) * factorAt(time),
+    easing: easing as Keyframe['easing'],
+  });
+  return [
+    ...before.map(outside),
+    sample(startTime, windowEasing),
+    ...interior.map((k) => sample(k.time, 'linear')),
+    sample(endTime, governingEnd?.easing ?? 'linear'),
+    ...after.map(outside),
+  ];
+}
+
+/**
+ * Build `punch_in`'s operations. A clip with no scale animation gets the plain two-keyframe
+ * punch (unchanged since the tool existed); one whose scale is already keyframed — a pan's
+ * cover zoom, an earlier punch — gets the punch MULTIPLIED onto that curve (see
+ * {@link composePunchOnScale}), written as clear-then-add so the patch inverts to the
+ * clip's exact prior keyframes.
+ */
+function punchInOps(
+  project: Project,
+  clipId: string,
+  punch: Keyframe[],
+  idPrefix: string,
+): Operation[] {
+  const clip = project.timeline.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
+  // `?? []`: hand-built projects (tests, older hosts) can omit a clip's keyframe list.
+  const existing = (clip?.keyframes ?? []).filter((k) => k.property === 'scale');
+  if (clip === undefined || existing.length === 0) {
+    return [{ type: 'add_keyframes', clipId, keyframes: punch }];
+  }
+  const composed = composePunchOnScale(existing, punch, idPrefix);
+  refuseZoomBelowCover(project, clip, existing, composed);
+  return [
+    { type: 'remove_keyframes', clipId, targets: [{ property: 'scale' }] },
+    { type: 'add_keyframes', clipId, keyframes: composed },
+  ];
+}
+
+/** Relative slack for "at the cover zoom" — the planner's own float arithmetic. */
+const COVER_TOLERANCE = 1e-6;
+
+/**
+ * Refuse a punch whose factor drops below 1 far enough to shrink a picture that currently
+ * fills the frame below the zoom that fills it — that is a letterbox, not a zoom. Checking
+ * the written keyframes is enough: between two of them every named easing stays inside their
+ * range. No magnitudes in the message: it is a repeated-failure guard key.
+ */
+function refuseZoomBelowCover(
+  project: Project,
+  clip: Clip,
+  existing: readonly Keyframe[],
+  composed: readonly Keyframe[],
+): void {
+  const cover = coverScaleOf(project, clip);
+  if (cover === null || cover <= 1 + COVER_TOLERANCE) return;
+  const floor = cover * (1 - COVER_TOLERANCE);
+  const letterboxes = composed.some(
+    (k) => k.value < floor && evaluateKeyframes(existing, 'scale', k.time)! >= floor,
+  );
+  if (!letterboxes) return;
+  throw new ToolRefusalError(
+    `punch_in would zoom ${clip.id} out below the zoom that makes it fill the frame, which ` +
+      'shows black bars. Its scale is a reframe that fills the frame, and a punch on it ' +
+      'multiplies that zoom — keep fromScale and toScale at 1 or above.',
+  );
+}
+
 const keyframeSchema = z.object({
   time: seconds,
   property: z.string(),
@@ -128,7 +264,8 @@ export const MOTION_TOOLS: readonly ToolSpec[] = [
       name: 'punch_in',
       description:
         'Add a zoom/punch-in (animated scale) to a clip. Times are clip-relative; ' +
-        'the window defaults to the whole clip.',
+        'the window defaults to the whole clip. The scales multiply any zoom the clip already ' +
+        'has, so a punch on a reframe_pan clip pushes in on top of the pan and it keeps panning.',
     },
     z
       .object({
@@ -151,15 +288,16 @@ export const MOTION_TOOLS: readonly ToolSpec[] = [
       let endTime =
         a.endTime ?? (clipDuration !== undefined ? startTime + clipDuration : fallbackEnd);
       if (endTime <= startTime) endTime = fallbackEnd;
+      const idPrefix = id('punch', a.clipId);
       const keyframes = punchInKeyframes({
-        idPrefix: id('punch', a.clipId),
+        idPrefix,
         startTime,
         endTime,
         fromScale: a.fromScale,
         toScale: a.toScale,
         easing: a.easing as Easing | undefined,
       });
-      return [{ type: 'add_keyframes', clipId: a.clipId, keyframes }];
+      return punchInOps(ctx.project, a.clipId, keyframes, idPrefix);
     },
   ),
   mutateTool(
@@ -178,7 +316,8 @@ export const MOTION_TOOLS: readonly ToolSpec[] = [
         'slow eased pan across the shot; omit to to hold on that spot. Choose the positions ' +
         'by looking at the source first with get_frame { assetId }. Fills the frame at the ' +
         'smallest zoom that covers it, and replaces the clip crop and any x/y/scale ' +
-        'keyframes. Times are clip-relative; the window defaults to the whole clip.',
+        'keyframes, so pan first; a punch_in afterwards zooms in on top of the pan. Times ' +
+        'are clip-relative; the window defaults to the whole clip.',
     },
     z
       .object({

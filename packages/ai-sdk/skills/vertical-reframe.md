@@ -57,8 +57,9 @@ differently shaped sequence arrives with a CENTRED crop, which is a guess, not a
   (x: 0 left … 1 right), eased from one to the other over the clip. Use it for aerials and
   wide shots (a slow drift of 5–10% of the frame width per 2s adds life) and to keep up with
   a subject you watched move across the source. It replaces the clip's crop and its x/y/scale
-  keyframes, and its scale keyframes ARE the zoom that fills the frame — so do not punch_in
-  on a panned clip (a punch-in writes scale and would undo the reframe).
+  keyframes, so pan FIRST. A `punch_in` afterwards multiplies the pan's zoom — it pushes in on
+  top of the pan while the window keeps moving, and never drops below the zoom that fills the
+  frame, so a slow pan with a punch on the same shot is two calls.
 - A subject that moves unpredictably cannot be followed automatically yet: pan between the
   positions you saw at the start and end, and say that the framing is a pan, not a track.
 - A blurred-fill background (the whole frame over a blurred, scaled copy of itself) is not

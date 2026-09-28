@@ -30,19 +30,22 @@ from framepilot_engine.ai_tools.contract_overrides import MAX_CLIPS_PER_BATCH
 from framepilot_engine.ai_tools.handlers import _derive_id
 from framepilot_engine.ai_tools.registry import TOOL_REGISTRY, NoArgs, ToolSpec
 from framepilot_engine.ai_tools.text_overlay_styles import text_overlay_style_params
+from framepilot_engine.effects.keyframes import evaluate_keyframes
 from framepilot_engine.timeline.models import (
     Asset,
     AssetMedia,
     AssetSource,
     Clip,
     Folder,
+    Keyframe,
     Project,
+    Resolution,
     Timeline,
     Track,
     TrackType,
     TranscriptWord,
 )
-from framepilot_engine.timeline.operations import Operation
+from framepilot_engine.timeline.operations import Operation, apply_operation, invert_operation
 from framepilot_engine.validation.patch_validation import validate_patch
 
 _OPERATION_ADAPTER: TypeAdapter[Operation] = TypeAdapter(Operation)
@@ -1117,6 +1120,85 @@ def test_punch_in_unknown_clip_falls_back_to_default_window(ctx: ToolContext) ->
     assert result.operations is not None
     kfs = result.operations[0]["keyframes"]
     assert kfs[1]["time"] == pytest.approx(1.5)  # DEFAULT_PUNCH_IN_SECONDS
+
+
+# Issue #139: a punch-in on a reframe_pan clip multiplies the cover zoom instead of replacing it.
+_COVER = (1920 / 1080) / (1080 / 1920)  # 16:9 source in a 9:16 frame
+
+
+def _panned_project() -> Project:
+    clip = _clip("P", "v", 0, 4).model_copy(
+        update={
+            "keyframes": [
+                Keyframe(id="r_s0", time=0.0, property="scale", value=_COVER, easing="ease-in-out"),
+                Keyframe(id="r_s4", time=4.0, property="scale", value=_COVER, easing="ease-in-out"),
+                Keyframe(id="r_x0", time=0.0, property="x", value=900.0, easing="ease-in-out"),
+                Keyframe(id="r_x4", time=4.0, property="x", value=-900.0, easing="ease-in-out"),
+            ]
+        }
+    )
+    return Project(
+        id="project_pan",
+        name="Pan",
+        resolution=Resolution(width=1080, height=1920),
+        assets=[
+            Asset(
+                id="asset_001",
+                path="media/aerial.mp4",
+                kind="video",
+                durationSeconds=20,
+                media=AssetMedia(width=1920, height=1080),
+            )
+        ],
+        timeline=Timeline(tracks=[Track(id="v", type=TrackType.VIDEO, clips=[clip])]),
+    )
+
+
+def _apply(timeline: Timeline, ops: list[dict[str, Any]]) -> Timeline:
+    for op in ops:
+        timeline = apply_operation(timeline, _OPERATION_ADAPTER.validate_python(op))
+    return timeline
+
+
+def test_punch_in_multiplies_a_pans_cover_zoom_and_undo_restores_it() -> None:
+    project = _panned_project()
+    result = run_tool(
+        "punch_in",
+        {"clipId": "P", "startTime": 1.0, "endTime": 3.0, "toScale": 1.3},
+        ToolContext(project=project),
+    )
+    assert result.operations is not None
+    assert [op["type"] for op in result.operations] == ["remove_keyframes", "add_keyframes"]
+    _assert_patch_ok(result, project)
+    after = _apply(project.timeline, result.operations)
+    keyframes = after.tracks[0].clips[0].keyframes
+    assert evaluate_keyframes(keyframes, "scale", 0.5) == pytest.approx(_COVER)
+    assert evaluate_keyframes(keyframes, "scale", 1.0) == pytest.approx(_COVER)
+    assert evaluate_keyframes(keyframes, "scale", 3.0) == pytest.approx(_COVER * 1.3)
+    assert evaluate_keyframes(keyframes, "scale", 3.5) == pytest.approx(_COVER * 1.3)
+    for t in (0.0, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0):
+        assert evaluate_keyframes(keyframes, "scale", t) >= _COVER - 1e-9  # type: ignore[operator]
+    assert [k for k in keyframes if k.property == "x"] == [
+        k for k in project.timeline.tracks[0].clips[0].keyframes if k.property == "x"
+    ]
+    # Undo: invert each op against the state it applied to, then replay in reverse.
+    inverse: list[Operation] = []
+    working = project.timeline
+    for raw in result.operations:
+        op = _OPERATION_ADAPTER.validate_python(raw)
+        inverse = invert_operation(working, op) + inverse
+        working = apply_operation(working, op)
+    undone = working
+    for op in inverse:
+        undone = apply_operation(undone, op)
+    assert undone.tracks[0].clips[0].keyframes == project.timeline.tracks[0].clips[0].keyframes
+
+
+def test_punch_in_refuses_zooming_a_panned_clip_out_below_its_cover() -> None:
+    ctx = ToolContext(project=_panned_project())
+    with pytest.raises(ToolSemanticError, match="black bars"):
+        run_tool("punch_in", {"clipId": "P", "fromScale": 1.0, "toScale": 0.8}, ctx)
+    assert run_tool("punch_in", {"clipId": "P", "fromScale": 1.2, "toScale": 1.0}, ctx).operations
 
 
 def test_apply_color_grade_default_type(ctx: ToolContext, project: Project) -> None:

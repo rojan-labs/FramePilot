@@ -44,7 +44,8 @@ Motion directs attention. The smallest move that communicates the intent is usua
 - Talking-head emphasis is usually 1.05–1.15× over 0.3–0.6s; slow image moves may span the clip.
 - Prefer `punch_in` for a standard scale emphasis.
 - A clip reframed with `reframe_pan` carries its window as x/y/scale keyframes: keyframing
-  those, or a `punch_in`, replaces the pan. Opacity and rotation are free to animate.
+  those with `add_keyframes` fights the pan, but a `punch_in` multiplies the pan's zoom and
+  pushes in on top of it. Opacity and rotation are free to animate.
 
 ## Decision framework
 

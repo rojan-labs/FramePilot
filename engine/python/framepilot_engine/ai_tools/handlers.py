@@ -76,7 +76,7 @@ from framepilot_engine.ai_tools.text_overlay_styles import (
     text_overlay_style_params,
     weight_the_family_has,
 )
-from framepilot_engine.effects.keyframes import punch_in_keyframes
+from framepilot_engine.effects.keyframes import evaluate_keyframes, punch_in_keyframes
 from framepilot_engine.render.caption_templates import get_caption_template, load_catalog
 from framepilot_engine.render.captions import _font_manifest
 from framepilot_engine.render.shape_catalog import (
@@ -89,7 +89,15 @@ from framepilot_engine.render.shape_catalog import (
     shape_params_problem,
 )
 from framepilot_engine.render.shape_geometry import shape_clip_params
-from framepilot_engine.timeline.models import Asset, CaptionStyle, Project, Track, TrackType
+from framepilot_engine.timeline.models import (
+    Asset,
+    CaptionStyle,
+    Clip,
+    Keyframe,
+    Project,
+    Track,
+    TrackType,
+)
 from framepilot_engine.timeline.operations import (
     shape_clip_id,
     shape_effect_id,
@@ -877,6 +885,97 @@ def _clip_duration(project: Project, clip_id: str) -> float | None:
     return None
 
 
+#: Same-time tolerance as ``operations._KEYFRAME_REPLACE_EPSILON`` (TS: KEYFRAME_REPLACE_EPSILON).
+_PUNCH_TIME_EPSILON = 0.001
+#: Relative slack for "at the cover zoom" — the reframe planner's own float arithmetic.
+_COVER_TOLERANCE = 1e-6
+
+
+def _cover_scale(project: Project, clip: Clip) -> float | None:
+    """Smallest ``scale`` that fills the frame; ``None`` when a crop reframes or unmeasured.
+
+    Mirrors ``motion.ts`` ``coverScaleOf`` (the compiler's fit-then-scale formula).
+    """
+    if clip.crop is not None:
+        return None
+    asset = next((a for a in project.assets if a.id == clip.asset_id), None)
+    size = asset.media.display_size() if asset is not None and asset.media is not None else None
+    if size is None:
+        return None
+    width, height = project.resolution.width, project.resolution.height
+    fit = min(width / size[0], height / size[1])
+    return max(width / size[0], height / size[1]) / fit
+
+
+def _compose_punch_on_scale(
+    existing: list[Keyframe], punch: list[Keyframe], id_prefix: str
+) -> list[Keyframe]:
+    """result(t) = existing(t) x punch(t) — mirrors ``motion.ts`` ``composePunchOnScale`` (#139).
+
+    A reframe_pan's scale keyframes ARE the cover zoom; an absolute punch replaced them and
+    letterboxed the shot. Existing keyframes outside the window are rescaled by the punch's
+    held factor (easing/handles kept); inside, the product is sampled at the window edges and
+    at each existing keyframe time between them.
+    """
+    base = sorted(existing, key=lambda k: k.time)
+    first, last = punch[0], punch[-1]
+    start, end = first.time, last.time
+
+    def base_at(time: float) -> float:
+        value = evaluate_keyframes(base, first.property, time)
+        assert value is not None  # base is non-empty
+        return value
+
+    def factor_at(time: float) -> float:
+        value = evaluate_keyframes(punch, first.property, time)
+        assert value is not None
+        return value
+
+    def sample(time: float, easing: str) -> Keyframe:
+        return Keyframe(
+            id=f"{id_prefix}__{first.property}__{round(time * 1000)}",
+            time=time,
+            property=first.property,
+            value=base_at(time) * factor_at(time),
+            easing=easing,
+        )
+
+    def outside(k: Keyframe) -> Keyframe:
+        return k.model_copy(update={"value": k.value * factor_at(k.time)})
+
+    before = [k for k in base if k.time < start - _PUNCH_TIME_EPSILON]
+    after = [k for k in base if k.time > end + _PUNCH_TIME_EPSILON]
+    interior = [k for k in base if start + _PUNCH_TIME_EPSILON < k.time < end - _PUNCH_TIME_EPSILON]
+    window_easing = first.easing if not interior else "linear"
+    governing = [k for k in base if k.time <= end + _PUNCH_TIME_EPSILON]
+    end_easing = governing[-1].easing if governing else "linear"
+    return [
+        *(outside(k) for k in before),
+        sample(start, window_easing),
+        *(sample(k.time, "linear") for k in interior),
+        sample(end, end_easing),
+        *(outside(k) for k in after),
+    ]
+
+
+def _refuse_zoom_below_cover(
+    project: Project, clip: Clip, existing: list[Keyframe], composed: list[Keyframe]
+) -> None:
+    cover = _cover_scale(project, clip)
+    if cover is None or cover <= 1 + _COVER_TOLERANCE:
+        return
+    floor = cover * (1 - _COVER_TOLERANCE)
+    for k in composed:
+        was = evaluate_keyframes(existing, "scale", k.time)
+        if k.value < floor and was is not None and was >= floor:
+            raise ValueError(
+                f"punch_in would zoom {clip.id} out below the zoom that makes it fill the "
+                "frame, which shows black bars. Its scale is a reframe that fills the frame, "
+                "and a punch on it multiplies that zoom — keep fromScale and toScale at 1 or "
+                "above."
+            )
+
+
 def punch_in(args: PunchInArgs, ctx: ToolContext) -> Operations:
     start = args.start_time if args.start_time is not None else 0.0
     duration = _clip_duration(ctx.project, args.clip_id)
@@ -893,20 +992,37 @@ def punch_in(args: PunchInArgs, ctx: ToolContext) -> Operations:
     if end <= start:
         end = fallback_end
     _log.debug("punch_in: clip=%s start=%.3f end=%.3f", args.clip_id, start, end)
+    id_prefix = _derive_id("punch", args.clip_id)
     keyframes = punch_in_keyframes(
-        id_prefix=_derive_id("punch", args.clip_id),
+        id_prefix=id_prefix,
         start_time=start,
         end_time=end,
         from_scale=args.from_scale if args.from_scale is not None else 1.0,
         to_scale=args.to_scale if args.to_scale is not None else 1.2,
         easing=args.easing or "ease-in-out",
     )
+    found = _find_clip(ctx.project, args.clip_id)
+    clip: Clip | None = found[1] if found is not None else None
+    existing = [k for k in clip.keyframes if k.property == "scale"] if clip is not None else []
+    if clip is None or not existing:
+        return [
+            {
+                "type": "add_keyframes",
+                "clipId": args.clip_id,
+                "keyframes": [k.model_dump(by_alias=True) for k in keyframes],
+            }
+        ]
+    # The clip's scale is already animated (a reframe_pan's cover zoom, an earlier punch):
+    # multiply onto it, written clear-then-add so the patch inverts to the exact prior curve.
+    composed = _compose_punch_on_scale(existing, keyframes, id_prefix)
+    _refuse_zoom_below_cover(ctx.project, clip, existing, composed)
     return [
+        {"type": "remove_keyframes", "clipId": args.clip_id, "targets": [{"property": "scale"}]},
         {
             "type": "add_keyframes",
             "clipId": args.clip_id,
-            "keyframes": [k.model_dump(by_alias=True) for k in keyframes],
-        }
+            "keyframes": [k.model_dump(by_alias=True) for k in composed],
+        },
     ]
 
 

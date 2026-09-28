@@ -93,6 +93,13 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
 - [x] **AL9** Effect catalogue digest carries description + default length per entry (+~16
   tokens/entry, default call 82 -> 440 tokens); `apply_effect` says accents belong on a moment;
   receipts name the effect and its range.
+- [x] **AL10** #139: `punch_in` on a clip whose scale is already keyframed (a `reframe_pan`
+  cover zoom, an earlier punch) multiplies that curve instead of replacing it; x/y untouched so
+  the pan keeps moving; a zoom-out below the cover is refused. Evidence: harness run 4 stripped
+  22 pans (19 remove_keyframes + 31 set_clip_crop) to punch in. TS + Python mirror; tests:
+  `reframe-pan.test.ts` (framePlanAt cover at sampled instants, window = pan × punch, undo),
+  `test_ai_tools.py`. Skills (vertical-reframe, keyframe-animation) updated. Not yet measured
+  on a live run.
 - [ ] **AL5** Follow-up: the model plan lives in conductor state only — a resume checkpoint and
   the next run in the conversation start without it (the model re-plans). Measure on a real
   long brief (desktop) before deciding whether to persist it in the working state (schema).
