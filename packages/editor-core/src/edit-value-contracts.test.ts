@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Effect, Keyframe } from '@framepilot/timeline-schema';
 import {
+  CLIP_TRANSFORM_PROPERTIES,
   audioFadeCurveSupported,
   audioGainContractIssue,
   clipKeyframeContractIssue,
@@ -24,10 +25,32 @@ const grade = (params: Record<string, unknown>, type = 'color_grade'): Effect =>
 
 describe('clip keyframe contract', () => {
   it('accepts every property the renderer composites', () => {
-    for (const property of ['scale', 'x', 'y', 'rotation', 'opacity'] as const) {
+    for (const property of CLIP_TRANSFORM_PROPERTIES) {
       const value = property === 'opacity' ? 0.5 : 1;
       expect(clipKeyframeContractIssue(keyframe({ property, value }))).toBeUndefined();
     }
+    expect([...CLIP_TRANSFORM_PROPERTIES]).toEqual([
+      'scale',
+      'x',
+      'y',
+      'rotation',
+      'opacity',
+      'scaleX',
+      'scaleY',
+    ]);
+  });
+
+  it('keeps a stretch strictly positive, as it keeps scale', () => {
+    for (const property of ['scaleX', 'scaleY'] as const) {
+      expect(clipKeyframeContractIssue(keyframe({ property, value: 0.25 }))).toBeUndefined();
+      expect(clipKeyframeContractIssue(keyframe({ property, value: 0 }))?.field).toBe('value');
+      expect(clipKeyframeContractIssue(keyframe({ property, value: -2 }))?.message).toMatch(
+        /greater than 0/,
+      );
+    }
+    expect(clipKeyframeContractIssue(keyframe({ property: 'scale', value: 0 }))?.message).toBe(
+      'Scale keyframes must be greater than 0.',
+    );
   });
 
   it('rejects a non-finite time or value before the range checks', () => {

@@ -14,7 +14,6 @@
  * desktop executor routes on them, exactly as it does for `track_subject_automatically`.
  */
 import { z } from 'zod/v4';
-import { CAPTION_FONT_CATALOG } from '@framepilot/timeline-schema/caption-fonts';
 import {
   EDGE_STYLE_CATALOG,
   EDGE_STYLE_EFFECT_TYPE,
@@ -69,7 +68,7 @@ import {
   buildShapePresetMaskOps,
   type CreateShapeMaskIntent,
 } from '../masking/shape-presets.js';
-import { boolean, numeric, seconds } from './tool-args.js';
+import { boolean, bundledFontFamily, cssFontWeight, numeric, seconds } from './tool-args.js';
 import { analysisTool, jsonSchema, mutateTool, readTool } from './tool-factories.js';
 import { MAX_TITLE_BOX_WIDTH_PERCENT, largestFittingSizePercent } from '../overlay-fit.js';
 
@@ -625,12 +624,6 @@ function refineMaskOps(args: z.infer<typeof RefineMaskArgsSchema>, ctx: ToolCont
   return chain.operations;
 }
 
-/** The bundled families a title can be drawn in — the caption font catalog, `render/fonts`. */
-const TITLE_FONT_FAMILIES = CAPTION_FONT_CATALOG.map((font) => font.family) as [
-  string,
-  ...string[],
-];
-
 const TextStyleSchema = z
   .object({
     sizePercent: numeric(z.number().positive().max(100)).optional(),
@@ -638,8 +631,8 @@ const TextStyleSchema = z
     align: z.enum(['left', 'center', 'right']).optional(),
     xPercent: numeric(z.number().min(0).max(100)).optional(),
     yPercent: numeric(z.number().min(0).max(100)).optional(),
-    fontFamily: z.enum(TITLE_FONT_FAMILIES).optional(),
-    fontWeight: numeric(z.number().int().min(100).max(900)).optional(),
+    fontFamily: bundledFontFamily.optional(),
+    fontWeight: cssFontWeight.optional(),
   })
   .strict();
 
@@ -709,7 +702,7 @@ const FollowSubjectArgsSchema = z
 
 /** MO-14: a clip transform that follows a track needs a schema field nobody has approved. */
 const REFUSE_FOLLOW_CLIP =
-  'A title or overlay cannot follow a tracked subject yet, so nothing was changed: FramePilot ' +
+  'A text overlay or other overlay cannot follow a tracked subject yet, so nothing was changed: FramePilot ' +
   'can make a MASK follow a track, not a clip. Tell the editor this is not available yet. To ' +
   'make a mask on that clip follow the subject instead, pass its targetMaskId.';
 
@@ -749,7 +742,7 @@ function followSubjectOps(
 }
 
 const REFUSE_LAYER_SOURCE =
-  'mask_with_layer needs exactly one source: sourceClipId (a clip, such as a title) or ' +
+  'mask_with_layer needs exactly one source: sourceClipId (a clip, such as a text overlay) or ' +
   'sourceTrackId (a whole track). Call get_clips for real ids.';
 
 /** `mask_with_layer`: one `add_track_matte`, the command the Mask tab's Track matte row runs. */
@@ -897,9 +890,9 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
     {
       name: 'put_text_behind_subject',
       description:
-        'Put a title between the subject and the background of ONE clip, for start–end seconds ' +
+        'Put a text overlay between the subject and the background of ONE clip, for start–end seconds ' +
         '(a moment, not the whole shot). The clip needs its background removed first ' +
-        '(remove_background); a second title on the same shot goes on the same layer. Call ' +
+        '(remove_background); a second text overlay on the same shot goes on the same layer. Call ' +
         'measure_subject with the same text and style first and use its xPercent, yPercent and ' +
         'sizePercent: it knows where the head is. A word too wide for the frame is fitted.',
       capabilities: ['masking', 'text'],
@@ -937,10 +930,10 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
       description:
         'Measure where the cut-out subject of ONE clip (background removed) sits on the frame ' +
         'over start–end: its box, the top of the head, the shoulder line, and how much of the ' +
-        "frame's width it covers in each tenth of the height. Give the title text and style you " +
-        'plan for put_text_behind_subject and it returns the xPercent/yPercent where the title ' +
+        "frame's width it covers in each tenth of the height. Give the text and style you " +
+        'plan for put_text_behind_subject and it returns the xPercent/yPercent where the text ' +
         'reads as behind them, the size that fits the frame, or why nothing works. Also use it to keep ' +
-        'captions and titles off the face. Measures; never edits.',
+        'captions and text overlays off the face. Measures; never edits.',
       capabilities: ['masking'],
       hostUiOnly: true,
     },
@@ -983,7 +976,7 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
         'Make a mask follow a subject that is ALREADY tracked: the target mask reuses the ' +
         'measured track of another mask (on the same clip or another one over the same ' +
         'picture). The source mask must be tracked first (track_mask, or create_mask with ' +
-        'track:true). A title or overlay cannot follow a track yet.',
+        'track:true). A text overlay or other overlay cannot follow a track yet.',
       capabilities: ['masking', 'tracking'],
       hostUiOnly: true,
     },
@@ -1008,7 +1001,7 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
     {
       name: 'mask_with_layer',
       description:
-        'Track matte and text-as-mask: use another clip (sourceClipId, e.g. a title for video ' +
+        'Track matte and text-as-mask: use another clip (sourceClipId, e.g. a text overlay for video ' +
         'inside text) or a whole track (sourceTrackId) as this clip’s mask. channel: alpha (its ' +
         'shape), luma (its brightness) or either inverted. The source is then no longer drawn ' +
         'on its own. Undo removes it.',
@@ -1023,7 +1016,7 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
       name: 'style_cutout_edge',
       description:
         'Outline, glow or drop shadow around a clip’s cut-out (a removed background or a mask ' +
-        'that keeps part of the clip), or around a sticker, photo or title as it is. preset ' +
+        'that keeps part of the clip), or around a sticker, photo or text overlay as it is. preset ' +
         'picks the look; color only if the editor named one; remove:true takes that style off. ' +
         'One of each style per clip.',
       capabilities: ['masking'],

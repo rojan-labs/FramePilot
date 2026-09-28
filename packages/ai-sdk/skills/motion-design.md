@@ -12,7 +12,7 @@ Coordinate multiple animated elements into one intentional visual system rather 
 
 ## When to use
 
-Graphic packages, repeated title behavior, UI/product demos, branded social edits, or “make the motion consistent.”
+Graphic packages, repeated text-overlay behavior, UI/product demos, branded social edits, or “make the motion consistent.”
 
 ## When not to use
 
@@ -58,4 +58,4 @@ Remove the lowest-priority motion first, then reduce travel and duration. If hie
 
 ## Related skills
 
-`keyframe-animation`, `titles-and-text`, `cut-and-transition-grammar`, `broll-and-layering`.
+`keyframe-animation`, `text-overlays`, `cut-and-transition-grammar`, `broll-and-layering`.

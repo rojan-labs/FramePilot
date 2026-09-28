@@ -14,11 +14,7 @@ import {
   type Patch,
 } from '@framepilot/editor-core';
 import type { CaptionStyle, Clip, TranscriptWord } from '@framepilot/timeline-schema';
-import {
-  CAPTION_FONT_CATALOG,
-  DEFAULT_CAPTION_FONT_FAMILY,
-  type CaptionFontCategory,
-} from '@framepilot/timeline-schema/caption-fonts';
+import { DEFAULT_CAPTION_FONT_FAMILY } from '@framepilot/timeline-schema/caption-fonts';
 import {
   CAPTION_TEMPLATE_CATALOG,
   DEFAULT_CAPTION_TEMPLATE_ID,
@@ -76,6 +72,7 @@ import {
 import type { UseEditor } from '../editor/useEditor.js';
 import { CaptionOverlay } from './CaptionOverlay.js';
 import { Select } from './Select.js';
+import { FontFamilySelect } from './FontFamilySelect.js';
 import { Slider } from './Slider.js';
 import { Tooltip } from './Tooltip.js';
 import './caption-workspace.css';
@@ -113,14 +110,6 @@ const MAX_CAPTION_DURATION_SECONDS = 7;
 const MAX_CAPTION_CHARS = 84;
 const MAX_READING_CHARS_PER_SECOND = 20;
 const NUDGE_SECONDS = 0.1;
-
-const FONT_CATEGORIES: readonly { id: CaptionFontCategory; label: string }[] = [
-  { id: 'sans', label: 'Sans serif' },
-  { id: 'display', label: 'Display' },
-  { id: 'serif', label: 'Serif' },
-  { id: 'mono', label: 'Monospace' },
-  { id: 'handwritten', label: 'Handwritten & script' },
-];
 
 const TEMPLATE_CATEGORIES: readonly { id: CaptionTemplateFilter; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -228,19 +217,6 @@ function captionWarnings(
   return warnings;
 }
 
-/**
- * Every bundled family, grouped by category (in {@link FONT_CATEGORIES} order)
- * and drawn in its own face. Built once: the catalog is static.
- */
-const FONT_OPTIONS = FONT_CATEGORIES.flatMap((category) =>
-  CAPTION_FONT_CATALOG.filter((font) => font.category === category.id).map((font) => ({
-    value: font.family,
-    label: font.family,
-    hint: category.label,
-    labelStyle: { fontFamily: `'${font.family}', var(--font-sans, sans-serif)` },
-  })),
-);
-
 function CaptionFontPicker({
   id,
   value,
@@ -255,14 +231,7 @@ function CaptionFontPicker({
   const label =
     id === 'caption-track-font-family' ? 'Font for all captions' : 'Font for selected cue';
   return (
-    <Select
-      id={id}
-      label={label}
-      value={value}
-      disabled={disabled}
-      options={FONT_OPTIONS}
-      onChange={onChange}
-    />
+    <FontFamilySelect id={id} label={label} value={value} disabled={disabled} onChange={onChange} />
   );
 }
 

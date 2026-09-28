@@ -77,7 +77,7 @@ export interface InspectorSelection {
    */
   readonly hasTransition: boolean;
   /**
-   * True when the selection is ONE clip on a graphics lane — a sticker, shape, title or picture
+   * True when the selection is ONE clip on a graphics lane — a sticker, shape, text overlay or picture
    * over the footage: the Animation section (In, Out, Loop; plan/elements EL7) edits it.
    */
   readonly hasAnimation: boolean;

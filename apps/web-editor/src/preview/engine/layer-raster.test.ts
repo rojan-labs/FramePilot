@@ -96,6 +96,29 @@ describe('layer raster steps mirror compile_timeline pixel decisions', () => {
     expect(step?.x).toBe(Math.trunc((1280 - (step?.resize?.width ?? 0)) / 2));
   });
 
+  it('resizes a stretched clip to a per-axis truncated size around the same centre', () => {
+    const kf = (property: string, value: number) =>
+      ({ id: property, property, time: 0, value, easing: 'linear' }) as const;
+    const c = clip('c', 'square', {
+      keyframes: [kf('scale', 0.5), kf('scaleX', 1.5), kf('scaleY', 0.8), kf('x', 30)],
+    });
+    const step = stepFor(c, video('square', 1080, 1080));
+    // 1080² fits 720² (base 2/3); × 0.5 = 360²; stretched to int(540) × int(288).
+    expect(step?.resize).toEqual({ width: 540, height: 288 });
+    expect(step?.x).toBe(Math.trunc(640 + 30 - 540 / 2));
+    expect(step?.y).toBe(Math.trunc(360 - 288 / 2));
+    // A stretch of exactly 1 on both axes is the unstretched placement.
+    const unit = stepFor(
+      clip('c', 'square', { keyframes: [kf('scale', 0.5), kf('scaleX', 1), kf('scaleY', 1)] }),
+      video('square', 1080, 1080),
+    );
+    const plain = stepFor(
+      clip('c', 'square', { keyframes: [kf('scale', 0.5)] }),
+      video('square', 1080, 1080),
+    );
+    expect(unit).toEqual(plain);
+  });
+
   it('caps a cropped clip decode and slices the crop with int() bounds', () => {
     const c = clip('c', 'land', { crop: { x: 0.25, y: 0.1, width: 0.5, height: 0.8 } });
     // cap = ceil(1280 / 0.5 * 1.25) = 3200 ≥ 1920: no scaling in the decoder.
@@ -384,6 +407,19 @@ describe('stills and titles take the picture pipeline (plan/elements EL2a)', () 
     const settled = titleStep(popping, 1);
     expect(settled?.resize).toBeNull();
     expect(settled?.x).toBe(540);
+  });
+
+  it('stretches a title per axis around its layout centre', () => {
+    const wide = title(
+      {},
+      {
+        keyframes: [{ id: 'sx', property: 'scaleX', time: 0, value: 2, easing: 'linear' }],
+      },
+    );
+    const step = titleStep(wide, 1);
+    expect(step?.resize).toEqual({ width: 400, height: 100 });
+    expect(step?.x).toBe(640 - 200);
+    expect(step?.y).toBe(360 - 50);
   });
 
   it('slides a title up by a share of the frame height', () => {

@@ -311,15 +311,23 @@
     },
     {
       "name": "discover_styles",
-      "description": "Search the real caption, effect, or transition catalogs through one discovery contract.",
+      "description": "Search the real caption, text overlay, effect, or transition catalogs through one discovery contract.",
       "stages": ["understand", "edit"],
       "status": "ready",
       "kind": "composite",
-      "internalRoutes": ["discover_caption_styles", "discover_effects", "discover_transitions"],
+      "internalRoutes": [
+        "discover_caption_styles",
+        "discover_text_overlay_styles",
+        "discover_effects",
+        "discover_transitions"
+      ],
       "inputSchema": {
         "type": "object",
         "properties": {
-          "kind": { "type": "string", "enum": ["captions", "effects", "transitions"] },
+          "kind": {
+            "type": "string",
+            "enum": ["captions", "text_overlays", "effects", "transitions"]
+          },
           "query": { "type": "string" }
         },
         "required": ["kind"],

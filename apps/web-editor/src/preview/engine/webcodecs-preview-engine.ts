@@ -995,7 +995,9 @@ export class WebCodecsPreviewEngine {
     // clockwise-positive convention; see `pictureTransformAt` for why that matters.
     pictureCtx.translate(cw / 2 + picture.dxPx, ch / 2 + picture.dyPx);
     if (picture.rotationRad !== 0) pictureCtx.rotate(picture.rotationRad);
-    pictureCtx.scale(picture.scale, picture.scale);
+    // Per axis: a `scaleX`/`scaleY` stretch squashes the picture in its own axes, before the
+    // rotation above turns it, as the export resizes to (w, h) and then rotates.
+    pictureCtx.scale(picture.scaleX, picture.scaleY);
     // CROP FILLS, as it does in the export: the cropped region is scaled up to the frame,
     // not masked in place over a letterboxed full frame. Masking is what made a 9:16 slice of
     // 16:9 footage read as a small picture floating in black on the monitor while exporting

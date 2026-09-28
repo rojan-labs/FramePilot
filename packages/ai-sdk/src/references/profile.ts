@@ -180,13 +180,13 @@ export function renderConstraints(args: {
     if (role === 'color')
       lines.push('Apply: grade toward this look (apply_color_grade); keep skin tones natural');
     if (role === 'thumbnail')
-      lines.push('Apply: the opening frame and titles should echo this composition');
+      lines.push('Apply: the opening frame and text overlays should echo this composition');
     if (role === 'b-roll') lines.push('Apply: place as a cutaway where the dialogue refers to it');
     if (role === 'character')
       lines.push(
         'Apply: keep this person framed and in focus; prefer shots where they are visible',
       );
-    if (role === 'design') lines.push('Apply: titles and text follow this layout and typography');
+    if (role === 'design') lines.push('Apply: text overlays follow this layout and typography');
   }
   return lines.slice(0, 12);
 }

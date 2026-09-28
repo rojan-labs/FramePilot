@@ -42,6 +42,11 @@ import { EDGE_STYLE_CATALOG, EDGE_STYLE_KINDS, EDGE_STYLE_PARAMS } from '../dist
 import { TRANSITION_CATALOG, TRANSITION_CATEGORIES } from '../dist/transition-catalog.js';
 import { FEATURED_SHAPE_PRESET_IDS, SHAPE_CATALOG } from '../dist/shape-catalog.js';
 import {
+  DEFAULT_TEXT_OVERLAY_STYLE_ID,
+  TEXT_OVERLAY_STYLE_CATALOG,
+  TEXT_OVERLAY_STYLE_CATEGORIES,
+} from '../dist/text-overlay-styles.js';
+import {
   TRANSITION_APPLY_PATH,
   TRANSITION_EXIT_BY_MASK,
   TRANSITION_DIRECTIONS,
@@ -226,3 +231,29 @@ const shapePaths = [
   ),
 ];
 for (const outPath of shapePaths) writeJson(outPath, shapes);
+
+// 6. `schema/text-overlay-styles.json` — the text overlay style catalog, copied into the engine's
+//    AI tool package (NOT `render/`): nothing resolves a style id at render time — a style is
+//    written into the overlay's params when it is applied — so the only Python reader is the
+//    `add_text_layer` twin, which must write the same look the TS tool writes. Drift is guarded
+//    by `text-overlay-styles.test.ts` (TS) and `test_text_overlay_styles.py` (engine).
+const textOverlayStyles = {
+  defaultStyleId: DEFAULT_TEXT_OVERLAY_STYLE_ID,
+  categories: TEXT_OVERLAY_STYLE_CATEGORIES,
+  styles: TEXT_OVERLAY_STYLE_CATALOG,
+};
+const textOverlayStylePaths = [
+  path.join(here, '..', 'schema', 'text-overlay-styles.json'),
+  path.join(
+    here,
+    '..',
+    '..',
+    '..',
+    'engine',
+    'python',
+    'framepilot_engine',
+    'ai_tools',
+    'text_overlay_styles.json',
+  ),
+];
+for (const outPath of textOverlayStylePaths) writeJson(outPath, textOverlayStyles);

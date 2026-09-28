@@ -1,0 +1,243 @@
+/**
+ * Text overlays from templates, and text overlays in caption typography, in the web editor: the patches the
+ * Text panel builds and the CSS the preview draws a typed text overlay with.
+ */
+import { describe, expect, it } from 'vitest';
+import type { Timeline } from '@framepilot/timeline-schema';
+import {
+  DEFAULT_TEXT_OVERLAY_STYLE_ID,
+  getTextOverlayStyle,
+  type TextOverlayTypography,
+} from '@framepilot/timeline-schema/text-overlay-styles';
+import { applyUserPatch, createEditorState, undoEdit } from './store.js';
+import {
+  DEFAULT_TEXT_PARAMS,
+  addTextOverlayFromStylePatch,
+  applyTextOverlayStylePatch,
+  readTextParams,
+  setTextParamsPatch,
+  type TextOverlayParams,
+} from './patch-builders.js';
+import { demoAssetIds, demoTimeline } from './demo.js';
+import {
+  TEXT_HIT_TARGET_STYLE,
+  textOverlayStyle,
+  textOverlayTypographyCss,
+} from './textOverlay.js';
+
+const timeline: Timeline = {
+  ...demoTimeline,
+  tracks: [...demoTimeline.tracks, { id: 'overlay_1', type: 'overlay', clips: [] }],
+};
+
+function clipById(tl: Timeline, id: string) {
+  return tl.tracks.flatMap((t) => t.clips).find((c) => c.id === id);
+}
+
+function addTitle(templateId: string, start = 1, text?: string) {
+  const state = createEditorState(timeline, demoAssetIds);
+  const built = addTextOverlayFromStylePatch(
+    timeline,
+    'overlay_1',
+    templateId,
+    start,
+    start + 3,
+    text,
+  );
+  expect(built).not.toBeNull();
+  const next = applyUserPatch(state, built!.patch);
+  expect(next.issues).toEqual([]);
+  return { state: next, clipId: built!.clipId };
+}
+
+describe('addTextOverlayFromStylePatch', () => {
+  it('adds a text overlay in the whole look, validated, as one undoable patch', () => {
+    const { state, clipId } = addTitle('hook');
+    const clip = clipById(state.timeline, clipId)!;
+    const params = readTextParams(clip);
+    const hook = getTextOverlayStyle('hook')!;
+    expect(params).toMatchObject({
+      text: hook.sampleText,
+      fontFamily: hook.look.fontFamily,
+      fontWeight: hook.look.fontWeight,
+      color: hook.look.color,
+      background: hook.look.background,
+      yPercent: hook.look.yPercent,
+      templateId: 'hook',
+    });
+    expect(params.typography).toEqual(hook.look.typography);
+    const undone = undoEdit(state);
+    expect(clipById(undone.timeline, clipId)).toBeUndefined();
+  });
+
+  it('starts with the text it is given', () => {
+    const { state, clipId } = addTitle(DEFAULT_TEXT_OVERLAY_STYLE_ID, 1, 'Launch day');
+    expect(readTextParams(clipById(state.timeline, clipId)!).text).toBe('Launch day');
+  });
+
+  it('stacks a second text overlay at the same time on a new layer instead of refusing it', () => {
+    const { state } = addTitle('heading', 1);
+    const second = addTextOverlayFromStylePatch(state.timeline, 'overlay_1', 'body', 2, 4)!;
+    expect(second.patch.operations[0]?.type).toBe('add_layer');
+    const next = applyUserPatch(state, second.patch);
+    expect(next.issues).toEqual([]);
+    expect(clipById(next.timeline, second.clipId)).toBeDefined();
+  });
+
+  it('refuses an unknown template, an unknown track and an empty span', () => {
+    expect(addTextOverlayFromStylePatch(timeline, 'overlay_1', 'nope', 0, 3)).toBeNull();
+    expect(addTextOverlayFromStylePatch(timeline, 'nope', 'heading', 0, 3)).toBeNull();
+    expect(addTextOverlayFromStylePatch(timeline, 'overlay_1', 'heading', 2, 2)).toBeNull();
+  });
+});
+
+describe('applyTextOverlayStylePatch', () => {
+  it('restyles a text overlay but keeps its text, place and wrap width', () => {
+    const { state, clipId } = addTitle('heading', 1, 'Keep me');
+    const moved = applyUserPatch(
+      state,
+      setTextParamsPatch(state.timeline, clipId, {
+        xPercent: 20,
+        yPercent: 30,
+        boxWidthPercent: 40,
+      })!,
+    );
+    const restyled = applyUserPatch(
+      moved,
+      applyTextOverlayStylePatch(moved.timeline, clipId, 'retro-pop')!,
+    );
+    expect(restyled.issues).toEqual([]);
+    const params = readTextParams(clipById(restyled.timeline, clipId)!);
+    const retro = getTextOverlayStyle('retro-pop')!.look;
+    expect(params).toMatchObject({
+      text: 'Keep me',
+      xPercent: 20,
+      yPercent: 30,
+      boxWidthPercent: 40,
+      fontFamily: retro.fontFamily,
+      color: retro.color,
+      templateId: 'retro-pop',
+    });
+    expect(params.typography).toEqual(retro.typography);
+  });
+
+  it('refuses a clip that is not a text overlay and an unknown template', () => {
+    const { state, clipId } = addTitle('heading');
+    expect(applyTextOverlayStylePatch(state.timeline, 'clip_intro', 'heading')).toBeNull();
+    expect(applyTextOverlayStylePatch(state.timeline, clipId, 'nope')).toBeNull();
+  });
+});
+
+describe('readTextParams typography', () => {
+  it('ignores a typography that does not validate, as the engine does', () => {
+    const clip = {
+      effects: [{ id: 'e', type: 'text', params: { text: 'Hi', typography: { textOpacity: 9 } } }],
+    };
+    expect(readTextParams(clip).typography).toBeUndefined();
+  });
+});
+
+describe('textOverlayTypographyCss', () => {
+  const typed = (typography: TextOverlayTypography, extra = {}): TextOverlayParams => ({
+    ...DEFAULT_TEXT_PARAMS,
+    fontFamily: 'Anton',
+    fontWeight: 400,
+    ...extra,
+    typography,
+  });
+
+  it('is null for a plain text overlay, whose preview is unchanged', () => {
+    expect(textOverlayTypographyCss(DEFAULT_TEXT_PARAMS)).toBeNull();
+    const style = textOverlayStyle(DEFAULT_TEXT_PARAMS, 2, 5);
+    expect(style.width).toBe('80%');
+    expect(style.fontFamily).toBe('Inter');
+  });
+
+  it('draws the caption CSS: family, case, tracking, outline, shadow and a hugging chip', () => {
+    const style = textOverlayStyle(
+      typed(
+        {
+          textTransform: 'uppercase',
+          letterSpacing: 0.1,
+          outlineColor: '#000000',
+          outlineWidth: 2,
+          shadow: { color: '#000000', blur: 0, offsetX: 0.05, offsetY: 0.07 },
+          background: { radius: 0.2, paddingX: 0.5, paddingY: 0.25 },
+        },
+        { background: '#ff2e4d', boxWidthPercent: 60 },
+      ),
+      2,
+      5,
+    );
+    expect(style).toMatchObject({
+      fontFamily: 'Anton',
+      textTransform: 'uppercase',
+      letterSpacing: '0.1em',
+      WebkitTextStroke: '0.25em #000000',
+      textShadow: '0.05em 0.07em 0em #000000',
+      backgroundColor: '#ff2e4d',
+      borderRadius: '0.2em',
+      padding: '0.25em 0.5em',
+      width: 'max-content',
+      maxWidth: '60%',
+      fontSize: '8cqh',
+      fontSynthesis: 'none',
+    });
+  });
+
+  it('wraps where the export does: the chip padding is reserved with or without a chip', () => {
+    const bare = textOverlayTypographyCss(typed({}))!;
+    expect(bare).toMatchObject({ padding: '0.35em 0.35em', boxSizing: 'border-box' });
+    expect(bare.backgroundColor).toBeUndefined();
+    const chip = textOverlayTypographyCss(
+      typed({ background: { paddingX: 0.6, paddingY: 0.3 } }, { background: '#000000' }),
+    )!;
+    expect(chip).toMatchObject({ padding: '0.3em 0.6em', boxSizing: 'border-box' });
+  });
+
+  it('keeps a hollow text overlay visible and its ring at the export width', () => {
+    const hollow = textOverlayTypographyCss(
+      typed({ textOpacity: 0, outlineColor: '#ffffff', outlineWidth: 1.5 }),
+    )!;
+    expect(hollow.WebkitTextStroke).toBe('0.09375em #ffffff');
+    const bare = textOverlayTypographyCss(typed({ textOpacity: 0 }))!;
+    expect(bare.WebkitTextStroke).toBe('1px #ffffff');
+  });
+});
+
+describe('TEXT_HIT_TARGET_STYLE', () => {
+  it('overrides every paint key a text overlay style can have, by the same key', () => {
+    const painted = textOverlayStyle(
+      {
+        ...DEFAULT_TEXT_PARAMS,
+        background: '#ff2e4d',
+        typography: {
+          outlineColor: '#000000',
+          outlineWidth: 2,
+          shadow: { color: '#000000', blur: 0.2, offsetX: 0, offsetY: 0.06 },
+          background: { borderColor: '#ffffff73', borderWidth: 1 },
+        },
+      },
+      1,
+      3,
+    );
+    const plain = textOverlayStyle({ ...DEFAULT_TEXT_PARAMS, background: '#000000' }, 1, 3);
+    const paintKeys = [
+      'color',
+      'background',
+      'backgroundColor',
+      'backgroundImage',
+      'textShadow',
+      'WebkitTextStroke',
+      'boxShadow',
+      'backdropFilter',
+      'WebkitBackdropFilter',
+    ];
+    for (const style of [painted, plain]) {
+      expect(style).not.toHaveProperty('background');
+      for (const key of paintKeys) {
+        if (key in style) expect(TEXT_HIT_TARGET_STYLE, key).toHaveProperty(key);
+      }
+    }
+  });
+});

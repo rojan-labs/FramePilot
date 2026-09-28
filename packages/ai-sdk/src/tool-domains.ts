@@ -73,7 +73,8 @@ export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string
   color:
     'grade the picture — the colour and look pass of a professional edit: match shots to each other, even out exposure, apply a cinematic look, grade directly; measure what is on screen now',
   motion: 'keyframes, punch-ins, camera moves and speed ramps',
-  effects: 'effects, transitions and on-screen text; browse what is available; verify fit',
+  effects:
+    'effects, transitions and on-screen text in designed styles and bundled fonts; browse what is available; verify fit',
   // Plan/elements: the words a screen-recording or product-demo request uses.
   elements:
     'stickers and emoji, and shapes over the picture — highlight boxes, arrows, circles, markers, underlines, callouts, numbered badges, stars, icons; find, place, restyle and move them, and animate them in, out and on a loop',
@@ -215,6 +216,7 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'set_clip_blend_mode',
     'discover_effects',
     'discover_transitions',
+    'discover_text_overlay_styles',
     'verify_transitions',
   ],
   elements: [
@@ -373,7 +375,7 @@ export const DOMAIN_LABEL: Readonly<Record<Exclude<ToolDomain, 'core'>, string>>
   captions: 'Captions',
   audio: 'Audio clean-up',
   motion: 'Motion and reframing',
-  effects: 'Transitions, titles and effects',
+  effects: 'Transitions, text overlays and effects',
   elements: 'Stickers and shapes',
   footage: 'Footage search',
   tracking: 'Tracking',

@@ -59,4 +59,4 @@ If the moved excerpt feels contextless, add the minimum bridge after it or choos
 
 ## Related skills
 
-`short-form-pacing`, `story-structure`, `titles-and-text`, `footage-intelligence`.
+`short-form-pacing`, `story-structure`, `text-overlays`, `footage-intelligence`.

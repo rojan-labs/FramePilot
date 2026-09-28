@@ -8255,7 +8255,7 @@ Three-task unit of work on `feat/agent-ux-and-skills` (shipped as separate commi
       against `render/color.py`), `audio-polish` (split-based ducking — gain is
       per-clip constant), `cut-and-transition-grammar`, `vertical-reframe` (crop-rect
       math), `broll-and-layering`, `beat-synced-editing`, `speed-ramping` (split-based
-      ramps — speed is per-clip constant), `titles-and-text`, `story-structure`,
+      ramps — speed is per-clip constant), `text-overlays`, `story-structure`,
       `finishing-and-delivery`. Fixed factual errors in `keyframe-animation`
       (`ease_out` → `ease-out`, `punch_in` has `startTime`/`endTime` not `time`,
       properties are `scale`/`x`/`y`/`rotation`/`opacity`); `short-form-pacing` now
@@ -10433,7 +10433,100 @@ stickers, CC BY 4.0 (EL10).
   the archive at packaging so main checks the set against it
   (`docs/runbooks/security-hardening.md`, 2026-09-26 packaged set review).
 
-**Last updated:** 2026-09-26
+## Text panel — text overlay templates in caption typography — `[x]` done (2026-09-28, follow-ups filed in TX7)
+
+Maintainer (2026-09-28): "the Overlay panel is not nice … the typography should sync with the
+captions typography … rethink the overlay panel exploring the competitors … there should be
+templates of the text overlays". Branch `rjach/Overlay-Typography`.
+
+Scope gate. **Outcome:** a creator adds a designed text overlay (heading, lower third, callout, quote,
+subscribe card) in one click, in the same fonts and looks their captions use, and the export
+draws exactly that. **Gap:** the Text panel builds a text overlay from a form whose style tiles and
+9-point position were preview-only (never saved, never exported); text overlays offer six system font
+names the export does not bundle, and none of the caption typography (outline, shadow, chip,
+case, spacing, italic, see-through letters). **Slice:** text overlay typography = the caption style's
+line-level fields, drawn by the caption rasterizer the export and the desktop monitor already
+share; a pure-data text overlay template catalog; a template-first panel; the Inspector's font list and
+typography controls from the caption catalog. **Reuse:** `CaptionStyle` fields and
+`render_caption_raster`, `captionLineCss`/`captionBoxCss`, the bundled caption fonts,
+`add_text_overlay` + `set_effect_params` (the `add_text_layer` pattern), the lane allocator.
+**Deferred:** frosted-glass chips on text overlays (the text overlay pipeline has no backdrop pass), per-word
+accent/highlight on text overlays (word-timed), animated caption entrances on text overlays (text overlays animate
+through the Animation section's layer transitions), an AI `template` argument. **Evidence:**
+engine raster tests for styled text overlays (typography changes pixels, legacy text overlays unchanged),
+catalog tests (fonts bundled, weights in range, hex colours), panel/Inspector component tests.
+
+- [x] **TX1** Text overlay typography: `TextOverlayParams.typography` (caption-style line fields) and one
+  mapping to a `CaptionStyle` per runtime; the engine draws a typed text overlay through
+  `render_caption_raster` (export + desktop monitor), untyped text overlays unchanged. (`f45a9e91`,
+  `393c4cfc`; engine tests `test_text_overlay_typography.py`.)
+- [x] **TX2** Overlay style catalog (`timeline-schema/text-overlay-styles.ts`): 59 styles of their own in
+  eight categories (Script and Retro & fun added), catalog invariants tested (fonts, weights,
+  italics, hex, separation layer, unique names, >= 5 per category). (`2eafb36c`, `9c569a75`)
+  **Maintainer correction (2026-09-28):** "whatever fonts are available on the captions they should
+  be available on the overlay … multiple styles of overlays as templates". The first revision
+  mapped the 68 caption templates across as "Caption looks"; that was not wanted and is reverted.
+  Captions and overlays share fonts and the typography vocabulary, not each other's looks.
+- [x] **TX3** Browser preview draws text overlay typography (DOM text overlay and on-canvas editor through the
+  caption CSS). The typed box reserves the caption renderer's padding, so it wraps where the
+  export does (`26f8f43e`). The desktop hit target over the engine raster paints nothing.
+- [x] **TX4** Text panel rebuilt with Styles and Fonts tabs: quick add, search, category chips,
+  Recent, a live style grid (click adds at the playhead and selects; drag onto a lane; Apply
+  restyles the selected text overlay), text overlays from every lane; Fonts lists all 92 caption fonts in their
+  own face (click sets the selected text overlay's font or adds a heading in it; lazy rows). A project
+  without an overlay lane gets one. (`07b0611a`, `5c54a620`, `8125362b`)
+- [x] **TX4b** Review fixes (`f1ab2314`): desktop hit target could paint a changed chip over the
+  raster (shorthand/longhand style keys); wrapped text overlays' chip wider in the preview than the export
+  (`useHugLines`); engine accepted typography the preview rejects; typed text overlays with no stored
+  family/size used Pillow's default face in the export.
+- [x] **TX5** Inspector: bundled caption fonts through the shared `FontFamilySelect`, weights from
+  the family, italic only where shipped, and the typography rows. A plain text overlay converts from
+  `PLAIN_TEXT_OVERLAY_TYPOGRAPHY`. (`c8605b01`)
+- [x] **TX6** Docs: ADR 0194, `docs/guides/text-overlays.md`, CHANGELOG, website changelog.
+- Evidence: engine contact sheet of 20 templates through `rasterize_text_overlay` (the export
+  call) matched the panel tiles; the panel, restyle and Inspector were checked in the running app.
+  That check found three defects (a project with no overlay lane had every button disabled; the
+  grid collapsed to one column; the 9:16 lower third wrapped), and the engine sheet found the wrap
+  gap fixed in TX3. All are fixed.
+- [x] **TX8** The assistant can use the text overlay styles: `add_text_layer` takes `style` (a
+  catalog id enum; its whole look via the shared `textOverlayLookParams`, explicit args override
+  field by field) and `fontFamily`/`fontWeight` (bundled fonts enum); the fit measures the style's
+  face and case and keeps a widened box in frame. `discover_text_overlay_styles` lists the styles
+  with a look line derived from the data; `text-overlays` skill updated. Python twin mirrors it
+  from a packaged catalog copy (`schema:generate`, drift-tested). Goldens: +36/37 tokens per
+  request (skills manifest +27, tool definitions +9/10); with the `effects` domain loaded
+  `add_text_layer` grows 372 → 945 tokens (font enum ~300, style enum ~180) plus ~150 for the
+  discovery tool.
+- [x] **TX9** Frosted-glass chips on text overlays (maintainer, 2026-09-28: "frosted glass
+  backgrounds also needs to be added … make sure export and preview does same"). The chip's `blur`
+  is a backdrop pass placed through the layer's own geometric steps (`_place_text_backdrop`),
+  blurred under it by the per-layer compositor `_composite_frosted`. It is mirrored in the
+  desktop/browser compositor (`frostCoverageStep`, `pasteBlurred`), and the Inspector has a
+  **Frost** row. (`3afbf3a1`, `0fa48cce`, `c910bb0d`, `7fd35f4d`; engine
+  `test_text_overlay_frost.py`, compositor upload tests.) The autonomous `discover_styles`
+  routes `text_overlays` too (`bcdee904`).
+- [x] **TX7** Follow-ups, filed as issues (2026-09-28): frost ignores the overlay's masks and
+  edge styles (#141); typography in the browser-only fallback raster `text-raster.ts` (#142);
+  duplicate derived text clip id after a lane move, pre-existing (#143); the caption preview's
+  chipless wrap padding (#144); saved user styles (#145); `title_metrics` / `subject_layout`
+  measure the plain layout (#146). The fit's remaining gaps are noted on #135.
+- [x] **BB1** Non-uniform stretch (scaleX/scaleY) in the transform model, export and preview
+  (`328a4cfe`, `0934eb68`, `6e2bdc60`, `97e669be`), the AI surface (`c087830a`) and the
+  Inspector's Stretch X/Y rows (`7fd35f4d`).
+- [x] **BB2** One bounding box for every layer (ADR 0195, `docs/guides/monitor-bounding-box.md`).
+  - Pure project-pixel geometry (`41c58aa9`), the UI-only `TransformBox` and its adapters
+    (`5d55afa1`).
+  - Pictures on both monitors with live compositor preview (`3c00459b`), text overlays
+    (`03431a05`) and box shapes (`9e6caac0`), one patch per gesture.
+  - `PreviewTransform` deleted. The browser monitor now draws rotation and stretch.
+  - Evidence: geometry/adapter/component tests, and the e2e selectors moved to the box's names.
+- [x] **BB3** The box draws in an unclipped, unscaled chrome layer over the frame (`075be913`). The
+  lollipop and readout move to where the monitor leaves room (`ed404a33`). Checked in the running
+  app: the se-handle resize kept the aspect (360×640 → 256×455), the full-frame clip's lollipop
+  sat inside the top edge and turned the clip (-76°), and at 200% zoom the chrome stayed
+  1.5 px / 8 px.
+
+**Last updated:** 2026-09-28
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)

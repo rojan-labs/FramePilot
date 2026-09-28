@@ -81,6 +81,14 @@ export interface FramePlanGeometry {
   readonly top: number | null;
   readonly width: number | null;
   readonly height: number | null;
+  /**
+   * The clip's non-uniform stretch (`scaleX`/`scaleY` keyframes) on top of `scale`: the layer's
+   * horizontal scale is `scale * stretchX`, its vertical `scale * stretchY`, applied in the
+   * layer's own axes before rotation. Present only when the layer is stretched, so plans of
+   * unstretched layers are unchanged; absent means 1.
+   */
+  readonly stretchX?: number;
+  readonly stretchY?: number;
 }
 
 export interface FramePlanTransition {
@@ -467,6 +475,9 @@ function layerIsActive(start: number, end: number, t: number): boolean {
 
 interface ClipTransform {
   readonly scale: number;
+  /** Non-uniform stretch on top of `scale` (`evaluate_clip_transform`'s `scale_x`/`scale_y`). */
+  readonly scaleX: number;
+  readonly scaleY: number;
   readonly x: number;
   readonly y: number;
   readonly rotation: number;
@@ -514,6 +525,8 @@ function evaluateClipTransform(keyframes: readonly Keyframe[], t: number): ClipT
   const opacity = value('opacity', 1);
   return {
     scale: value('scale', 1),
+    scaleX: value('scaleX', 1),
+    scaleY: value('scaleY', 1),
     x: value('x', 0),
     y: value('y', 0),
     rotation: value('rotation', 0),
@@ -529,6 +542,16 @@ function layerScaleAt(
   let scale = evaluateClipTransform(keyframes, t).scale;
   if (tr !== null && GEOMETRY_KINDS.has(tr.kind)) scale *= transitionScaleAt(tr, t);
   return scale;
+}
+
+/**
+ * The geometry's `stretchX`/`stretchY` fields: written only when the layer is stretched
+ * (`LayerGeometry.to_json`), so an unstretched plan carries neither.
+ */
+function stretchFields(transform: ClipTransform): Pick<FramePlanGeometry, 'stretchX' | 'stretchY'> {
+  return transform.scaleX !== 1 || transform.scaleY !== 1
+    ? { stretchX: transform.scaleX, stretchY: transform.scaleY }
+    : {};
 }
 
 // ---------------------------------------------------------------------------
@@ -859,8 +882,9 @@ function pictureGeometry(
   const base = Math.min(ctx.width / sourceW, ctx.height / sourceH);
   const scale = base * layerScaleAt(keyframes, local, tr);
   const transform = evaluateClipTransform(keyframes, local);
-  const width = sourceW * scale;
-  const height = sourceH * scale;
+  // `layer_axis_scales_at`: per axis, scale × stretch (× 1 exactly when unstretched).
+  const width = sourceW * (scale * transform.scaleX);
+  const height = sourceH * (scale * transform.scaleY);
   const [dx, dy] =
     tr !== null && GEOMETRY_KINDS.has(tr.kind)
       ? transitionOffsetAt(tr, local, ctx.width, ctx.height)
@@ -877,6 +901,7 @@ function pictureGeometry(
     top,
     width,
     height,
+    ...stretchFields(transform),
   };
 }
 
@@ -1173,6 +1198,7 @@ function textLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer | nul
       top: null,
       width: null,
       height: null,
+      ...stretchFields(transform),
     },
     opacity: layerOpacityAt(clip, local, tr),
     blendMode: clip.blendMode ?? 'normal',
@@ -1206,8 +1232,8 @@ function shapeLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer | nu
   if (geometric) scale *= transitionScaleAt(tr, local);
   const anchorX = centreX + transform.x + dx;
   const anchorY = centreY + transform.y + dy;
-  const width = bounds.width * scale;
-  const height = bounds.height * scale;
+  const width = bounds.width * (scale * transform.scaleX);
+  const height = bounds.height * (scale * transform.scaleY);
   return {
     ...baseLayer('shape', track.id, clip.id, local),
     geometry: {
@@ -1220,6 +1246,7 @@ function shapeLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer | nu
       top: anchorY - height / 2,
       width,
       height,
+      ...stretchFields(transform),
     },
     opacity: layerOpacityAt(clip, local, tr),
     blendMode: clip.blendMode ?? 'normal',

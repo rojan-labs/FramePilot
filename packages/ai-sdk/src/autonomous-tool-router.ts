@@ -308,6 +308,7 @@ function routeDiscovery(
   const query = optionalString(args.query);
   const names: Record<string, string> = {
     captions: 'discover_caption_styles',
+    text_overlays: 'discover_text_overlay_styles',
     effects: 'discover_effects',
     transitions: 'discover_transitions',
   };

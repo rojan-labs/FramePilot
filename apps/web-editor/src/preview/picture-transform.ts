@@ -55,7 +55,15 @@ export const NO_TRANSITION: TransitionContribution = {
 
 /** The composited picture transform, in the canvas's own units and conventions. */
 export interface PictureTransform {
+  /** The uniform scale: authored `scale` × the transition's zoom. */
   readonly scale: number;
+  /**
+   * The per-axis scale actually drawn: `scale` × the clip's `scaleX`/`scaleY` stretch (1 when it
+   * has none). Applied in the picture's own axes, before rotation, as the export resizes to a
+   * per-axis size and then rotates (`_place_video_clip`).
+   */
+  readonly scaleX: number;
+  readonly scaleY: number;
   /**
    * Rotation in RADIANS, in the canvas's clockwise-positive convention — i.e.
    * already negated from the project's anticlockwise-positive degrees. Pass
@@ -90,8 +98,11 @@ export function rotationToCssDegrees(degreesAnticlockwise: number): number {
   return -degreesAnticlockwise;
 }
 
-/** The four transform properties the on-canvas handles write at time 0. */
+/** The four transform properties the on-canvas handles always write at time 0. */
 const BASE_TRANSFORM_PROPERTIES = ['scale', 'x', 'y', 'rotation'] as const;
+
+/** The stretch pair a freeform (Shift) resize writes; see {@link withBaseTransform}. */
+const STRETCH_PROPERTIES = ['scaleX', 'scaleY'] as const;
 
 /** A base transform, as the on-canvas handles express it. */
 export interface BaseTransform {
@@ -99,6 +110,12 @@ export interface BaseTransform {
   readonly x: number;
   readonly y: number;
   readonly rotation?: number;
+  /**
+   * Non-uniform stretch on top of `scale` (1 = none): width is fit × scale × scaleX, height
+   * fit × scale × scaleY. Omitted means "leave the clip's stretch alone".
+   */
+  readonly scaleX?: number;
+  readonly scaleY?: number;
 }
 
 /**
@@ -115,15 +132,26 @@ export interface BaseTransform {
  * Keyframes at other times are preserved, so dragging the base transform of an
  * animated clip previews the animation from its new starting point instead of
  * flattening it.
+ *
+ * `scaleX`/`scaleY` are written only when given and either not 1 or already keyframed on the
+ * clip: an unstretched clip previews with no stretch keyframes at all, exactly as it renders.
  */
 export function withBaseTransform(
   keyframes: readonly Keyframe[],
   values: BaseTransform,
 ): readonly Keyframe[] {
+  const stretch = STRETCH_PROPERTIES.flatMap((property) => {
+    const value = values[property];
+    if (value === undefined) return [];
+    const keyed = keyframes.some((keyframe) => keyframe.property === property);
+    return value !== 1 || keyed ? [{ property, value }] : [];
+  });
+  const written = new Set<string>([
+    ...BASE_TRANSFORM_PROPERTIES,
+    ...stretch.map(({ property }) => property),
+  ]);
   const kept = keyframes.filter(
-    (keyframe) =>
-      keyframe.time !== 0 ||
-      !(BASE_TRANSFORM_PROPERTIES as readonly string[]).includes(keyframe.property),
+    (keyframe) => keyframe.time !== 0 || !written.has(keyframe.property),
   );
   const base: Keyframe[] = [
     { id: 'preview_base_scale', time: 0, property: 'scale', value: values.scale, easing: 'linear' },
@@ -136,6 +164,13 @@ export function withBaseTransform(
       value: values.rotation ?? 0,
       easing: 'linear',
     },
+    ...stretch.map(({ property, value }): Keyframe => ({
+      id: `preview_base_${property}`,
+      time: 0,
+      property,
+      value,
+      easing: 'linear',
+    })),
   ];
   return [...base, ...kept];
 }
@@ -154,6 +189,8 @@ export function baseTransformOf(keyframes: readonly Keyframe[]): Required<BaseTr
     x: evaluateKeyframes(keyframes, 'x', 0) ?? 0,
     y: evaluateKeyframes(keyframes, 'y', 0) ?? 0,
     rotation: evaluateKeyframes(keyframes, 'rotation', 0) ?? 0,
+    scaleX: evaluateKeyframes(keyframes, 'scaleX', 0) ?? 1,
+    scaleY: evaluateKeyframes(keyframes, 'scaleY', 0) ?? 1,
   };
 }
 
@@ -162,7 +199,7 @@ export function baseTransformOf(keyframes: readonly Keyframe[]): Required<BaseTr
  *
  * Every property falls back to its identity when the clip has no keyframes for it,
  * matching `evaluate_clip_transform`: a clip animating only `scale` leaves
- * position, rotation and opacity alone.
+ * position, rotation, stretch and opacity alone.
  */
 export function pictureTransformAt(
   keyframes: readonly Keyframe[],
@@ -172,6 +209,8 @@ export function pictureTransformAt(
   transition: TransitionContribution = NO_TRANSITION,
 ): PictureTransform {
   const scale = (evaluateKeyframes(keyframes, 'scale', clipTime) ?? 1) * transition.scale;
+  const stretchX = evaluateKeyframes(keyframes, 'scaleX', clipTime) ?? 1;
+  const stretchY = evaluateKeyframes(keyframes, 'scaleY', clipTime) ?? 1;
   const x = evaluateKeyframes(keyframes, 'x', clipTime) ?? 0;
   const y = evaluateKeyframes(keyframes, 'y', clipTime) ?? 0;
   const rotationDeg = evaluateKeyframes(keyframes, 'rotation', clipTime) ?? 0;
@@ -183,6 +222,8 @@ export function pictureTransformAt(
   const scaleY = resolution.height > 0 ? canvas.height / resolution.height : 0;
   return {
     scale,
+    scaleX: scale * stretchX,
+    scaleY: scale * stretchY,
     rotationRad: rotationToCanvasRadians(rotationDeg),
     alpha: clampUnit(opacity) * clampUnit(transition.opacity),
     dxPx: x * scaleX + transition.offsetPx[0],

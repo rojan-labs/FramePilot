@@ -35,8 +35,22 @@ import re
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    WithJsonSchema,
+    field_validator,
+    model_validator,
+)
 
+from framepilot_engine.ai_tools.text_overlay_styles import (
+    bundled_font_families,
+    text_overlay_style_categories,
+    text_overlay_style_ids,
+)
 from framepilot_engine.ai_tools.tool_descriptions_generated import TOOL_DESCRIPTIONS
 from framepilot_engine.render.caption_templates import load_catalog
 from framepilot_engine.render.shape_catalog import (
@@ -231,13 +245,40 @@ class AddTrackArgs(BaseModel):
     id: FilterStr = None
 
 
+def _one_of(allowed: tuple[str, ...], what: str) -> Any:
+    """A validator refusing a value outside a shipped catalog (the TS ``z.enum``)."""
+
+    def check(value: str) -> str:
+        if value not in allowed:
+            raise ValueError(f"{value!r} is not a {what} this build ships")
+        return value
+
+    return AfterValidator(check)
+
+
+#: A text overlay style id (the TS ``add_text_layer`` ``style`` enum), read from the packaged
+#: catalog so the enum cannot drift from the looks the handler writes.
+TextOverlayStyleId = Annotated[
+    str,
+    _one_of(text_overlay_style_ids(), "text overlay style"),
+    WithJsonSchema({"type": "string", "enum": list(text_overlay_style_ids())}),
+]
+#: A family the renderer bundles (the TS ``bundledFontFamily``).
+BundledFontFamily = Annotated[
+    str,
+    _one_of(bundled_font_families(), "bundled font family"),
+    WithJsonSchema({"type": "string", "enum": list(bundled_font_families())}),
+]
+
+
 class AddTextLayerArgs(BaseModel):
     """Text overlay plus its styling.
 
     The style keys mirror the web editor's ``TextOverlayParams`` exactly, because they end
     up in the same ``Effect.params`` bag that the Inspector writes and the renderer reads
-    (see ``render/text_overlay.py``). Motion is deliberately not here: the agent animates a
-    text card with ``punch_in``, which the compiler renders.
+    (see ``render/text_overlay.py``). ``style`` writes a catalog style's whole look; every
+    other styling arg overrides the one field of it that it names. Motion is deliberately
+    not here: the agent animates a text card with ``punch_in``, which the compiler renders.
     """
 
     model_config = _STRICT
@@ -252,6 +293,9 @@ class AddTextLayerArgs(BaseModel):
     box_width_percent: float | None = Field(default=None, alias="boxWidthPercent", gt=0.0, le=100.0)
     x_percent: float | None = Field(default=None, alias="xPercent", ge=0.0, le=100.0)
     y_percent: float | None = Field(default=None, alias="yPercent", ge=0.0, le=100.0)
+    style: TextOverlayStyleId | None = None
+    font_family: BundledFontFamily | None = Field(default=None, alias="fontFamily")
+    font_weight: int | None = Field(default=None, alias="fontWeight", ge=100, le=900)
 
 
 class ShapeBoxArg(BaseModel):
@@ -484,6 +528,21 @@ class DiscoverEffectsArgs(BaseModel):
     categories: list[str] | None = None
     shelf: Literal["popular", "recommended"] | None = None
     limit: int | None = None
+
+
+class DiscoverTextOverlayStylesArgs(BaseModel):
+    """Search the text overlay styles (TS ``discover_text_overlay_styles``, host-delegated)."""
+
+    model_config = _STRICT
+    query: FilterStr = None
+    category: (
+        Annotated[
+            str,
+            _one_of(text_overlay_style_categories(), "text overlay style category"),
+            WithJsonSchema({"type": "string", "enum": list(text_overlay_style_categories())}),
+        ]
+        | None
+    ) = None
 
 
 class DiscoverTransitionsArgs(BaseModel):
@@ -1569,7 +1628,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "add_track",
         'Create a new empty track (a "layer") to get a free lane for clips that '
         "would otherwise overlap. Clips on one track can never overlap, so this is "
-        "how you stack simultaneous elements — a title over b-roll, picture-in-"
+        "how you stack simultaneous elements — a text overlay over b-roll, picture-in-"
         "picture, an extra overlay, or a second audio bed — when no existing track "
         "has a free range. type is the track's advisory role "
         "(video/audio/caption/overlay): it sets the default label/icon only, not a "
@@ -1595,7 +1654,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "move_track",
         "Reorder a track to a new z-order slot. toIndex 0 is the visual front "
         "(nearer the viewer); clips are untouched. Use to put an overlay above the "
-        "footage it should cover, or push b-roll behind a title.",
+        "footage it should cover, or push b-roll behind a text overlay.",
         kind="mutate",
         input_model=MoveTrackArgs,
         mutating=True,
@@ -1663,7 +1722,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "set_element_animation": _spec(
         "set_element_animation",
-        "Animate one sticker, shape or title in, out and on a loop (plan/elements EL7).",
+        "Animate one sticker, shape or text overlay in, out and on a loop (plan/elements EL7).",
         kind="mutate",
         input_model=SetElementAnimationArgs,
         mutating=True,
@@ -1802,6 +1861,12 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "as nothing.",
         kind="read",
         input_model=DiscoverTransitionsArgs,
+    ),
+    "discover_text_overlay_styles": _spec(
+        "discover_text_overlay_styles",
+        "Browse the designed text overlay styles add_text_layer can apply by `style`.",
+        kind="read",
+        input_model=DiscoverTextOverlayStylesArgs,
     ),
     "apply_effect": _spec(
         "apply_effect",
@@ -2034,7 +2099,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "get_frame",
         "LOOK at the edit: render one frame of the timeline at a given time and see it as "
         "an image. Use it to CHECK your own work visually — caption placement and "
-        "legibility, framing after a punch-in or reframe, whether a title collides with "
+        "legibility, framing after a punch-in or reframe, whether a text overlay collides with "
         "the footage, whether a grade reads as intended. Prefer it over guessing from "
         "numbers whenever the question is about how something LOOKS. It renders through "
         "the same engine as the final export, so what you see is what will be delivered. "

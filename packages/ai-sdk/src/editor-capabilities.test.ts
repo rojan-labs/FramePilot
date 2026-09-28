@@ -2,7 +2,7 @@ import { COMMAND_REJECTION_CODES } from '@framepilot/editor-core';
 import { describe, expect, it } from 'vitest';
 import {
   AUDIO_PARAMETER_CONTRACTS,
-  CLIP_KEYFRAME_PROPERTIES,
+  CLIP_TRANSFORM_PROPERTIES,
   COLOR_GRADE_PARAMETER_CONTRACTS,
   EDITOR_COMMAND_TYPES,
 } from '@framepilot/editor-core';
@@ -32,14 +32,24 @@ describe('editor capability registry', () => {
 
   it('derives motion, color, and audio property metadata from runtime contracts', () => {
     const motion = listEditorCapabilities({ domain: 'motion' });
-    expect(motion.map((capability) => capability.id.replace('motion.clip.', ''))).toEqual(
-      CLIP_KEYFRAME_PROPERTIES,
-    );
+    expect(motion.map((capability) => capability.id)).toEqual([
+      'motion.clip.scale',
+      'motion.clip.x',
+      'motion.clip.y',
+      'motion.clip.rotation',
+      'motion.clip.opacity',
+      'motion.clip.scale-x',
+      'motion.clip.scale-y',
+    ]);
+    expect(CLIP_TRANSFORM_PROPERTIES).toHaveLength(motion.length);
     expect(motion.every((capability) => capability.keyframeable)).toBe(true);
     expect(motion.find((capability) => capability.id.endsWith('.opacity'))?.value.bounds).toEqual({
       min: 0,
       max: 1,
     });
+    const stretch = motion.find((capability) => capability.id === 'motion.clip.scale-x');
+    expect(stretch?.value).toMatchObject({ bounds: { minExclusive: 0 }, default: 1 });
+    expect(stretch?.description).toMatch(/stretch or squash/i);
 
     const color = listEditorCapabilities({ domain: 'color' });
     expect(

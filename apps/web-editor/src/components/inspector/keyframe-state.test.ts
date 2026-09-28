@@ -27,7 +27,15 @@ describe('ANIMATABLE_PROPERTIES', () => {
     // Guards the render-honesty rule: a diamond on a property `evaluate_clip_transform`
     // ignores would animate the preview and not the export. If this list grows, the
     // Python transform must have grown first.
-    expect([...ANIMATABLE_PROPERTIES]).toEqual(['scale', 'x', 'y', 'rotation', 'opacity']);
+    expect([...ANIMATABLE_PROPERTIES]).toEqual([
+      'scale',
+      'scaleX',
+      'scaleY',
+      'x',
+      'y',
+      'rotation',
+      'opacity',
+    ]);
   });
 
   it('excludes volume, which is an effect param and not a keyframed property', () => {

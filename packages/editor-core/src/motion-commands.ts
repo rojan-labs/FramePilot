@@ -1,7 +1,10 @@
 /** Deterministic professional motion commands compiled into reversible keyframe patches. */
 import type { PatchId } from '@framepilot/shared-types';
 import type { Asset, Keyframe, Timeline } from '@framepilot/timeline-schema';
-import { clipKeyframeContractIssue, type ClipKeyframeProperty } from './edit-value-contracts.js';
+import {
+  clipKeyframeContractIssue,
+  type ClipTransformKeyframeProperty,
+} from './edit-value-contracts.js';
 import type { Easing } from './keyframes.js';
 import { applyPatch, invertPatch, type Patch } from './patch.js';
 import { validatePatch } from './validator.js';
@@ -26,7 +29,8 @@ export interface AnimateClipPropertyCommand {
   readonly type: 'animate_clip_property';
   readonly timelineRevision: number;
   readonly clipId: string;
-  readonly property: ClipKeyframeProperty;
+  /** Any composited transform property, the per-axis stretch included. */
+  readonly property: ClipTransformKeyframeProperty;
   readonly rate: MotionFrameRate;
   readonly points: readonly MotionFramePoint[];
 }

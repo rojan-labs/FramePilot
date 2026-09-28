@@ -140,7 +140,7 @@ export function planElementAnimation(
   const clip = track?.clips.find((candidate) => candidate.id === clipId);
   if (track === undefined || clip === undefined || track.type !== 'overlay') {
     return refuse(
-      'Only a sticker, shape, title or picture on a graphics layer takes an animation. Pick one of those by its clip id from the timeline.',
+      'Only a sticker, shape, text overlay or picture on a graphics layer takes an animation. Pick one of those by its clip id from the timeline.',
     );
   }
   if (request.in === undefined && request.out === undefined && request.loop === undefined) {

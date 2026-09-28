@@ -31,6 +31,8 @@ import {
   resolveCaptionCue,
   splitClipRightId,
   laneTypeForKind,
+  textEffectId,
+  textOverlayClipId,
 } from '@framepilot/editor-core';
 import type {
   Asset,
@@ -48,6 +50,12 @@ import type {
 import { effectLayersOf } from '@framepilot/timeline-schema';
 import { findEffect, resolveParams } from '@framepilot/timeline-schema/effect-catalog';
 import { clampParamsForKind } from '@framepilot/timeline-schema/effect-params';
+import {
+  getTextOverlayStyle,
+  parseTextOverlayTypography,
+  textOverlayLookParams,
+  type TextOverlayTypography,
+} from '@framepilot/timeline-schema/text-overlay-styles';
 import {
   assetKind,
   clipKind,
@@ -1308,11 +1316,21 @@ export function setKeyframeEasingPatch(
  * write goes through the same builder, and the render has composited animated opacity
  * since Phase 6 (`_attach_mask`) — so it is a property the export honours.
  *
+ * `scaleX`/`scaleY` are the stretch the bounding box's freeform (Shift) resize writes, on top of
+ * the uniform `scale` (editor-core `CLIP_KEYFRAME_PROPERTIES`).
+ *
  * Deliberately NOT here: an anchor/origin. `evaluate_clip_transform` has no such
  * property — rotation and scale are both about the clip's own centre — so writing
  * one would produce keyframes the render ignores. See the sub-plan's Phase 3 note.
  */
-export type ClipTransformProperty = 'scale' | 'x' | 'y' | 'rotation' | 'opacity';
+export type ClipTransformProperty =
+  | 'scale'
+  | 'scaleX'
+  | 'scaleY'
+  | 'x'
+  | 'y'
+  | 'rotation'
+  | 'opacity';
 
 /**
  * Set a clip's BASE transform (H4 canvas handles): writes `scale`/`x`/`y`/`rotation`
@@ -1935,6 +1953,112 @@ export function addTextOverlayPatch(
   };
 }
 
+/**
+ * The params a text overlay style writes: its whole look, and the id it came from. Shared with the
+ * AI's `add_text_layer`, so a style is one patch whichever of them applied it.
+ */
+export { textOverlayLookParams };
+
+/**
+ * The lane a new text overlay goes on: the one aimed at (a drop), else the first overlay lane that can
+ * take it, else a new overlay lane on top — a project without one (the demo, an imported edit)
+ * must still be able to take a text overlay, as it can take a sticker (`stickerLane`). The allocator
+ * stacks the text overlay on a new layer when the chosen lane is taken at that time.
+ */
+function textOverlayLane(
+  timeline: Timeline,
+  start: number,
+  end: number,
+  preferredTrackId: string | undefined,
+): { readonly trackId: string; readonly setupOps: readonly Operation[] } {
+  const target =
+    timeline.tracks.find((t) => t.id === preferredTrackId && t.locked !== true) ??
+    timeline.tracks.find((t) => t.type === 'overlay' && t.locked !== true && t.hidden !== true);
+  if (target !== undefined) return createLaneAllocator(timeline).allocate(target.id, start, end);
+  const trackId = coreNextLayerId(timeline, 'overlay');
+  return {
+    trackId,
+    setupOps: [{ type: 'add_layer', layerId: trackId, layerType: 'overlay', atIndex: 0 }],
+  };
+}
+
+/**
+ * Add a text overlay in a template's look spanning `[start, end]` — `add_text_overlay` followed by the
+ * look as a `set_effect_params` on the clip it creates, one patch and so one undo (the pattern
+ * the agent's `add_text_layer` uses). `text` defaults to the template's sample text. Returns
+ * the patch and the new clip's id (so the caller can select it), or `null` when the template or
+ * track is unknown, or the span is too short. `overrides` replace parts of the look (the Text
+ * panel's Fonts tab adds a heading in the font that was picked).
+ */
+export function addTextOverlayFromStylePatch(
+  timeline: Timeline,
+  trackId: string | undefined,
+  templateId: string,
+  start: number,
+  end: number,
+  text?: string,
+  overrides: Partial<TextOverlayParams> = {},
+): { readonly patch: Patch; readonly clipId: string } | null {
+  const template = getTextOverlayStyle(templateId);
+  const body = text?.trim() ? text : template?.sampleText;
+  if (!template || !body) return null;
+  if (trackId !== undefined && !timeline.tracks.some((t) => t.id === trackId)) return null;
+  if (end - start <= MIN_EDIT_SECONDS) return null;
+  const placed = textOverlayLane(timeline, start, end, trackId);
+  const clipId = textOverlayClipId(placed.trackId, start);
+  const newLane = placed.setupOps.length > 0;
+  return {
+    clipId,
+    patch: {
+      patchId: patchId(`title_${template.id}_${placed.trackId}_${ms(start)}_${ms(end)}`),
+      createdBy: 'user',
+      reason: `Add "${template.label}" text overlay${newLane ? ' on a new layer' : ''} at ${start.toFixed(2)}s`,
+      operations: [
+        ...placed.setupOps,
+        { type: 'add_text_overlay', trackId: placed.trackId, text: body, start, end, clipId },
+        {
+          type: 'set_effect_params',
+          clipId,
+          effectId: textEffectId(clipId),
+          params: {
+            ...textOverlayLookParams(template.look, template.id),
+            ...overrides,
+            text: body,
+          },
+        },
+      ],
+    },
+  };
+}
+
+/**
+ * Restyle an existing text overlay with a template's look, keeping its text, its place in the frame and
+ * its wrap width (restyling should not move a text overlay the author placed). One reversible
+ * `set_effect_params`; `null` when the clip is not a text overlay or the template is unknown.
+ */
+export function applyTextOverlayStylePatch(
+  timeline: Timeline,
+  clipId: string,
+  templateId: string,
+): Patch | null {
+  const template = getTextOverlayStyle(templateId);
+  const loc = findClip(timeline, clipId);
+  const effect = loc ? textEffectOf(loc.clip) : undefined;
+  if (!template || !loc || !effect) return null;
+  const {
+    xPercent: _x,
+    yPercent: _y,
+    boxWidthPercent: _box,
+    ...look
+  } = textOverlayLookParams(template.look, template.id);
+  return {
+    patchId: patchId(`title_style_${clipId}_${template.id}`),
+    createdBy: 'user',
+    reason: `Restyle text overlay ${clipId} as "${template.label}"`,
+    operations: [{ type: 'set_effect_params', clipId, effectId: effect.id, params: { ...look } }],
+  };
+}
+
 // --- Text overlay styling (#5) ---------------------------------------------
 
 /** In/out animation kinds a text overlay can use (preview-time; render TBD). */
@@ -1968,6 +2092,14 @@ export interface TextOverlayParams {
   readonly inAnimation: TextAnimation;
   readonly outAnimation: TextAnimation;
   readonly animDurationSeconds: number;
+  /**
+   * The caption typography the text overlay is drawn in (`text-overlay-styles.ts`). Present, the text overlay is
+   * drawn by the caption rasterizer in the export and the monitor; absent, it keeps the plain
+   * text overlay drawing (a fixed black stroke).
+   */
+  readonly typography?: TextOverlayTypography;
+  /** The text overlay template this look came from, for the Text panel to show it as applied. */
+  readonly templateId?: string;
 }
 
 /** Defaults applied to a freshly created text overlay (a legible centred caption). */
@@ -2018,6 +2150,18 @@ export function readTextParams(clip: {
     inAnimation: str('inAnimation', DEFAULT_TEXT_PARAMS.inAnimation),
     outAnimation: str('outAnimation', DEFAULT_TEXT_PARAMS.outAnimation),
     animDurationSeconds: num('animDurationSeconds', DEFAULT_TEXT_PARAMS.animDurationSeconds),
+    ...optionalTitleFields(p),
+  };
+}
+
+/** A stored text overlay's typography and template id, each only when present and valid. */
+function optionalTitleFields(
+  p: Record<string, unknown>,
+): Pick<TextOverlayParams, 'typography' | 'templateId'> {
+  const typography = parseTextOverlayTypography(p.typography);
+  return {
+    ...(typography === undefined ? {} : { typography }),
+    ...(typeof p.templateId === 'string' ? { templateId: p.templateId } : {}),
   };
 }
 

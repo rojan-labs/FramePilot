@@ -1,14 +1,15 @@
 /**
- * The on-monitor shape handles (plan/elements EL4a): one patch per gesture, arrow-key nudges,
- * and endpoint handles for a segment.
+ * The on-monitor shape handles (plan/elements EL4a): a box shape in the bounding box (move, resize
+ * keeping the aspect unless Shift, turn), a line or arrow by its two ends; one commit per gesture
+ * and arrow-key nudges.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { presetShapeParams } from '@framepilot/timeline-schema';
 import { PreviewShapeEditor } from './PreviewShapeEditor.js';
 
 const RESOLUTION = { width: 1280, height: 720 };
-const IDENTITY = { x: 0, y: 0, scale: 1, rotation: 0 };
+const IDENTITY = { x: 0, y: 0, scale: 1, scaleX: 1, scaleY: 1, rotation: 0 };
 
 function frameRect(): void {
   // jsdom lays nothing out: give the handle layer's frame a real size.
@@ -51,74 +52,101 @@ function mount(presetId: string, onCommit = vi.fn()) {
   return onCommit;
 }
 
-describe('PreviewShapeEditor', () => {
+beforeEach(() => {
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    callback(0);
+    return 1;
+  });
+  vi.stubGlobal('cancelAnimationFrame', () => undefined);
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+/** Drag `target` from one frame point to another (the frame is shown at 100 %). */
+function drag(target: Element, from: [number, number], to: [number, number], extra = {}) {
+  fireEvent.pointerDown(target, {
+    pointerId: 1,
+    button: 0,
+    clientX: from[0],
+    clientY: from[1],
+    ...extra,
+  });
+  fireEvent.pointerMove(target, { pointerId: 1, clientX: to[0], clientY: to[1], ...extra });
+  fireEvent.pointerUp(target, { pointerId: 1, clientX: to[0], clientY: to[1], ...extra });
+}
+
+describe('PreviewShapeEditor — a box shape in the bounding box', () => {
+  // rounded-rect/highlight: centre 50 % × 50 %, 48 × 27 % of the height: 345.6 × 194.4 px.
   it('commits one move for one drag of the box', () => {
     frameRect();
     const onCommit = mount('rounded-rect/highlight');
-    const body = screen.getByRole('button', { name: 'Move Highlight box' });
-    fireEvent.pointerDown(body, { clientX: 100, clientY: 100, pointerId: 1 });
-    fireEvent.pointerMove(body, { clientX: 164, clientY: 136, pointerId: 1 });
-    fireEvent.pointerMove(body, { clientX: 228, clientY: 172, pointerId: 1 });
-    expect(onCommit).not.toHaveBeenCalled();
-    fireEvent.pointerUp(body, { clientX: 228, clientY: 172, pointerId: 1 });
+    drag(screen.getByRole('group', { name: 'Move Highlight box' }), [640, 360], [768, 432]);
     expect(onCommit).toHaveBeenCalledTimes(1);
-    expect(onCommit).toHaveBeenCalledWith({ x: 60, y: 60 });
+    expect(onCommit).toHaveBeenCalledWith({ params: { x: 60, y: 60 } });
   });
 
   it('commits nothing for a click without movement', () => {
     frameRect();
     const onCommit = mount('rounded-rect/highlight');
-    const body = screen.getByRole('button', { name: 'Move Highlight box' });
-    fireEvent.pointerDown(body, { clientX: 100, clientY: 100, pointerId: 1 });
-    fireEvent.pointerUp(body, { clientX: 100, clientY: 100, pointerId: 1 });
+    drag(screen.getByRole('group', { name: 'Move Highlight box' }), [640, 360], [641, 360]);
     expect(onCommit).not.toHaveBeenCalled();
   });
 
-  it('resizes from a corner handle', () => {
+  it('keeps the aspect from a corner, anchored at the opposite corner', () => {
     frameRect();
     const onCommit = mount('rounded-rect/highlight');
-    const corner = handle('se');
-    fireEvent.pointerDown(corner, { clientX: 0, clientY: 0, pointerId: 1 });
-    fireEvent.pointerUp(corner, { clientX: 0, clientY: 72, pointerId: 1 });
-    expect(onCommit.mock.calls[0]![0]).toMatchObject({ height: 37 });
+    drag(screen.getByLabelText('Resize handle se'), [812.8, 457.2], [985.6, 457.2]);
+    expect(onCommit).toHaveBeenCalledWith({
+      params: { x: 56.75, y: 56.75, width: 72, height: 40.5 },
+    });
   });
 
-  it('nudges with the arrow keys, further with Shift', () => {
+  it('stretches with Shift: a shape takes a new width and height natively', () => {
+    frameRect();
     const onCommit = mount('rounded-rect/highlight');
-    const body = screen.getByRole('button', { name: 'Move Highlight box' });
-    fireEvent.keyDown(body, { key: 'ArrowRight' });
-    fireEvent.keyDown(body, { key: 'ArrowUp', shiftKey: true });
-    expect(onCommit.mock.calls).toEqual([[{ x: 50.5, y: 50 }], [{ x: 50, y: 45 }]]);
+    drag(screen.getByLabelText('Resize handle se'), [812.8, 457.2], [985.6, 457.2], {
+      shiftKey: true,
+    });
+    expect(onCommit).toHaveBeenCalledWith({ params: { x: 56.75, width: 72 } });
   });
 
+  it('turns the shape with the lollipop', () => {
+    frameRect();
+    const onCommit = mount('rounded-rect/highlight');
+    drag(screen.getByLabelText('Rotate Highlight box'), [740, 360], [640, 260]);
+    const [{ params, transform }] = onCommit.mock.calls[0]!;
+    expect(params).toBeUndefined();
+    expect(transform.rotation).toBeCloseTo(90);
+  });
+
+  it('nudges a pixel with the arrows, ten with Shift', () => {
+    const onCommit = mount('rounded-rect/highlight');
+    const box = screen.getByRole('group', { name: 'Move Highlight box' });
+    fireEvent.keyDown(box, { key: 'ArrowRight' });
+    fireEvent.keyDown(box, { key: 'ArrowUp', shiftKey: true });
+    expect(onCommit.mock.calls).toEqual([[{ params: { x: 50.08 } }], [{ params: { y: 48.61 } }]]);
+  });
+
+  it('names the shape by what it is and offers its handles to the keyboard', () => {
+    mount('rounded-rect/highlight');
+    const box = screen.getByRole('group', { name: 'Move Highlight box' });
+    expect(box.getAttribute('aria-keyshortcuts')).toBe('ArrowUp ArrowDown ArrowLeft ArrowRight');
+    expect(box.getAttribute('tabindex')).toBe('0');
+    expect(screen.getByLabelText('Resize handle se').getAttribute('tabindex')).toBe('0');
+  });
+});
+
+describe('PreviewShapeEditor — a line by its ends', () => {
   it('gives a segment two end handles that move one end each', () => {
     frameRect();
     const onCommit = mount('line-arrow/red');
     const end = handle('end-end');
     fireEvent.pointerDown(end, { clientX: 0, clientY: 0, pointerId: 1 });
     fireEvent.pointerUp(end, { clientX: 128, clientY: 0, pointerId: 1 });
-    expect(onCommit).toHaveBeenCalledWith({ x2: 60, y2: 50 });
+    expect(onCommit).toHaveBeenCalledWith({ params: { x2: 60, y2: 50 } });
     expect(handle('end-start')).toBeDefined();
-  });
-
-  it('names the shape by what it is and says how to move it', () => {
-    mount('rounded-rect/highlight');
-    const body = screen.getByRole('button', { name: 'Move Highlight box' });
-    expect(body.getAttribute('aria-keyshortcuts')).toBe('ArrowUp ArrowDown ArrowLeft ArrowRight');
-    expect(body.getAttribute('tabindex')).toBe('0');
-  });
-
-  it('keeps the pointer-only handles out of the accessibility tree and the Tab order', () => {
-    // Resize and endpoint handles do nothing when activated; the Inspector's Box and Ends
-    // fields are the keyboard route to the same edits.
-    mount('rounded-rect/highlight');
-    for (const corner of ['nw', 'se', 'n', 'w']) {
-      const element = handle(corner);
-      expect(element.getAttribute('aria-hidden')).toBe('true');
-      expect(element.hasAttribute('role')).toBe(false);
-      expect(element.hasAttribute('tabindex')).toBe(false);
-    }
-    expect(screen.getAllByRole('button')).toHaveLength(1);
   });
 
   it('names a line by what it is, and hides its end handles', () => {
@@ -128,10 +156,10 @@ describe('PreviewShapeEditor', () => {
   });
 
   it('keeps a nudge from also reaching the editor-wide shortcuts', () => {
-    const onCommit = mount('rounded-rect/highlight');
+    const onCommit = mount('line-arrow/red');
     const onWindowKey = vi.fn();
     window.addEventListener('keydown', onWindowKey);
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Move Highlight box' }), {
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Move Arrow' }), {
       key: 'ArrowRight',
     });
     window.removeEventListener('keydown', onWindowKey);

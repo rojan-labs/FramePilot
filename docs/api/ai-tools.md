@@ -110,6 +110,7 @@ nothing in a non-empty bin.
 | `add_clip`                          | Add a clip from an existing asset                              | write            | yes        |
 | `add_clips`                         | Place a whole sequence on one track in a single call           | write            | yes        |
 | `add_text_layer`                    | Add a text overlay (`add_text_overlay` op)                     | write            | yes        |
+| `discover_text_overlay_styles`      | Text overlay styles by category, each with a one-line look     | read             | yes        |
 | `search_elements`                   | Find shapes, icons or stickers by words (kind, collection)     | read             | yes        |
 | `add_shape`                         | Draw a catalogue shape or icon on an overlay (`add_shape`)     | write            | yes        |
 | `set_shape_style`                   | Restyle or move a shape (`set_effect_params`)                  | write            | yes        |
@@ -228,6 +229,30 @@ track fields.
 `set_caption_style` applies the same `CaptionStyle` contract to one cue and wins over the track.
 Both accept `null` to clear their layer. Unknown template ids and unbundled font families are
 rejected at the tool boundary so DOM preview and deterministic export cannot silently diverge.
+
+### Text overlay tools
+
+`add_text_layer` takes an optional `style`: an id from the text overlay style catalog
+(`@framepilot/timeline-schema/text-overlay-styles`), validated as an enum of catalog ids. The
+style's whole look is written into the overlay's `text` effect params with the same
+`textOverlayLookParams` the Text panel uses (family, weight, colour, size, alignment, box width,
+position, chip colour, `typography`, `templateId`), so one style id is one patch whichever host
+applied it. Every other styling arg (`sizePercent`, `color`, `background`, `align`,
+`boxWidthPercent`, `xPercent`, `yPercent`, `fontFamily`, `fontWeight`) overrides only the field
+it names. `fontFamily` is an enum of the bundled caption fonts; a family named over a style has
+the style's weight held inside the weights that family ships.
+
+Words that would run out of the frame are fitted, not refused: the box is widened first (up to
+92% of the width, recentred so it stays inside the frame), then the size comes down. The fit
+measures the overlay's own face and, for a capitalising style, the capitals it draws. A style's
+size and box are fitted the same way as explicit ones.
+
+`discover_text_overlay_styles` (`query`, `category`) lists the styles grouped by category, each
+with a look line derived from the catalog data (typeface and weight, colour, size, where it
+sits, chip/outline/glow/shadow), so the model can choose without the full looks in every
+request. It is static catalog data (`guidance`, revision-independent), in the `effects` domain.
+The Python twin mirrors `add_text_layer` from the packaged catalog copy
+(`framepilot_engine/ai_tools/text_overlay_styles.json`) and delegates discovery to the host.
 
 ---
 
