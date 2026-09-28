@@ -64,6 +64,19 @@ export const TitleTypographySchema = CaptionStyleSchema.pick({
 export type TitleChipShape = z.infer<typeof TitleChipShapeSchema>;
 export type TitleTypography = z.infer<typeof TitleTypographySchema>;
 
+/**
+ * The typography a PLAIN title (one with no `typography`) is drawn with, in caption terms: the
+ * engine's fixed black stroke of a twelfth of the font size (`render_text_overlay_image`), which
+ * is 16/12 sixteenths, and its square box padded by two strokes. The Inspector shows a plain
+ * title's typography as this and seeds the first edit with it, so converting a title to the
+ * caption typography keeps the look it had.
+ */
+export const PLAIN_TITLE_TYPOGRAPHY: TitleTypography = {
+  outlineColor: '#000000',
+  outlineWidth: 16 / 12,
+  background: { radius: 0, paddingX: 1 / 6, paddingY: 1 / 6 },
+};
+
 /** Horizontal alignment of a title's lines. */
 export type TitleAlign = 'left' | 'center' | 'right';
 
@@ -200,9 +213,11 @@ const CENTRE = { align: 'center', boxWidthPercent: 80, xPercent: 50, yPercent: 5
 const UPPER = { align: 'center', boxWidthPercent: 84, xPercent: 50, yPercent: 22 } as const;
 /**
  * A lower third: left-aligned in the bottom-left, clear of the caption band (captions sit 8% of
- * the height from the bottom edge).
+ * the height from the bottom edge). Sizes are a share of the frame HEIGHT, so a portrait frame
+ * is far narrower per letter than a landscape one: the wrap width and the sizes below keep a
+ * name on one line in 9:16 as well as 16:9.
  */
-const LOWER_THIRD = { align: 'left', boxWidthPercent: 56, xPercent: 34, yPercent: 74 } as const;
+const LOWER_THIRD = { align: 'left', boxWidthPercent: 76, xPercent: 42, yPercent: 76 } as const;
 
 function look(
   fields: Omit<TitleLook, 'background' | 'typography'> & Partial<TitleLook>,
@@ -422,7 +437,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
       fontFamily: 'Inter',
       fontWeight: 700,
       color: WHITE,
-      fontSizePercent: 4.5,
+      fontSizePercent: 3.6,
       background: '#0b0b0fcc',
       typography: { background: { radius: 0.15, paddingX: 0.6, paddingY: 0.32 } },
     }),
@@ -437,7 +452,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
       fontFamily: 'Montserrat',
       fontWeight: 800,
       color: WHITE,
-      fontSizePercent: 4,
+      fontSizePercent: 3.2,
       background: BLUE,
       typography: {
         textTransform: 'uppercase',
@@ -456,7 +471,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
       fontFamily: 'DM Sans',
       fontWeight: 600,
       color: WHITE,
-      fontSizePercent: 4,
+      fontSizePercent: 3.2,
       typography: { shadow: SOFT_DROP },
     }),
   },
@@ -470,7 +485,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
       fontFamily: 'Plus Jakarta Sans',
       fontWeight: 600,
       color: WHITE,
-      fontSizePercent: 4,
+      fontSizePercent: 3.2,
       background: '#0b0b0f99',
       typography: {
         background: {
@@ -493,7 +508,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
       fontFamily: 'Lora',
       fontWeight: 500,
       color: OFF_WHITE,
-      fontSizePercent: 4.2,
+      fontSizePercent: 3.4,
       typography: { fontStyle: 'italic', shadow: HALO },
     }),
   },
