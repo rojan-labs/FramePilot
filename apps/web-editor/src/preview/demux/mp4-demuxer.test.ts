@@ -185,6 +185,29 @@ describe.runIf(ffmpegAvailable())('demuxAllVideoSamples (real mp4box + real fixt
     expect(existsSync(fixturePath)).toBe(true);
   });
 
+  it('reports the display rotation the file itself carries (0 for an unturned one)', async () => {
+    const bytes = new Uint8Array(readFileSync(fixturePath));
+    const plain = await demuxAllVideoSamples(bytes.slice().buffer, fakeChunkFactory);
+    expect(plain.displayRotationCw).toBe(0);
+    // A phone original: the video track's tkhd matrix asks for a clockwise quarter turn,
+    // written as `px4_parity_frames.set_display_rotation` writes it.
+    const turned = bytes.slice();
+    const view = new DataView(turned.buffer);
+    const tag = new TextEncoder().encode('tkhd');
+    for (let index = 0; index + 4 <= turned.length; index++) {
+      if (!tag.every((byte, i) => turned[index + i] === byte)) continue;
+      const version = turned[index + 4]!;
+      const offset = index + 4 + 4 + (version === 1 ? 28 : 20) + 8 + 2 + 2 + 2 + 2;
+      if (view.getUint32(offset + 36) === 0 || view.getUint32(offset + 40) === 0) continue;
+      [0, 0x10000, 0, -0x10000, 0, 0, 0, 0, 0x40000000].forEach((value, i) =>
+        view.setInt32(offset + i * 4, value),
+      );
+      break;
+    }
+    const rotated = await demuxAllVideoSamples(turned.buffer, fakeChunkFactory);
+    expect(rotated.displayRotationCw).toBe(90);
+  });
+
   it('extracts every video sample as a chunk, in presentation order', async () => {
     const bytes = readFileSync(fixturePath);
     const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);

@@ -24,7 +24,7 @@
  * displayed"); the session translates to decode order internally via the
  * demuxed table, so B-frame footage decodes correctly.
  */
-import { copyI420, pictureTransfer, type DecodedPicture } from './decoded-picture.js';
+import { copyI420, pictureTransfer, rotateI420, type DecodedPicture } from './decoded-picture.js';
 import { DecoderPool, type PooledDecoderHolder } from './decoder-pool.js';
 import { MatteDecodeSession } from './matte-decode-session.js';
 import type { Ffv1Picture } from './ffv1/ffv1-decoder.js';
@@ -43,6 +43,13 @@ export interface LoadSourceRequest {
   requestId: number;
   sourceId: string;
   url: string;
+  /**
+   * The asset's clockwise display rotation (`Asset.media.rotation`). The worker turns `picture`
+   * output by it when THIS file carries a display rotation of its own (a phone original), as
+   * ffmpeg's autorotate does for the export; a proxy ffmpeg wrote is already upright and carries
+   * none. Done here, off the main thread, where a 1080x1920 frame is millions of byte moves.
+   */
+  rotation?: number;
 }
 
 export interface DecodeRangeRequest {
@@ -311,6 +318,8 @@ function httpRangeReader(url: string, size: number): ByteRangeReader {
 }
 
 class DecoderSession implements PooledDecoderHolder {
+  /** Clockwise quarter turns `picture` output is given before it is posted (see the load request). */
+  uprightTurns = 0;
   /** One decoder for the lifetime of this session — reused via reset() +
    * configure() across every seek, never replaced. Creating a fresh
    * VideoDecoder per seek leaked decoder instances and silently exhausted
@@ -385,6 +394,7 @@ class DecoderSession implements PooledDecoderHolder {
     codec: string;
     fileBytes: ArrayBuffer;
     streamed: boolean;
+    displayRotationCw: number;
   }> {
     // Probe with a small range: a server that honours it reports the size; one that ignores it
     // (a plain static route) sends the whole file, which is then used as-is.
@@ -408,6 +418,7 @@ class DecoderSession implements PooledDecoderHolder {
         codec: this.table.config.codec,
         fileBytes: new ArrayBuffer(0),
         streamed: true,
+        displayRotationCw: streamed.displayRotationCw,
       };
     }
     let arrayBuffer: ArrayBuffer;
@@ -433,6 +444,7 @@ class DecoderSession implements PooledDecoderHolder {
       codec: this.table.config.codec,
       fileBytes: arrayBuffer,
       streamed: false,
+      displayRotationCw: demuxed.displayRotationCw,
     };
   }
 
@@ -762,7 +774,7 @@ class DecoderSession implements PooledDecoderHolder {
           };
         } else {
           frame.close();
-          picture = planes;
+          picture = this.uprightTurns === 0 ? planes : rotateI420(planes, this.uprightTurns);
         }
       } catch {
         picture = {
@@ -842,7 +854,11 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         codec,
         fileBytes,
         streamed,
+        displayRotationCw,
       } = await session.load(request.url);
+      // The file says whether it is stored turned; the asset says by how much (the amount the
+      // export's autorotate and the frame plan's display size agree on).
+      session.uprightTurns = displayRotationCw !== 0 ? (request.rotation ?? 0) : 0;
       post(
         {
           type: 'loaded',

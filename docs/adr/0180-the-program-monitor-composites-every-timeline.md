@@ -92,3 +92,39 @@ result and what a user sees:
 The browser build keeps the HTML caption layer when no engine is reachable, and says the text is
 approximate, as decision 4 already allows for titles.
 
+
+## Amendment (2026-09-27): playback never waits on text; paused frames are exact
+
+The styled-caption amendment above made every caption an engine raster sampled at the frame's
+time. All 68 templates are time-varying (`caption_style_is_animated` is true for each), so that is
+a raster per frame. The first implementation asked for them one frame at a time, 12 frames ahead,
+behind a first "probe" request per cue, and `compose` returned "not ready" — holding the whole
+picture — whenever any text raster was still out. Measured on the engine at the monitor's 720p:
+building a cue's layer costs 5 ms (worst 120 ms) and sampling a frame 7 ms (worst 23 ms), and each
+answer was about 1 MB of base64 JSON. The monitor froze at nearly every cue, and one sidecar
+timeout swapped the styled caption for the unstyled fallback for ten seconds.
+
+**Decision.**
+
+1. The engine samples a cue's frames in windows from one cached build of its caption layer
+   (`POST /preview/caption-frames`, binary, each distinct raster once; a cue of 84 frames has a
+   median of 12 distinct rasters across the templates). Each frame is byte-identical to the
+   single-frame route; a test holds both routes and a fresh build to that.
+2. The monitor fetches caption windows 2 s ahead of the playhead, titles and shapes once.
+3. **Playback never waits on a text raster.** A title or shape that has not arrived is left out of
+   that frame; a styled caption frame that has not arrived is drawn with the nearest held frame of
+   the same cue. Both are counted (`debugStats().textSkipped`, `textStale`, logged on pause).
+4. **A paused frame is exact.** It waits for its own rasters (at most 1.5 s, then it is shown
+   with the text it has — a caption's nearest held frame of its cue, else none — and redrawn when
+   the late text lands; the seek resolves only after that redraw, so a parity read waits for it),
+   and pausing re-presents the frame that way, at full resolution. The PX4 oracle reads paused
+   frames, so what it measures is unchanged.
+5. Refusals and outages are told apart: a 422 falls back to the approximate raster at once; an
+   unreachable or slow sidecar is asked again after a second and falls back only after three
+   failures in a row.
+
+**Why not keep holding the picture.** Point 3 relaxes "a wrong picture is never shown" for text
+during playback only, the same way load shedding (PX2.8) already lowers resolution during
+playback. A caption one word-state late for a few frames is a smaller error than a frozen monitor,
+and it is never what the user stops on. Holding the frame made the monitor unusable exactly where
+captions are, which is where users look hardest.

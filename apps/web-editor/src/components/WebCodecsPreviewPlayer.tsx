@@ -129,6 +129,25 @@ export interface WebCodecsPreviewPlayerProps {
 
 const DEFAULT_RESOLUTION = { width: 1280, height: 720 } as const;
 
+/**
+ * `items`, or the previous array when it holds the same elements in the same order (a shallow
+ * copy), so an unchanged list keeps its identity across renders.
+ */
+function useStableItems<T>(items: readonly T[]): readonly T[];
+function useStableItems<T>(items: readonly T[] | undefined): readonly T[] | undefined;
+function useStableItems<T>(items: readonly T[] | undefined): readonly T[] | undefined {
+  const held = useRef(items);
+  const previous = held.current;
+  const same =
+    previous === items ||
+    (previous !== undefined &&
+      items !== undefined &&
+      previous.length === items.length &&
+      previous.every((item, index) => item === items[index]));
+  if (!same) held.current = items;
+  return held.current;
+}
+
 /** Cap the canvas buffer's long edge — a 1080×1920 project would otherwise
  * allocate a 2MP buffer per frame; scaling to fit this keeps the buffer small
  * while preserving the exact project aspect (so letterboxing matches export). */
@@ -148,14 +167,14 @@ function webCodecsRuntimeAvailable(): boolean {
 
 export function WebCodecsPreviewPlayer({
   editor,
-  assets,
+  assets: assetsProp,
   fps,
   aspect = 16 / 9,
   resolution = DEFAULT_RESOLUTION,
   onChangeOrientation,
   headerControlsHost,
   soloedTrackIds = NO_SOLO,
-  transcript,
+  transcript: transcriptProp,
   onDropElement,
 }: WebCodecsPreviewPlayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -190,6 +209,11 @@ export function WebCodecsPreviewPlayer({
     void (monitor ?? previewRef.current)?.requestFullscreen();
   };
 
+  // Held while their elements are the same objects: the editor copies both arrays into every
+  // project it hands up, so one edit arrived here twice (new timeline, then new-but-equal
+  // arrays) and reloaded the monitor's project twice.
+  const assets = useStableItems(assetsProp);
+  const transcript = useStableItems(transcriptProp);
   const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
   // `resolution` is the project frame the canvas composites into, and coverage is a relation
   // between the stacked clips and that frame (ADR 0170).
@@ -921,15 +945,22 @@ export function WebCodecsPreviewPlayer({
   // Keyed on `hasSegments`, not the EDL: the layer compositor builds no EDL, and gating on it
   // left paused ruler/transcript seeks unseen by that engine, whose next project reload then
   // re-presented its stale time and dragged the editor playhead back to it.
+  //
+  // While playing, the same subscription carries the engine's own clock echo (every tick) and a
+  // genuine jump (the scrub bar, a marker, "go to"); only the jump differs from what the engine
+  // last reported. The layer compositor continues playback from the new time. The legacy
+  // engine still ignores it, as it always has (its seek pauses).
   useEffect(() => {
     if (!hasSegments) return undefined;
     return editor.subscribePlayhead(() => {
       const engine = engineRef.current;
       // isStarting: play() is mid-startup (audio clock resuming) — isPlaying is
       // still false but a seek here would cancel the just-requested playback.
-      if (!engine || engine.isPlaying || engine.isStarting) return;
+      if (!engine || engine.isStarting) return;
+      if (engine.isPlaying && !(engine instanceof LayerPreviewEngine)) return;
       const projectTime = editor.getPlayhead();
       if (Math.abs(projectTime - lastReportedTimeRef.current) < 1 / Math.max(1, fps)) return;
+      lastReportedTimeRef.current = projectTime;
       void engine.seek(projectTime);
     });
   }, [hasSegments, editor, fps]);

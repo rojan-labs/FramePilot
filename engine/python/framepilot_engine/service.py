@@ -307,12 +307,17 @@ from framepilot_engine.render.matte_tier_job import (
 from framepilot_engine.render.mattes import MATTE_FILE
 from framepilot_engine.render.pipeline import RenderJob, RenderOptions, render
 from framepilot_engine.render.preview_text import (
+    MAX_CAPTION_FRAMES as PREVIEW_CAPTION_MAX_FRAMES,
+)
+from framepilot_engine.render.preview_text import (
     MAX_CUE_WORDS as PREVIEW_CAPTION_MAX_WORDS,
 )
 from framepilot_engine.render.preview_text import (
     PreviewTextError,
     baseline_caption_raster,
+    encode_caption_frames,
     shape_raster,
+    styled_caption_frames,
     styled_caption_raster,
     text_overlay_raster,
 )
@@ -1279,6 +1284,34 @@ class PreviewTextRasterResponse(BaseModel):
     )
     backdrop_sigma_px: float = Field(
         default=0.0, description="The frost's Gaussian standard deviation, in output pixels."
+    )
+
+
+class PreviewCaptionFramesRequest(BaseModel):
+    """Request body for ``POST /preview/caption-frames``: one styled cue at several frames."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(max_length=2000, description="The cue's resolved text.")
+    frame_width: int = Field(ge=1, le=8192, description="Output frame width in pixels.")
+    frame_height: int = Field(ge=1, le=8192, description="Output frame height in pixels.")
+    track_style: dict[str, Any] | None = Field(
+        default=None, description="The caption track's default style, as the project stores it."
+    )
+    clip_style: dict[str, Any] | None = Field(
+        default=None, description="The cue's own style override."
+    )
+    words: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=PREVIEW_CAPTION_MAX_WORDS,
+        description="The cue's timed words (word, start, end), in timeline seconds.",
+    )
+    clip_start: float = Field(description="The cue's timeline start (s).")
+    clip_end: float = Field(description="The cue's timeline end (s).")
+    frame_times: list[float] = Field(
+        min_length=1,
+        max_length=PREVIEW_CAPTION_MAX_FRAMES,
+        description="Timeline seconds of the frames to draw, in the order wanted.",
     )
 
 
@@ -6833,6 +6866,38 @@ def create_app(
             animated=raster.animated,
             backdrop_base64=raster.backdrop_base64(),
             backdrop_sigma_px=raster.backdrop_sigma_px,
+        )
+
+    @app.post("/preview/caption-frames")
+    def preview_caption_frames_route(req: PreviewCaptionFramesRequest) -> Response:
+        """A styled caption at a window of frames, from one build of the export's caption layer.
+
+        The desktop monitor prefetches the frames playback is about to show (every caption
+        template moves with time), so it never waits on a raster per frame. The body is binary
+        (see :func:`~framepilot_engine.render.preview_text.encode_caption_frames`): distinct
+        rasters once each, and which one each requested frame shows.
+        """
+        if not (req.track_style or req.clip_style):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Caption frames are for a styled caption; an unstyled cue is one raster.",
+            )
+        try:
+            frames = styled_caption_frames(
+                text=req.text,
+                words=req.words,
+                track_style=req.track_style,
+                clip_style=req.clip_style,
+                clip_start=req.clip_start,
+                clip_end=req.clip_end,
+                frame_width=req.frame_width,
+                frame_height=req.frame_height,
+                frame_times=req.frame_times,
+            )
+        except PreviewTextError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        return Response(
+            content=encode_caption_frames(frames), media_type="application/octet-stream"
         )
 
     @app.post("/review/temporal-evidence", response_model=TemporalEvidenceBatch)

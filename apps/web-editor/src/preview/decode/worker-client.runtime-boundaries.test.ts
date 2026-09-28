@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DecodeWorkerClient } from './worker-client.js';
+import { DecodeWorkerClient, DecodeWorkerRestartedError } from './worker-client.js';
 
 class FakeWorker {
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -210,6 +210,51 @@ describe('DecodeWorkerClient teardown', () => {
       decodeDurationMs: 4,
       reconfigured: true,
     });
+    client.dispose();
+  });
+
+  it('replays a source’s rotation when it rehydrates a replacement worker', async () => {
+    installWorker();
+    const client = new DecodeWorkerClient();
+    const initialLoad = client.loadSource('source-a', 'blob:source-a', { rotation: 90 });
+    await flushMicrotasks();
+    const failedWorker = latestWorker!;
+    expect(failedWorker.posted[0]).toMatchObject({ type: 'load', rotation: 90 });
+    completeLoad(failedWorker);
+    await initialLoad;
+
+    failedWorker.onerror?.({ message: 'decoder crashed' } as ErrorEvent);
+    void client.decodeRange('source-a', 0, 1).catch(() => undefined);
+    await flushMicrotasks();
+    // The replacement turns the planes upright too, or the picture comes back sideways.
+    expect(latestWorker!.posted[0]).toMatchObject({
+      type: 'load',
+      sourceId: 'source-a',
+      rotation: 90,
+    });
+    client.dispose();
+  });
+
+  it('restarts a worker that stopped answering: waiting calls are told to retry', async () => {
+    installWorker();
+    const client = new DecodeWorkerClient();
+    const load = client.loadSource('source-a', 'blob:source-a');
+    await flushMicrotasks();
+    const stuckWorker = latestWorker!;
+    completeLoad(stuckWorker);
+    await load;
+    const stuck = client.decodeRange('source-a', 0, 1);
+    await flushMicrotasks();
+
+    client.restart('a decode call has not settled');
+    await expect(stuck).rejects.toBeInstanceOf(DecodeWorkerRestartedError);
+    expect(stuckWorker.terminated).toBe(true);
+
+    // The next call brings up a fresh worker, which reloads the source first.
+    void client.decodeRange('source-a', 0, 1).catch(() => undefined);
+    await flushMicrotasks();
+    expect(latestWorker).not.toBe(stuckWorker);
+    expect(latestWorker!.posted[0]).toMatchObject({ type: 'load', sourceId: 'source-a' });
     client.dispose();
   });
 

@@ -39,7 +39,7 @@ import { getTransition } from '@framepilot/timeline-schema/transition-catalog';
 import { TRANSITION_EXIT_BY_MASK } from '@framepilot/timeline-schema/transition-params';
 import { resolveCaptionCue } from './captions/cue.js';
 import { assetDisplaySize } from './mask-geometry.js';
-import { applyEasing, evaluateKeyframes } from './keyframes.js';
+import { applyEasing, evaluateSortedCurve } from './keyframes.js';
 import { clipRenderKind, syntheticClipKind, type ClipRenderKind } from './synthetic-assets.js';
 import { shapeBounds, shapeClipParams, type ShapeBounds } from './shape-geometry.js';
 import { hasSpeedRamp, sourceTimeAt } from './speed-curve.js';
@@ -473,9 +473,44 @@ interface ClipTransform {
   readonly opacity: number;
 }
 
+/** A keyframe list grouped by property, each group time-sorted. */
+type KeyframeCurves = ReadonlyMap<string, readonly Keyframe[]>;
+
+const NO_CURVES: KeyframeCurves = new Map();
+const NO_POINTS: readonly Keyframe[] = [];
+/**
+ * Keyed by the keyframe array itself. Operations replace a clip's keyframes, never edit
+ * them in place, so an array always holds the same keyframes. Unchanged clips keep their
+ * array across edits, so their grouping survives an edit too.
+ */
+const curvesByKeyframes = new WeakMap<readonly Keyframe[], KeyframeCurves>();
+
+/**
+ * The per-property lists `evaluateKeyframes` would build: the same filtered order sorted by the
+ * same comparator (a stable sort), so the curve values come out bit for bit the same. It is built
+ * once per keyframe array. Without the cache, every evaluation filtered and sorted the whole list,
+ * five properties at a time, three times per picture layer.
+ */
+function keyframeCurves(keyframes: readonly Keyframe[]): KeyframeCurves {
+  if (keyframes.length === 0) return NO_CURVES;
+  const cached = curvesByKeyframes.get(keyframes);
+  if (cached !== undefined) return cached;
+  const curves = new Map<string, Keyframe[]>();
+  for (const keyframe of keyframes) {
+    const { property } = keyframe;
+    const points = curves.get(property);
+    if (points === undefined) curves.set(property, [keyframe]);
+    else points.push(keyframe);
+  }
+  for (const points of curves.values()) points.sort((a, b) => a.time - b.time);
+  curvesByKeyframes.set(keyframes, curves);
+  return curves;
+}
+
 function evaluateClipTransform(keyframes: readonly Keyframe[], t: number): ClipTransform {
+  const curves = keyframeCurves(keyframes);
   const value = (property: string, fallback: number): number =>
-    evaluateKeyframes(keyframes, property, t) ?? fallback;
+    evaluateSortedCurve(curves.get(property) ?? NO_POINTS, t) ?? fallback;
   const opacity = value('opacity', 1);
   return {
     scale: value('scale', 1),
@@ -643,13 +678,17 @@ function underlayWindow(
   return [Math.max(clip.start, clip.end - span), clip.end];
 }
 
+/**
+ * @param byId - `ordered` by clip id, last one winning. Built once per track: building it once per
+ *   clip made every plan O(clips²) on a long track.
+ */
 function transitionUnderlays(
   clip: Clip,
   position: number,
   ordered: readonly Clip[],
+  byId: ReadonlyMap<string, Clip>,
   assetKinds: ReadonlyMap<string, string>,
 ): readonly Underlay[] {
-  const byId = new Map(ordered.map((entry) => [entry.id, entry]));
   const found: Underlay[] = [];
   const adjacent: readonly (readonly ['in' | 'out', Clip | undefined])[] = [
     ['in', position > 0 ? ordered[position - 1] : undefined],
@@ -759,7 +798,6 @@ interface Context {
   readonly t: number;
   readonly width: number;
   readonly height: number;
-  readonly assetKinds: ReadonlyMap<string, string>;
   readonly assetSizes: ReadonlyMap<string, readonly [number, number]>;
   readonly assetDurations: ReadonlyMap<string, number>;
   readonly sourceFps: ReadonlyMap<string, number>;
@@ -1154,7 +1192,7 @@ function shapeLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer | nu
   const params = shapeClipParams(clip);
   if (params === null) return null;
   const local = ctx.t - clip.start;
-  const rotates = clip.keyframes.some((keyframe) => keyframe.property === 'rotation');
+  const rotates = keyframeCurves(clip.keyframes).has('rotation');
   const bounds = shapeBounds(params, ctx.width, ctx.height, rotates);
   if (bounds === null) return null;
   const centreX = bounds.x + bounds.width / 2;
@@ -1191,22 +1229,26 @@ function shapeLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer | nu
 }
 
 /** One track's active layers in the compiler's placement order, track mattes marked (MK8.2). */
-function trackLayers(ctx: Context, track: Track): FramePlanLayer[] {
-  return placedTrackLayers(ctx, track).map((layer) =>
+function trackLayers(ctx: Context, lane: TrackIndex): FramePlanLayer[] {
+  return placedTrackLayers(ctx, lane).map((layer) =>
     consumedAsMatte(ctx.matteSources, layer) ? { ...layer, matteOnly: true as const } : layer,
   );
 }
 
-function placedTrackLayers(ctx: Context, track: Track): FramePlanLayer[] {
-  if (track.hidden === true) return [];
-  const ordered = [...track.clips].sort((a, b) => a.start - b.start);
+/**
+ * The compiler's walk over a track's clips in `start` order, visiting only the clips the lane's
+ * spans say can draw at `ctx.t`. Every other clip would fail every `layerIsActive` below, so
+ * skipping them changes nothing but the cost.
+ */
+function placedTrackLayers(ctx: Context, lane: TrackIndex): FramePlanLayer[] {
+  const { track } = lane;
   const layers: FramePlanLayer[] = [];
-  ordered.forEach((clip, position) => {
-    const kind = clipKindOf(clip, ctx.assetKinds);
+  for (const position of livePositions(lane.spans, ctx.t)) {
+    const { clip, kind, underlays } = lane.placed[position]!;
     if (kind === 'image') {
       if (layerIsActive(clip.start, clip.end, ctx.t)) layers.push(imageLayer(ctx, track, clip));
     } else if (kind === 'video') {
-      for (const underlay of transitionUnderlays(clip, position, ordered, ctx.assetKinds)) {
+      for (const underlay of underlays) {
         if (layerIsActive(underlay.window[0], underlay.window[1], ctx.t)) {
           layers.push(underlayLayer(ctx, track, clip, underlay));
         }
@@ -1219,7 +1261,7 @@ function placedTrackLayers(ctx: Context, track: Track): FramePlanLayer[] {
       const layer = shapeLayer(ctx, track, clip);
       if (layer !== null) layers.push(layer);
     }
-  });
+  }
   return layers;
 }
 
@@ -1246,13 +1288,255 @@ function hasAudioAnywhere(timeline: Timeline, assetKinds: ReadonlyMap<string, st
   );
 }
 
-function captionLayers(ctx: Context, timeline: Timeline): FramePlanLayer[] {
-  const layers: FramePlanLayer[] = [];
+// ---------------------------------------------------------------------------
+// Per-timeline index
+// ---------------------------------------------------------------------------
+//
+// The desktop monitor asks for a plan up to 14 times per display refresh, always with the
+// same timeline object until an edit replaces it. Everything below depends on the timeline
+// and the asset kinds but not on the time: which clips a track draws and in what order, each
+// video clip's transition under-layers, the track-matte sources, and whether the timeline is
+// audio only. It is worked out once per timeline, so a plan costs what is on screen at `t`
+// plus a binary search per track. Before this, every plan sorted every track, derived
+// under-layers for every video clip whether it was on screen or not (each derivation mapping
+// the whole track by id: O(clips²) per plan), and resolved every caption cue.
+
+/**
+ * When a lane's entries can draw. Each entry is the envelope of its windows: the earliest
+ * `start`, and the latest `start + (end - start)` (the bound `layerIsActive` compares `t`
+ * with, computed the same way, so it is the same float). Entries are sorted by start, and
+ * `reach[i]` is the largest end among entries `0..i`, so a query walking back from the last
+ * entry that has started stops as soon as nothing earlier can still be running.
+ */
+interface ActivitySpans {
+  readonly starts: readonly number[];
+  readonly ends: readonly number[];
+  readonly reach: readonly number[];
+  /** The lane position each entry stands for. */
+  readonly positions: readonly number[];
+}
+
+const NO_SPANS: ActivitySpans = { starts: [], ends: [], reach: [], positions: [] };
+
+/**
+ * @param windowsByPosition - Every `[start, end]` that can make the entry at each position draw.
+ *   An entry with none, or only windows no `t` can satisfy (empty, NaN), is left out.
+ */
+function activitySpans(
+  windowsByPosition: readonly (readonly (readonly [number, number])[])[],
+): ActivitySpans {
+  const entries: { start: number; end: number; position: number }[] = [];
+  windowsByPosition.forEach((windows, position) => {
+    let start = Infinity;
+    let end = -Infinity;
+    for (const [from, to] of windows) {
+      const until = from + (to - from);
+      // `from <= t && t < until` has a solution only when `from < until`; NaN never does.
+      if (!(from < until)) continue;
+      start = Math.min(start, from);
+      end = Math.max(end, until);
+    }
+    if (start < end) entries.push({ start, end, position });
+  });
+  if (entries.length === 0) return NO_SPANS;
+  entries.sort((a, b) => a.start - b.start);
+  const reach: number[] = [];
+  let furthest = -Infinity;
+  for (const entry of entries) {
+    furthest = Math.max(furthest, entry.end);
+    reach.push(furthest);
+  }
+  return {
+    starts: entries.map((entry) => entry.start),
+    ends: entries.map((entry) => entry.end),
+    reach,
+    positions: entries.map((entry) => entry.position),
+  };
+}
+
+/**
+ * The positions whose envelope holds `t`, ascending: a superset of the entries with a live
+ * window at `t`, which callers still test one by one. Abutting clips make this the one or two
+ * clips under the playhead.
+ */
+function livePositions(spans: ActivitySpans, t: number): readonly number[] {
+  let lo = 0;
+  let hi = spans.starts.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (spans.starts[mid]! <= t) lo = mid + 1;
+    else hi = mid;
+  }
+  const live: number[] = [];
+  for (let i = lo - 1; i >= 0 && spans.reach[i]! > t; i -= 1) {
+    if (spans.ends[i]! > t) live.push(spans.positions[i]!);
+  }
+  return live.length > 1 ? live.sort((a, b) => a - b) : live;
+}
+
+interface PlacedClip {
+  readonly clip: Clip;
+  readonly kind: ClipRenderKind;
+  /** A video clip's transition under-layers, whether or not they are live. */
+  readonly underlays: readonly Underlay[];
+}
+
+/** One track as `placedTrackLayers` walks it. */
+interface TrackIndex {
+  readonly track: Track;
+  /** The clips in the compiler's placement order (`start`, stable). */
+  readonly placed: readonly PlacedClip[];
+  /** Over `placed` positions. */
+  readonly spans: ActivitySpans;
+}
+
+interface CaptionTrackIndex {
+  readonly track: Track;
+  /** Over `track.clips` positions: captions burn in list order, not `start` order. */
+  readonly spans: ActivitySpans;
+}
+
+interface TimelineIndex {
+  /**
+   * The asset-kind table this index was last confirmed against. Another table that agrees on
+   * every asset the timeline uses (a caller passing an equal but fresh `assets` array) takes
+   * this slot instead of forcing a rebuild.
+   */
+  assetKinds: ReadonlyMap<string, string>;
+  /** Each asset id a clip uses, and the kind the index was built with for it. */
+  readonly usedKinds: ReadonlyMap<string, string | undefined>;
+  /** Aligned with `timeline.tracks`. */
+  readonly tracks: readonly TrackIndex[];
+  /** Visible caption tracks, in list order. */
+  readonly captionTracks: readonly CaptionTrackIndex[];
+  readonly matteSources: LayerMatteSources;
+  /** How long the black stand-in of an audio-only timeline lasts; `null` when there is none. */
+  readonly audioOnlyEnd: number | null;
+}
+
+const NO_UNDERLAYS: readonly Underlay[] = [];
+const DRAWN_KINDS: ReadonlySet<ClipRenderKind> = new Set(['image', 'video', 'text', 'shape']);
+
+function indexTrack(track: Track, assetKinds: ReadonlyMap<string, string>): TrackIndex {
+  if (track.hidden === true) return { track, placed: [], spans: NO_SPANS };
+  const ordered = [...track.clips].sort((a, b) => a.start - b.start);
+  const byId = new Map(ordered.map((entry) => [entry.id, entry]));
+  const placed = ordered.map((clip, position): PlacedClip => {
+    const kind = clipKindOf(clip, assetKinds);
+    const underlays =
+      kind === 'video'
+        ? transitionUnderlays(clip, position, ordered, byId, assetKinds)
+        : NO_UNDERLAYS;
+    return { clip, kind, underlays };
+  });
+  const spans = activitySpans(
+    placed.map(({ clip, kind, underlays }) =>
+      DRAWN_KINDS.has(kind)
+        ? [...underlays.map((underlay) => underlay.window), [clip.start, clip.end] as const]
+        : [],
+    ),
+  );
+  return { track, placed, spans };
+}
+
+function buildTimelineIndex(
+  timeline: Timeline,
+  assetKinds: ReadonlyMap<string, string>,
+): TimelineIndex {
+  const usedKinds = new Map<string, string | undefined>();
+  let timelineEnd = 0;
   for (const track of timeline.tracks) {
-    if (track.type !== 'caption' || track.hidden === true) continue;
     for (const clip of track.clips) {
+      usedKinds.set(clip.assetId, assetKinds.get(clip.assetId));
+      timelineEnd = Math.max(timelineEnd, clip.end);
+    }
+  }
+  const captionTracks = timeline.tracks
+    .filter((track) => track.type === 'caption' && track.hidden !== true)
+    .map((track) => ({
+      track,
+      spans: activitySpans(track.clips.map((clip) => [[clip.start, clip.end] as const])),
+    }));
+  const audioOnly =
+    !hasPictureAnywhere(timeline, assetKinds) && hasAudioAnywhere(timeline, assetKinds);
+  return {
+    assetKinds,
+    usedKinds,
+    tracks: timeline.tracks.map((track) => indexTrack(track, assetKinds)),
+    captionTracks,
+    matteSources: layerMatteSources(timeline, assetKinds),
+    audioOnlyEnd: audioOnly ? timelineEnd : null,
+  };
+}
+
+/**
+ * Keyed by the timeline object. Editing operations return a new timeline and never change one
+ * in place, which is what makes the identity a sound key; the entry dies with the timeline.
+ */
+const timelineIndexes = new WeakMap<Timeline, TimelineIndex>();
+
+function timelineIndexFor(
+  timeline: Timeline,
+  assetKinds: ReadonlyMap<string, string>,
+): TimelineIndex {
+  const cached = timelineIndexes.get(timeline);
+  if (cached !== undefined) {
+    if (cached.assetKinds === assetKinds) return cached;
+    let agrees = true;
+    for (const [assetId, kind] of cached.usedKinds) {
+      if (assetKinds.get(assetId) !== kind) {
+        agrees = false;
+        break;
+      }
+    }
+    if (agrees) {
+      cached.assetKinds = assetKinds;
+      return cached;
+    }
+  }
+  const index = buildTimelineIndex(timeline, assetKinds);
+  timelineIndexes.set(timeline, index);
+  return index;
+}
+
+interface AssetTables {
+  readonly kinds: ReadonlyMap<string, string>;
+  readonly sizes: ReadonlyMap<string, readonly [number, number]>;
+  readonly durations: ReadonlyMap<string, number>;
+}
+
+/** Keyed by the `assets` array, which the editor replaces rather than edits, like a timeline. */
+const assetTablesByList = new WeakMap<readonly Asset[], AssetTables>();
+
+function assetTablesFor(assets: readonly Asset[]): AssetTables {
+  const cached = assetTablesByList.get(assets);
+  if (cached !== undefined) return cached;
+  const sizes = new Map<string, readonly [number, number]>();
+  const durations = new Map<string, number>();
+  for (const asset of assets) {
+    // Display-corrected (PAR + rotation, PX2.9): the size the compiler decodes and fits.
+    const display = assetDisplaySize(asset.media);
+    if (display !== null) sizes.set(asset.id, [display.width, display.height]);
+    if (asset.durationSeconds !== undefined) durations.set(asset.id, asset.durationSeconds);
+  }
+  const tables: AssetTables = {
+    kinds: new Map(assets.map((asset) => [asset.id, asset.kind])),
+    sizes,
+    durations,
+  };
+  assetTablesByList.set(assets, tables);
+  return tables;
+}
+
+function captionLayers(ctx: Context, index: TimelineIndex): FramePlanLayer[] {
+  const layers: FramePlanLayer[] = [];
+  for (const { track, spans } of index.captionTracks) {
+    for (const position of livePositions(spans, ctx.t)) {
+      const clip = track.clips[position]!;
+      // Activity first: resolving a pre-v11 cue scans the whole transcript.
+      if (!layerIsActive(clip.start, clip.end, ctx.t)) continue;
       const cue = resolveCaptionCue(clip, ctx.transcript);
-      if (cue.text.trim() === '' || !layerIsActive(clip.start, clip.end, ctx.t)) continue;
+      if (cue.text.trim() === '') continue;
       layers.push({
         ...baseLayer('caption', track.id, clip.id, ctx.t - clip.start),
         text: cue.text,
@@ -1274,6 +1558,10 @@ function toMap<T>(
 /**
  * Describe the exported frame at `projectTime`, back to front.
  *
+ * What does not depend on the time is indexed once per `timeline` object and `assets` array
+ * (see "Per-timeline index"), so both must be treated as immutable, as the editor treats them:
+ * an edit passes a new object.
+ *
  * @param timeline - The timeline to describe.
  * @param assets - Project assets; probed `media.width/height` drive picture geometry.
  * @param projectTime - Sequence seconds.
@@ -1292,45 +1580,30 @@ export function framePlanAt(
   if (!Number.isFinite(projectTime)) {
     throw new FramePlanError(`Frame plan time must be finite, got ${String(projectTime)}.`);
   }
-  const assetSizes = new Map<string, readonly [number, number]>();
-  const assetDurations = new Map<string, number>();
-  for (const asset of assets) {
-    // Display-corrected (PAR + rotation, PX2.9): the size the compiler decodes and fits.
-    const display = assetDisplaySize(asset.media);
-    if (display !== null) assetSizes.set(asset.id, [display.width, display.height]);
-    if (asset.durationSeconds !== undefined) assetDurations.set(asset.id, asset.durationSeconds);
-  }
-  const assetKinds = new Map(assets.map((asset) => [asset.id, asset.kind]));
+  const assetTables = assetTablesFor(assets);
+  const index = timelineIndexFor(timeline, assetTables.kinds);
   const ctx: Context = {
     t: projectTime,
     width: resolution.width,
     height: resolution.height,
-    assetKinds,
-    assetSizes,
-    assetDurations,
+    assetSizes: assetTables.sizes,
+    assetDurations: assetTables.durations,
     sourceFps: toMap(options.sourceFps),
     sourceFrameTimes: toMap(options.sourceFrameTimes),
     transcript: options.transcript ?? [],
-    matteSources: layerMatteSources(timeline, assetKinds),
+    matteSources: index.matteSources,
   };
 
   const layers: FramePlanLayer[] = [];
   // `tracks[0]` is the visual front, so tracks composite in reverse list order.
-  const perTrack = timeline.tracks.map((track) => trackLayers(ctx, track));
+  const perTrack = index.tracks.map((lane) => trackLayers(ctx, lane));
   for (let i = perTrack.length - 1; i >= 0; i -= 1) layers.push(...(perTrack[i] ?? []));
 
-  let timelineEnd = 0;
-  for (const track of timeline.tracks)
-    for (const clip of track.clips) timelineEnd = Math.max(timelineEnd, clip.end);
-  if (
-    !hasPictureAnywhere(timeline, ctx.assetKinds) &&
-    hasAudioAnywhere(timeline, ctx.assetKinds) &&
-    layerIsActive(0, timelineEnd, projectTime)
-  ) {
+  if (index.audioOnlyEnd !== null && layerIsActive(0, index.audioOnlyEnd, projectTime)) {
     // The compiler's black stand-in for an audio-only timeline, as long as the timeline.
     layers.push(baseLayer('solid', '', null, projectTime));
   }
-  if (options.burnCaptions === true) layers.push(...captionLayers(ctx, timeline));
+  if (options.burnCaptions === true) layers.push(...captionLayers(ctx, index));
 
   const frameEffects = activeEffectLayersAt(timeline, projectTime).map(({ track, layer }) => ({
     trackId: track.id,

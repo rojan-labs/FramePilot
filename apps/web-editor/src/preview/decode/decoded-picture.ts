@@ -117,8 +117,8 @@ function rotatePlane(
   width: number,
   height: number,
   clockwise: 90 | 180 | 270,
+  out: Uint8Array = new Uint8Array(plane.length),
 ): Uint8Array {
-  const out = new Uint8Array(plane.length);
   if (clockwise === 180) {
     for (let i = 0, n = width * height; i < n; i++) out[n - 1 - i] = plane[i]!;
     return out;
@@ -146,12 +146,24 @@ export function rotateI420(picture: I420Picture, clockwise: number): I420Picture
   const cw = half(picture.width);
   const ch = half(picture.height);
   const quarter = clockwise !== 180;
+  // One buffer for the three planes, as `copyI420` packs them, so a picture message still
+  // transfers the whole picture (`pictureTransfer` hands over `y.buffer`) instead of copying two.
+  const lumaBytes = picture.y.length;
+  const chromaBytes = picture.u.length;
+  const out = new Uint8Array(lumaBytes + 2 * chromaBytes);
+  const y = out.subarray(0, lumaBytes);
+  const u = out.subarray(lumaBytes, lumaBytes + chromaBytes);
+  const v = out.subarray(lumaBytes + chromaBytes);
+  rotatePlane(picture.y, picture.width, picture.height, clockwise, y);
+  rotatePlane(picture.u, cw, ch, clockwise, u);
+  rotatePlane(picture.v, cw, ch, clockwise, v);
   return {
     ...picture,
     width: quarter ? picture.height : picture.width,
     height: quarter ? picture.width : picture.height,
-    y: rotatePlane(picture.y, picture.width, picture.height, clockwise),
-    u: rotatePlane(picture.u, cw, ch, clockwise),
-    v: rotatePlane(picture.v, cw, ch, clockwise),
+    y,
+    u,
+    v,
+    byteLength: out.byteLength,
   };
 }

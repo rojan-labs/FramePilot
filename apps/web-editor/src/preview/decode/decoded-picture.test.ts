@@ -23,6 +23,14 @@ describe('rotateI420 (ffmpeg autorotate, clockwise)', () => {
     expect([...turned.u]).toEqual([10, 11]);
   });
 
+  it('packs the turned planes in one buffer, so a picture message transfers all of them', () => {
+    const turned = rotateI420(picture(), 90);
+    expect(turned.u.buffer).toBe(turned.y.buffer);
+    expect(turned.v.buffer).toBe(turned.y.buffer);
+    expect([...turned.v]).toEqual([20, 21]);
+    expect(turned.byteLength).toBe(12);
+  });
+
   it('turns counter-clockwise for 270 and half-turns for 180', () => {
     expect([...rotateI420(picture(), 270).y]).toEqual([3, 7, 2, 6, 1, 5, 0, 4]);
     expect([...rotateI420(picture(), 180).y]).toEqual([7, 6, 5, 4, 3, 2, 1, 0]);

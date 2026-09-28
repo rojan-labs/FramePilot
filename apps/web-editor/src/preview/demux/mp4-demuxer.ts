@@ -55,6 +55,26 @@ export interface DemuxedSampleTable {
    * (`render/pts_reader.py`) numbers these frames by pts, and the frame plan follows it.
    */
   frameTimesSec: number[] | null;
+  /**
+   * The clockwise quarter turn the file's own display matrix (`tkhd`) asks for, 0 for none: what
+   * ffmpeg's autorotate applies when the export reads this file. A proxy written by ffmpeg is
+   * already turned and carries none; a phone original carries its rotation.
+   */
+  displayRotationCw: number;
+}
+
+/**
+ * The clockwise display rotation of an ISO BMFF track matrix (`[a b u c d v x y w]`, `a..d` in
+ * 16.16 fixed point), in whole degrees 0-359: 0 for the identity (and for any scale without a
+ * turn). The angle is ffmpeg's `-av_display_rotation_get` sense, as `get_rotation` reads it.
+ */
+export function displayRotationCw(matrix: ArrayLike<number> | undefined): number {
+  if (matrix === undefined || matrix.length < 5) return 0;
+  const a = matrix[0]!;
+  const b = matrix[1]!;
+  if (a === 0 && b === 0) return 0;
+  const degrees = Math.round((Math.atan2(b, a) * 180) / Math.PI);
+  return ((degrees % 360) + 360) % 360;
 }
 
 /**
@@ -119,6 +139,7 @@ export function demuxAllVideoSamples(
     const sampleMeta: { ctsUs: number; isSync: boolean }[] = [];
     const ctsTicks: number[] = [];
     let timescale = 0;
+    let rotationCw = 0;
     let config: VideoDecoderConfig | undefined;
     let frameDurationUs: number | undefined;
     let frameRate: number | undefined;
@@ -138,6 +159,7 @@ export function demuxAllVideoSamples(
         return;
       }
       const { width: codedWidth, height: codedHeight } = track.video;
+      rotationCw = displayRotationCw(track.matrix);
 
       file.onSamples = (_trackId, _user, samples) => {
         for (const sample of samples) {
@@ -182,7 +204,7 @@ export function demuxAllVideoSamples(
     // would map ~2 frames early. Subtracting the minimum cts re-anchors both
     // the tables AND the chunk timestamps (which the decoder copies verbatim
     // onto output frames, keeping the output↔table lookup consistent).
-    const minCtsUs = Math.min(...sampleMeta.map((m) => m.ctsUs));
+    const minCtsUs = earliestCtsUs(sampleMeta);
     const chunks = rawInits.map((init) =>
       chunkFactory({ ...init, timestamp: init.timestamp - minCtsUs }),
     );
@@ -193,6 +215,7 @@ export function demuxAllVideoSamples(
       frameDurationUs,
       frameRate: frameRate ?? 0,
       frameTimesSec: variableFrameTimes(ctsTicks, timescale),
+      displayRotationCw: rotationCw,
       ...buildPresentationTables(normalizedMeta),
     });
   });
@@ -416,7 +439,7 @@ export async function demuxSampleTableStreaming(
     ctsUs: Math.round((sample.cts * 1_000_000) / sample.timescale),
     isSync: Boolean(sample.is_sync),
   }));
-  const minCtsUs = Math.min(...meta.map((m) => m.ctsUs));
+  const minCtsUs = earliestCtsUs(meta);
   const normalizedMeta = meta.map((m) => ({ ctsUs: m.ctsUs - minCtsUs, isSync: m.isSync }));
   return {
     config,
@@ -426,6 +449,7 @@ export async function demuxSampleTableStreaming(
       samples.map((sample) => sample.cts),
       first.timescale,
     ),
+    displayRotationCw: displayRotationCw(track.matrix),
     samples: samples.map((sample, index) => ({
       offset: sample.offset,
       size: sample.size,
@@ -435,4 +459,15 @@ export async function demuxSampleTableStreaming(
     })),
     ...buildPresentationTables(normalizedMeta),
   };
+}
+
+/**
+ * The earliest composition time among `samples`, by a loop: spreading a whole sample table into
+ * `Math.min` passes one argument per sample, which throws a RangeError past V8's argument
+ * limit (between 100k and 125k samples: about 35 minutes of 60 fps video).
+ */
+export function earliestCtsUs(samples: readonly { readonly ctsUs: number }[]): number {
+  let min = Infinity;
+  for (const sample of samples) if (sample.ctsUs < min) min = sample.ctsUs;
+  return min;
 }

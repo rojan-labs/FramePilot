@@ -24,6 +24,12 @@
  * Clock: footage audio is the master (`AudioMasterClock`), exactly as before. When a frame is
  * not decoded in time the previous picture stays up and the tick is counted as missing; a
  * wrong picture is never shown.
+ *
+ * Text never holds playback: a title, shape or caption raster the engine has not answered yet is
+ * left out of that frame, and a styled caption whose frame has not arrived is drawn with the
+ * nearest raster of the same cue (counted, `debugStats().textStale`). Caption frames are fetched
+ * in windows ahead of the playhead ({@link TEXT_PREFETCH_HORIZON_SEC}). A paused frame is exact:
+ * it waits for every raster, and pausing re-presents the frame that way.
  */
 import {
   framePlanAt,
@@ -42,12 +48,16 @@ import type {
 } from '@framepilot/timeline-schema';
 import { SHAPE_EFFECT_TYPE } from '@framepilot/timeline-schema';
 import { createLogger, type PreviewTextRasterRequest } from '@framepilot/shared-types';
-import { DecodeWorkerClient, type WorkerTraffic } from '../decode/worker-client.js';
-import type { WorkerStageReport } from '../decode/decode-worker.js';
+import {
+  DecodeWorkerClient,
+  DecodeWorkerRestartedError,
+  type WorkerTraffic,
+} from '../decode/worker-client.js';
+import type { DecodedPictureMessage, WorkerStageReport } from '../decode/decode-worker.js';
 import { MatteDecodePool } from '../decode/matte-decode-pool.js';
-import { rotateI420, type DecodedPicture } from '../decode/decoded-picture.js';
+import type { DecodedPicture } from '../decode/decoded-picture.js';
 import { AudioMasterClock, type AudioSegment } from '../clock/audio-clock.js';
-import { projectFrameTime } from '../clock/project-frame.js';
+import { projectFrameIndex, projectFrameTime } from '../clock/project-frame.js';
 import type { FrameEffectInstance } from './gl/frame-effects.js';
 import { LayerCompositor, type CompositeLayer, type LayerSource } from './layer-compositor.js';
 import { pictureRasterStep, textRasterStep, type PixelSize } from './layer-raster.js';
@@ -87,6 +97,7 @@ import {
   EngineTextRasters,
   resolveTextRasterSource,
   textRasterKey,
+  type TextRasterLookupMode,
 } from './engine-text-rasters.js';
 import { mediaSrc } from '../../editor/media.js';
 import { clipKind, effectiveMutedTrackIds } from '../../editor/selectors.js';
@@ -118,6 +129,12 @@ const STAGE_STUCK_MS = 10_000;
 /** How long a hang report waits for the decode worker to say where it is. */
 const WORKER_STAGES_TIMEOUT_MS = 2_000;
 /**
+ * Least time between two decode-worker restarts. A decode stuck past {@link STAGE_STUCK_MS} is a
+ * promise that will not settle, and the worker is replaced; a machine that is only very slow must
+ * not be restarted over and over.
+ */
+const WORKER_RESTART_INTERVAL_MS = 30_000;
+/**
  * PX2.8 load shedding. Playback lowers the resolution the plan is rasterised at before anything
  * else, one step at a time, and only then lets presentation frames drop (a frame not ready on a
  * tick keeps the previous picture). It never removes a layer, matte, effect or transition. A
@@ -131,6 +148,75 @@ const FAST_SHARE = 0.35;
 const SLOW_TICKS_TO_SHED = 8;
 const FAST_TICKS_TO_RESTORE = 90;
 const EMA_WEIGHT = 0.2;
+/**
+ * How far ahead of the playhead text is fetched: titles and shapes once, styled captions as
+ * windows of frames. Two seconds covers a cue's first window at the engine's speed (5-25 ms a
+ * frame, two windows in flight) with room for a sidecar that is busy with something else.
+ */
+const TEXT_PREFETCH_HORIZON_SEC = 2;
+/**
+ * Frame plans kept: the look-ahead plans each project frame once, and the tick presents that
+ * same plan when the frame comes up (`framePlanAt` is pure over the engine's inputs).
+ */
+const PLAN_CACHE_ENTRIES = 64;
+/** How far ahead of the playhead a cut to another source starts decoding its first frames. */
+const CUT_PREFETCH_HORIZON_SEC = 1.5;
+/**
+ * How long a paused frame waits for its text rasters. The engine answers in tens of
+ * milliseconds; a sidecar busy exporting may take longer, and one that never answers must not
+ * leave the monitor (and every seek queued behind it) on the previous frame. Past this the frame
+ * is shown with the text it has (a styled caption's nearest held raster of its cue, else none),
+ * and shown again exactly when the late text lands.
+ */
+const SEEK_TEXT_WAIT_MS = 1_500;
+/** How often a paused frame shown without its late text checks whether it should stop waiting. */
+const TEXT_RECHECK_MS = 250;
+/** When a paused frame's text was drawn approximate for an unreachable engine, it asks again. */
+const TEXT_RECOVERY_RETRY_MS = 5_000;
+/**
+ * Sound changes while playing (sources' tracks finishing decoding, an edit, a solo) are handed
+ * over together after this long: each handover rebuilds the whole remaining mix on the main
+ * thread, and a project's sources finish decoding within moments of each other.
+ */
+const SOUND_HANDOVER_COALESCE_MS = 150;
+/**
+ * How long one paused seek may hold the seeks queued behind it. A seek waits on stages that
+ * normally take milliseconds (a decode, a matte frame, a mask's track); one that never settles
+ * must not leave the monitor on the previous frame for every later seek. Past this, a newer seek
+ * is served, and the stalled one gives up its frame when it does settle.
+ */
+const SEEK_STALL_MS = 2_000;
+
+/**
+ * The asset's clockwise display rotation, for the decode worker. The worker turns a file's
+ * planes by it only when that file carries a display rotation of its own, as ffmpeg's
+ * autorotate does for the export: an original from a phone does, while a proxy ffmpeg wrote
+ * (`media/derive.py`, no `-noautorotate`) is already upright and does not. Turning every file by
+ * the asset's rotation showed a proxied phone clip sideways while the export was upright.
+ */
+function uprightTurns(asset: Asset | undefined): number {
+  return asset?.media?.rotation ?? 0;
+}
+
+/** The end of the last clip on `timeline`. */
+function timelineEnd(timeline: Timeline): number {
+  return timeline.tracks.reduce(
+    (end, track) => track.clips.reduce((clipEnd, clip) => Math.max(clipEnd, clip.end), end),
+    0,
+  );
+}
+
+/** Whether `promise` settles (either way) within `ms`. */
+function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms);
+    const done = (): void => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    promise.then(done, done);
+  });
+}
 
 /** What the engine composites: the timeline and everything the plan and decoders need. */
 export interface LayerEngineProject {
@@ -157,7 +243,19 @@ interface VideoSource {
   /** Variable-frame-rate sources: frame pts in seconds from the first frame (PX2.10). */
   readonly frameTimesSec: readonly number[] | null;
   readonly timestampsUs: readonly number[];
-  readonly audioBuffer: AudioBuffer | undefined;
+  /**
+   * The source's sound, once decoded. Decoding a whole file's audio takes seconds for minutes of
+   * media, so the picture does not wait for it: the source is shown first and the sound joins
+   * playback when it is ready.
+   */
+  audioBuffer: AudioBuffer | undefined;
+}
+
+/** A caption clip the text prefetch fetches ahead: what the frame plan would draw for it. */
+interface TextPrefetchCue {
+  readonly clip: Clip;
+  readonly trackId: string;
+  readonly text: string;
 }
 
 type CacheEntry =
@@ -289,9 +387,39 @@ export class LayerPreviewEngine {
   private readonly captionRasters = new Map<string, CaptionRaster | null>();
   /** Each caption track's default style, by track id: a styled cue is drawn by the engine. */
   private captionTrackStyles = new Map<string, CaptionStyle | undefined>();
+  /** Caption requests without their frame time, per cue and size (see `captionRequestFor`). */
+  private readonly captionRequests = new Map<string, PreviewTextRasterRequest>();
   private textFontReady = false;
   /** The engine's own Pillow rasters for text and captions (desktop; canvas fallback). */
   private readonly engineTexts: EngineTextRasters;
+
+  /** Frame plans by render width and time (see {@link PLAN_CACHE_ENTRIES}). */
+  private readonly planCache = new Map<string, FramePlan>();
+  /** `sourceFps()` / `sourceFrameTimes()`, rebuilt only when the loaded sources change. */
+  private sourceFpsCache: Map<string, number> | null = null;
+  private sourceFrameTimesCache: Map<string, readonly number[]> | null = null;
+  /** Burned caption cues by start, and titles and shapes by start (the text prefetch's index). */
+  private textPrefetchCues: TextPrefetchCue[] = [];
+  private textPrefetchOverlays: Clip[] = [];
+  /** Picture clips by start: where upcoming cuts are (the cut prefetch's index). */
+  private pictureClipStarts: { readonly start: number; readonly assetId: string }[] = [];
+  /** The project frame the last playback tick presented, and whether it did. */
+  private lastTickFrame: number | null = null;
+  private lastTickWidth = 0;
+  private lastTickPresented = false;
+  /** Decodes in flight by picture key, so a seek waits on a window already asked for. */
+  private readonly inFlightFrames = new Map<string, Promise<void>>();
+  /** The latest paused seek not yet started, and the loop serving seeks one at a time. */
+  private seekTarget: number | null = null;
+  private seekLoop: Promise<void> | null = null;
+  /** The newest project handed to {@link setProject}; an older queued one is skipped. */
+  private latestProject: LayerEngineProject | null = null;
+  /** A pending {@link retryTextLater}. */
+  private textRecovery: ReturnType<typeof setTimeout> | undefined;
+  /** When the decode worker was last restarted for a stuck decode (see {@link reportStuck}). */
+  private lastWorkerRestartMs: number | null = null;
+  /** A coalesced sound handover waiting to run (see {@link SOUND_HANDOVER_COALESCE_MS}). */
+  private soundHandover: ReturnType<typeof setTimeout> | undefined;
 
   private durationSec = 0;
   private audioCtx: AudioContext | undefined;
@@ -329,6 +457,10 @@ export class LayerPreviewEngine {
     maxSeekMs: 0,
     maxDecodeMs: 0,
     sourceDraws: 0,
+    /** Playback frames a styled caption was drawn with a neighbouring frame's raster. */
+    textStale: 0,
+    /** Playback frames a text layer was left out of because its raster had not arrived. */
+    textSkipped: 0,
   };
 
   constructor(
@@ -430,40 +562,41 @@ export class LayerPreviewEngine {
 
   /**
    * Replace what the engine composites. Incremental: sources already loaded stay loaded, only
-   * new media is fetched, sources no clip references any more are released. Ends by presenting
-   * the current paused time.
+   * new media is fetched, sources no clip references any more are released.
+   *
+   * Playback does not stop for it: the new media loads while the current project keeps playing,
+   * then the project is swapped in one step and the sound is handed over from where the clock is
+   * (an edit, an AI change or an asset update landing mid-play used to pause the monitor and
+   * drag the playhead back to where playback began). Paused, it ends by presenting the current
+   * time. A project replaced by a newer one while it waited in the queue is skipped.
    */
   setProject(project: LayerEngineProject): Promise<void> {
+    this.latestProject = project;
     const run = this.loadQueue.then(() => this.setProjectSerialized(project));
     this.loadQueue = run.catch(() => undefined);
     return run;
   }
 
   private async setProjectSerialized(project: LayerEngineProject): Promise<void> {
-    if (this.disposed) return;
-    const wasPlaying = this.playing;
-    if (wasPlaying) this.pause();
-    this.project = project;
-    this.planInputs.clear();
-    this.assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
-    this.captionTrackStyles = new Map(
-      project.timeline.tracks
-        .filter((track) => track.type === 'caption')
-        .map((track) => [track.id, track.captionStyle] as const),
-    );
-    this.durationSec = project.timeline.tracks.reduce(
-      (end, track) => track.clips.reduce((clipEnd, clip) => Math.max(clipEnd, clip.end), end),
-      0,
-    );
-    this.callbacks.onDurationChange?.(this.durationSec);
-    this.lastPresentedSignature = '';
-
+    if (this.disposed || project !== this.latestProject) return;
     if (!this.audioCtx) {
-      this.audioCtx = new AudioContext();
-      this.audioClock = new AudioMasterClock(this.audioCtx);
+      const audioCtx = new AudioContext();
+      this.audioCtx = audioCtx;
+      this.audioClock = new AudioMasterClock(audioCtx);
       this.audioClock.setGain(this.monitorGain);
+      // A context the OS suspends or interrupts (an output device change, a call) stops the
+      // clock the picture follows; the monitor then pauses rather than looking frozen.
+      audioCtx.onstatechange = () => {
+        if (!this.playing || audioCtx.state === 'running') return;
+        log.warn('audio output stopped; pausing the monitor', { state: audioCtx.state });
+        this.pause();
+      };
     }
-
+    // The new length applies at once: a click past the old end while media loads must not be
+    // clamped to it (and drag the editor's playhead back).
+    this.durationSec = timelineEnd(project.timeline);
+    this.callbacks.onDurationChange?.(this.durationSec);
+    const assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
     const wantedVideo = new Map<string, string>();
     const wantedImages = new Set<string>();
     const wantedLuts = new Set<string>();
@@ -474,18 +607,85 @@ export class LayerPreviewEngine {
             wantedLuts.add(effect.params.path);
           }
         }
-        const asset = this.assetsById.get(clip.assetId);
+        const asset = assetsById.get(clip.assetId);
         const url = project.mediaUrls.get(clip.assetId);
         if (!asset || !url) continue;
         if (asset.kind === 'video') wantedVideo.set(asset.id, url);
         else if (asset.kind === 'image') wantedImages.add(url);
       }
     }
+    // The picture first: sources (demuxed, registered), stills, LUTs and the text font. What is
+    // already loaded costs nothing; the project on screen keeps presenting meanwhile.
+    await Promise.all([
+      ...[...wantedVideo].map(([assetId, url]) =>
+        this.loadVideo(assetId, url, uprightTurns(assetsById.get(assetId))),
+      ),
+      ...[...wantedImages].map((url) => this.loadImage(url)),
+      ...[...wantedLuts].map((path) => this.loadLut(path)),
+      loadExportTextFont().then((ready) => {
+        this.textFontReady = ready;
+      }),
+    ]);
+    if (this.disposed || project !== this.latestProject) return;
+    this.swapProject(project, assetsById, wantedVideo, wantedImages);
+    // The sound joins when it is decoded; the picture does not wait for minutes of audio.
+    void this.programAudio
+      .retain(project.timeline, project.assets, project.mediaUrls)
+      .then(() => this.soundChanged())
+      .catch((err: unknown) => {
+        log.warn('program audio unavailable', {
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
+    if (this.playing && this.audioClock) {
+      const nowSec = this.audioClock.nowMediaUs() / 1_000_000;
+      if (nowSec >= this.durationSec) {
+        this.pause();
+        this.callbacks.onTimeUpdate?.(this.durationSec);
+        return;
+      }
+      this.soundChanged();
+      return;
+    }
+    // Bounded: an exact frame waiting on a slow sidecar must not hold the next project (an edit
+    // landing meanwhile) behind it; the frame still lands when its text does.
+    await settlesWithin(this.seek(Math.min(this.pausedAtSec, this.durationSec)), SEEK_STALL_MS);
+  }
+
+  /** Make `project` the one composited, in one step, and release what it no longer uses. */
+  private swapProject(
+    project: LayerEngineProject,
+    assetsById: Map<string, Asset>,
+    wantedVideo: ReadonlyMap<string, string>,
+    wantedImages: ReadonlySet<string>,
+  ): void {
+    this.project = project;
+    this.planInputs.clear();
+    this.invalidatePlans();
+    this.assetsById = assetsById;
+    this.captionTrackStyles = new Map(
+      project.timeline.tracks
+        .filter((track) => track.type === 'caption')
+        .map((track) => [track.id, track.captionStyle] as const),
+    );
+    this.durationSec = timelineEnd(project.timeline);
+    this.engineTexts.setFrameRate(project.projectFps ?? DEFAULT_FPS);
+    // Keyed by cue and size only: a restyled or retimed cue must not keep its old request.
+    this.captionRequests.clear();
+    this.indexPrefetch(project);
+    this.lastPresentedSignature = '';
+    this.lastTickFrame = null;
     for (const [assetId, source] of [...this.sources]) {
       if (wantedVideo.get(assetId) === source.url) continue;
       this.sources.delete(assetId);
       this.dropCachedAsset(assetId);
+      this.invalidatePlans();
       void this.client.unloadSource(assetId).catch(() => undefined);
+    }
+    for (const [url, bitmap] of [...this.images]) {
+      if (wantedImages.has(url)) continue;
+      bitmap.close();
+      this.images.delete(url);
     }
     const matteMasks = project.timeline.tracks.flatMap((track) =>
       track.clips.flatMap((clip) =>
@@ -502,59 +702,133 @@ export class LayerPreviewEngine {
     // PX5.3: open every artifact (and its monitor tier) now, as the pictures' sources are, not
     // on the first seek that needs it.
     this.mattes.prepare(matteMasks.filter((mask) => mask.enabled));
-    for (const [url, bitmap] of [...this.images]) {
-      if (wantedImages.has(url)) continue;
-      bitmap.close();
-      this.images.delete(url);
-    }
-    await Promise.all([
-      ...[...wantedVideo].map(([assetId, url]) => this.loadVideo(assetId, url)),
-      ...[...wantedImages].map((url) => this.loadImage(url)),
-      ...[...wantedLuts].map((path) => this.loadLut(path)),
-      this.programAudio.retain(project.timeline, project.assets, project.mediaUrls),
-      loadExportTextFont().then((ready) => {
-        this.textFontReady = ready;
-      }),
-    ]);
     this.compositor?.setLuts(this.luts);
-    if (this.disposed) return;
-    await this.seek(Math.min(this.pausedAtSec, this.durationSec));
   }
 
-  private loadVideo(assetId: string, url: string): Promise<void> {
+  /**
+   * What the text and cut prefetches read: caption cues the plan would burn (visible caption
+   * tracks, non-empty cue text), titles and shapes, and picture clips, each by start.
+   */
+  private indexPrefetch(project: LayerEngineProject): void {
+    const cues: TextPrefetchCue[] = [];
+    const overlays: Clip[] = [];
+    const pictures: { start: number; assetId: string }[] = [];
+    const transcript = project.transcript ?? [];
+    for (const track of project.timeline.tracks) {
+      if (track.hidden === true) continue;
+      for (const clip of track.clips) {
+        if (track.type === 'caption') {
+          if (project.burnCaptions !== true) continue;
+          const text = resolveCaptionCue(clip, transcript).text;
+          if (text.trim() !== '') cues.push({ clip, trackId: track.id, text });
+          continue;
+        }
+        if (clip.effects.some((e) => e.type === 'text' || e.type === SHAPE_EFFECT_TYPE)) {
+          overlays.push(clip);
+          continue;
+        }
+        const asset = this.assetsById.get(clip.assetId);
+        if (asset?.kind === 'video') pictures.push({ start: clip.start, assetId: asset.id });
+      }
+    }
+    this.textPrefetchCues = cues.sort((a, b) => a.clip.start - b.clip.start);
+    this.textPrefetchOverlays = overlays.sort((a, b) => a.start - b.start);
+    this.pictureClipStarts = pictures.sort((a, b) => a.start - b.start);
+  }
+
+  /** Forget cached plans: an input they were computed from changed. */
+  private invalidatePlans(): void {
+    this.planCache.clear();
+    this.sourceFpsCache = null;
+    this.sourceFrameTimesCache = null;
+  }
+
+  /**
+   * A source's sound arrived (or the mix changed): while playing, hand the sound over from where
+   * the clock is, without a seam.
+   */
+  private soundChanged(): void {
+    if (this.disposed || !this.playing || this.soundHandover !== undefined) return;
+    this.soundHandover = setTimeout(() => {
+      this.soundHandover = undefined;
+      if (this.disposed || !this.playing || !this.audioClock) return;
+      this.audioClock.rescheduleContinuous((mediaStartUs) =>
+        this.audioSegmentsFrom(mediaStartUs / 1_000_000),
+      );
+    }, SOUND_HANDOVER_COALESCE_MS);
+  }
+
+  /** @param rotation - Quarter turns the decode worker gives the planes ({@link uprightTurns}). */
+  private loadVideo(assetId: string, url: string, rotation: number): Promise<void> {
     if (this.sources.get(assetId)?.url === url) return Promise.resolve();
     const inFlight = this.loadingSources.get(`${assetId}|${url}`);
     if (inFlight) return inFlight;
     const audioCtx = this.audioCtx;
     const load = (async () => {
+      let restarted = false;
       try {
-        const loaded = await this.client.loadSource(assetId, url);
+        const loaded = await this.client.loadSource(assetId, url, { rotation });
         if (this.disposed) return;
-        let audioBuffer: AudioBuffer | undefined;
-        try {
-          audioBuffer = audioCtx ? await audioCtx.decodeAudioData(loaded.fileBytes) : undefined;
-        } catch {
-          audioBuffer = undefined;
-        }
-        if (this.disposed) return;
-        this.sources.set(assetId, {
+        const previous = this.sources.get(assetId);
+        const source: VideoSource = {
           url,
           frameCount: loaded.frameCount,
           frameRate: loaded.frameRate > 0 ? loaded.frameRate : 1_000_000 / loaded.frameDurationUs,
           frameTimesSec: loaded.frameTimesSec ?? null,
           timestampsUs: loaded.presentationTimestampsUs,
-          audioBuffer,
-        });
+          // The same sound until this file's is decoded (a proxy carries the original's).
+          audioBuffer: previous?.audioBuffer,
+        };
+        if (previous !== undefined) {
+          // Another file for the asset (its proxy just landed): frame N of the old file is not
+          // frame N of the new one (a proxy is re-timed to a constant rate), so nothing decoded
+          // from the old file, or still decoding from it, may be shown as the new one's.
+          this.dropCachedAsset(assetId);
+          for (const key of [...this.inFlightFrames.keys()]) {
+            if (key.startsWith(`${assetId}@`)) this.inFlightFrames.delete(key);
+          }
+        }
+        this.sources.set(assetId, source);
+        this.invalidatePlans();
+        if (audioCtx && loaded.fileBytes.byteLength > 0) {
+          void this.decodeSourceAudio(audioCtx, assetId, source, loaded.fileBytes);
+        }
       } catch (err) {
-        if (!this.disposed) {
+        // The worker was replaced under this load (a stuck decode): load again, not an error.
+        if (err instanceof DecodeWorkerRestartedError) restarted = true;
+        else if (!this.disposed) {
           this.callbacks.onError?.(err instanceof Error ? err.message : String(err));
         }
       } finally {
         this.loadingSources.delete(`${assetId}|${url}`);
       }
+      if (restarted && !this.disposed) await this.loadVideo(assetId, url, rotation);
     })();
     this.loadingSources.set(`${assetId}|${url}`, load);
     return load;
+  }
+
+  /** Decode a source's sound after its picture is up; playing sound picks it up when ready. */
+  private async decodeSourceAudio(
+    audioCtx: AudioContext,
+    assetId: string,
+    source: VideoSource,
+    fileBytes: ArrayBuffer,
+  ): Promise<void> {
+    const started = performance.now();
+    try {
+      const buffer = await audioCtx.decodeAudioData(fileBytes);
+      if (this.disposed || this.sources.get(assetId) !== source) return;
+      source.audioBuffer = buffer;
+      log.debug('source sound decoded', {
+        assetId,
+        seconds: Math.round(buffer.duration),
+        ms: Math.round(performance.now() - started),
+      });
+      this.soundChanged();
+    } catch {
+      // No decodable sound track (a silent or video-only file): the picture plays silent.
+    }
   }
 
   private async loadImage(url: string): Promise<void> {
@@ -602,17 +876,21 @@ export class LayerPreviewEngine {
   // --- planning ------------------------------------------------------------------------------
 
   private sourceFps(): Map<string, number> {
+    if (this.sourceFpsCache) return this.sourceFpsCache;
     const fps = new Map<string, number>();
     for (const [assetId, source] of this.sources) fps.set(assetId, source.frameRate);
+    this.sourceFpsCache = fps;
     return fps;
   }
 
   /** Frame pts of the variable-rate sources, so the plan numbers their frames as the export. */
   private sourceFrameTimes(): Map<string, readonly number[]> {
+    if (this.sourceFrameTimesCache) return this.sourceFrameTimesCache;
     const times = new Map<string, readonly number[]>();
     for (const [assetId, source] of this.sources) {
       if (source.frameTimesSec) times.set(assetId, source.frameTimesSec);
     }
+    this.sourceFrameTimesCache = times;
     return times;
   }
 
@@ -644,18 +922,31 @@ export class LayerPreviewEngine {
     return inputs;
   }
 
+  /**
+   * The frame plan at `timeSec` for a `size` frame, from the plan cache when it has one: the
+   * look-ahead plans each project frame once and the tick then presents that same plan.
+   */
   private planAt(timeSec: number, size?: PixelSize): FramePlan | null {
     const project = this.project;
     const frame = size ?? project?.canvasSize;
     const inputs = frame ? this.inputsFor(frame) : null;
     if (!project || !inputs || !frame) return null;
     this.clipsById = inputs.clipsById;
-    return framePlanAt(inputs.timeline, project.assets, timeSec, frame, {
+    const key = `${frame.width}x${frame.height}@${timeSec}`;
+    const cached = this.planCache.get(key);
+    if (cached) return cached;
+    const plan = framePlanAt(inputs.timeline, project.assets, timeSec, frame, {
       sourceFps: this.sourceFps(),
       sourceFrameTimes: this.sourceFrameTimes(),
       burnCaptions: project.burnCaptions === true,
       ...(project.transcript ? { transcript: project.transcript } : {}),
     });
+    if (this.planCache.size >= PLAN_CACHE_ENTRIES) {
+      const oldest = this.planCache.keys().next().value;
+      if (oldest !== undefined) this.planCache.delete(oldest);
+    }
+    this.planCache.set(key, plan);
+    return plan;
   }
 
   /** Clamp a plan frame to what the decoder has (MoviePy holds the last frame past the end). */
@@ -750,8 +1041,20 @@ export class LayerPreviewEngine {
     }
   }
 
-  /** Decode every missing frame of `needs`, contiguous runs per source. */
+  /**
+   * Decode every missing frame of `needs`, contiguous runs per source. A frame a decode already in
+   * flight will deliver (the look-ahead's window, another seek's) is waited for, not asked again:
+   * the worker serves a source's calls in order, so a second ask queues a second keyframe seek.
+   */
   private async ensureFrames(needs: readonly FrameNeed[]): Promise<void> {
+    const waits = new Set<Promise<void>>();
+    for (const need of needs) {
+      const key = pictureKey(need.assetId, need.frame);
+      if (this.cache.has(key)) continue;
+      const pending = this.inFlightFrames.get(key);
+      if (pending) waits.add(pending);
+    }
+    if (waits.size > 0) await Promise.all([...waits].map((wait) => wait.catch(() => undefined)));
     const byAsset = new Map<string, number[]>();
     for (const need of needs) {
       if (this.cache.has(pictureKey(need.assetId, need.frame))) continue;
@@ -778,35 +1081,66 @@ export class LayerPreviewEngine {
     );
   }
 
-  private async decodeRun(assetId: string, from: number, to: number): Promise<void> {
+  private decodeRun(assetId: string, from: number, to: number): Promise<void> {
+    const run = this.decodeRunNow(assetId, from, to);
+    const keys: string[] = [];
+    for (let frame = from; frame <= to; frame++) {
+      const key = pictureKey(assetId, frame);
+      if (this.inFlightFrames.has(key)) continue;
+      this.inFlightFrames.set(key, run);
+      keys.push(key);
+    }
+    const settle = (): void => {
+      for (const key of keys)
+        if (this.inFlightFrames.get(key) === run) this.inFlightFrames.delete(key);
+    };
+    run.then(settle, settle);
+    return run;
+  }
+
+  private async decodeRunNow(assetId: string, from: number, to: number): Promise<void> {
     const started = performance.now();
-    const { pictures } = await this.stages.track(
+    // The file this run was planned against: a picture that arrives after the asset moved to
+    // another file (its proxy) is that other file's frame number, and is dropped.
+    const plannedFor = this.sources.get(assetId);
+    // Each picture goes into the cache as it arrives, so the tick can show the first frame of a
+    // window (a cut's incoming picture) without waiting for the rest of it.
+    await this.stages.track(
       'decode',
       `${assetId} ${from}-${to}`,
-      this.client.decodePictures(assetId, from, to),
+      this.client.decodePictures(assetId, from, to, (message) =>
+        this.storePicture(assetId, message, plannedFor),
+      ),
     );
     const decodeMs = performance.now() - started;
     this.dbg.maxDecodeMs = Math.max(this.dbg.maxDecodeMs, decodeMs);
     this.telemetry.record('decode', decodeMs);
-    for (const message of pictures) {
-      const key = pictureKey(assetId, message.chunkIndex);
-      if (this.disposed || !this.sources.has(assetId) || this.cache.has(key)) {
-        this.client.releasePicture(message);
-        continue;
-      }
-      const rotation = this.assetsById.get(assetId)?.media?.rotation ?? 0;
-      const picture =
-        message.picture.kind === 'i420' && rotation !== 0
-          ? rotateI420(message.picture, rotation)
-          : message.picture;
-      this.cache.set(key, {
-        kind: 'picture',
-        picture,
-        timestampUs: message.timestampUs,
-        lastUsed: ++this.useCounter,
-      });
-      this.cacheBytes += picture.byteLength;
+  }
+
+  /**
+   * Keep one decoded picture of `assetId`, or release it: disposed, the asset gone or moved to
+   * another file since the run was planned (`plannedFor`), or the frame already held.
+   */
+  private storePicture(
+    assetId: string,
+    message: DecodedPictureMessage,
+    plannedFor: VideoSource | undefined,
+  ): void {
+    const key = pictureKey(assetId, message.chunkIndex);
+    const current = this.sources.get(assetId);
+    if (this.disposed || current === undefined || current !== plannedFor || this.cache.has(key)) {
+      this.client.releasePicture(message);
+      return;
     }
+    // Already upright: the decode worker turns an original's planes (`uprightTurns`).
+    const picture = message.picture;
+    this.cache.set(key, {
+      kind: 'picture',
+      picture,
+      timestampUs: message.timestampUs,
+      lastUsed: ++this.useCounter,
+    });
+    this.cacheBytes += picture.byteLength;
     this.telemetry.gauge('pictureCacheBytes', this.cacheBytes);
   }
 
@@ -818,12 +1152,17 @@ export class LayerPreviewEngine {
    * clip's blend mode, with a frosted chip's blur. Without an engine, the baseline canvas raster
    * stands in and the monitor says the text is approximate.
    */
-  private captionLayer(layer: FramePlanLayer, size: PixelSize): CompositeLayer | null | 'pending' {
+  private captionLayer(
+    layer: FramePlanLayer,
+    size: PixelSize,
+    mode: TextRasterLookupMode,
+  ): CompositeLayer | null | 'pending' {
     const request = this.captionRequest(layer, size);
     if (request === null || layer.text === null) return null;
-    const engine = this.engineTexts.lookup(request);
+    const engine = this.engineTexts.lookup(request, mode);
     if (engine.state === 'pending') return 'pending';
     if (engine.state === 'ready') {
+      if (engine.stale === true) this.dbg.textStale++;
       const raster = engine.raster;
       return {
         kind: 'raster',
@@ -876,12 +1215,16 @@ export class LayerPreviewEngine {
   }
 
   /** A text clip as the export rasterises and places it (PX2.3). */
-  private textLayer(layer: FramePlanLayer, size: PixelSize): CompositeLayer | null | 'pending' {
+  private textLayer(
+    layer: FramePlanLayer,
+    size: PixelSize,
+    mode: TextRasterLookupMode,
+  ): CompositeLayer | null | 'pending' {
     const request = this.textRequest(layer, size);
     if (request === null || layer.clipId === null) return null;
     const clip = this.clipsById.get(layer.clipId)!;
     const effect = clip.effects.find((candidate) => candidate.type === 'text')!;
-    const engine = this.engineTexts.lookup(request);
+    const engine = this.engineTexts.lookup(request, mode);
     if (engine.state === 'pending') return 'pending';
     if (engine.state === 'ready') {
       const raster = engine.raster;
@@ -944,10 +1287,14 @@ export class LayerPreviewEngine {
    * canvas fallback: without an engine the shape is not drawn and the monitor says it is
    * approximate (the browser build's labelled approximation is EL11).
    */
-  private shapeLayer(layer: FramePlanLayer, size: PixelSize): CompositeLayer | null | 'pending' {
+  private shapeLayer(
+    layer: FramePlanLayer,
+    size: PixelSize,
+    mode: TextRasterLookupMode,
+  ): CompositeLayer | null | 'pending' {
     const request = this.shapeRequest(layer, size);
     if (request === null || layer.clipId === null || layer.shape === undefined) return null;
-    const engine = this.engineTexts.lookup(request);
+    const engine = this.engineTexts.lookup(request, mode);
     if (engine.state === 'pending') return 'pending';
     if (engine.state !== 'ready') return null;
     const clip = this.clipsById.get(layer.clipId)!;
@@ -975,8 +1322,12 @@ export class LayerPreviewEngine {
   private shapeRequest(layer: FramePlanLayer, size: PixelSize): PreviewTextRasterRequest | null {
     if (layer.kind !== 'shape' || layer.clipId === null) return null;
     const clip = this.clipsById.get(layer.clipId);
-    const effect = clip?.effects.find((candidate) => candidate.type === SHAPE_EFFECT_TYPE);
-    if (!clip || !effect) return null;
+    return clip ? this.shapeRequestFor(clip, size) : null;
+  }
+
+  private shapeRequestFor(clip: Clip, size: PixelSize): PreviewTextRasterRequest | null {
+    const effect = clip.effects.find((candidate) => candidate.type === SHAPE_EFFECT_TYPE);
+    if (!effect) return null;
     return {
       kind: 'shape',
       params: effect.params,
@@ -989,10 +1340,14 @@ export class LayerPreviewEngine {
   /** The engine raster request for a text layer, or `null` when it draws nothing. */
   private textRequest(layer: FramePlanLayer, size: PixelSize): PreviewTextRasterRequest | null {
     if (layer.kind !== 'text' || layer.clipId === null) return null;
-    if (this.project?.hiddenOverlayIds?.has(layer.clipId)) return null;
     const clip = this.clipsById.get(layer.clipId);
-    const effect = clip?.effects.find((candidate) => candidate.type === 'text');
-    if (!clip || !effect || exportText(effect.params) === null) return null;
+    return clip ? this.textRequestFor(clip, size) : null;
+  }
+
+  private textRequestFor(clip: Clip, size: PixelSize): PreviewTextRasterRequest | null {
+    if (this.project?.hiddenOverlayIds?.has(clip.id)) return null;
+    const effect = clip.effects.find((candidate) => candidate.type === 'text');
+    if (!effect || exportText(effect.params) === null) return null;
     return {
       kind: 'text',
       params: effect.params,
@@ -1013,28 +1368,51 @@ export class LayerPreviewEngine {
    */
   private captionRequest(layer: FramePlanLayer, size: PixelSize): PreviewTextRasterRequest | null {
     if (layer.kind !== 'caption' || layer.text === null || layer.clipId === null) return null;
-    if (layer.text.trim() === '') return null;
-    const baseline: PreviewTextRasterRequest = {
-      kind: 'caption',
-      text: layer.text,
-      frameWidth: size.width,
-      frameHeight: size.height,
-    };
     const clip = this.clipsById.get(layer.clipId);
-    const trackStyle = this.captionTrackStyles.get(layer.trackId);
-    const clipStyle = clip?.captionStyle;
-    if (clip === undefined || (trackStyle === undefined && clipStyle === undefined))
-      return baseline;
-    const cue = resolveCaptionCue(clip, this.project?.transcript ?? []);
-    return {
-      ...baseline,
-      ...(trackStyle === undefined ? {} : { trackStyle }),
-      ...(clipStyle === undefined ? {} : { clipStyle }),
-      words: cue.words.map(({ word, start, end }) => ({ word, start, end })),
-      clipStart: clip.start,
-      clipEnd: clip.end,
-      frameTime: clip.start + layer.localTime,
-    };
+    return this.captionRequestFor(
+      clip,
+      layer.trackId,
+      layer.text,
+      size,
+      clip === undefined ? undefined : clip.start + layer.localTime,
+    );
+  }
+
+  /**
+   * A caption cue's request at `frameTime` (the frame plan's layer time, or any time for the
+   * prefetch, which only reads the cue's static half). Built once per cue and size: the cue's
+   * words are resolved from the transcript, which is linear in its length.
+   */
+  private captionRequestFor(
+    clip: Clip | undefined,
+    trackId: string,
+    text: string,
+    size: PixelSize,
+    frameTime: number | undefined,
+  ): PreviewTextRasterRequest | null {
+    if (text.trim() === '') return null;
+    const cacheKey = `${clip?.id ?? ''}|${trackId}|${size.width}x${size.height}|${text}`;
+    let base = this.captionRequests.get(cacheKey);
+    if (base === undefined) {
+      base = { kind: 'caption', text, frameWidth: size.width, frameHeight: size.height };
+      const trackStyle = this.captionTrackStyles.get(trackId);
+      const clipStyle = clip?.captionStyle;
+      if (clip !== undefined && (trackStyle !== undefined || clipStyle !== undefined)) {
+        const cue = resolveCaptionCue(clip, this.project?.transcript ?? []);
+        base = {
+          ...base,
+          ...(trackStyle === undefined ? {} : { trackStyle }),
+          ...(clipStyle === undefined ? {} : { clipStyle }),
+          words: cue.words.map(({ word, start, end }) => ({ word, start, end })),
+          clipStart: clip.start,
+          clipEnd: clip.end,
+        };
+      }
+      if (this.captionRequests.size > 512) this.captionRequests.clear();
+      this.captionRequests.set(cacheKey, base);
+    }
+    const styled = base.trackStyle !== undefined || base.clipStyle !== undefined;
+    return styled && frameTime !== undefined ? { ...base, frameTime } : base;
   }
 
   private textRequestsOf(plan: FramePlan): PreviewTextRasterRequest[] {
@@ -1058,6 +1436,7 @@ export class LayerPreviewEngine {
    */
   private compose(
     plan: FramePlan,
+    mode: TextRasterLookupMode = 'exact',
   ): { layers: CompositeLayer[]; presented: PresentedLayer[]; processing: boolean } | null {
     const project = this.project;
     if (!project) return null;
@@ -1075,12 +1454,17 @@ export class LayerPreviewEngine {
       if (layer.kind === 'caption' || layer.kind === 'text' || layer.kind === 'shape') {
         const raster =
           layer.kind === 'caption'
-            ? this.captionLayer(layer, size)
+            ? this.captionLayer(layer, size, mode)
             : layer.kind === 'shape'
-              ? this.shapeLayer(layer, size)
-              : this.textLayer(layer, size);
-        // An engine raster still on its way: keep the previous presentation, as for a frame.
-        if (raster === 'pending') return null;
+              ? this.shapeLayer(layer, size, mode)
+              : this.textLayer(layer, size, mode);
+        if (raster === 'pending') {
+          // A paused frame waits for its raster (keep the previous presentation, as for a
+          // frame). Playback never does: the picture moves on and the text joins when it lands.
+          if (mode === 'exact') return null;
+          this.dbg.textSkipped++;
+          continue;
+        }
         if (raster) {
           layers.push(raster);
           origins.push(layer);
@@ -1268,11 +1652,24 @@ export class LayerPreviewEngine {
   }
 
   /** Composite and show `plan`. Returns false when a needed frame was missing. */
-  private present(plan: FramePlan, timeSec: number, force: boolean, exact = false): boolean {
+  /**
+   * @param exact - A paused frame: full resolution, read back exactly.
+   * @param textMode - Whether text rasters are waited for (`exact`) or left out until they land
+   *   (`playback`); defaults to follow `exact`.
+   */
+  private present(
+    plan: FramePlan,
+    timeSec: number,
+    force: boolean,
+    exact = false,
+    textMode: TextRasterLookupMode = exact ? 'exact' : 'playback',
+  ): boolean {
     const compositor = this.compositor;
     const project = this.project;
     if (!compositor || !project) return false;
-    const composed = this.compose(plan);
+    this.engineTexts.beginFrame();
+    const composed = this.compose(plan, textMode);
+    this.engineTexts.endFrame(composed !== null);
     if (!composed) return false;
     this.reportMaskRefusal(composed.layers);
     this.reportMatteProcessing(composed.processing);
@@ -1285,7 +1682,12 @@ export class LayerPreviewEngine {
       plan.frameEffects.length > 0 ? timeSec : null,
       this.maskView,
       this.maskViewClipId,
-      composed.layers.map((l) => (l.kind === 'picture' ? (l.flagged ?? false) : null)),
+      composed.layers.map((l) =>
+        l.kind === 'picture' ? (l.flagged ?? false) : l.kind === 'raster' ? l.key : null,
+      ),
+      composed.layers.map((l) =>
+        l.kind === 'picture' && l.source.kind === 'image' ? l.source.key : null,
+      ),
       composed.layers.map((l) =>
         l.kind === 'picture' && l.mattes
           ? [...l.mattes.frames].map(([id, f]) => `${id}=${f?.id ?? '-'}`)
@@ -1358,16 +1760,116 @@ export class LayerPreviewEngine {
     });
   }
 
-  async seek(projectTimeSec: number): Promise<void> {
-    if (this.disposed) return;
-    if (this.playing) this.pause();
-    const myGeneration = ++this.generation;
-    const seekStarted = performance.now();
+  /**
+   * Show `projectTimeSec`. Paused, the frame is composited exactly (full resolution, every text
+   * raster waited for). Seeks are served one at a time and the latest wins: a scrub sends one
+   * per pointer move, and each used to queue its own keyframe decode behind the last, so nothing
+   * was drawn until the drag ended. While playing, playback continues from the new time.
+   *
+   * @returns Once the latest requested time is on the monitor (or superseded by playback).
+   */
+  seek(projectTimeSec: number): Promise<void> {
+    if (this.disposed) return Promise.resolve();
     const clamped = Math.min(this.durationSec, Math.max(0, projectTimeSec));
+    if (this.playing) {
+      this.reposition(clamped);
+      return Promise.resolve();
+    }
     // The latest REQUESTED time, recorded before any await: a project reload that re-presents
     // `pausedAtSec` while this seek is still waiting on media must land here, not on the time
     // before the seek (which then echoed back and dragged the editor's playhead to it).
     this.pausedAtSec = clamped;
+    this.seekTarget = clamped;
+    this.seekLoop ??= this.serveSeeks();
+    return this.seekLoop;
+  }
+
+  /** Serve {@link seekTarget} until none is left; the newest target replaces a waiting one. */
+  private async serveSeeks(): Promise<void> {
+    try {
+      for (;;) {
+        const target = this.seekTarget;
+        // Cleared in the same turn the last target is read, so a seek arriving after this loop
+        // has returned starts a new one instead of joining a loop that has finished.
+        if (target === null || this.disposed) return;
+        this.seekTarget = null;
+        if (this.playing) {
+          this.reposition(target);
+          return;
+        }
+        const running = this.seekNow(target);
+        while (!(await settlesWithin(running, SEEK_STALL_MS))) {
+          if (this.disposed) return;
+          if (this.seekTarget === null) continue;
+          log.warn('a paused seek is stalled; serving the newer one', {
+            stalledAtSec: target,
+            waitedMs: SEEK_STALL_MS,
+          });
+          // The newer seek's generation makes the stalled one drop its frame when it settles.
+          break;
+        }
+      }
+    } finally {
+      this.seekLoop = null;
+    }
+  }
+
+  /** Present the paused frame again after {@link TEXT_RECOVERY_RETRY_MS}, if still on it. */
+  private retryTextLater(generation: number): void {
+    if (this.textRecovery !== undefined) clearTimeout(this.textRecovery);
+    this.textRecovery = setTimeout(() => {
+      this.textRecovery = undefined;
+      if (this.seekInterrupted(generation)) return;
+      void this.seek(this.pausedAtSec);
+    }, TEXT_RECOVERY_RETRY_MS);
+  }
+
+  /** A paused seek should stop waiting: disposed, playing, superseded, or a newer seek queued. */
+  private seekInterrupted(generation: number): boolean {
+    return (
+      this.disposed || this.playing || this.generation !== generation || this.seekTarget !== null
+    );
+  }
+
+  /**
+   * Whether `texts` settles within `ms`, checked in short steps so a seek waiting for its text
+   * stops as soon as a newer one is queued (it is then shown without the late text at once).
+   */
+  private async textsWithin(texts: Promise<unknown>, ms: number): Promise<boolean> {
+    const deadline = performance.now() + ms;
+    for (;;) {
+      const left = deadline - performance.now();
+      if (left <= 0) return false;
+      if (await settlesWithin(texts, Math.min(TEXT_RECHECK_MS, left))) return true;
+      if (this.seekTarget !== null || this.playing || this.disposed) return false;
+    }
+  }
+
+  /** Move playback to `timeSec` without stopping it (a transport seek or scrub while playing). */
+  private reposition(timeSec: number): void {
+    if (!this.audioClock) return;
+    if (timeSec >= this.durationSec) {
+      // To the very end: stop there, as reaching it does.
+      this.pause();
+      void this.seek(this.durationSec);
+      return;
+    }
+    const startSec = timeSec;
+    this.generation++;
+    this.audioClock.scheduleSegments(this.audioSegmentsFrom(startSec), startSec * 1_000_000);
+    this.lastTickFrame = null;
+    const fps = this.project?.projectFps ?? DEFAULT_FPS;
+    const frameSec = projectFrameTime(startSec, fps);
+    this.pumpAhead(frameSec);
+    this.prefetchText(frameSec);
+    this.callbacks.onTimeUpdate?.(startSec);
+  }
+
+  /** One paused seek, start to presented frame (the loop in {@link seek} serves them in turn). */
+  private async seekNow(clamped: number): Promise<void> {
+    if (this.disposed) return;
+    const myGeneration = ++this.generation;
+    const seekStarted = performance.now();
     try {
       const plan = this.planAt(clamped);
       if (plan) {
@@ -1392,13 +1894,17 @@ export class LayerPreviewEngine {
         // Re-plan: a source that finished loading meanwhile may have changed frame numbers.
         const current = this.planAt(clamped) ?? plan;
         this.mattes.want(this.matteNeedsOf(current));
+        const texts = this.stages.track(
+          'seek.texts',
+          `seek ${clamped}`,
+          this.engineTexts.ensure(this.textRequestsOf(current)),
+        );
+        let textsLate = false;
         await Promise.all([
           this.ensureFrames(this.needsOf(current)),
-          this.stages.track(
-            'seek.texts',
-            `seek ${clamped}`,
-            this.engineTexts.ensure(this.textRequestsOf(current)),
-          ),
+          this.textsWithin(texts, SEEK_TEXT_WAIT_MS).then((inTime) => {
+            textsLate = !inTime;
+          }),
           this.stages.track(
             'seek.mattes',
             `seek ${clamped}`,
@@ -1411,13 +1917,38 @@ export class LayerPreviewEngine {
           ),
         ]);
         if (this.disposed || this.generation !== myGeneration) return;
+        // The window this paused frame sits in, so pressing play is smooth from the first frame.
+        this.prefetchText(projectFrameTime(clamped, this.project?.projectFps ?? DEFAULT_FPS));
         // Superseded seeks returned above, so a sample is always a seek that reached the monitor.
         const compositeStarted = performance.now();
-        if (this.present(current, clamped, true, true)) {
+        let shown = this.present(current, clamped, true, true, textsLate ? 'playback' : 'exact');
+        if (!shown && !textsLate) {
+          // A text raster still out after its wait (a failure inside its retry window): show the
+          // frame without it and redraw it below, rather than leave the previous frame up.
+          textsLate = true;
+          shown = this.present(current, clamped, true, true, 'playback');
+        }
+        if (shown) {
           const presentedAt = performance.now();
           this.telemetry.record('exactComposite', presentedAt - compositeStarted);
           this.telemetry.record('seekToPresent', presentedAt - seekStarted);
         }
+        if (textsLate) {
+          log.warn('paused frame shown before its text arrived; it is redrawn when it does', {
+            atSec: clamped,
+            waitedMs: SEEK_TEXT_WAIT_MS,
+          });
+          // The seek resolves once the frame is exact (a parity read awaits it), but playback or
+          // a newer seek stops the wait: a sidecar that never answers holds nobody up.
+          while (!(await settlesWithin(texts, TEXT_RECHECK_MS))) {
+            if (this.seekInterrupted(myGeneration)) return;
+          }
+          if (this.seekInterrupted(myGeneration)) return;
+          this.present(current, clamped, true, true);
+        }
+        // Text drawn approximate because the engine was unreachable or slow: ask again later, so
+        // a paused frame does not keep the stand-in once the sidecar is back.
+        if (this.engineTexts.shownFrameCouldRecover()) this.retryTextLater(myGeneration);
         this.evict(
           new Set([
             ...this.needsOf(current).map((n) => pictureKey(n.assetId, n.frame)),
@@ -1427,10 +1958,17 @@ export class LayerPreviewEngine {
       }
     } catch (err) {
       if (this.disposed || this.generation !== myGeneration) return;
+      if (err instanceof DecodeWorkerRestartedError) {
+        // The worker was replaced under this seek: ask again (unless a newer one is waiting).
+        this.seekTarget ??= clamped;
+        return;
+      }
       log.error('seek failed', { message: err instanceof Error ? err.message : String(err) });
       this.callbacks.onError?.(err instanceof Error ? err.message : String(err));
     }
     if (this.disposed || this.generation !== myGeneration) return;
+    // A newer seek waiting behind this one owns the paused time and the playhead.
+    if (this.seekTarget !== null) return;
     this.pausedAtSec = clamped;
     this.callbacks.onTimeUpdate?.(clamped);
   }
@@ -1468,9 +2006,7 @@ export class LayerPreviewEngine {
       [...trackIds].every((id) => this.soloedTrackIds.has(id));
     if (unchanged) return;
     this.soloedTrackIds = new Set(trackIds);
-    if (!this.playing || !this.audioClock) return;
-    const nowUs = this.audioClock.nowMediaUs();
-    this.audioClock.scheduleSegments(this.audioSegmentsFrom(nowUs / 1_000_000), nowUs);
+    this.soundChanged();
   }
 
   async play(): Promise<void> {
@@ -1491,21 +2027,36 @@ export class LayerPreviewEngine {
       this.starting = false;
       return;
     }
+    // A paused seek still waiting is where the user asked to be: play from there.
+    if (this.seekTarget !== null) {
+      this.pausedAtSec = this.seekTarget;
+      this.seekTarget = null;
+    }
     this.generation++;
     this.playing = true;
     this.starting = false;
     this.callbacks.onPlayingChange?.(true);
-    this.dbg = { ticks: 0, presented: 0, missing: 0, maxSeekMs: 0, maxDecodeMs: 0, sourceDraws: 0 };
+    this.dbg = {
+      ticks: 0,
+      presented: 0,
+      missing: 0,
+      maxSeekMs: 0,
+      maxDecodeMs: 0,
+      sourceDraws: 0,
+      textStale: 0,
+      textSkipped: 0,
+    };
     this.telemetry.playbackStarted(this.project.projectFps ?? DEFAULT_FPS);
     this.lastTickAtMs = null;
+    this.lastTickFrame = null;
     const startSec = this.pausedAtSec >= this.durationSec ? 0 : this.pausedAtSec;
     this.audioClock.scheduleSegments(this.audioSegmentsFrom(startSec), startSec * 1_000_000);
+    this.prefetchText(projectFrameTime(startSec, this.project.projectFps ?? DEFAULT_FPS));
 
     const tick = (): void => {
       if (!this.playing || !this.audioClock) return;
       const nowSec = this.audioClock.nowMediaUs() / 1_000_000;
       if (nowSec >= this.durationSec) {
-        this.pausedAtSec = this.durationSec;
         this.pause();
         this.callbacks.onTimeUpdate?.(this.durationSec);
         return;
@@ -1516,26 +2067,53 @@ export class LayerPreviewEngine {
         this.telemetry.record('frameInterval', tickAtMs - this.lastTickAtMs);
       }
       this.lastTickAtMs = tickAtMs;
+      const fps = this.project?.projectFps ?? DEFAULT_FPS;
+      const frameIndex = projectFrameIndex(nowSec, fps);
+      const size = this.renderSize();
+      // A display refresh inside a project frame already on the monitor (a 120 Hz panel shows
+      // each 30 fps frame four times): nothing to plan, composite or fetch.
+      if (
+        frameIndex === this.lastTickFrame &&
+        size.width === this.lastTickWidth &&
+        this.lastTickPresented
+      ) {
+        this.telemetry.tick(nowSec, true);
+        this.callbacks.onTimeUpdate?.(nowSec);
+        this.rafHandle = requestAnimationFrame(tick);
+        return;
+      }
+      const newFrame = frameIndex !== this.lastTickFrame;
       // PX5.5: the frame the export shows now, at the instant the export composites it, so
       // the monitor presents the export's source frames and a project frame is composited
       // once however many display refreshes it spans (`clock/project-frame.ts`).
-      const frameSec = projectFrameTime(nowSec, this.project?.projectFps ?? DEFAULT_FPS);
-      const plan = this.planAt(frameSec, this.renderSize());
+      const frameSec = projectFrameTime(nowSec, fps);
+      const plan = this.planAt(frameSec, size);
+      let presented = false;
       if (plan) {
         const started = performance.now();
         const drawsBefore = this.dbg.sourceDraws;
-        const presented = this.present(plan, frameSec, false);
+        presented = this.present(plan, frameSec, false);
         if (presented) {
-          const compositeMs = performance.now() - started;
           this.dbg.presented++;
-          if (this.dbg.sourceDraws !== drawsBefore) this.telemetry.record('composite', compositeMs);
-          this.adaptRenderScale(compositeMs);
+          // Only a frame that was composited measures the compositor; an unchanged one did no work.
+          if (this.dbg.sourceDraws !== drawsBefore) {
+            const compositeMs = performance.now() - started;
+            this.telemetry.record('composite', compositeMs);
+            this.adaptRenderScale(compositeMs);
+          }
         } else {
           this.dbg.missing++;
         }
         this.telemetry.tick(nowSec, presented);
-        this.pumpAhead(frameSec);
+        // A retry of a missing frame changes nothing ahead; a new frame moves the windows on.
+        if (newFrame) {
+          this.pumpAhead(frameSec);
+          this.prefetchText(frameSec);
+        }
       }
+      this.lastTickFrame = frameIndex;
+      this.lastTickWidth = size.width;
+      this.lastTickPresented = presented;
       this.callbacks.onTimeUpdate?.(nowSec);
       this.rafHandle = requestAnimationFrame(tick);
     };
@@ -1568,32 +2146,61 @@ export class LayerPreviewEngine {
     });
     this.telemetry.renderScaleChanged(RENDER_SCALES[next] ?? 1);
     this.callbacks.onRenderScaleChange?.(RENDER_SCALES[next] ?? 1);
+    // Text rasters are drawn for the frame size, so the new size needs its own: ask now rather
+    // than at the next project frame, since until they land that text is left out of playback.
+    if (this.audioClock) {
+      this.prefetchText(projectFrameTime(this.audioClock.nowMediaUs() / 1_000_000, fps));
+    }
   }
 
-  /** Decode ahead of the playhead: the frames the next project frames will ask for. */
+  /**
+   * Decode ahead of the playhead: the frames the next project frames will ask for, nearest
+   * first per source, and the first frames of cuts to other sources a little further out.
+   */
   private pumpAhead(nowSec: number): void {
     const fps = this.project?.projectFps ?? DEFAULT_FPS;
+    const size = this.renderSize();
+    /** Per source, the frames the window needs and does not hold, in the order they are shown. */
     const wanted = new Map<string, number[]>();
     const pinned = new Set<string>();
     const windowMattes: MatteNeed[] = [];
+    /** Per source, the frame the window's last plan shows (a clip that runs past the window). */
+    const lastShown = new Map<string, number>();
+    let windowEndSec = nowSec;
     for (let k = 0; k <= LOOKAHEAD_FRAMES; k++) {
       const t = nowSec + k / fps;
       if (t >= this.durationSec) break;
-      const plan = this.planAt(t, this.renderSize());
+      const plan = this.planAt(t, size);
       if (!plan) break;
-      // Every frame of the window: an animated caption is one raster per frame. A title or a
-      // still caption resolves to one cached raster, so asking again costs a map lookup.
-      void this.engineTexts.ensure(this.textRequestsOf(plan));
+      windowEndSec = t;
       const matteNeeds = this.matteNeedsOf(plan);
       for (const need of matteNeeds) for (const key of this.matteKeysOf(need)) pinned.add(key);
       windowMattes.push(...matteNeeds);
-      for (const need of this.needsOf(plan)) {
+      const needs = this.needsOf(plan);
+      if (k === LOOKAHEAD_FRAMES) for (const need of needs) lastShown.set(need.assetId, need.frame);
+      for (const need of needs) {
         const key = pictureKey(need.assetId, need.frame);
         pinned.add(key);
-        if (this.cache.has(key)) continue;
+        if (this.cache.has(key) || this.inFlightFrames.has(key)) continue;
         const frames = wanted.get(need.assetId) ?? [];
-        frames.push(need.frame);
+        if (!frames.includes(need.frame)) frames.push(need.frame);
         wanted.set(need.assetId, frames);
+      }
+    }
+    // Cuts to another source just past the window: its first frames start decoding now, on that
+    // source's own decoder, so the cut does not wait on a keyframe seek (a camera original's GOP
+    // can take longer than the window to reach). Same-source cuts are left to the window: the
+    // source's one decoder is busy with the clip on screen.
+    for (const cut of this.upcomingCuts(windowEndSec, nowSec + CUT_PREFETCH_HORIZON_SEC)) {
+      if (wanted.has(cut.assetId) || lastShown.has(cut.assetId)) continue;
+      // The first export frame the incoming clip is on screen for.
+      const plan = this.planAt(Math.ceil(cut.start * fps - 1e-6) / fps, size);
+      for (const need of plan ? this.needsOf(plan) : []) {
+        if (need.assetId !== cut.assetId) continue;
+        const key = pictureKey(need.assetId, need.frame);
+        pinned.add(key);
+        if (this.cache.has(key) || this.inFlightFrames.has(key)) continue;
+        wanted.set(need.assetId, [need.frame]);
       }
     }
     // PX5.3: the window, nearest frame first, replaces what the matte workers should decode;
@@ -1604,10 +2211,23 @@ export class LayerPreviewEngine {
     const generation = this.generation;
     for (const [assetId, frames] of wanted) {
       if (this.decoding.has(assetId)) continue;
-      const first = Math.min(...frames);
       const info = this.sources.get(assetId);
       if (!info) continue;
-      const last = Math.min(info.frameCount - 1, first + DECODE_WINDOW - 1);
+      // The nearest frame first, not the lowest index: after a same-source cut the lowest is the
+      // clip leaving the screen. The run follows the frames shown next while they move forward,
+      // and continues past the window only when the clip does.
+      const first = frames[0]!;
+      let runEnd = first;
+      for (const frame of frames.slice(1)) {
+        if (frame <= runEnd || frame - runEnd > DECODE_WINDOW) break;
+        runEnd = frame;
+      }
+      const continues = lastShown.get(assetId) === runEnd;
+      const last = Math.min(
+        info.frameCount - 1,
+        first + DECODE_WINDOW - 1,
+        continues ? Number.POSITIVE_INFINITY : Math.max(first, runEnd),
+      );
       this.decoding.add(assetId);
       void this.decodeRun(assetId, first, Math.max(first, last))
         .catch((err: unknown) => {
@@ -1621,6 +2241,64 @@ export class LayerPreviewEngine {
     }
   }
 
+  /** Picture clips starting in `(fromSec, toSec]`, by start (from the prefetch index). */
+  private upcomingCuts(fromSec: number, toSec: number): { start: number; assetId: string }[] {
+    const starts = this.pictureClipStarts;
+    let lo = 0;
+    let hi = starts.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (starts[mid]!.start <= fromSec) lo = mid + 1;
+      else hi = mid;
+    }
+    const cuts: { start: number; assetId: string }[] = [];
+    for (let i = lo; i < starts.length && starts[i]!.start <= toSec; i++) cuts.push(starts[i]!);
+    return cuts;
+  }
+
+  /**
+   * Fetch ahead what text playback will draw in the next {@link TEXT_PREFETCH_HORIZON_SEC}:
+   * each title and shape once, and each styled caption cue as windows of its frames (at the
+   * render size playback composites at).
+   */
+  private prefetchText(nowSec: number): void {
+    const project = this.project;
+    if (!project) return;
+    const fps = project.projectFps ?? DEFAULT_FPS;
+    const size = this.renderSize();
+    const horizonSec = nowSec + TEXT_PREFETCH_HORIZON_SEC;
+    const playheadFrame = projectFrameIndex(nowSec, fps);
+    const singles: PreviewTextRasterRequest[] = [];
+    for (const clip of this.textPrefetchOverlays) {
+      if (clip.start > horizonSec) break;
+      if (clip.end <= nowSec) continue;
+      const request = this.textRequestFor(clip, size) ?? this.shapeRequestFor(clip, size);
+      if (request !== null) singles.push(request);
+    }
+    for (const cue of this.textPrefetchCues) {
+      const { clip } = cue;
+      if (clip.start > horizonSec) break;
+      if (clip.end <= nowSec) continue;
+      const request = this.captionRequestFor(clip, cue.trackId, cue.text, size, clip.start);
+      if (request === null) continue;
+      if (request.frameTime === undefined) {
+        singles.push(request);
+        continue;
+      }
+      // The export frames `k / fps` the cue is on screen for, from the playhead to the horizon.
+      const from = Math.max(playheadFrame, Math.ceil(clip.start * fps - 1e-6));
+      const to = Math.min(
+        Math.floor(horizonSec * fps + 1e-6),
+        Math.ceil(clip.end * fps - 1e-6) - 1,
+      );
+      if (to < from) continue;
+      const frames: number[] = [];
+      for (let frame = from; frame <= to; frame++) frames.push(frame);
+      this.engineTexts.prefetch(request, frames, playheadFrame);
+    }
+    if (singles.length > 0) void this.engineTexts.ensure(singles);
+  }
+
   /** The cache key a matte need occupies, once its artifact's index is known. */
   private matteKeysOf(need: MatteNeed): string[] {
     const key = this.mattes.cacheKeyFor(need.mask, need.sourceFrame);
@@ -1629,14 +2307,35 @@ export class LayerPreviewEngine {
 
   pause(): void {
     if (!this.playing) return;
+    // Where playback actually stopped: the next play, seek or project reload starts from here
+    // (it used to be left at the time play began, so resuming jumped back).
+    if (this.audioClock) {
+      const stoppedAt = this.audioClock.nowMediaUs() / 1_000_000;
+      this.pausedAtSec = Math.min(this.durationSec, Math.max(0, stoppedAt));
+    }
     this.playing = false;
+    if (this.soundHandover !== undefined) {
+      clearTimeout(this.soundHandover);
+      this.soundHandover = undefined;
+    }
     this.telemetry.playbackStopped();
     this.audioClock?.clear();
     if (this.rafHandle !== undefined) {
       cancelAnimationFrame(this.rafHandle);
       this.rafHandle = undefined;
     }
+    log.debug('playback paused', {
+      atSec: Math.round(this.pausedAtSec * 1000) / 1000,
+      ticks: this.dbg.ticks,
+      presented: this.dbg.presented,
+      missing: this.dbg.missing,
+      textStale: this.dbg.textStale,
+      textSkipped: this.dbg.textSkipped,
+    });
     this.callbacks.onPlayingChange?.(false);
+    // The paused frame is exact: full resolution, and the text rasters of this very frame
+    // (playback may have drawn it smaller, or with a neighbouring frame's caption).
+    if (!this.disposed) void this.seek(this.pausedAtSec);
   }
 
   /** Playback counters; `segCount` > 0 once a project with clips is loaded (e2e readiness). */
@@ -1693,7 +2392,11 @@ export class LayerPreviewEngine {
     };
   }
 
-  /** A stage passed {@link STAGE_STUCK_MS}: say which, and where the decode worker is. */
+  /**
+   * A stage passed {@link STAGE_STUCK_MS}: say which, and where the decode worker is. A stuck
+   * decode then restarts the worker, so the monitor recovers instead of holding its picture
+   * until the editor is reloaded; the seek and windows it held are asked again.
+   */
   private reportStuck(stuck: readonly StageSnapshot[]): void {
     const named = stuck.map((s) => `${s.stage} [${s.detail}] ${Math.round(s.ageMs)} ms`);
     const silentForMs = this.client.debugTraffic().silentForMs;
@@ -1701,9 +2404,16 @@ export class LayerPreviewEngine {
       stages: named,
       workerSilentForMs: silentForMs === null ? null : Math.round(silentForMs),
     });
+    const decodeStuck = stuck.some((stage) => stage.stage === 'decode');
+    let workerDecodeStuck = false;
     void this.client
       .debugStages(WORKER_STAGES_TIMEOUT_MS)
       .then((sessions) => {
+        // The worker's own account: a decode step (not a queued call, not a source reloading)
+        // waiting this long is a browser promise that will not settle.
+        workerDecodeStuck = (sessions ?? []).some(
+          (w) => w.stage !== 'queued' && w.stage !== 'fetch' && w.ageMs >= STAGE_STUCK_MS,
+        );
         log.warn('decode worker at a stuck preview stage', {
           sessions:
             sessions === null
@@ -1716,7 +2426,20 @@ export class LayerPreviewEngine {
                 ),
         });
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      // After the report, so the worker's own account of where it is is read first.
+      .finally(() => {
+        if (!decodeStuck || !workerDecodeStuck || this.disposed) return;
+        const now = performance.now();
+        if (
+          this.lastWorkerRestartMs !== null &&
+          now - this.lastWorkerRestartMs < WORKER_RESTART_INTERVAL_MS
+        ) {
+          return;
+        }
+        this.lastWorkerRestartMs = now;
+        this.client.restart(`a decode call has not settled (${named.join('; ')})`);
+      });
   }
 
   /** The last presented picture layers, back to front (the PX4 oracle's frame identity). */
@@ -1754,8 +2477,10 @@ export class LayerPreviewEngine {
   }
 
   dispose(): void {
-    this.pause();
+    // Disposed first, so pausing does not start re-presenting the paused frame.
     this.disposed = true;
+    if (this.textRecovery !== undefined) clearTimeout(this.textRecovery);
+    this.pause();
     this.stages.dispose();
     for (const [key, entry] of [...this.cache]) this.releaseEntry(key, entry);
     this.client.dispose();

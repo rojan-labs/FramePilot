@@ -135,3 +135,213 @@ describe('EngineTextRasters', () => {
     });
   });
 });
+
+describe('styled caption windows (playback)', () => {
+  const FPS = 30;
+  const cue = (frameTime: number): PreviewTextRasterRequest => ({
+    kind: 'caption',
+    text: 'top 1% of motion',
+    frameWidth: 288,
+    frameHeight: 512,
+    trackStyle: { templateId: 'karaoke' },
+    words: [{ word: 'top', start: 1, end: 1.3 }],
+    clipStart: 1,
+    clipEnd: 2.5,
+    frameTime,
+  });
+  const image = (value: number) => ({
+    width: 1,
+    height: 1,
+    rgba: new Uint8Array([value, 0, 0, 255]),
+    x: 0,
+    y: 0,
+  });
+  /** A host with windows: frame `k` draws `k`, two frames at a time share a raster. */
+  const windowed = () =>
+    vi.fn(async (req: PreviewTextRasterRequest) => {
+      const times = req.frameTimes ?? [req.frameTime!];
+      const frames = times.map((t) => Math.round(t * FPS));
+      const distinct = [...new Set(frames.map((k) => k - (k % 2)))];
+      return {
+        ok: true as const,
+        ...image(distinct[0]!),
+        animated: true,
+        sequence: {
+          index: frames.map((k) => distinct.indexOf(k - (k % 2))),
+          rasters: distinct.map(image),
+        },
+      };
+    });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const drawn = (store: EngineTextRasters, frame: number) => {
+    const found = store.lookup(cue(frame / FPS), 'playback');
+    return found.state === 'ready' ? found.raster.image.data[0] : found.state;
+  };
+
+  it('fetches a window in one call and serves each frame its own raster', async () => {
+    const source = windowed();
+    const store = new EngineTextRasters(source);
+    store.setFrameRate(FPS);
+    store.prefetch(cue(0), [30, 31, 32, 33, 34, 35], 30);
+    await settle();
+    expect(source).toHaveBeenCalledTimes(1);
+    expect(source.mock.calls[0]![0].frameTimes).toEqual([
+      1,
+      31 / 30,
+      32 / 30,
+      33 / 30,
+      34 / 30,
+      35 / 30,
+    ]);
+    expect([30, 31, 32, 33, 34, 35].map((k) => drawn(store, k))).toEqual([30, 30, 32, 32, 34, 34]);
+    // Frames already held are not asked again.
+    store.prefetch(cue(0), [30, 31, 32], 30);
+    await settle();
+    expect(source).toHaveBeenCalledTimes(1);
+    // Two distinct 1x1 rasters... three: each distinct raster is counted once.
+    expect(store.stats().bytes).toBe(3 * 4);
+  });
+
+  it('asks for a long horizon in small windows, two at a time, nearest first', async () => {
+    const answers: (() => void)[] = [];
+    const inner = windowed();
+    const source = vi.fn(
+      (req: PreviewTextRasterRequest) =>
+        new Promise<Awaited<ReturnType<typeof inner>>>((resolve) =>
+          answers.push(() => void inner(req).then(resolve)),
+        ),
+    );
+    const store = new EngineTextRasters(source);
+    store.setFrameRate(FPS);
+    const horizon = Array.from({ length: 60 }, (_, i) => 30 + i);
+    store.prefetch(cue(0), horizon, 30);
+    store.prefetch(cue(0), horizon, 30);
+    store.prefetch(cue(0), horizon, 30);
+    expect(source.mock.calls.map(([req]) => req.frameTimes?.length)).toEqual([15, 15]);
+    expect(source.mock.calls[0]![0].frameTimes![0]).toBe(1);
+    answers.shift()!();
+    await settle();
+    store.prefetch(cue(0), horizon, 30);
+    expect(source.mock.calls).toHaveLength(3);
+    expect(source.mock.calls[2]![0].frameTimes![0]).toBeCloseTo(60 / FPS, 9);
+  });
+
+  it('never waits in playback: a missing frame shows the nearest one of the cue', async () => {
+    const source = windowed();
+    const store = new EngineTextRasters(source);
+    store.setFrameRate(FPS);
+    // Nothing held yet: pending (the monitor skips the caption this frame, not the picture),
+    // and the lookup itself asks for the frame.
+    expect(store.lookup(cue(40 / FPS), 'playback').state).toBe('pending');
+    await settle();
+    expect(source).toHaveBeenCalledTimes(1);
+    const later = store.lookup(cue(45 / FPS), 'playback');
+    expect(later.state).toBe('ready');
+    if (later.state === 'ready') {
+      expect(later.stale).toBe(true);
+      expect(later.raster.image.data[0]).toBe(40);
+    }
+  });
+
+  it('asks a host without windows one frame at a time, a few in flight', async () => {
+    const source = vi.fn(async (req: PreviewTextRasterRequest) => ({
+      ok: true as const,
+      ...image(Math.round(req.frameTime! * FPS)),
+      animated: true,
+    }));
+    const store = new EngineTextRasters(source);
+    store.setFrameRate(FPS);
+    store.prefetch(cue(0), [30, 31, 32, 33, 34, 35, 36, 37], 30);
+    await settle();
+    // The first answer had no `sequence`: the host cannot answer windows.
+    expect(store.stats().windowsSupported).toBe(false);
+    store.prefetch(cue(0), [30, 31, 32, 33, 34, 35, 36, 37], 30);
+    await settle();
+    // After the first answer, every ask is one frame, and at most four were out at once.
+    const [first, ...rest] = source.mock.calls.map(([req]) => req.frameTimes);
+    expect(first).toHaveLength(8);
+    expect(rest.length).toBeGreaterThan(0);
+    expect(rest.every((times) => times === undefined)).toBe(true);
+    expect(rest.length).toBeLessThanOrEqual(4);
+    expect(drawn(store, 30)).toBe(30);
+    expect(drawn(store, 31)).toBe(31);
+  });
+
+  it('keeps the styled look through a busy sidecar, and falls back only when it stays down', async () => {
+    let clock = 0;
+    const approximate = vi.fn();
+    let down = false;
+    const healthy = windowed();
+    const source = vi.fn(async (req: PreviewTextRasterRequest) =>
+      down ? { ok: false as const, error: 'timeout', transient: true } : healthy(req),
+    );
+    // Retries wait on the test's own clock, a second each.
+    const wait = async (ms: number): Promise<void> => {
+      clock += ms;
+    };
+    const store = new EngineTextRasters(source, approximate, () => clock, wait);
+    store.setFrameRate(FPS);
+    store.prefetch(cue(0), [30, 31], 30);
+    await settle();
+    down = true;
+    store.prefetch(cue(0), [32, 33], 32);
+    await settle();
+    // One timeout: the cue keeps drawing its own (stale) raster, not the plain caption.
+    store.beginFrame();
+    expect(store.lookup(cue(33 / FPS), 'playback').state).toBe('ready');
+    store.endFrame(true);
+    expect(approximate).not.toHaveBeenCalledWith(true);
+    // A paused frame of a cue with nothing held: ensure asks again until three timeouts in a
+    // row, then the frame is drawn approximate (and may recover), never left undrawn.
+    const other = (t: number) => ({ ...cue(t), text: 'another cue' });
+    const asked = source.mock.calls.length;
+    await store.ensure([other(2)]);
+    expect(source.mock.calls.length - asked).toBe(3);
+    store.beginFrame();
+    expect(store.lookup(other(2)).state).toBe('fallback');
+    store.endFrame(true);
+    expect(approximate).toHaveBeenLastCalledWith(true);
+    expect(store.shownFrameCouldRecover()).toBe(true);
+    // Back up: the next ask succeeds, and the next frame drawn says it is exact again.
+    down = false;
+    clock += 1_500;
+    await store.ensure([other(2)]);
+    store.beginFrame();
+    expect(store.lookup(other(2)).state).toBe('ready');
+    store.endFrame(true);
+    expect(approximate).toHaveBeenLastCalledWith(false);
+    expect(store.shownFrameCouldRecover()).toBe(false);
+  });
+
+  it('falls back at once when the engine refuses the cue', async () => {
+    const source = vi.fn(async () => ({ ok: false as const, error: 'Engine refused (422).' }));
+    const store = new EngineTextRasters(source);
+    store.setFrameRate(FPS);
+    await store.ensure([cue(1)]);
+    expect(store.lookup(cue(1)).state).toBe('fallback');
+    expect(store.lookup(cue(1.5), 'playback').state).toBe('fallback');
+  });
+
+  it('releases frames the playhead passed more than a second ago', async () => {
+    const source = windowed();
+    const store = new EngineTextRasters(source);
+    store.setFrameRate(FPS);
+    store.prefetch(cue(0), [30, 32, 34], 30);
+    await settle();
+    expect(store.stats().bytes).toBe(3 * 4);
+    store.prefetch(cue(0), [], 30 + FPS + 3);
+    // 30 and 32 are more than a second behind; 34 (and the latest raster) stay.
+    expect(drawn(store, 30)).toBe(34);
+    expect(store.stats().bytes).toBe(4);
+  });
+
+  it('answers a paused frame from one window when several are asked at once', async () => {
+    const source = windowed();
+    const store = new EngineTextRasters(source);
+    store.setFrameRate(FPS);
+    await store.ensure([cue(1), cue(31 / 30), cue(32 / 30)]);
+    expect(source).toHaveBeenCalledTimes(1);
+    const found = store.lookup(cue(32 / 30));
+    expect(found.state === 'ready' && found.raster.image.data[0]).toBe(32);
+  });
+});

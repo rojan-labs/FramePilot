@@ -6,6 +6,36 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **The preview keeps playing through captions.** Every caption template animates, so the desktop
+  monitor needed a new caption image from the engine for every frame, asked for them one at a
+  time, and held the whole picture while one was out: playback froze at nearly every caption. The
+  engine now draws a stretch of a caption's frames in one go, the monitor asks for them about two
+  seconds ahead, and a frame that is late is shown with the nearest frame of the same caption
+  instead of stopping the picture. A paused frame still waits for its exact caption (at most
+  1.5 s), so what you stop on is what the export draws.
+- **Styled captions stay styled when the engine is busy.** One slow answer used to swap a styled
+  caption for the plain white fallback for ten seconds. Now only a caption the engine cannot draw,
+  or an engine that stays unreachable, falls back, and the monitor says "Preview text approximate".
+- **Pause and play resume where you stopped.** Pausing did not remember where playback had got
+  to, so pressing play again, or any edit landing while paused, jumped back to where you last
+  pressed play.
+- **Playback no longer stops by itself.** An edit, an assistant change or a finished import while
+  playing stopped the preview and pulled the playhead back. The preview now keeps playing and
+  picks up the change, and clicking the scrub bar or a marker while playing carries on from there.
+- **Scrubbing follows your hand.** Each move of the scrub bar queued its own decode behind the
+  last, so the picture only caught up after you let go. The preview now always shows the latest
+  position it can reach.
+- **Phone footage plays upright.** A rotated clip previewed from its proxy was turned twice and
+  showed sideways while the export was upright.
+- **Long videos open in the preview.** A video longer than about 35 minutes at 60 fps (70 at
+  30 fps) failed to load in the monitor.
+- **Less work per frame.** The monitor no longer re-plans the frame on every screen refresh (four
+  times per frame on a 120 Hz display), re-uploads photos, titles and captions to the GPU every
+  frame, or waits for a whole clip's sound to decode before showing its first frame. Planning a
+  frame no longer grows with the square of the number of clips on a track.
+
 ### Changed
 
 - **Stock is now Elements.** The left-rail tab that searched Pexels is called **Elements** and

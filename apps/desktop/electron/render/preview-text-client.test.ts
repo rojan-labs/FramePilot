@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { previewTextRasterViaSidecar } from './preview-text-client.js';
+import { decodeCaptionFrames, previewTextRasterViaSidecar } from './preview-text-client.js';
 
 const ok = (body: unknown): typeof globalThis.fetch =>
   vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })) as never;
@@ -180,5 +180,124 @@ describe('previewTextRasterViaSidecar', () => {
     expect((await previewTextRasterViaSidecar('http://e', req, down)).ok).toBe(false);
     const short = ok({ width: 2, height: 2, rgba_base64: 'AQIDBA==' });
     expect((await previewTextRasterViaSidecar('http://e', req, short)).ok).toBe(false);
+  });
+
+  it('says which failures are worth asking again', async () => {
+    const req = { kind: 'text', params: { text: 'a' }, frameWidth: 10, frameHeight: 10 };
+    const status = (code: number): typeof globalThis.fetch =>
+      vi.fn(async () => new Response('{}', { status: code })) as never;
+    // 422 is the engine refusing this request; asking again gets the same answer.
+    expect(await previewTextRasterViaSidecar('http://e', req, status(422))).toEqual({
+      ok: false,
+      error: 'Engine refused the text raster (422).',
+    });
+    // A failing or unreachable sidecar is transient.
+    expect(await previewTextRasterViaSidecar('http://e', req, status(503))).toMatchObject({
+      ok: false,
+      transient: true,
+    });
+    const down = vi.fn(async () => {
+      throw new Error('ECONNREFUSED');
+    }) as never;
+    expect(await previewTextRasterViaSidecar('http://e', req, down)).toMatchObject({
+      ok: false,
+      transient: true,
+    });
+  });
+});
+
+/** The binary body `encode_caption_frames` writes, for the rasters given. */
+function framesBody(header: Record<string, unknown>, payload: readonly number[]): ArrayBuffer {
+  const json = new TextEncoder().encode(JSON.stringify(header));
+  const out = new Uint8Array(4 + json.length + payload.length);
+  new DataView(out.buffer).setUint32(0, json.length, false);
+  out.set(json, 4);
+  out.set(payload, 4 + json.length);
+  return out.buffer;
+}
+
+describe('caption frame windows', () => {
+  const styled = {
+    kind: 'caption',
+    text: 'top',
+    frameWidth: 288,
+    frameHeight: 512,
+    trackStyle: { templateId: 'karaoke' },
+    words: [{ word: 'top', start: 1, end: 1.3 }],
+    clipStart: 1,
+    clipEnd: 2.5,
+  } as const;
+  const twoRasters = framesBody(
+    {
+      animated: true,
+      index: [0, 1, 1],
+      rasters: [
+        { width: 1, height: 1, x: 3, y: 4, rgba: [0, 4], backdrop: null },
+        { width: 1, height: 1, x: 5, y: 6, rgba: [4, 4], backdrop: [8, 1], backdrop_sigma_px: 2 },
+      ],
+    },
+    [1, 2, 3, 4, 5, 6, 7, 8, 255],
+  );
+
+  it('asks for a window in one call and decodes each distinct raster once', async () => {
+    const fetchFn = vi.fn(async () => new Response(twoRasters, { status: 200 })) as never;
+    const result = await previewTextRasterViaSidecar(
+      'http://e',
+      { ...styled, frameTimes: [1, 1.0333, 1.0667] },
+      fetchFn,
+    );
+    const [url, init] = (fetchFn as unknown as { mock: { calls: [string, RequestInit][] } }).mock
+      .calls[0]!;
+    expect(url).toBe('http://e/preview/caption-frames');
+    expect(JSON.parse(String(init.body))).toEqual({
+      text: 'top',
+      frame_width: 288,
+      frame_height: 512,
+      track_style: { templateId: 'karaoke' },
+      words: [{ word: 'top', start: 1, end: 1.3 }],
+      clip_start: 1,
+      clip_end: 2.5,
+      frame_times: [1, 1.0333, 1.0667],
+    });
+    if (!result.ok) throw new Error(result.error);
+    // The top-level raster is the window's first frame, so a single-frame caller still works.
+    expect(result).toMatchObject({ width: 1, height: 1, x: 3, y: 4, animated: true });
+    expect([...result.rgba]).toEqual([1, 2, 3, 4]);
+    expect(result.sequence?.index).toEqual([0, 1, 1]);
+    const second = result.sequence!.rasters[1]!;
+    expect([...second.rgba]).toEqual([5, 6, 7, 8]);
+    expect([...second.backdrop!]).toEqual([255]);
+    expect(second.backdropSigmaPx).toBe(2);
+  });
+
+  it('refuses bad frame times without calling the engine', async () => {
+    const fetchFn = vi.fn() as never;
+    for (const frameTimes of [[], [Number.NaN], Array.from({ length: 121 }, () => 1)]) {
+      const result = await previewTextRasterViaSidecar(
+        'http://e',
+        { ...styled, frameTimes },
+        fetchFn,
+      );
+      expect(result.ok).toBe(false);
+    }
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('refuses a body whose spans or index do not fit, as a whole', () => {
+    const header = (rasters: unknown, index: unknown = [0]) => ({ animated: true, index, rasters });
+    const raster = { width: 1, height: 1, x: 0, y: 0, rgba: [0, 4], backdrop: null };
+    for (const body of [
+      new ArrayBuffer(2),
+      framesBody(header([{ ...raster, rgba: [2, 4] }]), [1, 2, 3, 4]),
+      framesBody(header([{ ...raster, rgba: [0, 3] }]), [1, 2, 3, 4]),
+      framesBody(header([{ ...raster, width: 0 }]), [1, 2, 3, 4]),
+      framesBody(header([raster], [1]), [1, 2, 3, 4]),
+      framesBody(header([raster], []), [1, 2, 3, 4]),
+      framesBody(header([{ ...raster, backdrop: [4, 1] }]), [1, 2, 3, 4]),
+      framesBody(header([]), []),
+    ]) {
+      expect(typeof decodeCaptionFrames(body)).toBe('string');
+    }
+    expect(typeof decodeCaptionFrames(framesBody(header([raster]), [1, 2, 3, 4]))).toBe('object');
   });
 });

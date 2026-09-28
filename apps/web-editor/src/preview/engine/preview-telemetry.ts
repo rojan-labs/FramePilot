@@ -70,14 +70,27 @@ const CHANNELS: readonly PreviewTelemetryChannel[] = [
   'matteDecode',
 ];
 
-/** Byte and occupancy gauges: the current value and the highest seen since the last reset. */
+/**
+ * Byte and occupancy gauges: the current value and the highest seen since the last reset.
+ * `glSourceUploads` and `glSourceCacheHits` are per composite: the stills, rasters and mask
+ * rasters the last frame uploaded (0 once they are kept) and drew from kept uploads.
+ */
 export type PreviewTelemetryGauge =
-  'pictureCacheBytes' | 'glPoolBytes' | 'glPoolTargets' | 'liveDecoders';
+  | 'pictureCacheBytes'
+  | 'glPoolBytes'
+  | 'glPoolTargets'
+  | 'glSourceCacheBytes'
+  | 'glSourceUploads'
+  | 'glSourceCacheHits'
+  | 'liveDecoders';
 
 const GAUGES: readonly PreviewTelemetryGauge[] = [
   'pictureCacheBytes',
   'glPoolBytes',
   'glPoolTargets',
+  'glSourceCacheBytes',
+  'glSourceUploads',
+  'glSourceCacheHits',
   'liveDecoders',
 ];
 
