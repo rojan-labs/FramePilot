@@ -177,8 +177,11 @@ class PtsVideoReader:
         fps: float,
         duration: float,
         resize_algo: str = "bicubic",
+        decoder_threads: int | None = None,
     ) -> None:
         self.filename = filename
+        # ``-threads`` on the input when set (preview readers, render/decoder_threads.py).
+        self.decoder_threads = decoder_threads
         self.timing = timing
         self.size = (int(size[0]), int(size[1]))
         self.fps = fps
@@ -209,6 +212,8 @@ class PtsVideoReader:
         # converter as every CFR clip in the export (BR2.8).
         binary = find_export_ffmpeg()
         operands = ["-nostdin"]
+        if self.decoder_threads is not None:
+            operands += ["-threads", str(max(1, int(self.decoder_threads)))]
         seek = self._seek_seconds(index)
         if seek is not None:
             operands += ["-ss", f"{seek:.9f}"]
@@ -285,17 +290,24 @@ class PtsVideoReader:
             self.last_read = None
 
 
-def use_pts_reader(clip: Any, path: str) -> Any:
+def use_pts_reader(clip: Any, path: str, *, decoder_threads: int | None = None) -> Any:
     """Swap a ``VideoFileClip``'s reader for :class:`PtsVideoReader` when the source is VFR.
 
     Constant-rate sources are returned untouched (byte-identical exports).
+    ``decoder_threads`` caps the replacement's ffmpeg decoder threads (``None``: ffmpeg's
+    default, the export's).
     """
     timing = video_timing(path)
     if timing.constant_rate:
         return clip
     original = clip.reader
     replacement = PtsVideoReader(
-        path, timing, tuple(original.size), float(original.fps), float(original.duration)
+        path,
+        timing,
+        tuple(original.size),
+        float(original.fps),
+        float(original.duration),
+        decoder_threads=decoder_threads,
     )
     original.close()
     clip.reader = replacement

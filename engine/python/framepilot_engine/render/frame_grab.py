@@ -46,6 +46,7 @@ from typing import Any
 
 from framepilot_engine.media.assets import AssetIndex, index_assets
 from framepilot_engine.render.compiler import (
+    PREVIEW_DECODER_THREADS,
     PictureWindowMiss,
     compile_timeline,
     timeline_duration,
@@ -161,6 +162,7 @@ def _windowed_frame(
                 preset,
                 burn_captions=burn_captions,
                 max_decode_dimension=decode_budget,
+                decoder_threads=PREVIEW_DECODER_THREADS,
                 window=window,
             )
         except PictureWindowMiss:
@@ -215,6 +217,7 @@ def _whole_timeline_frame(
                 preset,
                 burn_captions=burn_captions,
                 max_decode_dimension=decode_budget,
+                decoder_threads=PREVIEW_DECODER_THREADS,
             )
         except Exception as exc:
             raise FrameGrabError(f"Could not compile the timeline for a frame: {exc}") from exc
@@ -403,6 +406,7 @@ def render_frame_pixels_uncached(
                 preset,
                 burn_captions=burn_captions,
                 max_decode_dimension=max(preset.width, preset.height),
+                decoder_threads=PREVIEW_DECODER_THREADS,
             )
         except Exception as exc:
             raise FrameGrabError(f"Could not compile the timeline for a frame: {exc}") from exc

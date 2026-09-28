@@ -857,6 +857,7 @@ def _underlay_layer(
     max_decode_dimension: int | None,
     opened: list[Any],
     pixel_aspect_ratio: float = 1.0,
+    decoder_threads: int | None = None,
 ) -> Any:
     """Build the picture that sits UNDER a transition ramp, from the neighbour's handle.
 
@@ -875,7 +876,7 @@ def _underlay_layer(
     """
     start, _end = window
     reader = _open_source_reader(
-        video_file_clip_cls, path, max_decode_dimension, None, pixel_aspect_ratio
+        video_file_clip_cls, path, max_decode_dimension, None, pixel_aspect_ratio, decoder_threads
     )
     opened.append(reader)
     # Which handle (past the out-point for "in", before the in-point for "out") and whether
@@ -1947,6 +1948,7 @@ def compile_timeline(
     max_decode_dimension: int | None = None,
     on_progress: Callable[[float], None] | None = None,
     window: PictureWindow | None = None,
+    decoder_threads: int | None = None,
 ) -> VideoClip:
     """Build the MoviePy composition for ``project``.
 
@@ -1963,6 +1965,10 @@ def compile_timeline(
     compositor would hold ITS picture's last frame, which this composite does not have, so a
     caller must not read at or beyond it. Raises :class:`PictureWindowMiss` when the window
     builds no picture layer.
+
+    ``decoder_threads`` caps each source reader's ffmpeg decoder threads
+    (:mod:`framepilot_engine.render.decoder_threads`); the preview and evidence composites pass
+    ``PREVIEW_DECODER_THREADS``, the export leaves ffmpeg's default.
     """
     from moviepy import (
         AudioFileClip,
@@ -2058,6 +2064,7 @@ def compile_timeline(
                             else decode_cap_for_clip(clip, target),
                             target if static_fit else None,
                             _pixel_aspect_ratio(project, clip),
+                            decoder_threads,
                         )
                         opened.append(reader)
                         source = _subclipped_source(reader, clip)
@@ -2122,6 +2129,7 @@ def compile_timeline(
                                 max_decode_dimension,
                                 opened,
                                 _pixel_aspect_ratio(project, resolved_neighbour),
+                                decoder_threads,
                             )
                             if matte_sources.consumes(track.id, resolved_neighbour.id, clip.id):
                                 layer_mattes.add(track.id, clip.id, underlay)
@@ -2768,6 +2776,12 @@ def _draw_layer_on(frame: Any, picture: Any, mode: str | None, t: float) -> Any:
     )
 
 
+#: ffmpeg decoder threads for the readers of a preview or evidence composite (frame grabs,
+#: sheet tiles, review windows, scopes, the whole-timeline preview); the export passes none and
+#: keeps ffmpeg's default. See :mod:`framepilot_engine.render.decoder_threads` for why, and for
+#: the measurements behind the value.
+PREVIEW_DECODER_THREADS = 4
+
 #: Extra source pixels kept beyond the exact need, so a cropped/fitted frame never upsamples.
 DECODE_CAP_HEADROOM = 1.25
 
@@ -2867,6 +2881,7 @@ def _open_source_reader(
     max_decode_dimension: int | None,
     fit_target: tuple[int, int] | None = None,
     pixel_aspect_ratio: float = 1.0,
+    decoder_threads: int | None = None,
 ) -> Any:
     """Open a source, decoding no larger than the export actually needs.
 
@@ -2885,19 +2900,23 @@ def _open_source_reader(
     A variable-frame-rate source (BR2.5) then reads frames by pts
     (:func:`~framepilot_engine.render.pts_reader.use_pts_reader`); a constant-rate source keeps
     MoviePy's reader, so its export is unchanged.
+
+    ``decoder_threads`` caps either reader's ffmpeg decoder threads (``None``: the default).
     """
     clip = _open_moviepy_reader(
         video_file_clip_cls, path, max_decode_dimension, fit_target, pixel_aspect_ratio
     )
     from moviepy.video.io.ffmpeg_reader import FFMPEG_VideoReader
 
+    from framepilot_engine.render.decoder_threads import cap_decoder_threads
+
     if not isinstance(getattr(clip, "reader", None), FFMPEG_VideoReader):
         return clip
     try:
-        return use_pts_reader(clip, path)
+        clip = use_pts_reader(clip, path, decoder_threads=decoder_threads)
     except (VideoTimingError, OSError) as exc:
         _log.warning("could not check %s for a variable frame rate: %s", Path(path).name, exc)
-        return clip
+    return cap_decoder_threads(clip, decoder_threads)
 
 
 def _resolve_clip_asset(clip: Clip, asset_index: AssetIndex) -> str:

@@ -208,19 +208,15 @@ def test_acquires_pixels_scopes_comparison_and_audio_from_one_compilation(
     # the frame/range/comparison checks share.
     assert compile_calls == 2
     assert batch.render_settings.identity == "temporal-evidence:4x4@30:captions=true"
-    # Both programme compositions are borrowed from the cache, so they are
-    # deliberately still open here — closing them would tear down readers the
-    # cache owns and another borrower may be waiting on. The leak contract it
-    # used to assert (commit d0c3603) is unchanged in substance, just moved:
-    # the cache closes on eviction, and holds at most MAX_CACHED_COMPOSITIONS
-    # at a time.
-    assert all(composition.closed is False for composition in compositions)
     # The audio request needs the whole programme, so the frames read it too (the first
-    # compile); the scope frames need no sound, so they composite the one clip on screen
-    # there, from the review's own window cache.
+    # compile). It is borrowed from the cache, so it is deliberately still open here —
+    # closing it would tear down readers the cache owns and another borrower may be waiting
+    # on; the cache closes on eviction and holds at most MAX_CACHED_COMPOSITIONS. The scope
+    # frames need no sound, so they composite the one clip on screen there, at full
+    # resolution, and that composite is the batch's own: closed before it returns rather
+    # than left in a cache with full-resolution readers (run-3).
+    assert [composition.closed for composition in compositions] == [False, True]
     evidence_module.COMPOSITION_CACHE.clear()
-    assert [composition.closed for composition in compositions] == [True, False]
-    evidence_module.REVIEW_WINDOW_CACHE.clear()
     assert all(composition.closed is True for composition in compositions)
     # Frame cache de-duplicates overlap among frame/range/comparison requests, on
     # the ordinary (first-compiled) composition they share.

@@ -38,6 +38,7 @@ from framepilot_engine.effects.keyframes import evaluate_keyframes
 from framepilot_engine.media.assets import AssetIndex, index_assets
 from framepilot_engine.render.color import skin_qualifier_mask
 from framepilot_engine.render.compiler import (
+    PREVIEW_DECODER_THREADS,
     PictureWindowMiss,
     compile_timeline,
     timeline_duration,
@@ -763,6 +764,22 @@ def _validate_requests(project: Project, requests: Sequence[TemporalEvidenceRequ
     return project_revision
 
 
+def _hold_uncached(
+    stack: ExitStack, build: Callable[[], _CompositionLike], cancelled: CancelCheck | None
+) -> _CompositionLike:
+    """Compile under a slot of the process-wide gate, and close it when ``stack`` unwinds.
+
+    For the full-resolution scope composites (``measure_color``): each is looked at for three
+    frames and then, almost always, never again — the grade it measures changes the project and
+    so its key. Cached, they sat in the review cache with full-resolution readers of every clip
+    they hold until six later composites pushed them out (run-3).
+    """
+    with HEAVY_BUILD_GATE.slot(cancelled):
+        composition = build()
+    stack.callback(close_clip_tree, composition)
+    return composition
+
+
 def _borrow_programme(
     stack: ExitStack,
     project: Project,
@@ -773,7 +790,10 @@ def _borrow_programme(
     burn_captions: bool,
     max_decode_dimension: int | None,
     cancelled: CancelCheck | None,
+    cached: bool = True,
 ) -> _CompositionLike:
+    """The whole timeline's composite; ``cached=False`` compiles one closed with ``stack``."""
+
     def build() -> _CompositionLike:
         return cast(
             _CompositionLike,
@@ -783,9 +803,12 @@ def _borrow_programme(
                 preset,
                 burn_captions=burn_captions,
                 max_decode_dimension=max_decode_dimension,
+                decoder_threads=PREVIEW_DECODER_THREADS,
             ),
         )
 
+    if not cached:
+        return _hold_uncached(stack, build, cancelled)
     return cast(
         _CompositionLike,
         stack.enter_context(
@@ -894,7 +917,8 @@ class _ReviewFrames:
     clips. An instant the window cannot give the full compile's frame for — the project uses a
     construct the window cannot reproduce, no picture plays there, the window builds no picture
     layer, or its picture ends at or before the instant — reads the whole-timeline composition
-    from ``whole``, which is borrowed only then.
+    from ``whole``, which is borrowed only then. ``cached=False`` compiles each window outside
+    the review cache and closes it as soon as the frames that need it are read.
     """
 
     def __init__(
@@ -911,8 +935,10 @@ class _ReviewFrames:
         use_windows: bool,
         windows: Mapping[int, PictureWindow] | None = None,
         cancelled: CancelCheck | None = None,
+        cached: bool = True,
     ) -> None:
         self._project = project
+        self._cached = cached
         self._base_dir = base_dir
         self._assets = assets
         self._preset = preset
@@ -972,6 +998,7 @@ class _ReviewFrames:
                     self._preset,
                     burn_captions=self._burn_captions,
                     max_decode_dimension=self._max_decode_dimension,
+                    decoder_threads=PREVIEW_DECODER_THREADS,
                     window=window,
                 ),
             )
@@ -985,6 +1012,8 @@ class _ReviewFrames:
             window=window.clip_ids,
         )
         try:
+            if not self._cached:
+                return _hold_uncached(self._held, build, self._cancelled)
             return cast(
                 _CompositionLike,
                 self._held.enter_context(
@@ -1092,6 +1121,7 @@ def acquire_temporal_evidence(
                 burn_captions=False,
                 max_decode_dimension=None,
                 cancelled=cancelled,
+                cached=False,
             )
         return scope_composition
 
@@ -1167,6 +1197,10 @@ def acquire_temporal_evidence(
                         {entry.asset_id: entry.kind for entry in assets.entries},
                     ),
                     cancelled=cancelled,
+                    # Frames are read in order and each scope's three share one window, so a
+                    # window is released once, when the next scope's frames need other clips;
+                    # two scopes of one shot in a batch share it.
+                    cached=False,
                 )
                 for frame_index in sorted(scope_frames):
                     _check_cancelled(cancelled)
@@ -1264,6 +1298,7 @@ def acquire_temporal_evidence(
                                         ordinary_preset,
                                         burn_captions=False,
                                         max_decode_dimension=REVIEW_MAX_DIMENSION,
+                                        decoder_threads=PREVIEW_DECODER_THREADS,
                                     ),
                                 )
                         except CompositionBuildCancelled as exc:

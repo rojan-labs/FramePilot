@@ -24,6 +24,7 @@ from pydantic import TypeAdapter
 
 from framepilot_engine.media.assets import AssetIndex, index_assets
 from framepilot_engine.render.compiler import compile_timeline
+from framepilot_engine.render.compiler import compile_timeline as compile_timeline_for_real
 from framepilot_engine.render.composition_cache import (
     COMPOSITION_CACHE,
     FRAME_WINDOW_CACHE,
@@ -39,6 +40,7 @@ from framepilot_engine.render.picture_window import (
 )
 from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.render.resources import close_clip_tree
+from framepilot_engine.render.resources import close_clip_tree as real_close_clip_tree
 from framepilot_engine.timeline.models import Clip, Project
 from framepilot_engine.validation import temporal_evidence as evidence_module
 from framepilot_engine.validation.temporal_evidence import (
@@ -558,7 +560,8 @@ class TestTemporalReviewSamplesAreTheExportFrames:
         with monkeypatch.context() as whole_only:
             whole_only.setattr(evidence_module, "_review_windows", lambda *_a, **_k: {})
             whole = acquire_temporal_evidence(project, media_dir, requests)
-        assert COMPOSITION_CACHE.misses == misses + 2
+        # The review's whole timeline is cached; the full-resolution scope's is the batch's own.
+        assert COMPOSITION_CACHE.misses == misses + 1
 
         for kind in ("", "-scope"):
             expected, actual = sampled[f"whole{kind}"], sampled[f"windowed{kind}"]
@@ -595,29 +598,71 @@ class TestScopeMeasurementWindow:
         scope = next(r for r in _review_requests() if isinstance(r, ScopeEvidenceRequest))
         return [scope.model_copy(update={"start_frame": 30, "end_frame": 61})]
 
+    def _track_compiles(self, monkeypatch: pytest.MonkeyPatch) -> tuple[list[Any], list[Any]]:
+        """Every composite the evidence module compiles, and every one it closes."""
+        compiled: list[Any] = []
+        closed: list[Any] = []
+
+        def compile_timeline(*args: Any, **kwargs: Any) -> Any:
+            composition = compile_timeline_for_real(*args, **kwargs)
+            compiled.append(composition)
+            return composition
+
+        def close_clip_tree(clip: Any) -> None:
+            closed.append(clip)
+            real_close_clip_tree(clip)
+
+        monkeypatch.setattr(f"{evidence_module.__name__}.compile_timeline", compile_timeline)
+        monkeypatch.setattr(f"{evidence_module.__name__}.close_clip_tree", close_clip_tree)
+        return compiled, closed
+
     def test_a_scope_compiles_one_windowed_composite_for_its_three_instants(
         self, media_dir: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        misses = (REVIEW_WINDOW_CACHE.misses, COMPOSITION_CACHE.misses)
+        compiled, _closed = self._track_compiles(monkeypatch)
         result = acquire_temporal_evidence(_edit(), media_dir, self._scope())
         # Three instants with three different sets of clips on screen; one union holds them.
-        assert (REVIEW_WINDOW_CACHE.misses, COMPOSITION_CACHE.misses) == (
-            misses[0] + 1,
-            misses[1],
-        )
+        assert len(compiled) == 1
         # And it measures the whole timeline's frames, number for number.
         monkeypatch.setattr(evidence_module, "_review_windows", lambda *_a, **_k: {})
         whole = acquire_temporal_evidence(_edit(), media_dir, self._scope())
-        assert COMPOSITION_CACHE.misses == misses[1] + 1
         assert result.model_dump() == whole.model_dump()
+
+    def test_scope_composites_are_closed_before_the_batch_returns(
+        self, media_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Full-resolution scope readers must not linger in a cache after the measurement.
+
+        Covers the windowed composite and the whole-timeline one a scope falls back to.
+        """
+        compiled, closed = self._track_compiles(monkeypatch)
+        misses = (REVIEW_WINDOW_CACHE.misses, COMPOSITION_CACHE.misses)
+        acquire_temporal_evidence(_edit(), media_dir, self._scope())
+        monkeypatch.setattr(evidence_module, "_review_windows", lambda *_a, **_k: {})
+        acquire_temporal_evidence(_edit(), media_dir, self._scope())
+
+        assert len(compiled) == 2
+        assert all(any(c is composition for c in closed) for composition in compiled)
+        assert (REVIEW_WINDOW_CACHE.misses, COMPOSITION_CACHE.misses) == misses
+
+    def test_two_scopes_of_one_shot_in_a_batch_share_one_composite(
+        self, media_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        compiled, closed = self._track_compiles(monkeypatch)
+        first = self._scope()[0]
+        again = first.model_copy(update={"request_id": "scope_again", "channels": ["luma"]})
+        batch = acquire_temporal_evidence(_edit(), media_dir, [first, again])
+        assert len(batch.results) == 2
+        assert len(compiled) == 1
+        assert closed == compiled
 
     def test_a_cancelled_wait_for_a_build_slot_is_a_cancelled_batch(
         self, media_dir: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Waiting behind another build must not make a batch the caller dropped uncancellable."""
+        compiled, _closed = self._track_compiles(monkeypatch)
         gate = BuildGate(1)
-        monkeypatch.setattr(REVIEW_WINDOW_CACHE, "_build_gate", gate)
-        misses = REVIEW_WINDOW_CACHE.misses
+        monkeypatch.setattr(evidence_module, "HEAVY_BUILD_GATE", gate)
         assert gate.acquire()  # another build holds the only slot
         try:
             polls = iter(range(1_000_000))
@@ -628,7 +673,7 @@ class TestScopeMeasurementWindow:
                 )
         finally:
             gate.release()
-        assert REVIEW_WINDOW_CACHE.misses == misses + 1  # it missed, then never built
+        assert compiled == []  # it never built
         assert gate.acquire(lambda: True) is True  # and took no slot with it
         gate.release()
 
