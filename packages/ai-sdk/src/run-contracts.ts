@@ -67,6 +67,27 @@ export const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   ]),
 );
 
+/**
+ * A value as the durable run log stores it: its JSON projection, validated.
+ *
+ * Run events and outcomes are ordinary JS objects, and an object with a key whose value is
+ * `undefined` is valid JS and valid JSON-once-serialised (the key is simply dropped) — but not
+ * a {@link JsonValue}, so a bare `JsonValueSchema.parse` rejects it and the durable write
+ * throws. `measure_color`'s evidence carries such keys (`samples[*].coverageRatio`, `mean`,
+ * `p10`…`p90` when a channel is absent), and the throw ended whole runs as "The AI run stopped
+ * unexpectedly": run `6cb12e30` through the effect record, and the 2026-09-28 harness baseline
+ * through the stream-event write. Projecting first stores exactly what `JSON.stringify` would
+ * — what the log is anyway — and the parse still guarantees the result is JSON.
+ *
+ * @param value - Any value headed for the durable log.
+ * @returns Its JSON projection (`null` for `undefined`).
+ * @throws When the value cannot be serialised at all (a cycle, a BigInt).
+ */
+export function toJsonValue(value: unknown): JsonValue {
+  const text = JSON.stringify(value);
+  return JsonValueSchema.parse(text === undefined ? null : JSON.parse(text));
+}
+
 /** Monotonic revision of the canonical project document. */
 export const ProjectRevisionSchema = z.number().int().nonnegative().finite();
 export type ProjectRevision = z.infer<typeof ProjectRevisionSchema>;

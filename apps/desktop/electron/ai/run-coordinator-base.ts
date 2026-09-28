@@ -7,7 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  JsonValueSchema,
+  toJsonValue,
   RUN_PROTOCOL_SCHEMA_VERSION,
   RunOutcomeSchema,
   RunStatusSchema,
@@ -154,7 +154,7 @@ interface Subscriber {
 }
 
 function commandAsJson(command: RunCommandEnvelope): JsonValue {
-  return JsonValueSchema.parse(command);
+  return toJsonValue(command);
 }
 
 function commandFromEvent(event: RunEventEnvelope): RunCommandEnvelope | null {
@@ -480,7 +480,7 @@ function validateWorkingStateProjection(snapshot: RunSnapshot, value: JsonValue)
       `Run-state version ${next.version} was reused with different content.`,
     );
   }
-  return JsonValueSchema.parse(next);
+  return toJsonValue(next);
 }
 
 function projectRuntimeEffect(snapshot: RunSnapshot, event: RunEventEnvelope): RunSnapshot {
@@ -690,7 +690,7 @@ export class RunCoordinator {
         kind: 'run.terminal',
         payload: {
           status,
-          outcome: JsonValueSchema.parse(outcome),
+          outcome: toJsonValue(outcome),
         },
       };
       const snapshot: RunSnapshot = {
@@ -850,8 +850,7 @@ export class RunCoordinator {
       const previous = stored.events.at(-1);
       if (
         previous?.kind === 'run.stream_event' &&
-        JSON.stringify(previous.payload) ===
-          JSON.stringify({ event: JsonValueSchema.parse(input.event) })
+        JSON.stringify(previous.payload) === JSON.stringify({ event: toJsonValue(input.event) })
       ) {
         log.debug('duplicate stream event dropped', {
           runId: input.runId,
@@ -868,7 +867,7 @@ export class RunCoordinator {
         sequence: (stored.events.at(-1)?.sequence ?? 0) + 1,
         occurredAt,
         kind: 'run.stream_event',
-        payload: { event: JsonValueSchema.parse(input.event) },
+        payload: { event: toJsonValue(input.event) },
       };
       const status = streamStatus(input.event);
       const rawWorkingState = streamWorkingState(input.event);
@@ -916,7 +915,7 @@ export class RunCoordinator {
         sequence: (stored.events.at(-1)?.sequence ?? 0) + 1,
         occurredAt: stageEvent.occurredAt,
         kind: 'run.editor_lifecycle',
-        payload: { event: JsonValueSchema.parse(stageEvent) },
+        payload: { event: toJsonValue(stageEvent) },
       };
       await this.store.append(event);
       this.publish(event);
