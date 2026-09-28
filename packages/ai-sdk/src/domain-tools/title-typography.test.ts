@@ -83,6 +83,25 @@ describe('add_text_layer sets the face', () => {
   });
 });
 
+describe('a text overlay box stays inside the frame', () => {
+  it("moves a style's wide box back into frame instead of letting its words start off it", () => {
+    // Harness run 6: the accent-bar style's 76% box centred at x 30 spanned -8%…68%, so its
+    // left-aligned "THE ROAD" began off the frame.
+    const after = run('add_text_layer', vertical(), {
+      trackId: 'titles',
+      text: 'THE ROAD',
+      start: 0,
+      end: 3,
+      style: 'accent-bar',
+      xPercent: 30,
+    });
+    const params = textParams(after);
+    const half = (params['boxWidthPercent'] as number) / 2;
+    expect(params['xPercent'] as number).toBeGreaterThanOrEqual(half);
+    expect((params['xPercent'] as number) + half).toBeLessThanOrEqual(100);
+  });
+});
+
 describe('set_text_style restyles a placed title', () => {
   const placed = (): Project =>
     run('add_text_layer', vertical(), {

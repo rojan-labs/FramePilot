@@ -122,6 +122,15 @@ function centreKeepingBoxInFrame(xPercent: number, boxWidthPercent: number): num
   return Math.min(100 - half, Math.max(half, xPercent));
 }
 
+/** `params` with its `xPercent` moved just enough that a `boxWidthPercent` box stays in frame. */
+function withBoxInFrame(
+  params: Record<string, unknown>,
+  boxWidthPercent: number,
+): Record<string, unknown> {
+  if (typeof params.xPercent !== 'number') return params;
+  return { ...params, xPercent: centreKeepingBoxInFrame(params.xPercent, boxWidthPercent) };
+}
+
 /**
  * The params of a new text overlay with its words fitted to the frame (see the handler for
  * why it fits rather than refuses). Returns `params` with `fontSizePercent`,
@@ -152,7 +161,11 @@ function fitTextOverlayParams(
     { ...fitInput, fontSizePercent: sizePercent, boxWidthPercent },
     resolution,
   )[0];
-  if (over === undefined) return { ...params };
+  // Every word fits: nothing to resize — but the box must still sit inside the frame. A
+  // style's box is wide (a 76% lower third), `xPercent` is its CENTRE, and harness run 6
+  // put three such boxes at x 30–35: each spanned about -3%…73%, so its left-aligned words
+  // began off the frame and the safe-area check could only say so afterwards.
+  if (over === undefined) return withBoxInFrame({ ...params }, askedBox);
   if (over.requiredBoxWidthPercent <= MAX_BOX_WIDTH_PERCENT) {
     boxWidthPercent = over.requiredBoxWidthPercent;
   }
