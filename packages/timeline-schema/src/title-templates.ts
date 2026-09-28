@@ -285,7 +285,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
   },
   {
     id: 'hollow',
-    label: 'Hollow',
+    label: 'Hollow caps',
     category: 'basic',
     sampleText: 'Hollow',
     look: look({
@@ -305,7 +305,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
   // ----------------------------------------------------------------- titles
   {
     id: 'impact-title',
-    label: 'Impact',
+    label: 'Big title',
     category: 'titles',
     sampleText: 'Big news',
     look: look({
@@ -356,7 +356,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
   },
   {
     id: 'neon',
-    label: 'Neon',
+    label: 'Neon sign',
     category: 'titles',
     sampleText: 'Night mode',
     look: look({
@@ -448,7 +448,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
   },
   {
     id: 'minimal-lower',
-    label: 'Minimal',
+    label: 'Location',
     category: 'lower-thirds',
     sampleText: 'Filmed in Lisbon',
     look: look({
@@ -534,7 +534,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
   },
   {
     id: 'sticker',
-    label: 'Sticker',
+    label: 'Pow',
     category: 'callouts',
     sampleText: 'Wow!',
     look: look({
@@ -677,7 +677,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
   },
   {
     id: 'typewriter-card',
-    label: 'Typewriter',
+    label: 'Chapter card',
     category: 'quotes',
     sampleText: 'Chapter one',
     look: look({

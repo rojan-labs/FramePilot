@@ -37,6 +37,11 @@ describe('TITLE_TEMPLATE_CATALOG', () => {
     }
   });
 
+  it('names every template differently, so a search never shows two tiles of one name', () => {
+    const labels = TITLE_TEMPLATE_CATALOG.map((t) => t.label.toLowerCase());
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
   it('fills every category, and the default template exists', () => {
     const used = new Set(TITLE_TEMPLATE_CATALOG.map((t) => t.category));
     for (const category of TITLE_TEMPLATE_CATEGORIES) expect(used).toContain(category.id);

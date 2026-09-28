@@ -94,13 +94,12 @@ import {
 import {
   type TrackFlag,
   type TransitionKind,
-  DEFAULT_TEXT_PARAMS,
   addClipPatch,
   addLayerPatch,
   addEffectLayerPatch,
   addShapePatch,
   placeElementAssetPatch,
-  addTextOverlayPatch,
+  addTitleFromTemplatePatch,
   duplicateEffectLayerPatch,
   moveEffectLayerPatch,
   removeEffectLayerPatch,
@@ -132,7 +131,7 @@ import {
   trimClipPatch,
 } from '../editor/patch-builders.js';
 import { ASSET_DND_TYPE } from './MediaBin.js';
-import { TEXT_OVERLAY_DND_TYPE } from './OverlaysPanel.js';
+import { TEXT_OVERLAY_DND_TYPE, titleTemplateForDrop } from './OverlaysPanel.js';
 import { ELEMENT_DND_TYPE, decodeElementDrag } from './elements/element-dnd.js';
 import { ShapeClipGlyph } from './elements/ShapeClipGlyph.js';
 import { TRANSITION_DND_TYPE } from './transition-catalog.js';
@@ -2615,19 +2614,23 @@ export function TimelineView({
   );
 
   const onDropTextOverlay = useCallback(
-    (track: Track, atSeconds: number): void => {
+    (track: Track, payload: string, atSeconds: number): void => {
       if (track.locked) return;
       const start = Math.max(0, atSeconds);
-      const patch = addTextOverlayPatch(
+      // A tile from the Text panel names its template; the lane under the cursor is the one
+      // aimed at, and the allocator stacks it on a new layer when that lane is taken.
+      const added = addTitleFromTemplatePatch(
         timeline,
         track.id,
-        DEFAULT_TEXT_PARAMS.text,
+        titleTemplateForDrop(payload),
         start,
         start + settings.defaultOverlaySeconds,
       );
-      if (patch) applyPatch(patch);
+      if (!added) return;
+      applyPatch(added.patch);
+      select(added.clipId);
     },
-    [timeline, applyPatch, settings.defaultOverlaySeconds],
+    [timeline, applyPatch, select, settings.defaultOverlaySeconds],
   );
 
   const onDropElement = useCallback(
@@ -3082,11 +3085,10 @@ export function TimelineView({
                 }
                 return;
               }
-              // A "Text" chip dragged from the Overlays panel creates a text
-              // overlay at the drop position (#5).
+              // A text style dragged from the Text panel adds that title at the drop position.
               if (event.dataTransfer.types.includes(TEXT_OVERLAY_DND_TYPE)) {
                 event.preventDefault();
-                onDropTextOverlay(track, value);
+                onDropTextOverlay(track, event.dataTransfer.getData(TEXT_OVERLAY_DND_TYPE), value);
                 return;
               }
               // A shape or sticker tile dragged from Elements lands at the drop time: on this

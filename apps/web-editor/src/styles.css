@@ -2402,17 +2402,221 @@ g.mask-canvas-draft circle {
   color: var(--text-tertiary);
 }
 
-/* ---- Overlays panel (master-prompt §3.4) -------------------------------- */
-.ov-types {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+/* ---- Text panel (plan/PLAN.md "Text panel") ------------------------------ */
+/* Quick add, search and chips stay put; the template grids and the timeline list scroll below
+   them, as on Elements. */
+.text-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  height: 100%;
+  min-height: 0;
+}
+.text-panel .panel-head {
+  margin-bottom: 0;
+}
+
+/* Heading / Subheading / Body, each drawn at its own rank (the Canva and VN hierarchy). */
+.text-quick {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
   gap: var(--space-1);
-  margin-bottom: var(--space-3);
+}
+.text-quick-add {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font-family: 'Inter', var(--font-sans, sans-serif);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+.text-quick-add:not(:disabled):hover {
+  background: var(--surface-3);
+  border-color: var(--accent);
+}
+.text-quick-add:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.text-quick-add:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.text-quick-add--heading {
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+.text-quick-add--subheading {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.text-quick-add--body {
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--text-secondary, var(--text));
+}
+
+.text-panel-hint {
+  flex-shrink: 0;
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.text-panel-scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.text-panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.text-panel-heading-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.text-panel-heading {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.text-panel-more {
+  padding: 0;
+  font-size: 0.74rem;
+  color: var(--accent);
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+.text-panel-more:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* Two columns at the rail's usual width, three when it is widened. */
+.text-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--space-2);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.text-tile {
+  position: relative;
+}
+.text-tile-add {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+  padding: 0 0 var(--space-1);
+  color: var(--text);
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+  overflow: hidden;
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+.text-tile-add:not(:disabled):hover {
+  border-color: var(--accent);
+}
+.text-tile-add:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.text-tile-add:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.text-tile.is-applied .text-tile-add {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+/* A stand-in for footage, the same in both themes: a template is judged against a picture, and
+   white letters on the light theme's panel would be invisible (as on the shape tiles). */
+.text-tile-preview {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  container-type: size;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 20% 15%, rgba(255, 255, 255, 0.16), transparent 60%),
+    linear-gradient(160deg, #4a5160 0%, #2b2f38 55%, #1c1e24 100%);
+}
+.text-tile-sample {
+  display: inline-block;
+  line-height: 1.15;
+  white-space: pre-wrap;
+  pointer-events: none;
+}
+.text-tile-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0 var(--space-2);
+  overflow: hidden;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Restyle the selected title: shown on hover and keyboard focus, always reachable by Tab. */
+.text-tile-apply {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  padding: 2px var(--space-2);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent-text);
+  cursor: pointer;
+  background: var(--accent);
+  border: 0;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.text-tile:hover .text-tile-apply,
+.text-tile:focus-within .text-tile-apply {
+  opacity: 1;
+}
+.text-tile-apply:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+@media (hover: none) {
+  .text-tile-apply {
+    opacity: 1;
+  }
 }
 
 /* Shapes and stickers moved to Elements (plan/elements EL4a): one line points there. */
 .ov-elements-link {
-  margin: 0 0 var(--space-3);
+  margin: 0;
   font-size: 0.78rem;
   color: var(--muted);
 }
@@ -2428,192 +2632,6 @@ g.mask-canvas-draft circle {
 .ov-elements-link .link-button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
-}
-
-.ov-type-wrap {
-  display: flex;
-}
-
-.ov-type {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: var(--space-2) var(--space-1);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  font-size: 0.68rem;
-  cursor: pointer;
-  transition:
-    border-color var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
-}
-
-.ov-type:not(:disabled):hover {
-  color: var(--text-primary);
-  border-color: var(--border-strong);
-}
-
-.ov-type.is-active {
-  border-color: var(--accent);
-  color: var(--text-primary);
-  background: var(--accent-subtle);
-}
-
-.ov-type:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.ov-preview {
-  display: flex;
-  aspect-ratio: 9 / 16;
-  max-height: 150px;
-  margin: 0 auto var(--space-3);
-  padding: var(--space-2);
-  background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-}
-
-.ov-preview-text {
-  font-size: 0.8rem;
-  border-radius: var(--radius-xs);
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-
-.ov-templates {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-1);
-}
-
-.ov-template {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  color: var(--text-tertiary);
-  font-size: 0.66rem;
-  cursor: pointer;
-}
-
-.ov-template-swatch {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  font-size: 0.72rem;
-  transition: border-color var(--dur-fast) var(--ease);
-}
-
-.ov-template.is-active .ov-template-swatch {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-subtle);
-}
-
-.ov-template.is-active .ov-template-label {
-  color: var(--text-primary);
-}
-
-.ov-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 28px);
-  grid-template-rows: repeat(3, 28px);
-  gap: var(--space-1);
-  width: max-content;
-}
-
-.ov-dot {
-  display: grid;
-  place-items: center;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition:
-    background var(--dur-fast) var(--ease),
-    border-color var(--dur-fast) var(--ease);
-}
-
-.ov-dot::after {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-tertiary);
-}
-
-.ov-dot:hover {
-  border-color: var(--border-strong);
-}
-
-.ov-dot.is-active {
-  border-color: var(--accent);
-  background: var(--accent-subtle);
-}
-
-.ov-dot.is-active::after {
-  background: var(--accent);
-}
-
-.ov-timing {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--space-2);
-}
-
-.ov-timing label {
-  flex: 1 1 4rem;
-  min-width: 0;
-}
-
-.ov-timing input {
-  width: 100%;
-}
-
-.ov-timing label {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 0.7rem;
-  color: var(--text-secondary);
-}
-
-.ov-timing input {
-  width: 4.5rem;
-  padding: var(--space-1) var(--space-2);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: 0.8rem;
-}
-
-.ov-at-playhead {
-  padding: var(--space-1) var(--space-2);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  font-size: 0.72rem;
-  cursor: pointer;
-}
-
-.ov-at-playhead:hover {
-  color: var(--text-primary);
-  border-color: var(--border-strong);
 }
 
 .ov-list {
@@ -2635,6 +2653,10 @@ g.mask-canvas-draft circle {
 
 .ov-row:hover {
   background: var(--bg-hover);
+}
+
+.ov-row.is-selected {
+  background: var(--accent-soft);
 }
 
 .ov-row-time {

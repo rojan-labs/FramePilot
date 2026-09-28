@@ -964,66 +964,160 @@ function projectWithOverlayTrack(): Project {
   });
 }
 
-describe('OverlaysPanel', () => {
-  it('reports a missing overlay track', () => {
+describe('OverlaysPanel (Text panel)', () => {
+  beforeEach(() => {
+    // The chip and the recent styles are view preferences; each test starts from none.
+    for (const key of ['framepilot.view.textCategory', 'framepilot.view.textRecentTemplates']) {
+      globalThis.localStorage.removeItem(key);
+    }
+  });
+
+  /** The panel beside a timeline, and the live editor so a test can read what was built. */
+  function renderTextPanel(onOpenElements?: () => void) {
+    const live: { editor: ReturnType<typeof useEditor> | null } = { editor: null };
+    function Host(): JSX.Element {
+      const project = projectWithOverlayTrack();
+      const editor = useEditor(project.timeline);
+      live.editor = editor;
+      return (
+        <>
+          <OverlaysPanel editor={editor} {...(onOpenElements ? { onOpenElements } : {})} />
+          <TimelineView editor={editor} />
+        </>
+      );
+    }
+    const view = render(<Host />);
+    const titles = () =>
+      live
+        .editor!.state.timeline.tracks.flatMap((t) => t.clips)
+        .filter((c) => c.effects.some((e) => e.type === 'text'));
+    return { ...view, live, titles };
+  }
+
+  it('reports a missing overlay track and adds nothing', () => {
     function Host(): JSX.Element {
       const editor = useEditor(emptyTimeline);
       return <OverlaysPanel editor={editor} />;
     }
     render(<Host />);
     expect(screen.getByText('No overlay track in this project.')).toBeDefined();
+    expect(
+      (screen.getByRole('button', { name: 'Add a heading' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
-  it('adds a text overlay at the playhead', () => {
-    function Host(): JSX.Element {
-      const project = projectWithOverlayTrack();
-      const editor = useEditor(project.timeline);
-      return (
-        <>
-          <OverlaysPanel editor={editor} />
-          <TimelineView editor={editor} />
-        </>
-      );
-    }
-    const { container } = render(<Host />);
-    fireEvent.change(screen.getByLabelText('overlay text'), {
-      target: { value: 'New feature →' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Add text overlay' }));
+  it('adds a heading at the playhead in its whole look and selects it', () => {
+    const { container, live, titles } = renderTextPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a heading' }));
     expect(clipCount(container)).toBe(1);
+    const [title] = titles();
+    expect(title!.effects[0]!.params).toMatchObject({
+      text: 'Add a heading',
+      fontFamily: 'Inter',
+      fontWeight: 800,
+      templateId: 'heading',
+    });
+    expect(title!.effects[0]!.params.typography).toBeDefined();
+    expect(live.editor!.state.selectedIds).toEqual([title!.id]);
   });
 
-  it('lists an overlay and deletes it from the list', () => {
-    function Host(): JSX.Element {
-      const project = projectWithOverlayTrack();
-      const editor = useEditor(project.timeline);
-      return <OverlaysPanel editor={editor} />;
-    }
-    render(<Host />);
-    // Empty state until an overlay exists.
-    expect(screen.getByText('No overlays yet.')).toBeDefined();
-    fireEvent.change(screen.getByLabelText('overlay text'), { target: { value: 'Hello' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add text overlay' }));
+  it('adds a template from its tile, drawn in its own font', () => {
+    const { titles } = renderTextPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Titles' }));
+    const tile = screen.getByRole('button', { name: 'Retro pop text style' });
+    expect((tile.querySelector('.text-tile-sample') as HTMLElement).style.fontFamily).toContain(
+      'Luckiest Guy',
+    );
+    fireEvent.click(tile);
+    expect(titles()[0]!.effects[0]!.params).toMatchObject({
+      text: 'Game on',
+      fontFamily: 'Luckiest Guy',
+      templateId: 'retro-pop',
+    });
+  });
 
-    const list = screen.getByLabelText('overlay list');
-    expect(within(list).getByText('Hello')).toBeDefined();
-    // Delete it via the row action.
+  it('filters by name, category and font, and says when nothing matches', () => {
+    renderTextPanel();
+    const search = screen.getByRole('searchbox', { name: 'Search text styles' });
+    fireEvent.change(search, { target: { value: 'neon' } });
+    const results = screen.getByRole('list', { name: 'Matching text styles' });
+    expect(
+      within(results)
+        .getAllByRole('button')
+        .map((b) => b.getAttribute('aria-label')),
+    ).toEqual(['Neon sign text style', 'Neon text style']);
+    fireEvent.change(search, { target: { value: 'lower thirds' } });
+    expect(
+      within(screen.getByRole('list', { name: 'Matching text styles' })).getAllByRole('button')
+        .length,
+    ).toBe(5);
+    fireEvent.change(search, { target: { value: 'zzzz' } });
+    expect(screen.getByText(/Nothing matched/)).toBeDefined();
+  });
+
+  it('shows a few caption looks under All and every one in their own category', () => {
+    renderTextPanel();
+    const preview = screen.getByRole('list', { name: 'Caption looks text styles' });
+    expect(within(preview).getAllByRole('button')).toHaveLength(6);
+    fireEvent.click(screen.getByRole('button', { name: /See all/ }));
+    expect(screen.getByRole('button', { name: 'Caption looks' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    expect(
+      within(screen.getByRole('list', { name: 'Caption looks text styles' })).getAllByRole('button')
+        .length,
+    ).toBeGreaterThan(40);
+  });
+
+  it('remembers what was used in a Recent row', () => {
+    renderTextPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a subheading' }));
+    const recent = screen.getByRole('list', { name: 'Recent text styles' });
+    expect(within(recent).getByRole('button', { name: 'Subheading text style' })).toBeDefined();
+  });
+
+  it('restyles the selected title with Apply, keeping its words and place', () => {
+    const { titles } = renderTextPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a heading' }));
+    const before = titles()[0]!.effects[0]!.params;
+    fireEvent.click(screen.getByRole('button', { name: 'Titles' }));
+    fireEvent.click(screen.getByRole('button', { name: 'apply Retro pop to the selected title' }));
+    expect(titles()).toHaveLength(1);
+    expect(titles()[0]!.effects[0]!.params).toMatchObject({
+      text: before.text,
+      xPercent: before.xPercent,
+      yPercent: before.yPercent,
+      fontFamily: 'Luckiest Guy',
+      templateId: 'retro-pop',
+    });
+    // The applied template is marked on its tile.
+    expect(
+      screen.getByRole('button', { name: 'Retro pop text style' }).closest('.text-tile')?.className,
+    ).toContain('is-applied');
+  });
+
+  it('offers Apply only while a title is selected', () => {
+    renderTextPanel();
+    expect(screen.queryByRole('button', { name: /^apply / })).toBeNull();
+  });
+
+  it('lists titles, edits one in place and deletes it', () => {
+    const { titles } = renderTextPanel();
+    expect(screen.getByText('No titles yet.')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a heading' }));
+    const list = screen.getByRole('list', { name: 'overlay list' });
+    fireEvent.doubleClick(within(list).getByText('Add a heading'));
+    const input = within(list).getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'Launch day' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(titles()[0]!.effects[0]!.params).toMatchObject({ text: 'Launch day', fontWeight: 800 });
     fireEvent.click(within(list).getByLabelText(/delete overlay/));
-    expect(screen.getByText('No overlays yet.')).toBeDefined();
+    expect(screen.getByText('No titles yet.')).toBeDefined();
   });
 
-  it('offers Text and Title, and points shapes and stickers at Elements', () => {
+  it('points shapes and stickers at Elements', () => {
     const onOpenElements = vi.fn();
-    function Host(): JSX.Element {
-      const project = newProject('Overlay Test');
-      const editor = useEditor(project.timeline);
-      return <OverlaysPanel editor={editor} onOpenElements={onOpenElements} />;
-    }
-    render(<Host />);
-    const types = within(screen.getByRole('group', { name: 'overlay type' }))
-      .getAllByRole('button')
-      .map((button) => button.textContent);
-    expect(types).toEqual(['Text', 'Title']);
+    renderTextPanel(onOpenElements);
     fireEvent.click(screen.getByRole('button', { name: 'Elements' }));
     expect(onOpenElements).toHaveBeenCalledTimes(1);
   });

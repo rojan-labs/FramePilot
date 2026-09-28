@@ -7,6 +7,7 @@ import type { Timeline } from '@framepilot/timeline-schema';
 import {
   DEFAULT_TITLE_TEMPLATE_ID,
   getTitleTemplate,
+  type TitleTypography,
 } from '@framepilot/timeline-schema/title-templates';
 import { applyUserPatch, createEditorState, undoEdit } from './store.js';
 import {
@@ -133,7 +134,7 @@ describe('readTextParams typography', () => {
 });
 
 describe('titleTypographyCss', () => {
-  const typed = (typography: TextOverlayParams['typography'], extra = {}): TextOverlayParams => ({
+  const typed = (typography: TitleTypography, extra = {}): TextOverlayParams => ({
     ...DEFAULT_TEXT_PARAMS,
     fontFamily: 'Anton',
     fontWeight: 400,
