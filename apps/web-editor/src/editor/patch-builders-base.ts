@@ -31,6 +31,8 @@ import {
   resolveCaptionCue,
   splitClipRightId,
   laneTypeForKind,
+  textEffectId,
+  textOverlayClipId,
 } from '@framepilot/editor-core';
 import type {
   Asset,
@@ -48,6 +50,12 @@ import type {
 import { effectLayersOf } from '@framepilot/timeline-schema';
 import { findEffect, resolveParams } from '@framepilot/timeline-schema/effect-catalog';
 import { clampParamsForKind } from '@framepilot/timeline-schema/effect-params';
+import {
+  getTitleTemplate,
+  parseTitleTypography,
+  type TitleLook,
+  type TitleTypography,
+} from '@framepilot/timeline-schema/title-templates';
 import {
   assetKind,
   clipKind,
@@ -1935,6 +1943,96 @@ export function addTextOverlayPatch(
   };
 }
 
+/**
+ * The params a title template writes: its whole look, and the id it came from. The text and the
+ * animation stay the author's.
+ */
+export function titleLookParams(look: TitleLook, templateId: string): Partial<TextOverlayParams> {
+  return {
+    fontFamily: look.fontFamily,
+    fontWeight: look.fontWeight,
+    color: look.color,
+    fontSizePercent: look.fontSizePercent,
+    align: look.align,
+    boxWidthPercent: look.boxWidthPercent,
+    xPercent: look.xPercent,
+    yPercent: look.yPercent,
+    background: look.background,
+    typography: look.typography,
+    templateId,
+  };
+}
+
+/**
+ * Add a title in a template's look spanning `[start, end]` — `add_text_overlay` followed by the
+ * look as a `set_effect_params` on the clip it creates, one patch and so one undo (the pattern
+ * the agent's `add_text_layer` uses). `text` defaults to the template's sample text. Returns
+ * the patch and the new clip's id (so the caller can select it), or `null` when the template or
+ * track is unknown, or the span is too short.
+ */
+export function addTitleFromTemplatePatch(
+  timeline: Timeline,
+  trackId: string,
+  templateId: string,
+  start: number,
+  end: number,
+  text?: string,
+): { readonly patch: Patch; readonly clipId: string } | null {
+  const template = getTitleTemplate(templateId);
+  const body = text?.trim() ? text : template?.sampleText;
+  if (!template || !body || !timeline.tracks.some((t) => t.id === trackId)) return null;
+  if (end - start <= MIN_EDIT_SECONDS) return null;
+  const placed = createLaneAllocator(timeline).allocate(trackId, start, end);
+  const clipId = textOverlayClipId(placed.trackId, start);
+  const newLane = placed.setupOps.length > 0;
+  return {
+    clipId,
+    patch: {
+      patchId: patchId(`title_${template.id}_${placed.trackId}_${ms(start)}_${ms(end)}`),
+      createdBy: 'user',
+      reason: `Add "${template.label}" title${newLane ? ' on a new layer' : ''} at ${start.toFixed(2)}s`,
+      operations: [
+        ...placed.setupOps,
+        { type: 'add_text_overlay', trackId: placed.trackId, text: body, start, end, clipId },
+        {
+          type: 'set_effect_params',
+          clipId,
+          effectId: textEffectId(clipId),
+          params: { ...titleLookParams(template.look, template.id), text: body },
+        },
+      ],
+    },
+  };
+}
+
+/**
+ * Restyle an existing title with a template's look, keeping its text, its place in the frame and
+ * its wrap width (restyling should not move a title the author placed). One reversible
+ * `set_effect_params`; `null` when the clip is not a title or the template is unknown.
+ */
+export function applyTitleTemplatePatch(
+  timeline: Timeline,
+  clipId: string,
+  templateId: string,
+): Patch | null {
+  const template = getTitleTemplate(templateId);
+  const loc = findClip(timeline, clipId);
+  const effect = loc ? textEffectOf(loc.clip) : undefined;
+  if (!template || !loc || !effect) return null;
+  const {
+    xPercent: _x,
+    yPercent: _y,
+    boxWidthPercent: _box,
+    ...look
+  } = titleLookParams(template.look, template.id);
+  return {
+    patchId: patchId(`title_style_${clipId}_${template.id}`),
+    createdBy: 'user',
+    reason: `Restyle title ${clipId} as "${template.label}"`,
+    operations: [{ type: 'set_effect_params', clipId, effectId: effect.id, params: { ...look } }],
+  };
+}
+
 // --- Text overlay styling (#5) ---------------------------------------------
 
 /** In/out animation kinds a text overlay can use (preview-time; render TBD). */
@@ -1968,6 +2066,14 @@ export interface TextOverlayParams {
   readonly inAnimation: TextAnimation;
   readonly outAnimation: TextAnimation;
   readonly animDurationSeconds: number;
+  /**
+   * The caption typography the title is drawn in (`title-templates.ts`). Present, the title is
+   * drawn by the caption rasterizer in the export and the monitor; absent, it keeps the plain
+   * title drawing (a fixed black stroke).
+   */
+  readonly typography?: TitleTypography;
+  /** The title template this look came from, for the Text panel to show it as applied. */
+  readonly templateId?: string;
 }
 
 /** Defaults applied to a freshly created text overlay (a legible centred caption). */
@@ -2018,6 +2124,18 @@ export function readTextParams(clip: {
     inAnimation: str('inAnimation', DEFAULT_TEXT_PARAMS.inAnimation),
     outAnimation: str('outAnimation', DEFAULT_TEXT_PARAMS.outAnimation),
     animDurationSeconds: num('animDurationSeconds', DEFAULT_TEXT_PARAMS.animDurationSeconds),
+    ...optionalTitleFields(p),
+  };
+}
+
+/** A stored title's typography and template id, each only when present and valid. */
+function optionalTitleFields(
+  p: Record<string, unknown>,
+): Pick<TextOverlayParams, 'typography' | 'templateId'> {
+  const typography = parseTitleTypography(p.typography);
+  return {
+    ...(typography === undefined ? {} : { typography }),
+    ...(typeof p.templateId === 'string' ? { templateId: p.templateId } : {}),
   };
 }
 

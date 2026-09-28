@@ -98,6 +98,20 @@ const NO_SOLO: ReadonlySet<string> = new Set();
  */
 const MONITOR_DROP_KINDS = ['sticker', 'shape'] as const;
 
+/**
+ * A title's hit target sits over the engine's raster of it: it keeps the title's box and wrap so
+ * it covers the same letters, and paints nothing — no fill, chip, outline, shadow or rim.
+ */
+const INVISIBLE_TEXT = {
+  color: 'transparent',
+  background: 'transparent',
+  textShadow: 'none',
+  WebkitTextStroke: '0',
+  boxShadow: 'none',
+  backdropFilter: 'none',
+  WebkitBackdropFilter: 'none',
+} as const;
+
 export interface WebCodecsPreviewPlayerProps {
   readonly editor: UseEditor;
   readonly assets: readonly Asset[];
@@ -1238,8 +1252,7 @@ export function WebCodecsPreviewPlayer({
                       editor.state.playhead - overlay.start,
                       overlay.end - overlay.start,
                     ),
-                    color: 'transparent',
-                    background: 'transparent',
+                    ...INVISIBLE_TEXT,
                   }}
                   role="button"
                   tabIndex={0}

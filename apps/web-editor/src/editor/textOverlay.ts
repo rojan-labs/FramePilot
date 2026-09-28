@@ -16,6 +16,15 @@
  */
 import type { CSSProperties } from 'react';
 import { titleEnvelopeFromParams } from '@framepilot/editor-core';
+import { titleCaptionStyle } from '@framepilot/timeline-schema/title-templates';
+import {
+  OUTLINE_WIDTH_UNITS_PER_EM,
+  captionBoxCss,
+  captionLineCss,
+  captionTextOpacity,
+  isSeeThroughCaption,
+  resolveCaptionStyle,
+} from './captionPreview.js';
 import type { TextOverlayParams } from './patch-builders.js';
 
 const clamp01 = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
@@ -55,6 +64,44 @@ export function textOverlayAnimationState(
   return { opacity: envelope.opacity, dyFrame: envelope.dy, scale: envelope.scale };
 }
 
+/** The caption renderer's default line height, when a title's typography names none. */
+const CAPTION_LINE_HEIGHT = 1.25;
+
+/**
+ * The caption typography CSS of a title that carries `typography` (the caption CSS a caption in
+ * the same look gets, `captionPreview.ts`), or `null` for a plain title.
+ *
+ * One approximation, for see-through letters: the caption preview draws those as three stacked
+ * copies so the outline and shadow stop at the letter's edge, as the export does. A title is one
+ * editable element, so its outline is a CSS stroke of the export's width, centred on the glyph
+ * edge — the same weight of line, half of it inside the letter. The desktop monitor draws the
+ * engine's own raster underneath, so this matters only for the selected title and the browser.
+ */
+export function titleTypographyCss(params: TextOverlayParams): CSSProperties | null {
+  const style = titleCaptionStyle(params);
+  if (style === undefined) return null;
+  const resolved = resolveCaptionStyle(style);
+  const css: CSSProperties = {
+    ...captionLineCss(resolved),
+    ...captionBoxCss(resolved),
+    lineHeight: resolved.lineHeight ?? CAPTION_LINE_HEIGHT,
+  };
+  if (!isSeeThroughCaption(resolved)) return css;
+  if (resolved.shadow !== undefined) {
+    const s = resolved.shadow;
+    css.textShadow = `${s.offsetX}em ${s.offsetY}em ${s.blur}em ${s.color}`;
+  }
+  const outline = resolved.outlineWidth ?? 0;
+  if (resolved.outlineColor !== undefined && outline > 0) {
+    css.WebkitTextStroke = `${outline / OUTLINE_WIDTH_UNITS_PER_EM}em ${resolved.outlineColor}`;
+  } else if (captionTextOpacity(resolved) === 0) {
+    // Hollow letters with no ring would draw nothing at all; keep a hairline so the title can
+    // still be found and edited.
+    css.WebkitTextStroke = `1px ${resolved.textColor ?? '#ffffff'}`;
+  }
+  return css;
+}
+
 /**
  * The full CSS for a text overlay box at `timeInClip` seconds into a clip of
  * `durationSeconds`. Combines the static style (position, size, colour, font,
@@ -71,25 +118,39 @@ export function textOverlayStyle(
     durationSeconds,
   );
 
-  return {
+  const box: CSSProperties = {
     position: 'absolute',
     left: `${params.xPercent}%`,
     top: `${params.yPercent}%`,
-    width: `${params.boxWidthPercent}%`,
     // `cqh` is a percent of the preview frame's height, the unit the export's slide moves in.
     transform: `translate(-50%, -50%) translateY(${dyFrame * 100}cqh) scale(${scale})`,
     textAlign: params.align,
-    color: params.color,
-    fontFamily: params.fontFamily,
-    fontWeight: params.fontWeight,
     fontSize: `${params.fontSizePercent}cqh`,
-    lineHeight: 1.15,
     opacity,
-    ...(params.background
-      ? { background: params.background, padding: '0.15em 0.4em', borderRadius: '0.15em' }
-      : {}),
     overflowWrap: 'break-word',
     whiteSpace: 'pre-wrap',
     pointerEvents: 'none',
+  };
+  const typography = titleTypographyCss(params);
+  if (typography !== null) {
+    // The engine draws a typed title's raster tight around its lines and centres it on
+    // x/y, so the box is as wide as its text, up to the wrap width, and the chip hugs it.
+    return {
+      ...box,
+      ...typography,
+      width: 'max-content',
+      maxWidth: `${params.boxWidthPercent}%`,
+    };
+  }
+  return {
+    ...box,
+    width: `${params.boxWidthPercent}%`,
+    color: params.color,
+    fontFamily: params.fontFamily,
+    fontWeight: params.fontWeight,
+    lineHeight: 1.15,
+    ...(params.background
+      ? { background: params.background, padding: '0.15em 0.4em', borderRadius: '0.15em' }
+      : {}),
   };
 }
