@@ -1316,11 +1316,21 @@ export function setKeyframeEasingPatch(
  * write goes through the same builder, and the render has composited animated opacity
  * since Phase 6 (`_attach_mask`) — so it is a property the export honours.
  *
+ * `scaleX`/`scaleY` are the stretch the bounding box's freeform (Shift) resize writes, on top of
+ * the uniform `scale` (editor-core `CLIP_KEYFRAME_PROPERTIES`).
+ *
  * Deliberately NOT here: an anchor/origin. `evaluate_clip_transform` has no such
  * property — rotation and scale are both about the clip's own centre — so writing
  * one would produce keyframes the render ignores. See the sub-plan's Phase 3 note.
  */
-export type ClipTransformProperty = 'scale' | 'x' | 'y' | 'rotation' | 'opacity';
+export type ClipTransformProperty =
+  | 'scale'
+  | 'scaleX'
+  | 'scaleY'
+  | 'x'
+  | 'y'
+  | 'rotation'
+  | 'opacity';
 
 /**
  * Set a clip's BASE transform (H4 canvas handles): writes `scale`/`x`/`y`/`rotation`

@@ -78,7 +78,7 @@ describe('TransformBox', () => {
 
   it('keeps the aspect from a corner, and stretches with Shift', () => {
     const uniform = renderBox();
-    drag(screen.getByLabelText('Resize se'), screenOf(1160, 640), screenOf(1360, 700));
+    drag(screen.getByLabelText('Resize handle se'), screenOf(1160, 640), screenOf(1360, 700));
     const [kept, keptGesture] = uniform.onCommit.mock.calls[0]!;
     expect(keptGesture).toMatchObject({ kind: 'resize', handle: 'se', uniform: true });
     expect(kept.width).toBeCloseTo(600);
@@ -86,7 +86,7 @@ describe('TransformBox', () => {
     uniform.unmount();
 
     const free = renderBox();
-    drag(screen.getByLabelText('Resize se'), screenOf(1160, 640), screenOf(1360, 700), {
+    drag(screen.getByLabelText('Resize handle se'), screenOf(1160, 640), screenOf(1360, 700), {
       shiftKey: true,
     });
     const [stretched, gesture] = free.onCommit.mock.calls[0]!;
@@ -129,7 +129,7 @@ describe('TransformBox', () => {
     const { onCommit } = renderBox();
     fireEvent.keyDown(screen.getByRole('group', { name: 'Transform clip' }), { key: 'ArrowRight' });
     expect(onCommit.mock.calls[0]![0]).toMatchObject({ cx: 961 });
-    fireEvent.keyDown(screen.getByLabelText('Resize ne'), { key: 'ArrowUp', shiftKey: true });
+    fireEvent.keyDown(screen.getByLabelText('Resize handle ne'), { key: 'ArrowUp', shiftKey: true });
     expect(onCommit.mock.calls[1]![0].width).toBeCloseTo(440);
     fireEvent.keyDown(screen.getByLabelText('Rotate'), { key: 'ArrowUp' });
     expect(onCommit.mock.calls[2]![0]).toMatchObject({ rotation: 1 });
@@ -137,8 +137,8 @@ describe('TransformBox', () => {
 
   it('points each handle cursor along the way it pulls, turned with the box', () => {
     renderBox({ box: { ...BOX, rotation: 90 } });
-    expect(screen.getByLabelText('Resize e').style.cursor).toBe('ns-resize');
-    expect(screen.getByLabelText('Resize n').style.cursor).toBe('ew-resize');
+    expect(screen.getByLabelText('Resize handle e').style.cursor).toBe('ns-resize');
+    expect(screen.getByLabelText('Resize handle n').style.cursor).toBe('ew-resize');
   });
 
   it('draws no handles and takes no gesture while passive', () => {

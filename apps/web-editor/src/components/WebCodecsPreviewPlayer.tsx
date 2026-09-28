@@ -43,7 +43,6 @@ import {
   type TextOverlayParams,
 } from '../editor/patch-builders.js';
 import { useSettings } from '../editor/useSettings.js';
-import { baseTransformOf, withBaseTransform } from '../preview/picture-transform.js';
 import { activeTimedItemsAt, buildTemporalIndex } from '../preview/temporal-index.js';
 import { textOverlayStyle } from '../editor/textOverlay.js';
 import {
@@ -82,11 +81,19 @@ import {
   decodeElementDrag,
   dragCarriesElementKind,
 } from './elements/element-dnd.js';
+import { TransformBox } from './transform-box/TransformBox.js';
 import {
-  PreviewTransform,
-  type ClipTransformValues,
-  type TransformOverride,
-} from './PreviewTransform.js';
+  pictureTransformAfter,
+  type PictureBaseTransform,
+} from '../preview/transform-box/adapters.js';
+import type { Box } from '../preview/transform-box/geometry.js';
+import {
+  keyframesWithBase,
+  pictureBaseOf,
+  pictureBoxAt,
+  pictureTransformWrite,
+  timelineWithClipKeyframes,
+} from '../preview/transform-box/monitor.js';
 
 const log = createLogger('web-editor:webcodecs-preview');
 
@@ -235,17 +242,19 @@ export function WebCodecsPreviewPlayer({
   // re-rendered every display frame, and subscribing here would undo that. The
   // committed playhead is stale only DURING playback, which is exactly when nobody
   // is dragging handles; any discrete seek updates it.
-  const [transformOverride, setTransformOverride] = useState<TransformOverride>(null);
+  // A live bounding-box drag on the selected picture: its base transform as the release will
+  // store it. Previewed through the compositor (below), never as a CSS transform.
+  const [transformOverride, setTransformOverride] = useState<PictureBaseTransform | null>(null);
+  // The frame plan at the committed playhead: which pictures are drawn, and where the selected
+  // one's box is (the same computation the compositor draws from).
+  const monitorPlan = useMemo(
+    () => framePlanAt(editor.state.timeline, assets, editor.state.playhead, resolution),
+    [editor.state.timeline, assets, resolution, editor.state.playhead],
+  );
   // Every picture clip the frame plan draws now, back to front (not under-layers).
   const drawnPictures = useMemo(
-    () =>
-      layered
-        ? drawnPictureClips(
-            framePlanAt(editor.state.timeline, assets, editor.state.playhead, resolution),
-            editor.state.timeline,
-          )
-        : null,
-    [layered, editor.state.timeline, assets, resolution, editor.state.playhead],
+    () => (layered ? drawnPictureClips(monitorPlan, editor.state.timeline) : null),
+    [layered, monitorPlan, editor.state.timeline],
   );
   const shownPicture = useMemo(() => {
     // The front-most picture: what a click on the monitor selects.
@@ -305,30 +314,56 @@ export function WebCodecsPreviewPlayer({
     if (maskTools.live !== null) return maskTools.live;
     return maskTools.liveScalars;
   }, [maskEditing, maskTools.live, maskTools.liveScalars]);
-  const previewTimeline = useMemo(
-    () =>
+  // What the monitor draws while a mask or a bounding-box drag is live; the committed timeline
+  // otherwise. A transform drag is expressed exactly as its commit will store it (time-0 base
+  // keyframes), so the picture under the hand is the picture the release keeps.
+  const previewTimeline = useMemo(() => {
+    const masked =
       liveMask === null
         ? editor.state.timeline
-        : timelineWithLiveMask(editor.state.timeline, liveMask),
-    [editor.state.timeline, liveMask],
-  );
+        : timelineWithLiveMask(editor.state.timeline, liveMask);
+    if (transformOverride === null || selectedPicture === null) return masked;
+    return timelineWithClipKeyframes(
+      masked,
+      selectedPicture.id,
+      keyframesWithBase(
+        selectedPicture.keyframes,
+        pictureTransformWrite(selectedPicture, transformOverride),
+      ),
+    );
+  }, [editor.state.timeline, liveMask, transformOverride, selectedPicture]);
+  const livePreviewing = liveMask !== null || transformOverride !== null;
   // MK3.3: the mask view switch appears only while the selected picture carries an enabled mask.
   const maskViewClipId =
     selectedPicture !== null && (selectedPicture.masks ?? []).some((mask) => mask.enabled)
       ? selectedPicture.id
       : null;
-  const baseTransform = useMemo(
-    () => baseTransformOf(selectedPicture?.keyframes ?? []),
+  const pictureBase = useMemo(
+    () => pictureBaseOf(selectedPicture?.keyframes ?? []),
     [selectedPicture],
   );
-  const commitTransform = (values: ClipTransformValues): void => {
+  // The selected picture's box: where the frame plan draws it. Before the media is probed the
+  // plan cannot place it, and the box frames the picture fitted to the frame, from the stored
+  // transform alone (what a probed picture of the frame's own aspect would be).
+  const pictureBox = useMemo((): Box | null => {
+    if (selectedPicture === null) return null;
+    const placed = pictureBoxAt(monitorPlan, selectedPicture.id);
+    if (placed !== null) return placed;
+    return {
+      cx: resolution.width / 2 + pictureBase.x,
+      cy: resolution.height / 2 + pictureBase.y,
+      width: resolution.width * pictureBase.scale * pictureBase.scaleX,
+      height: resolution.height * pictureBase.scale * pictureBase.scaleY,
+      rotation: pictureBase.rotation,
+    };
+  }, [selectedPicture, monitorPlan, pictureBase, resolution.width, resolution.height]);
+  const commitPictureTransform = (next: PictureBaseTransform): void => {
     if (!selectedPicture) return;
-    const patch = setClipTransformPatch(editor.state.timeline, selectedPicture.id, {
-      scale: values.scale,
-      x: values.x,
-      y: values.y,
-      rotation: values.rotation ?? 0,
-    });
+    const patch = setClipTransformPatch(
+      editor.state.timeline,
+      selectedPicture.id,
+      pictureTransformWrite(selectedPicture, next),
+    );
     if (patch) editor.applyPatch(patch);
   };
 
@@ -401,7 +436,13 @@ export function WebCodecsPreviewPlayer({
         // into an `applyCompositing` call — no decoder reload for a drag.
         const dragged =
           transformOverride !== null && seg.clip.id === selectedPicture?.id
-            ? { ...base, keyframes: withBaseTransform(base.keyframes, transformOverride) }
+            ? {
+                ...base,
+                keyframes: keyframesWithBase(
+                  base.keyframes,
+                  pictureTransformWrite(seg.clip, transformOverride),
+                ),
+              }
             : base;
         const compositing = showGrade ? dragged : { ...dragged, grade: IDENTITY_GRADE };
         return {
@@ -865,7 +906,7 @@ export function WebCodecsPreviewPlayer({
   });
   useEffect(() => {
     const engine = engineRef.current;
-    if (!layered || !(engine instanceof LayerPreviewEngine) || liveMask === null) return;
+    if (!layered || !(engine instanceof LayerPreviewEngine) || !livePreviewing) return;
     const requested = performance.now();
     const present = (): Promise<void> =>
       engine
@@ -906,7 +947,7 @@ export function WebCodecsPreviewPlayer({
   useEffect(() => {
     const engine = engineRef.current;
     if (!layered || !(engine instanceof LayerPreviewEngine)) return;
-    if (liveMask !== null) return;
+    if (livePreviewing) return;
     void engine
       .setProject({
         timeline: editor.state.timeline,
@@ -927,7 +968,7 @@ export function WebCodecsPreviewPlayer({
     layered,
     hasSegments,
     editor.state.timeline,
-    liveMask === null,
+    livePreviewing,
     assets,
     mediaUrls,
     resolution.width,
@@ -1124,16 +1165,34 @@ export function WebCodecsPreviewPlayer({
               {...(frameWidth !== null ? { frameWidth } : {})}
             />
           )}
-          {transformSelected && selectedPicture && !maskEditing && (
-            <PreviewTransform
-              // Keyed by clip: switching selection starts a fresh gesture state
-              // rather than carrying the previous clip's live override across.
+          {transformSelected && selectedPicture && pictureBox && !maskEditing && (
+            <TransformBox
+              // Keyed by clip: switching selection starts a fresh gesture rather than carrying
+              // the previous clip's live box across.
               key={selectedPicture.id}
-              value={baseTransform}
+              box={pictureBox}
               resolution={resolution}
+              label="Transform selected clip"
+              sizeValue={{
+                now: Math.round(pictureBase.scale * 100),
+                text: `${Math.round(pictureBase.scale * 100)}%`,
+              }}
+              rotateLabel="Rotate clip"
+              resetLabel="reset clip transform"
               snapping={settings.snapping}
-              onPreview={setTransformOverride}
-              onCommit={commitTransform}
+              onPreview={(box, gesture) =>
+                setTransformOverride(
+                  box === null
+                    ? null
+                    : pictureTransformAfter(pictureBase, pictureBox, box, gesture),
+                )
+              }
+              onCommit={(box, gesture) =>
+                commitPictureTransform(pictureTransformAfter(pictureBase, pictureBox, box, gesture))
+              }
+              onReset={() =>
+                commitPictureTransform({ scale: 1, scaleX: 1, scaleY: 1, x: 0, y: 0, rotation: 0 })
+              }
             />
           )}
           {/* Selection is a UI layer, never baked into preview pixels. The canvas

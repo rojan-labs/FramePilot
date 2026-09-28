@@ -75,11 +75,14 @@ import { PreviewAudioMixer } from './PreviewAudioMixer.js';
 import { clipMix } from '../preview/audio/mix-envelope.js';
 import { MonitorHeaderPortal } from './MonitorHeaderPortal.js';
 import { PreviewViewControls, type PreviewZoom } from './PreviewViewControls.js';
+import { TransformBox } from './transform-box/TransformBox.js';
+import { rotationToCssDegrees } from '../preview/picture-transform.js';
 import {
-  PreviewTransform,
-  type ClipTransformValues,
-  type TransformOverride,
-} from './PreviewTransform.js';
+  pictureTransformAfter,
+  type PictureBaseTransform,
+} from '../preview/transform-box/adapters.js';
+import type { Box } from '../preview/transform-box/geometry.js';
+import { pictureBaseOf, pictureTransformWrite } from '../preview/transform-box/monitor.js';
 import {
   type TextOverlayParams,
   readTextParams,
@@ -773,38 +776,58 @@ export function PreviewPlayer({
   // --- On-canvas transform (H4) ---------------------------------------------
   // The active picture clip's transform, honoring keyframed animation at the
   // playhead; the drag override wins while a handle gesture is in flight.
-  const [transformOverride, setTransformOverride] = useState<TransformOverride>(null);
+  const [transformOverride, setTransformOverride] = useState<PictureBaseTransform | null>(null);
   const clipTime = videoClip ? Math.max(0, playhead - videoClip.start) : 0;
-  const evaluatedTransform: ClipTransformValues = videoClip
-    ? {
-        scale: evaluateKeyframes(videoClip.keyframes, 'scale', clipTime) ?? 1,
-        x: evaluateKeyframes(videoClip.keyframes, 'x', clipTime) ?? 0,
-        y: evaluateKeyframes(videoClip.keyframes, 'y', clipTime) ?? 0,
-      }
-    : { scale: 1, x: 0, y: 0 };
+  const at = (property: string, identity: number): number =>
+    (videoClip ? evaluateKeyframes(videoClip.keyframes, property, clipTime) : undefined) ??
+    identity;
+  const evaluatedTransform: PictureBaseTransform = {
+    scale: at('scale', 1),
+    scaleX: at('scaleX', 1),
+    scaleY: at('scaleY', 1),
+    x: at('x', 0),
+    y: at('y', 0),
+    rotation: at('rotation', 0),
+  };
   const liveTransform = transformOverride ?? evaluatedTransform;
-  // The clip's BASE transform (time 0) — what the handles edit and commit.
-  const baseTransform: ClipTransformValues = videoClip
-    ? {
-        scale: evaluateKeyframes(videoClip.keyframes, 'scale', 0) ?? 1,
-        x: evaluateKeyframes(videoClip.keyframes, 'x', 0) ?? 0,
-        y: evaluateKeyframes(videoClip.keyframes, 'y', 0) ?? 0,
-      }
-    : { scale: 1, x: 0, y: 0 };
+  // The clip's BASE transform (time 0): what the bounding box edits and commits.
+  const baseTransform = pictureBaseOf(videoClip?.keyframes ?? []);
   const identityTransform =
-    liveTransform.scale === 1 && liveTransform.x === 0 && liveTransform.y === 0;
-  // Percent-based CSS: the media element fills the frame, so translate% of its
-  // own size equals the canvas fraction — no measuring, resolution optional.
+    liveTransform.scale === 1 &&
+    liveTransform.scaleX === 1 &&
+    liveTransform.scaleY === 1 &&
+    liveTransform.x === 0 &&
+    liveTransform.y === 0 &&
+    liveTransform.rotation === 0;
+  // Percent-based CSS: the media element fills the frame, so translate% of its own size equals
+  // the canvas fraction. Turned and stretched about its centre, as the export places it.
   const cssTransform =
     !identityTransform && resolution
-      ? `translate(${(liveTransform.x / resolution.width) * 100}%, ${(liveTransform.y / resolution.height) * 100}%) scale(${liveTransform.scale})`
+      ? `translate(${(liveTransform.x / resolution.width) * 100}%, ${(liveTransform.y / resolution.height) * 100}%) ` +
+        `rotate(${rotationToCssDegrees(liveTransform.rotation)}deg) ` +
+        `scale(${liveTransform.scale * liveTransform.scaleX}, ${liveTransform.scale * liveTransform.scaleY})`
       : undefined;
   const transformSelected = Boolean(
     videoClip && resolution && editor.state.selectedIds.includes(videoClip.id),
   );
-  const commitTransform = (values: ClipTransformValues): void => {
+  // This preview fills the frame with the picture, so its box is the frame at the stored
+  // transform.
+  const pictureBox: Box | null = resolution
+    ? {
+        cx: resolution.width / 2 + baseTransform.x,
+        cy: resolution.height / 2 + baseTransform.y,
+        width: resolution.width * baseTransform.scale * baseTransform.scaleX,
+        height: resolution.height * baseTransform.scale * baseTransform.scaleY,
+        rotation: baseTransform.rotation,
+      }
+    : null;
+  const commitTransform = (values: PictureBaseTransform): void => {
     if (!videoClip) return;
-    const patch = setClipTransformPatch(timeline, videoClip.id, values);
+    const patch = setClipTransformPatch(
+      timeline,
+      videoClip.id,
+      pictureTransformWrite(videoClip, values),
+    );
     if (patch) editor.applyPatch(patch);
   };
 
@@ -1194,13 +1217,31 @@ export function PreviewPlayer({
               onClick={() => editor.select(videoClip.id)}
             />
           )}
-          {transformSelected && videoClip && resolution && (
-            <PreviewTransform
+          {transformSelected && videoClip && resolution && pictureBox && (
+            <TransformBox
               key={videoClip.id}
-              value={baseTransform}
+              box={pictureBox}
               resolution={resolution}
-              onPreview={setTransformOverride}
-              onCommit={commitTransform}
+              label="Transform selected clip"
+              rotateLabel="Rotate clip"
+              resetLabel="reset clip transform"
+              sizeValue={{
+                now: Math.round(baseTransform.scale * 100),
+                text: `${Math.round(baseTransform.scale * 100)}%`,
+              }}
+              onPreview={(box, gesture) =>
+                setTransformOverride(
+                  box === null
+                    ? null
+                    : pictureTransformAfter(baseTransform, pictureBox, box, gesture),
+                )
+              }
+              onCommit={(box, gesture) =>
+                commitTransform(pictureTransformAfter(baseTransform, pictureBox, box, gesture))
+              }
+              onReset={() =>
+                commitTransform({ scale: 1, scaleX: 1, scaleY: 1, x: 0, y: 0, rotation: 0 })
+              }
             />
           )}
           {/* Effect layers (schema v13, ADR 0088). Sits above the picture and

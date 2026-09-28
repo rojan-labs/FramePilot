@@ -21,8 +21,8 @@ const CROP_CONTROLS: readonly { readonly key: keyof CropRect; readonly label: st
 /**
  * Crop panel (H1.2h) — sets the clip's crop rect via `set_clip_crop`. Numeric
  * x/y/width/height inputs (fractions 0–1 of the source frame), not an
- * on-canvas drag gizmo: `PreviewTransform.tsx`'s handle machinery is built for
- * single-point uniform scale/translate, not an independent 4-edge rect, so a
+ * on-canvas drag gizmo: the bounding box (`transform-box/TransformBox.tsx`) edits the placed
+ * layer, not a rect inside its source, so a
  * proper crop gizmo is a larger follow-up (tracked in plan/PLAN.md H1.2h);
  * this ships the fully functional numeric primitive now. Seeded from the
  * clip's current crop and re-mounted per clip (via `key`); "Apply" commits one

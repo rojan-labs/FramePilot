@@ -38,6 +38,7 @@ import {
   toProjectPoint,
 } from '../../preview/transform-box/geometry.js';
 import { normalizeRotation } from '../../preview/snapping.js';
+import { ICON_SIZE, RotateCcw } from '../icons.js';
 
 export type { TransformGesture };
 
@@ -67,6 +68,17 @@ export interface TransformBoxProps {
   readonly children?: ReactNode;
   /** Whether pointer gestures are accepted (off while a text overlay is being typed into). */
   readonly interactive?: boolean;
+  /**
+   * What the resize handles report to assistive tech: the layer's size as its model states it
+   * (a picture's scale in percent, a text overlay's size). Absent, the box's pixel size.
+   */
+  readonly sizeValue?: { readonly now: number; readonly text: string };
+  /** Accessible name of the rotation handle. */
+  readonly rotateLabel?: string;
+  /** Back to the layer's identity transform; shown as a small button beside the box. */
+  readonly onReset?: () => void;
+  /** Accessible name and tooltip of the reset button. */
+  readonly resetLabel?: string;
 }
 
 /** Screen pixels a box may shrink to (its width or height), at any zoom. */
@@ -145,6 +157,10 @@ export function TransformBox({
   onDoubleClick,
   children,
   interactive = true,
+  sizeValue,
+  rotateLabel = 'Rotate',
+  onReset,
+  resetLabel = 'Reset transform',
 }: TransformBoxProps): JSX.Element {
   const active = useRef<ActiveGesture | null>(null);
   const frame = useRef<number | null>(null);
@@ -391,9 +407,11 @@ export function TransformBox({
               <span
                 key={handle}
                 role="slider"
-                aria-label={`Resize ${handle}`}
-                aria-valuenow={Math.round(shown.width)}
-                aria-valuetext={`${Math.round(shown.width)} by ${Math.round(shown.height)}`}
+                aria-label={`Resize handle ${handle}`}
+                aria-valuenow={sizeValue?.now ?? Math.round(shown.width)}
+                aria-valuetext={
+                  sizeValue?.text ?? `${Math.round(shown.width)} by ${Math.round(shown.height)}`
+                }
                 tabIndex={0}
                 className={`transform-box-handle transform-box-handle--${handle}`}
                 style={{ cursor: resizeCursor(handle, shown.rotation) }}
@@ -411,7 +429,7 @@ export function TransformBox({
             <span className="transform-box-stalk" aria-hidden="true" />
             <span
               role="slider"
-              aria-label="Rotate"
+              aria-label={rotateLabel}
               aria-valuenow={Math.round(rotation)}
               aria-valuemin={-180}
               aria-valuemax={180}
@@ -424,6 +442,22 @@ export function TransformBox({
               {...handlers}
             />
           </>
+        )}
+        {interactive && onReset !== undefined && (
+          <button
+            type="button"
+            className="transform-box-reset"
+            aria-label={resetLabel}
+            title={resetLabel}
+            // The box owns a move on pointerdown; the button must be clicked, not dragged.
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onReset();
+            }}
+          >
+            <RotateCcw size={ICON_SIZE.sm} aria-hidden="true" />
+          </button>
         )}
         {readout !== null && (
           <span
