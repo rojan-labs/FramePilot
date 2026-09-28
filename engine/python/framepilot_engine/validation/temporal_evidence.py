@@ -46,9 +46,13 @@ from framepilot_engine.render.composition_cache import (
     COMPOSITION_CACHE as COMPOSITION_CACHE,
 )
 from framepilot_engine.render.composition_cache import (
+    HEAVY_BUILD_GATE,
+    CompositionBuildCancelled,
+    composition_key,
+)
+from framepilot_engine.render.composition_cache import (
     REVIEW_WINDOW_CACHE as REVIEW_WINDOW_CACHE,
 )
-from framepilot_engine.render.composition_cache import composition_key
 from framepilot_engine.render.masks import clip_source_clock, mask_frame_box, mask_scalar_at
 from framepilot_engine.render.picture_window import PictureWindow, picture_window_at
 from framepilot_engine.render.presets import ExportPreset
@@ -768,6 +772,7 @@ def _borrow_programme(
     *,
     burn_captions: bool,
     max_decode_dimension: int | None,
+    cancelled: CancelCheck | None,
 ) -> _CompositionLike:
     def build() -> _CompositionLike:
         return cast(
@@ -793,6 +798,7 @@ def _borrow_programme(
                     max_decode_dimension=max_decode_dimension,
                 ),
                 build,
+                cancelled=cancelled,
             )
         ),
     )
@@ -817,7 +823,11 @@ def _contiguous_runs(frames: Sequence[int]) -> list[list[int]]:
 
 
 def _review_windows(
-    project: Project, frames: Sequence[int], asset_kinds: Mapping[str, str | None]
+    project: Project,
+    frames: Sequence[int],
+    asset_kinds: Mapping[str, str | None],
+    *,
+    merge_runs: bool = False,
 ) -> dict[int, PictureWindow]:
     """One window per contiguous run of ``frames``: the clips any of its instants can show.
 
@@ -825,10 +835,12 @@ def _review_windows(
     instant's window is a superset of the layers playing then, so their union is too, and one
     composite answers the whole run — the frame at each instant is still the full compile's.
     An instant the window cannot reproduce (``picture_window_at`` answers ``None``) is left out
-    and reads the whole timeline.
+    and reads the whole timeline. ``merge_runs`` treats every frame as one run, for frames that
+    all belong to one shot (:func:`_scope_windows`).
     """
     planned: dict[int, PictureWindow] = {}
-    for run in _contiguous_runs(frames):
+    runs = [sorted(frames)] if merge_runs and frames else _contiguous_runs(frames)
+    for run in runs:
         instants = {
             frame_index: picture_window_at(project, frame_index / project.fps, asset_kinds)
             for frame_index in run
@@ -842,6 +854,34 @@ def _review_windows(
         for frame_index, window in instants.items():
             if window is not None:
                 planned[frame_index] = PictureWindow(time=window.time, clip_ids=clip_ids)
+    return planned
+
+
+def _scope_windows(
+    project: Project,
+    requests: Sequence[TemporalEvidenceRequest],
+    asset_kinds: Mapping[str, str | None],
+) -> dict[int, PictureWindow]:
+    """One window per scope request: the clips any of its sampled instants can show.
+
+    A scope samples three instants of one shot (:func:`_representative_frames`) — its first
+    frame, which a transition or the outgoing clip may share, its middle, and its last, which
+    the next clip's transition may share. Planned per contiguous run (:func:`_review_windows`)
+    those are three runs, so three full-resolution composites of the same shot were compiled
+    and cached, each opening its own reader of the shot (run-3: 6 readers, ~2 GB resident, for
+    one ``measure_color``). Their union is still a superset of the layers playing at every one
+    of the instants, so one composite answers all three with the full compile's frame.
+    """
+    planned: dict[int, PictureWindow] = {}
+    for request in requests:
+        if not isinstance(request, ScopeEvidenceRequest):
+            continue
+        frames = [
+            frame_index
+            for frame_index in _representative_frames(request.start_frame, request.end_frame)
+            if frame_index not in planned
+        ]
+        planned.update(_review_windows(project, frames, asset_kinds, merge_runs=True))
     return planned
 
 
@@ -869,6 +909,8 @@ class _ReviewFrames:
         max_decode_dimension: int | None,
         whole: Callable[[], _CompositionLike],
         use_windows: bool,
+        windows: Mapping[int, PictureWindow] | None = None,
+        cancelled: CancelCheck | None = None,
     ) -> None:
         self._project = project
         self._base_dir = base_dir
@@ -877,8 +919,14 @@ class _ReviewFrames:
         self._burn_captions = burn_captions
         self._max_decode_dimension = max_decode_dimension
         self._whole = whole
-        kinds = {entry.asset_id: entry.kind for entry in assets.entries}
-        self._windows = _review_windows(project, frames, kinds) if use_windows else {}
+        self._cancelled = cancelled
+        if not use_windows:
+            self._windows: Mapping[int, PictureWindow] = {}
+        elif windows is not None:
+            self._windows = windows
+        else:
+            kinds = {entry.asset_id: entry.kind for entry in assets.entries}
+            self._windows = _review_windows(project, frames, kinds)
         self._held = ExitStack()
         self._held_ids: frozenset[str] | None = None
         self._held_composition: _CompositionLike | None = None
@@ -939,7 +987,9 @@ class _ReviewFrames:
         try:
             return cast(
                 _CompositionLike,
-                self._held.enter_context(REVIEW_WINDOW_CACHE.borrow(key, build)),
+                self._held.enter_context(
+                    REVIEW_WINDOW_CACHE.borrow(key, build, cancelled=self._cancelled)
+                ),
             )
         except PictureWindowMiss as exc:
             _log.debug("temporal evidence: %s", exc)
@@ -1025,6 +1075,7 @@ def acquire_temporal_evidence(
                 ordinary_preset,
                 burn_captions=True,
                 max_decode_dimension=REVIEW_MAX_DIMENSION,
+                cancelled=cancelled,
             )
         return programme
 
@@ -1040,6 +1091,7 @@ def acquire_temporal_evidence(
                 scope_preset,
                 burn_captions=False,
                 max_decode_dimension=None,
+                cancelled=cancelled,
             )
         return scope_composition
 
@@ -1072,6 +1124,7 @@ def acquire_temporal_evidence(
                     max_decode_dimension=REVIEW_MAX_DIMENSION,
                     whole=whole_programme,
                     use_windows=not needs_audio,
+                    cancelled=cancelled,
                 )
                 for frame_index in sorted(ordinary_frames):
                     _check_cancelled(cancelled)
@@ -1082,6 +1135,10 @@ def acquire_temporal_evidence(
                         frame_cache[frame_index] = pixels
             except TemporalEvidenceCancelled:
                 raise
+            except CompositionBuildCancelled as exc:
+                raise TemporalEvidenceCancelled(
+                    "Temporal evidence acquisition was cancelled."
+                ) from exc
             except Exception as exc:
                 raise TemporalEvidenceError(
                     f"Could not compile or sample temporal evidence: {exc}"
@@ -1104,6 +1161,12 @@ def acquire_temporal_evidence(
                     max_decode_dimension=None,
                     whole=whole_scope,
                     use_windows=True,
+                    windows=_scope_windows(
+                        project,
+                        requests,
+                        {entry.asset_id: entry.kind for entry in assets.entries},
+                    ),
+                    cancelled=cancelled,
                 )
                 for frame_index in sorted(scope_frames):
                     _check_cancelled(cancelled)
@@ -1114,6 +1177,10 @@ def acquire_temporal_evidence(
                         )
             except TemporalEvidenceCancelled:
                 raise
+            except CompositionBuildCancelled as exc:
+                raise TemporalEvidenceCancelled(
+                    "Temporal evidence acquisition was cancelled."
+                ) from exc
             except Exception as exc:
                 raise TemporalEvidenceError(
                     f"Could not compile or sample technical scope evidence: {exc}"
@@ -1185,16 +1252,24 @@ def acquire_temporal_evidence(
                         _check_cancelled(cancelled)
                         if assets is None:
                             raise TemporalEvidenceError("Role evidence requires indexed assets.")
-                        role_compositions[request.channels] = cast(
-                            _CompositionLike,
-                            compile_timeline(
-                                _role_isolated_project(project, request.channels),
-                                assets,
-                                ordinary_preset,
-                                burn_captions=False,
-                                max_decode_dimension=REVIEW_MAX_DIMENSION,
-                            ),
-                        )
+                        # Uncached, but a whole-timeline compile all the same: it takes a
+                        # slot of the process-wide gate like every cached build.
+                        try:
+                            with HEAVY_BUILD_GATE.slot(cancelled):
+                                role_compositions[request.channels] = cast(
+                                    _CompositionLike,
+                                    compile_timeline(
+                                        _role_isolated_project(project, request.channels),
+                                        assets,
+                                        ordinary_preset,
+                                        burn_captions=False,
+                                        max_decode_dimension=REVIEW_MAX_DIMENSION,
+                                    ),
+                                )
+                        except CompositionBuildCancelled as exc:
+                            raise TemporalEvidenceCancelled(
+                                "Temporal evidence acquisition was cancelled."
+                            ) from exc
                     source = role_compositions[request.channels]
                     audio_settings = role_settings
                 if isinstance(request, LoudnessEvidenceRequest):

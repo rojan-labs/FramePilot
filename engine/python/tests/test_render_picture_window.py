@@ -28,6 +28,7 @@ from framepilot_engine.render.composition_cache import (
     COMPOSITION_CACHE,
     FRAME_WINDOW_CACHE,
     REVIEW_WINDOW_CACHE,
+    BuildGate,
     composition_key,
 )
 from framepilot_engine.render.frame_grab import _resolve_preset, grab_frame
@@ -42,6 +43,8 @@ from framepilot_engine.timeline.models import Clip, Project
 from framepilot_engine.validation import temporal_evidence as evidence_module
 from framepilot_engine.validation.temporal_evidence import (
     RangeEvidenceRequest,
+    ScopeEvidenceRequest,
+    TemporalEvidenceCancelled,
     TemporalEvidenceRequest,
     acquire_temporal_evidence,
 )
@@ -577,6 +580,57 @@ class TestTemporalReviewSamplesAreTheExportFrames:
         # Frames 34-38 sit inside B's dissolve: B (y.mp4) and A's handle beneath it (x.mp4).
         assert opened.files == {"x.mp4", "y.mp4"}
         assert opened.audio == []
+
+
+class TestScopeMeasurementWindow:
+    """A scope (``measure_color``) samples its shot's first, middle and last frames.
+
+    Planned per contiguous run those were three composites of the same shot at full
+    resolution, each opening its own reader of it (run-3: six readers, ~2 GB resident, for one
+    measurement). One window over the three instants gives the same frames.
+    """
+
+    def _scope(self) -> list[TemporalEvidenceRequest]:
+        """Shot B whole, as ``measure_color`` asks: frames 30 (A→B), 45 (B) and 60 (B→C)."""
+        scope = next(r for r in _review_requests() if isinstance(r, ScopeEvidenceRequest))
+        return [scope.model_copy(update={"start_frame": 30, "end_frame": 61})]
+
+    def test_a_scope_compiles_one_windowed_composite_for_its_three_instants(
+        self, media_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        misses = (REVIEW_WINDOW_CACHE.misses, COMPOSITION_CACHE.misses)
+        result = acquire_temporal_evidence(_edit(), media_dir, self._scope())
+        # Three instants with three different sets of clips on screen; one union holds them.
+        assert (REVIEW_WINDOW_CACHE.misses, COMPOSITION_CACHE.misses) == (
+            misses[0] + 1,
+            misses[1],
+        )
+        # And it measures the whole timeline's frames, number for number.
+        monkeypatch.setattr(evidence_module, "_review_windows", lambda *_a, **_k: {})
+        whole = acquire_temporal_evidence(_edit(), media_dir, self._scope())
+        assert COMPOSITION_CACHE.misses == misses[1] + 1
+        assert result.model_dump() == whole.model_dump()
+
+    def test_a_cancelled_wait_for_a_build_slot_is_a_cancelled_batch(
+        self, media_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Waiting behind another build must not make a batch the caller dropped uncancellable."""
+        gate = BuildGate(1)
+        monkeypatch.setattr(REVIEW_WINDOW_CACHE, "_build_gate", gate)
+        misses = REVIEW_WINDOW_CACHE.misses
+        assert gate.acquire()  # another build holds the only slot
+        try:
+            polls = iter(range(1_000_000))
+            # Not cancelled at the entry checks; cancelled by the time it waits for the slot.
+            with pytest.raises(TemporalEvidenceCancelled):
+                acquire_temporal_evidence(
+                    _edit(), media_dir, self._scope(), lambda: next(polls) > 3
+                )
+        finally:
+            gate.release()
+        assert REVIEW_WINDOW_CACHE.misses == misses + 1  # it missed, then never built
+        assert gate.acquire(lambda: True) is True  # and took no slot with it
+        gate.release()
 
 
 class TestPictureWindowPlanning:

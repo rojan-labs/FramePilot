@@ -53,6 +53,7 @@ from framepilot_engine.render.compiler import (
 from framepilot_engine.render.composition_cache import (
     COMPOSITION_CACHE,
     FRAME_WINDOW_CACHE,
+    HEAVY_BUILD_GATE,
     composition_key,
 )
 from framepilot_engine.render.picture_window import PictureWindow, picture_window_at
@@ -147,8 +148,9 @@ def _windowed_frame(
     layer, or its picture ends at or before this instant); the caller composites the whole
     timeline instead. The composite is cached by the clips it holds, so every instant of the
     same shot reuses it — and is kept apart from whole-timeline composites
-    (``FRAME_WINDOW_CACHE``), so a grab neither waits behind a background review's build nor
-    evicts it.
+    (``FRAME_WINDOW_CACHE``), so a grab does not evict a background review's build. Its build
+    takes a slot of the process-wide ``HEAVY_BUILD_GATE``, which leaves one free beside a
+    review's (reviews run one batch at a time).
     """
 
     def build() -> Any:
@@ -382,29 +384,34 @@ def render_frame_pixels_uncached(
     :mod:`framepilot_engine.render.source_sheet` — and would otherwise decode a JPEG it had just
     encoded. NOT through the composition caches, on purpose: a sheet's twelve one-clip source
     views are each looked at once, and borrowing them would evict the timeline windows the agent
-    keeps returning to (four slots) and serialise every tile behind the caches' one build slot.
+    keeps returning to (four slots). Each tile still takes a slot of the process-wide
+    :data:`~framepilot_engine.render.composition_cache.HEAVY_BUILD_GATE` for its whole life.
     A source view is one clip, so the picture window would hold exactly that clip anyway.
     """
     at, duration = _clamped_time(project, time_seconds)
     requested = min(max(1, int(max_dimension)), MAX_ALLOWED_DIMENSION)
     preset = _resolve_preset(project, requested)
     asset_index = index_assets([asset.model_dump() for asset in project.assets], base_dir=base_dir)
-    try:
-        composition = compile_timeline(
-            project,
-            asset_index,
-            preset,
-            burn_captions=burn_captions,
-            max_decode_dimension=max(preset.width, preset.height),
-        )
-    except Exception as exc:
-        raise FrameGrabError(f"Could not compile the timeline for a frame: {exc}") from exc
-    try:
-        return composition.get_frame(at), at, duration
-    except Exception as exc:
-        raise FrameGrabError(f"Could not read the frame at {at:.3f}s: {exc}") from exc
-    finally:
-        close_clip_tree(composition)
+    # One slot of the process-wide gate for the composite's whole life, not just its compile:
+    # nothing outlives this call, so compile-to-close is exactly when its readers are resident,
+    # and a sheet's parallel tiles must not stack readers on top of a review's or a grab's.
+    with HEAVY_BUILD_GATE.slot():
+        try:
+            composition = compile_timeline(
+                project,
+                asset_index,
+                preset,
+                burn_captions=burn_captions,
+                max_decode_dimension=max(preset.width, preset.height),
+            )
+        except Exception as exc:
+            raise FrameGrabError(f"Could not compile the timeline for a frame: {exc}") from exc
+        try:
+            return composition.get_frame(at), at, duration
+        except Exception as exc:
+            raise FrameGrabError(f"Could not read the frame at {at:.3f}s: {exc}") from exc
+        finally:
+            close_clip_tree(composition)
 
 
 def grab_frame(

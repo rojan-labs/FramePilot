@@ -12,7 +12,14 @@ import threading
 import time
 from pathlib import Path
 
-from framepilot_engine.render.composition_cache import CompositionCache, composition_key
+import pytest
+
+from framepilot_engine.render.composition_cache import (
+    BuildGate,
+    CompositionBuildCancelled,
+    CompositionCache,
+    composition_key,
+)
 from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.timeline.models import Project
 
@@ -338,3 +345,175 @@ def test_a_caller_that_queued_for_a_build_slot_reuses_what_it_waited_for() -> No
 
     assert builds == 1
     assert (cache.hits, cache.misses) == (1, 1)
+
+
+def test_the_media_caches_share_one_process_wide_build_gate() -> None:
+    """Every cache whose compositions open ffmpeg readers draws from ONE gate.
+
+    Run-3 was killed by its memory watchdog with four caches each allowing "one build at a
+    time" — four at once — plus sheet tiles compiling outside every cache. The caption
+    layers hold Pillow rasters, not readers, and keep their own gate.
+    """
+    from framepilot_engine.render.composition_cache import (
+        COMPOSITION_CACHE,
+        FRAME_WINDOW_CACHE,
+        HEAVY_BUILD_GATE,
+        REVIEW_WINDOW_CACHE,
+    )
+    from framepilot_engine.render.preview_text import CAPTION_LAYER_CACHE
+
+    for cache in (COMPOSITION_CACHE, FRAME_WINDOW_CACHE, REVIEW_WINDOW_CACHE):
+        assert cache._build_gate is HEAVY_BUILD_GATE
+    assert CAPTION_LAYER_CACHE._build_gate is not HEAVY_BUILD_GATE
+
+
+def test_builds_across_caches_never_exceed_the_shared_gate() -> None:
+    gate = BuildGate(1)
+    caches = [CompositionCache(build_gate=gate) for _ in range(3)]
+    building = 0
+    peak = 0
+    counter_lock = threading.Lock()
+    release = threading.Event()
+
+    def build() -> _FakeComposition:
+        nonlocal building, peak
+        with counter_lock:
+            building += 1
+            peak = max(peak, building)
+        release.wait(timeout=2)
+        with counter_lock:
+            building -= 1
+        return _FakeComposition()
+
+    def worker(cache: CompositionCache, key: str) -> None:
+        with cache.borrow(key, build):
+            pass
+
+    threads = [
+        threading.Thread(target=worker, args=(cache, f"key-{i}"))
+        for i, cache in enumerate(caches * 2)
+    ]
+    for thread in threads:
+        thread.start()
+    time.sleep(0.1)
+    with counter_lock:
+        assert building == 1
+    release.set()
+    for thread in threads:
+        thread.join()
+
+    assert peak == 1
+
+
+def test_a_join_still_coalesces_while_another_cache_holds_the_gate() -> None:
+    """Joiners wait on the leader's flight, never on a gate slot, so nothing deadlocks and
+    five callers of one key still compile it once — even queued behind another cache."""
+    gate = BuildGate(1)
+    busy, joined = CompositionCache(build_gate=gate), CompositionCache(build_gate=gate)
+    release_busy = threading.Event()
+    busy_started = threading.Event()
+    builds = 0
+    builds_lock = threading.Lock()
+    shared = _FakeComposition("shared")
+
+    def slow_other() -> _FakeComposition:
+        busy_started.set()
+        release_busy.wait(timeout=2)
+        return _FakeComposition("other")
+
+    def build() -> _FakeComposition:
+        nonlocal builds
+        with builds_lock:
+            builds += 1
+        return shared
+
+    results: list[_FakeComposition] = []
+    results_lock = threading.Lock()
+
+    def worker() -> None:
+        with joined.borrow("k", build) as got, results_lock:
+            results.append(got)
+
+    def hold_the_gate() -> None:
+        with busy.borrow("x", slow_other):
+            pass
+
+    blocker = threading.Thread(target=hold_the_gate)
+    blocker.start()
+    assert busy_started.wait(timeout=2)
+    threads = [threading.Thread(target=worker) for _ in range(5)]
+    for thread in threads:
+        thread.start()
+    time.sleep(0.1)
+    assert builds == 0  # every caller of "k" is queued behind the other cache's build
+    release_busy.set()
+    for thread in (blocker, *threads):
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+
+    assert builds == 1
+    assert results == [shared] * 5
+
+
+def test_a_cancelled_wait_for_a_slot_builds_nothing_and_holds_nothing() -> None:
+    gate = BuildGate(1)
+    cache = CompositionCache(build_gate=gate)
+    assert gate.acquire()  # somebody else's build is running
+    stop = threading.Event()
+    outcome: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            with cache.borrow("k", lambda: pytest.fail("must not build"), cancelled=stop.is_set):
+                pass
+        except CompositionBuildCancelled as exc:
+            outcome.append(exc)
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    time.sleep(0.1)
+    stop.set()
+    thread.join(timeout=2)
+    assert not thread.is_alive()
+    assert len(outcome) == 1
+    gate.release()
+    # The cancelled waiter took no slot with it: the gate is whole again.
+    assert gate.acquire(lambda: True) is True
+    gate.release()
+
+
+def test_a_joiner_is_not_cancelled_by_its_leaders_cancellation() -> None:
+    """The leader of a flight gave up waiting; a caller that joined it still wants the
+    composition, so it must build it rather than inherit someone else's cancellation."""
+    gate = BuildGate(1)
+    cache = CompositionCache(build_gate=gate)
+    assert gate.acquire()
+    leader_stop = threading.Event()
+    leader_outcome: list[str] = []
+    joiner_got: list[_FakeComposition] = []
+    composition = _FakeComposition("wanted")
+
+    def leader() -> None:
+        try:
+            with cache.borrow("k", lambda: composition, cancelled=leader_stop.is_set):
+                leader_outcome.append("built")
+        except CompositionBuildCancelled:
+            leader_outcome.append("cancelled")
+
+    def joiner() -> None:
+        with cache.borrow("k", lambda: composition) as got:
+            joiner_got.append(got)
+
+    lead = threading.Thread(target=leader)
+    lead.start()
+    time.sleep(0.05)  # the leader owns the flight and waits for the slot
+    join = threading.Thread(target=joiner)
+    join.start()
+    time.sleep(0.05)
+    leader_stop.set()
+    lead.join(timeout=2)
+    assert leader_outcome == ["cancelled"]
+    gate.release()
+    join.join(timeout=2)
+    assert not join.is_alive()
+    assert joiner_got == [composition]

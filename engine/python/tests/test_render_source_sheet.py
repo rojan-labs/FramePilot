@@ -205,6 +205,49 @@ class TestGrabSourceSheet:
         )
         assert (FRAME_WINDOW_CACHE.hits, FRAME_WINDOW_CACHE.misses) == before
 
+    def test_tiles_take_the_process_wide_build_gate_for_their_whole_life(
+        self, media_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Four tile workers, but never more composites alive than the heavy gate allows.
+
+        The tiles are uncached, so nothing but the gate stops them stacking their readers on
+        top of a review's or a grab's (run-3's memory watchdog).
+        """
+        pytest.importorskip("PIL")
+        import threading
+
+        from framepilot_engine.render import frame_grab
+        from framepilot_engine.render.composition_cache import BuildGate
+
+        monkeypatch.setattr(frame_grab, "HEAVY_BUILD_GATE", BuildGate(1))
+        alive = 0
+        peak = 0
+        lock = threading.Lock()
+        from framepilot_engine.render.compiler import compile_timeline as real_compile
+        from framepilot_engine.render.resources import close_clip_tree as real_close
+
+        def compile_timeline(*args: Any, **kwargs: Any) -> Any:
+            nonlocal alive, peak
+            with lock:
+                alive += 1
+                peak = max(peak, alive)
+            return real_compile(*args, **kwargs)
+
+        def close_clip_tree(clip: Any) -> None:
+            nonlocal alive
+            real_close(clip)
+            with lock:
+                alive -= 1
+
+        monkeypatch.setattr(f"{frame_grab.__name__}.compile_timeline", compile_timeline)
+        monkeypatch.setattr(f"{frame_grab.__name__}.close_clip_tree", close_clip_tree)
+        sheet = grab_source_sheet(
+            _project(), media_dir, [SheetSource(asset_id) for asset_id, *_rest in _SOURCES]
+        )
+        assert all(tile.error is None for tile in sheet.tiles)
+        assert peak == 1
+        assert alive == 0
+
     def test_refuses_more_than_the_cap(self, media_dir: Path) -> None:
         sources = [SheetSource("a_red")] * (MAX_SHEET_SOURCES + 1)
         with pytest.raises(FrameGrabError, match="at most 12"):
