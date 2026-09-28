@@ -988,6 +988,9 @@ input[type='checkbox']:focus-visible {
   z-index: 4;
   touch-action: none;
   user-select: none;
+  /* The monitor's object layers are click-through (pointer-events: none) so empty areas reach
+     the picture below; the selected layer's box takes the pointer back. */
+  pointer-events: auto;
 }
 .transform-box.is-move {
   cursor: grabbing;

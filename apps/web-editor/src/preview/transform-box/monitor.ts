@@ -141,3 +141,37 @@ export function keyframesWithBase(
   }));
   return [...base, ...kept];
 }
+
+/**
+ * `timeline` with one clip's `effectType` effect params merged with `params` (a live shape edit;
+ * nothing is committed). Other effects and clips are untouched.
+ */
+export function timelineWithEffectParams(
+  timeline: Timeline,
+  clipId: string,
+  effectType: string,
+  params: Readonly<Record<string, unknown>>,
+): Timeline {
+  return {
+    ...timeline,
+    tracks: timeline.tracks.map((track) =>
+      track.clips.some((clip) => clip.id === clipId)
+        ? {
+            ...track,
+            clips: track.clips.map((clip) =>
+              clip.id === clipId
+                ? {
+                    ...clip,
+                    effects: clip.effects.map((effect) =>
+                      effect.type === effectType
+                        ? { ...effect, params: { ...effect.params, ...params } }
+                        : effect,
+                    ),
+                  }
+                : clip,
+            ),
+          }
+        : track,
+    ),
+  };
+}

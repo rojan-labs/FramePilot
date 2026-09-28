@@ -19,7 +19,7 @@ const clip = (keyframes: Keyframe[] = []): Clip =>
   }) as Clip;
 
 describe('clipKeyframeIntent', () => {
-  it('seeds the whole transform set on a clip that is not animated yet', () => {
+  it('seeds the uniform pose on a clip that is not animated yet, without stretch lanes', () => {
     const intent = clipKeyframeIntent(clip(), 3);
     expect(intent.kind).toBe('add');
     if (intent.kind !== 'add') return;
@@ -27,15 +27,20 @@ describe('clipKeyframeIntent', () => {
       'opacity',
       'rotation',
       'scale',
-      'scaleX',
-      'scaleY',
       'x',
       'y',
     ]);
     // Identity values, so recording a pose does not move the picture.
     expect(intent.writes.find((w) => w.property === 'scale')?.value).toBe(1);
     expect(intent.writes.find((w) => w.property === 'x')?.value).toBe(0);
-    expect(intent.writes.find((w) => w.property === 'scaleX')?.value).toBe(1);
+  });
+
+  it("records a stretched clip's stretch as part of its pose", () => {
+    // Stretched by the bounding box: a base (time-0) value, not an animation.
+    const intent = clipKeyframeIntent(clip([kf('scaleX', 0, 1.5)]), 3);
+    expect(intent.kind).toBe('add');
+    if (intent.kind !== 'add') return;
+    expect(intent.writes.find((w) => w.property === 'scaleX')?.value).toBe(1.5);
   });
 
   it('touches only the properties the clip already animates', () => {

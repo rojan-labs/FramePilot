@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest';
 import {
   boxOfPlacement,
   pictureTransformAfter,
+  shapeBoxOf,
+  shapeEditAfter,
   textOverlayEditAfter,
   textOverlayParamsAfter,
   type PictureBaseTransform,
@@ -153,5 +155,50 @@ describe('textOverlayEditAfter', () => {
     );
     expect(edit.transform).toMatchObject({ scaleX: 2, scaleY: 1.5, x: 0, y: 0, scale: 1 });
     expect(edit.params).toMatchObject({ xPercent: 65.63, yPercent: 52.78, fontSizePercent: 8 });
+  });
+});
+
+describe('shapes', () => {
+  const limits = { position: { min: 0, max: 100 }, size: { min: 0.1, max: 400 } };
+  const shape = { x: 50, y: 50, width: 20, height: 10 };
+
+  it('boxes a shape: size in percent of the height, placed by the clip transform', () => {
+    expect(shapeBoxOf(shape, { ...base, x: 96, scale: 2 }, FRAME)).toEqual({
+      cx: 1056,
+      cy: 540,
+      width: 432,
+      height: 216,
+      rotation: 0,
+    });
+  });
+
+  it('moves and resizes the params, stretching natively when free', () => {
+    const from = shapeBoxOf(shape, base, FRAME);
+    const edit = shapeEditAfter(
+      shape,
+      base,
+      from,
+      { ...from, cx: from.cx + 96, width: from.width * 2 },
+      { kind: 'resize', handle: 'e', uniform: false },
+      FRAME,
+      limits,
+    );
+    expect(edit.params).toEqual({ x: 55, y: 50, width: 40, height: 10 });
+    expect(edit.transform).toEqual(base);
+  });
+
+  it('turns the clip', () => {
+    const from = shapeBoxOf(shape, base, FRAME);
+    const edit = shapeEditAfter(
+      shape,
+      base,
+      from,
+      { ...from, rotation: -45 },
+      { kind: 'rotate' },
+      FRAME,
+      limits,
+    );
+    expect(edit.params).toEqual(shape);
+    expect(edit.transform.rotation).toBe(-45);
   });
 });

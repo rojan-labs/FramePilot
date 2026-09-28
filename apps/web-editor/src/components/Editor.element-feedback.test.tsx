@@ -112,7 +112,7 @@ describe('Editor — feedback after every element add', () => {
     expect(selected(shapes()[0]!)).toBe('true');
     // Its handles are on the monitor, named by what the shape is (as the Inspector's Shape field
     // names it), not by a clip id.
-    expect(screen.getByRole('button', { name: 'Move Rounded rectangle' })).toBeDefined();
+    expect(screen.getByRole('group', { name: 'Move Rounded rectangle' })).toBeDefined();
 
     // The same message again is read again: the region empties first.
     fireEvent.click(tile);

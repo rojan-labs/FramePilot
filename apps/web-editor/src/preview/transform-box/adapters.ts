@@ -188,3 +188,64 @@ export function textOverlayEditAfter(
 
 /** Where a text overlay's centre may go: anywhere on the frame, and a little past its edge. */
 const ANY = { min: -50, max: 150 } as const;
+
+/** A box shape's placement params: centre in percent of each axis, size in percent of the height. */
+export interface ShapeBoxParams {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** The limits a shape's params keep (`SHAPE_LIMITS`): position and size. */
+export interface ShapeBoxLimits {
+  readonly position: { readonly min: number; readonly max: number };
+  readonly size: { readonly min: number; readonly max: number };
+}
+
+/** A box shape's box: its params placed by the clip transform (which turns it about its centre). */
+export function shapeBoxOf(
+  params: ShapeBoxParams,
+  transform: PictureBaseTransform,
+  frame: { readonly width: number; readonly height: number },
+): Box {
+  const unit = frame.height / 100;
+  return {
+    cx: (params.x / 100) * frame.width + transform.x,
+    cy: (params.y / 100) * frame.height + transform.y,
+    width: params.width * unit * transform.scale * transform.scaleX,
+    height: params.height * unit * transform.scale * transform.scaleY,
+    rotation: transform.rotation,
+  };
+}
+
+/**
+ * What a gesture does to a box shape: a move or a resize is the shape's own params (a free resize
+ * is just a new width and height: a shape stretches natively, with no clip stretch), a turn is
+ * the clip's rotation.
+ */
+export function shapeEditAfter(
+  params: ShapeBoxParams,
+  transform: PictureBaseTransform,
+  from: Box,
+  to: Box,
+  gesture: TransformGesture,
+  frame: { readonly width: number; readonly height: number },
+  limits: ShapeBoxLimits,
+): { readonly params: ShapeBoxParams; readonly transform: PictureBaseTransform } {
+  if (gesture.kind === 'rotate') {
+    return { params, transform: pictureTransformAfter(transform, from, to, gesture) };
+  }
+  const rx = from.width > 0 ? to.width / from.width : 1;
+  const ry = from.height > 0 ? to.height / from.height : 1;
+  const size = (value: number, ratio: number): number => round(clamp(value * ratio, limits.size));
+  return {
+    params: {
+      x: round(clamp(params.x + ((to.cx - from.cx) / frame.width) * 100, limits.position)),
+      y: round(clamp(params.y + ((to.cy - from.cy) / frame.height) * 100, limits.position)),
+      width: gesture.kind === 'resize' ? size(params.width, rx) : params.width,
+      height: gesture.kind === 'resize' ? size(params.height, ry) : params.height,
+    },
+    transform,
+  };
+}

@@ -12,11 +12,10 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Asset, CaptionStyle, TranscriptWord } from '@framepilot/timeline-schema';
-import { shapeDescriptor } from '@framepilot/timeline-schema';
+import { SHAPE_EFFECT_TYPE, shapeDescriptor } from '@framepilot/timeline-schema';
 import { createLogger } from '@framepilot/shared-types';
 import {
   effectLayerMaskOwner,
-  evaluateKeyframes,
   framePlanAt,
   resolveCaptionCue,
   shapeClipParams,
@@ -70,7 +69,7 @@ import { PreviewViewControls, type PreviewZoom } from './PreviewViewControls.js'
 import { PreviewTransport } from './PreviewTransport.js';
 import { PreviewTextEditor, type TextOverlayCommit } from './PreviewTextEditor.js';
 import { TEXT_HIT_TARGET_STYLE } from '../editor/textOverlay.js';
-import { PreviewShapeEditor } from './PreviewShapeEditor.js';
+import { PreviewShapeEditor, type ShapeCommit } from './PreviewShapeEditor.js';
 import { shapeHitRect, shapePivot } from '../preview/shape-handles.js';
 import { PreviewCaptionEditor } from './PreviewCaptionEditor.js';
 import type { MonitorDropItem } from '../editor/monitor-drop.js';
@@ -94,6 +93,7 @@ import {
   pictureTransformWrite,
   textOverlayClipTransform,
   timelineWithClipKeyframes,
+  timelineWithEffectParams,
   transformAt,
 } from '../preview/transform-box/monitor.js';
 
@@ -247,6 +247,11 @@ export function WebCodecsPreviewPlayer({
   // A live bounding-box drag on the selected picture: its base transform as the release will
   // store it. Previewed through the compositor (below), never as a CSS transform.
   const [transformOverride, setTransformOverride] = useState<PictureBaseTransform | null>(null);
+  // A live bounding-box or end-handle drag on the selected shape: what the release will store.
+  const [liveShape, setLiveShape] = useState<{
+    readonly clipId: string;
+    readonly edit: ShapeCommit;
+  } | null>(null);
   // The frame plan at the committed playhead: which pictures are drawn, and where the selected
   // one's box is (the same computation the compositor draws from).
   const monitorPlan = useMemo(
@@ -316,6 +321,16 @@ export function WebCodecsPreviewPlayer({
     if (maskTools.live !== null) return maskTools.live;
     return maskTools.liveScalars;
   }, [maskEditing, maskTools.live, maskTools.liveScalars]);
+  // Every clip's keyframes by id: a text overlay's or a shape's transform places it.
+  const keyframesById = useMemo(
+    () =>
+      new Map(
+        editor.state.timeline.tracks.flatMap((track) =>
+          track.clips.map((clip) => [clip.id, clip.keyframes] as const),
+        ),
+      ),
+    [editor.state.timeline],
+  );
   // What the monitor draws while a mask or a bounding-box drag is live; the committed timeline
   // otherwise. A transform drag is expressed exactly as its commit will store it (time-0 base
   // keyframes), so the picture under the hand is the picture the release keeps.
@@ -324,17 +339,41 @@ export function WebCodecsPreviewPlayer({
       liveMask === null
         ? editor.state.timeline
         : timelineWithLiveMask(editor.state.timeline, liveMask);
-    if (transformOverride === null || selectedPicture === null) return masked;
-    return timelineWithClipKeyframes(
-      masked,
-      selectedPicture.id,
-      keyframesWithBase(
-        selectedPicture.keyframes,
-        pictureTransformWrite(selectedPicture, transformOverride),
-      ),
-    );
-  }, [editor.state.timeline, liveMask, transformOverride, selectedPicture]);
-  const livePreviewing = liveMask !== null || transformOverride !== null;
+    let live = masked;
+    if (transformOverride !== null && selectedPicture !== null) {
+      live = timelineWithClipKeyframes(
+        live,
+        selectedPicture.id,
+        keyframesWithBase(
+          selectedPicture.keyframes,
+          pictureTransformWrite(selectedPicture, transformOverride),
+        ),
+      );
+    }
+    if (liveShape !== null) {
+      const { clipId, edit } = liveShape;
+      if (edit.params !== undefined) {
+        live = timelineWithEffectParams(live, clipId, SHAPE_EFFECT_TYPE, edit.params);
+      }
+      if (edit.transform !== undefined) {
+        const keyframes = keyframesById.get(clipId) ?? [];
+        live = timelineWithClipKeyframes(
+          live,
+          clipId,
+          keyframesWithBase(keyframes, pictureTransformWrite({ keyframes }, edit.transform)),
+        );
+      }
+    }
+    return live;
+  }, [
+    editor.state.timeline,
+    liveMask,
+    transformOverride,
+    selectedPicture,
+    liveShape,
+    keyframesById,
+  ]);
+  const livePreviewing = liveMask !== null || transformOverride !== null || liveShape !== null;
   // MK3.3: the mask view switch appears only while the selected picture carries an enabled mask.
   const maskViewClipId =
     selectedPicture !== null && (selectedPicture.masks ?? []).some((mask) => mask.enabled)
@@ -538,16 +577,6 @@ export function WebCodecsPreviewPlayer({
   );
   const overlaySignature = useMemo(() => JSON.stringify(canvasOverlays), [canvasOverlays]);
 
-  // Each text overlay's clip keyframes: its transform places, turns and stretches it.
-  const keyframesById = useMemo(
-    () =>
-      new Map(
-        editor.state.timeline.tracks.flatMap((track) =>
-          track.clips.map((clip) => [clip.id, clip.keyframes] as const),
-        ),
-      ),
-    [editor.state.timeline],
-  );
   /** One on-canvas text overlay edit as ONE patch: its params, its transform, or both. */
   const commitTextEdit = (clipId: string, edit: TextOverlayCommit): void => {
     const timeline = editor.state.timeline;
@@ -579,13 +608,23 @@ export function WebCodecsPreviewPlayer({
   }, [editor.state.timeline, editor.state.playhead]);
   const selectedShape =
     [...activeShapes].reverse().find((clip) => editor.state.selectedIds.includes(clip.id)) ?? null;
-  const commitShapeParams = (clipId: string, changes: Record<string, number>): void => {
-    const segment = 'x1' in changes || 'x2' in changes;
-    const patch = setShapeParamsPatch(
-      editor.state.timeline,
-      clipId,
-      changes,
-      segment ? 'ends' : 'box',
+  /** One shape gesture as ONE patch: its params (box or ends), its turn, or both. */
+  const commitShapeEdit = (clipId: string, edit: ShapeCommit): void => {
+    const timeline = editor.state.timeline;
+    const changes = edit.params;
+    const segment = changes !== undefined && ('x1' in changes || 'x2' in changes);
+    const keyframes = keyframesById.get(clipId) ?? [];
+    const patch = combinePatches(
+      changes === undefined
+        ? null
+        : setShapeParamsPatch(timeline, clipId, changes, segment ? 'ends' : 'box'),
+      edit.transform === undefined
+        ? null
+        : setClipTransformPatch(
+            timeline,
+            clipId,
+            pictureTransformWrite({ keyframes }, edit.transform),
+          ),
     );
     if (patch) editor.applyPatch(patch);
   };
@@ -1233,14 +1272,7 @@ export function WebCodecsPreviewPlayer({
             {activeShapes.map((clip) => {
               const params = shapeClipParams(clip)!;
               const local = editor.state.playhead - clip.start;
-              const value = (property: string, fallback: number): number =>
-                evaluateKeyframes(clip.keyframes, property, local) ?? fallback;
-              const [x, y, scale, rotation] = [
-                value('x', 0),
-                value('y', 0),
-                value('scale', 1),
-                value('rotation', 0),
-              ];
+              const now = transformAt(clip.keyframes, local);
               // By what it is, as the catalogue names it: a clip id means nothing to a listener.
               const shapeName =
                 (typeof params.shape === 'string'
@@ -1254,8 +1286,12 @@ export function WebCodecsPreviewPlayer({
                     name={shapeName}
                     params={params}
                     resolution={resolution}
-                    transform={{ x, y, scale, rotation }}
-                    onCommit={(changes) => commitShapeParams(clip.id, changes)}
+                    transform={now}
+                    baseTransform={pictureBaseOf(clip.keyframes)}
+                    onCommit={(edit) => commitShapeEdit(clip.id, edit)}
+                    onLive={(edit) =>
+                      setLiveShape(edit === null ? null : { clipId: clip.id, edit })
+                    }
                   />
                 );
               }
@@ -1268,8 +1304,9 @@ export function WebCodecsPreviewPlayer({
                   style={{
                     transformOrigin: `${pivot.x}% ${pivot.y}%`,
                     transform:
-                      `translate(${(x / resolution.width) * 100}%, ` +
-                      `${(y / resolution.height) * 100}%) rotate(${-rotation}deg) scale(${scale})`,
+                      `translate(${(now.x / resolution.width) * 100}%, ` +
+                      `${(now.y / resolution.height) * 100}%) rotate(${-now.rotation}deg) ` +
+                      `scale(${now.scale * now.scaleX}, ${now.scale * now.scaleY})`,
                   }}
                 >
                   <span

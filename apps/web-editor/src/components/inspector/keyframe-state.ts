@@ -57,6 +57,21 @@ export const ANIMATABLE_PROPERTIES = [
 
 export type AnimatableProperty = (typeof ANIMATABLE_PROPERTIES)[number];
 
+/** The stretch pair: animatable, but only part of a clip's pose once the clip is stretched. */
+const STRETCH_PROPERTIES: ReadonlySet<string> = new Set(['scaleX', 'scaleY']);
+
+/**
+ * The properties a pose records on a clip: the uniform transform and opacity always, the stretch
+ * only when the clip already carries it, so recording a pose on an unstretched clip never adds two
+ * identity lanes nobody asked for.
+ */
+export function poseProperties(keyframes: readonly Keyframe[]): readonly AnimatableProperty[] {
+  const carried = new Set(keyframes.map((keyframe) => keyframe.property));
+  return ANIMATABLE_PROPERTIES.filter(
+    (property) => !STRETCH_PROPERTIES.has(property) || carried.has(property),
+  );
+}
+
 /** The identity value each animatable property falls back to with no keyframes. */
 export const ANIMATABLE_DEFAULTS: Readonly<Record<AnimatableProperty, number>> = {
   scale: 1,
