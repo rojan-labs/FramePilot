@@ -27,7 +27,10 @@ export interface MonitorPictureSpace {
   readonly toFrame: Affine;
   /** Project-frame pixels → source pixels. */
   readonly toSource: Affine;
-  /** Project-frame pixels per source pixel (uniform: the fit and the clip scale). */
+  /**
+   * Project-frame pixels per source pixel for sizing handles: the fit and the clip's uniform
+   * scale. A `scaleX`/`scaleY` stretch is in {@link toFrame}, not here.
+   */
   readonly scale: number;
   /** The visible (cropped) part of the source, source pixels. */
   readonly crop: {
@@ -94,8 +97,12 @@ export function monitorPictureSpace(
   if (layer === undefined || geometry === null || geometry === undefined) return null;
   if (geometry.left === null || geometry.top === null || !(geometry.scale > 0)) return null;
   const crop = layer.crop ?? { x: 0, y: 0, width: 1, height: 1 };
-  const croppedWidth = (geometry.width ?? 0) / geometry.scale;
-  const croppedHeight = (geometry.height ?? 0) / geometry.scale;
+  // Per axis: the plan's width/height carry the clip's stretch (scale × stretchX/Y).
+  const s = geometry.scale;
+  const sx = s * (geometry.stretchX ?? 1);
+  const sy = s * (geometry.stretchY ?? 1);
+  const croppedWidth = (geometry.width ?? 0) / sx;
+  const croppedHeight = (geometry.height ?? 0) / sy;
   const sourceWidth = croppedWidth / crop.width;
   const sourceHeight = croppedHeight / crop.height;
   if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight)) return null;
@@ -106,14 +113,14 @@ export function monitorPictureSpace(
   const radians = (-geometry.rotation * Math.PI) / 180;
   const cos = geometry.rotation === 0 ? 1 : Math.cos(radians);
   const sin = geometry.rotation === 0 ? 0 : Math.sin(radians);
-  const s = geometry.scale;
-  const x0 = geometry.left - s * cropX - geometry.anchorX;
-  const y0 = geometry.top - s * cropY - geometry.anchorY;
+  const x0 = geometry.left - sx * cropX - geometry.anchorX;
+  const y0 = geometry.top - sy * cropY - geometry.anchorY;
+  // Stretch in the picture's own axes, then rotate about the anchor (the export's order).
   const toFrame: Affine = {
-    a: s * cos,
-    b: s * sin,
-    c: -s * sin,
-    d: s * cos,
+    a: sx * cos,
+    b: sx * sin,
+    c: -sy * sin,
+    d: sy * cos,
     e: geometry.anchorX + cos * x0 - sin * y0,
     f: geometry.anchorY + sin * x0 + cos * y0,
   };

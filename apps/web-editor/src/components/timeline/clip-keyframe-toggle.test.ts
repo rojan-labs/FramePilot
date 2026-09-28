@@ -27,12 +27,15 @@ describe('clipKeyframeIntent', () => {
       'opacity',
       'rotation',
       'scale',
+      'scaleX',
+      'scaleY',
       'x',
       'y',
     ]);
     // Identity values, so recording a pose does not move the picture.
     expect(intent.writes.find((w) => w.property === 'scale')?.value).toBe(1);
     expect(intent.writes.find((w) => w.property === 'x')?.value).toBe(0);
+    expect(intent.writes.find((w) => w.property === 'scaleX')?.value).toBe(1);
   });
 
   it('touches only the properties the clip already animates', () => {
