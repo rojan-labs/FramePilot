@@ -91,7 +91,7 @@ export interface ClipContextMenuProps {
   readonly onReplaceSticker?: (clipId: string, name: string) => void;
   /**
    * Bring the Inspector's Animation section up for this clip (plan/elements EL7): offered on a
-   * graphic — a sticker, shape, title or picture on a graphics lane.
+   * graphic — a sticker, shape, text overlay or picture on a graphics lane.
    */
   readonly onAnimate?: (clipId: string) => void;
 }
