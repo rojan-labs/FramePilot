@@ -937,6 +937,34 @@ describe('representative frames assert what they measure', () => {
       expect(report.checks[0]?.issues.join(' ')).toBe('Program midpoint is black (frame 150).');
     });
 
+    it('excuses the last rendered frames of a fade that reaches black on the final, unrendered frame', () => {
+      // Run d8d2e445: beach-sunset's opacity ran 1 → 0 ending exactly at the sequence end, so
+      // the frames the review rendered sat at 0.110 / 0.074 / 0.037 — black on screen by the
+      // engine's own 0.10 luma level, but above the old 0.02 cut-off, and flagged as
+      // "Program ending is black" + "Unexpected black frames 1797–1799".
+      const authored = authoredBlackFrames(fadingOut([opacity(8.2, 1), opacity(10, 0)]));
+      for (const frame of [297, 298, 299]) expect(authored(frame)).toBe(true);
+      const report = reviewTemporalEvidence(
+        [requestAt(299, 'Program ending')],
+        [frameAt(299, 1)],
+        authored,
+      );
+      expect(report.ok).toBe(true);
+    });
+
+    it('excuses the black start of a fade in from black', () => {
+      const authored = authoredBlackFrames(fadingOut([opacity(0, 0), opacity(1, 1)]));
+      expect(authored(0)).toBe(true);
+      expect(authored(2)).toBe(true);
+    });
+
+    it('does not excuse black under a picture held at a visible opacity', () => {
+      // A layer held at 0.5 with no ramp towards black is authored visible: black there is
+      // the footage or the renderer, not the edit.
+      const authored = authoredBlackFrames(fadingOut([opacity(0, 0.5), opacity(10, 0.5)]));
+      expect(authored(150)).toBe(false);
+    });
+
     it('never excuses a frame with no picture at all — that is a gap', () => {
       const authored = authoredBlackFrames(fadingOut([]));
       // 12 s is past the only clip's end: nothing is on the timeline there.

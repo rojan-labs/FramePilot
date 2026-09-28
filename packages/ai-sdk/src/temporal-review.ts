@@ -2,7 +2,7 @@
 import { z } from 'zod/v4';
 import { fromEngine } from './engine-optional.js';
 import { framePlanAt, type EditorCommand, type EditorCommandFact } from '@framepilot/editor-core';
-import { effectLayersOf, masksOf, type Project } from '@framepilot/timeline-schema';
+import { effectLayersOf, masksOf, type Keyframe, type Project } from '@framepilot/timeline-schema';
 import { getTransition } from '@framepilot/timeline-schema/transition-catalog';
 import type { EditResult } from './assemble.js';
 import {
@@ -665,8 +665,15 @@ export type AuthoredBlack = (frame: number) => boolean;
 
 const NOTHING_AUTHORED_BLACK: AuthoredBlack = () => false;
 
-/** At or below this authored opacity a picture layer contributes no picture. */
-const AUTHORED_BLACK_OPACITY = 0.02;
+/**
+ * The engine's black level: a sampled pixel at or below this luma counts as black
+ * (`engine/python/.../validation/temporal_evidence.py` `_BLACK_LUMA_THRESHOLD`). A picture
+ * composited over black at this opacity or less cannot put a brighter pixel on screen, so it
+ * is the opacity at which an authored fade REACHES black by the review's own measure. The
+ * old 0.02 disagreed with the engine: the last frames of every fade rendered black while
+ * still reading as "authored visible" (run `d8d2e445`, frames 1797–1799 at 0.110/0.074/0.037).
+ */
+const BLACK_LUMA = 0.1;
 
 /**
  * Frames at which the timeline, as authored, shows no picture — so a black frame there is
@@ -691,6 +698,9 @@ const AUTHORED_BLACK_OPACITY = 0.02;
  */
 export function authoredBlackFrames(project: Project): AuthoredBlack {
   const cache = new Map<number, boolean>();
+  const clips = new Map(
+    project.timeline.tracks.flatMap((track) => track.clips.map((clip) => [clip.id, clip] as const)),
+  );
   return (frame) => {
     const known = cache.get(frame);
     if (known !== undefined) return known;
@@ -709,10 +719,37 @@ export function authoredBlackFrames(project: Project): AuthoredBlack {
       // top picture dipping through black hides everything under it, the outgoing shot's
       // under-layer included.
       (top.transitions.some((transition) => dipsToBlack(transition.kind)) ||
-        pictures.every((layer) => layer.opacity <= AUTHORED_BLACK_OPACITY));
+        pictures.every((layer) => fadedToBlack(layer, clips.get(layer.clipId ?? ''))));
     cache.set(frame, authored);
     return authored;
   };
+}
+
+/**
+ * Whether a picture layer is, by its own authored opacity, black or on its way to or from
+ * black at this instant.
+ *
+ * At or below {@link BLACK_LUMA} it is black outright. Above it, the layer may still be inside
+ * an opacity ramp the edit authored to end at black (a fade-out) or to start from it (a
+ * fade-in): a frame the review measures black there is that fade's own tail, not a defect.
+ * A fade that ends exactly at the sequence end reaches black on a frame that is never
+ * rendered, so without the ramp its last rendered frames could never be excused.
+ */
+function fadedToBlack(
+  layer: { readonly opacity: number; readonly localTime: number },
+  clip: { readonly keyframes: readonly Keyframe[] } | undefined,
+): boolean {
+  if (layer.opacity <= BLACK_LUMA) return true;
+  if (clip === undefined) return false;
+  const ramp = clip.keyframes
+    .filter((keyframe) => keyframe.property === 'opacity')
+    .sort((a, b) => a.time - b.time);
+  const next = ramp.find((keyframe) => keyframe.time > layer.localTime);
+  const previous = ramp.filter((keyframe) => keyframe.time <= layer.localTime).at(-1);
+  if (next === undefined || previous === undefined) return false;
+  const fadingOut = next.value <= BLACK_LUMA && previous.value > next.value;
+  const fadingIn = previous.value <= BLACK_LUMA && next.value > previous.value;
+  return fadingOut || fadingIn;
 }
 
 /** A catalogue transition that passes through solid black (Fade to Black, Dip to Black). */
