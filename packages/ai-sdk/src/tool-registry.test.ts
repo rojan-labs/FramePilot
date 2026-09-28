@@ -1970,6 +1970,27 @@ describe('per-clip styling edits (schema v5–v8) — caption/speed/crop/blend',
     expect(build('set_clip_speed', { clipId: 'clip_a', playback: 'forward', speed: 2 })).toEqual([
       { type: 'set_clip_speed', clipId: 'clip_a', speed: 2 },
     ]);
+    // Both are edits the validator accepts, and a freeze keeps the clip's timeline span.
+    for (const playback of ['freeze', 'reverse'] as const) {
+      const edit = assembleEdit(
+        ctx.project,
+        build('set_clip_speed', { clipId: 'clip_a', playback }),
+        playback,
+        'agent',
+      );
+      expect(edit.validation.valid).toBe(true);
+    }
+    const before = ctx.project.timeline.tracks[0]!.clips.find((c) => c.id === 'clip_a')!;
+    const frozen = applyProjectPatch(
+      ctx.project,
+      assembleEdit(
+        ctx.project,
+        build('set_clip_speed', { clipId: 'clip_a', playback: 'freeze' }),
+        'freeze',
+        'agent',
+      ).patch,
+    ).timeline.tracks[0]!.clips.find((c) => c.id === 'clip_a')!;
+    expect([frozen.start, frozen.end, frozen.speed]).toEqual([before.start, before.end, 0]);
     // A freeze takes no rate, a negative rate is still refused, and forward needs a rate.
     expect(() =>
       build('set_clip_speed', { clipId: 'clip_a', playback: 'freeze', speed: 2 }),
