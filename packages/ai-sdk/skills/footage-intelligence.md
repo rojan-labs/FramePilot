@@ -1,7 +1,7 @@
 ---
 name: footage-intelligence
 description: Retrieve grounded visual evidence, compare candidate moments, and turn a large or unfamiliar media set into citable editorial choices without guessing.
-tools: [map_footage, describe_footage, search_visual, get_frame, read_edit_signals, detect_scenes, analyze_silence]
+tools: [map_footage, describe_footage, search_visual, search_media, get_frame, read_edit_signals, detect_scenes, analyze_silence]
 ---
 
 # Footage intelligence
@@ -32,7 +32,10 @@ Retrieve before assuming, then decide. Evidence gathering is valuable only when 
 
 ## Professional heuristics
 
-- Map once for global shape; describe only promising spans; search for specific content.
+- When the request names the clip for a slot, retrieval narrows to that clip: find its best
+  moment (peak motion, clean focus, best light) rather than re-opening which clip to use.
+- Map once for global shape; describe only promising spans; search for specific content
+  (`search_visual` for what is on screen, `search_media` for words, markers and asset names).
 - Index when available and needed; otherwise use transcript/scene evidence honestly.
 - A clip the index has not reached can still be LOOKED at: `get_frame { assetId, sourceSeconds }`
   shows the source as shot, whether or not it is on the timeline. A few frames across it (start,

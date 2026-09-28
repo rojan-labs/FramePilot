@@ -6,6 +6,10 @@ tools: [get_frame, get_clip, set_clip_crop, reframe_pan]
 
 # Vertical reframe
 
+**Framing targets the request gives per shot** ("face in the upper third", "bias toward the
+speaker", "horizon at 40%", "pan along the coastline") replace the defaults below. Your job is to find
+where that is in each source and hold it.
+
 ## Purpose
 
 Preserve the subject and visual intent when changing the delivery frame.
@@ -55,6 +59,10 @@ differently shaped sequence arrives with a CENTRED crop, which is a guess, not a
   on a panned clip (a punch-in writes scale and would undo the reframe).
 - A subject that moves unpredictably cannot be followed automatically yet: pan between the
   positions you saw at the start and end, and say that the framing is a pan, not a track.
+- A blurred-fill background (the whole frame over a blurred, scaled copy of itself) is not
+  something the placement tools build: a scaled picture layer over other picture is refused
+  when placed. The honest fallbacks are a tighter crop, a pan, or `set_clip_crop` with
+  `allowLetterbox: true` to keep the whole frame with bars — say which you used.
 
 ## Professional heuristics
 

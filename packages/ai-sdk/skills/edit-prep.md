@@ -32,6 +32,8 @@ Log once, retrieve many times. Preparation reduces later tool calls only when it
 
 ## Professional heuristics
 
+- Prep serves the request: when it names what matters (its shot list's clips, a best-moment
+  review of every clip, beat detection before cutting), gather exactly that first.
 - Inventory before planning; never assume an asset exists.
 - Organize larger bins by editorial role (A-roll, B-roll, Music, SFX, Graphics), not merely extension.
 - Transcribe dialogue before hook, cleanup, or caption work.

@@ -70,6 +70,8 @@ A long layer can end "…(+N more clip(s)…)": `get_clips` lists those.
 
 ## Professional heuristics
 
+- **The editor's spec wins.** A style, count, size or timing the request sets for its elements
+  replaces the defaults below; the limits under "Where it may sit" still hold.
 - **Land on the word.** Start when the thing is named, hold to the next beat, end before the next
   callout. 1.5–3 s is typical.
 - **One idea at a time.** Sequence callouts about different moments. Two that belong to one beat

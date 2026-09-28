@@ -9,7 +9,7 @@ tools: [find_mask_targets, create_mask, remove_background, track_mask, refine_ma
 ## Purpose
 
 Limit what a clip shows, or what an effect touches, to a real subject in the picture, as the
-editor would in the Inspector's Mask tab, with the same review list.
+editor would in the Inspector's Mask tab.
 
 ## When to use
 
@@ -67,8 +67,8 @@ coordinates. Every mask comes from a detection, a pack measurement, or numbers t
   the head, shoulder line (the face is between), width covered per band — and, given your
   text overlay, the `xPercent`/`yPercent` and `sizePercent` where it reads as behind. Never edits.
 - `put_text_behind_subject` (clipId, text, start, end, style): needs the cut-out first;
-  `start`–`end` is the moment, not the shot. A heavy condensed `fontFamily` (Anton, Bebas Neue)
-  is the look. A second text overlay on the shot shares its layer.
+  `start`–`end` is the moment, not the shot. Unless the editor chose a font, a heavy condensed
+  `fontFamily` (Anton, Bebas Neue) reads best. A second text overlay on the shot shares its layer.
 - `follow_subject` makes one mask reuse another mask's measured track. The source must be tracked.
 - `get_masks` lists a clip's masks with ids; `delete_mask` removes one.
 
@@ -108,7 +108,7 @@ coordinates. Every mask comes from a detection, a pack measurement, or numbers t
 - A hard-edged grade shows its outline: effect masks want a soft edge, composites the exact one.
 - Track anything that moves more than a little. A locked-off shot with a still subject needs no
   track, and an untracked shape has no review list.
-- One mask per thing. Refine the mask you made rather than stacking a second on top of it.
+- One mask per thing: refine the mask you made rather than stacking a second.
 - Read the clip's row first: `masks: …` says what it already has, and `get_masks` gives the ids.
 
 ## Decision framework

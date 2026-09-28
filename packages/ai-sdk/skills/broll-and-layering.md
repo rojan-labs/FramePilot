@@ -1,7 +1,7 @@
 ---
 name: broll-and-layering
 description: Source footage the user never filmed (stock clips and photos, via search_stock/add_stock — explained here and nowhere else) and place it as b-roll, overlays, or a whole montage that clarifies narration and preserves visual hierarchy without decorative clutter.
-tools: [list_assets, get_timeline, get_mapped_transcript, search_visual, search_stock, add_stock, add_clip, add_clips, trim_clip, set_clip_blend_mode, add_keyframes, set_track_flags]
+tools: [list_assets, get_timeline, get_mapped_transcript, search_visual, get_frame, search_stock, add_stock, add_clip, add_clips, trim_clip, set_clip_blend_mode, add_keyframes, set_track_flags]
 ---
 
 # B-roll and layering
@@ -12,9 +12,10 @@ Turn narration into visual proof while keeping the speaker, graphics, and textur
 
 ## When to use
 
-Cutaways, jump-cut coverage, product/process illustration, textures, picture-in-picture,
-or masked overlays — and any sequence assembled from stock, including a montage with no
-footage of the user's own. `search_stock` / `add_stock` are explained here and nowhere
+Cutaways, jump-cut coverage, product/process illustration, textures, or split and shaped
+layers (built with `masking-and-compositing`) — and any sequence assembled from stock, including
+a montage with no footage of the user's own. When the request says which cutaway goes where,
+place those; this skill then judges source spans, entry timing and hierarchy. `search_stock` / `add_stock` are explained here and nowhere
 else.
 
 ## When not to use
@@ -85,6 +86,8 @@ B-roll is evidence, not wallpaper. Show concrete nouns and actions; return to fa
 - Enter slightly before the referenced word so recognition and language land together.
 - Typical cutaways last 2–4 seconds; vary duration with information density.
 - Keep A-roll audio continuous beneath b-roll.
+- A placed cutaway covers the frame. A scaled or see-through picture layer over other picture
+  (picture-in-picture) is refused on placement; a split or shaped window comes from masks.
 - Use `normal` for footage; reserve `screen`, `multiply`, or `soft-light` for suitable graphic textures.
 - Fade designed overlays; hard pop-ons should be intentional.
 
