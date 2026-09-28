@@ -301,6 +301,36 @@ update_plan({
 - **What the model sees:** a `YOUR PLAN` section in the run briefing, with every item, and
   `DO THIS NOW` pointing at the next open item.
 
+### Looking at many sources: `get_frame { sources }`
+
+`get_frame` has three exclusive modes: `timeSeconds` (a moment of the edit), `assetId`
+(+ `sourceSeconds`, one source file as shot), and `sources` (several source files on one sheet).
+
+```ts
+get_frame({
+  sources: [{ assetId: 'asset_passenger' }, { assetId: 'asset_car', sourceSeconds: 2 }],
+});
+// → one image: a numbered grid, each tile the whole uncropped source frame, labelled
+//   "1  passenger.mp4  9.5s". data.tiles = [{ tile: 1, assetId, name, sourceSeconds,
+//   durationSeconds, error? }, …] in the same order.
+```
+
+- **Schema:** 1-12 entries; `assetId` non-empty; `sourceSeconds` ≥ 0 and optional (omitted =
+  the middle of the source; a still shows its one frame). Strict: unknown keys are refused. It
+  cannot be combined with `timeSeconds`, `assetId` or `sourceSeconds`. `maxDimension` bounds the
+  **whole sheet** (default 1024 for a sheet, 512 for one frame).
+- **Why:** run `d8d2e445` saw 3 of 20 sources, one picture per call. It is one call and one
+  image for the whole bin, so the model can compare shots and see where each subject sits
+  before it cuts or crops. It then uses single-source `get_frame` for a close look.
+- **Errors:** an unknown or audio-only asset refuses the whole sheet and names every bad id. A
+  tile that fails to render is drawn as a labelled error, the rest still answer, and the result
+  summary names the failed tile.
+- **Engine:** `framepilot_engine/render/source_sheet.py`. Each tile is
+  `frame_grab.source_view_project` through the export's compiler, composited uncached four at a
+  time. The grid is fixed arithmetic (`ceil(sqrt(n))` columns), so the same sources give the
+  same pixels. The Python registry and its strict contract override mirror the schema. The MCP
+  server does not forward `sources` yet.
+
 ---
 
 ## When a patch is rejected

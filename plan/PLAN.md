@@ -71,6 +71,16 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
 - [x] **AL3** Briefing shows the model's plan and points DO THIS NOW at the first open item.
 - [x] **AL4** Contract: plan in the request's own terms; the ending rule is plan-aware; skills
   are reference guidance, never the plan or a template (load_skill, manifest, pinned block).
+- [x] **AL6** `get_frame { sources }`: up to 12 sources as shot on one labelled, numbered
+  sheet (engine `render/source_sheet.py`, `/render/frame` `sources`). Evidence: run `d8d2e445`
+  ("look at every clip before cutting") saw 3 of 20 sources, one picture per call, and put 29
+  clips on blind centre crops. Omitted `sourceSeconds` = the middle of the source (the ledger's
+  representative frame is not on the document the route receives). Tiles are composited
+  uncached, four at a time: a live 12-source sheet on the real 20-clip project took 5.3-7.2 s,
+  was byte-identical to serial rendering (9.9-12.3 s), and evicted none of the cached timeline
+  windows. Skills (footage-intelligence, vertical-reframe, travel-montage) point at it.
+  Deferred: the MCP server's `get_frame` forwards only `timeSeconds` (no `assetId`/`sources`
+  yet); the action card says "Looking at the frame at" with no subject (`describe.ts`).
 - [ ] **AL5** Follow-up: the model plan lives in conductor state only — a resume checkpoint and
   the next run in the conversation start without it (the model re-plans). Measure on a real
   long brief (desktop) before deciding whether to persist it in the working state (schema).

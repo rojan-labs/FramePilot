@@ -110,6 +110,24 @@ the failure was a validation check).
 contract; they were not touched in this slice and will get a `202`+`jobId` body
 they don't yet know how to poll. Wiring them to the new contract is plan H1.3b.
 
+### `POST /render/frame`
+
+One composited still, returned inline as base64 (the `get_frame` tool). The request takes the
+project (`project_path` or an inline `project`) plus exactly one of:
+
+- `time_seconds`: a moment of the timeline, with `burn_captions` (default true);
+- `asset_id` (+ `source_seconds`): one source file as shot, uncropped;
+- `sources`: `[{ "asset_id", "source_seconds"? }]`, 1-12 entries, tiled into one labelled sheet
+  (`render/source_sheet.py`). An omitted `source_seconds` is the middle of the source.
+
+`max_dimension` is the longest edge of the returned image (the whole sheet with `sources`;
+default 512 for one frame, 1024 for a sheet; ceiling 1280). `image_format` is `jpeg` or `png`.
+The response is `{ media_type, base64, width, height, time_seconds, duration_seconds, tiles }`.
+With `sources`, `tiles` lists `{ index, asset_id, name, source_seconds, duration_seconds, error }`
+in the order the sheet numbers them, and the two time fields are 0. A request naming none or
+several of the three modes, an empty or over-12 list, or an unknown or audio asset returns
+`422` with the reason.
+
 ### `POST /preview/text-raster`
 
 One title, caption or shape drawn by the export's own Pillow code, for the desktop program

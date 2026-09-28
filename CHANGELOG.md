@@ -8,6 +8,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The assistant can look at all your clips before it cuts.** It can now see up to 12 source
+  clips in one look: a numbered contact sheet, each clip uncropped as it was shot, labelled with
+  its file name and the moment shown. Before, it saw one clip per look. Told to "look at every
+  clip before cutting" on a 20-clip trip, it looked at 3 and centre-cropped the rest blind. A
+  12-clip sheet takes about 5-7 s on the desktop.
 - **The assistant finishes what your request asks for.** On a request with several parts, the
   assistant writes a plan in your request's own terms (its sections, its shot list, the
   treatments you named) and shows it as the checklist. It keeps working while anything on that
