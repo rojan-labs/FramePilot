@@ -44,6 +44,17 @@ export const EXECUTION_PACE =
   'separate tool calls: they apply in order, and each result says where its clips landed, ' +
   'so nothing needs reading back between them. One edit per step is a round trip wasted.';
 
+/**
+ * Who settled a DECIDED line. Without it the run's own inference reads exactly like an
+ * answer the editor gave, and the model tells the editor what "you chose" about a choice
+ * nobody made (run `6cb12e30`: "you chose to keep the default font").
+ */
+const DECISION_SOURCE_LABEL: Readonly<Record<'user' | 'inferred' | 'reference', string>> = {
+  user: "the editor's answer",
+  inferred: "your inference, not the editor's choice",
+  reference: 'from an attached reference',
+};
+
 /** Characters of a distilled statement — one line, never a payload. */
 const STATEMENT_CHARS = 180;
 
@@ -322,7 +333,10 @@ export function buildStateBriefing(
   if (decisions.length > 0) {
     sections.push(
       `DECIDED — keep unless the stated trigger fires\n${decisions
-        .map((d) => `- ${d.decision} (revisit only if: ${d.reconsiderIf})`)
+        .map(
+          (d) =>
+            `- ${d.decision} [${DECISION_SOURCE_LABEL[d.source]}] (revisit only if: ${d.reconsiderIf})`,
+        )
         .join('\n')}`,
     );
   }

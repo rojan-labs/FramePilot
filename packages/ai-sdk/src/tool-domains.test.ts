@@ -19,7 +19,6 @@ import {
   toolDomain,
   toolIsAdvertised,
   type ToolDomain,
-requestedDomainsNeverLoaded,
 } from './tool-domains.js';
 import { BUNDLED_SKILLS } from './skills.js';
 import { toolSchemaCost } from './kernel/context/manifest.js';
@@ -238,42 +237,3 @@ describe('domainsForSkill — a playbook arrives with the tools it names', () =>
   });
 });
 
-describe('requestedDomainsNeverLoaded — the brief named it, the run never loaded it', () => {
-  // Run `df81d58e`: stock, b-roll and music in the brief; `sourcing` never loaded.
-  const brief =
-    'Build a premium vertical short. Phase 3 - B-roll: download stock footages, search_stock by subject. ' +
-    'Phase 5: search_music / add_music for a music bed, duck it under speech. Colour is SOLVED: apply_look, match_color.';
-
-  it('names the domain, the words that asked for it, and the tools never offered', () => {
-    const missing = requestedDomainsNeverLoaded(brief, new Set(['captions', 'audio', 'motion', 'effects']));
-    const sourcing = missing.find((m) => m.domain === 'sourcing');
-    // "B-roll" as a phase heading and "a music bed" do not ask for material on their own;
-    // "download stock footages" does.
-    expect(sourcing?.mentions.map((m) => m.toLowerCase())).toEqual(['stock footages']);
-    expect(sourcing?.tools).toEqual(expect.arrayContaining(['search_stock', 'add_stock', 'search_music', 'add_music']));
-    expect(missing.find((m) => m.domain === 'color')?.mentions.map((m) => m.toLowerCase())).toContain('colour');
-  });
-
-  it('does not read b-roll or music already on the timeline as a request for more', () => {
-    // Run 0e12b96e: a retime of existing cutaways was reported as "sourcing never loaded".
-    expect(
-      requestedDomainsNeverLoaded('no need bg on captions and also synchronize the broll with the video', new Set()).map(
-        (m) => m.domain,
-      ),
-    ).not.toContain('sourcing');
-    expect(requestedDomainsNeverLoaded('cut the b-roll to the beat of the music', new Set()).map((m) => m.domain)).not.toContain(
-      'sourcing',
-    );
-  });
-
-  it('still hears a request for new b-roll or music', () => {
-    for (const request of ['add some b-roll over the intro', 'can you add more broll', 'put background music under it']) {
-      expect(requestedDomainsNeverLoaded(request, new Set()).map((m) => m.domain)).toContain('sourcing');
-    }
-  });
-
-  it('is empty when the request loaded what it named, or named nothing', () => {
-    expect(requestedDomainsNeverLoaded(brief, new Set(['sourcing', 'color', 'captions', 'audio']))).toEqual([]);
-    expect(requestedDomainsNeverLoaded('trim the first clip to 4 seconds', new Set())).toEqual([]);
-  });
-});

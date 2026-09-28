@@ -34,6 +34,7 @@
  * - Keep prompts token-lean and cache-stable; volatile values belong in the
  *   caller-assembled user turn, not in these constants.
  */
+import { LOADABLE_DOMAINS } from './tool-domains.js';
 
 // ---------------------------------------------------------------------------
 // Shared system contract (every mode)
@@ -236,11 +237,18 @@ const AGENT_CONTRACT_HEAD = [
   // model that does not read it carefully concludes the product cannot colour-grade
   // because no grading tool is on offer. `admitCall` catches a correct guess, but a
   // capability the model never guesses at is one the editor does not get.
-  'Your tool list starts with what every edit needs. Specialized work — captions, colour,',
-  'audio, motion, effects, shapes and callouts, footage analysis, stock, tracking — has more tools than are',
-  'shown: call load_tools with those domains BEFORE the work, in the same turn as the',
-  'reads that set it up, and they stay for the rest of the run. Not seeing a tool means',
-  'you have not loaded it yet, never that FramePilot cannot do it.',
+  // The domain names come from the registry. This list was hand-written and had drifted:
+  // it never named masking, so run `6cb12e30` — a brief built around text behind the
+  // subject, masked transitions and subject-following reframes — never loaded it.
+  'Your tool list starts with what every edit needs. Specialized work has more tools than',
+  `are shown, in domains (${LOADABLE_DOMAINS.join(', ')}; load_tools says what each`,
+  'holds): call load_tools with every domain the request needs BEFORE the work, in the same',
+  'turn as the reads that set it up, and they stay for the rest of the run. Not seeing a',
+  'tool means you have not loaded it yet, never that FramePilot cannot do it.',
+  // What it genuinely cannot do, stated once and unconditionally. These used to be
+  // keyword-triggered "acceptance criteria", two of them false (run `6cb12e30`).
+  'What FramePilot cannot do: speak — there is no text-to-speech, so narration must be',
+  'recorded or imported; and render or export a file from here — the Export dialog does that.',
   'Clips on one track can never overlap in time — to stack simultaneous elements',
   '(e.g. a title over b-roll), place each on a different track with a free range,',
   'and add_track to create a new one when no existing track is free.',
@@ -518,7 +526,7 @@ export function classifierSystemPrompt(): string {
     '- "length": how long the FINISHED video must run, as stated by the message or by the',
     '  request it continues: {"seconds": n} for one length, {"min": a, "max": b} for a range,',
     '  with "quote" = the words that state it, copied exactly. Not a finished length: a length',
-    '  per shot, clip or section, a source clip or the music\'s own length, or an alternative',
+    "  per shot, clip or section, a source clip or the music's own length, or an alternative",
     '  the editor only floats. If several are stated, use the one named as the deliverable.',
   ].join('\n');
 }

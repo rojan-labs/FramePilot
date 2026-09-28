@@ -64,27 +64,37 @@ export type ToolDomain =
  */
 export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string>> = {
   captions: 'write, restyle and emphasise captions; browse caption templates; check caption sync',
+  // `transcribe` and `detect_beats` are core and music lives in `sourcing`; naming them here
+  // sent a run looking for music to a domain that has none (run `6cb12e30` audit).
   audio:
-    'transcribe; adjust levels; find and cut silence and filler words; detect beats to cut to; add music; professional audio moves',
+    'set levels, fades and ducking on a clip or track; EQ, compression and mix moves; find and cut silence and filler words',
   // Named for the words a REQUEST uses, not only the moves. A run asked to "build a
   // professional edit" never pinned this domain across 37 minutes and six `load_tools`
   // calls, so three shipped tools were unreachable in practice — the summary is the whole
   // discovery surface, and "match shots to each other" is not what that request sounds like.
   color:
-    'grade the picture — the colour and look pass of a professional edit: match shots to each other, even out exposure, apply a cinematic look, grade directly; measure what is on screen now',
-  motion: 'keyframes, punch-ins, camera moves and speed ramps',
-  effects: 'effects, transitions and on-screen text; browse what is available; verify fit',
+    'grade the picture — the colour and look pass of a professional edit: match shots to each other, even out exposure, apply a cinematic look, grade directly (measure_color, always available, reads what is on screen first)',
+  // `set_clip_crop` lives here; a summary without "crop" or "reframe" left the one static
+  // reframing tool undiscoverable to a request that asked for exactly that.
+  motion: 'keyframes, punch-ins, camera moves, speed ramps and reframing crops',
+  effects:
+    'effects, transitions, blend modes and on-screen text; browse what is available; verify fit',
   // Plan/elements: the words a screen-recording or product-demo request uses.
   elements:
     'stickers and emoji, and shapes over the picture — highlight boxes, arrows, circles, markers, underlines, callouts, numbered badges, stars, icons; find, place, restyle and move them, and animate them in, out and on a loop',
   footage:
     'understand the raw material: scenes, shots, what is visually in it, where each moment lives',
-  sourcing: 'find and place stock footage and music from the libraries',
-  // The mask half moved to `masking` (plan 11): what is left is evidence and the tracker effect.
-  tracking: 'detect who and what is on screen, frame by frame; attach a tracker effect to a clip',
+  // Sound effects: `search_music` queries Openverse audio, which carries Freesound's
+  // commercially licensed effects — a live "whoosh" query returned 240 (2026-09-28). A
+  // summary that said "music" only is how run `6cb12e30` concluded SFX could not be sourced.
+  sourcing:
+    'find and place stock footage, music and sound effects (whooshes, risers, impacts, ambience) from the libraries',
+  // The mask half moved to `masking` (plan 11): what is left is evidence and the tracker
+  // effect. Following a subject is `masking`'s — `track_object` attaches an EMPTY tracker.
+  tracking: 'detect who and what is on screen, frame by frame (to follow a subject, use masking)',
   // Names the REQUESTS, not the mechanics (plan 11): nobody asks for a "matte".
   masking:
-    'masks and cut-outs: remove backgrounds, isolate or hide people and objects, blur faces or plates, grade or effect only part of the picture, put text behind a subject, track masks',
+    'masks and cut-outs: find a person or object and follow it through the shot, remove backgrounds, isolate or hide people and objects, blur faces or plates, grade or effect only part of the picture, put text behind a subject, split screens and track mattes, cut-out edges',
   media: 'import media into the project and organise the bin',
   professional: 'resolver-gated professional editing intent (rolls, slips, slides, inserts)',
 };
@@ -331,99 +341,6 @@ export function domainsForSkill(
     if (domain !== undefined && domain !== 'core') domains.add(domain);
   }
   return [...domains];
-}
-
-/** The domain index the `load_tools` description carries, built once. */
-/**
- * The words a REQUEST uses for each domain's outcome — the same vocabulary
- * {@link DOMAIN_SUMMARY} is written in, read back the other way.
- */
-const DOMAIN_REQUEST_WORDS: Readonly<Record<Exclude<ToolDomain, 'core'>, RegExp>> = {
-  // B-roll and music name MATERIAL, and most requests that mention them are about material
-  // already on the timeline: run 0e12b96e asked to "synchronize the broll with the video",
-  // a retime, and its receipt told the editor that stock sourcing was never loaded. They
-  // count only when the request asks for some (add / find / more / background …); stock,
-  // cutaways and a soundtrack are always a request for material.
-  sourcing:
-    /\b(stock(?: footages?| clips?| plates?| videos?)?|cutaways?|soundtrack|score|sound ?bed|(?:add|adding|find|get|source|pull|search(?: for)?|download|insert|include|use|need|want|more|some|new|background)\s+(?:(?:a|an|the|some|more|good|fitting|relevant|few|of)\s+){0,2}(?:b-?roll|music)(?: bed| track)?)\b/gi,
-  color: /\b(colou?r(?: grade| pass| correct\w*)?|grade|graded|grading|look|exposure|lut)\b/gi,
-  captions: /\b(captions?|subtitles?)\b/gi,
-  audio: /\b(silences?|dead air|fillers?|filler words|duck\w*|loudness|beats?)\b/gi,
-  motion: /\b(punch[- ]?ins?|keyframes?|zooms?|speed ramps?|reframe\w*|crops?)\b/gi,
-  effects: /\b(transitions?|effects?|titles?|text layers?|graphics?)\b/gi,
-  // Plan/elements 07 §2: the callout words live here now; stickers and emoji join with EL6a.
-  elements:
-    /\b(stickers?|emojis?|shapes?|arrows?|circl(?:e|es|ing)|highlight(?:ed)? box(?:es)?|highlight (?:the|a|an)|underlin\w*|callouts?|badges?|speech bubbles?|box(?:es)? around|point(?:ing)? (?:at|to)|pops? (?:in|out)|puls(?:e|es|ing)|wiggl\w*)\b/gi,
-  footage:
-    /\b(index(?:ed|ing)?|index_media|map_footage|describe_footage|search_visual|detect_scenes|footage map|scene detection|shot list)\b/gi,
-  tracking: /\b(who is on screen|detect (?:the )?(?:faces?|people|subjects?)|tracker)\b/gi,
-  masking:
-    /\b(masks?|rotoscop\w*|track(?:ing)? (?:the )?subject|backgrounds?|cut-?outs?|isolate\w*|blur (?:the |their |every(?:one's)? )?(?:faces?|plates?)|behind (?:the |her|him|them)\w*|green ?screen)\b/gi,
-  media: /\b(import\w*|media bin|organi[sz]e the bin)\b/gi,
-  professional: /\b(roll edits?|slip|slide edits?|insert edits?)\b/gi,
-};
-
-/**
- * What each domain does, as an editor would name it — for the receipt, which is written to
- * the editor. A domain id ("sourcing") and a tool list were written there before.
- */
-export const DOMAIN_LABEL: Readonly<Record<Exclude<ToolDomain, 'core'>, string>> = {
-  sourcing: 'Photos, videos and music',
-  color: 'Colour',
-  captions: 'Captions',
-  audio: 'Audio clean-up',
-  motion: 'Motion and reframing',
-  effects: 'Transitions, titles and effects',
-  elements: 'Stickers and shapes',
-  footage: 'Footage search',
-  tracking: 'Tracking',
-  masking: 'Masks and cut-outs',
-  media: 'The media bin',
-  professional: 'Trim edits',
-};
-
-/** A domain the request named and the run never loaded. */
-export interface NeverLoadedDomain {
-  readonly domain: Exclude<ToolDomain, 'core'>;
-  /** The request's own words that named it, first three, as written. */
-  readonly mentions: readonly string[];
-  /** The tools that were therefore never offered. */
-  readonly tools: readonly string[];
-}
-
-/**
- * Which domains the request asked for by name that the run never loaded.
- *
- * Run `df81d58e` (2026-09-08) was briefed for stock, b-roll and music, loaded five domains
- * across two `load_tools` calls, and never `sourcing`: `search_stock` and `add_stock` were
- * never on its list, no cutaway was ever attempted, and the closing report said nothing
- * about it. The summary is the discovery surface (see {@link DOMAIN_SUMMARY}), so a domain
- * the model did not think to load is one the editor has to be told about.
- *
- * Pure: the request text and the loaded set in, a list out. Empty for a run that loaded
- * everything it was asked for, so an ordinary report is unchanged.
- */
-export function requestedDomainsNeverLoaded(
-  request: string,
-  loaded: ReadonlySet<ToolDomain>,
-): NeverLoadedDomain[] {
-  const out: NeverLoadedDomain[] = [];
-  for (const domain of LOADABLE_DOMAINS) {
-    if (loaded.has(domain)) continue;
-    const pattern = new RegExp(DOMAIN_REQUEST_WORDS[domain].source, 'gi');
-    const seen = new Set<string>();
-    const mentions: string[] = [];
-    for (const match of request.matchAll(pattern)) {
-      const word = match[0].toLowerCase();
-      if (seen.has(word)) continue;
-      seen.add(word);
-      mentions.push(match[0]);
-      if (mentions.length === 3) break;
-    }
-    if (mentions.length === 0) continue;
-    out.push({ domain, mentions, tools: domainMembers(domain) });
-  }
-  return out;
 }
 
 /**

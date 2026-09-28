@@ -61,13 +61,7 @@ import {
   type Project,
   type Track,
 } from '@framepilot/timeline-schema';
-import type {
-  AgentOptions,
-  AgentRun,
-  AgentStep,
-  RequestReading,
-  ReviewResult,
-} from './agent.js';
+import type { AgentOptions, AgentRun, AgentStep, RequestReading, ReviewResult } from './agent.js';
 import {
   asksForPreview,
   asksForRenderedFile,
@@ -145,9 +139,6 @@ import {
   domainMembers,
   toolDomain,
   toolIsAdvertised,
-  requestedDomainsNeverLoaded,
-  DOMAIN_LABEL,
-  type NeverLoadedDomain,
 } from './tool-domains.js';
 import {
   AGENT_MAX_OPS_PER_RUN,
@@ -1413,8 +1404,8 @@ export function autoReframeNote(toolName: string, ops: readonly AnyOperation[]):
   return (
     ` — ${String(crops)} clip${crops === 1 ? '' : 's'} auto-reframed with a CENTRED crop, a ` +
     'guess made with no subject evidence. If the action sits off-centre, set_clip_crop with ' +
-    'a rect that follows it (get_frame or track_object shows where it is), and say which ' +
-    'you did.'
+    'a rect that follows it (get_frame shows the frame; track_object measures nothing), and ' +
+    'say which you did.'
   );
 }
 
@@ -5707,9 +5698,13 @@ export class Orchestrator {
             (domain) => !host.loadedToolDomains.has(domain as ToolDomain),
           );
           for (const domain of loaded) host.loadedToolDomains.add(domain as ToolDomain);
-          const names = loaded.flatMap((domain) =>
-            domainMembers(domain as Exclude<ToolDomain, 'core'>),
-          );
+          // Only what this host will actually run: `footage` lists `index_media`, which no
+          // run is ever offered, and telling the model a tool is "available from your next
+          // turn" and then never advertising it costs it a guess.
+          const unroutable = this.unroutableToolNames();
+          const names = loaded
+            .flatMap((domain) => domainMembers(domain as Exclude<ToolDomain, 'core'>))
+            .filter((name) => !unroutable.has(name));
           const note =
             fresh.length > 0
               ? `${desc} → loaded ${fresh.join(', ')} — these tools are available from your next turn: ${names.join(', ')}.`
@@ -10281,7 +10276,6 @@ export class Orchestrator {
               // Both are free: the plan ledger and the settled tool cards already exist.
               planSteps: effect.planSteps,
               neverSucceeded: neverSucceededTools(toolAttempts),
-              neverLoaded: requestedDomainsNeverLoaded(input.userPrompt ?? '', loadedToolDomains),
               ...(effect.cancelled ? { cancelled: true } : {}),
               ...(effect.failed && !effect.cancelled ? { failed: true } : {}),
               ...(asksForFile ? { deliverableFileRequested: true } : {}),
@@ -10966,27 +10960,6 @@ function trimFailureReason(reason: string): string {
  *
  * Empty when there is nothing to say, so an ordinary clean run is unchanged.
  */
-/**
- * What the request asked for that the run never had the tools for (run `df81d58e`).
- *
- * The brief said "stock", "b-roll" and "music"; `load_tools` was never called for
- * `sourcing`; `search_stock`/`add_stock` were never on the model's list; the report said
- * "Applied 106 edits" and the model's prose blamed a missing visual index. Naming the
- * domain is the one sentence that makes the omission visible to the editor.
- */
-function neverLoadedBlock(neverLoaded: readonly NeverLoadedDomain[]): string {
-  if (neverLoaded.length === 0) return '';
-  // Written to the editor: what was asked for, in their words, and that the run never had
-  // the tools for it — not "load_tools was never called, so search_stock … were never
-  // offered", which is the harness talking to itself.
-  const lines = neverLoaded.map(
-    (entry) =>
-      `- ${DOMAIN_LABEL[entry.domain]} — you asked for ${entry.mentions.map((m) => `"${m}"`).join(', ')}, ` +
-      'but this run never opened those tools, so none of that was done. Ask for it again.',
-  );
-  return `\n\n**Not attempted:**\n${lines.join('\n')}`;
-}
-
 function notDoneBlock(
   planSteps: readonly PlanStep[],
   neverSucceeded: readonly NeverSucceededTool[],
@@ -11148,12 +11121,6 @@ export function agentCompletionReport(args: {
   /** Tools the run called, failed, and never got an answer out of. See `neverSucceededTools`. */
   neverSucceeded?: readonly NeverSucceededTool[];
   /**
-   * Tool domains the request asked for by name and the run never loaded — so the tools
-   * that would have done that part were never on the model's list. See
-   * `tool-domains.ts#requestedDomainsNeverLoaded`.
-   */
-  neverLoaded?: readonly NeverLoadedDomain[];
-  /**
    * The project's caption tracks, so a rebuilt cue range reads as one edit rather than
    * two hundred (see {@link operationLines}). Absent ⇒ nothing folds.
    */
@@ -11198,7 +11165,6 @@ export function agentCompletionReport(args: {
   // After "Skipped" (work that was attempted and refused) and before the caveats: what was
   // never delivered at all. A cancelled run keeps it — that is the run that needs it most.
   const notDone = notDoneBlock(args.planSteps ?? [], args.neverSucceeded ?? []);
-  const neverLoaded = neverLoadedBlock(args.neverLoaded ?? []);
   // An honest receipt for a montage chosen blind. The captured run picked nine spans out of
   // 575 seconds having read nothing about the content, and told the editor the choices came
   // from a footage map it never asked for. The edit still stands — the editor may well have
@@ -11231,7 +11197,7 @@ export function agentCompletionReport(args: {
         'to project memory this run. Tell the AI the preference again on its own, or set it ' +
         'in the AI settings.'
       : '';
-  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${neverLoaded}${unevidenced}${deliverable}${preview}${memory}`;
+  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${unevidenced}${deliverable}${preview}${memory}`;
 }
 
 /** Render a {@link CritiqueReport} as a compact human-readable block. */

@@ -998,8 +998,12 @@ function checkTrackerMotion(project: Project): CriticCheck {
     'warn',
     `${String(empty.length)} of ${String(trackers)} tracker(s) hold no motion at all — a ` +
       `highlight on them will not follow anything: ${[...new Set(empty)].slice(0, 4).join(', ')}. ` +
-      'The AI cannot compute the track by itself: draw a mask around the subject on that clip ' +
-      'in the editor and run automatic tracking, or remove the tracker.',
+      // track_object attaches an empty tracker; the path that measures motion is a mask.
+      // This used to say the AI could not track at all, which was false on the desktop
+      // wherever the masking tools are on (run 6cb12e30 audit).
+      'An object tracker attaches no motion by itself: find the subject with find_mask_targets ' +
+      'and create a mask on it with track:true (or track_mask an existing one), or remove the ' +
+      'tracker.',
   );
 }
 

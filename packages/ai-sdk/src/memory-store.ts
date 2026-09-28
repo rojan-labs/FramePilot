@@ -335,11 +335,20 @@ export function summarizeMemory(memory: ProjectMemory): string {
     MAX_REMEMBERED_REJECTED,
   );
   if (rejected) lines.push(rejected);
-  const accepted = renderEdits(
-    'Previously accepted edits',
-    memory.acceptedEdits,
+  // An auto-applied edit's reason is an earlier AI run describing its own work — the editor
+  // never read it. Rendered as "accepted", run 6cb12e30 took one such line ("…since the
+  // default face is the only one available", itself a symptom of a tool that hid the font
+  // parameter) as the editor's decision and told them "you chose to keep the default font".
+  const reviewed = memory.acceptedEdits.filter((edit) => edit.origin !== 'auto_applied');
+  const automatic = memory.acceptedEdits.filter((edit) => edit.origin === 'auto_applied');
+  const accepted = renderEdits('Previously accepted edits', reviewed, MAX_REMEMBERED_ACCEPTED);
+  if (accepted) lines.push(accepted);
+  const applied = renderEdits(
+    "Applied automatically by earlier AI runs (their own descriptions — not the editor's words, " +
+      'and not a statement of what FramePilot can do)',
+    automatic,
     MAX_REMEMBERED_ACCEPTED,
   );
-  if (accepted) lines.push(accepted);
+  if (applied) lines.push(applied);
   return lines.join('\n');
 }

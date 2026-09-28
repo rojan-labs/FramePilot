@@ -315,6 +315,25 @@ describe('buildStateBriefing', () => {
     expect(text).toContain('revisit only if: the transcript shows a stronger hook');
   });
 
+  it("says who settled each decision, so the run's inference never reads as the editor's choice", () => {
+    // Run 6cb12e30 told the editor "you chose to keep the default font" — nobody had.
+    let state = recordDecision(base(), {
+      decision: 'Titles stay in the default face',
+      reconsiderIf: 'a font is asked for',
+    });
+    state = recordDecision(state, {
+      decision: 'Keep the 60s master',
+      reconsiderIf: 'the editor asks for a teaser',
+      source: 'user',
+    });
+    state = commitDecision(commitDecision(state, 'decision_1'), 'decision_2');
+    const text = buildStateBriefing(state);
+    expect(text).toContain(
+      "Titles stay in the default face [your inference, not the editor's choice]",
+    );
+    expect(text).toContain("Keep the 60s master [the editor's answer]");
+  });
+
   it('hides a decision that is still tentative', () => {
     const state = recordDecision(base(), { decision: 'maybe', reconsiderIf: 'x' });
     expect(buildStateBriefing(state)).not.toContain('maybe');

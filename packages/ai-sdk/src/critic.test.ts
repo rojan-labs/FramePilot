@@ -2326,7 +2326,9 @@ describe('tracker_motion — a tracker with no keyframes follows nothing', () =>
     const empty = idOf(critique(tracked([]), {}), 'tracker_motion');
     expect(empty).toMatchObject({ status: 'warn' });
     expect(empty?.detail).toContain('hero');
-    expect(empty?.detail).toContain('draw a mask');
+    // The remedy is the path that measures motion, not the false "the AI cannot track".
+    expect(empty?.detail).toContain('find_mask_targets');
+    expect(empty?.detail).not.toMatch(/cannot compute/);
     expect(
       idOf(
         critique(tracked([{ id: 'k1', time: 0, property: 'x', value: 0.4, easing: 'linear' }]), {}),

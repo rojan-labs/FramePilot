@@ -111,12 +111,6 @@ export interface CheckableAcceptance {
    */
   readonly deliverableFile?: boolean;
   /**
-   * Deliverables the request named that this product has no tool for at all — see
-   * {@link unmeetableDeliverables}. Recorded so the run states the gap rather than
-   * silently shipping without them.
-   */
-  readonly unmeetable?: readonly UnmeetableDeliverable[];
-  /**
    * True when the request states something to remember for FUTURE edits — "one thing to
    * remember for future edits: no fade to black mid-action" — which `remember_preference`
    * exists for and run `cc907070` never called. An instruction about memory that is not
@@ -143,27 +137,6 @@ export interface CheckableAcceptance {
 
 /** An element a request can ask for: a sticker or emoji, or a callout shape. */
 export type RequestedElement = 'sticker' | 'callout';
-
-/** A deliverable no registered tool can produce. */
-export type UnmeetableDeliverable = 'voiceover' | 'soundEffects' | 'preview' | 'subjectTracking';
-
-/** What each unmeetable deliverable reads as in a criterion an editor will see. */
-export const UNMEETABLE_LABEL: Record<UnmeetableDeliverable, string> = {
-  voiceover:
-    'Spoken narration cannot be produced here — FramePilot has no text-to-speech. Record ' +
-    'or import a voice track and it can be cut, timed, and captioned like any other audio.',
-  soundEffects:
-    'Sound effects cannot be sourced here — the stock libraries cover music and picture, ' +
-    'not SFX. Import the effects you want and they can be placed on the timeline.',
-  preview:
-    'A rendered preview cannot be produced from this panel — the timeline monitor plays ' +
-    'the current cut, and the Export dialog renders it. Say so rather than promising one.',
-  subjectTracking:
-    'Subject motion cannot be computed by the AI on its own: track_object only ATTACHES a ' +
-    'tracker with no motion in it, and the measured track comes from the automatic tracking ' +
-    'tool, which needs a mask the editor draws around the subject in the editor. Attach the ' +
-    'tracker, tell the editor to draw the mask, and never report the subject as tracked.',
-};
 
 /**
  * The lowest shot count worth treating as a target.
@@ -589,9 +562,8 @@ const PREVIEW_REQUEST =
  * and handed back a timeline against a request for a video.
  *
  * The heading is required to BE a deliverable heading, and the noun has to appear within a
- * couple of lines of it. Precedent: {@link GENERATED_VOICEOVER} already reads the
- * scene-template field form (`**Voiceover:** …`) for the same reason — a structured brief
- * states its requirements as structure, and reading only prose misses them all.
+ * couple of lines of it — a structured brief states its requirements as structure, and
+ * reading only prose misses them all.
  *
  * The leading marker class is horizontal-only (` \t\r`, not `\s`). A `\s` there also matches
  * the newline the `(?:^|\n)` alternation just consumed, so every blank line in a brief is two
@@ -668,64 +640,6 @@ export function explicitCutawayCount(prompt: string): number | undefined {
   return max;
 }
 
-/**
- * Tracking a PERSON or object through the picture: the verb next to a subject noun. "The
- * audio track" and "the music track" are nouns and never match; "follow the music" has no
- * subject. "track them through that section" is the captured brief.
- */
-const SUBJECT_TRACKING =
-  /\b(?:track|follow|tracking|following)\b[^.\n]{0,40}\b(?:him|her|them|the rider|rider|subject|the person|person|face|faces|skier|snowboarder|the (?:guy|girl|man|woman|player|speaker|presenter|dog|cat|car))\b/;
-
-/** The narration nouns editors use, in both spellings. */
-const VOICEOVER_NOUN = 'voice[- ]?over|narration|narrator|tts|text[- ]to[- ]speech|ai voice';
-
-/**
- * Spoken narration the agent would have to GENERATE.
- *
- * Deliberately narrow, in two forms that both mean "one that does not exist yet":
- * an explicit verb ("add a voiceover", "write the narration"), or an INDEFINITE article
- * ("a reel with a voiceover"). "Cut on the voiceover" and "duck the music under the
- * narration" name audio the project already has, and the agent handles both — flagging
- * those would be a false alarm on ordinary work, which is worse than a missed disclosure.
- */
-const GENERATED_VOICEOVER = new RegExp(
-  `\\b(?:add|generate|create|make|write|record|produce|need|want)\\b[^.\n]{0,40}\\b(?:${VOICEOVER_NOUN})\\b` +
-    `|\\bwith (?:a|an|some)\\b[^.\n]{0,20}\\b(?:${VOICEOVER_NOUN})\\b` +
-    // A scene template's own FIELD — "**Voiceover:** …", "- Voiceover or dialogue". This is
-    // how the captured brief asked, per scene, and neither form above could see it: there is
-    // no verb and no article, just a heading the writer expects the agent to fill in.
-    `|(?:^|\n)[\\s*_#>-]*(?:${VOICEOVER_NOUN})\\b[^\n]{0,20}:`,
-);
-
-/** Sound effects to be SOURCED — whooshes, impacts, risers, stingers. */
-const SOURCED_SOUND_EFFECTS =
-  /\b(sound\s?effects?|sfx|foley|whoosh(?:es)?|riser[s]?|stinger[s]?|bass hit[s]?|swoosh(?:es)?)\b/;
-
-/**
- * Deliverables this product genuinely cannot produce, so a run can say so instead of
- * quietly omitting them.
- *
- * The precedent is {@link CheckableAcceptance.deliverableFile}, which exists for exactly
- * this reason and covered exactly one case. A captured brief also asked, per scene, for
- * voiceover and for sound effects — naming a sound-effects search tool it believed it had.
- * Neither exists in the tool registry: there is no text-to-speech tool and no SFX catalogue
- * (`search_music` is music, `search_stock` is picture). The run searched for neither,
- * mentioned neither, and would have delivered a silent, effect-less cut against a brief
- * whose every scene specified both.
- *
- * Recording the gap is disclosure, not capability. Whether to BUILD narration or SFX
- * sourcing is a separate product decision; being honest about their absence is not.
- */
-export function unmeetableDeliverables(prompt: string): UnmeetableDeliverable[] {
-  const normalized = prompt.toLowerCase();
-  const missing: UnmeetableDeliverable[] = [];
-  if (GENERATED_VOICEOVER.test(normalized)) missing.push('voiceover');
-  if (SOURCED_SOUND_EFFECTS.test(normalized)) missing.push('soundEffects');
-  if (PREVIEW_REQUEST.test(normalized)) missing.push('preview');
-  if (SUBJECT_TRACKING.test(normalized)) missing.push('subjectTracking');
-  return missing;
-}
-
 const STICKER_WORDS = /\b(?:stickers?|emojis?)\b/i;
 const CALLOUT_WORDS =
   /\b(?:callouts?|highlight(?:ed)? box(?:es)?|box(?:es)? around|arrows?|circle|circling|underlin\w*|numbered badges?|speech bubbles?)\b/i;
@@ -770,7 +684,6 @@ export function checkableAcceptance(
 ): CheckableAcceptance {
   const minShotCount = explicitMinShotCount(prompt);
   const coverage = explicitCoverage(prompt);
-  const unmeetable = unmeetableDeliverables(prompt);
   const cutaways = explicitCutawayCount(prompt);
   const elements = explicitElements(prompt);
   const medianShotSource = references.applied.find((c) => c.line.startsWith('Pacing:'));
@@ -787,7 +700,6 @@ export function checkableAcceptance(
     ...(medianShotSource === undefined ? {} : { medianShotSource: medianShotSource.profileId }),
     ...(coverage.length === 0 ? {} : { coverage }),
     ...(asksForRenderedFile(prompt) ? { deliverableFile: true } : {}),
-    ...(unmeetable.length === 0 ? {} : { unmeetable }),
     ...(asksToRememberPreference(prompt) ? { rememberPreference: true } : {}),
     ...(cutaways === undefined ? {} : { maxStockCutaways: cutaways }),
     ...(elements.length === 0 ? {} : { elements }),
@@ -847,12 +759,6 @@ export function acceptanceCriteria(acceptance: CheckableAcceptance): readonly st
   if (acceptance.deliverableFile === true) {
     criteria.push('A rendered file is delivered (the Export dialog, not this panel).');
   }
-  // Stated as a criterion so the run has to answer for it. A deliverable the product cannot
-  // make is not a reason to say nothing — it is the one thing the editor most needs told,
-  // because they will otherwise discover it by watching a silent cut.
-  for (const deliverable of acceptance.unmeetable ?? []) {
-    criteria.push(UNMEETABLE_LABEL[deliverable]);
-  }
   if (acceptance.maxStockCutaways !== undefined) {
     criteria.push(
       `At most ${String(acceptance.maxStockCutaways)} stock cutaway${
@@ -894,7 +800,6 @@ export function hasCheckableAcceptance(acceptance: CheckableAcceptance): boolean
     acceptance.medianShotSeconds !== undefined ||
     (acceptance.coverage?.length ?? 0) > 0 ||
     acceptance.deliverableFile === true ||
-    (acceptance.unmeetable?.length ?? 0) > 0 ||
     acceptance.rememberPreference === true ||
     acceptance.maxStockCutaways !== undefined ||
     (acceptance.elements?.length ?? 0) > 0

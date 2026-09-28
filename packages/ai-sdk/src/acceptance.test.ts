@@ -20,7 +20,6 @@ import {
   explicitMinShotCount,
   hasCheckableAcceptance,
   mentionsUnreadableShotCount,
-  unmeetableDeliverables,
 } from './acceptance.js';
 import { referenceDirectives } from './references/directives.js';
 import { buildReferenceProfile } from './references/profile.js';
@@ -334,23 +333,12 @@ describe('checkableAcceptance', () => {
   });
 });
 
-/**
- * GAP-009. A captured brief specified, per scene, a voiceover and sound effects — and told
- * the agent it had a sound-effects search tool. Neither exists in the registry: no
- * text-to-speech, and no SFX catalogue (`search_music` is music, `search_stock` is picture).
- * The run searched for neither, mentioned neither, and would have delivered a silent,
- * effect-less cut against a brief whose every scene asked for both.
- *
- * The precedent is `deliverableFile`, which exists for exactly this reason and covered
- * exactly one case. This is disclosure, not capability.
- */
 describe('asksForPreview', () => {
   it('recognises a request to be shown the cut before the render', () => {
     expect(asksForPreview('Show me a preview before you render.')).toBe(true);
     expect(asksForPreview('I want to see a preview first')).toBe(true);
     expect(asksForPreview('preview it, then export')).toBe(true);
     expect(asksForPreview('the preview thumbnails look soft')).toBe(false);
-    expect(unmeetableDeliverables('show me a preview before you render')).toEqual(['preview']);
   });
 });
 
@@ -389,68 +377,21 @@ describe('explicitCutawayCount', () => {
   });
 });
 
-describe('unmeetableDeliverables', () => {
-  it('records subject tracking as unmeetable without the editor’s mask, never an audio track', () => {
-    expect(
-      unmeetableDeliverables(
-        'find them, track them through that section, and keep a soft highlight on them',
-      ),
-    ).toEqual(['subjectTracking']);
-    expect(unmeetableDeliverables('follow the rider down the run')).toEqual(['subjectTracking']);
-    expect(unmeetableDeliverables('put the music on its own track')).toEqual([]);
-    expect(unmeetableDeliverables('follow the music with the cuts')).toEqual([]);
-  });
-
-  it('spots a request to generate narration', () => {
-    expect(unmeetableDeliverables('add a voiceover explaining the story')).toEqual(['voiceover']);
-    expect(unmeetableDeliverables('I need AI narration over the b-roll')).toEqual(['voiceover']);
-  });
-
-  // The narrow half of the rule. Cutting to narration the project ALREADY has is ordinary
-  // work the agent does well, and flagging it would be a false alarm on a normal request.
-  it('does not flag editing against a voiceover that already exists', () => {
-    expect(unmeetableDeliverables('cut on the beats of the voiceover')).toEqual([]);
-    expect(unmeetableDeliverables('duck the music under the narration')).toEqual([]);
-  });
-
-  it('spots sound-effect sourcing by the words editors actually use', () => {
-    expect(unmeetableDeliverables('whoosh transitions and a bass hit on the reveal')).toEqual([
-      'soundEffects',
-    ]);
-    expect(unmeetableDeliverables('add sfx for each cut')).toEqual(['soundEffects']);
-  });
-
-  it('reports both when a brief asks for both', () => {
-    expect(
-      unmeetableDeliverables('Add a voiceover, plus sound effects on every transition.'),
-    ).toEqual(['voiceover', 'soundEffects']);
-  });
-
-  // How the captured brief actually asked: a scene template with a "Voiceover:" field the
-  // writer expects filled in. No verb, no article — invisible to both rules above.
-  it('spots a scene template’s own voiceover field', () => {
-    expect(unmeetableDeliverables('## SCENE 1\n\n**Voiceover:** "One tiny mistake."')).toEqual([
-      'voiceover',
-    ]);
-    expect(unmeetableDeliverables('For every scene specify:\n* Voiceover or dialogue:')).toEqual([
-      'voiceover',
-    ]);
-  });
-
-  it('says nothing about an ordinary editing request', () => {
-    expect(unmeetableDeliverables('cut this to 60 seconds and caption it')).toEqual([]);
-  });
-
-  it('becomes a criterion the run has to answer for, naming the way forward', () => {
-    const prompt = 'a 30s reel with a voiceover and whoosh transitions';
-    const acceptance = checkableAcceptance(prompt, { seconds: 30 });
-    expect(acceptance.unmeetable).toEqual(['voiceover', 'soundEffects']);
-    expect(hasCheckableAcceptance(acceptance)).toBe(true);
+describe('capability claims are not read off the request', () => {
+  // Run 6cb12e30: "Follow the subject" and "Whoosh on every whip" pulled two keyword-
+  // triggered sentences into the run's acceptance criteria — "track_object only ATTACHES a
+  // tracker … tell the editor to draw the mask" and "Sound effects cannot be sourced here".
+  // Both were false on the desktop (find_mask_targets + create_mask track a subject with no
+  // drawn mask; search_music returns Freesound effects), and the run believed them: it
+  // told the editor to draw masks and skipped the whole sound-design brief. What the
+  // product cannot do is stated once, unconditionally, in the agent contract.
+  it('puts no capability sentence into the criteria, whatever the brief says', () => {
+    const acceptance = checkableAcceptance(
+      'Follow the runner, add a voiceover, whoosh on every transition, show me a preview',
+      undefined,
+    );
     const criteria = acceptanceCriteria(acceptance).join('\n');
-    // Not just "cannot": what the editor can do instead.
-    expect(criteria).toMatch(/no text-to-speech/i);
-    expect(criteria).toMatch(/Record or import a voice track/i);
-    expect(criteria).toMatch(/Import the effects you want/i);
+    expect(criteria).not.toMatch(/cannot|draw the mask|no text-to-speech/i);
   });
 });
 

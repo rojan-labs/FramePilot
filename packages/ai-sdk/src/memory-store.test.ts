@@ -196,6 +196,25 @@ describe("summarizeMemory is bounded in the project's age (Workstream E)", () =>
     expect(reason).not.toMatch(/word\d+[a-z]/);
   });
 
+  it("renders an auto-applied edit as an earlier run's own words, never as the editor's acceptance", () => {
+    // Run 6cb12e30: "…since the default face is the only one available" — an earlier run's
+    // auto-applied narration — sat under "Previously accepted edits", and the next run told
+    // the editor "you chose to keep the default font".
+    const project = recordAccepted(
+      recordAccepted(makeProject(), patch('p1', 'Tightened the intro.')),
+      patch('p2', "I'm reworking the titles, since the default face is the only one available."),
+      { origin: 'auto_applied' },
+    );
+    const summary = summarizeMemory(readMemory(project));
+    expect(line(summary, 'Previously accepted')).toBe(
+      'Previously accepted edits: Tightened the intro.',
+    );
+    const automatic = line(summary, 'Applied automatically by earlier AI runs');
+    expect(automatic).toContain("not the editor's words");
+    expect(automatic).toContain('default face');
+    expect(line(summary, 'Previously accepted')).not.toContain('default face');
+  });
+
   it('drops an empty reason rather than rendering a blank entry', () => {
     const summary = summarizeMemory(readMemory(withAccepted(['   ', 'tighten intro'])));
     expect(summary).toBe('Previously accepted edits [newest 1 of 2]: tighten intro');
