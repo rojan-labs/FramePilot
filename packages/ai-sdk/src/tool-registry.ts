@@ -466,7 +466,8 @@ const readTools: ToolSpec[] = [
         'Write your plan for this request and keep it current: the FULL list every call ' +
         '(it replaces the last one), one item per deliverable the request asks for, in the ' +
         "request's own terms and order. Status: pending, in_progress, done, or blocked — " +
-        'blocked only when no available tool can do it, with a note saying why. The run ' +
+        'done only once the edit that delivers it has been applied (a part you skipped is ' +
+        'not done); blocked only when no available tool can do it, with a note saying why. The run ' +
         'continues while any item is pending or in progress. Returns the counts and the ' +
         'next open item. Does not edit the timeline.',
       capabilities: ['planning'],

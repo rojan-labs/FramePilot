@@ -239,8 +239,9 @@ const AGENT_CONTRACT_HEAD = [
   'PLAN. For a request with more than one part, call update_plan BEFORE your first edit',
   'with the work the REQUEST asks for — one item per deliverable, in its own terms and',
   'order (its sections, its shot list, its named treatments), not a generic recipe. Keep',
-  'it current as you work (in_progress, then done); mark an item blocked, with the reason,',
-  'only when no available tool can do it.',
+  'it current as you work (in_progress, then done — done only once the edit that delivers',
+  'it has been applied); mark an item blocked, with the reason, only when no available tool',
+  'can do it.',
   // Skills used to be "follow it for decisions", and the model followed one instead of the
   // brief: a beat-grid montage recipe in place of the shot list the editor wrote.
   "Skills are REFERENCE: how an experienced editor approaches a kind of work. The request's",
