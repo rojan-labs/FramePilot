@@ -6,6 +6,9 @@
  * really has (neither renderer fakes one), hex colours (the engine parses hex only), and every
  * typography valid under the schema the engine validates it against.
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CAPTION_FONT_CATALOG, getCaptionFont } from './caption-fonts.js';
 import { CaptionStyleSchema } from './index.js';
@@ -164,5 +167,30 @@ describe('parseTextOverlayTypography', () => {
     })!;
     expect(parsed.background).toEqual({ radius: 0.2 });
     expect('highlight' in parsed).toBe(false);
+  });
+});
+
+describe('committed schema/text-overlay-styles.json (cross-language contract)', () => {
+  // The engine's `add_text_layer` twin writes a style's look from its packaged copy of this
+  // file (`test_text_overlay_styles.py` checks that copy against it). This ties the JSON back
+  // to the TypeScript it is generated from: a style edited here but never regenerated would
+  // make an MCP client and Agent mode write two different looks for one style id.
+  it('matches the TS source (run `schema:generate` after editing the catalog)', () => {
+    const committed = JSON.parse(
+      readFileSync(
+        path.join(
+          path.dirname(fileURLToPath(import.meta.url)),
+          '..',
+          'schema',
+          'text-overlay-styles.json',
+        ),
+        'utf-8',
+      ),
+    ) as unknown;
+    expect({
+      defaultStyleId: DEFAULT_TEXT_OVERLAY_STYLE_ID,
+      categories: TEXT_OVERLAY_STYLE_CATEGORIES,
+      styles: TEXT_OVERLAY_STYLE_CATALOG,
+    }).toEqual(committed);
   });
 });

@@ -1,0 +1,1546 @@
+{
+  "defaultStyleId": "heading",
+  "categories": [
+    {
+      "id": "basic",
+      "label": "Basic"
+    },
+    {
+      "id": "headlines",
+      "label": "Headlines"
+    },
+    {
+      "id": "lower-thirds",
+      "label": "Lower thirds"
+    },
+    {
+      "id": "callouts",
+      "label": "Callouts"
+    },
+    {
+      "id": "social",
+      "label": "Social"
+    },
+    {
+      "id": "quotes",
+      "label": "Quotes"
+    },
+    {
+      "id": "script",
+      "label": "Script"
+    },
+    {
+      "id": "retro",
+      "label": "Retro & fun"
+    }
+  ],
+  "styles": [
+    {
+      "id": "heading",
+      "label": "Heading",
+      "category": "basic",
+      "sampleText": "Add a heading",
+      "look": {
+        "background": null,
+        "typography": {
+          "letterSpacing": -0.01,
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Inter",
+        "fontWeight": 800,
+        "color": "#ffffff",
+        "fontSizePercent": 8
+      }
+    },
+    {
+      "id": "subheading",
+      "label": "Subheading",
+      "category": "basic",
+      "sampleText": "Add a subheading",
+      "look": {
+        "background": null,
+        "typography": {
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Inter",
+        "fontWeight": 600,
+        "color": "#ffffff",
+        "fontSizePercent": 5.5
+      }
+    },
+    {
+      "id": "body",
+      "label": "Body text",
+      "category": "basic",
+      "sampleText": "Add a little bit of body text",
+      "look": {
+        "background": null,
+        "typography": {
+          "lineHeight": 1.3,
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 70,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Inter",
+        "fontWeight": 500,
+        "color": "#ffffff",
+        "fontSizePercent": 4
+      }
+    },
+    {
+      "id": "outline-caps",
+      "label": "Outline caps",
+      "category": "basic",
+      "sampleText": "Outline caps",
+      "look": {
+        "background": null,
+        "typography": {
+          "textTransform": "uppercase",
+          "outlineColor": "#0b0b0f",
+          "outlineWidth": 2
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Montserrat",
+        "fontWeight": 900,
+        "color": "#ffffff",
+        "fontSizePercent": 7
+      }
+    },
+    {
+      "id": "serif-heading",
+      "label": "Serif",
+      "category": "basic",
+      "sampleText": "A serif heading",
+      "look": {
+        "background": null,
+        "typography": {
+          "shadow": {
+            "color": "#000000d9",
+            "blur": 0.26,
+            "offsetX": 0,
+            "offsetY": 0.02
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Playfair Display",
+        "fontWeight": 700,
+        "color": "#f4f1ea",
+        "fontSizePercent": 7.5
+      }
+    },
+    {
+      "id": "hollow",
+      "label": "Hollow caps",
+      "category": "basic",
+      "sampleText": "Hollow",
+      "look": {
+        "background": null,
+        "typography": {
+          "textTransform": "uppercase",
+          "textOpacity": 0,
+          "outlineColor": "#ffffff",
+          "outlineWidth": 1.5
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Archivo Black",
+        "fontWeight": 400,
+        "color": "#ffffff",
+        "fontSizePercent": 10
+      }
+    },
+    {
+      "id": "impact-title",
+      "label": "Big headline",
+      "category": "headlines",
+      "sampleText": "Big news",
+      "look": {
+        "background": null,
+        "typography": {
+          "textTransform": "uppercase",
+          "outlineColor": "#0b0b0f",
+          "outlineWidth": 2,
+          "shadow": {
+            "color": "#000000",
+            "blur": 0,
+            "offsetX": 0.05,
+            "offsetY": 0.07
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Anton",
+        "fontWeight": 400,
+        "color": "#ffffff",
+        "fontSizePercent": 11
+      }
+    },
+    {
+      "id": "cinematic",
+      "label": "Cinematic",
+      "category": "headlines",
+      "sampleText": "The long road",
+      "look": {
+        "background": null,
+        "typography": {
+          "textTransform": "uppercase",
+          "letterSpacing": 0.22,
+          "shadow": {
+            "color": "#000000d9",
+            "blur": 0.26,
+            "offsetX": 0,
+            "offsetY": 0.02
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Cinzel",
+        "fontWeight": 600,
+        "color": "#f4f1ea",
+        "fontSizePercent": 6
+      }
+    },
+    {
+      "id": "hook",
+      "label": "Hook",
+      "category": "headlines",
+      "sampleText": "Stop scrolling",
+      "look": {
+        "background": "#ff2e4d",
+        "typography": {
+          "textTransform": "uppercase",
+          "background": {
+            "radius": 0.18,
+            "paddingX": 0.45,
+            "paddingY": 0.25
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 84,
+        "xPercent": 50,
+        "yPercent": 22,
+        "fontFamily": "Unbounded",
+        "fontWeight": 800,
+        "color": "#ffffff",
+        "fontSizePercent": 6.5
+      }
+    },
+    {
+      "id": "neon",
+      "label": "Neon sign",
+      "category": "headlines",
+      "sampleText": "Night mode",
+      "look": {
+        "background": null,
+        "typography": {
+          "shadow": {
+            "color": "#3de0ffcc",
+            "blur": 0.55,
+            "offsetX": 0,
+            "offsetY": 0
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Righteous",
+        "fontWeight": 400,
+        "color": "#3de0ff",
+        "fontSizePercent": 9
+      }
+    },
+    {
+      "id": "retro-pop",
+      "label": "Retro pop",
+      "category": "headlines",
+      "sampleText": "Game on",
+      "look": {
+        "background": null,
+        "typography": {
+          "outlineColor": "#0b0b0f",
+          "outlineWidth": 2.5,
+          "shadow": {
+            "color": "#000000",
+            "blur": 0,
+            "offsetX": 0.05,
+            "offsetY": 0.07
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Luckiest Guy",
+        "fontWeight": 400,
+        "color": "#ffd60a",
+        "fontSizePercent": 10
+      }
+    },
+    {
+      "id": "editorial",
+      "label": "Editorial",
+      "category": "headlines",
+      "sampleText": "Slow mornings",
+      "look": {
+        "background": null,
+        "typography": {
+          "fontStyle": "italic",
+          "lineHeight": 1.05,
+          "shadow": {
+            "color": "#000000d9",
+            "blur": 0.26,
+            "offsetX": 0,
+            "offsetY": 0.02
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Instrument Serif",
+        "fontWeight": 400,
+        "color": "#ffffff",
+        "fontSizePercent": 10
+      }
+    },
+    {
+      "id": "terminal",
+      "label": "Terminal",
+      "category": "headlines",
+      "sampleText": "> ship it",
+      "look": {
+        "background": "#0b0b0fd9",
+        "typography": {
+          "background": {
+            "radius": 0.12,
+            "paddingX": 0.5,
+            "paddingY": 0.3
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "JetBrains Mono",
+        "fontWeight": 700,
+        "color": "#8cff5a",
+        "fontSizePercent": 6
+      }
+    },
+    {
+      "id": "name-tag",
+      "label": "Name tag",
+      "category": "lower-thirds",
+      "sampleText": "Alex Rivera",
+      "look": {
+        "background": "#0b0b0fcc",
+        "typography": {
+          "background": {
+            "radius": 0.15,
+            "paddingX": 0.6,
+            "paddingY": 0.32
+          }
+        },
+        "align": "left",
+        "boxWidthPercent": 76,
+        "xPercent": 42,
+        "yPercent": 76,
+        "fontFamily": "Inter",
+        "fontWeight": 700,
+        "color": "#ffffff",
+        "fontSizePercent": 3.6
+      }
+    },
+    {
+      "id": "accent-bar",
+      "label": "Accent bar",
+      "category": "lower-thirds",
+      "sampleText": "Product lead",
+      "look": {
+        "background": "#2f6bff",
+        "typography": {
+          "textTransform": "uppercase",
+          "letterSpacing": 0.06,
+          "background": {
+            "radius": 0.08,
+            "paddingX": 0.6,
+            "paddingY": 0.3
+          }
+        },
+        "align": "left",
+        "boxWidthPercent": 76,
+        "xPercent": 42,
+        "yPercent": 76,
+        "fontFamily": "Montserrat",
+        "fontWeight": 800,
+        "color": "#ffffff",
+        "fontSizePercent": 3.2
+      }
+    },
+    {
+      "id": "minimal-lower",
+      "label": "Location",
+      "category": "lower-thirds",
+      "sampleText": "Filmed in Lisbon",
+      "look": {
+        "background": null,
+        "typography": {
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          }
+        },
+        "align": "left",
+        "boxWidthPercent": 76,
+        "xPercent": 42,
+        "yPercent": 76,
+        "fontFamily": "DM Sans",
+        "fontWeight": 600,
+        "color": "#ffffff",
+        "fontSizePercent": 3.2
+      }
+    },
+    {
+      "id": "smoked-lower",
+      "label": "Smoked",
+      "category": "lower-thirds",
+      "sampleText": "Jordan Lee · Founder",
+      "look": {
+        "background": "#0b0b0f99",
+        "typography": {
+          "background": {
+            "radius": 0.3,
+            "paddingX": 0.6,
+            "paddingY": 0.3,
+            "borderColor": "#ffffff2e",
+            "borderWidth": 1
+          }
+        },
+        "align": "left",
+        "boxWidthPercent": 76,
+        "xPercent": 42,
+        "yPercent": 76,
+        "fontFamily": "Plus Jakarta Sans",
+        "fontWeight": 600,
+        "color": "#ffffff",
+        "fontSizePercent": 3.2
+      }
+    },
+    {
+      "id": "serif-credit",
+      "label": "Credit",
+      "category": "lower-thirds",
+      "sampleText": "Music by Nova",
+      "look": {
+        "background": null,
+        "typography": {
+          "fontStyle": "italic",
+          "shadow": {
+            "color": "#000000d9",
+            "blur": 0.26,
+            "offsetX": 0,
+            "offsetY": 0.02
+          }
+        },
+        "align": "left",
+        "boxWidthPercent": 76,
+        "xPercent": 42,
+        "yPercent": 76,
+        "fontFamily": "Lora",
+        "fontWeight": 500,
+        "color": "#f4f1ea",
+        "fontSizePercent": 3.4
+      }
+    },
+    {
+      "id": "highlight",
+      "label": "Highlight",
+      "category": "callouts",
+      "sampleText": "Key point",
+      "look": {
+        "background": "#ffd60a",
+        "typography": {
+          "background": {
+            "radius": 0.15,
+            "paddingX": 0.45,
+            "paddingY": 0.2
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Poppins",
+        "fontWeight": 700,
+        "color": "#0b0b0f",
+        "fontSizePercent": 6
+      }
+    },
+    {
+      "id": "pill-tag",
+      "label": "Pill tag",
+      "category": "callouts",
+      "sampleText": "New",
+      "look": {
+        "background": "#ff2e4d",
+        "typography": {
+          "textTransform": "uppercase",
+          "letterSpacing": 0.08,
+          "background": {
+            "radius": 0.6,
+            "paddingX": 0.7,
+            "paddingY": 0.28
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Inter",
+        "fontWeight": 800,
+        "color": "#ffffff",
+        "fontSizePercent": 4
+      }
+    },
+    {
+      "id": "sticker",
+      "label": "Pow",
+      "category": "callouts",
+      "sampleText": "Wow!",
+      "look": {
+        "background": null,
+        "typography": {
+          "letterSpacing": 0.03,
+          "outlineColor": "#0b0b0f",
+          "outlineWidth": 2.5,
+          "shadow": {
+            "color": "#000000",
+            "blur": 0,
+            "offsetX": 0.05,
+            "offsetY": 0.07
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Bangers",
+        "fontWeight": 400,
+        "color": "#ffffff",
+        "fontSizePercent": 11
+      }
+    },
+    {
+      "id": "big-number",
+      "label": "Big number",
+      "category": "callouts",
+      "sampleText": "3x faster",
+      "look": {
+        "background": null,
+        "typography": {
+          "shadow": {
+            "color": "#000000",
+            "blur": 0,
+            "offsetX": 0.05,
+            "offsetY": 0.07
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Bebas Neue",
+        "fontWeight": 400,
+        "color": "#ffd60a",
+        "fontSizePercent": 15
+      }
+    },
+    {
+      "id": "label",
+      "label": "Label",
+      "category": "callouts",
+      "sampleText": "Step 1",
+      "look": {
+        "background": "#8cff5a",
+        "typography": {
+          "textTransform": "uppercase",
+          "background": {
+            "radius": 0.05,
+            "paddingX": 0.5,
+            "paddingY": 0.22
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Space Mono",
+        "fontWeight": 700,
+        "color": "#0b0b0f",
+        "fontSizePercent": 4.5
+      }
+    },
+    {
+      "id": "subscribe",
+      "label": "Subscribe",
+      "category": "social",
+      "sampleText": "Subscribe",
+      "look": {
+        "background": "#ff0033",
+        "typography": {
+          "textTransform": "uppercase",
+          "letterSpacing": 0.04,
+          "background": {
+            "radius": 0.25,
+            "paddingX": 0.7,
+            "paddingY": 0.32
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 78,
+        "fontFamily": "Montserrat",
+        "fontWeight": 900,
+        "color": "#ffffff",
+        "fontSizePercent": 5
+      }
+    },
+    {
+      "id": "follow",
+      "label": "Follow",
+      "category": "social",
+      "sampleText": "Follow for more",
+      "look": {
+        "background": "#ff4fa3",
+        "typography": {
+          "background": {
+            "radius": 0.6,
+            "paddingX": 0.7,
+            "paddingY": 0.3
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 78,
+        "fontFamily": "Poppins",
+        "fontWeight": 700,
+        "color": "#ffffff",
+        "fontSizePercent": 4.5
+      }
+    },
+    {
+      "id": "handle",
+      "label": "Handle",
+      "category": "social",
+      "sampleText": "@yourhandle",
+      "look": {
+        "background": "#00000080",
+        "typography": {
+          "background": {
+            "radius": 0.6,
+            "paddingX": 0.6,
+            "paddingY": 0.25
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 86,
+        "fontFamily": "Inter",
+        "fontWeight": 600,
+        "color": "#ffffff",
+        "fontSizePercent": 3.6
+      }
+    },
+    {
+      "id": "comment-bubble",
+      "label": "Comment",
+      "category": "social",
+      "sampleText": "Wait for it…",
+      "look": {
+        "background": "#ffffff",
+        "typography": {
+          "background": {
+            "radius": 0.45,
+            "paddingX": 0.6,
+            "paddingY": 0.3
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 84,
+        "xPercent": 50,
+        "yPercent": 22,
+        "fontFamily": "Nunito",
+        "fontWeight": 800,
+        "color": "#0b0b0f",
+        "fontSizePercent": 4.5
+      }
+    },
+    {
+      "id": "quote-serif",
+      "label": "Quote",
+      "category": "quotes",
+      "sampleText": "“Make it simple.”",
+      "look": {
+        "background": null,
+        "typography": {
+          "fontStyle": "italic",
+          "lineHeight": 1.2,
+          "shadow": {
+            "color": "#000000d9",
+            "blur": 0.26,
+            "offsetX": 0,
+            "offsetY": 0.02
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Playfair Display",
+        "fontWeight": 500,
+        "color": "#ffffff",
+        "fontSizePercent": 6.5
+      }
+    },
+    {
+      "id": "quote-hand",
+      "label": "Handwritten",
+      "category": "script",
+      "sampleText": "best day ever",
+      "look": {
+        "background": null,
+        "typography": {
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Caveat",
+        "fontWeight": 700,
+        "color": "#ffffff",
+        "fontSizePercent": 9
+      }
+    },
+    {
+      "id": "typewriter-card",
+      "label": "Chapter card",
+      "category": "quotes",
+      "sampleText": "Chapter one",
+      "look": {
+        "background": "#0b0b0fcc",
+        "typography": {
+          "background": {
+            "radius": 0.06,
+            "paddingX": 0.6,
+            "paddingY": 0.35
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Courier Prime",
+        "fontWeight": 400,
+        "color": "#f4f1ea",
+        "fontSizePercent": 5
+      }
+    },
+    {
+      "id": "statement",
+      "label": "Statement",
+      "category": "quotes",
+      "sampleText": "Less, but better.",
+      "look": {
+        "background": null,
+        "typography": {
+          "letterSpacing": -0.02,
+          "lineHeight": 1.05,
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Fraunces",
+        "fontWeight": 800,
+        "color": "#ffffff",
+        "fontSizePercent": 8
+      }
+    },
+    {
+      "id": "tracked-caps",
+      "label": "Tracked caps",
+      "category": "basic",
+      "sampleText": "Behind the scenes",
+      "look": {
+        "background": null,
+        "typography": {
+          "textTransform": "uppercase",
+          "letterSpacing": 0.24,
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Montserrat",
+        "fontWeight": 600,
+        "color": "#ffffff",
+        "fontSizePercent": 4
+      }
+    },
+    {
+      "id": "rounded",
+      "label": "Rounded",
+      "category": "basic",
+      "sampleText": "Hello there",
+      "look": {
+        "background": null,
+        "typography": {
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Nunito",
+        "fontWeight": 900,
+        "color": "#ffffff",
+        "fontSizePercent": 7.5
+      }
+    },
+    {
+      "id": "white-box",
+      "label": "White box",
+      "category": "basic",
+      "sampleText": "Simple and clear",
+      "look": {
+        "background": "#ffffff",
+        "typography": {
+          "background": {
+            "radius": 0.12,
+            "paddingX": 0.5,
+            "paddingY": 0.25
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Inter",
+        "fontWeight": 700,
+        "color": "#0b0b0f",
+        "fontSizePercent": 5
+      }
+    },
+    {
+      "id": "poster",
+      "label": "Poster",
+      "category": "headlines",
+      "sampleText": "Summer drop",
+      "look": {
+        "background": null,
+        "typography": {
+          "textTransform": "uppercase",
+          "letterSpacing": 0.04,
+          "shadow": {
+            "color": "#000000",
+            "blur": 0,
+            "offsetX": 0.05,
+            "offsetY": 0.07
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Bebas Neue",
+        "fontWeight": 400,
+        "color": "#ffffff",
+        "fontSizePercent": 14
+      }
+    },
+    {
+      "id": "luxury",
+      "label": "Luxury",
+      "category": "headlines",
+      "sampleText": "The collection",
+      "look": {
+        "background": null,
+        "typography": {
+          "fontStyle": "italic",
+          "shadow": {
+            "color": "#000000d9",
+            "blur": 0.26,
+            "offsetX": 0,
+            "offsetY": 0.02
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Bodoni Moda",
+        "fontWeight": 700,
+        "color": "#f2c14e",
+        "fontSizePercent": 7
+      }
+    },
+    {
+      "id": "block",
+      "label": "Block",
+      "category": "headlines",
+      "sampleText": "Part two",
+      "look": {
+        "background": "#ffffff",
+        "typography": {
+          "textTransform": "uppercase",
+          "background": {
+            "radius": 0.04,
+            "paddingX": 0.4,
+            "paddingY": 0.18
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Archivo Black",
+        "fontWeight": 400,
+        "color": "#0b0b0f",
+        "fontSizePercent": 8
+      }
+    },
+    {
+      "id": "glass-pill",
+      "label": "Glass pill",
+      "category": "lower-thirds",
+      "sampleText": "Sam Carter · Designer",
+      "look": {
+        "background": "#ffffff29",
+        "typography": {
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          },
+          "background": {
+            "radius": 0.6,
+            "paddingX": 0.7,
+            "paddingY": 0.3,
+            "borderColor": "#ffffff73",
+            "borderWidth": 1
+          }
+        },
+        "align": "left",
+        "boxWidthPercent": 76,
+        "xPercent": 42,
+        "yPercent": 76,
+        "fontFamily": "Manrope",
+        "fontWeight": 700,
+        "color": "#ffffff",
+        "fontSizePercent": 3.2
+      }
+    },
+    {
+      "id": "news-bar",
+      "label": "News bar",
+      "category": "lower-thirds",
+      "sampleText": "Breaking news",
+      "look": {
+        "background": "#ff2e4d",
+        "typography": {
+          "textTransform": "uppercase",
+          "letterSpacing": 0.04,
+          "background": {
+            "radius": 0,
+            "paddingX": 0.6,
+            "paddingY": 0.2
+          }
+        },
+        "align": "left",
+        "boxWidthPercent": 76,
+        "xPercent": 42,
+        "yPercent": 76,
+        "fontFamily": "Oswald",
+        "fontWeight": 600,
+        "color": "#ffffff",
+        "fontSizePercent": 3.6
+      }
+    },
+    {
+      "id": "mono-tag",
+      "label": "Mono tag",
+      "category": "lower-thirds",
+      "sampleText": "v2.4 — release notes",
+      "look": {
+        "background": "#0b0b0fcc",
+        "typography": {
+          "background": {
+            "radius": 0.1,
+            "paddingX": 0.6,
+            "paddingY": 0.3
+          }
+        },
+        "align": "left",
+        "boxWidthPercent": 76,
+        "xPercent": 42,
+        "yPercent": 76,
+        "fontFamily": "IBM Plex Mono",
+        "fontWeight": 400,
+        "color": "#7dff9b",
+        "fontSizePercent": 3
+      }
+    },
+    {
+      "id": "look-here",
+      "label": "Look here",
+      "category": "callouts",
+      "sampleText": "Look here →",
+      "look": {
+        "background": null,
+        "typography": {
+          "outlineColor": "#0b0b0f",
+          "outlineWidth": 1.5,
+          "shadow": {
+            "color": "#000000",
+            "blur": 0,
+            "offsetX": 0.05,
+            "offsetY": 0.07
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Inter",
+        "fontWeight": 800,
+        "color": "#ffd60a",
+        "fontSizePercent": 5.5
+      }
+    },
+    {
+      "id": "heads-up",
+      "label": "Heads up",
+      "category": "callouts",
+      "sampleText": "Heads up",
+      "look": {
+        "background": "#ff6b1a",
+        "typography": {
+          "background": {
+            "radius": 0.2,
+            "paddingX": 0.55,
+            "paddingY": 0.22
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Space Grotesk",
+        "fontWeight": 700,
+        "color": "#0b0b0f",
+        "fontSizePercent": 4.5
+      }
+    },
+    {
+      "id": "price-tag",
+      "label": "Price tag",
+      "category": "callouts",
+      "sampleText": "$19 / month",
+      "look": {
+        "background": "#16a34a",
+        "typography": {
+          "background": {
+            "radius": 0.3,
+            "paddingX": 0.55,
+            "paddingY": 0.22
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Rubik",
+        "fontWeight": 800,
+        "color": "#ffffff",
+        "fontSizePercent": 5
+      }
+    },
+    {
+      "id": "like-share",
+      "label": "Like & share",
+      "category": "social",
+      "sampleText": "Like & share",
+      "look": {
+        "background": "#2f6bff",
+        "typography": {
+          "background": {
+            "radius": 0.3,
+            "paddingX": 0.7,
+            "paddingY": 0.3
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 80,
+        "fontFamily": "Montserrat",
+        "fontWeight": 800,
+        "color": "#ffffff",
+        "fontSizePercent": 4.5
+      }
+    },
+    {
+      "id": "link-in-bio",
+      "label": "Link in bio",
+      "category": "social",
+      "sampleText": "Link in bio",
+      "look": {
+        "background": "#ffd60a",
+        "typography": {
+          "background": {
+            "radius": 0.6,
+            "paddingX": 0.7,
+            "paddingY": 0.28
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 82,
+        "fontFamily": "Poppins",
+        "fontWeight": 700,
+        "color": "#0b0b0f",
+        "fontSizePercent": 4.2
+      }
+    },
+    {
+      "id": "watch-to-end",
+      "label": "Watch to the end",
+      "category": "social",
+      "sampleText": "Watch to the end",
+      "look": {
+        "background": null,
+        "typography": {
+          "textTransform": "uppercase",
+          "outlineColor": "#0b0b0f",
+          "outlineWidth": 2
+        },
+        "align": "center",
+        "boxWidthPercent": 84,
+        "xPercent": 50,
+        "yPercent": 22,
+        "fontFamily": "Inter",
+        "fontWeight": 900,
+        "color": "#ffffff",
+        "fontSizePercent": 5.5
+      }
+    },
+    {
+      "id": "testimonial",
+      "label": "Testimonial",
+      "category": "quotes",
+      "sampleText": "“It changed how we work.”",
+      "look": {
+        "background": null,
+        "typography": {
+          "fontStyle": "italic",
+          "lineHeight": 1.15,
+          "shadow": {
+            "color": "#000000d9",
+            "blur": 0.26,
+            "offsetX": 0,
+            "offsetY": 0.02
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "DM Serif Display",
+        "fontWeight": 400,
+        "color": "#ffffff",
+        "fontSizePercent": 6
+      }
+    },
+    {
+      "id": "manifesto",
+      "label": "Manifesto",
+      "category": "quotes",
+      "sampleText": "Make things people love",
+      "look": {
+        "background": null,
+        "typography": {
+          "textTransform": "uppercase",
+          "lineHeight": 1,
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Syne",
+        "fontWeight": 800,
+        "color": "#ffffff",
+        "fontSizePercent": 7
+      }
+    },
+    {
+      "id": "signature",
+      "label": "Signature",
+      "category": "script",
+      "sampleText": "with love",
+      "look": {
+        "background": null,
+        "typography": {
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Great Vibes",
+        "fontWeight": 400,
+        "color": "#ffffff",
+        "fontSizePercent": 11
+      }
+    },
+    {
+      "id": "marker",
+      "label": "Marker",
+      "category": "script",
+      "sampleText": "Day one",
+      "look": {
+        "background": null,
+        "typography": {
+          "shadow": {
+            "color": "#000000",
+            "blur": 0,
+            "offsetX": 0.05,
+            "offsetY": 0.07
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Permanent Marker",
+        "fontWeight": 400,
+        "color": "#ffffff",
+        "fontSizePercent": 9
+      }
+    },
+    {
+      "id": "brush",
+      "label": "Brush",
+      "category": "script",
+      "sampleText": "Weekend vibes",
+      "look": {
+        "background": null,
+        "typography": {
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Caveat Brush",
+        "fontWeight": 400,
+        "color": "#ffd60a",
+        "fontSizePercent": 10
+      }
+    },
+    {
+      "id": "sweet",
+      "label": "Sweet",
+      "category": "script",
+      "sampleText": "So good",
+      "look": {
+        "background": null,
+        "typography": {
+          "outlineColor": "#ffffff",
+          "outlineWidth": 1.5,
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Pacifico",
+        "fontWeight": 400,
+        "color": "#ff4fa3",
+        "fontSizePercent": 8
+      }
+    },
+    {
+      "id": "notebook",
+      "label": "Notebook",
+      "category": "script",
+      "sampleText": "note to self",
+      "look": {
+        "background": "#f4f1ea",
+        "typography": {
+          "background": {
+            "radius": 0.08,
+            "paddingX": 0.6,
+            "paddingY": 0.3
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Patrick Hand",
+        "fontWeight": 400,
+        "color": "#0b0b0f",
+        "fontSizePercent": 5
+      }
+    },
+    {
+      "id": "arcade",
+      "label": "Arcade",
+      "category": "retro",
+      "sampleText": "Level up",
+      "look": {
+        "background": null,
+        "typography": {
+          "textTransform": "uppercase",
+          "lineHeight": 1.5,
+          "shadow": {
+            "color": "#000000",
+            "blur": 0,
+            "offsetX": 0.05,
+            "offsetY": 0.07
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Press Start 2P",
+        "fontWeight": 400,
+        "color": "#8cff5a",
+        "fontSizePercent": 4
+      }
+    },
+    {
+      "id": "pixel",
+      "label": "Pixel",
+      "category": "retro",
+      "sampleText": "Loading…",
+      "look": {
+        "background": null,
+        "typography": {
+          "shadow": {
+            "color": "#3de0ffb3",
+            "blur": 0.55,
+            "offsetX": 0,
+            "offsetY": 0
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "VT323",
+        "fontWeight": 400,
+        "color": "#3de0ff",
+        "fontSizePercent": 9
+      }
+    },
+    {
+      "id": "seventies",
+      "label": "Seventies",
+      "category": "retro",
+      "sampleText": "Groovy",
+      "look": {
+        "background": null,
+        "typography": {
+          "outlineColor": "#0b0b0f",
+          "outlineWidth": 2,
+          "shadow": {
+            "color": "#000000",
+            "blur": 0,
+            "offsetX": 0.05,
+            "offsetY": 0.07
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Shrikhand",
+        "fontWeight": 400,
+        "color": "#ff6b1a",
+        "fontSizePercent": 10
+      }
+    },
+    {
+      "id": "slab",
+      "label": "Slab",
+      "category": "retro",
+      "sampleText": "Est. 1985",
+      "look": {
+        "background": null,
+        "typography": {
+          "outlineColor": "#0b0b0f",
+          "outlineWidth": 1.5,
+          "shadow": {
+            "color": "#000000",
+            "blur": 0,
+            "offsetX": 0.05,
+            "offsetY": 0.07
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Alfa Slab One",
+        "fontWeight": 400,
+        "color": "#f2c14e",
+        "fontSizePercent": 8
+      }
+    },
+    {
+      "id": "chrome",
+      "label": "Chrome",
+      "category": "retro",
+      "sampleText": "Future",
+      "look": {
+        "background": null,
+        "typography": {
+          "textTransform": "uppercase",
+          "letterSpacing": 0.08,
+          "shadow": {
+            "color": "#3de0ffcc",
+            "blur": 0.55,
+            "offsetX": 0,
+            "offsetY": 0
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Orbitron",
+        "fontWeight": 800,
+        "color": "#ffffff",
+        "fontSizePercent": 8
+      }
+    },
+    {
+      "id": "bubble",
+      "label": "Bubble",
+      "category": "retro",
+      "sampleText": "Yay!",
+      "look": {
+        "background": null,
+        "typography": {
+          "outlineColor": "#ffffff",
+          "outlineWidth": 2.5,
+          "shadow": {
+            "color": "#000000",
+            "blur": 0,
+            "offsetX": 0.05,
+            "offsetY": 0.07
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Titan One",
+        "fontWeight": 400,
+        "color": "#ff4fa3",
+        "fontSizePercent": 11
+      }
+    }
+  ]
+}
