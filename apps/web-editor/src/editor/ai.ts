@@ -388,16 +388,34 @@ export interface AiSessionInput {
 
 /**
  * Project a conversation's event log into the bounded {@link AiMessage} history the
- * model sees (R2 B1). Only terminal user/assistant messages become turns — deltas,
- * tool events, and status are UI-only. Pure + order-preserving.
+ * model sees (R2 B1): per turn, the editor's message and the LAST thing the assistant
+ * said in it. Deltas, tool events and status are UI-only. Pure + order-preserving.
+ *
+ * WHY one assistant message per turn: an agent run narrates as it works — run
+ * `6cb12e30`'s first turn emitted 28 `assistant_message` events ("I'm adding the fade to
+ * black next…") — and every one used to become a history turn. The SDK keeps only the
+ * newest eight (`context-builder.ts#boundedHistory`), so the editor's next message, "load
+ * the tools and complete the task", reached the model with eight of its own progress
+ * notes and WITHOUT the brief it referred to. The follow-up runs then worked from
+ * nothing but their own summaries. A turn's last message is its outcome — the model's
+ * closing account, or the run's completion receipt — which is what a later turn needs;
+ * the narration before it is already reflected in the timeline it hands over.
  */
 export function historyFromEvents(events: readonly AiEvent[]): AiMessage[] {
   const messages: AiMessage[] = [];
+  /** Index in `messages` of each turn's newest assistant message, so a later one replaces it. */
+  const assistantAt = new Map<string, number>();
   for (const event of events) {
     if (event.type === 'user_message' && event.text.trim().length > 0) {
       messages.push({ role: 'user', content: event.text });
     } else if (event.type === 'assistant_message' && event.text.trim().length > 0) {
-      messages.push({ role: 'assistant', content: event.text });
+      const at = assistantAt.get(event.turnId);
+      if (at === undefined) {
+        assistantAt.set(event.turnId, messages.length);
+        messages.push({ role: 'assistant', content: event.text });
+      } else {
+        messages[at] = { role: 'assistant', content: event.text };
+      }
     }
   }
   return messages;
