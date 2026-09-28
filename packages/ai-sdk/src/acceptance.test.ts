@@ -10,11 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
   JUDGEMENT_CRITERION,
   acceptanceCriteria,
-  asksForPreview,
-  asksForRenderedFile,
-  asksToRememberPreference,
   checkableAcceptance,
-  explicitCutawayCount,
   hasCheckableAcceptance,
   statedDuration,
 } from './acceptance.js';
@@ -128,15 +124,6 @@ describe('the request is not read for criteria (issue #136)', () => {
         JUDGEMENT_CRITERION,
       ]);
     }
-  });
-
-  // The receipt caveats and the stock cutaway cap `orchestrator.ts` builds from these no
-  // longer fire: each answers "the request did not say" whatever it is given.
-  it('leaves the retired readers inert', () => {
-    expect(asksForRenderedFile('One final rendered 30s vertical MP4')).toBe(false);
-    expect(asksForPreview('Show me a preview before you render.')).toBe(false);
-    expect(asksToRememberPreference('From now on, always big yellow captions')).toBe(false);
-    expect(explicitCutawayCount('two cutaways please')).toBeUndefined();
   });
 });
 

@@ -134,13 +134,6 @@ export interface CritiqueOptions {
   /** Allowed deviation from {@link durationTargetSeconds}. Defaults to 2s. */
   readonly durationToleranceSeconds?: number;
   /**
-   * The editor's request, verbatim. Read by no check: it fed the "a shot count was stated but
-   * could not be read" warning, which went with the request readers (issue #136).
-   *
-   * @deprecated `orchestrator.ts#critiqueOptions` still sets it; remove with that line.
-   */
-  readonly request?: string;
-  /**
    * Median picture-clip length, in seconds, that the cut is expected to hold.
    *
    * Not read from the prompt: nobody types "median shot 1.2 seconds". It comes from a

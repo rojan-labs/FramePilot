@@ -1960,19 +1960,11 @@ describe('streamAgent', () => {
       rejectedOpCount: 0,
       rejectionReasons: [],
       cancelled: true,
-      deliverableFileRequested: true,
-      previewRequested: true,
-      preferenceRequested: true,
     });
     expect(report).toMatch(/before you stopped the run/);
     expect(report).toMatch(/can be undone/);
     // It must not claim the work is finished…
     expect(report).not.toMatch(/on your timeline now; each one can be undone/);
-    // …and the things the panel cannot do are still said, because they are still true.
-    expect(report).toMatch(/use the Export dialog/);
-    expect(report).toMatch(/asks to see a preview first/);
-    // The preference the brief asked to keep was never written (no set_ai_memory op).
-    expect(report).toMatch(/nothing was saved to project memory/);
   });
 
   it('collapses edits that read identically instead of repeating the line', () => {
@@ -2079,27 +2071,6 @@ describe('streamAgent', () => {
       captionTrackIds: new Set(['caption_1']),
     });
     expect(one).toMatch(/Restyled the captions on caption_1 · 1 caption edit$/m);
-  });
-
-  it('points at Export when the request asked for a file the panel cannot render', () => {
-    const report = agentCompletionReport({
-      ops: [{ type: 'delete_range', trackId: 'video_1' } as unknown as AnyOperation],
-      steps: 1,
-      rejectedOpCount: 0,
-      rejectionReasons: [],
-      deliverableFileRequested: true,
-    });
-    expect(report).toContain('cannot produce');
-    expect(report).toContain('Export dialog');
-    // Silent when nothing was asked for — no unsolicited advice on an ordinary edit.
-    expect(
-      agentCompletionReport({
-        ops: [{ type: 'delete_range', trackId: 'video_1' } as unknown as AnyOperation],
-        steps: 1,
-        rejectedOpCount: 0,
-        rejectionReasons: [],
-      }),
-    ).not.toContain('Export dialog');
   });
 
   it('says so when a montage was chosen with nothing read about the footage', () => {
@@ -2234,10 +2205,11 @@ describe('streamAgent', () => {
         rejectedOpCount: 1,
         rejectionReasons: ['overlaps a neighbour'],
         neverSucceeded: [{ tool: 'professional_audio', reason: 'no audio track' }],
-        deliverableFileRequested: true,
+        contentEvidence: false,
+        ops: Array.from({ length: 4 }, () => ({ type: 'add_clip' }) as unknown as AnyOperation),
       });
       expect(report.indexOf('**Skipped:**')).toBeLessThan(report.indexOf('**Not done:**'));
-      expect(report.indexOf('**Not done:**')).toBeLessThan(report.indexOf('Export dialog'));
+      expect(report.indexOf('**Not done:**')).toBeLessThan(report.indexOf('Heads up'));
     });
 
     it('reaches the report from a real run: a tool that only ever failed is named', async () => {

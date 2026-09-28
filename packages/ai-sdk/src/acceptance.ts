@@ -109,7 +109,7 @@ export function checkableAcceptance(
   length: StatedDuration | undefined,
   /** Targets measured off the editor's attached references (`references/directives.ts`). */
   references: ReferenceDirectives = { applied: [], ignored: [] },
-): CheckableAcceptance & RetiredRequestReadings {
+): CheckableAcceptance {
   const medianShotSource = references.applied.find((c) => c.line.startsWith('Pacing:'));
   return {
     ...(length === undefined ? {} : { durationSeconds: length.seconds }),
@@ -175,66 +175,4 @@ export function acceptanceCriteria(acceptance: CheckableAcceptance): readonly st
 /** True when at least one condition here can actually be checked. */
 export function hasCheckableAcceptance(acceptance: CheckableAcceptance): boolean {
   return acceptance.durationSeconds !== undefined || acceptance.medianShotSeconds !== undefined;
-}
-
-// ---------------------------------------------------------------------------
-// Retired request readers (issue #136) — inert until their last caller goes
-// ---------------------------------------------------------------------------
-//
-// `orchestrator.ts` still imports the four functions below and destructures the four fields
-// of `RetiredRequestReadings` from `checkableAcceptance`. That file is being changed by the
-// model-owned plan work (`update_plan`) on the same branch, so its call sites are not edited
-// here. Everything in this section reads NOTHING and answers "the request did not say", which
-// is what makes the receipt caveats, the stock cutaway cap and the four Critic inputs those
-// call sites feed inert. Delete the section together with those call sites.
-
-/**
- * The fields `orchestrator.ts#critiqueOptions` still destructures. Typed `never`: they are
- * never set, and a caller cannot start setting them again without a type error here.
- *
- * @deprecated Retired with the request readers (issue #136); remove with that destructure.
- */
-export interface RetiredRequestReadings {
-  readonly minShotCount?: never;
-  readonly coverage?: never;
-  readonly maxStockCutaways?: never;
-  readonly elements?: never;
-}
-
-/**
- * Always false: whether a request asks for a rendered file is the model's to state.
- *
- * @deprecated Retired reader (issue #136); remove with its `orchestrator.ts` call site.
- */
-export function asksForRenderedFile(_request: string): boolean {
-  return false;
-}
-
-/**
- * Always false: whether a request asks for a preview first is the model's to state.
- *
- * @deprecated Retired reader (issue #136); remove with its `orchestrator.ts` call site.
- */
-export function asksForPreview(_request: string): boolean {
-  return false;
-}
-
-/**
- * Always false: a preference to remember is the model's to recognise and save with
- * `remember_preference`.
- *
- * @deprecated Retired reader (issue #136); remove with its `orchestrator.ts` call site.
- */
-export function asksToRememberPreference(_request: string): boolean {
-  return false;
-}
-
-/**
- * Always undefined: how many cutaways a brief asks for is part of the model's plan, not a
- * runtime cap read out of the words.
- *
- * @deprecated Retired reader (issue #136); remove with its `orchestrator.ts#toolContext` call.
- */
-export function explicitCutawayCount(_request: string): undefined {
-  return undefined;
 }

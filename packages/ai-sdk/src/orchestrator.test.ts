@@ -247,9 +247,11 @@ describe('agent mode', () => {
       run.steps.some((s) => /already in place|already done, and doing it again/.test(s.note)),
     ).toBe(true);
     expect(run.log.length).toBeGreaterThan(0);
-    // 32 since the five element checks joined the battery. `critic.test.ts` is what pins the
-    // set itself, by id and in order; this line only asserts the run carries a full report.
-    expect(run.critique.checks.length).toBe(32);
+    // 28: the five element checks joined the battery (32), then issue #136 retired the four
+    // checks only request-word readers could trigger (shot_count, treatment_coverage,
+    // cutaway_count, elements_placed). `critic.test.ts` is what pins the set itself, by id
+    // and in order; this line only asserts the run carries a full report.
+    expect(run.critique.checks.length).toBe(28);
   });
 
   it('interleaves asset management and timeline editing in one project-scoped run', async () => {
@@ -2985,7 +2987,8 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
 describe('review mode', () => {
   it('returns a deterministic critic report + readable text', async () => {
     const review = await new Orchestrator(new MockProvider()).review(input);
-    expect(review.report.checks.length).toBe(32);
+    // The full battery; see the agent-mode count above for why it is 28.
+    expect(review.report.checks.length).toBe(28);
     expect(review.text).toContain(review.report.summary);
     expect(review.text).toMatch(/\[(PASS|WARN|FAIL|SKIPPED)\]/);
   });

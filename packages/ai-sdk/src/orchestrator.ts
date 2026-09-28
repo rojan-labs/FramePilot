@@ -62,14 +62,7 @@ import {
   type Track,
 } from '@framepilot/timeline-schema';
 import type { AgentOptions, AgentRun, AgentStep, RequestReading, ReviewResult } from './agent.js';
-import {
-  asksForPreview,
-  asksForRenderedFile,
-  asksToRememberPreference,
-  checkableAcceptance,
-  explicitCutawayCount,
-  statedDuration,
-} from './acceptance.js';
+import { statedDuration } from './acceptance.js';
 import { referenceDirectives, shotLengthTolerance } from './references/directives.js';
 import { referenceImagesBlock } from './references/images.js';
 import { type EditResult, assembleEdit, describeValidationIssue } from './assemble.js';
@@ -164,7 +157,6 @@ import {
 import { currentPlacement, placementNote, unchangedNote } from './kernel/placement-note.js';
 import { verificationNote } from './kernel/verification-note.js';
 import { classifyTool, isCatalogueSearch } from './tool-classification.js';
-import { deriveObjectiveText } from './kernel/continuation.js';
 import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
 import { buildStateBriefing, distil } from './kernel/briefing.js';
 import {
@@ -288,7 +280,6 @@ import { BUNDLED_SKILLS, skillsByName, skillsOnOffer } from './skills.js';
 import { rebaseEditorInteractionContext } from './editor-context/interaction-context.js';
 import { MAX_IDENTITY_KEY_CHARS, boundedKeySegment } from './stable-key.js';
 import type { ToolContext } from './tool-context.js';
-import { stockCutawayCapRefusal } from './domain-tools/timeline.js';
 import {
   flagMaskForReviewOps,
   maskingOpsFromMeasurement,
@@ -3971,10 +3962,6 @@ export class Orchestrator {
   }
 
   private toolContext(input: ContextInput): ToolContext {
-    // The cutaway cap the brief states, so the placement tools can hold the run to it
-    // (`domain-tools/timeline.ts`). Read here, once, from the same reader the Critic uses.
-    const objective = deriveObjectiveText(input.userPrompt, input.history);
-    const cap = explicitCutawayCount(objective);
     return {
       project: input.project,
       // What the EDITOR wrote — not the model, not a tool. It is the one source two masking
@@ -3985,7 +3972,6 @@ export class Orchestrator {
       // (masking/candidate-id.ts), because the sidebar picker writes the id into one.
       userNumbers: geometryNumbersIn(input.userPrompt),
       userPickedCandidateIds: candidateIdsIn(editorWords(input)),
-      ...(cap === undefined ? {} : { stockCutawayCap: cap }),
       ...(this.packagedStickers ? { packagedStickers: true } : {}),
       ...(input.projectRevision === undefined ? {} : { projectRevision: input.projectRevision }),
       // The turn number is the conversation's own clock: the user's messages so far
@@ -4087,28 +4073,11 @@ export class Orchestrator {
      */
     evidence?: EvidenceStore,
   ): CritiqueOptions {
-    // What the run is actually being asked for, not what was typed last. "continue from
-    // here" carries no duration, no shot count and no coverage — deriving acceptance from
-    // it discarded the 50-clip brief it was nudging, so a continuation's self-check had
-    // nothing left to settle. `deriveObjectiveText` already owns this resolution for the
-    // run's objective; the Critic reads the same answer so criterion and check cannot be
-    // about two different requests.
-    // When the command reader ran, its reading settles both: which request this is, and the
-    // finished length it states (`kernel/command-classifier.ts#DeliverableLength`).
-    const objectiveText =
-      options.requestReading?.objectiveText ?? deriveObjectiveText(input.userPrompt, input.history);
     // A request that stated a RANGE ("20–35 seconds") also stated its own tolerance; using
     // the 2s default over the range's midpoint would fail a 34-second cut the brief allowed.
     const stated = statedDuration(options);
     const durationTargetSeconds = stated?.seconds;
     const durationToleranceSeconds = stated?.toleranceSeconds;
-    // The conditions the request stated in checkable terms (see `acceptance.ts`). The same
-    // reading is recorded on the run's objective, so the criterion the ledger reports against
-    // and the check that settles it can never be two different things.
-    const { minShotCount, coverage, maxStockCutaways, elements } = checkableAcceptance(
-      objectiveText,
-      stated,
-    );
     // The measured half of "make it feel like this" (P3.4). The reference's numbers reach
     // the Critic WITHOUT passing through the model: a run cannot forget, round or re-derive
     // a target it never had to restate, and the check the run is graded by and the target
@@ -4119,21 +4088,14 @@ export class Orchestrator {
     const medianShotSource = directives.applied.find((c) => c.line.startsWith('Pacing:'));
     return {
       userPrompt: input.userPrompt,
-      // The resolved request, so `checkShotCount` can tell "no count was asked for" apart
-      // from "a count was asked for and the reader missed it" (see `acceptance.ts`).
-      request: objectiveText,
       ...(producedChanges !== undefined ? { producedChanges } : {}),
       ...(durationTargetSeconds !== undefined ? { durationTargetSeconds } : {}),
       ...(durationToleranceSeconds !== undefined ? { durationToleranceSeconds } : {}),
-      ...(minShotCount !== undefined ? { minShotCount } : {}),
-      ...(maxStockCutaways !== undefined ? { maxStockCutaways } : {}),
       ...(medianShotTargetSeconds !== undefined ? { medianShotTargetSeconds } : {}),
       ...(medianShotToleranceSeconds !== undefined ? { medianShotToleranceSeconds } : {}),
       ...(medianShotSource !== undefined
         ? { medianShotSource: `${medianShotSource.profileId}: ${medianShotSource.line}` }
         : {}),
-      ...(coverage !== undefined ? { coverage } : {}),
-      ...(elements !== undefined ? { requiredElements: elements } : {}),
       ...(options.targetPlatform !== undefined ? { targetPlatform: options.targetPlatform } : {}),
       ...(options.render !== undefined ? { render: options.render } : {}),
       ...(evidence ? measuredSilences(evidence) : {}),
@@ -5402,22 +5364,6 @@ export class Orchestrator {
             `not downloaded again. Place it with add_clip (assetId "${stockAsset.id}"), ` +
             `or search for a different one.`;
           return { ops: [], note, summary: note, status: 'warning', data: note };
-        }
-        // The brief's cutaway cap, before a download becomes a placement (the download
-        // itself is fine: it lands in the bin, where the editor can still choose it).
-        const capNote =
-          parsed.data.atSeconds === undefined ? null : stockCutawayCapRefusal(ctx, stockAsset.id);
-        if (capNote !== null) {
-          const note = `Refused "add_stock": ${capNote}`;
-          return {
-            ops: [],
-            note,
-            summary: note,
-            status: 'failed',
-            data: capNote,
-            deterministicFailure: true,
-            rejectedOpCount: 1,
-          };
         }
         const placement = stockOpsFromPayload(ctx.project, parsed.data);
         if (!placement.ok) {
@@ -9290,16 +9236,6 @@ export class Orchestrator {
      */
     const toolAttempts: ToolAttempt[] = [];
     /**
-     * Did this run's request ask for a rendered FILE? The agent cannot make one — render and
-     * export have no route from the panel — so the completion account says so rather than
-     * reporting a finished job over a deliverable that was never produced.
-     */
-    const asksForFile = asksForRenderedFile(input.userPrompt);
-    /** …and did it ask to SEE a preview first? Same answer: no route from the panel. */
-    const asksToPreview = asksForPreview(input.userPrompt);
-    /** …and did it state something to remember for future edits? */
-    const asksToRemember = asksToRememberPreference(input.userPrompt);
-    /**
      * Frames the LAST turn rendered, waiting to be shown to the model on the next one.
      *
      * WHY only the last turn's, and why they are cleared once sent: a frame is only
@@ -10439,9 +10375,6 @@ export class Orchestrator {
               neverSucceeded: neverSucceededTools(toolAttempts),
               ...(effect.cancelled ? { cancelled: true } : {}),
               ...(effect.failed && !effect.cancelled ? { failed: true } : {}),
-              ...(asksForFile ? { deliverableFileRequested: true } : {}),
-              ...(asksToPreview ? { previewRequested: true } : {}),
-              ...(asksToRemember ? { preferenceRequested: true } : {}),
             }),
           );
         }
@@ -11260,22 +11193,6 @@ export function agentCompletionReport(args: {
    */
   contentEvidence?: boolean;
   /**
-   * True when the request asked for a rendered/exported file. The panel cannot produce one, so
-   * the report says where to get it instead of leaving the editor to notice the absence.
-   */
-  deliverableFileRequested?: boolean;
-  /**
-   * True when the request asked to be shown a preview before rendering. `render_preview`
-   * has no route from the panel, so the report says where the preview actually is.
-   */
-  previewRequested?: boolean;
-  /**
-   * True when the request stated a preference to remember for future edits. Checked against
-   * the applied ops: a run that never wrote memory is told so, in the report, instead of the
-   * instruction vanishing (run `cc907070` never called `remember_preference`).
-   */
-  preferenceRequested?: boolean;
-  /**
    * True when the editor stopped the run. The edits still landed and still need
    * accounting for; only the claim that the work is finished changes.
    */
@@ -11359,30 +11276,7 @@ export function agentCompletionReport(args: {
     args.contentEvidence === false && placedShots >= UNEVIDENCED_SHOT_CAVEAT_THRESHOLD
       ? `\n\nHeads up: these ${String(placedShots)} shots were chosen from timings alone — nothing was read about what is actually in the footage. Ask for a footage map, or for specific moments, if you want the selection grounded in content.`
       : '';
-  // The deliverable the panel cannot make. Run 2's brief closed with "One final rendered 30s
-  // vertical MP4"; the run never attempted it, never mentioned it, and reported completed.
-  const deliverable =
-    args.deliverableFileRequested === true
-      ? '\n\nThis asks for a rendered file, which the AI panel cannot produce — the edits are ' +
-        'on your timeline; use the Export dialog to render them out.'
-      : '';
-  // The preview the brief asked to see. Run `cc907070` asked for one before the render,
-  // the one `render_preview` call was withheld, and the report never mentioned it.
-  const preview =
-    args.previewRequested === true
-      ? '\n\nThis also asks to see a preview first. The panel cannot render one — the ' +
-        'timeline monitor plays the current cut, and the Export dialog renders it.'
-      : '';
-  // "Remember this for future edits" is an instruction the run can drop without anyone
-  // noticing; the memory write is an ordinary op, so its absence is checkable here.
-  const remembered = args.ops.some((op) => op.type === 'set_ai_memory');
-  const memory =
-    args.preferenceRequested === true && !remembered
-      ? '\n\nYou asked for something to be remembered for future edits, and nothing was saved ' +
-        'to project memory this run. Tell the AI the preference again on its own, or set it ' +
-        'in the AI settings.'
-      : '';
-  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${unevidenced}${deliverable}${preview}${memory}`;
+  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${unevidenced}`;
 }
 
 /** Render a {@link CritiqueReport} as a compact human-readable block. */

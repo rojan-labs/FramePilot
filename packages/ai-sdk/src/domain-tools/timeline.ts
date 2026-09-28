@@ -75,20 +75,6 @@ function signedClipSpeed(a: {
   return a.speed ?? null;
 }
 
-/**
- * Always `null`: no placement is refused for exceeding a cutaway count any more.
- *
- * The cap it enforced was read out of the brief's words ("two cutaways I never shot") by a
- * regex, and that reader is gone (issue #136, ADR 0196 amendment). How many cutaways a
- * request wants is part of the model's own plan; the runtime no longer holds a number it
- * guessed from prose.
- *
- * @deprecated `orchestrator.ts`'s `add_stock` path still calls this; remove with that call.
- */
-export function stockCutawayCapRefusal(_ctx: ToolContext, _assetId: string): string | null {
-  return null;
-}
-
 /** The per-call picture-layer bookkeeping; see `createPicturePlacer`. */
 type PicturePlacer = ReturnType<typeof createPicturePlacer>;
 import { frameToSeconds, secondsToFrame } from '../frame-time.js';
