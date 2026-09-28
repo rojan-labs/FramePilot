@@ -460,15 +460,33 @@ export function transitionsNote(toolName: string, ctx: ToolContext, rawArgs: unk
       const reason = readReason(args.reason) ?? 'auto';
       const trackId = typeof args.trackId === 'string' ? args.trackId : undefined;
       const cutaways = planCutawayTransitions(ctx, { trackId, reason });
+      const listed = Array.isArray(args.cuts)
+        ? (args.cuts as (NonNullable<TransitionPassRequest['cuts']>[number] & {
+            kind?: unknown;
+          })[])
+        : undefined;
+      // A cut the editor named a transition for was placed as named, not planned: describe
+      // those as such and plan only the rest, exactly as the tool itself does.
+      const named = (listed ?? []).filter((cut) => typeof cut.kind === 'string');
       const onCuts = planTransitions(ctx, {
         ...(trackId === undefined ? {} : { trackId }),
         reason,
-        ...(Array.isArray(args.cuts) ? { cuts: args.cuts as TransitionPassRequest['cuts'] } : {}),
+        ...(listed === undefined
+          ? {}
+          : { cuts: listed.filter((cut) => typeof cut.kind !== 'string') }),
       });
+      const namedText =
+        named.length === 0
+          ? ''
+          : ` — ${String(named.length)} named by the editor: ${named
+              .map((cut) => `${String(cut.kind)} (${cut.fromClipId} → ${cut.toClipId})`)
+              .join(', ')}`;
       // A pass over a talking head with inserts often has no same-layer cut at all; saying
       // "no cuts in scope" there and then listing what the inserts got reads as a contradiction.
       const cutsText =
-        onCuts.length === 0 && cutaways.length > 0 ? ' —' : describeTransitionPlan(onCuts);
+        onCuts.length === 0 && (cutaways.length > 0 || named.length > 0)
+          ? namedText || ' —'
+          : `${namedText}${describeTransitionPlan(onCuts)}`;
       return cutsText + describeCutawayPlan(cutaways, args.includeCutaways === true);
     } catch {
       // The patch is already applied and reported; a note that cannot be built is not a

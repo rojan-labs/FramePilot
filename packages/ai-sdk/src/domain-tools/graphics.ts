@@ -173,6 +173,49 @@ function fitTitle(
   return { sizePercent, boxWidthPercent };
 }
 
+/**
+ * The cuts whose transition the editor named, as `add_transition` operations — the catalog
+ * entry at its own default length unless a length was named too. An id the catalog does not
+ * hold is refused with the way to find a real one, rather than planted and rendered as
+ * nothing.
+ */
+function namedTransitions(
+  ctx: ToolContext,
+  cuts: readonly {
+    readonly fromClipId: string;
+    readonly toClipId: string;
+    readonly kind?: string | undefined;
+    readonly durationSeconds?: number | undefined;
+  }[],
+): Operation[] {
+  return cuts.flatMap((cut) => {
+    if (cut.kind === undefined) return [];
+    const entry = getTransition(cut.kind);
+    if (entry === undefined) {
+      throw new ToolRefusalError(
+        `add_transitions: "${cut.kind}" is not a transition in the catalog. Call ` +
+          'discover_transitions for real ids.',
+      );
+    }
+    const track = ctx.project.timeline.tracks.find((candidate) =>
+      candidate.clips.some((clip) => clip.id === cut.fromClipId),
+    );
+    if (track === undefined) {
+      throw new Error(`Clip not found: ${cut.fromClipId}. list_edit_boundaries names every cut.`);
+    }
+    return [
+      {
+        type: 'add_transition' as const,
+        trackId: track.id,
+        fromClipId: cut.fromClipId,
+        toClipId: cut.toClipId,
+        kind: entry.id,
+        durationSeconds: cut.durationSeconds ?? entry.defaultDuration,
+      },
+    ];
+  });
+}
+
 /** Arguments `add_transition` resolves a kind and a length from. */
 interface SingleTransitionArgs {
   readonly trackId: string;
@@ -746,7 +789,9 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         '`reason: "auto"` (the default) reads each cut: a jump cut is softened, a change ' +
         'of setting gets a location transition, and every other cut is deliberately left ' +
         'as a hard cut. Name one reason instead to apply it to every cut in scope, or ' +
-        'list `cuts` with a reason each. Optionally limit to one trackId. includeCutaways ' +
+        'list `cuts` with a reason each — or with `kind` (a catalog id from ' +
+        'discover_transitions, e.g. whip-pan-left, light-leak) where the editor named the ' +
+        'transition for that cut. Optionally limit to one trackId. includeCutaways ' +
         'also treats where b-roll laid over the A-roll enters and leaves (auto keeps those ' +
         'hard; soften gives quick dissolves, energy punchier entrances). The result names ' +
         'every cut it left hard and why — those are decisions, not omissions, so do not go ' +
@@ -763,6 +808,11 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
                 fromClipId: z.string().trim().min(1),
                 toClipId: z.string().trim().min(1),
                 reason: z.enum(TRANSITION_REASONS).optional(),
+                // What the editor NAMED for this cut. Without it the batch could only pass
+                // reasons, so run `6cb12e30`'s "whip-pan into departure" and "light-leak
+                // dissolve into camp" became a policy zoom and a plain cross-dissolve.
+                kind: z.string().trim().min(1).optional(),
+                durationSeconds: numeric(z.number().positive()).optional(),
               })
               .strict(),
           )
@@ -772,10 +822,11 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       })
       .strict(),
     (a, ctx) => [
+      ...namedTransitions(ctx, a.cuts ?? []),
       ...planTransitions(ctx, {
         ...(a.trackId === undefined ? {} : { trackId: a.trackId }),
         reason: a.reason ?? 'auto',
-        ...(a.cuts === undefined ? {} : { cuts: a.cuts }),
+        ...(a.cuts === undefined ? {} : { cuts: a.cuts.filter((cut) => cut.kind === undefined) }),
       })
         .filter(
           (

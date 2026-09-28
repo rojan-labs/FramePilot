@@ -237,6 +237,43 @@ describe('add_transitions', () => {
     expect(built.map((op) => op.fromClipId)).toEqual(['shot_b']);
   });
 
+  it('places the transition the editor NAMED for a cut, and plans the rest', () => {
+    // Run 6cb12e30's brief named a whip-pan into departure and a light-leak dissolve into
+    // camp; the batch took reasons only, and the policy answered with a zoom and a plain
+    // cross-dissolve.
+    const ctx = context(continuousLedger());
+    const built = ops(
+      'add_transitions',
+      {
+        cuts: [
+          { fromClipId: 'shot_a', toClipId: 'shot_b', kind: 'light-leak' },
+          { fromClipId: 'shot_b', toClipId: 'shot_c', reason: 'time_jump' },
+        ],
+      },
+      ctx,
+    ) as { fromClipId: string; kind: string }[];
+    expect(built.map((op) => [op.fromClipId, op.kind])).toContainEqual(['shot_a', 'light-leak']);
+    expect(built.map((op) => op.fromClipId)).toContain('shot_b');
+    const note = transitionsNote('add_transitions', ctx, {
+      cuts: [
+        { fromClipId: 'shot_a', toClipId: 'shot_b', kind: 'light-leak' },
+        { fromClipId: 'shot_b', toClipId: 'shot_c', reason: 'time_jump' },
+      ],
+    });
+    expect(note).toContain('1 named by the editor: light-leak (shot_a → shot_b)');
+  });
+
+  it('refuses a named kind the catalog does not hold, with the way to find one', () => {
+    const ctx = context(continuousLedger());
+    expect(() =>
+      ops(
+        'add_transitions',
+        { cuts: [{ fromClipId: 'shot_a', toClipId: 'shot_b', kind: 'star-wipe-3000' }] },
+        ctx,
+      ),
+    ).toThrow(/discover_transitions/);
+  });
+
   it('rejects a reason word the policy does not know', () => {
     expect(() => ops('add_transitions', { reason: 'vibes' }, context())).toThrow();
   });

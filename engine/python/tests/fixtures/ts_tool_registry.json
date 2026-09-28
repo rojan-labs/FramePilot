@@ -984,7 +984,18 @@
                 "toClipId"
               ],
               "properties": {
+                "durationSeconds": {
+                  "type": [
+                    "number"
+                  ],
+                  "exclusiveMinimum": 0
+                },
                 "fromClipId": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "kind": {
                   "type": [
                     "string"
                   ]

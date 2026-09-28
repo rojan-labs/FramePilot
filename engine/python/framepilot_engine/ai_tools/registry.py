@@ -659,6 +659,9 @@ class TransitionCut(BaseModel):
     from_clip_id: str = Field(alias="fromClipId")
     to_clip_id: str = Field(alias="toClipId")
     reason: TransitionReason | None = None
+    #: A catalog id the editor named for this cut (mirrors TS ``add_transitions``).
+    kind: str | None = Field(default=None, min_length=1)
+    duration_seconds: float | None = Field(default=None, alias="durationSeconds", gt=0.0)
 
 
 class AddTransitionsArgs(BaseModel):
