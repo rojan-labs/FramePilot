@@ -15,9 +15,12 @@
  * colour, size, alignment, wrap width and whether there is a chip — so the Inspector, the
  * on-canvas editor and the AI's `add_text_layer` keep working unchanged.
  *
- * Left out on text overlays, by design: the frosted chip blur (a text overlay has no backdrop pass), and
- * everything word-timed or animated (highlight, accent, entrances, loops) — a text overlay animates
- * through its layer transitions.
+ * A chip may be frosted glass (`background.blur`): the picture composited beneath the text overlay
+ * is blurred inside the chip, in the export (`compiler.py` `_composite_frosted`) and the desktop
+ * monitor (`layer-compositor.ts` `frostPlaced`), placed with the text overlay's own transform.
+ *
+ * Left out on text overlays, by design: everything word-timed or animated (highlight, accent,
+ * entrances, loops) — a text overlay animates through its layer transitions.
  *
  * The catalog is PURE DATA, like the caption catalog: a template is a complete {@link TextOverlayLook}
  * that the editor writes into the text overlay's params when it is applied. Nothing resolves a template
@@ -42,11 +45,10 @@ export const TEXT_OVERLAY_TYPOGRAPHY_FIELDS = [
 ] as const;
 
 /**
- * The chip's shape (radius, padding, rim). Its colour is the text overlay's own `background` param —
- * the Inspector's on/off switch — and `blur` is excluded: only the caption compositor has a
- * backdrop pass.
+ * The chip's shape (radius, padding, rim, frosted-glass blur). Its colour is the text overlay's
+ * own `background` param — the Inspector's on/off switch.
  */
-export const TextOverlayChipSchema = CaptionBackgroundSchema.omit({ color: true, blur: true });
+export const TextOverlayChipSchema = CaptionBackgroundSchema.omit({ color: true });
 
 /** A text overlay's caption typography (see the module doc). */
 export const TextOverlayTypographySchema = CaptionStyleSchema.pick({
@@ -323,7 +325,7 @@ const HAND_MADE: readonly TextOverlayStyle[] = [
       },
     }),
   },
-  // ----------------------------------------------------------------- text overlays
+  // -------------------------------------------------------------- headlines
   {
     id: 'impact-title',
     label: 'Big headline',
@@ -498,6 +500,7 @@ const HAND_MADE: readonly TextOverlayStyle[] = [
           radius: 0.3,
           paddingX: 0.6,
           paddingY: 0.3,
+          blur: 0.4,
           borderColor: '#ffffff2e',
           borderWidth: 1,
         },
@@ -768,7 +771,32 @@ const HAND_MADE: readonly TextOverlayStyle[] = [
       typography: { background: { radius: 0.12, paddingX: 0.5, paddingY: 0.25 } },
     }),
   },
-  // ----------------------------------------------------- text overlays (more)
+  {
+    id: 'frosted',
+    label: 'Frosted',
+    category: 'basic',
+    sampleText: 'Frosted glass',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Plus Jakarta Sans',
+      fontWeight: 700,
+      color: WHITE,
+      fontSizePercent: 5,
+      background: '#ffffff26',
+      typography: {
+        shadow: SOFT_DROP,
+        background: {
+          radius: 0.45,
+          paddingX: 0.6,
+          paddingY: 0.3,
+          blur: 0.4,
+          borderColor: '#ffffff66',
+          borderWidth: 1,
+        },
+      },
+    }),
+  },
+  // --------------------------------------------------------- headlines (more)
   {
     id: 'poster',
     label: 'Poster',
@@ -834,6 +862,7 @@ const HAND_MADE: readonly TextOverlayStyle[] = [
           radius: 0.6,
           paddingX: 0.7,
           paddingY: 0.3,
+          blur: 0.35,
           borderColor: '#ffffff73',
           borderWidth: 1,
         },
@@ -1167,4 +1196,36 @@ const BY_ID: ReadonlyMap<string, TextOverlayStyle> = new Map(
 /** Look up a text overlay template by id. */
 export function getTextOverlayStyle(id: string): TextOverlayStyle | undefined {
   return BY_ID.get(id);
+}
+
+/** The params a style writes: its whole look, and the id it came from for provenance. */
+export interface TextOverlayLookParams extends TextOverlayLook {
+  readonly templateId: string;
+}
+
+/**
+ * The params a text overlay style writes into the overlay's `text` effect: its whole look, and
+ * the id it came from. The text and the animation stay the author's.
+ *
+ * One function for every host that applies a style — the Text panel and the AI's
+ * `add_text_layer` (whose Python twin mirrors these keys in `ai_tools/text_overlay_styles.py`)
+ * — so one style id is one patch whichever of them applied it.
+ */
+export function textOverlayLookParams(
+  look: TextOverlayLook,
+  templateId: string,
+): TextOverlayLookParams {
+  return {
+    fontFamily: look.fontFamily,
+    fontWeight: look.fontWeight,
+    color: look.color,
+    fontSizePercent: look.fontSizePercent,
+    align: look.align,
+    boxWidthPercent: look.boxWidthPercent,
+    xPercent: look.xPercent,
+    yPercent: look.yPercent,
+    background: look.background,
+    typography: look.typography,
+    templateId,
+  };
 }

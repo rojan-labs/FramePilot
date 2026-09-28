@@ -37,6 +37,13 @@ describe('TEXT_OVERLAY_STYLE_CATALOG', () => {
     }
   });
 
+  it('offers frosted glass', () => {
+    const frosted = TEXT_OVERLAY_STYLE_CATALOG.filter(
+      (t) => (t.look.typography.background?.blur ?? 0) > 0 && t.look.background !== null,
+    );
+    expect(frosted.map((t) => t.id)).toEqual(expect.arrayContaining(['frosted', 'glass-pill']));
+  });
+
   it('names every template differently, so a search never shows two tiles of one name', () => {
     const labels = TEXT_OVERLAY_STYLE_CATALOG.map((t) => t.label.toLowerCase());
     expect(new Set(labels).size).toBe(labels.length);
@@ -160,12 +167,12 @@ describe('parseTextOverlayTypography', () => {
     expect(parseTextOverlayTypography('bold')).toBeUndefined();
   });
 
-  it('never lets a frosted blur or a word-timed field through', () => {
+  it('keeps a frosted blur and never lets a word-timed field through', () => {
     const parsed = parseTextOverlayTypography({
       background: { radius: 0.2, blur: 0.4 },
       highlight: { enabled: true },
     })!;
-    expect(parsed.background).toEqual({ radius: 0.2 });
+    expect(parsed.background).toEqual({ radius: 0.2, blur: 0.4 });
     expect('highlight' in parsed).toBe(false);
   });
 });

@@ -452,6 +452,7 @@
             "radius": 0.3,
             "paddingX": 0.6,
             "paddingY": 0.3,
+            "blur": 0.4,
             "borderColor": "#ffffff2e",
             "borderWidth": 1
           }
@@ -898,6 +899,39 @@
       }
     },
     {
+      "id": "frosted",
+      "label": "Frosted",
+      "category": "basic",
+      "sampleText": "Frosted glass",
+      "look": {
+        "background": "#ffffff26",
+        "typography": {
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          },
+          "background": {
+            "radius": 0.45,
+            "paddingX": 0.6,
+            "paddingY": 0.3,
+            "blur": 0.4,
+            "borderColor": "#ffffff66",
+            "borderWidth": 1
+          }
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Plus Jakarta Sans",
+        "fontWeight": 700,
+        "color": "#ffffff",
+        "fontSizePercent": 5
+      }
+    },
+    {
       "id": "poster",
       "label": "Poster",
       "category": "headlines",
@@ -993,6 +1027,7 @@
             "radius": 0.6,
             "paddingX": 0.7,
             "paddingY": 0.3,
+            "blur": 0.35,
             "borderColor": "#ffffff73",
             "borderWidth": 1
           }
