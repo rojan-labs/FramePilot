@@ -140,9 +140,9 @@ names the element and where it sits in its own tool's units (`sticker "Fire" at 
 element. `add_sticker` without `sizePercent` places the art at 30% of the frame height, or at the
 largest whole percent that stays within 1.5× its pixels on a tall or 4K frame. An edit that
 leaves an element off the frame for its whole span is refused (`element_off_frame`). The critic
-adds `element_faces`, `element_safe_area`, `element_busy_frame`, `sticker_sharp` (advisories)
-and `elements_placed` (a failure when the request named a sticker or a callout and none was
-placed). Where the host cannot place stickers (`placesStickers: false`, the MCP server),
+adds `element_faces`, `element_safe_area`, `element_busy_frame` and `sticker_sharp`
+(advisories). Whether the request asked for a sticker or a callout is the model's own plan to
+carry, not a check read out of the request's words (ADR 0196 amendment, issue #136). Where the host cannot place stickers (`placesStickers: false`, the MCP server),
 `search_elements` returns shapes only with a `note`.
 
 `get_project_state` returns the media bin as a **tally**, not a listing:
@@ -261,6 +261,45 @@ sits, chip/outline/glow/shadow), so the model can choose without the full looks 
 request. It is static catalog data (`guidance`, revision-independent), in the `effects` domain.
 The Python twin mirrors `add_text_layer` from the packaged catalog copy
 (`framepilot_engine/ai_tools/text_overlay_styles.json`) and delegates discovery to the host.
+
+### The agent's plan: `update_plan`
+
+`update_plan` is a session tool (like `load_tools`): it changes no timeline and returns no patch.
+The model writes its plan for the request as a list and keeps it current. Each call replaces the
+whole list.
+
+```ts
+update_plan({
+  items: [
+    { task: 'Build the 24-shot montage from the shot list', status: 'done' },
+    { task: 'Warm teal-orange grade', status: 'in_progress' },
+    { task: 'Voice-over', status: 'blocked', note: 'There is no text-to-speech tool.' },
+  ],
+});
+// → "Plan saved (1 in progress, 1 done, 1 blocked). Next: “Warm teal-orange grade”. …"
+```
+
+- **Schema:** 1–40 items; `task` 1–160 characters; `status` is `pending`, `in_progress`, `done`
+  or `blocked`; `note` is at most 240 characters and is **required** when `blocked` (why no
+  available tool can do it). Strict: unknown keys are refused.
+- **Surface:** core (always advertised in agent mode, including the action-recovery turn); not
+  offered on the read-only question route. `hostUiOnly` and `serialOnly`: the plan lives in a TS
+  orchestrator run, so neither the Python sidecar nor the MCP server mirrors it.
+- **What the loop does with it** (`kernel/conductor.ts`, `kernel/model-plan.ts`): a reply with no
+  tool call ends the run only when no item is `pending` or `in_progress`. While one is open, the
+  run continues with the next item (the one in progress, else the first pending). This is bounded
+  by progress: each continuation records a mark (applied turns, applied ops, and every item's task
+  and status). A second reply with the same mark settles the run through verification. `blocked`
+  is not open. `maxSteps` (widened to fit the plan, as a drafted plan widens it), wall time and
+  cost still bound everything. Nothing reads the model's prose or the request.
+- **What the editor sees:** the existing `plan` event, one checklist node per run. `done` maps to
+  `completed`, `in_progress` to `running`, `pending` to `pending`, and `blocked` to `failed`
+  with the note. Once the model owns the plan, the positional drafted ledger (`planFirst`) never
+  draws over it. When the run ends, open items settle as failed ("Not done — the run ended
+  first"), a warning names them, and the completion report lists each unfinished item under
+  **Not done** (`— not done` or `— blocked: <note>`).
+- **What the model sees:** a `YOUR PLAN` section in the run briefing, with every item, and
+  `DO THIS NOW` pointing at the next open item.
 
 ---
 

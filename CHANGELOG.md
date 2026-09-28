@@ -8,6 +8,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The assistant finishes what your request asks for.** On a request with several parts, the
+  assistant writes a plan in your request's own terms (its sections, its shot list, the
+  treatments you named) and shows it as the checklist. It keeps working while anything on that
+  list is open. Before, it could stop after the first batch with "Not done yet: colour, speed,
+  transitions…" and call the run finished. If it cannot do an item, it marks it blocked and says
+  why. If it stops making progress, the run ends and says which items were not done. Skills now
+  guide how a part is done well; they no longer replace your brief.
 - **One bounding box for everything on the monitor.** Select a clip, a still, a sticker, a shape
   or a text overlay and it gets the same box: a thin blue frame with eight handles and a rotation
   lollipop. Drag inside to move it (a short dead zone keeps a click a click; Shift locks the axis,
@@ -70,6 +77,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   an error after doing the work. The length is now read by the AI that routes your message, only
   from words that are really in your request, and every length check says which words it came
   from.
+- **The AI no longer grades itself on requirements it guessed from your wording.** Parts of a
+  brief such as a shot count, "every clip reframed", a sticker or arrow, "export an MP4", "remember
+  this for next time" and a number of cutaways used to be pulled out by pattern and turned into
+  checks. They were often wrong: an arrow marked "(optional)" became a must-have, a long brief with
+  no shot count got "at least 3 shots", and the automatic centred crop every landscape clip gets in
+  a vertical video counted as "reframed". A run could pass those checks after one step and stop with
+  your brief unfinished. The AI now lists your request's parts as its own plan and works through
+  them. Only the video length the AI read from your own words (or a length set by the app) and the
+  pace of a reference clip you attach are still checked automatically. The AI also no longer
+  refuses a stock clip because of a cutaway count it guessed.
 - **"Continue" messages keep your brief.** A follow-up such as "load the tools and complete the
   task" used to replace the original request as what the AI was working toward, and its history
   was filled with its own progress notes instead of your brief. Follow-ups now carry on with the

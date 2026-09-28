@@ -55,6 +55,25 @@ already draw; `planAutomaticReframe`, exported and unused). ADR 0196. Branch
   — engine grabs/reviews AND the desktop monitor (capped at 1280 px, so every 1080×1920 project).
 - [x] **AR15** `set_clip_speed` `playback: "freeze" | "reverse"` (the Inspector's Speed panel
   already did both; the run reported a freeze-frame "not built").
+**Agent loop audit (2026-09-28, run `d8d2e445`: a 27k-character travel-reel brief ended after
+4 steps / ~95 s with "Not done yet: colour, speed, transitions, fade, masking & graphics, SFX &
+levels, deliverables" — and the run COMPLETED).** Cause: a reply with no tool call ended the run
+unless an off-by-default drafted plan still had steps; nothing let the MODEL say what was left,
+and the contract told it to "follow the returned playbook" so it built a generic montage instead
+of the brief's shot list. Scope gate: no new subsystem — one session tool beside `load_tools`,
+one reducer rule, contract lines. Rule: the model owns the plan, the loop honours it; nothing
+reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`.
+- [x] **AL1** `update_plan` session tool (TodoWrite-shaped, core, host-only like `load_tools`):
+  full-list replacement, `blocked` needs a reason; renders through the existing `plan` event.
+- [x] **AL2** Conductor: a model-owned plan with open items keeps the run going on a no-tool
+  reply; bounded by progress (applied ops + plan digest), not a latch; open items reported as
+  not done when it settles; the positional ledger never overwrites a model plan.
+- [x] **AL3** Briefing shows the model's plan and points DO THIS NOW at the first open item.
+- [x] **AL4** Contract: plan in the request's own terms; the ending rule is plan-aware; skills
+  are reference guidance, never the plan or a template (load_skill, manifest, pinned block).
+- [ ] **AL5** Follow-up: the model plan lives in conductor state only — a resume checkpoint and
+  the next run in the conversation start without it (the model re-plans). Measure on a real
+  long brief (desktop) before deciding whether to persist it in the working state (schema).
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68
