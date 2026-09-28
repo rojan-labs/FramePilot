@@ -294,18 +294,28 @@ describe('read tools', () => {
       expect(
         read({
           items: [
-            { task: '  Build the shot-list montage ', status: 'done', note: '  ' },
+            { task: '  Build the shot-list montage ', status: 'pending', note: '  ' },
             { task: 'Grade warm', status: 'in_progress' },
             { task: 'Voice-over', status: 'blocked', note: 'There is no text-to-speech tool.' },
           ],
         }),
       ).toEqual({
         items: [
-          { task: 'Build the shot-list montage', status: 'done' },
+          { task: 'Build the shot-list montage', status: 'pending' },
           { task: 'Grade warm', status: 'in_progress' },
           { task: 'Voice-over', status: 'blocked', note: 'There is no text-to-speech tool.' },
         ],
       });
+    });
+
+    it('refuses a done item that does not name the edit that delivered it', () => {
+      // Harness run 7 marked an SFX layer done with no effect ever placed.
+      expect(() => read({ items: [{ task: 'SFX layer', status: 'done' }] })).toThrow(
+        /done item needs a note/,
+      );
+      expect(
+        read({ items: [{ task: 'SFX layer', status: 'done', note: 'add_music ×3 (whooshes)' }] }),
+      ).toEqual({ items: [{ task: 'SFX layer', status: 'done', note: 'add_music ×3 (whooshes)' }] });
     });
 
     it('refuses a blocked item with no reason', () => {

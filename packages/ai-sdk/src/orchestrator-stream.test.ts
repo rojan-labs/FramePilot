@@ -5972,7 +5972,7 @@ describe('update_plan keeps a run going while its plan has open items (run d8d2e
         text: 'The grade cannot be done here.',
         toolCalls: [
           planCall('p2', [
-            { task: 'Tighten the intro', status: 'done' },
+            { task: 'Tighten the intro', status: 'done', note: 'delete_range 0–1s' },
             {
               task: 'Warm grade across every shot',
               status: 'blocked',

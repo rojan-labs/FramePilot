@@ -233,7 +233,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 14641,
+      "usedTokens": 14699,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -301,7 +301,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2457,
+            "tokenEstimate": 2495,
             "included": true
           },
           {
@@ -322,14 +322,14 @@
             "id": "s12",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 5,
+            "tokenEstimate": 6,
             "included": true
           },
           {
             "id": "s13",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 9220,
+            "tokenEstimate": 9239,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -337,9 +337,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 14641,
+          "estimatedInputTokensBeforeSend": 14699,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 177167,
+          "estimatedRemainingCapacity": 177109,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -730,7 +730,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 14271,
+      "usedTokens": 14329,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -798,7 +798,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2457,
+            "tokenEstimate": 2495,
             "included": true
           },
           {
@@ -819,14 +819,14 @@
             "id": "s12",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 24,
+            "tokenEstimate": 25,
             "included": true
           },
           {
             "id": "s13",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 8599,
+            "tokenEstimate": 8618,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -834,10 +834,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 14271,
+          "estimatedInputTokensBeforeSend": 14329,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 177537,
-          "toolSchemaTokensRebilled": 8599,
+          "estimatedRemainingCapacity": 177479,
+          "toolSchemaTokensRebilled": 8618,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -1051,7 +1051,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 12217,
+      "usedTokens": 12276,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -1119,7 +1119,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2457,
+            "tokenEstimate": 2495,
             "included": true
           },
           {
@@ -1147,14 +1147,14 @@
             "id": "s13",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 26,
+            "tokenEstimate": 27,
             "included": true
           },
           {
             "id": "s14",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 6405,
+            "tokenEstimate": 6425,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -1162,10 +1162,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 12217,
+          "estimatedInputTokensBeforeSend": 12276,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 179591,
-          "toolSchemaTokensRebilled": 6405,
+          "estimatedRemainingCapacity": 179532,
+          "toolSchemaTokensRebilled": 6425,
           "calculationSource": "local_estimate"
         },
         "compaction": {

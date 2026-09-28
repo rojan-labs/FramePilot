@@ -241,6 +241,13 @@ const planItemSchema = z
   .refine((item) => item.status !== 'blocked' || item.note !== undefined, {
     message: 'A blocked item needs a note saying why no available tool can do it.',
     path: ['note'],
+  })
+  // Harness run 7 marked "Sound: … SFX layer" done with no effect ever searched for or
+  // placed. A done item names the edit that delivered it; with nothing delivered there is
+  // nothing honest to write, which is the point.
+  .refine((item) => item.status !== 'done' || item.note !== undefined, {
+    message: 'A done item needs a note naming the edit that delivered it (e.g. "add_music ×3").',
+    path: ['note'],
   });
 
 const updatePlanSchema = z
@@ -466,8 +473,9 @@ const readTools: ToolSpec[] = [
         'Write your plan for this request and keep it current: the FULL list every call ' +
         '(it replaces the last one), one item per deliverable the request asks for, in the ' +
         "request's own terms and order. Status: pending, in_progress, done, or blocked — " +
-        'done only once the edit that delivers it has been applied (a part you skipped is ' +
-        'not done); blocked only when no available tool can do it, with a note saying why. The run ' +
+        'done only once the edit that delivers it has been applied, with a note naming that ' +
+        'edit (a part you skipped is not done); blocked only when no available tool can do it, ' +
+        'with a note saying why — never cite an editor choice they did not make. The run ' +
         'continues while any item is pending or in progress. Returns the counts and the ' +
         'next open item. Does not edit the timeline.',
       capabilities: ['planning'],
