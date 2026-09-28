@@ -1696,9 +1696,11 @@ def _apply_set_clip_speed_ramp(
             if whole >= slot
             else span + (slot - whole) * rate_at(points, span)
         )
-        return _replace_clip_at(
-            timeline, loc, next_clip.model_copy(update={"source_end": clip.source_start + consumed})
-        )
+        # Points past the fitted span are never played and the fit never read them; cut
+        # them as a split cuts a piece (mirrors operations.ts, harness run 4, 2026-09-28).
+        fitted = next_clip.model_copy(update={"source_end": clip.source_start + consumed})
+        fitted = fitted.model_copy(update={"speed_ramp": _rebase_speed_ramp(fitted, 0.0, consumed)})
+        return _replace_clip_at(timeline, loc, fitted)
     duration = clip_timeline_duration(next_clip)
     if duration is not None:
         exact_end = clip.start + duration

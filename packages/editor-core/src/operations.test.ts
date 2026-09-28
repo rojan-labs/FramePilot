@@ -2899,6 +2899,44 @@ describe('set_clip_speed_ramp', () => {
     expect(findClipById(applied, 'a')?.sourceEnd).toBeCloseTo(5, 4);
   });
 
+  it.each(['linear', 'ease-in-out'] as const)(
+    'a fitted (keepDuration) ramp written against the slot length validates — %s',
+    (easing) => {
+      // Harness run 4: the model wrote points up to the slot's length (3 s); slow motion
+      // consumes less source than that, so the fitted span was 2.68 s and the op was
+      // refused for a point "outside its 2.68s source range". The unreachable tail is cut
+      // the way a split cuts a piece, and the clip keeps its slot.
+      const slot: Timeline = {
+        tracks: [
+          {
+            id: 'video_1',
+            type: 'video',
+            clips: [
+              clip({ id: 'a', trackId: 'video_1', start: 0, end: 3, sourceStart: 0, sourceEnd: 3 }),
+            ],
+          },
+        ],
+      };
+      const op = {
+        type: 'set_clip_speed_ramp' as const,
+        clipId: 'a',
+        keepDuration: true,
+        ramp: [
+          { id: 'p1', sourceTime: 0, rate: 1, easing },
+          { id: 'p2', sourceTime: 1.5, rate: 0.3, easing },
+          { id: 'p3', sourceTime: 3, rate: 1, easing },
+        ],
+      };
+      const result = validatePatch(slot, { operations: [op] });
+      expect(result.issues.map((issue) => issue.message)).toEqual([]);
+      const fitted = findClipById(applyOperation(slot, op), 'a')!;
+      const span = fitted.sourceEnd - fitted.sourceStart;
+      expect(span).toBeLessThan(3);
+      expect([fitted.start, fitted.end]).toEqual([0, 3]);
+      expect(fitted.speedRamp!.every((point) => point.sourceTime <= span + 1e-9)).toBe(true);
+    },
+  );
+
   it('splitting a ramped clip keeps every point inside the piece it belongs to', () => {
     // The LEFT half used to carry the whole curve, and the validator refused it: "has a
     // speed-ramp point at source time 2.5s, outside its 1.07s source range" (run

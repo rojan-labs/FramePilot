@@ -1166,6 +1166,32 @@ def test_new_operation_roundtrips(op: Operation) -> None:
     _roundtrip(op)
 
 
+def test_speed_ramp_keep_duration_cuts_points_past_the_fitted_span() -> None:
+    """Points written against the slot length are cut at the fitted span (harness run 4).
+
+    Slow motion consumes less source than the slot is long, so a point written at the
+    slot's length lands past the span the fit chose and the validator refused the op.
+    Mirrors ``operations.test.ts``.
+    """
+    from framepilot_engine.timeline.operations import SetClipSpeedRamp
+
+    ramp = [
+        {"id": "p1", "sourceTime": 0.0, "rate": 1.0, "easing": "linear"},
+        {"id": "p2", "sourceTime": 1.5, "rate": 0.3, "easing": "linear"},
+        {"id": "p3", "sourceTime": 4.0, "rate": 1.0, "easing": "linear"},
+    ]
+    op = SetClipSpeedRamp.model_validate(
+        {"type": "set_clip_speed_ramp", "clipId": "A", "ramp": ramp, "keepDuration": True}
+    )
+    after = apply_operation(_timeline(), op)
+    a = next(c for c in _clips(after, "v") if c.id == "A")
+    assert (a.start, a.end) == (0.0, 4.0)
+    assert a.source_end is not None and a.speed_ramp is not None
+    span = a.source_end - a.source_start
+    assert span < 4.0
+    assert all(point.source_time <= span + 1e-9 for point in a.speed_ramp)
+
+
 def test_speed_ramp_keep_duration_fits_the_curve_into_the_slot() -> None:
     """``keepDuration`` keeps ``end`` and moves the source out point (run cc907070).
 

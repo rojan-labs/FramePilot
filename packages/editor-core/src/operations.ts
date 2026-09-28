@@ -3088,6 +3088,14 @@ function applySetClipSpeedRamp(
         ? sourceTimeAt(points, 0, slot, span)
         : span + (slot - whole) * rateAt(points, span);
     next.sourceEnd = clip.sourceStart + consumed;
+    // The fit decides the span, so the model cannot know it when it writes the points: a
+    // slow-motion curve consumes less source than the slot is long, and a point written at
+    // the slot's length lands past it. Harness run 4 (2026-09-28) had 7 of 12 ramps refused
+    // "has a speed-ramp point at source time 3s, outside its 2.68s source range", each retry
+    // chasing a span its own points moved. Points past the fitted span are never played,
+    // and the fit above never read them, so they are cut exactly as a split cuts a piece:
+    // one point at the span carrying the rate the curve had there.
+    next.speedRamp = rebaseSpeedRamp({ ...next, speedRamp: points.map(clone) }, 0, consumed);
     return replaceClipAt(timeline, loc, next);
   }
   const duration = clipTimelineDuration(next);
