@@ -134,8 +134,8 @@ const targetHint = (input: unknown): string | undefined =>
   !TARGET_REFERENTS.includes(input as (typeof TARGET_REFERENTS)[number])
     ? `target names what is selected in the editor — "this" (the selected clip), "these" ` +
       `(all selected clips) or "playhead" (the clip under the playhead). It is never a clip ` +
-      `or track id, so "${input}" cannot be resolved. To act on a clip you can name, call ` +
-      `adjust_audio with its clipId — get_timeline lists them.`
+      `or track id, so "${input}" cannot be resolved. To act on a clip you can name, pass ` +
+      `its id in clipIds (level, eq, compress, automate_gain) — get_clips lists them.`
     : undefined;
 
 /** Every intent may name what it acts on; ducking derives its tracks and takes no referent. */
@@ -144,9 +144,26 @@ const targetField = z
   .default('this')
   .describe(
     'What the editor has selected: "this" (the selected clip), "these" (all selected clips), ' +
-      'or "playhead" (the clip under the playhead). Never a clip or track id — use ' +
-      'adjust_audio when you have an id.',
+      'or "playhead" (the clip under the playhead). Never a clip or track id — name clips ' +
+      'with clipIds instead.',
   );
+
+/**
+ * The clips to act on, by id — the resolver's `explicit` referent, which it ranks above the
+ * selection and checks against the project (`editor-context/target-resolver.ts`).
+ *
+ * Without it an agent could only point at the selection or the playhead, and an agent run
+ * has no selection: run `6cb12e30` asked to fade out the music bed, the playhead sat over a
+ * title, a picture clip and the music, and the refusal was `target_ambiguous` — so the
+ * run told the editor "if you select the golden-storm clip, I can fade it". The ids are
+ * the ones `get_clips` returns, which `adjust_audio` already takes.
+ */
+const clipIdsField = z
+  .array(z.string().min(1))
+  .min(1)
+  .max(200)
+  .optional()
+  .describe('The clips to act on, by id (get_clips lists them). When given, target is ignored.');
 
 /** Ducking derives its own targets, so its referent is fixed — same wrong-kind message. */
 // Ducking derives its targets from roles or the selection, never from a referent, so a
@@ -175,6 +192,7 @@ const LevelObjectiveSchema = z
     {
       intent: z.literal('level'),
       target: targetField,
+      clipIds: clipIdsField,
       gainDb: z
         .number()
         .finite()
@@ -207,6 +225,7 @@ const EqObjectiveSchema = z
     {
       intent: z.literal('eq'),
       target: targetField,
+      clipIds: clipIdsField,
       eqBands: z
         .array(AudioEqBandInputSchema, { error: requiredBy('eq', 'eqBands') })
         .min(1)
@@ -235,6 +254,7 @@ const CompressObjectiveSchema = z.strictObject(
   {
     intent: z.literal('compress'),
     target: targetField,
+    clipIds: clipIdsField,
     dynamics: AudioDynamicsInputSchema.describe('Compressor settings.'),
   },
   { error: foreignKeyError('compress') },
@@ -249,6 +269,7 @@ const AutomateGainObjectiveSchema = z
     {
       intent: z.literal('automate_gain'),
       target: targetField,
+      clipIds: clipIdsField,
       automationPoints: z
         .array(AudioAutomationPointInputSchema, {
           error: requiredBy('automate_gain', 'automationPoints'),
@@ -336,6 +357,8 @@ export const AudioObjectiveSchema = z.discriminatedUnion('intent', [
 export interface AudioObjective {
   readonly intent: 'level' | 'duck_selection' | 'duck_roles' | 'eq' | 'compress' | 'automate_gain';
   readonly target: 'this' | 'these' | 'playhead';
+  /** Explicit clip ids; when present they are the target and `target` is ignored. */
+  readonly clipIds?: readonly string[] | undefined;
   readonly bedRole?: z.infer<typeof AudioRoleSchema> | undefined;
   readonly sidechainRole?: z.infer<typeof AudioRoleSchema> | undefined;
   readonly gainDb?: number | undefined;
@@ -502,13 +525,18 @@ function resolveLevel(input: ResolveAudioObjectiveInput): AudioControllerResult 
   const resolution = resolveEditorTarget(
     input.project,
     input.interaction,
-    { kind: 'clips', referent: input.objective.target },
+    input.objective.clipIds === undefined
+      ? { kind: 'clips', referent: input.objective.target }
+      : { kind: 'clips', referent: 'explicit', clipIds: input.objective.clipIds },
     { projectRevision: input.projectRevision ?? input.interaction.projectRevision },
   );
   if (resolution.status !== 'resolved') {
+    // The way out is part of the refusal: an ambiguous referent is settled by naming the
+    // clip, and without that sentence the run concluded the editor had to select it.
     const detail =
       resolution.status === 'ambiguous'
-        ? `${resolution.reason}: ${resolution.candidateIds.join(', ')}`
+        ? `${resolution.reason}: ${resolution.candidateIds.join(', ')} — name the clip(s) ` +
+          'you mean with clipIds'
         : `${resolution.reason}: ${resolution.detail}`;
     return rejected(
       input.objective,

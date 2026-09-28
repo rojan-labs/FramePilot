@@ -3292,6 +3292,16 @@
               "sfx"
             ]
           },
+          "clipIds": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ]
+            }
+          },
           "dynamics": {
             "type": [
               "object"

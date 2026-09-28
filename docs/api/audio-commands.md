@@ -8,8 +8,9 @@ assemble gain, fade, normalization, or sidechain operations themselves.
 
 `professional_audio` currently supports:
 
-- `level`: resolve `this`, `these`, or `playhead` from the live interaction snapshot, then apply
-  bounded gain, mute, peak normalization, and frame-based fade settings.
+- `level`: resolve the clips named in `clipIds`, or else `this`, `these`, or `playhead` from the live
+  interaction snapshot, then apply bounded gain, mute, peak normalization, and frame-based fade
+  settings.
 - `duck_selection`: treat the primary selected clip's track as the bed and exactly one other
   selected audio-capable track as its sidechain. An optional positive `reductionDb` is stored as the
   renderer's negative ducking gain; the default is 12 dB.
@@ -27,8 +28,15 @@ assemble gain, fade, normalization, or sidechain operations themselves.
   every other time in this layer, and are stored as keyframes on the clip's canonical `audio_gain`
   effect — the schema's own lane shape, evaluated by the keyframe engine both runtimes share.
 
-The tool accepts no clip or track IDs. This is deliberate: selection and authored roles establish
-which audio the editor means.
+`level`, `eq`, `compress` and `automate_gain` accept `clipIds` — clip ids from `get_clips`, checked
+against the project by the target resolver's `explicit` referent, which ranks above the selection.
+Without them the tool accepted no ids at all, on the grounds that selection and authored roles
+establish which audio the editor means. That holds for a person at the editor and fails for an agent
+run, which has no selection: run `6cb12e30` (2026-09-28) asked to fade out the music bed, the
+playhead sat over a title, a picture clip and the music, `this` came back `target_ambiguous`, and the
+run asked the editor to select the clip for it. An ambiguous referent's refusal now names `clipIds`
+as the way to settle it. The duck intents still take no ids: their bed and sidechain come from the
+selection or from authored roles, and track ids remain unaccepted everywhere.
 
 ## The channel strip is one effect, and one order
 
