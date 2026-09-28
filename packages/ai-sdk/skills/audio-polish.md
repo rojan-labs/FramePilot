@@ -1,6 +1,6 @@
 ---
 name: audio-polish
-description: Mixing reference — balancing dialogue, music, ambience and effects; fades, gain rides, EQ, compression and ducking with the real audio controls; sourcing a music bed; and the honest limits (no loudness meter, no sound-effects library).
+description: Mixing reference — balancing dialogue, music, ambience and effects; fades, gain rides, EQ, compression and ducking with the real audio controls; sourcing a music bed or sound effects; and the honest limits (no loudness meter).
 tools: [get_timeline, get_clips, list_assets, adjust_audio, professional_audio, set_track_flags, analyze_silence, search_music, add_music, detect_beats]
 ---
 
@@ -55,7 +55,10 @@ Dialogue is the reference. Music and ambience earn level only after every word r
 - Fades are fades, not stepped splits: a frame-based fade on the clip is smoother and undoes in one step.
 - Preserve ambience across cuts when it hides discontinuity. Mute alternates; do not delete them.
 - There is no loudness meter. A LUFS or true-peak target is approximated with gain and peak `normalize`, and reported as approximated, never as measured.
-- There is no sound-effects library — `search_music` finds music only. Whooshes, risers, hits, foley and ambience come from audio already in the bin (`list_assets`); name the ones the request wanted and the project does not have.
+- Sound effects come from the same library as music: `search_music` with the effect's name
+  ("whoosh", "camera shutter", "waves") returns effects too, and `add_music` with `atSeconds`
+  places one at its moment for its own short length on its own track. Keep effects under the
+  music (`adjust_audio`), and say which requested sounds the library had no match for.
 
 ## Sourcing a bed the project does not have
 

@@ -291,7 +291,9 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
       name: 'search_music',
       description:
         'Search for background music to lay under the edit — say the mood or ' +
-        'instrument you want ("calm piano", "driving synth"), not a song title. ' +
+        'instrument you want ("calm piano", "driving synth"), not a song title — or for a ' +
+        'sound effect by what it is ("whoosh", "camera shutter", "waves"): the library holds ' +
+        'effects as well as music. ' +
         'Two or three words: the library matches a PHRASE, so a long mood sentence ' +
         'silently narrows to its opening words and the rest is discarded — the result ' +
         'says which query actually matched, and re-running a longer one will not help. ' +

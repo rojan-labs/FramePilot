@@ -208,7 +208,8 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
       description:
         'Put a track from search_music under the edit. Pass its remoteId; it lands on ' +
         'its own music track, from atSeconds (default the start), the full length of the ' +
-        'track. Give duckUnderTrackId the id of the track carrying the sound the bed must ' +
+        'track — so a sound effect lands at its moment for its own short length. Give ' +
+        'duckUnderTrackId the id of the track carrying the sound the bed must ' +
         'stay out of the way of — narration usually, but a video track counts when its ' +
         'own audio is what you mean. The track must have clips on it; if a refusal says ' +
         'it does not, it names the tracks that do. Downloads the ' +
