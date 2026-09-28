@@ -4,6 +4,15 @@ Perceptual evidence is intentionally bounded, while technical colour scopes are 
 captionless full-resolution composition so resize/caption pixels cannot change legal-range data.
 Every rendered result carries the exact composition identity that produced it. A caller-supplied
 cancellation predicate is checked between expensive units of work.
+
+WHY frames are composited from the clips on screen: a review samples a handful of instants
+(representative frames and a few frames either side of each changed boundary), and compiling
+the whole timeline for them opened a reader for every clip — 32.8s of a 36.2s batch on a
+29-clip, 60-second edit, which is how a desktop run's (``d8d2e445``) review of its last edit
+arrived after the run had ended. Each sampled instant is composited from the clips that can be
+playing there (:mod:`framepilot_engine.render.picture_window`, the single-frame grab's window),
+which is the full compile's frame to the pixel; instants the window cannot reproduce, and every
+batch that needs the programme's sound anyway, keep the whole-timeline composition.
 """
 
 from __future__ import annotations
@@ -12,7 +21,7 @@ import logging
 import math
 import tempfile
 import wave
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass
 from itertools import pairwise
@@ -28,12 +37,20 @@ from framepilot_engine.analysis.loudness import measure_loudness
 from framepilot_engine.effects.keyframes import evaluate_keyframes
 from framepilot_engine.media.assets import AssetIndex, index_assets
 from framepilot_engine.render.color import skin_qualifier_mask
-from framepilot_engine.render.compiler import compile_timeline, timeline_duration
+from framepilot_engine.render.compiler import (
+    PictureWindowMiss,
+    compile_timeline,
+    timeline_duration,
+)
 from framepilot_engine.render.composition_cache import (
     COMPOSITION_CACHE as COMPOSITION_CACHE,
 )
+from framepilot_engine.render.composition_cache import (
+    REVIEW_WINDOW_CACHE as REVIEW_WINDOW_CACHE,
+)
 from framepilot_engine.render.composition_cache import composition_key
 from framepilot_engine.render.masks import clip_source_clock, mask_frame_box, mask_scalar_at
+from framepilot_engine.render.picture_window import PictureWindow, picture_window_at
 from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.render.resources import close_clip_tree
 from framepilot_engine.timeline.models import Clip, Effect, Project, TrackType
@@ -335,6 +352,8 @@ class _AudioLike(Protocol):
 
 class _CompositionLike(Protocol):
     audio: _AudioLike | None
+    #: Where the composition's picture ends; a windowed one is the full frame only before it.
+    duration: float | None
 
     def get_frame(self, time: float) -> object: ...
 
@@ -779,6 +798,154 @@ def _borrow_programme(
     )
 
 
+def _as_pixels(frame: object) -> npt.NDArray[np.uint8]:
+    pixels = np.asarray(frame)
+    if pixels.dtype != np.uint8:
+        pixels = pixels.astype(np.uint8)
+    return cast(npt.NDArray[np.uint8], pixels)
+
+
+def _contiguous_runs(frames: Sequence[int]) -> list[list[int]]:
+    """``frames`` (ascending, distinct) split wherever a frame is skipped."""
+    runs: list[list[int]] = []
+    for frame_index in frames:
+        if runs and frame_index == runs[-1][-1] + 1:
+            runs[-1].append(frame_index)
+        else:
+            runs.append([frame_index])
+    return runs
+
+
+def _review_windows(
+    project: Project, frames: Sequence[int], asset_kinds: Mapping[str, str | None]
+) -> dict[int, PictureWindow]:
+    """One window per contiguous run of ``frames``: the clips any of its instants can show.
+
+    A range request is a run of consecutive frames, usually across the cut it checks. Each
+    instant's window is a superset of the layers playing then, so their union is too, and one
+    composite answers the whole run — the frame at each instant is still the full compile's.
+    An instant the window cannot reproduce (``picture_window_at`` answers ``None``) is left out
+    and reads the whole timeline.
+    """
+    planned: dict[int, PictureWindow] = {}
+    for run in _contiguous_runs(frames):
+        instants = {
+            frame_index: picture_window_at(project, frame_index / project.fps, asset_kinds)
+            for frame_index in run
+        }
+        clip_ids = frozenset(
+            clip_id
+            for window in instants.values()
+            if window is not None
+            for clip_id in window.clip_ids
+        )
+        for frame_index, window in instants.items():
+            if window is not None:
+                planned[frame_index] = PictureWindow(time=window.time, clip_ids=clip_ids)
+    return planned
+
+
+class _ReviewFrames:
+    """Frames of one review composition, each composited from the clips on screen at its instant.
+
+    ``frames`` is every instant the batch will ask for, in ascending order, planned into one
+    window per contiguous run (:func:`_review_windows`). The windowed composite is borrowed
+    once per run of frames naming the same clips and released when the next frame needs other
+    clips. An instant the window cannot give the full compile's frame for — the project uses a
+    construct the window cannot reproduce, no picture plays there, the window builds no picture
+    layer, or its picture ends at or before the instant — reads the whole-timeline composition
+    from ``whole``, which is borrowed only then.
+    """
+
+    def __init__(
+        self,
+        project: Project,
+        base_dir: Path,
+        assets: AssetIndex,
+        preset: ExportPreset,
+        frames: Sequence[int],
+        *,
+        burn_captions: bool,
+        max_decode_dimension: int | None,
+        whole: Callable[[], _CompositionLike],
+        use_windows: bool,
+    ) -> None:
+        self._project = project
+        self._base_dir = base_dir
+        self._assets = assets
+        self._preset = preset
+        self._burn_captions = burn_captions
+        self._max_decode_dimension = max_decode_dimension
+        self._whole = whole
+        kinds = {entry.asset_id: entry.kind for entry in assets.entries}
+        self._windows = _review_windows(project, frames, kinds) if use_windows else {}
+        self._held = ExitStack()
+        self._held_ids: frozenset[str] | None = None
+        self._held_composition: _CompositionLike | None = None
+        self.windowed_frames = 0
+
+    def frame(self, frame_index: int) -> npt.NDArray[np.uint8]:
+        """The composited picture of ``frame_index``, as the export draws it."""
+        at = frame_index / self._project.fps
+        composition = self._window_at(frame_index, at)
+        if composition is None:
+            return _as_pixels(self._whole().get_frame(at))
+        self.windowed_frames += 1
+        return _as_pixels(composition.get_frame(at))
+
+    def close(self) -> None:
+        self._held.close()
+
+    def _window_at(self, frame_index: int, at: float) -> _CompositionLike | None:
+        window = self._windows.get(frame_index)
+        if window is None:
+            return None
+        if window.clip_ids != self._held_ids:
+            self._held.close()
+            self._held = ExitStack()
+            self._held_ids = window.clip_ids
+            self._held_composition = self._borrow_window(window)
+        composition = self._held_composition
+        if composition is None:
+            return None
+        # A composite borrowed for an earlier instant of these clips may end before this one;
+        # past its end the full compile would hold its own picture's last frame (captions).
+        if composition.duration is not None and at >= float(composition.duration):
+            return None
+        return composition
+
+    def _borrow_window(self, window: PictureWindow) -> _CompositionLike | None:
+        def build() -> _CompositionLike:
+            return cast(
+                _CompositionLike,
+                compile_timeline(
+                    self._project,
+                    self._assets,
+                    self._preset,
+                    burn_captions=self._burn_captions,
+                    max_decode_dimension=self._max_decode_dimension,
+                    window=window,
+                ),
+            )
+
+        key = composition_key(
+            self._project,
+            self._base_dir,
+            self._preset,
+            burn_captions=self._burn_captions,
+            max_decode_dimension=self._max_decode_dimension,
+            window=window.clip_ids,
+        )
+        try:
+            return cast(
+                _CompositionLike,
+                self._held.enter_context(REVIEW_WINDOW_CACHE.borrow(key, build)),
+            )
+        except PictureWindowMiss as exc:
+            _log.debug("temporal evidence: %s", exc)
+            return None
+
+
 def acquire_temporal_evidence(
     project: Project,
     base_dir: Path,
@@ -843,20 +1010,13 @@ def acquire_temporal_evidence(
     borrowed = ExitStack()
     scope_borrowed = ExitStack()
 
-    try:
-        needs_programme = bool(ordinary_frames) or any(
-            isinstance(request, AudioEvidenceRequest | LoudnessEvidenceRequest)
-            for request in requests
-        )
-        if needs_programme or scope_frames:
-            _check_cancelled(cancelled)
-            assets = index_assets(
-                [asset.model_dump() for asset in project.assets], base_dir=base_dir
-            )
+    ordinary_source: _ReviewFrames | None = None
+    scope_source: _ReviewFrames | None = None
 
-        if needs_programme:
+    def whole_programme() -> _CompositionLike:
+        nonlocal programme
+        if programme is None:
             assert assets is not None
-            _check_cancelled(cancelled)
             programme = _borrow_programme(
                 borrowed,
                 project,
@@ -866,12 +1026,56 @@ def acquire_temporal_evidence(
                 burn_captions=True,
                 max_decode_dimension=REVIEW_MAX_DIMENSION,
             )
+        return programme
+
+    def whole_scope() -> _CompositionLike:
+        nonlocal scope_composition
+        if scope_composition is None:
+            assert assets is not None
+            scope_composition = _borrow_programme(
+                scope_borrowed,
+                project,
+                base_dir,
+                assets,
+                scope_preset,
+                burn_captions=False,
+                max_decode_dimension=None,
+            )
+        return scope_composition
+
+    try:
+        # The programme's sound is the whole timeline's, so audio evidence compiles it all;
+        # a batch that pays for that reads its frames from the same composition.
+        needs_audio = any(
+            isinstance(request, AudioEvidenceRequest | LoudnessEvidenceRequest)
+            for request in requests
+        )
+        if ordinary_frames or needs_audio or scope_frames:
+            _check_cancelled(cancelled)
+            assets = index_assets(
+                [asset.model_dump() for asset in project.assets], base_dir=base_dir
+            )
+
+        if ordinary_frames or needs_audio:
+            assert assets is not None
+            _check_cancelled(cancelled)
             try:
+                if needs_audio:
+                    whole_programme()
+                ordinary_source = _ReviewFrames(
+                    project,
+                    base_dir,
+                    assets,
+                    ordinary_preset,
+                    sorted(ordinary_frames),
+                    burn_captions=True,
+                    max_decode_dimension=REVIEW_MAX_DIMENSION,
+                    whole=whole_programme,
+                    use_windows=not needs_audio,
+                )
                 for frame_index in sorted(ordinary_frames):
                     _check_cancelled(cancelled)
-                    pixels = np.asarray(programme.get_frame(frame_index / project.fps))
-                    if pixels.dtype != np.uint8:
-                        pixels = pixels.astype(np.uint8)
+                    pixels = ordinary_source.frame(frame_index)
                     if frame_index in plan.sample_frames:
                         frame_samples[frame_index] = _frame_sample(frame_index, pixels)
                     if frame_index in plan.comparison_frames:
@@ -882,25 +1086,28 @@ def acquire_temporal_evidence(
                 raise TemporalEvidenceError(
                     f"Could not compile or sample temporal evidence: {exc}"
                 ) from exc
+            finally:
+                if ordinary_source is not None:
+                    ordinary_source.close()
 
         if scope_frames:
             assert assets is not None
             _check_cancelled(cancelled)
             try:
-                scope_composition = _borrow_programme(
-                    scope_borrowed,
+                scope_source = _ReviewFrames(
                     project,
                     base_dir,
                     assets,
                     scope_preset,
+                    sorted(scope_frames),
                     burn_captions=False,
                     max_decode_dimension=None,
+                    whole=whole_scope,
+                    use_windows=True,
                 )
                 for frame_index in sorted(scope_frames):
                     _check_cancelled(cancelled)
-                    pixels = np.asarray(scope_composition.get_frame(frame_index / project.fps))
-                    if pixels.dtype != np.uint8:
-                        pixels = pixels.astype(np.uint8)
+                    pixels = scope_source.frame(frame_index)
                     for channels in scope_plan.get(frame_index, ()):
                         scope_cache[frame_index, channels] = _scope_values(
                             frame_index, pixels, channels
@@ -911,6 +1118,9 @@ def acquire_temporal_evidence(
                 raise TemporalEvidenceError(
                     f"Could not compile or sample technical scope evidence: {exc}"
                 ) from exc
+            finally:
+                if scope_source is not None:
+                    scope_source.close()
 
         for request in requests:
             _check_cancelled(cancelled)
@@ -1010,10 +1220,17 @@ def acquire_temporal_evidence(
         borrowed.close()
 
     _log.info(
-        "ACT temporal evidence acquired: revision=%d requests=%d review_frames=%d scope_frames=%d",
+        "ACT temporal evidence acquired: revision=%d requests=%d review_frames=%d "
+        "scope_frames=%d windowed_frames=%d whole_timeline=%s",
         project_revision,
         len(requests),
         len(ordinary_frames),
         len(scope_frames),
+        sum(
+            source.windowed_frames
+            for source in (ordinary_source, scope_source)
+            if source is not None
+        ),
+        programme is not None or scope_composition is not None,
     )
     return TemporalEvidenceBatch(render_settings=render_settings, results=results)

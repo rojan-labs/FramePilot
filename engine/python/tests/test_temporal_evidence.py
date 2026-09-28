@@ -9,6 +9,8 @@ import numpy as np
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from framepilot_engine.media.assets import AssetIndex
+from framepilot_engine.render.compiler import PictureWindowMiss
 from framepilot_engine.timeline.models import Project
 from framepilot_engine.validation import temporal_evidence as evidence_module
 from framepilot_engine.validation.temporal_evidence import (
@@ -103,6 +105,11 @@ def _base(kind: str, request_id: str) -> dict[str, Any]:
     }
 
 
+def _no_assets(*_args: object, **_kwargs: object) -> AssetIndex:
+    """No media on disk: every clip reads as video, as the renderer draws an unknown asset."""
+    return AssetIndex(base_dir="/nonexistent")
+
+
 class _AudioLike(Protocol):
     def get_frame(self, times: np.ndarray[Any, np.dtype[np.float64]]) -> object: ...
 
@@ -117,6 +124,7 @@ class _FakeComposition:
     def __init__(self) -> None:
         self.audio: _AudioLike = _FakeAudio()
         self.closed = False
+        self.duration: float | None = None
         self.frame_calls: list[float] = []
 
     def get_frame(self, time: float) -> object:
@@ -147,7 +155,7 @@ def test_acquires_pixels_scopes_comparison_and_audio_from_one_compilation(
         return composition
 
     monkeypatch.setattr(evidence_module, "compile_timeline", fake_compile)
-    monkeypatch.setattr(evidence_module, "index_assets", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
     requests: list[TemporalEvidenceRequest] = [
         FrameEvidenceRequest.model_validate(
             {**_base("frame", "frame"), "atFrame": 0, "metrics": ["luma"]}
@@ -207,7 +215,12 @@ def test_acquires_pixels_scopes_comparison_and_audio_from_one_compilation(
     # the cache closes on eviction, and holds at most MAX_CACHED_COMPOSITIONS
     # at a time.
     assert all(composition.closed is False for composition in compositions)
+    # The audio request needs the whole programme, so the frames read it too (the first
+    # compile); the scope frames need no sound, so they composite the one clip on screen
+    # there, from the review's own window cache.
     evidence_module.COMPOSITION_CACHE.clear()
+    assert [composition.closed for composition in compositions] == [True, False]
+    evidence_module.REVIEW_WINDOW_CACHE.clear()
     assert all(composition.closed is True for composition in compositions)
     # Frame cache de-duplicates overlap among frame/range/comparison requests, on
     # the ordinary (first-compiled) composition they share.
@@ -327,7 +340,7 @@ def test_measures_the_jump_at_the_requested_splice_and_nowhere_else(
     composition = _FakeComposition()
     composition.audio = _RisingAudio()
     monkeypatch.setattr(evidence_module, "compile_timeline", lambda *_args, **_kwargs: composition)
-    monkeypatch.setattr(evidence_module, "index_assets", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
 
     window = {**_base("audio", "audio"), "startFrame": 0, "endFrame": 3, "channels": "mix"}
     unclaimed = acquire_temporal_evidence(
@@ -365,7 +378,7 @@ def test_samples_frames_in_ascending_order(
     """
     composition = _FakeComposition()
     monkeypatch.setattr(evidence_module, "compile_timeline", lambda *_args, **_kwargs: composition)
-    monkeypatch.setattr(evidence_module, "index_assets", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
 
     acquire_temporal_evidence(
         _project(),
@@ -384,6 +397,142 @@ def test_samples_frames_in_ascending_order(
     )
     sampled = [round(time * 30) for time in composition.frame_calls]
     assert sampled == sorted(sampled)
+
+
+class _CompileSpy:
+    """Records each compile's ``window`` and answers with a fresh fake composition."""
+
+    def __init__(self, windowed_duration: float | None = None, miss: bool = False) -> None:
+        self.windows: list[frozenset[str] | None] = []
+        self.compositions: list[_FakeComposition] = []
+        self._windowed_duration = windowed_duration
+        self._miss = miss
+
+    def __call__(self, *_args: object, **kwargs: Any) -> _FakeComposition:
+        window = kwargs.get("window")
+        self.windows.append(None if window is None else window.clip_ids)
+        if window is not None and self._miss:
+            raise PictureWindowMiss("no picture layer near the instant")
+        composition = _FakeComposition()
+        if window is not None:
+            composition.duration = self._windowed_duration
+        self.compositions.append(composition)
+        return composition
+
+
+def _frame_request(request_id: str, frame: int) -> FrameEvidenceRequest:
+    return FrameEvidenceRequest.model_validate(
+        {**_base("frame", request_id), "atFrame": frame, "metrics": ["luma"]}
+    )
+
+
+def _range_request(request_id: str, start: int, end: int) -> RangeEvidenceRequest:
+    return RangeEvidenceRequest.model_validate(
+        {
+            **_base("range", request_id),
+            "startFrame": start,
+            "endFrame": end,
+            "sampleEveryFrames": 1,
+            "checks": ["black_frames"],
+        }
+    )
+
+
+class TestReviewFramesCompositeOnlyTheClipsOnScreen:
+    """A review compiles the clips its instants can show, never the whole timeline for them.
+
+    Pixel identity with the whole-timeline composite is pinned against real media in
+    ``test_render_picture_window.py``; these pin which composition each frame is read from.
+    """
+
+    def test_a_visual_batch_never_compiles_the_whole_timeline(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        spy = _CompileSpy()
+        monkeypatch.setattr(evidence_module, "compile_timeline", spy)
+        monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
+
+        acquire_temporal_evidence(
+            _project(),
+            tmp_path,
+            [_frame_request("first", 0), _range_request("cut", 10, 13), _frame_request("mid", 40)],
+        )
+
+        # Three runs of frames, all of the one clip: one windowed composite answers them all.
+        assert spy.windows == [frozenset({"clip"})]
+        assert sorted(round(t * 30) for t in spy.compositions[0].frame_calls) == [
+            0,
+            10,
+            11,
+            12,
+            40,
+        ]
+
+    def test_a_batch_that_measures_sound_reads_its_frames_from_the_whole_programme(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The mix is the whole timeline's, so it is compiled anyway; a window would be extra."""
+        spy = _CompileSpy()
+        monkeypatch.setattr(evidence_module, "compile_timeline", spy)
+        monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
+        audio = AudioEvidenceRequest.model_validate(
+            {**_base("audio", "audio"), "startFrame": 0, "endFrame": 3, "channels": "mix"}
+        )
+
+        acquire_temporal_evidence(_project(), tmp_path, [_frame_request("frame", 1), audio])
+
+        assert spy.windows == [None]
+        assert [round(t * 30) for t in spy.compositions[0].frame_calls] == [1]
+
+    def test_an_instant_past_the_windowed_picture_reads_the_whole_timeline(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Past a windowed picture's end the full compile holds ITS last frame; only it knows."""
+        spy = _CompileSpy(windowed_duration=0.5)
+        monkeypatch.setattr(evidence_module, "compile_timeline", spy)
+        monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
+
+        acquire_temporal_evidence(
+            _project(), tmp_path, [_frame_request("early", 3), _frame_request("late", 30)]
+        )
+
+        assert spy.windows == [frozenset({"clip"}), None]
+        windowed, whole = spy.compositions
+        assert [round(t * 30) for t in windowed.frame_calls] == [3]
+        assert [round(t * 30) for t in whole.frame_calls] == [30]
+
+    def test_a_window_with_no_picture_layer_reads_the_whole_timeline(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        spy = _CompileSpy(miss=True)
+        monkeypatch.setattr(evidence_module, "compile_timeline", spy)
+        monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
+
+        batch = acquire_temporal_evidence(_project(), tmp_path, [_frame_request("frame", 2)])
+
+        assert spy.windows == [frozenset({"clip"}), None]
+        assert batch.results[0].kind == "frame"
+        assert [round(t * 30) for t in spy.compositions[0].frame_calls] == [2]
+
+    def test_a_project_the_window_cannot_reproduce_reads_the_whole_timeline(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A blend mode makes idle layers matter (``picture_window.whole_timeline_reason``)."""
+        fixture = _project().model_dump(mode="json", by_alias=True)
+        fixture["timeline"]["tracks"][0]["clips"][0]["blendMode"] = "screen"
+        spy = _CompileSpy()
+        monkeypatch.setattr(evidence_module, "compile_timeline", spy)
+        monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
+
+        acquire_temporal_evidence(
+            Project.model_validate(fixture), tmp_path, [_frame_request("frame", 2)]
+        )
+
+        assert spy.windows == [None]
+
+    def test_frames_are_split_into_runs_wherever_one_is_skipped(self) -> None:
+        assert evidence_module._contiguous_runs([0, 1, 2, 5, 7, 8]) == [[0, 1, 2], [5], [7, 8]]
+        assert evidence_module._contiguous_runs([]) == []
 
 
 def test_refuses_a_boundary_outside_its_window() -> None:
@@ -411,7 +560,7 @@ def test_refuses_to_measure_a_role_no_track_is_labelled_with(
     """
     composition = _FakeComposition()
     monkeypatch.setattr(evidence_module, "compile_timeline", lambda *_args, **_kwargs: composition)
-    monkeypatch.setattr(evidence_module, "index_assets", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
     request = AudioEvidenceRequest.model_validate(
         {
             **_base("audio", "dialogue"),
@@ -547,6 +696,7 @@ class _SkinComposition:
     def __init__(self) -> None:
         self.audio = _FakeAudio()
         self.closed = False
+        self.duration: float | None = None
 
     def get_frame(self, _time: float) -> object:
         frame = np.zeros((4, 4, 3), dtype=np.uint8)
@@ -568,7 +718,7 @@ def test_scope_evidence_measures_skin_coloured_pixels_separately(
     what proves the qualifier actually restricted the measurement.
     """
     monkeypatch.setattr(evidence_module, "compile_timeline", lambda *_a, **_k: _SkinComposition())
-    monkeypatch.setattr(evidence_module, "index_assets", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
     request = ScopeEvidenceRequest.model_validate(
         {
             **_base("scope", "scope"),
@@ -601,6 +751,7 @@ class _GreyComposition:
     def __init__(self) -> None:
         self.audio = _FakeAudio()
         self.closed = False
+        self.duration: float | None = None
 
     def get_frame(self, _time: float) -> object:
         return np.full((4, 4, 3), 128, dtype=np.uint8)
@@ -614,7 +765,7 @@ def test_a_frame_with_no_skin_reports_zero_coverage_not_a_black_reading(
 ) -> None:
     """Nothing qualified is "no reading", which a consumer must not mistake for a dark one."""
     monkeypatch.setattr(evidence_module, "compile_timeline", lambda *_a, **_k: _GreyComposition())
-    monkeypatch.setattr(evidence_module, "index_assets", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
     request = ScopeEvidenceRequest.model_validate(
         {
             **_base("scope", "scope"),
@@ -644,7 +795,7 @@ def test_a_pure_scope_batch_measures_without_burning_captions(
     them — a black-frame check has to see what ships.
     """
     monkeypatch.setattr(evidence_module, "compile_timeline", lambda *_a, **_k: _FakeComposition())
-    monkeypatch.setattr(evidence_module, "index_assets", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
     scope = ScopeEvidenceRequest.model_validate(
         {
             **_base("scope", "scope"),
@@ -756,7 +907,7 @@ def test_decoder_output_is_never_promoted_to_float64(
     """
     composition = _FakeComposition()
     monkeypatch.setattr(evidence_module, "compile_timeline", lambda *_a, **_k: composition)
-    monkeypatch.setattr(evidence_module, "index_assets", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
 
     seen: list[np.dtype[Any]] = []
     original = evidence_module._frame_sample
@@ -901,7 +1052,7 @@ class TestReviewResolution:
             return _FakeComposition()
 
         monkeypatch.setattr(evidence_module, "compile_timeline", _spy)
-        monkeypatch.setattr(evidence_module, "index_assets", lambda *_a, **_k: {})
+        monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
         acquire_temporal_evidence(
             _project(),
             tmp_path,

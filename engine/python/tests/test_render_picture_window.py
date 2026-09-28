@@ -18,13 +18,16 @@ from typing import Any
 
 import moviepy
 import numpy as np
+import numpy.typing as npt
 import pytest
+from pydantic import TypeAdapter
 
 from framepilot_engine.media.assets import AssetIndex, index_assets
 from framepilot_engine.render.compiler import compile_timeline
 from framepilot_engine.render.composition_cache import (
     COMPOSITION_CACHE,
     FRAME_WINDOW_CACHE,
+    REVIEW_WINDOW_CACHE,
     composition_key,
 )
 from framepilot_engine.render.frame_grab import _resolve_preset, grab_frame
@@ -36,6 +39,12 @@ from framepilot_engine.render.picture_window import (
 from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.render.resources import close_clip_tree
 from framepilot_engine.timeline.models import Clip, Project
+from framepilot_engine.validation import temporal_evidence as evidence_module
+from framepilot_engine.validation.temporal_evidence import (
+    RangeEvidenceRequest,
+    TemporalEvidenceRequest,
+    acquire_temporal_evidence,
+)
 
 FPS = 30
 #: Asset kinds as the asset index reports them for :func:`_edit`.
@@ -456,6 +465,118 @@ class TestFallsBackToTheWholeTimeline:
         decoded = np.asarray(Image.open(io.BytesIO(frame.data)).convert("RGB"))
         np.testing.assert_array_equal(decoded, expected[..., :3])
         assert COMPOSITION_CACHE.misses == misses + 1
+
+
+def _review_requests() -> list[TemporalEvidenceRequest]:
+    """A post-edit review of :func:`_edit`, shaped like ``temporal-review.ts`` plans one.
+
+    Representative frames plus five-frame windows around the A→B cut (its dissolve borrows A's
+    handle as an under-layer), inside the dissolve, the B→C cut, the effect layer's end and the
+    last frame; a comparison across the first cut; a scope across it.
+    """
+    common = {"schemaVersion": 1, "projectRevision": 0, "reason": "review"}
+    adapter: TypeAdapter[TemporalEvidenceRequest] = TypeAdapter(TemporalEvidenceRequest)
+    raw: list[dict[str, Any]] = [
+        {"kind": "frame", "requestId": f"frame_{f}", "atFrame": f, "metrics": ["luma"]}
+        for f in (0, 60, 105, 119)
+    ]
+    raw += [
+        {
+            "kind": "range",
+            "requestId": f"range_{c}",
+            "startFrame": c - 2,
+            "endFrame": min(120, c + 3),
+            "sampleEveryFrames": 1,
+            "checks": ["black_frames", "flash_frames"],
+        }
+        for c in (30, 36, 60, 75, 119)
+    ]
+    raw.append(
+        {
+            "kind": "comparison",
+            "requestId": "across_the_cut",
+            "leftFrame": 29,
+            "rightFrame": 31,
+            "check": "transition_continuity",
+            "maxDifference": 1,
+        }
+    )
+    raw.append(
+        {
+            "kind": "scope",
+            "requestId": "scope_cut",
+            "startFrame": 28,
+            "endFrame": 33,
+            "channels": ["luma", "saturation", "skin_red"],
+            "legalMin": 0.0625,
+            "legalMax": 0.92,
+        }
+    )
+    return [adapter.validate_python({**common, **request}) for request in raw]
+
+
+class TestTemporalReviewSamplesAreTheExportFrames:
+    """The post-edit review composites the clips on screen, and measures the export's frames.
+
+    Run ``d8d2e445``'s review compiled all 29 clips for 16 frames (32.8s of 36.2s); it now
+    compiles one window per run of frames. Pinned here: every sampled frame is the whole
+    timeline's to the pixel, and every result the reviewer judges is unchanged.
+    """
+
+    @pytest.mark.parametrize("captions", [PLAIN_CAPTIONS, FROSTED_CAPTIONS], ids=["plain", "frost"])
+    def test_every_sample_matches_the_whole_timeline_to_the_pixel(
+        self, media_dir: Path, captions: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        project = _edit(captions)
+        requests = _review_requests()
+        sampled: dict[str, dict[int, npt.NDArray[np.uint8]]] = {}
+        real_frame_sample = evidence_module._frame_sample
+        real_scope_values = evidence_module._scope_values
+        run = "windowed"
+
+        def frame_sample(frame_index: int, pixels: npt.NDArray[np.uint8]) -> Any:
+            sampled.setdefault(run, {})[frame_index] = pixels.copy()
+            return real_frame_sample(frame_index, pixels)
+
+        def scope_values(frame_index: int, pixels: npt.NDArray[np.uint8], channels: Any) -> Any:
+            sampled.setdefault(f"{run}-scope", {})[frame_index] = pixels.copy()
+            return real_scope_values(frame_index, pixels, channels)
+
+        monkeypatch.setattr(evidence_module, "_frame_sample", frame_sample)
+        monkeypatch.setattr(evidence_module, "_scope_values", scope_values)
+
+        misses = COMPOSITION_CACHE.misses
+        windowed = acquire_temporal_evidence(project, media_dir, requests)
+        # Every instant of this edit has a window: nothing compiled the whole timeline.
+        assert COMPOSITION_CACHE.misses == misses
+        assert REVIEW_WINDOW_CACHE.misses > 0
+
+        run = "whole"
+        with monkeypatch.context() as whole_only:
+            whole_only.setattr(evidence_module, "_review_windows", lambda *_a, **_k: {})
+            whole = acquire_temporal_evidence(project, media_dir, requests)
+        assert COMPOSITION_CACHE.misses == misses + 2
+
+        for kind in ("", "-scope"):
+            expected, actual = sampled[f"whole{kind}"], sampled[f"windowed{kind}"]
+            assert sorted(actual) == sorted(expected)
+            for frame_index, pixels in expected.items():
+                np.testing.assert_array_equal(actual[frame_index], pixels, f"{kind} {frame_index}")
+        assert windowed.model_dump() == whole.model_dump()
+
+    def test_a_review_opens_only_the_shots_it_samples_and_no_sound(
+        self, media_dir: Path, opened: _OpenedReaders
+    ) -> None:
+        requests = [
+            request
+            for request in _review_requests()
+            if isinstance(request, RangeEvidenceRequest) and request.start_frame == 34
+        ]
+        acquire_temporal_evidence(_edit(), media_dir, requests)
+
+        # Frames 34-38 sit inside B's dissolve: B (y.mp4) and A's handle beneath it (x.mp4).
+        assert opened.files == {"x.mp4", "y.mp4"}
+        assert opened.audio == []
 
 
 class TestPictureWindowPlanning:

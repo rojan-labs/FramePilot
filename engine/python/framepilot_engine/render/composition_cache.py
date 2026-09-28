@@ -224,3 +224,12 @@ COMPOSITION_CACHE = CompositionCache()
 #: evict that build's result. Four entries: a model inspecting its edit looks at a few shots.
 MAX_CACHED_FRAME_WINDOWS = 4
 FRAME_WINDOW_CACHE = CompositionCache(MAX_CACHED_FRAME_WINDOWS, name="frame window")
+
+#: Windowed composites of a post-edit temporal review (``validation/temporal_evidence.py``).
+#: Apart from the grab's cache for the same reason the grab's is apart from the full one: a
+#: background review sweeps several shots, and sharing four entries and one build slot would
+#: evict the shots the model is looking at and queue its next grab behind the sweep. Six
+#: entries hold a typical batch's shots (representative frames plus a few edit boundaries), so
+#: re-reviewing the same revision reuses them; each holds only its own shot's readers.
+MAX_CACHED_REVIEW_WINDOWS = 6
+REVIEW_WINDOW_CACHE = CompositionCache(MAX_CACHED_REVIEW_WINDOWS, name="review window")
