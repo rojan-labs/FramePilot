@@ -111,6 +111,18 @@ describe('TextOverlayInspector', () => {
     });
   });
 
+  it('makes the chip frosted glass', () => {
+    const { written } = renderTitle({
+      fontFamily: 'Inter',
+      background: '#ffffff26',
+      typography: { background: { radius: 0.4 } },
+    });
+    fireEvent.change(screen.getByLabelText('background frosted glass'), {
+      target: { value: '0.4' },
+    });
+    expect(written()).toEqual({ typography: { background: { radius: 0.4, blur: 0.4 } } });
+  });
+
   it('shapes the chip from the typography when the text overlay has a background', () => {
     renderTitle({ fontFamily: 'Inter', background: '#ffd60a', typography: {} });
     expect(screen.getByLabelText('background corner radius')).toBeDefined();

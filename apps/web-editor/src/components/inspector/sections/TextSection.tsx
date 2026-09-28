@@ -383,6 +383,17 @@ export function TextOverlayInspector({
               step={0.05}
               onChange={(value) => setChip({ paddingY: value })}
             />
+            <ScrubNumber
+              label="Frost"
+              ariaLabel="background frosted glass"
+              value={typography.background?.blur ?? 0}
+              min={0}
+              max={1}
+              step={0.05}
+              // Frosted glass: the picture behind the chip is blurred, in the export and the
+              // monitor alike. A see-through chip colour (a low alpha) is what makes it read.
+              onChange={(value) => setChip({ blur: value })}
+            />
           </>
         )}
       </div>

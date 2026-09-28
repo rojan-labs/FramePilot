@@ -27,7 +27,7 @@
  *
  * ## Only what the render honours
  *
- * The five rows are exactly `evaluate_clip_transform`'s properties. Volume is not
+ * The rows are exactly `evaluate_clip_transform`'s properties (the stretch included). Volume is not
  * here: audio gain is an effect param, not a keyframed property, so a diamond on it
  * would animate nothing in the export.
  */
@@ -74,6 +74,10 @@ interface PropertyRow {
 
 const ROWS: readonly PropertyRow[] = [
   { property: 'scale', label: 'Scale', min: 0.05, max: 8, step: 0.01 },
+  // The stretch on top of the uniform scale (the bounding box's Shift resize writes it): 1 is
+  // none. Its own rows, so a zoom (scale) and a squash (stretch) stay separately editable.
+  { property: 'scaleX', label: 'Stretch X', min: 0.05, max: 8, step: 0.01 },
+  { property: 'scaleY', label: 'Stretch Y', min: 0.05, max: 8, step: 0.01 },
   // Project pixels from centred, matching `setClipTransformPatch`'s convention. The
   // range is generous on purpose: pushing a clip fully off-frame is a legitimate move
   // (a slide-out), so the field must not stop at the frame edge.
