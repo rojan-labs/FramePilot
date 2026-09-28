@@ -7,8 +7,9 @@
  * into a 9:16 frame gets a box around the picture, not around the frame, and a sticker gets a box
  * around the sticker.
  */
-import type { Clip, Keyframe, Timeline } from '@framepilot/timeline-schema';
-import { evaluateKeyframes, type FramePlan } from '@framepilot/editor-core';
+import type { Keyframe, Timeline } from '@framepilot/timeline-schema';
+import { evaluateKeyframes, type FramePlan, type Patch } from '@framepilot/editor-core';
+import type { TextOverlayClipTransform } from '../../editor/textOverlay.js';
 import { boxOfPlacement, type PictureBaseTransform } from './adapters.js';
 import type { Box } from './geometry.js';
 
@@ -31,15 +32,49 @@ export function pictureBoxAt(plan: Pick<FramePlan, 'layers'>, clipId: string): B
 
 /** A picture's stored base transform: every property the box writes, evaluated at time 0. */
 export function pictureBaseOf(keyframes: readonly Keyframe[]): PictureBaseTransform {
-  const at0 = (property: string, identity: number): number =>
-    evaluateKeyframes(keyframes, property, 0) ?? identity;
+  return transformAt(keyframes, 0);
+}
+
+/** Every property the box writes, evaluated at clip-local `time`. */
+export function transformAt(keyframes: readonly Keyframe[], time: number): PictureBaseTransform {
+  const at = (property: string, identity: number): number =>
+    evaluateKeyframes(keyframes, property, time) ?? identity;
   return {
-    scale: at0('scale', 1),
-    scaleX: at0('scaleX', 1),
-    scaleY: at0('scaleY', 1),
-    x: at0('x', 0),
-    y: at0('y', 0),
-    rotation: at0('rotation', 0),
+    scale: at('scale', 1),
+    scaleX: at('scaleX', 1),
+    scaleY: at('scaleY', 1),
+    x: at('x', 0),
+    y: at('y', 0),
+    rotation: at('rotation', 0),
+  };
+}
+
+/** A transform as the DOM draws a text overlay with it (offsets as frame percentages). */
+export function textOverlayClipTransform(
+  transform: PictureBaseTransform,
+  resolution: { readonly width: number; readonly height: number },
+): TextOverlayClipTransform {
+  return {
+    dxPercent: resolution.width > 0 ? (transform.x / resolution.width) * 100 : 0,
+    dyPercent: resolution.height > 0 ? (transform.y / resolution.height) * 100 : 0,
+    scaleX: transform.scale * transform.scaleX,
+    scaleY: transform.scale * transform.scaleY,
+    rotation: transform.rotation,
+  };
+}
+
+/**
+ * Two patches as one: one gesture is one undo step even when it changed both a text overlay's
+ * params and its clip transform (a stretch that also moved the centre).
+ */
+export function combinePatches(first: Patch | null, second: Patch | null): Patch | null {
+  if (first === null) return second;
+  if (second === null) return first;
+  return {
+    ...first,
+    patchId: `${first.patchId}+${second.patchId}` as Patch['patchId'],
+    reason: `${first.reason}; ${second.reason}`,
+    operations: [...first.operations, ...second.operations],
   };
 }
 
@@ -49,7 +84,7 @@ export function pictureBaseOf(keyframes: readonly Keyframe[]): PictureBaseTransf
  * gains identity keyframes it did not need.
  */
 export function pictureTransformWrite(
-  clip: Pick<Clip, 'keyframes'>,
+  clip: { readonly keyframes: readonly Keyframe[] },
   next: PictureBaseTransform,
 ): Record<string, number> {
   const carries = (property: string): boolean =>

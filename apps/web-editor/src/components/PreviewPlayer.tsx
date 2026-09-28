@@ -33,6 +33,7 @@ import type {
   CaptionStyle,
   Clip,
   Effect,
+  Keyframe,
   TranscriptWord,
 } from '@framepilot/timeline-schema';
 import { useFramePlayhead, type UseEditor } from '../editor/useEditor.js';
@@ -82,9 +83,14 @@ import {
   type PictureBaseTransform,
 } from '../preview/transform-box/adapters.js';
 import type { Box } from '../preview/transform-box/geometry.js';
-import { pictureBaseOf, pictureTransformWrite } from '../preview/transform-box/monitor.js';
 import {
-  type TextOverlayParams,
+  combinePatches,
+  pictureBaseOf,
+  pictureTransformWrite,
+  textOverlayClipTransform,
+  transformAt,
+} from '../preview/transform-box/monitor.js';
+import {
   readTextParams,
   setCaptionCuePatch,
   setCaptionStylePatch,
@@ -105,7 +111,7 @@ import {
   wipeProgressAt,
 } from '../preview/transition-envelope.js';
 import { CaptionOverlay } from './CaptionOverlay.js';
-import { PreviewTextEditor } from './PreviewTextEditor.js';
+import { PreviewTextEditor, type TextOverlayCommit } from './PreviewTextEditor.js';
 import { PreviewCaptionEditor } from './PreviewCaptionEditor.js';
 import { Tooltip } from './Tooltip.js';
 import { describeFrameFit } from '../preview/frame-fit.js';
@@ -767,6 +773,7 @@ export function PreviewPlayer({
         clipId: l.clip.id,
         text,
         params,
+        keyframes: l.clip.keyframes,
         timeInClip: Math.max(0, playhead - l.clip.start),
         duration: l.clip.end - l.clip.start,
       };
@@ -832,8 +839,22 @@ export function PreviewPlayer({
   };
 
   /** Commit an on-canvas text-overlay edit (move/resize/inline text) reversibly. */
-  const commitTextParams = (clipId: string, patch: Partial<TextOverlayParams>): void => {
-    const built = setTextParamsPatch(timeline, clipId, patch);
+  /** One on-canvas text overlay edit as ONE patch: its params, its transform, or both. */
+  const commitTextEdit = (
+    clipId: string,
+    keyframes: readonly Keyframe[],
+    edit: TextOverlayCommit,
+  ): void => {
+    const built = combinePatches(
+      edit.params === undefined ? null : setTextParamsPatch(timeline, clipId, edit.params),
+      edit.transform === undefined
+        ? null
+        : setClipTransformPatch(
+            timeline,
+            clipId,
+            pictureTransformWrite({ keyframes }, edit.transform),
+          ),
+    );
     if (built) editor.applyPatch(built);
   };
 
@@ -1299,7 +1320,9 @@ export function PreviewPlayer({
                   params={o.params}
                   timeInClip={o.timeInClip}
                   duration={o.duration}
-                  onCommit={(patch) => commitTextParams(o.clipId, patch)}
+                  resolution={resolution ?? { width: 1920, height: 1080 }}
+                  keyframes={o.keyframes}
+                  onCommit={(edit) => commitTextEdit(o.clipId, o.keyframes, edit)}
                 />
               ) : (
                 // Click the text to select THAT overlay (not the background clip) so it
@@ -1308,7 +1331,16 @@ export function PreviewPlayer({
                 <p
                   key={o.clipId}
                   className="preview-overlay-text"
-                  style={textOverlayStyle(o.params, o.timeInClip, o.duration)}
+                  // Placed, turned and stretched with the clip's own transform, as the export does.
+                  style={textOverlayStyle(
+                    o.params,
+                    o.timeInClip,
+                    o.duration,
+                    textOverlayClipTransform(
+                      transformAt(o.keyframes, o.timeInClip),
+                      resolution ?? { width: 1920, height: 1080 },
+                    ),
+                  )}
                   role="button"
                   tabIndex={0}
                   aria-label={`select text overlay ${o.clipId} in preview`}

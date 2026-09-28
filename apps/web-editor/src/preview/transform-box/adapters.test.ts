@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   boxOfPlacement,
   pictureTransformAfter,
+  textOverlayEditAfter,
   textOverlayParamsAfter,
   type PictureBaseTransform,
 } from './adapters.js';
@@ -108,5 +109,49 @@ describe('textOverlayParamsAfter', () => {
     expect(
       textOverlayParamsAfter(params, box, { ...box, rotation: 30 }, { kind: 'rotate' }, FRAME),
     ).toEqual(params);
+  });
+});
+
+describe('textOverlayEditAfter', () => {
+  const params = { xPercent: 50, yPercent: 50, fontSizePercent: 8, boxWidthPercent: 80 };
+  const box: Box = { cx: 960, cy: 540, width: 600, height: 120, rotation: 0 };
+
+  it('turns the clip on a rotation and leaves the words alone', () => {
+    const edit = textOverlayEditAfter(
+      params,
+      base,
+      box,
+      { ...box, rotation: 15 },
+      { kind: 'rotate' },
+      FRAME,
+    );
+    expect(edit.params).toEqual(params);
+    expect(edit.transform.rotation).toBe(15);
+  });
+
+  it('reflows from a side even when free', () => {
+    const edit = textOverlayEditAfter(
+      params,
+      base,
+      box,
+      { ...box, width: 792, cx: 1056 },
+      { kind: 'resize', handle: 'e', uniform: false },
+      FRAME,
+    );
+    expect(edit.transform).toEqual(base);
+    expect(edit.params.boxWidthPercent).toBe(90);
+  });
+
+  it('stretches the letters from a free corner, the centre travel going to the params', () => {
+    const edit = textOverlayEditAfter(
+      params,
+      base,
+      box,
+      { cx: 1260, cy: 570, width: 1200, height: 180, rotation: 0 },
+      { kind: 'resize', handle: 'se', uniform: false },
+      FRAME,
+    );
+    expect(edit.transform).toMatchObject({ scaleX: 2, scaleY: 1.5, x: 0, y: 0, scale: 1 });
+    expect(edit.params).toMatchObject({ xPercent: 65.63, yPercent: 52.78, fontSizePercent: 8 });
   });
 });

@@ -993,7 +993,7 @@ input[type='checkbox']:focus-visible {
   cursor: grabbing;
 }
 .transform-box.is-passive {
-  cursor: text;
+  pointer-events: none;
   border-style: dashed;
 }
 .transform-box:focus-visible {
@@ -4531,41 +4531,18 @@ g.mask-canvas-draft circle {
    the move cursor, and the width handles. */
 .preview-text-edit {
   margin: 0;
-  outline: 1px solid rgba(255, 255, 255, 0.98);
-  outline-offset: 2px;
-  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.9));
-  cursor: move;
 }
 
+/* While typing, the words take the pointer (caret, selection) and show the text cursor; the
+   bounding box around them goes passive (dashed, click-through). */
 .preview-text-edit.is-editing {
   cursor: text;
-  outline-style: dashed;
 }
 
 .preview-text-edit-content {
   outline: none;
   min-width: 1ch;
   min-height: 1em;
-}
-
-.preview-text-handle {
-  position: absolute;
-  top: 50%;
-  width: 8px;
-  height: 22px;
-  transform: translateY(-50%);
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.82);
-  border-radius: 1px;
-  cursor: ew-resize;
-}
-
-.preview-text-handle--l {
-  left: -6px;
-}
-
-.preview-text-handle--r {
-  right: -6px;
 }
 
 /* Caption direct manipulation uses the same quiet white NLE selection language

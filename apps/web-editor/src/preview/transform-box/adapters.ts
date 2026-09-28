@@ -142,5 +142,49 @@ export function textOverlayParamsAfter(
   };
 }
 
+/** A text overlay edit: its box params and its clip transform, as one gesture left them. */
+export interface TextOverlayEdit {
+  readonly params: TextOverlayBoxParams;
+  readonly transform: PictureBaseTransform;
+}
+
+/** The side handles that reflow a text overlay (a new wrap width) instead of stretching it. */
+const REFLOW_HANDLES = new Set(['e', 'w']);
+
+/**
+ * What a gesture does to a text overlay, which has two places to store it: its words' own
+ * params (position, size, wrap width) and its clip transform (turn, stretch).
+ *
+ * - Move: the params' centre. A uniform resize: the word size and wrap together. A free drag of
+ *   the left or right edge: the wrap width (the words reflow).
+ * - A free (Shift) drag of a corner or the top or bottom edge STRETCHES the letters: the clip's
+ *   scaleX/scaleY, with the centre's travel still going to the params.
+ * - A turn: the clip's rotation.
+ */
+export function textOverlayEditAfter(
+  params: TextOverlayBoxParams,
+  transform: PictureBaseTransform,
+  from: Box,
+  to: Box,
+  gesture: TransformGesture,
+  frame: { readonly width: number; readonly height: number },
+): TextOverlayEdit {
+  if (gesture.kind === 'rotate') {
+    return { params, transform: pictureTransformAfter(transform, from, to, gesture) };
+  }
+  const stretching =
+    gesture.kind === 'resize' && !gesture.uniform && !REFLOW_HANDLES.has(gesture.handle);
+  if (!stretching) {
+    return { params: textOverlayParamsAfter(params, from, to, gesture, frame), transform };
+  }
+  const travelled = { ...from, cx: to.cx, cy: to.cy };
+  const stretched = pictureTransformAfter(transform, from, to, gesture);
+  return {
+    params: textOverlayParamsAfter(params, from, travelled, { kind: 'move' }, frame),
+    // The centre's travel is the params'; the clip keeps its own offset.
+    transform: { ...stretched, x: transform.x, y: transform.y },
+  };
+}
+
 /** Where a text overlay's centre may go: anywhere on the frame, and a little past its edge. */
 const ANY = { min: -50, max: 150 } as const;

@@ -111,6 +111,28 @@ export function textOverlayTypographyCss(params: TextOverlayParams): CSSProperti
 }
 
 /**
+ * A text overlay's clip transform as the DOM draws it: the centre's offset in percent of each
+ * frame axis, the horizontal and vertical scale (uniform scale × stretch) and the turn in degrees
+ * (anticlockwise-positive, the project's convention). The export places the text overlay's raster
+ * with the same transform (`_place_video_clip`).
+ */
+export interface TextOverlayClipTransform {
+  readonly dxPercent: number;
+  readonly dyPercent: number;
+  readonly scaleX: number;
+  readonly scaleY: number;
+  readonly rotation: number;
+}
+
+const IDENTITY_CLIP: TextOverlayClipTransform = {
+  dxPercent: 0,
+  dyPercent: 0,
+  scaleX: 1,
+  scaleY: 1,
+  rotation: 0,
+};
+
+/**
  * The full CSS for a text overlay box at `timeInClip` seconds into a clip of
  * `durationSeconds`. Combines the static style (position, size, colour, font,
  * alignment, optional background) with the current in/out animation state.
@@ -119,6 +141,7 @@ export function textOverlayStyle(
   params: TextOverlayParams,
   timeInClip: number,
   durationSeconds: number,
+  clip: TextOverlayClipTransform = IDENTITY_CLIP,
 ): CSSProperties {
   const { opacity, dyFrame, scale } = textOverlayAnimationState(
     params,
@@ -126,12 +149,17 @@ export function textOverlayStyle(
     durationSeconds,
   );
 
+  // The clip's turn (CSS is clockwise-positive) and its per-axis scale, about the box's centre,
+  // after the In/Out envelope's slide and pop.
+  const turn = clip.rotation === 0 ? '' : ` rotate(${-clip.rotation}deg)`;
   const box: CSSProperties = {
     position: 'absolute',
-    left: `${params.xPercent}%`,
-    top: `${params.yPercent}%`,
+    left: `${params.xPercent + clip.dxPercent}%`,
+    top: `${params.yPercent + clip.dyPercent}%`,
     // `cqh` is a percent of the preview frame's height, the unit the export's slide moves in.
-    transform: `translate(-50%, -50%) translateY(${dyFrame * 100}cqh) scale(${scale})`,
+    transform:
+      `translate(-50%, -50%) translateY(${dyFrame * 100}cqh)${turn} ` +
+      `scale(${scale * clip.scaleX}, ${scale * clip.scaleY})`,
     textAlign: params.align,
     fontSize: `${params.fontSizePercent}cqh`,
     opacity,

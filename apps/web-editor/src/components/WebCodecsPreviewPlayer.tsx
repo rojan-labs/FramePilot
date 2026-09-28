@@ -40,7 +40,6 @@ import {
   setClipTransformPatch,
   setShapeParamsPatch,
   setTextParamsPatch,
-  type TextOverlayParams,
 } from '../editor/patch-builders.js';
 import { useSettings } from '../editor/useSettings.js';
 import { activeTimedItemsAt, buildTemporalIndex } from '../preview/temporal-index.js';
@@ -69,7 +68,7 @@ import { MonitorHeaderPortal } from './MonitorHeaderPortal.js';
 import { PreviewAudioMixer } from './PreviewAudioMixer.js';
 import { PreviewViewControls, type PreviewZoom } from './PreviewViewControls.js';
 import { PreviewTransport } from './PreviewTransport.js';
-import { PreviewTextEditor } from './PreviewTextEditor.js';
+import { PreviewTextEditor, type TextOverlayCommit } from './PreviewTextEditor.js';
 import { TEXT_HIT_TARGET_STYLE } from '../editor/textOverlay.js';
 import { PreviewShapeEditor } from './PreviewShapeEditor.js';
 import { shapeHitRect, shapePivot } from '../preview/shape-handles.js';
@@ -88,11 +87,14 @@ import {
 } from '../preview/transform-box/adapters.js';
 import type { Box } from '../preview/transform-box/geometry.js';
 import {
+  combinePatches,
   keyframesWithBase,
   pictureBaseOf,
   pictureBoxAt,
   pictureTransformWrite,
+  textOverlayClipTransform,
   timelineWithClipKeyframes,
+  transformAt,
 } from '../preview/transform-box/monitor.js';
 
 const log = createLogger('web-editor:webcodecs-preview');
@@ -536,8 +538,29 @@ export function WebCodecsPreviewPlayer({
   );
   const overlaySignature = useMemo(() => JSON.stringify(canvasOverlays), [canvasOverlays]);
 
-  const commitTextParams = (clipId: string, params: Partial<TextOverlayParams>): void => {
-    const patch = setTextParamsPatch(editor.state.timeline, clipId, params);
+  // Each text overlay's clip keyframes: its transform places, turns and stretches it.
+  const keyframesById = useMemo(
+    () =>
+      new Map(
+        editor.state.timeline.tracks.flatMap((track) =>
+          track.clips.map((clip) => [clip.id, clip.keyframes] as const),
+        ),
+      ),
+    [editor.state.timeline],
+  );
+  /** One on-canvas text overlay edit as ONE patch: its params, its transform, or both. */
+  const commitTextEdit = (clipId: string, edit: TextOverlayCommit): void => {
+    const timeline = editor.state.timeline;
+    const patch = combinePatches(
+      edit.params === undefined ? null : setTextParamsPatch(timeline, clipId, edit.params),
+      edit.transform === undefined
+        ? null
+        : setClipTransformPatch(
+            timeline,
+            clipId,
+            pictureTransformWrite({ keyframes: keyframesById.get(clipId) ?? [] }, edit.transform),
+          ),
+    );
     if (patch) editor.applyPatch(patch);
   };
 
@@ -1286,7 +1309,9 @@ export function WebCodecsPreviewPlayer({
                   params={overlay.params}
                   timeInClip={editor.state.playhead - overlay.start}
                   duration={overlay.end - overlay.start}
-                  onCommit={(params) => commitTextParams(overlay.id, params)}
+                  resolution={resolution}
+                  keyframes={keyframesById.get(overlay.id) ?? []}
+                  onCommit={(edit) => commitTextEdit(overlay.id, edit)}
                 />
               ) : (
                 <p
@@ -1297,6 +1322,15 @@ export function WebCodecsPreviewPlayer({
                       overlay.params,
                       editor.state.playhead - overlay.start,
                       overlay.end - overlay.start,
+                      // Placed with the clip's own transform, so the target covers the letters
+                      // the compositor drew there.
+                      textOverlayClipTransform(
+                        transformAt(
+                          keyframesById.get(overlay.id) ?? [],
+                          editor.state.playhead - overlay.start,
+                        ),
+                        resolution,
+                      ),
                     ),
                     ...TEXT_HIT_TARGET_STYLE,
                   }}
