@@ -8,12 +8,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- **A Text panel built around title styles.** Add a heading, subheading or body text in one
-  click, or choose from 31 ready-made styles (bold titles, lower thirds, callouts, subscribe and
-  follow buttons, quotes). Every caption look is also available as a title. Each style is drawn in
-  its real font. Click to add it at the playhead (the new title is selected), drag it onto a lane,
-  or, with a title selected, press **Apply** to restyle it without moving it. Search finds styles
-  by name, category or font, and a Recent row keeps the styles you last used. See
+- **A redesigned Text panel, with Styles and Fonts.** Add a heading, subheading or body text in
+  one click, or choose from 59 ready-made overlay styles in eight categories (Basic, Titles, Lower
+  thirds, Callouts, Social, Quotes, Script, Retro & fun). Each style is drawn in its real font.
+  Click to add it at the playhead (the new title is selected), drag it onto a lane, or, with a
+  title selected, press **Apply** to restyle it without moving it. Search finds styles by name,
+  category or font, and a Recent row keeps the styles you last used. The **Fonts** tab lists every
+  caption font: click one to set the selected title in it, or to add a heading in it. See
   `docs/guides/text-and-titles.md` and ADR 0194.
 - **Titles take the caption typography.** A title now has the same 92 bundled fonts as captions,
   plus case, italic, letter spacing, line height, see-through letters, outline, shadow and a

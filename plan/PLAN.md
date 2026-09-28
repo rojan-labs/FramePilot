@@ -10460,15 +10460,25 @@ catalog tests (fonts bundled, weights in range, hex colours), panel/Inspector co
   mapping to a `CaptionStyle` per runtime; the engine draws a typed title through
   `render_caption_raster` (export + desktop monitor), untyped titles unchanged. (`f45a9e91`,
   `393c4cfc`; engine tests `test_text_overlay_typography.py`.)
-- [x] **TX2** Title template catalog (`timeline-schema/title-templates.ts`): 31 hand-made looks plus
-  the 68 caption looks, catalog invariants tested (fonts, weights, italics, hex, separation layer,
-  unique names). (`2eafb36c`)
+- [x] **TX2** Overlay style catalog (`timeline-schema/title-templates.ts`): 59 styles of their own in
+  eight categories (Script and Retro & fun added), catalog invariants tested (fonts, weights,
+  italics, hex, separation layer, unique names, >= 5 per category). (`2eafb36c`, `9c569a75`)
+  **Maintainer correction (2026-09-28):** "whatever fonts are available on the captions they should
+  be available on the overlay … multiple styles of overlays as templates". The first revision
+  mapped the 68 caption templates across as "Caption looks"; that was not wanted and is reverted.
+  Captions and overlays share fonts and the typography vocabulary, not each other's looks.
 - [x] **TX3** Browser preview draws title typography (DOM title and on-canvas editor through the
   caption CSS). The typed box reserves the caption renderer's padding, so it wraps where the
   export does (`26f8f43e`). The desktop hit target over the engine raster paints nothing.
-- [x] **TX4** Text panel rebuilt: quick add, search, category chips, Recent, a live template grid
-  (click adds at the playhead and selects; drag onto a lane; Apply restyles the selected title),
-  titles from every lane. A project without an overlay lane gets one. (`07b0611a`, `5c54a620`)
+- [x] **TX4** Text panel rebuilt with Styles and Fonts tabs: quick add, search, category chips,
+  Recent, a live style grid (click adds at the playhead and selects; drag onto a lane; Apply
+  restyles the selected title), titles from every lane; Fonts lists all 92 caption fonts in their
+  own face (click sets the selected title's font or adds a heading in it; lazy rows). A project
+  without an overlay lane gets one. (`07b0611a`, `5c54a620`, `8125362b`)
+- [x] **TX4b** Review fixes (`f1ab2314`): desktop hit target could paint a changed chip over the
+  raster (shorthand/longhand style keys); wrapped titles' chip wider in the preview than the export
+  (`useHugLines`); engine accepted typography the preview rejects; typed titles with no stored
+  family/size used Pillow's default face in the export.
 - [x] **TX5** Inspector: bundled caption fonts through the shared `FontFamilySelect`, weights from
   the family, italic only where shipped, and the typography rows. A plain title converts from
   `PLAIN_TITLE_TYPOGRAPHY`. (`c8605b01`)
@@ -10480,7 +10490,8 @@ catalog tests (fonts bundled, weights in range, hex colours), panel/Inspector co
   gap fixed in TX3. All are fixed.
 - [ ] **TX7** Follow-ups (not started): an optional `template` on the agent's `add_text_layer`
   (a prompt/golden change); frosted chips on titles (needs a backdrop pass in the title
-  pipeline); saved user styles ("Your styles"); typography in the browser-only canvas fallback
+  pipeline); saved user styles ("Your styles"); two titles may share a derived clip id after a
+  lane move (pre-existing, also true of `add_text_layer`); typography in the browser-only canvas fallback
   raster (`text-raster.ts`); the caption preview's own chipless wrap padding (captions reserve no
   padding in CSS but the engine wraps inside 0.35 em a side); `title_metrics` and
   `subject_layout` measuring the typed layout.

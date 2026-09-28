@@ -2,9 +2,9 @@
 
 - **Status:** Accepted.
 - **Date:** 2026-09-28
-- **Decided by:** maintainer request (2026-09-28): "the typography should sync with the captions
-  typography … whatever typography we have on captions should be there on overlay", and a
-  template-first Text panel.
+- **Decided by:** maintainer request (2026-09-28): "whatever fonts are available on the captions
+  they should be available on the overlay as well … there should be multiple styles of overlays
+  as templates", and a Text panel redesigned after the competitors'.
 - **Relates to:** ADR 0069 (caption templates are catalog data), ADR 0185 (see-through letters and
   frosted chips), ADR 0180 (the program monitor composites every timeline), plan/PLAN.md "Text
   panel — title templates in caption typography" (TX1–TX6).
@@ -35,11 +35,23 @@ the preview showed Inter.
    never failing the render.
 3. **The preview uses the caption CSS.** `titleCaptionStyle` (the TS twin of the mapping) feeds
    `captionLineCss` and `captionBoxCss`. The box hugs the text up to the wrap width and reserves the
-   caption renderer's padding with or without a chip, so it wraps where the export does.
-4. **Templates are pure data** (`TITLE_TEMPLATE_CATALOG`): 31 hand-made looks, plus every caption
-   template as a title ("Caption looks"). Applying a template writes the whole look into the params,
-   and nothing resolves a template id at render time.
-5. **Excluded from titles:** the frosted chip blur (a title has no backdrop pass), and everything
+   caption renderer's padding with or without a chip, so it wraps where the export does. A
+   wrapped title's box is narrowed to its longest line after layout (`useHugLines`), as the
+   engine's chip is, since CSS alone cannot shrink a wrapped box.
+4. **Overlay styles are pure data** (`TITLE_TEMPLATE_CATALOG`): 59 styles of their own in eight
+   categories (Basic, Titles, Lower thirds, Callouts, Social, Quotes, Script, Retro & fun).
+   Applying a style writes the whole look into the params, and nothing resolves a template id at
+   render time. The caption templates are NOT offered as overlay styles: what captions and
+   overlays share is the fonts and the typography vocabulary, not each other's looks (an early
+   revision of this branch mapped all 68 caption templates across; the maintainer did not want
+   that, and it was reverted).
+5. **Every caption font is an overlay font.** The Text panel's Fonts tab and the Inspector list
+   the bundled caption families (one `FontFamilySelect`, one `titleFonts.ts` rule: a font change
+   keeps the nearest weight the family ships and drops an italic it lacks).
+6. **The engine refuses what the preview's schema refuses** (`_typography_problem`), so an
+   out-of-range value draws the plain title in both, and a typed title with no stored family or
+   size takes the editor's defaults (Inter, 8%).
+7. **Excluded from titles:** the frosted chip blur (a title has no backdrop pass), and everything
    word-timed or animated (highlight, accent, entrances, loops). A title animates through its layer
    transitions (EL7).
 
