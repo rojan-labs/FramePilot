@@ -14,6 +14,12 @@
  */
 import { createContext, useLayoutEffect, useRef, type RefObject } from 'react';
 
+/**
+ * Fired on the layer after it follows the frame to a new place: what lives in it (the box's
+ * controls outside its edges) re-checks the room it has.
+ */
+export const CHROME_MOVED_EVENT = 'transformchromemove';
+
 /** The chrome layer a bounding box portals into, or `null` to render in place. */
 export const TransformChromeContext = createContext<HTMLElement | null>(null);
 
@@ -56,6 +62,7 @@ export function TransformChromeLayer({
       layer.style.top = `${f.top - s.top + stage.scrollTop - stage.clientTop}px`;
       layer.style.width = `${f.width}px`;
       layer.style.height = `${f.height}px`;
+      layer.dispatchEvent(new Event(CHROME_MOVED_EVENT));
     };
     measure();
     // A zoom animates the frame's transform: follow it frame by frame while it runs.

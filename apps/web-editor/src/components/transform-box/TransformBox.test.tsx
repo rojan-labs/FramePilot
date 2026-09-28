@@ -151,4 +151,50 @@ describe('TransformBox', () => {
     drag(box, screenOf(960, 540), { clientX: 640, clientY: 320 });
     expect(onCommit).not.toHaveBeenCalled();
   });
+
+  it('hangs the lollipop below, or inside, when the monitor leaves no room above', () => {
+    /** A frame that clips (as the monitor stage does), shown at half size at (100, 50). */
+    const renderIn = (box: Box) => {
+      const view = render(
+        <div data-testid="clip" style={{ overflow: 'hidden' }}>
+          <TransformBox
+            box={box}
+            resolution={RESOLUTION}
+            label="Transform clip"
+            onCommit={vi.fn()}
+            onPreview={vi.fn()}
+          />
+        </div>,
+      );
+      screen.getByTestId('clip').getBoundingClientRect = () =>
+        ({ left: 100, top: 50, width: 960, height: 540, right: 1060, bottom: 590 }) as DOMRect;
+      // Re-render so the box measures against the frame's (mocked) rect.
+      view.rerender(
+        <div data-testid="clip" style={{ overflow: 'hidden' }}>
+          <TransformBox
+            box={{ ...box }}
+            resolution={RESOLUTION}
+            label="Transform clip"
+            onCommit={vi.fn()}
+            onPreview={vi.fn()}
+          />
+        </div>,
+      );
+      const group = screen.getByRole('group', { name: 'Transform clip' });
+      view.unmount();
+      return group;
+    };
+    // A box in the middle: room everywhere.
+    const middle = renderIn(BOX);
+    expect(middle.dataset.lollipop).toBe('above');
+    expect(middle.dataset.readout).toBe('outside');
+    // Flush with the top: the lollipop drops below the box.
+    const atTop = renderIn({ ...BOX, cy: 100 });
+    expect(atTop.dataset.lollipop).toBe('below');
+    expect(atTop.dataset.readout).toBe('inside');
+    // The whole frame: no room either side, so just inside the top edge.
+    const full = renderIn({ cx: 960, cy: 540, width: 1920, height: 1080, rotation: 0 });
+    expect(full.dataset.lollipop).toBe('inside');
+    expect(full.dataset.readout).toBe('inside');
+  });
 });

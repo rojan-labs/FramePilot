@@ -13,23 +13,26 @@
  *   resizes about the centre. It never turns inside out: past the opposite handle it stops at a
  *   10 px minimum (screen pixels, whatever the zoom).
  * - The lollipop above the top edge, or the zones just outside the corners, rotate it about its
- *   centre; Shift steps 15°.
+ *   centre; Shift steps 15°. Where the monitor leaves no room above (a full-frame clip), the
+ *   lollipop sits below the box, or just inside its top edge.
  * - Arrows nudge the focused box a pixel (Shift, ten); on a corner they scale it a percent; on
  *   the rotation handle they turn it a degree.
  *
  * Pointer moves are coalesced to one update per animation frame, so a fast drag on a slow
  * machine renders the latest position rather than queueing every intermediate one.
  */
-import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { rotationToCssDegrees } from '../../preview/picture-transform.js';
 import {
   type Box,
+  type Edges,
   type Point,
   type ResizeHandle,
   type TransformGesture,
   RESIZE_HANDLES,
   moveBox,
+  outsideRoom,
   passedDragThreshold,
   pointerAngle,
   projectPerScreenPixel,
@@ -40,7 +43,7 @@ import {
 } from '../../preview/transform-box/geometry.js';
 import { normalizeRotation } from '../../preview/snapping.js';
 import { ICON_SIZE, RotateCcw } from '../icons.js';
-import { TransformChromeContext } from './TransformChrome.js';
+import { CHROME_MOVED_EVENT, TransformChromeContext } from './TransformChrome.js';
 
 export type { TransformGesture };
 
@@ -93,6 +96,17 @@ const SNAP_TOLERANCE_FRACTION = 0.015;
 const KEY_NUDGE_PX = { fine: 1, coarse: 10 } as const;
 const KEY_SCALE_PERCENT = { fine: 1, coarse: 10 } as const;
 const KEY_ROTATE_DEGREES = { fine: 1, coarse: 15 } as const;
+/** How far the lollipop reaches past the box's edge (stalk, knob and grab slop), screen px. */
+const LOLLIPOP_REACH_PX = 32;
+/** How far the size readout hangs below the box, screen px. */
+const READOUT_REACH_PX = 30;
+
+/** Where the controls outside the box sit, given the room the monitor leaves them. */
+interface ChromeRoom {
+  readonly lollipop: 'above' | 'below' | 'inside';
+  readonly readout: 'outside' | 'inside';
+}
+const ROOM_EVERYWHERE: ChromeRoom = { lollipop: 'above', readout: 'outside' };
 
 const NUDGE: Readonly<Record<string, readonly [number, number]>> = {
   ArrowLeft: [-1, 0],
@@ -127,6 +141,37 @@ interface ActiveGesture {
   /** Whether the pointer has passed the drag threshold (a move waits for it). */
   dragging: boolean;
   latest: Box;
+}
+
+/** Overflow values that cut what an element's descendants draw. */
+const CLIPPING_OVERFLOW: ReadonlySet<string> = new Set(['hidden', 'auto', 'scroll', 'clip']);
+
+/**
+ * The part of the screen `element` is drawn in: its rect cut by every ancestor that clips
+ * (the monitor's stage scrolls, the frame hides overflow) and by the viewport. `null` before
+ * layout (nothing measured yet).
+ */
+function visibleEdges(element: HTMLElement): Edges | null {
+  let edges: Edges = {
+    left: 0,
+    top: 0,
+    right: window.innerWidth,
+    bottom: window.innerHeight,
+  };
+  for (let node: HTMLElement | null = element; node !== null; node = node.parentElement) {
+    const style = getComputedStyle(node);
+    if (![style.overflow, style.overflowX, style.overflowY].some((v) => CLIPPING_OVERFLOW.has(v))) {
+      continue;
+    }
+    const rect = node.getBoundingClientRect();
+    edges = {
+      left: Math.max(edges.left, rect.left),
+      top: Math.max(edges.top, rect.top),
+      right: Math.min(edges.right, rect.right),
+      bottom: Math.min(edges.bottom, rect.bottom),
+    };
+  }
+  return edges.right > edges.left && edges.bottom > edges.top ? edges : null;
 }
 
 const boxChanged = (a: Box, b: Box): boolean =>
@@ -175,7 +220,55 @@ export function TransformBox({
     y: null,
   });
   const [gestureKind, setGestureKind] = useState<TransformGesture['kind'] | null>(null);
+  const [room, setRoom] = useState<ChromeRoom>(ROOM_EVERYWHERE);
+  const boxRef = useRef<HTMLDivElement>(null);
   const shown = live ?? box;
+
+  // Place the lollipop and the readout where the monitor leaves them room. Measured between
+  // gestures only: a control that jumped sides under the pointer mid-drag would be lost.
+  const measureRoom = useRef<() => void>(() => undefined);
+  measureRoom.current = () => {
+    const frameEl = boxRef.current?.parentElement;
+    if (!frameEl || active.current !== null) return;
+    const visible = visibleEdges(frameEl);
+    const rect = frameEl.getBoundingClientRect();
+    if (visible === null || rect.width === 0 || rect.height === 0) return;
+    const sx = rect.width / resolution.width;
+    const sy = rect.height / resolution.height;
+    const onScreen: Box = {
+      cx: rect.left + box.cx * sx,
+      cy: rect.top + box.cy * sy,
+      width: box.width * sx,
+      height: box.height * sy,
+      rotation: box.rotation,
+    };
+    const lollipopRoom = outsideRoom(onScreen, visible, LOLLIPOP_REACH_PX);
+    const lollipop = lollipopRoom.above ? 'above' : lollipopRoom.below ? 'below' : 'inside';
+    const readoutFits = outsideRoom(onScreen, visible, READOUT_REACH_PX).below;
+    const readout = readoutFits && lollipop !== 'below' ? 'outside' : 'inside';
+    setRoom((prev) =>
+      prev.lollipop === lollipop && prev.readout === readout ? prev : { lollipop, readout },
+    );
+  };
+  useLayoutEffect(() => measureRoom.current());
+  // The frame moves under a still box too (a zoom, a pan, a resized panel).
+  useEffect(() => {
+    const frameEl = boxRef.current?.parentElement;
+    if (!frameEl) return undefined;
+    const remeasure = (): void => measureRoom.current();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(remeasure);
+    observer?.observe(frameEl);
+    frameEl.addEventListener(CHROME_MOVED_EVENT, remeasure);
+    window.addEventListener('resize', remeasure);
+    // Capture: the stage's own scroll does not bubble.
+    document.addEventListener('scroll', remeasure, true);
+    return () => {
+      observer?.disconnect();
+      frameEl.removeEventListener(CHROME_MOVED_EVENT, remeasure);
+      window.removeEventListener('resize', remeasure);
+      document.removeEventListener('scroll', remeasure, true);
+    };
+  }, [chromeHost]);
 
   useEffect(
     () => () => {
@@ -384,6 +477,9 @@ export function TransformBox({
         className={`transform-box${gestureKind === null ? '' : ` is-${gestureKind}`}${
           interactive ? '' : ' is-passive'
         }`}
+        ref={boxRef}
+        data-lollipop={room.lollipop}
+        data-readout={room.readout}
         role="group"
         aria-label={label}
         tabIndex={0}

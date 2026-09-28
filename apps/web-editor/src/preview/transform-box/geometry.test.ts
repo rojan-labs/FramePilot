@@ -8,6 +8,7 @@ import {
   type Box,
   boxCorners,
   moveBox,
+  outsideRoom,
   passedDragThreshold,
   pointerAngle,
   projectPerScreenPixel,
@@ -175,5 +176,34 @@ describe('resizeCursor', () => {
   it('turns with the box', () => {
     expect(resizeCursor('e', 90)).toBe('ns-resize');
     expect(resizeCursor('e', 45)).toBe('nesw-resize');
+  });
+});
+
+describe('outsideRoom', () => {
+  const stage = { left: 0, top: 0, right: 800, bottom: 600 };
+
+  it('has room above and below a box in the middle of the stage', () => {
+    const middle: Box = { cx: 400, cy: 300, width: 200, height: 100, rotation: 0 };
+    expect(outsideRoom(middle, stage, 32)).toEqual({ above: true, below: true });
+  });
+
+  it('has none for a box that fills the stage height (a full-frame clip)', () => {
+    const full: Box = { cx: 400, cy: 300, width: 340, height: 596, rotation: 0 };
+    expect(outsideRoom(full, stage, 32)).toEqual({ above: false, below: false });
+  });
+
+  it('measures along the turned axis: upside down, the top edge faces the bottom', () => {
+    const low: Box = { cx: 400, cy: 540, width: 200, height: 60, rotation: 180 };
+    // Unturned, the room is above (the bottom is 30 px from the stage's edge)...
+    expect(outsideRoom({ ...low, rotation: 0 }, stage, 32)).toEqual({ above: true, below: false });
+    // ...turned over, the box's own top edge now faces the stage's bottom.
+    expect(outsideRoom(low, stage, 32)).toEqual({ above: false, below: true });
+  });
+
+  it('turned a quarter, the box’s top points sideways', () => {
+    const nearLeft: Box = { cx: 80, cy: 300, width: 100, height: 100, rotation: 90 };
+    // Anticlockwise 90°: the top edge faces left, 50 + 32 px from the centre — past x = 0.
+    expect(outsideRoom(nearLeft, stage, 32).above).toBe(false);
+    expect(outsideRoom(nearLeft, stage, 32).below).toBe(true);
   });
 });

@@ -1148,6 +1148,26 @@ input[type='checkbox']:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--tb-accent) 45%, transparent);
   outline-offset: 2px;
 }
+/* No room above (a full-frame layer against the monitor's edge): the lollipop hangs below the
+   box, or, with no room there either, sits just inside the top edge. The box measures which. */
+.transform-box[data-lollipop='below'] .transform-box-stalk {
+  top: 100%;
+  bottom: auto;
+}
+.transform-box[data-lollipop='below'] .transform-box-rotate {
+  top: calc(100% + 20px);
+  bottom: auto;
+  margin: -5px 0 0 -5px;
+}
+.transform-box[data-lollipop='inside'] .transform-box-stalk {
+  top: 0;
+  bottom: auto;
+}
+.transform-box[data-lollipop='inside'] .transform-box-rotate {
+  top: 20px;
+  bottom: auto;
+  margin: -5px 0 0 -5px;
+}
 .transform-box-reset {
   position: absolute;
   top: -12px;
@@ -1185,6 +1205,10 @@ input[type='checkbox']:focus-visible {
   border-radius: 4px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   pointer-events: none;
+}
+.transform-box[data-readout='inside'] .transform-box-readout {
+  top: auto;
+  bottom: 10px;
 }
 .transform-box-guide {
   position: absolute;

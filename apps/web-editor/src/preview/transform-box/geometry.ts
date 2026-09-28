@@ -297,3 +297,40 @@ export function scaleRatio(from: Size, to: Size): { readonly x: number; readonly
     y: from.height > 0 ? to.height / from.height : 1,
   };
 }
+
+/** An axis-aligned rectangle by its edges (what the pointer can reach on screen). */
+export interface Edges {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+}
+
+/** Which of the box's own top and bottom have `reach` of room outside them, inside `visible`. */
+export interface OutsideRoom {
+  readonly above: boolean;
+  readonly below: boolean;
+}
+
+/**
+ * Whether a control `reach` beyond the box's top (and bottom) edge, along the box's own turned
+ * axis, would land inside `visible`. `box` and `visible` share one space (screen pixels).
+ *
+ * WHY. The rotation lollipop and the size readout live outside the box, and a layer that fills
+ * the frame (a full-frame clip, the commonest thing to select) leaves them no room: the monitor
+ * clips them, and the lollipop cannot be seen or grabbed. Measured room lets them sit where they
+ * can be reached, whatever the layer's size, turn and the monitor's zoom.
+ */
+export function outsideRoom(box: Box, visible: Edges, reach: number): OutsideRoom {
+  const centre = { x: box.cx, y: box.cy };
+  const fits = (offsetY: number): boolean => {
+    const point = turn({ x: box.cx, y: box.cy + offsetY }, centre, box.rotation);
+    return (
+      point.x >= visible.left &&
+      point.x <= visible.right &&
+      point.y >= visible.top &&
+      point.y <= visible.bottom
+    );
+  };
+  return { above: fits(-(box.height / 2 + reach)), below: fits(box.height / 2 + reach) };
+}
