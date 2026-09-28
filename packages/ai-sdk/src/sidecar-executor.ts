@@ -1068,7 +1068,14 @@ export function frameBody(
     // to check an edit that has not been saved yet.
     project,
   };
-  if (typeof args.assetId === 'string') {
+  if (Array.isArray(args.sources)) {
+    // Several sources as shot on one labelled sheet (`render/source_sheet.py`). An omitted
+    // time is left out, not zeroed: the engine shows the middle of the source.
+    body.sources = (args.sources as readonly Record<string, unknown>[]).map((source) => ({
+      asset_id: source.assetId,
+      ...(typeof source.sourceSeconds === 'number' ? { source_seconds: source.sourceSeconds } : {}),
+    }));
+  } else if (typeof args.assetId === 'string') {
     // A source as shot (`frame_grab.source_view_project`), not a moment of the edit.
     body.asset_id = args.assetId;
     body.source_seconds = typeof args.sourceSeconds === 'number' ? args.sourceSeconds : 0;
@@ -1100,6 +1107,7 @@ export function unwrapFrame(args: Record<string, unknown>, data: unknown): HostT
   const record = (data ?? {}) as Record<string, unknown>;
   const base64 = typeof record.base64 === 'string' ? record.base64 : '';
   const mediaType = typeof record.media_type === 'string' ? record.media_type : '';
+  if (Array.isArray(args.sources)) return unwrapSourceSheet(record, base64, mediaType);
   const at = typeof record.time_seconds === 'number' ? record.time_seconds : 0;
   const source = typeof args.assetId === 'string' ? args.assetId : undefined;
   const asked = source === undefined ? args.timeSeconds : (args.sourceSeconds ?? 0);
@@ -1137,6 +1145,89 @@ export function unwrapFrame(args: Record<string, unknown>, data: unknown): HostT
       durationSeconds:
         typeof record.duration_seconds === 'number' ? record.duration_seconds : undefined,
       note: 'The frame itself is attached to this turn as an image.',
+    },
+    images: [
+      {
+        mediaType: mediaType as AiImage['mediaType'],
+        base64,
+        label,
+        ...(width > 0 && height > 0 ? { width, height } : {}),
+      },
+    ],
+  };
+}
+
+/** One tile of a `get_frame { sources }` sheet, as the model is told about it. */
+interface SheetTileFact {
+  readonly tile: number;
+  readonly assetId: string;
+  readonly name: string;
+  readonly sourceSeconds: number;
+  readonly durationSeconds?: number;
+  readonly error?: string;
+}
+
+function sheetTiles(value: unknown): SheetTileFact[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry): SheetTileFact[] => {
+    const tile = (entry ?? {}) as Record<string, unknown>;
+    if (typeof tile.index !== 'number' || typeof tile.asset_id !== 'string') return [];
+    return [
+      {
+        tile: tile.index,
+        assetId: tile.asset_id,
+        name: typeof tile.name === 'string' ? tile.name : tile.asset_id,
+        sourceSeconds: typeof tile.source_seconds === 'number' ? tile.source_seconds : 0,
+        ...(typeof tile.duration_seconds === 'number'
+          ? { durationSeconds: tile.duration_seconds }
+          : {}),
+        ...(typeof tile.error === 'string' ? { error: tile.error } : {}),
+      },
+    ];
+  });
+}
+
+/**
+ * A multi-source sheet: one image, and the tile list IN ORDER so the model can say "tile 7"
+ * and mean an asset id. The label names every tile, because the image's own labels are
+ * the only other place the numbering lives.
+ */
+function unwrapSourceSheet(
+  record: Record<string, unknown>,
+  base64: string,
+  mediaType: string,
+): HostToolOutcome {
+  const tiles = sheetTiles(record.tiles);
+  if (base64 === '' || !FORWARDABLE_IMAGE_TYPES.has(mediaType) || tiles.length === 0) {
+    const reason = unreadableEngineAnswer(
+      `the engine returned no usable source sheet (media type ${mediaType || 'missing'}, ` +
+        `${String(tiles.length)} tiles)`,
+    );
+    return { status: 'failed', summary: `"get_frame" failed: ${reason}`, data: reason };
+  }
+  const width = typeof record.width === 'number' ? record.width : 0;
+  const height = typeof record.height === 'number' ? record.height : 0;
+  const listed = tiles
+    .map((tile) => `${String(tile.tile)} ${tile.assetId} @${tile.sourceSeconds.toFixed(1)}s`)
+    .join(', ');
+  const label = `${String(tiles.length)} sources as shot (uncropped, numbered tiles): ${listed}`;
+  const failed = tiles.filter((tile) => tile.error !== undefined);
+  const summary =
+    `Looked at ${String(tiles.length)} sources as shot on one sheet` +
+    (failed.length > 0
+      ? ` (${String(failed.length)} could not be rendered: ` +
+        `${failed.map((tile) => `tile ${String(tile.tile)} ${tile.assetId}`).join(', ')})`
+      : '');
+  return {
+    status: 'completed',
+    summary,
+    data: {
+      tiles,
+      width,
+      height,
+      note:
+        'The sheet is attached to this turn as one image; tile N is the Nth entry of tiles. ' +
+        'Use get_frame { assetId, sourceSeconds } for a close look at one of them.',
     },
     images: [
       {

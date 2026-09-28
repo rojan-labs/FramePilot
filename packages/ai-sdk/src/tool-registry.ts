@@ -502,6 +502,9 @@ const readTools: ToolSpec[] = [
 // engine/python/.../ai_tools/registry.py (AnalyzeSilenceArgs / DetectScenesArgs)
 // — same field names, all optional, so the schema-parity guard stays green.
 
+/** Most sources one `get_frame { sources }` sheet shows (engine `MAX_SHEET_SOURCES`). */
+export const GET_FRAME_MAX_SOURCES = 12;
+
 const getFrameSchema = z
   .object({
     // Timeline time, not source time: the model reasons about the edit, and every other
@@ -521,6 +524,28 @@ const getFrameSchema = z
     sourceSeconds: seconds
       .optional()
       .describe('With assetId: the moment in the SOURCE file (default its start).'),
+    // Many sources as shot on ONE labelled sheet. Run `d8d2e445` was told to look at every
+    // clip before cutting, had 20 sources, looked at 3 (one picture per call) and put 29
+    // clips on blind centre crops. The engine tiles each source view into one grid
+    // (`render/source_sheet.py`), numbered in this order.
+    sources: z
+      .array(
+        z
+          .object({
+            assetId: z.string().min(1),
+            sourceSeconds: seconds
+              .optional()
+              .describe('The moment in this source (default: its middle).'),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(GET_FRAME_MAX_SOURCES)
+      .optional()
+      .describe(
+        `Up to ${String(GET_FRAME_MAX_SOURCES)} media files as shot, tiled into ONE ` +
+          'labelled image (tile 1 = the first entry). Omit timeSeconds and assetId.',
+      ),
     // Small default (see the engine's DEFAULT_MAX_DIMENSION): an image costs input
     // tokens in proportion to its pixels, and most framing/legibility questions are
     // answered at 512px. Raised only when the question is genuinely about fine detail.
@@ -533,11 +558,15 @@ const getFrameSchema = z
   // Top-level exclusivity is enforced here rather than as a schema `oneOf`, which the
   // Anthropic API refuses under `input_schema` (see `tool-input-contract.ts#mapTimeParameters`);
   // the field descriptions carry the rule to the model.
-  .refine((a) => (a.timeSeconds === undefined) !== (a.assetId === undefined), {
-    message:
-      'get_frame takes timeSeconds (a moment of the edit) or assetId (a source file as shot), ' +
-      'exactly one of them.',
-  })
+  .refine(
+    (a) =>
+      [a.timeSeconds, a.assetId, a.sources].filter((value) => value !== undefined).length === 1,
+    {
+      message:
+        'get_frame takes timeSeconds (a moment of the edit), assetId (a source file as shot) ' +
+        'or sources (several source files on one sheet), exactly one of them.',
+    },
+  )
   .refine((a) => a.sourceSeconds === undefined || a.assetId !== undefined, {
     message: 'sourceSeconds is a time in a source file, so it needs assetId.',
   });
@@ -556,7 +585,11 @@ const analysisTools: ToolSpec[] = [
         'the footage, whether a grade reads as intended. Prefer it over guessing from ' +
         'numbers whenever the question is about how something LOOKS. It renders through ' +
         'the same engine as the final export, so what you see is what will be delivered. ' +
-        'One frame per call, and each costs real context — grab the few moments that ' +
+        'To look ACROSS many sources in one call — every clip before cutting, choosing ' +
+        'between takes — pass sources: [{ assetId, sourceSeconds? }] (up to 12): one ' +
+        'labelled contact sheet, numbered in your order, each source uncropped as shot. ' +
+        'Then single-source get_frame for a close look at the one that matters. Each ' +
+        'timeline look is one frame and costs real context — grab the few moments that ' +
         'actually settle the question, not a sweep of the timeline.',
       capabilities: ['vision'],
     },

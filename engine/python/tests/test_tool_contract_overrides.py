@@ -76,6 +76,20 @@ def test_frame_time_cannot_be_negative() -> None:
     rejects("get_frame", {"timeSeconds": -0.01})
 
 
+def test_frame_sources_are_one_to_twelve_and_exclusive_with_the_other_modes() -> None:
+    one = [{"assetId": "a", "sourceSeconds": 2}]
+    assert validate("get_frame", {"sources": one}).sources[0].source_seconds == 2
+    validate("get_frame", {"sources": [{"assetId": f"a{i}"} for i in range(12)]})
+    rejects("get_frame", {"sources": [{"assetId": f"a{i}"} for i in range(13)]})
+    rejects("get_frame", {"sources": []})
+    rejects("get_frame", {"sources": [{"assetId": ""}]})
+    rejects("get_frame", {"sources": [{"assetId": "a", "sourceSeconds": -1}]})
+    rejects("get_frame", {"sources": [{"assetId": "a", "extra": 1}]})
+    rejects("get_frame", {"sources": one, "timeSeconds": 1})
+    rejects("get_frame", {"sources": one, "assetId": "a"})
+    rejects("get_frame", {"sources": one, "sourceSeconds": 1})
+
+
 def test_clip_keyframes_match_renderer_vocabulary_and_value_domains() -> None:
     rejects(
         "add_keyframes",

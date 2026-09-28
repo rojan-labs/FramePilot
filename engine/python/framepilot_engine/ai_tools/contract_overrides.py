@@ -253,18 +253,27 @@ class _AdjustEffectArgs(BaseModel):
     intensity: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
+class _GetFrameSourceArgs(BaseModel):
+    model_config = _STRICT
+    asset_id: str = Field(alias="assetId", min_length=1)
+    source_seconds: float | None = Field(default=None, alias="sourceSeconds", ge=0.0)
+
+
 class _GetFrameArgs(BaseModel):
     model_config = _STRICT
     time_seconds: float | None = Field(default=None, alias="timeSeconds", ge=0.0)
     asset_id: str | None = Field(default=None, alias="assetId", min_length=1)
     source_seconds: float | None = Field(default=None, alias="sourceSeconds", ge=0.0)
+    # Several sources as shot on one labelled sheet (engine `render/source_sheet.py`).
+    sources: list[_GetFrameSourceArgs] | None = Field(default=None, min_length=1, max_length=12)
     max_dimension: int | None = Field(default=None, alias="maxDimension", ge=128, le=1280)
     burn_captions: bool | None = Field(default=None, alias="burnCaptions")
 
     @model_validator(mode="after")
     def _edit_or_source(self) -> _GetFrameArgs:
-        if (self.time_seconds is None) == (self.asset_id is None):
-            raise ValueError("get_frame takes exactly one of timeSeconds or assetId.")
+        named = [value is not None for value in (self.time_seconds, self.asset_id, self.sources)]
+        if sum(named) != 1:
+            raise ValueError("get_frame takes exactly one of timeSeconds, assetId or sources.")
         if self.source_seconds is not None and self.asset_id is None:
             raise ValueError("sourceSeconds needs assetId.")
         return self

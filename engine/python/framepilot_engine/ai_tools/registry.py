@@ -1165,6 +1165,19 @@ class DetectScenesArgs(BaseModel):
     threshold: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
+class GetFrameSourceArgs(BaseModel):
+    """One tile of a ``get_frame { sources }`` sheet: a source file, at a moment in it."""
+
+    model_config = _STRICT
+    asset_id: str = Field(alias="assetId", min_length=1)
+    source_seconds: float | None = Field(
+        default=None,
+        alias="sourceSeconds",
+        ge=0.0,
+        description="The moment in this source (default: its middle).",
+    )
+
+
 class GetFrameArgs(BaseModel):
     """Render ONE composited frame of the timeline and look at it (vision).
 
@@ -1195,13 +1208,23 @@ class GetFrameArgs(BaseModel):
         ge=0.0,
         description="With assetId: the moment in the SOURCE file (default its start).",
     )
+    sources: list[GetFrameSourceArgs] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=12,
+        description=(
+            "Up to 12 media files as shot, tiled into ONE labelled image (tile 1 = the first "
+            "entry). Omit timeSeconds and assetId."
+        ),
+    )
     max_dimension: int | None = Field(default=None, alias="maxDimension", ge=128, le=1280)
     burn_captions: bool | None = Field(default=None, alias="burnCaptions")
 
     @model_validator(mode="after")
     def _edit_or_source(self) -> GetFrameArgs:
-        if (self.time_seconds is None) == (self.asset_id is None):
-            raise ValueError("get_frame takes exactly one of timeSeconds or assetId.")
+        named = [value is not None for value in (self.time_seconds, self.asset_id, self.sources)]
+        if sum(named) != 1:
+            raise ValueError("get_frame takes exactly one of timeSeconds, assetId or sources.")
         if self.source_seconds is not None and self.asset_id is None:
             raise ValueError("sourceSeconds needs assetId.")
         return self
@@ -2201,7 +2224,11 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "the footage, whether a grade reads as intended. Prefer it over guessing from "
         "numbers whenever the question is about how something LOOKS. It renders through "
         "the same engine as the final export, so what you see is what will be delivered. "
-        "One frame per call, and each costs real context — grab the few moments that "
+        "To look ACROSS many sources in one call — every clip before cutting, choosing "
+        "between takes — pass sources: [{ assetId, sourceSeconds? }] (up to 12): one "
+        "labelled contact sheet, numbered in your order, each source uncropped as shot. "
+        "Then single-source get_frame for a close look at the one that matters. Each "
+        "timeline look is one frame and costs real context — grab the few moments that "
         "actually settle the question, not a sweep of the timeline.",
         kind="analysis",
         input_model=GetFrameArgs,

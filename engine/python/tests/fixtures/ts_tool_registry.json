@@ -2507,6 +2507,33 @@
             ],
             "minimum": 0
           },
+          "sources": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "assetId"
+              ],
+              "properties": {
+                "assetId": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "sourceSeconds": {
+                  "type": [
+                    "number"
+                  ],
+                  "minimum": 0
+                }
+              }
+            }
+          },
           "timeSeconds": {
             "type": [
               "number"
