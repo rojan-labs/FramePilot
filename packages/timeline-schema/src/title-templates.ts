@@ -24,7 +24,6 @@
  * id at render time, so revising a template never changes a title already placed.
  */
 import { CaptionBackgroundSchema, CaptionStyleSchema, type CaptionStyle } from './index.js';
-import { CAPTION_TEMPLATE_CATALOG, type CaptionTemplate } from './caption-templates.js';
 import { z } from 'zod/v4';
 
 /**
@@ -161,9 +160,9 @@ export function parseTitleTypography(value: unknown): TitleTypography | undefine
 
 // --------------------------------------------------------------------------- catalog
 
-/** Gallery grouping in the Text panel. `caption-looks` holds every caption template as a title. */
+/** Gallery grouping in the Text panel. */
 export type TitleTemplateCategory =
-  'basic' | 'titles' | 'lower-thirds' | 'callouts' | 'social' | 'quotes' | 'caption-looks';
+  'basic' | 'titles' | 'lower-thirds' | 'callouts' | 'social' | 'quotes' | 'script' | 'retro';
 
 export const TITLE_TEMPLATE_CATEGORIES: readonly {
   readonly id: TitleTemplateCategory;
@@ -175,7 +174,8 @@ export const TITLE_TEMPLATE_CATEGORIES: readonly {
   { id: 'callouts', label: 'Callouts' },
   { id: 'social', label: 'Social' },
   { id: 'quotes', label: 'Quotes' },
-  { id: 'caption-looks', label: 'Caption looks' },
+  { id: 'script', label: 'Script' },
+  { id: 'retro', label: 'Retro & fun' },
 ];
 
 export interface TitleTemplate {
@@ -202,10 +202,16 @@ const LIME = '#8cff5a';
 const PINK = '#ff4fa3';
 const BLUE = '#2f6bff';
 const YOUTUBE_RED = '#ff0033';
+const GOLD = '#f2c14e';
+const ORANGE = '#ff6b1a';
+const GREEN = '#16a34a';
+const PHOSPHOR = '#7dff9b';
 
 const SOFT_DROP = { color: '#000000b3', blur: 0.2, offsetX: 0, offsetY: 0.06 } as const;
 const HALO = { color: '#000000d9', blur: 0.26, offsetX: 0, offsetY: 0.02 } as const;
 const HARD_DROP = { color: '#000000', blur: 0, offsetX: 0.05, offsetY: 0.07 } as const;
+/** A coloured glow: zero offset, a wide blur in the letter colour. */
+const glow = (color: string) => ({ color, blur: 0.55, offsetX: 0, offsetY: 0 }) as const;
 
 /** Centre-frame placement, the default for a title. */
 const CENTRE = { align: 'center', boxWidthPercent: 80, xPercent: 50, yPercent: 50 } as const;
@@ -380,7 +386,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
       fontWeight: 400,
       color: CYAN,
       fontSizePercent: 9,
-      typography: { shadow: { color: '#3de0ffcc', blur: 0.55, offsetX: 0, offsetY: 0 } },
+      typography: { shadow: glow('#3de0ffcc') },
     }),
   },
   {
@@ -679,7 +685,7 @@ const HAND_MADE: readonly TitleTemplate[] = [
   {
     id: 'quote-hand',
     label: 'Handwritten',
-    category: 'quotes',
+    category: 'script',
     sampleText: 'best day ever',
     look: look({
       ...CENTRE,
@@ -718,67 +724,438 @@ const HAND_MADE: readonly TitleTemplate[] = [
       fontSizePercent: 8,
       typography: { letterSpacing: -0.02, lineHeight: 1.05, shadow: SOFT_DROP },
     }),
+  }, // ------------------------------------------------------ basic (more)
+  {
+    id: 'tracked-caps',
+    label: 'Tracked caps',
+    category: 'basic',
+    sampleText: 'Behind the scenes',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Montserrat',
+      fontWeight: 600,
+      color: WHITE,
+      fontSizePercent: 4,
+      typography: { textTransform: 'uppercase', letterSpacing: 0.24, shadow: SOFT_DROP },
+    }),
+  },
+  {
+    id: 'rounded',
+    label: 'Rounded',
+    category: 'basic',
+    sampleText: 'Hello there',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Nunito',
+      fontWeight: 900,
+      color: WHITE,
+      fontSizePercent: 7.5,
+      typography: { shadow: SOFT_DROP },
+    }),
+  },
+  {
+    id: 'white-box',
+    label: 'White box',
+    category: 'basic',
+    sampleText: 'Simple and clear',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Inter',
+      fontWeight: 700,
+      color: INK,
+      fontSizePercent: 5,
+      background: WHITE,
+      typography: { background: { radius: 0.12, paddingX: 0.5, paddingY: 0.25 } },
+    }),
+  },
+  // ----------------------------------------------------- titles (more)
+  {
+    id: 'poster',
+    label: 'Poster',
+    category: 'titles',
+    sampleText: 'Summer drop',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Bebas Neue',
+      fontWeight: 400,
+      color: WHITE,
+      fontSizePercent: 14,
+      typography: { textTransform: 'uppercase', letterSpacing: 0.04, shadow: HARD_DROP },
+    }),
+  },
+  {
+    id: 'luxury',
+    label: 'Luxury',
+    category: 'titles',
+    sampleText: 'The collection',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Bodoni Moda',
+      fontWeight: 700,
+      color: GOLD,
+      fontSizePercent: 7,
+      typography: { fontStyle: 'italic', shadow: HALO },
+    }),
+  },
+  {
+    id: 'block',
+    label: 'Block',
+    category: 'titles',
+    sampleText: 'Part two',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Archivo Black',
+      fontWeight: 400,
+      color: INK,
+      fontSizePercent: 8,
+      background: WHITE,
+      typography: {
+        textTransform: 'uppercase',
+        background: { radius: 0.04, paddingX: 0.4, paddingY: 0.18 },
+      },
+    }),
+  },
+  // ----------------------------------------------- lower thirds (more)
+  {
+    id: 'glass-pill',
+    label: 'Glass pill',
+    category: 'lower-thirds',
+    sampleText: 'Sam Carter · Designer',
+    look: look({
+      ...LOWER_THIRD,
+      fontFamily: 'Manrope',
+      fontWeight: 700,
+      color: WHITE,
+      fontSizePercent: 3.2,
+      background: '#ffffff29',
+      typography: {
+        shadow: SOFT_DROP,
+        background: {
+          radius: 0.6,
+          paddingX: 0.7,
+          paddingY: 0.3,
+          borderColor: '#ffffff73',
+          borderWidth: 1,
+        },
+      },
+    }),
+  },
+  {
+    id: 'news-bar',
+    label: 'News bar',
+    category: 'lower-thirds',
+    sampleText: 'Breaking news',
+    look: look({
+      ...LOWER_THIRD,
+      fontFamily: 'Oswald',
+      fontWeight: 600,
+      color: WHITE,
+      fontSizePercent: 3.6,
+      background: RED,
+      typography: {
+        textTransform: 'uppercase',
+        letterSpacing: 0.04,
+        background: { radius: 0, paddingX: 0.6, paddingY: 0.2 },
+      },
+    }),
+  },
+  {
+    id: 'mono-tag',
+    label: 'Mono tag',
+    category: 'lower-thirds',
+    sampleText: 'v2.4 — release notes',
+    look: look({
+      ...LOWER_THIRD,
+      fontFamily: 'IBM Plex Mono',
+      fontWeight: 400,
+      color: PHOSPHOR,
+      fontSizePercent: 3,
+      background: '#0b0b0fcc',
+      typography: { background: { radius: 0.1, paddingX: 0.6, paddingY: 0.3 } },
+    }),
+  },
+  // --------------------------------------------------- callouts (more)
+  {
+    id: 'look-here',
+    label: 'Look here',
+    category: 'callouts',
+    sampleText: 'Look here →',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Inter',
+      fontWeight: 800,
+      color: YELLOW,
+      fontSizePercent: 5.5,
+      typography: { outlineColor: INK, outlineWidth: 1.5, shadow: HARD_DROP },
+    }),
+  },
+  {
+    id: 'heads-up',
+    label: 'Heads up',
+    category: 'callouts',
+    sampleText: 'Heads up',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Space Grotesk',
+      fontWeight: 700,
+      color: INK,
+      fontSizePercent: 4.5,
+      background: ORANGE,
+      typography: { background: { radius: 0.2, paddingX: 0.55, paddingY: 0.22 } },
+    }),
+  },
+  {
+    id: 'price-tag',
+    label: 'Price tag',
+    category: 'callouts',
+    sampleText: '$19 / month',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Rubik',
+      fontWeight: 800,
+      color: WHITE,
+      fontSizePercent: 5,
+      background: GREEN,
+      typography: { background: { radius: 0.3, paddingX: 0.55, paddingY: 0.22 } },
+    }),
+  },
+  // ----------------------------------------------------- social (more)
+  {
+    id: 'like-share',
+    label: 'Like & share',
+    category: 'social',
+    sampleText: 'Like & share',
+    look: look({
+      ...CENTRE,
+      yPercent: 80,
+      fontFamily: 'Montserrat',
+      fontWeight: 800,
+      color: WHITE,
+      fontSizePercent: 4.5,
+      background: BLUE,
+      typography: { background: { radius: 0.3, paddingX: 0.7, paddingY: 0.3 } },
+    }),
+  },
+  {
+    id: 'link-in-bio',
+    label: 'Link in bio',
+    category: 'social',
+    sampleText: 'Link in bio',
+    look: look({
+      ...CENTRE,
+      yPercent: 82,
+      fontFamily: 'Poppins',
+      fontWeight: 700,
+      color: INK,
+      fontSizePercent: 4.2,
+      background: YELLOW,
+      typography: { background: { radius: 0.6, paddingX: 0.7, paddingY: 0.28 } },
+    }),
+  },
+  {
+    id: 'watch-to-end',
+    label: 'Watch to the end',
+    category: 'social',
+    sampleText: 'Watch to the end',
+    look: look({
+      ...UPPER,
+      fontFamily: 'Inter',
+      fontWeight: 900,
+      color: WHITE,
+      fontSizePercent: 5.5,
+      typography: { textTransform: 'uppercase', outlineColor: INK, outlineWidth: 2 },
+    }),
+  },
+  // ----------------------------------------------------- quotes (more)
+  {
+    id: 'testimonial',
+    label: 'Testimonial',
+    category: 'quotes',
+    sampleText: '“It changed how we work.”',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'DM Serif Display',
+      fontWeight: 400,
+      color: WHITE,
+      fontSizePercent: 6,
+      typography: { fontStyle: 'italic', lineHeight: 1.15, shadow: HALO },
+    }),
+  },
+  {
+    id: 'manifesto',
+    label: 'Manifesto',
+    category: 'quotes',
+    sampleText: 'Make things people love',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Syne',
+      fontWeight: 800,
+      color: WHITE,
+      fontSizePercent: 7,
+      typography: { textTransform: 'uppercase', lineHeight: 1, shadow: SOFT_DROP },
+    }),
+  },
+  // --------------------------------------------------------------- script
+  {
+    id: 'signature',
+    label: 'Signature',
+    category: 'script',
+    sampleText: 'with love',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Great Vibes',
+      fontWeight: 400,
+      color: WHITE,
+      fontSizePercent: 11,
+      typography: { shadow: SOFT_DROP },
+    }),
+  },
+  {
+    id: 'marker',
+    label: 'Marker',
+    category: 'script',
+    sampleText: 'Day one',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Permanent Marker',
+      fontWeight: 400,
+      color: WHITE,
+      fontSizePercent: 9,
+      typography: { shadow: HARD_DROP },
+    }),
+  },
+  {
+    id: 'brush',
+    label: 'Brush',
+    category: 'script',
+    sampleText: 'Weekend vibes',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Caveat Brush',
+      fontWeight: 400,
+      color: YELLOW,
+      fontSizePercent: 10,
+      typography: { shadow: SOFT_DROP },
+    }),
+  },
+  {
+    id: 'sweet',
+    label: 'Sweet',
+    category: 'script',
+    sampleText: 'So good',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Pacifico',
+      fontWeight: 400,
+      color: PINK,
+      fontSizePercent: 8,
+      typography: { outlineColor: WHITE, outlineWidth: 1.5, shadow: SOFT_DROP },
+    }),
+  },
+  {
+    id: 'notebook',
+    label: 'Notebook',
+    category: 'script',
+    sampleText: 'note to self',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Patrick Hand',
+      fontWeight: 400,
+      color: INK,
+      fontSizePercent: 5,
+      background: OFF_WHITE,
+      typography: { background: { radius: 0.08, paddingX: 0.6, paddingY: 0.3 } },
+    }),
+  },
+  // ---------------------------------------------------------------- retro
+  {
+    id: 'arcade',
+    label: 'Arcade',
+    category: 'retro',
+    sampleText: 'Level up',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Press Start 2P',
+      fontWeight: 400,
+      color: LIME,
+      fontSizePercent: 4,
+      typography: { textTransform: 'uppercase', lineHeight: 1.5, shadow: HARD_DROP },
+    }),
+  },
+  {
+    id: 'pixel',
+    label: 'Pixel',
+    category: 'retro',
+    sampleText: 'Loading…',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'VT323',
+      fontWeight: 400,
+      color: CYAN,
+      fontSizePercent: 9,
+      typography: { shadow: glow('#3de0ffb3') },
+    }),
+  },
+  {
+    id: 'seventies',
+    label: 'Seventies',
+    category: 'retro',
+    sampleText: 'Groovy',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Shrikhand',
+      fontWeight: 400,
+      color: ORANGE,
+      fontSizePercent: 10,
+      typography: { outlineColor: INK, outlineWidth: 2, shadow: HARD_DROP },
+    }),
+  },
+  {
+    id: 'slab',
+    label: 'Slab',
+    category: 'retro',
+    sampleText: 'Est. 1985',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Alfa Slab One',
+      fontWeight: 400,
+      color: GOLD,
+      fontSizePercent: 8,
+      typography: { outlineColor: INK, outlineWidth: 1.5, shadow: HARD_DROP },
+    }),
+  },
+  {
+    id: 'chrome',
+    label: 'Chrome',
+    category: 'retro',
+    sampleText: 'Future',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Orbitron',
+      fontWeight: 800,
+      color: WHITE,
+      fontSizePercent: 8,
+      typography: { textTransform: 'uppercase', letterSpacing: 0.08, shadow: glow('#3de0ffcc') },
+    }),
+  },
+  {
+    id: 'bubble',
+    label: 'Bubble',
+    category: 'retro',
+    sampleText: 'Yay!',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Titan One',
+      fontWeight: 400,
+      color: PINK,
+      fontSizePercent: 11,
+      typography: { outlineColor: WHITE, outlineWidth: 2.5, shadow: HARD_DROP },
+    }),
   },
 ];
 
-/** A caption look drawn as a title is this much larger than the caption (a title reads as a title). */
-const CAPTION_LOOK_TITLE_SCALE = 1.5;
-const CAPTION_LOOK_MIN_PERCENT = 4;
-const CAPTION_LOOK_MAX_PERCENT = 14;
-/** Where a caption's vertical anchor puts a title (centre, % of the frame height). */
-const CAPTION_ANCHOR_Y: Readonly<Record<string, number>> = { top: 20, middle: 50, bottom: 76 };
-/** A colour whose alpha is zero draws nothing: the caption catalog's "no chip". */
-const TRANSPARENT = /^#[0-9a-f]{6}00$/i;
-
-/** Prefix of the id a caption look gets as a title template. */
-export const CAPTION_LOOK_ID_PREFIX = 'caption-';
-
-/**
- * A caption template drawn as a title: the same family, weight, colours and every line-level
- * field, at a title's size. Its highlight, accent and animation are left out (they are
- * word-timed or animated), and so is a frosted chip's blur — the chip keeps its tint and rim.
- */
-export function titleLookFromCaptionTemplate(template: CaptionTemplate): TitleLook {
-  const style = template.style;
-  const typography: TitleTypography = {};
-  for (const field of TITLE_TYPOGRAPHY_FIELDS) {
-    const value = style[field];
-    if (value !== undefined) Object.assign(typography, { [field]: value });
-  }
-  const chip = style.background;
-  const hasChip = chip !== undefined && !TRANSPARENT.test(chip.color);
-  if (hasChip) {
-    const { color: _color, blur: _blur, ...shape } = chip;
-    typography.background = shape;
-  }
-  const size = CAPTION_FONT_HEIGHT_PERCENT * (style.fontScale ?? 1) * CAPTION_LOOK_TITLE_SCALE;
-  return {
-    fontFamily: style.fontFamily ?? 'Inter',
-    fontWeight: style.fontWeight ?? 400,
-    color: style.textColor ?? '#ffffff',
-    fontSizePercent:
-      Math.round(
-        Math.min(CAPTION_LOOK_MAX_PERCENT, Math.max(CAPTION_LOOK_MIN_PERCENT, size)) * 10,
-      ) / 10,
-    align: style.textAlign ?? 'center',
-    boxWidthPercent: Math.min(90, style.maxWidthPercent ?? 84),
-    xPercent: 50,
-    yPercent: CAPTION_ANCHOR_Y[style.position ?? 'middle'] ?? 50,
-    background: hasChip ? chip.color : null,
-    typography,
-  };
-}
-
-const CAPTION_LOOKS: readonly TitleTemplate[] = CAPTION_TEMPLATE_CATALOG.map((template) => ({
-  id: `${CAPTION_LOOK_ID_PREFIX}${template.id}`,
-  label: template.label,
-  category: 'caption-looks' as const,
-  sampleText: template.label,
-  look: titleLookFromCaptionTemplate(template),
-}));
-
-/** Every title template: the hand-made looks, then every caption template as a title. */
-export const TITLE_TEMPLATE_CATALOG: readonly TitleTemplate[] = [...HAND_MADE, ...CAPTION_LOOKS];
+/** Every title template, in gallery order. */
+export const TITLE_TEMPLATE_CATALOG: readonly TitleTemplate[] = HAND_MADE;
 
 /** The template a plain "add text" (a timeline drop, the Heading button) uses. */
 export const DEFAULT_TITLE_TEMPLATE_ID = 'heading';

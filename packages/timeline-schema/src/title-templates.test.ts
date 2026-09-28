@@ -8,11 +8,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import { CAPTION_FONT_CATALOG, getCaptionFont } from './caption-fonts.js';
-import { CAPTION_TEMPLATE_CATALOG } from './caption-templates.js';
 import { CaptionStyleSchema } from './index.js';
 import {
   CAPTION_FONT_HEIGHT_PERCENT,
-  CAPTION_LOOK_ID_PREFIX,
   DEFAULT_TITLE_TEMPLATE_ID,
   TITLE_TEMPLATE_CATALOG,
   TITLE_TEMPLATE_CATEGORIES,
@@ -20,7 +18,6 @@ import {
   getTitleTemplate,
   parseTitleTypography,
   titleCaptionStyle,
-  titleLookFromCaptionTemplate,
   type TitleStyleParams,
 } from './title-templates.js';
 
@@ -49,11 +46,14 @@ describe('TITLE_TEMPLATE_CATALOG', () => {
     expect(getTitleTemplate('nope')).toBeUndefined();
   });
 
-  it('carries every caption template as a caption look', () => {
-    for (const caption of CAPTION_TEMPLATE_CATALOG) {
-      const title = getTitleTemplate(`${CAPTION_LOOK_ID_PREFIX}${caption.id}`);
-      expect(title?.category, caption.id).toBe('caption-looks');
+  it('offers many styles in every category, drawn in many different fonts', () => {
+    expect(TITLE_TEMPLATE_CATALOG.length).toBeGreaterThanOrEqual(50);
+    for (const category of TITLE_TEMPLATE_CATEGORIES) {
+      const count = TITLE_TEMPLATE_CATALOG.filter((t) => t.category === category.id).length;
+      expect(count, category.id).toBeGreaterThanOrEqual(5);
     }
+    const families = new Set(TITLE_TEMPLATE_CATALOG.map((t) => t.look.fontFamily));
+    expect(families.size).toBeGreaterThanOrEqual(35);
   });
 
   it('draws only bundled families, at weights and in styles the family ships', () => {
@@ -81,8 +81,7 @@ describe('TITLE_TEMPLATE_CATALOG', () => {
   });
 
   it('keeps a separation layer on every hand-made look', () => {
-    for (const { id, category, look } of TITLE_TEMPLATE_CATALOG) {
-      if (category === 'caption-looks') continue;
+    for (const { id, look } of TITLE_TEMPLATE_CATALOG) {
       const t = look.typography;
       const separated =
         look.background !== null || t.shadow !== undefined || (t.outlineWidth ?? 0) > 0;
@@ -164,26 +163,5 @@ describe('parseTitleTypography', () => {
     })!;
     expect(parsed.background).toEqual({ radius: 0.2 });
     expect('highlight' in parsed).toBe(false);
-  });
-});
-
-describe('titleLookFromCaptionTemplate', () => {
-  it('drops the frost and the word-timed fields but keeps the chip tint and rim', () => {
-    const frosted = CAPTION_TEMPLATE_CATALOG.find((t) => (t.style.background?.blur ?? 0) > 0);
-    expect(frosted).toBeDefined();
-    const look = titleLookFromCaptionTemplate(frosted!);
-    expect(look.background).toBe(frosted!.style.background!.color);
-    expect(look.typography.background).not.toHaveProperty('blur');
-    expect(look.typography).not.toHaveProperty('highlight');
-    expect(look.typography).not.toHaveProperty('animation');
-  });
-
-  it('reads a transparent caption chip as no chip', () => {
-    const look = titleLookFromCaptionTemplate({
-      ...CAPTION_TEMPLATE_CATALOG[0]!,
-      style: { fontFamily: 'Inter', background: { color: '#00000000' } },
-    });
-    expect(look.background).toBeNull();
-    expect(look.typography.background).toBeUndefined();
   });
 });
