@@ -29,12 +29,12 @@ section near the end of this file.
 … not able to load proper tools").** Evidence: desktop run `6cb12e30` (`run.md` + the conversation
 JSON + the project file + real-media renders). Scope gate: no new subsystem; two small tools
 (`set_text_style`, `reframe_pan`) complete existing half-built capabilities (fonts the renderers
-already draw; `planAutomaticReframe`, exported and unused). ADR 0194. Branch
+already draw; `planAutomaticReframe`, exported and unused). ADR 0195. Branch
 `fix/agent-run-audit-2026-09-28`.
 - [x] **AR1** Durable effect record is the value's JSON projection (measure_color crashed runs).
 - [x] **AR2** History keeps one assistant message per turn (narration crowded out the brief).
 - [x] **AR3** Router reads the deliverable length (quote-grounded) and continuations; regex
-  duration reader deleted; one reading feeds objective, criteria and Critic (ADR 0194).
+  duration reader deleted; one reading feeds objective, criteria and Critic (ADR 0195).
 - [x] **AR4** Capability truth: keyword-triggered labels and the keyword "Not attempted" receipt
   deleted; registry-derived domain list; domain summaries corrected; stale "cannot track" text.
 - [x] **AR5** Provenance: auto-applied memory reasons labelled as earlier runs' words; DECIDED says
