@@ -302,8 +302,13 @@ describe('ReviewFindingQueue', () => {
     queue.recordTurn(0, region(['track_v1'], ['clip_a']));
     queue.recordTurn(1, region(['track_v2'], ['clip_b']));
     let release: ((value: readonly ReviewFinding[]) => void) | undefined;
+    // The budget runs out only once the first review has settled — ordered by the review
+    // itself, not by two racing timers (a 0 ms review against a 5 ms budget lost under CI's
+    // coverage instrumentation).
+    const budget = new AbortController();
     queue.track(0, async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
+      setTimeout(() => budget.abort(), 0);
       return [finding({ turnIndex: 0 })];
     });
     queue.track(
@@ -313,8 +318,6 @@ describe('ReviewFindingQueue', () => {
           release = resolve;
         }),
     );
-    const budget = new AbortController();
-    setTimeout(() => budget.abort(), 5);
 
     // The settled review is taken; the stalled one is neither awaited past the budget nor
     // cancelled — it is still pending, for the end-of-run drain to report.

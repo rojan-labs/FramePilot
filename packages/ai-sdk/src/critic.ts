@@ -946,7 +946,7 @@ const COVER_SLACK_PX = 0.5;
 function coversFrameByZoom(project: Project, clip: Clip): boolean {
   // Only a clip that zooms: a source that already matches the frame fills it by fitting, and
   // the branches below say so in their own words.
-  if (!clip.keyframes.some((keyframe) => keyframe.property === 'scale')) return false;
+  if (!(clip.keyframes ?? []).some((keyframe) => keyframe.property === 'scale')) return false;
   const { width, height } = project.resolution;
   const span = clip.end - clip.start;
   const instants = [clip.start + span * 0.02, clip.start + span / 2, clip.end - span * 0.02];
