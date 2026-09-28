@@ -1019,6 +1019,17 @@ export interface AgentTurnResult {
    */
   readonly acceptanceShortfall?: readonly string[];
   /**
+   * Set on a done turn when the review of the run's own edits, awaited (bounded) at that
+   * moment, came back with findings that are now queued on the steering channel. The reducer
+   * gives the model ONE more turn to act on them instead of verifying; the runtime makes that
+   * wait at most once per run, so a second declaration settles as usual.
+   *
+   * WHY a flag and not a reducer rule: the reducer holds no review state and cannot wait on
+   * anything. The runtime waits and measures; the reducer decides, as with
+   * {@link acceptanceShortfall}.
+   */
+  readonly lateReviewSteering?: boolean;
+  /**
    * What the pixels said about the cuts THIS apply is answerable for
    * (`kernel/picture-verification.ts`, VU7).
    *
@@ -2054,7 +2065,15 @@ export function onTurnResult(
   // still returns no action, `actionRecoveryPending` makes the second declaration settle
   // through verification rather than looping forever.
   if (r.done) {
-    // THE MODEL'S OWN PLAN, first. Run `d8d2e445` replied "Not done yet: colour, speed,
+    // The review of the last edit, first. It landed while the model was saying it had
+    // finished, and it is the only account of that edit's pixels the run will ever get;
+    // the finding is already queued on the steering channel, so the next turn reads it.
+    // One turn, bounded by the runtime (it waits for late reviews once per run) and by
+    // `advance`'s step, clock and cost checks.
+    if (r.lateReviewSteering === true) {
+      return advance({ ...base, modelDeclaredDone: false }, em, events);
+    }
+    // THE MODEL'S OWN PLAN, next. Run `d8d2e445` replied "Not done yet: colour, speed,
     // transitions, fade, masking & graphics, SFX & levels, deliverables" after one montage,
     // and the run COMPLETED — a reply with no tool call was the end of the run, whatever the
     // reply said. Nothing here reads that prose. The model states what is left as data

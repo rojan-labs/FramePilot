@@ -163,6 +163,7 @@ import {
   type ModelPlanItem,
   modelPlanEcho,
   modelPlanSteps,
+  nextOpenItem,
   planItemLabel,
 } from './kernel/model-plan.js';
 import { createNarrationFilter } from './kernel/narration.js';
@@ -245,7 +246,12 @@ import {
   unknownToolNote,
   unusableHostPayload,
 } from './reliability/refusal-notes.js';
-import type { AgentRunControls, AskUser, AskUserOption } from './run-controls.js';
+import type {
+  AgentRunControls,
+  AskUser,
+  AskUserOption,
+  LateReviewControl,
+} from './run-controls.js';
 import type { LedgerSnapshot } from './ledger.js';
 import { indexFor } from './project-index.js';
 import { pictureFor } from './kernel/semantic-index/picture.js';
@@ -679,6 +685,18 @@ const MAX_UNUSABLE_TURN_RETRIES = 1;
  * indexing.
  */
 const MAX_LEDGER_REFRESHES = 3;
+
+/**
+ * How long a run that has just said it is done waits for the review of its own edits.
+ *
+ * Reviews render frames through the engine, so the review of the LAST edit usually settles
+ * after the model's final reply; with no wait it could only be reported, never fixed (run
+ * d8d2e445). A minute covers a typical review batch without letting one stalled render hold
+ * a finished run open indefinitely. Anything still pending after it is reported at the end
+ * of the run exactly as before (ADR 0187). The run's Stop signal and wall-clock budget cut
+ * the wait short too.
+ */
+export const LATE_REVIEW_WAIT_MS = 60_000;
 
 /**
  * Bin assets the timeline references, as ids. Synthetic clip ids (a caption, a title) that
@@ -8348,8 +8366,30 @@ export class Orchestrator {
     // of its own. One is created when the host wired none, so the repair path exists on
     // every route rather than only the ones with a steering-capable UI attached.
     const steering = controls.agent?.steering ?? createSteeringQueue();
+    /**
+     * Events the late-review wait produced inside the agent loop, where this generator
+     * cannot yield. Flushed ahead of the next event the loop emits.
+     */
+    const lateEvents: AiEvent[] = [];
+    // The wait the loop makes once, when the model says it is done (`LATE_REVIEW_WAIT_MS`).
+    // Declared before `steerFindings` is, but only ever called from inside the run below.
+    const lateReviews: LateReviewControl = {
+      hasPending: () => findings.hasPending,
+      settle: async (signal) => {
+        const live = await findings.drainUntil(signal);
+        const repaired = findings.takeResolved();
+        const exhausted = steerFindings(live);
+        lateEvents.push(
+          ...publishFindings(live, repaired),
+          ...exhausted.map((finding) => unfixedFindingWarning(finding)),
+        );
+        // `admitForSteering` splits `live` into steered and exhausted, so any difference
+        // is a finding that went onto the steering channel.
+        return live.length > exhausted.length;
+      },
+    };
     const effectiveControls: EditorRunControls = reviewRequested
-      ? { ...controls, agent: { ...(controls.agent ?? {}), steering } }
+      ? { ...controls, agent: { ...(controls.agent ?? {}), steering, lateReviews } }
       : controls;
     const evidenceBase = (): { conversationId: string; turnId: string; ts: number } => ({
       conversationId: options.conversationId,
@@ -8385,6 +8425,13 @@ export class Orchestrator {
      * transition model rather than by any proposal) into a run that spent its whole budget
      * being told to fix it. The cap lives in `review-findings.ts`.
      */
+    /** Said once per defect class, the moment the run stops retrying it. */
+    const unfixedFindingWarning = (finding: ReviewFinding): AiEvent => ({
+      ...evidenceBase(),
+      id: `${options.turnId}:finding-unfixed:${finding.id}`,
+      type: 'warning',
+      text: `The review still reports this after a correction attempt, so the run is not retrying it again: ${finding.detail} It is likely a render or transition-model defect rather than something this edit can fix.`,
+    });
     const steerFindings = (live: readonly ReviewFinding[]): readonly ReviewFinding[] => {
       if (live.length === 0) return [];
       const { steer, exhausted } = findings.admitForSteering(live);
@@ -8406,6 +8453,9 @@ export class Orchestrator {
       // monotonic key to compare against later edits.
       let turnOrdinal = 0;
       for await (const event of this.legacyEditorRun(input, options, request, effectiveControls)) {
+        // Anything the late-review wait found goes out before whatever the run does next —
+        // so the finding's card precedes the turn that acts on it.
+        if (lateEvents.length > 0) yield* lateEvents.splice(0);
         if (event.type === 'diff' && event.edit.validation.valid && event.edit.diff) {
           const before = event.scope === 'turn' ? workingProject : input.project;
           workingProject = applyProjectPatch(before, event.edit.patch);
@@ -8453,14 +8503,7 @@ export class Orchestrator {
             // Say it out loud the moment the run stops retrying, rather than letting the
             // editor watch the same finding reappear and assume something is still working
             // on it. Named per defect, not per frame.
-            for (const finding of exhausted) {
-              yield {
-                ...evidenceBase(),
-                id: `${options.turnId}:finding-unfixed:${finding.id}`,
-                type: 'warning',
-                text: `The review still reports this after a correction attempt, so the run is not retrying it again: ${finding.detail} It is likely a render or transition-model defect rather than something this edit can fix.`,
-              };
-            }
+            for (const finding of exhausted) yield unfixedFindingWarning(finding);
           }
           continue;
         }
@@ -8558,6 +8601,7 @@ export class Orchestrator {
         projector?.observe(event);
         yield event;
       }
+      if (lateEvents.length > 0) yield* lateEvents.splice(0);
       projector?.finishWithoutTerminal('Legacy editor route ended without a terminal status.');
     } catch (error) {
       projector?.finishWithoutTerminal(error instanceof Error ? error.message : String(error));
@@ -9170,6 +9214,8 @@ export class Orchestrator {
     const ledgerAskedAssetIds = placedBinAssetIds(input.project);
     /** How many mid-run ledger re-reads this run has spent. */
     let ledgerRefreshes = 0;
+    /** Whether this run has spent its one wait for late reviews (see `LATE_REVIEW_WAIT_MS`). */
+    let lateReviewsAwaited = false;
     // Mirror of the reducer's cumulative applied ops; feeds the completion report and
     // keeps the closure's view of "what landed" in lockstep with the reducer.
     const cumulativeOps: AnyOperation[] = [];
@@ -9388,6 +9434,33 @@ export class Orchestrator {
       )
         .checks.filter((check) => check.status === 'fail')
         .map((check) => check.detail);
+    };
+
+    /**
+     * Wait, once per run and for at most `LATE_REVIEW_WAIT_MS`, for the reviews of this
+     * run's edits when the model says it is done, so the last edit's finding can steer.
+     *
+     * Bounded three ways: the budget timer, the editor's Stop, and the run's wall-clock
+     * deadline (both carried by `runSignal`). A run that was stopped does not steer, even if
+     * a finding arrived during the wait — the editor ended it. Status `verifying` is what the
+     * panel shows while the reply is written and the run checks it (`AiSidebar`).
+     *
+     * @returns True when findings are now queued for the model's next turn.
+     */
+    const awaitLateReviews = async function* (emit: TurnEmitter): AsyncGenerator<AiEvent, boolean> {
+      const reviews = controls?.lateReviews;
+      if (reviews === undefined || lateReviewsAwaited) return false;
+      lateReviewsAwaited = true;
+      if (reviews.hasPending()) yield emit.status('verifying');
+      // A second deadline, armed on the wait alone: the same timer-plus-cancel pairing the
+      // run's own clock uses, combined with `runSignal` so either end stops it.
+      const budget = createRunDeadline(LATE_REVIEW_WAIT_MS, runSignal, controls?.timers);
+      try {
+        const steered = await reviews.settle(budget.signal);
+        return steered && !runSignal.aborted;
+      } finally {
+        budget.dispose();
+      }
     };
 
     const stepHandlers: ConductorHandlers = {
@@ -9844,9 +9917,17 @@ export class Orchestrator {
           // stated against the timeline as it actually is, so the reducer can tell a run
           // that is done from one that has stopped. See `AgentTurnResult.acceptanceShortfall`.
           const shortfall = acceptanceShortfall(state.cumulativeOps.length > 0);
+          // The run is about to verify — nothing in the model's plan is open and the request
+          // measures met — so this is the last moment a review of its edits can still change
+          // anything. Wait for them (bounded, once per run); a finding buys one steering turn.
+          const lateReviewSteering =
+            shortfall.length === 0 &&
+            !(effect.modelPlan && nextOpenItem(effect.modelPlan)) &&
+            (yield* awaitLateReviews(emit));
           return turnBase(index, emit.seq(), {
             done: true,
             ...(shortfall.length > 0 ? { acceptanceShortfall: shortfall } : {}),
+            ...(lateReviewSteering ? { lateReviewSteering: true } : {}),
           });
         }
 

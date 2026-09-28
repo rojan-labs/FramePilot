@@ -58,3 +58,22 @@ The post-run review is a separate, skippable phase of a run that has already don
   reply".
 - The review still runs and still reports when nobody interrupts it. Nothing about when or what it
   checks changed.
+
+## Amendment (2026-09-28): one bounded wait while the model can still act
+
+Run `d8d2e445` ended with "The review of the last edit came back after the run had finished, so
+nothing was done about it". The loop collected only reviews that had already finished at an edit
+boundary, and the post-run wait above came after the agent had stopped, so a finding about the
+final edit could be reported but never fixed.
+
+- When the model declares itself done and the run is about to verify (no open item in its own
+  plan, no unmet request measure), the agent loop waits for this run's pending reviews once, for
+  at most `LATE_REVIEW_WAIT_MS` (60 s). The editor's Stop and the run's wall-clock budget end the
+  wait early. It reports `verifying` while it waits: the reply is written, so Stop during it means
+  what this ADR already says it means.
+- Findings that arrive in that window go through the same steering path as mid-run findings
+  (`REVIEW_STEERING_PREAMBLE`, once per defect class) and buy the model ONE more turn
+  (`AgentTurnResult.lateReviewSteering`). A second declaration settles through verification with
+  no second wait.
+- Reviews still rendering when the budget runs out are neither cancelled nor dropped: the
+  post-run wait above collects and reports them exactly as before.

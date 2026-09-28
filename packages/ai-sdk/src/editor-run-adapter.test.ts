@@ -3,7 +3,13 @@ import { makeProject } from './__fixtures__/project.js';
 import type { ContextInput } from './context-builder.js';
 import type { AiEvent } from './events.js';
 import type { EditorRunStageEvent } from './kernel/editor-run-lifecycle.js';
-import { Orchestrator, type EditorRunRequest, type StreamOptions } from './orchestrator.js';
+import {
+  LATE_REVIEW_WAIT_MS,
+  Orchestrator,
+  type EditorRunRequest,
+  type StreamOptions,
+} from './orchestrator.js';
+import { realTimers, type TimerApi } from './reliability/timeout.js';
 import { createSteeringQueue } from './run-controls.js';
 import { MockProvider } from './providers/mock.js';
 import type { AiCompletionRequest, AiProvider, AiResponse } from './providers/types.js';
@@ -21,11 +27,13 @@ class ScriptedProvider implements AiProvider {
   public readonly modelId = 'mock';
   private index = 0;
   public callCount = 0;
+  public readonly requests: AiCompletionRequest[] = [];
 
   public constructor(private readonly responses: readonly AiResponse[]) {}
 
-  public async complete(_request: AiCompletionRequest): Promise<AiResponse> {
+  public async complete(request: AiCompletionRequest): Promise<AiResponse> {
     this.callCount += 1;
+    this.requests.push(request);
     const response = this.responses[Math.min(this.index, this.responses.length - 1)]!;
     this.index += 1;
     return response;
@@ -339,6 +347,106 @@ describe('streamEditorRun route adapters', () => {
     const queued = steering.take();
     const reachedModel = provider.callCount > 1;
     expect(queued !== undefined || reachedModel).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // The review of the LAST edit (run d8d2e445). The loop only collected reviews that had
+  // already finished at an edit boundary and waited only once the agent had stopped, so a
+  // finding about the final edit arrived when nothing could act on it. The run now waits
+  // for it, bounded, when the model says it is done.
+  // ---------------------------------------------------------------------------
+  describe('when the model says it is done with a review still rendering', () => {
+    const editThenDone = () =>
+      new ScriptedProvider([
+        {
+          text: 'Trim the intro',
+          toolCalls: [
+            {
+              id: 'first',
+              name: 'delete_range',
+              arguments: { trackId: 'video_1', start: 0, end: 1 },
+            },
+          ],
+        },
+        { text: 'Done.' },
+      ]);
+    /** A review slower than the per-edit `drainSettled` (one macrotask) can see. */
+    const slowReview =
+      (ms: number, passing: boolean) =>
+      async (_project: unknown, requests: readonly TemporalEvidenceRequest[]) => {
+        await new Promise((resolve) => setTimeout(resolve, ms));
+        return { renderSettings, results: passing ? passingEvidence(requests) : [] };
+      };
+    const agentRoute = {
+      route: 'agent',
+      agentOptions: { maxSteps: 4, autoRepair: false },
+    } satisfies EditorRunRequest;
+
+    it('gives the model one turn with a finding that lands within the budget', async () => {
+      const provider = editThenDone();
+      const events = await collect(
+        new Orchestrator(provider).streamEditorRun(
+          input,
+          { ...options, runId: 'late_finding_steers' },
+          agentRoute,
+          { temporalEvidence: slowReview(20, false) },
+        ),
+      );
+      // Edit, "Done." (the wait), then ONE more turn carrying the finding — and the second
+      // "Done." ends the run rather than waiting again.
+      expect(provider.callCount).toBe(3);
+      expect(JSON.stringify(provider.requests[2]?.messages)).toContain('Fix only these');
+      const finding = events.findIndex((event) => event.type === 'review_finding');
+      const acting = events.findIndex(
+        (event) => event.type === 'notification' && /Acting on what the review/.test(event.text),
+      );
+      expect(finding).toBeGreaterThanOrEqual(0);
+      expect(finding).toBeLessThan(acting);
+      // It was acted on, so it is not reported as never attempted.
+      expect(
+        events.some((event) => event.type === 'warning' && /after the run had/.test(event.text)),
+      ).toBe(false);
+      expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
+    });
+
+    it('completes with no extra turn when the review finds nothing', async () => {
+      const provider = editThenDone();
+      const events = await collect(
+        new Orchestrator(provider).streamEditorRun(
+          input,
+          { ...options, runId: 'late_review_clean' },
+          agentRoute,
+          { temporalEvidence: slowReview(20, true) },
+        ),
+      );
+      expect(provider.callCount).toBe(2);
+      expect(events.some((event) => event.type === 'review_finding')).toBe(false);
+      expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
+    });
+
+    it('stops waiting at the budget and reports the late finding as before', async () => {
+      // The budget timer fires at once; the run's own deadline keeps its real clock.
+      const timers: TimerApi = {
+        setTimeout: (handler, ms) =>
+          realTimers.setTimeout(handler, ms === LATE_REVIEW_WAIT_MS ? 0 : ms),
+        clearTimeout: (handle) => realTimers.clearTimeout(handle),
+      };
+      const provider = editThenDone();
+      const events = await collect(
+        new Orchestrator(provider).streamEditorRun(
+          input,
+          { ...options, runId: 'late_review_over_budget' },
+          agentRoute,
+          { agent: { timers }, temporalEvidence: slowReview(40, false) },
+        ),
+      );
+      expect(provider.callCount).toBe(2);
+      const unattempted = events.find(
+        (event) => event.type === 'warning' && /after the run had finished/.test(event.text),
+      );
+      expect(unattempted).toBeDefined();
+      expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
+    });
   });
 
   it('neither fails the run nor claims verification when the reviewer is unreachable', async () => {

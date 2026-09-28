@@ -758,6 +758,19 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     expect(step.effects).toEqual([{ kind: 'run_verify' }]);
   });
 
+  it('gives a late review finding one turn instead of verifying', () => {
+    // Run d8d2e445: the review of the last edit settled after the run had stopped, so its
+    // finding could only be reported, never acted on. The runtime now waits for it once at
+    // the done declaration; when it steered, the reducer must continue, not verify.
+    const planned = started({ cumulativeOps: ops(1) });
+    const step = onEffectResult(planned, turn({ done: true, lateReviewSteering: true }));
+    expect(step.state.phase).toBe('executing');
+    expect(step.state.modelDeclaredDone).toBe(false);
+    expect(step.effects[0]).toMatchObject({ kind: 'run_turn' });
+    // …and without it the same declaration verifies.
+    expect(onEffectResult(planned, turn({ done: true })).state.phase).toBe('verifying');
+  });
+
   it('accepts done when the request states nothing the timeline fails', () => {
     const planned = started({
       ledgerLength: 1,

@@ -168,12 +168,41 @@ export function createAskUserGate(): AskUserGate {
 }
 
 /**
+ * This run's perceptual reviews, as the agent loop sees them when the model says it is done.
+ *
+ * Wired by `Orchestrator.streamEditorRun` when review is on; the loop itself holds no review
+ * state. It exists because the loop only ever collected reviews that had ALREADY finished at
+ * an edit boundary, and waited only once the agent had stopped — so the review of the LAST
+ * edit could never steer anything (run d8d2e445: "The review of the last edit came back
+ * after the run had finished, so nothing was done about it").
+ */
+export interface LateReviewControl {
+  /** True while any review of this run is queued or rendering. */
+  hasPending(): boolean;
+  /**
+   * Wait until every pending review settles or `signal` aborts, publish what they found,
+   * and queue the steerable findings on the run's steering channel (the same path a
+   * mid-run finding takes). Reviews still running when `signal` aborts keep running and
+   * are reported at the end of the run as before (ADR 0187).
+   *
+   * @param signal - Bounds the wait.
+   * @returns True when at least one finding was queued for the model to act on.
+   */
+  settle(signal: AbortSignal): Promise<boolean>;
+}
+
+/**
  * Live execution-side hooks for one streaming agent run (see module doc for why
  * these are not part of {@link Command}). All are optional and independent: a
  * caller can wire steering without approval-gating, or vice versa.
  */
 export interface AgentRunControls {
   readonly steering?: SteeringQueue;
+  /**
+   * Pending perceptual reviews, awaited (bounded) once when the model declares itself done
+   * so the last edit's findings can still buy one steering turn. Absent ⇒ no wait.
+   */
+  readonly lateReviews?: LateReviewControl;
   /**
    * Timer API backing the run's wall-clock deadline (`reliability/deadline.ts`).
    *
