@@ -971,6 +971,210 @@ input[type='checkbox']:focus-visible {
   cursor: pointer;
   z-index: 2;
 }
+/* ---- On-canvas bounding box (components/transform-box) --------------------------------------
+   Figma/Premiere-grade chrome at a fixed SCREEN size: the box is placed in frame percentages and
+   turned with a CSS rotate (never a CSS scale), so its 1.5 px rule and 8 px handles stay crisp
+   at every monitor zoom. One accent, used only for the selection. */
+.transform-box {
+  --tb-accent: #0066ff;
+  --tb-handle: 8px;
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.5px solid var(--tb-accent);
+  /* A faint dark halo keeps the rule readable over a white sky or a blue one. */
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.35);
+  transform-origin: 50% 50%;
+  cursor: move;
+  z-index: 4;
+  touch-action: none;
+  user-select: none;
+}
+.transform-box.is-move {
+  cursor: grabbing;
+}
+.transform-box.is-passive {
+  cursor: text;
+  border-style: dashed;
+}
+.transform-box:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--tb-accent) 45%, transparent);
+  outline-offset: 3px;
+}
+.transform-box-handle {
+  position: absolute;
+  width: var(--tb-handle);
+  height: var(--tb-handle);
+  margin: calc(var(--tb-handle) / -2) 0 0 calc(var(--tb-handle) / -2);
+  box-sizing: border-box;
+  background: #fff;
+  border: 1px solid var(--tb-accent);
+  border-radius: 1.5px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.28),
+    0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  touch-action: none;
+  transition:
+    transform 0.08s ease,
+    background-color 0.08s ease;
+}
+/* A bigger invisible target than the 8 px square it draws: easy to grab, still minimal. */
+.transform-box-handle::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+.transform-box-handle:hover {
+  transform: scale(1.2);
+}
+.transform-box-handle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--tb-accent) 45%, transparent);
+  outline-offset: 2px;
+}
+.transform-box-handle--nw {
+  left: 0;
+  top: 0;
+}
+.transform-box-handle--n {
+  left: 50%;
+  top: 0;
+}
+.transform-box-handle--ne {
+  left: 100%;
+  top: 0;
+}
+.transform-box-handle--e {
+  left: 100%;
+  top: 50%;
+}
+.transform-box-handle--se {
+  left: 100%;
+  top: 100%;
+}
+.transform-box-handle--s {
+  left: 50%;
+  top: 100%;
+}
+.transform-box-handle--sw {
+  left: 0;
+  top: 100%;
+}
+.transform-box-handle--w {
+  left: 0;
+  top: 50%;
+}
+/* Edge handles read as bars along their edge, corners as squares. */
+.transform-box-handle--n,
+.transform-box-handle--s {
+  width: 14px;
+  margin-left: -7px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 3px;
+}
+.transform-box-handle--e,
+.transform-box-handle--w {
+  width: 6px;
+  margin-left: -3px;
+  height: 14px;
+  margin-top: -7px;
+  border-radius: 3px;
+}
+/* Rotation: invisible zones just outside each corner… */
+.transform-box-rotate-zone {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  touch-action: none;
+}
+.transform-box-rotate-zone--nw {
+  left: -22px;
+  top: -22px;
+}
+.transform-box-rotate-zone--ne {
+  right: -22px;
+  top: -22px;
+}
+.transform-box-rotate-zone--se {
+  right: -22px;
+  bottom: -22px;
+}
+.transform-box-rotate-zone--sw {
+  left: -22px;
+  bottom: -22px;
+}
+/* …and a lollipop on a stalk above the top edge. */
+.transform-box-stalk {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  width: 1.5px;
+  height: 20px;
+  margin-left: -0.75px;
+  background: var(--tb-accent);
+  pointer-events: none;
+}
+.transform-box-rotate {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 20px);
+  width: 10px;
+  height: 10px;
+  margin: 0 0 -5px -5px;
+  box-sizing: border-box;
+  background: #fff;
+  border: 1.5px solid var(--tb-accent);
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  touch-action: none;
+}
+.transform-box-rotate::before {
+  content: '';
+  position: absolute;
+  inset: -7px;
+}
+.transform-box-rotate:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--tb-accent) 45%, transparent);
+  outline-offset: 2px;
+}
+.transform-box-readout {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 10px);
+  padding: 2px 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  white-space: nowrap;
+  color: #fff;
+  background: var(--tb-accent);
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+.transform-box-guide {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  background: #ff3dcb;
+}
+.transform-box-guide--v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -0.5px;
+}
+.transform-box-guide--h {
+  left: 0;
+  right: 0;
+  height: 1px;
+  margin-top: -0.5px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .transform-box-handle {
+    transition: none;
+  }
+}
+
 .preview-transform {
   position: absolute;
   box-sizing: border-box;

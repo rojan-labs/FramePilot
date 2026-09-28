@@ -60,6 +60,12 @@ export const HANDLE_DIRECTION: Readonly<Record<ResizeHandle, readonly [-1 | 0 | 
   w: [-1, 0],
 };
 
+/** What a bounding-box gesture did: moved the box, resized it from a handle, or turned it. */
+export type TransformGesture =
+  | { readonly kind: 'move' }
+  | { readonly kind: 'resize'; readonly handle: ResizeHandle; readonly uniform: boolean }
+  | { readonly kind: 'rotate' };
+
 /** How far (screen px) a pointer must travel before a press becomes a drag. */
 export const DRAG_THRESHOLD_PX = 3;
 
