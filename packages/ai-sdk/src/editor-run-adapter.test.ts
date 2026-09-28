@@ -425,11 +425,27 @@ describe('streamEditorRun route adapters', () => {
     });
 
     it('stops waiting at the budget and reports the late finding as before', async () => {
-      // The budget timer fires at once; the run's own deadline keeps its real clock.
+      // The budget timer fires at once, and the review is held until it has fired — so the
+      // review cannot land inside the wait however slow the run is (under coverage a 40 ms
+      // review finished before the model even said done, and correctly earned a turn). The
+      // run's own deadline keeps its real clock.
+      let releaseReview: () => void = () => undefined;
+      const reviewHeld = new Promise<void>((resolve) => {
+        releaseReview = resolve;
+      });
       const timers: TimerApi = {
         setTimeout: (handler, ms) =>
-          realTimers.setTimeout(handler, ms === LATE_REVIEW_WAIT_MS ? 0 : ms),
+          ms === LATE_REVIEW_WAIT_MS
+            ? realTimers.setTimeout(() => {
+                handler();
+                realTimers.setTimeout(releaseReview, 0);
+              }, 0)
+            : realTimers.setTimeout(handler, ms),
         clearTimeout: (handle) => realTimers.clearTimeout(handle),
+      };
+      const heldReview = async () => {
+        await reviewHeld;
+        return { renderSettings, results: [] };
       };
       const provider = editThenDone();
       const events = await collect(
@@ -437,7 +453,7 @@ describe('streamEditorRun route adapters', () => {
           input,
           { ...options, runId: 'late_review_over_budget' },
           agentRoute,
-          { agent: { timers }, temporalEvidence: slowReview(40, false) },
+          { agent: { timers }, temporalEvidence: heldReview },
         ),
       );
       expect(provider.callCount).toBe(2);
