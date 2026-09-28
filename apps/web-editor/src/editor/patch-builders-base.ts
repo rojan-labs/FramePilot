@@ -1964,6 +1964,29 @@ export function titleLookParams(look: TitleLook, templateId: string): Partial<Te
 }
 
 /**
+ * The lane a new title goes on: the one aimed at (a drop), else the first overlay lane that can
+ * take it, else a new overlay lane on top — a project without one (the demo, an imported edit)
+ * must still be able to take a title, as it can take a sticker (`stickerLane`). The allocator
+ * stacks the title on a new layer when the chosen lane is taken at that time.
+ */
+function titleLane(
+  timeline: Timeline,
+  start: number,
+  end: number,
+  preferredTrackId: string | undefined,
+): { readonly trackId: string; readonly setupOps: readonly Operation[] } {
+  const target =
+    timeline.tracks.find((t) => t.id === preferredTrackId && t.locked !== true) ??
+    timeline.tracks.find((t) => t.type === 'overlay' && t.locked !== true && t.hidden !== true);
+  if (target !== undefined) return createLaneAllocator(timeline).allocate(target.id, start, end);
+  const trackId = coreNextLayerId(timeline, 'overlay');
+  return {
+    trackId,
+    setupOps: [{ type: 'add_layer', layerId: trackId, layerType: 'overlay', atIndex: 0 }],
+  };
+}
+
+/**
  * Add a title in a template's look spanning `[start, end]` — `add_text_overlay` followed by the
  * look as a `set_effect_params` on the clip it creates, one patch and so one undo (the pattern
  * the agent's `add_text_layer` uses). `text` defaults to the template's sample text. Returns
@@ -1972,7 +1995,7 @@ export function titleLookParams(look: TitleLook, templateId: string): Partial<Te
  */
 export function addTitleFromTemplatePatch(
   timeline: Timeline,
-  trackId: string,
+  trackId: string | undefined,
   templateId: string,
   start: number,
   end: number,
@@ -1980,9 +2003,10 @@ export function addTitleFromTemplatePatch(
 ): { readonly patch: Patch; readonly clipId: string } | null {
   const template = getTitleTemplate(templateId);
   const body = text?.trim() ? text : template?.sampleText;
-  if (!template || !body || !timeline.tracks.some((t) => t.id === trackId)) return null;
+  if (!template || !body) return null;
+  if (trackId !== undefined && !timeline.tracks.some((t) => t.id === trackId)) return null;
   if (end - start <= MIN_EDIT_SECONDS) return null;
-  const placed = createLaneAllocator(timeline).allocate(trackId, start, end);
+  const placed = titleLane(timeline, start, end, trackId);
   const clipId = textOverlayClipId(placed.trackId, start);
   const newLane = placed.setupOps.length > 0;
   return {

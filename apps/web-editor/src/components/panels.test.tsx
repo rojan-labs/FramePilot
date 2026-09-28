@@ -26,7 +26,6 @@ vi.mock('../editor/import.js', async (importActual) => {
 });
 import { probeMediaFile } from '../editor/import.js';
 
-const emptyTimeline: Timeline = { tracks: [] };
 const clipCount = (container: HTMLElement): number =>
   container.querySelectorAll('.clip-block').length;
 
@@ -994,16 +993,19 @@ describe('OverlaysPanel (Text panel)', () => {
     return { ...view, live, titles };
   }
 
-  it('reports a missing overlay track and adds nothing', () => {
+  it('adds a title to a project with no overlay lane by making one on top', () => {
+    const live: { editor: ReturnType<typeof useEditor> | null } = { editor: null };
     function Host(): JSX.Element {
-      const editor = useEditor(emptyTimeline);
+      const editor = useEditor(demoProject.timeline);
+      live.editor = editor;
       return <OverlaysPanel editor={editor} />;
     }
     render(<Host />);
-    expect(screen.getByText('No overlay track in this project.')).toBeDefined();
-    expect(
-      (screen.getByRole('button', { name: 'Add a heading' }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+    expect(live.editor!.state.timeline.tracks.some((t) => t.type === 'overlay')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Add a heading' }));
+    const [top] = live.editor!.state.timeline.tracks;
+    expect(top!.type).toBe('overlay');
+    expect(top!.clips[0]!.effects[0]!.params).toMatchObject({ templateId: 'heading' });
   });
 
   it('adds a heading at the playhead in its whole look and selects it', () => {

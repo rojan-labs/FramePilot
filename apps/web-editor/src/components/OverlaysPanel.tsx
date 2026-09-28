@@ -106,7 +106,7 @@ const TILE_STYLES: ReadonlyMap<string, CSSProperties> = new Map(
         ...css,
         textAlign: 'center',
         maxWidth: '92%',
-        fontSize: `clamp(10px, ${(template.look.fontSizePercent * 1.9).toFixed(2)}cqh, 30px)`,
+        fontSize: `clamp(9px, ${(template.look.fontSizePercent * 1.6).toFixed(2)}cqh, 24px)`,
         overflowWrap: 'break-word',
       } satisfies CSSProperties,
     ];
@@ -145,7 +145,6 @@ function titlesOnTimeline(timeline: Timeline): readonly Clip[] {
 export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): JSX.Element {
   const { settings } = useSettings();
   const { timeline, selectedIds } = editor.state;
-  const overlayTrack = timeline.tracks.find((track) => track.type === 'overlay');
 
   const [query, setQuery] = useState('');
   const [chip, setChip] = useViewPreference<CategoryChip>('textCategory', 'all', coerceChip);
@@ -171,11 +170,11 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
     );
 
   const add = (templateId: string): void => {
-    if (!overlayTrack) return;
     const start = editor.getPlayhead();
+    // No lane named: the first overlay lane with room, or a new one on top.
     const built = addTitleFromTemplatePatch(
       timeline,
-      overlayTrack.id,
+      undefined,
       templateId,
       start,
       start + settings.defaultOverlaySeconds,
@@ -218,7 +217,6 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
 
   const trimmed = query.trim().toLowerCase();
   const tileProps: TileProps = {
-    disabled: !overlayTrack,
     canApply: selectedTitle !== undefined,
     appliedTemplateId,
     onAdd,
@@ -231,17 +229,14 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
         <h2>Text</h2>
       </header>
 
-      {!overlayTrack && <p className="panel-empty">No overlay track in this project.</p>}
-
       <div className="text-quick" role="group" aria-label="add text">
         {QUICK_ADD.map(({ templateId, label }) => (
           <button
             key={templateId}
             type="button"
             className={`text-quick-add text-quick-add--${templateId}`}
-            disabled={!overlayTrack}
             title="Add at the playhead, or drag onto the timeline"
-            draggable={Boolean(overlayTrack)}
+            draggable
             onDragStart={(event) => {
               event.dataTransfer.setData(TEXT_OVERLAY_DND_TYPE, templateId);
               event.dataTransfer.effectAllowed = 'copy';
@@ -348,7 +343,6 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
 }
 
 interface TileProps {
-  readonly disabled: boolean;
   readonly canApply: boolean;
   readonly appliedTemplateId: string | undefined;
   readonly onAdd: (templateId: string) => void;
@@ -463,7 +457,6 @@ function TemplateGrid({
           tabbable={index === focusIndex}
           onFocus={setActive}
           applied={tileProps.appliedTemplateId === template.id}
-          disabled={tileProps.disabled}
           canApply={tileProps.canApply}
           onAdd={tileProps.onAdd}
           onApply={tileProps.onApply}
@@ -478,7 +471,6 @@ const TemplateTile = memo(function TemplateTile({
   index,
   tabbable,
   applied,
-  disabled,
   canApply,
   onFocus,
   onAdd,
@@ -488,7 +480,6 @@ const TemplateTile = memo(function TemplateTile({
   readonly index: number;
   readonly tabbable: boolean;
   readonly applied: boolean;
-  readonly disabled: boolean;
   readonly canApply: boolean;
   readonly onFocus: (index: number) => void;
   readonly onAdd: (templateId: string) => void;
@@ -500,10 +491,9 @@ const TemplateTile = memo(function TemplateTile({
         type="button"
         className="text-tile-add"
         tabIndex={tabbable ? 0 : -1}
-        disabled={disabled}
         aria-label={`${template.label} text style`}
         title={`Add ${template.label} at the playhead, or drag it onto the timeline`}
-        draggable={!disabled}
+        draggable
         onDragStart={(event) => {
           event.dataTransfer.setData(TEXT_OVERLAY_DND_TYPE, template.id);
           event.dataTransfer.effectAllowed = 'copy';
