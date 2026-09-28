@@ -19,7 +19,7 @@ import {
   type TextOverlayParams,
 } from './patch-builders.js';
 import { demoAssetIds, demoTimeline } from './demo.js';
-import { textOverlayStyle, titleTypographyCss } from './textOverlay.js';
+import { TEXT_HIT_TARGET_STYLE, textOverlayStyle, titleTypographyCss } from './textOverlay.js';
 
 const timeline: Timeline = {
   ...demoTimeline,
@@ -198,5 +198,42 @@ describe('titleTypographyCss', () => {
     expect(hollow.WebkitTextStroke).toBe('0.09375em #ffffff');
     const bare = titleTypographyCss(typed({ textOpacity: 0 }))!;
     expect(bare.WebkitTextStroke).toBe('1px #ffffff');
+  });
+});
+
+describe('TEXT_HIT_TARGET_STYLE', () => {
+  it('overrides every paint key a title style can have, by the same key', () => {
+    const painted = textOverlayStyle(
+      {
+        ...DEFAULT_TEXT_PARAMS,
+        background: '#ff2e4d',
+        typography: {
+          outlineColor: '#000000',
+          outlineWidth: 2,
+          shadow: { color: '#000000', blur: 0.2, offsetX: 0, offsetY: 0.06 },
+          background: { borderColor: '#ffffff73', borderWidth: 1 },
+        },
+      },
+      1,
+      3,
+    );
+    const plain = textOverlayStyle({ ...DEFAULT_TEXT_PARAMS, background: '#000000' }, 1, 3);
+    const paintKeys = [
+      'color',
+      'background',
+      'backgroundColor',
+      'backgroundImage',
+      'textShadow',
+      'WebkitTextStroke',
+      'boxShadow',
+      'backdropFilter',
+      'WebkitBackdropFilter',
+    ];
+    for (const style of [painted, plain]) {
+      expect(style).not.toHaveProperty('background');
+      for (const key of paintKeys) {
+        if (key in style) expect(TEXT_HIT_TARGET_STYLE, key).toHaveProperty(key);
+      }
+    }
   });
 });

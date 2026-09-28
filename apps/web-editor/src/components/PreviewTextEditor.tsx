@@ -17,6 +17,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { TextOverlayParams } from '../editor/patch-builders.js';
 import { textOverlayStyle } from '../editor/textOverlay.js';
+import { useHugLines } from '../editor/useHugLines.js';
 
 export interface PreviewTextEditorProps {
   readonly params: TextOverlayParams;
@@ -175,6 +176,21 @@ export function PreviewTextEditor({
   };
 
   const style = textOverlayStyle(shown, timeInClip, duration);
+  // A typed title's box hugs its longest line, as the engine's raster does. Not while typing:
+  // the lines move under the caret, and the box settles when the edit commits.
+  useHugLines(
+    boxRef,
+    editRef,
+    shown.typography !== undefined && !editing,
+    JSON.stringify([
+      shown.text,
+      shown.fontFamily,
+      shown.fontWeight,
+      shown.fontSizePercent,
+      shown.boxWidthPercent,
+      shown.typography,
+    ]),
+  );
   // While editing/selected the box is fully opaque and interactive regardless of the
   // animation phase, so the user always sees what they are editing.
   const editStyle = { ...style, opacity: 1, pointerEvents: 'auto' as const };

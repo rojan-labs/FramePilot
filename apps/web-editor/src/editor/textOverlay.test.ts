@@ -53,8 +53,10 @@ describe('textOverlayStyle', () => {
   });
 
   it('includes a background box only when set', () => {
-    expect(textOverlayStyle(DEFAULT_TEXT_PARAMS, 2, 5).background).toBeUndefined();
+    expect(textOverlayStyle(DEFAULT_TEXT_PARAMS, 2, 5).backgroundColor).toBeUndefined();
     const boxed = textOverlayStyle({ ...DEFAULT_TEXT_PARAMS, background: '#000' }, 2, 5);
-    expect(boxed.background).toBe('#000');
+    expect(boxed.backgroundColor).toBe('#000');
+    // Never the shorthand, which the hit target could not reliably override.
+    expect(boxed.background).toBeUndefined();
   });
 });

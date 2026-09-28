@@ -131,3 +131,34 @@ def test_a_turning_typed_title_is_drawn_in_its_rotation_safe_square() -> None:
     params = {**BASE, "typography": {}}
     turning = rasterize_text_overlay("LAUNCH DAY", params, W, H, rotates=True)
     assert turning.shape[0] == turning.shape[1]
+
+
+def test_the_export_refuses_exactly_what_the_preview_refuses() -> None:
+    # The preview parses typography with TitleTypographySchema and draws the plain title when it
+    # does not parse; the export must agree about every one of these, or the two show different
+    # looks for the same title.
+    for bad in (
+        {"lineHeight": 4},
+        {"lineHeight": 0.5},
+        {"outlineWidth": -1},
+        {"textTransform": "shout"},
+        {"fontStyle": "oblique"},
+        {"shadow": {"color": "#000000", "blur": 0.2}},
+        {"shadow": {"color": "#000000", "blur": -1, "offsetX": 0, "offsetY": 0}},
+        {"background": {"radius": -0.2}},
+        {"letterSpacing": "wide"},
+    ):
+        assert title_caption_style({**BASE, "typography": bad}, H) is None, bad
+    assert title_caption_style({**BASE, "typography": {"lineHeight": 3}}, H) is not None
+
+
+def test_a_typed_title_with_no_family_or_size_takes_the_editors_defaults() -> None:
+    # The agent's add_text_layer stores neither; the preview draws Inter at 8% of the height.
+    style = title_caption_style({"typography": {}}, H)
+    assert style is not None
+    assert style.font_family == "Inter"
+    assert int(H / 22 * (style.font_scale or 0)) == int(H * 8 / 100)
+    # A title that stores a size in pixels keeps it.
+    sized = title_caption_style({"fontSize": 120, "typography": {}}, H)
+    assert sized is not None
+    assert int(H / 22 * (sized.font_scale or 0)) == 120

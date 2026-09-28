@@ -71,6 +71,7 @@ import { PreviewAudioMixer } from './PreviewAudioMixer.js';
 import { PreviewViewControls, type PreviewZoom } from './PreviewViewControls.js';
 import { PreviewTransport } from './PreviewTransport.js';
 import { PreviewTextEditor } from './PreviewTextEditor.js';
+import { TEXT_HIT_TARGET_STYLE } from '../editor/textOverlay.js';
 import { PreviewShapeEditor } from './PreviewShapeEditor.js';
 import { shapeHitRect, shapePivot } from '../preview/shape-handles.js';
 import { PreviewCaptionEditor } from './PreviewCaptionEditor.js';
@@ -97,20 +98,6 @@ const NO_SOLO: ReadonlySet<string> = new Set();
  * monitor are deferred: their drags do not read as droppable here.
  */
 const MONITOR_DROP_KINDS = ['sticker', 'shape'] as const;
-
-/**
- * A title's hit target sits over the engine's raster of it: it keeps the title's box and wrap so
- * it covers the same letters, and paints nothing — no fill, chip, outline, shadow or rim.
- */
-const INVISIBLE_TEXT = {
-  color: 'transparent',
-  background: 'transparent',
-  textShadow: 'none',
-  WebkitTextStroke: '0',
-  boxShadow: 'none',
-  backdropFilter: 'none',
-  WebkitBackdropFilter: 'none',
-} as const;
 
 export interface WebCodecsPreviewPlayerProps {
   readonly editor: UseEditor;
@@ -1252,7 +1239,7 @@ export function WebCodecsPreviewPlayer({
                       editor.state.playhead - overlay.start,
                       overlay.end - overlay.start,
                     ),
-                    ...INVISIBLE_TEXT,
+                    ...TEXT_HIT_TARGET_STYLE,
                   }}
                   role="button"
                   tabIndex={0}

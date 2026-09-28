@@ -147,7 +147,8 @@ export function textOverlayStyle(
       ...box,
       ...typography,
       width: 'max-content',
-      maxWidth: `${params.boxWidthPercent}%`,
+      // Clamped as both mappings clamp the wrap width (`titleCaptionStyle`, the engine's).
+      maxWidth: `${Math.min(100, Math.max(5, params.boxWidthPercent))}%`,
     };
   }
   return {
@@ -157,8 +158,30 @@ export function textOverlayStyle(
     fontFamily: params.fontFamily,
     fontWeight: params.fontWeight,
     lineHeight: 1.15,
+    // `backgroundColor`, never the `background` shorthand: the typed path paints its chip with
+    // `backgroundColor` too, and the desktop hit target blanks exactly that key. React writes
+    // only the keys that changed, so a shorthand here and a longhand there let a changed chip
+    // colour leak onto the invisible hit target over the engine's raster.
     ...(params.background
-      ? { background: params.background, padding: '0.15em 0.4em', borderRadius: '0.15em' }
+      ? { backgroundColor: params.background, padding: '0.15em 0.4em', borderRadius: '0.15em' }
       : {}),
   };
 }
+
+/**
+ * What a title's hit target over the engine's raster of it adds to {@link textOverlayStyle}: it
+ * keeps the title's box and wrap so it covers the same letters, and paints nothing (no fill,
+ * chip, outline, shadow, rim or frost). Every paint key `textOverlayStyle` can produce is
+ * overridden here by the SAME key. React writes only the style keys that changed, so a shorthand
+ * on one side and a longhand on the other would let a later change show through.
+ */
+export const TEXT_HIT_TARGET_STYLE = {
+  color: 'transparent',
+  backgroundColor: 'transparent',
+  backgroundImage: 'none',
+  textShadow: 'none',
+  WebkitTextStroke: '0',
+  boxShadow: 'none',
+  backdropFilter: 'none',
+  WebkitBackdropFilter: 'none',
+} as const satisfies CSSProperties;

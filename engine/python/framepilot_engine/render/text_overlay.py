@@ -256,7 +256,11 @@ def title_caption_style(params: Mapping[str, Any], frame_height: int) -> Caption
     typography = params.get("typography")
     if not isinstance(typography, Mapping):
         return None
-    layout = text_overlay_layout(params, 1, frame_height)
+    problem = _typography_problem(typography)
+    if problem is not None:
+        log.warning("Title typography is invalid (%s); drawing the plain title instead.", problem)
+        return None
+    layout = text_overlay_layout(_with_editor_defaults(params), 1, frame_height)
     box_percent = _percent(params.get("boxWidthPercent"), _DEFAULT_BOX_WIDTH_PERCENT)
     style: dict[str, Any] = {
         key: typography[key] for key in TITLE_TYPOGRAPHY_FIELDS if key in typography
@@ -286,6 +290,110 @@ def title_caption_style(params: Mapping[str, Any], frame_height: int) -> Caption
     except ValidationError as exc:
         log.warning("Title typography is invalid; drawing the plain title instead: %s", exc)
         return None
+
+
+#: The web editor's defaults for a title (``DEFAULT_TEXT_PARAMS``): what the preview draws a typed
+#: title in when the project stores no family or size (the agent's ``add_text_layer`` writes
+#: neither). The plain path keeps its own historic defaults, byte for byte.
+_EDITOR_DEFAULT_FAMILY = "Inter"
+_EDITOR_DEFAULT_SIZE_PERCENT = 8.0
+_TEXT_TRANSFORMS = frozenset({"none", "uppercase", "lowercase"})
+_FONT_STYLES = frozenset({"normal", "italic"})
+#: ``CaptionStyleSchema.lineHeight``'s range, which the preview's parse enforces.
+_LINE_HEIGHT_RANGE = (0.7, 3.0)
+
+
+def _with_editor_defaults(params: Mapping[str, Any]) -> Mapping[str, Any]:
+    """``params`` with the editor's family and size filled in where the project stores none."""
+    filled = dict(params)
+    family = filled.get("fontFamily")
+    if not (isinstance(family, str) and family.strip()):
+        filled["fontFamily"] = _EDITOR_DEFAULT_FAMILY
+    if filled.get("fontSizePercent") is None and filled.get("fontSize") is None:
+        filled["fontSizePercent"] = _EDITOR_DEFAULT_SIZE_PERCENT
+    return filled
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _non_negative(value: Any) -> bool:
+    return _is_number(value) and value >= 0
+
+
+def _typography_problem(typography: Mapping[str, Any]) -> str | None:
+    """Why ``typography`` fails ``TitleTypographySchema`` (``title-templates.ts``), or ``None``.
+
+    The preview reads a title's typography through that schema and draws the plain title when it
+    does not parse, so the export must refuse exactly the same values or the two disagree about
+    which look a title has. The pydantic ``CaptionStyle`` is looser (it bounds only the letter
+    opacity), hence these checks.
+    """
+    checks: list[tuple[str, bool]] = [
+        (
+            "textTransform",
+            "textTransform" not in typography or typography["textTransform"] in _TEXT_TRANSFORMS,
+        ),
+        ("fontStyle", "fontStyle" not in typography or typography["fontStyle"] in _FONT_STYLES),
+        (
+            "letterSpacing",
+            "letterSpacing" not in typography or _is_number(typography["letterSpacing"]),
+        ),
+        (
+            "lineHeight",
+            "lineHeight" not in typography
+            or (
+                _is_number(typography["lineHeight"])
+                and _LINE_HEIGHT_RANGE[0] <= typography["lineHeight"] <= _LINE_HEIGHT_RANGE[1]
+            ),
+        ),
+        (
+            "textOpacity",
+            "textOpacity" not in typography
+            or (_is_number(typography["textOpacity"]) and 0 <= typography["textOpacity"] <= 1),
+        ),
+        (
+            "outlineColor",
+            "outlineColor" not in typography
+            or (isinstance(typography["outlineColor"], str) and bool(typography["outlineColor"])),
+        ),
+        (
+            "outlineWidth",
+            "outlineWidth" not in typography or _non_negative(typography["outlineWidth"]),
+        ),
+    ]
+    shadow = typography.get("shadow")
+    if shadow is not None:
+        checks.append(
+            (
+                "shadow",
+                isinstance(shadow, Mapping)
+                and isinstance(shadow.get("color"), str)
+                and bool(shadow.get("color"))
+                and _non_negative(shadow.get("blur"))
+                and _is_number(shadow.get("offsetX"))
+                and _is_number(shadow.get("offsetY")),
+            )
+        )
+    chip = typography.get("background")
+    if chip is not None:
+        shape_ok = isinstance(chip, Mapping) and all(
+            _non_negative(chip[key])
+            for key in ("radius", "paddingX", "paddingY", "borderWidth")
+            if key in chip
+        )
+        border = chip.get("borderColor") if isinstance(chip, Mapping) else None
+        checks.append(
+            (
+                "background",
+                shape_ok and (border is None or (isinstance(border, str) and border != "")),
+            )
+        )
+    for field, ok in checks:
+        if not ok:
+            return field
+    return None
 
 
 def _hex_color(rgba: tuple[int, int, int, int]) -> str:
