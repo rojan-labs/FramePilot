@@ -201,27 +201,29 @@ export interface AgentRunControls {
    */
   readonly rememberDecision?: (note: { readonly title: string; readonly body: string }) => void;
   /**
-   * Re-reads the shot ledger for footage this run ACQUIRED, once the engine has measured it.
+   * Re-reads the shot ledger for footage placed mid-run that the run's snapshot has no rows for.
    *
    * A run's understanding of the footage is fixed for the whole `runAiStream` call, and in
    * agent mode that call spans the entire multi-turn run — half an hour and sixty turns in
    * run `19e20922`. That is deliberate: the ledger renders into the prompt prefix, and
    * re-reading it every turn would spend the cache on facts that did not move. It is wrong
-   * for exactly one asset: one the run downloaded itself. Enrolment measures it about ninety
+   * for two kinds of asset. One the run downloaded itself: enrolment measures it about ninety
    * seconds later, and the run reasons about it with `picture: undefined` for the rest of
    * its life — no shot words in its row, nothing in the digest, and `match_color` /
-   * `add_transitions` declining on it for want of measurements.
+   * `add_transitions` declining on it for want of measurements. And any bin asset placed by
+   * a run that started on an EMPTY timeline: the host scopes its initial read to what the
+   * timeline references, so that run started with no snapshot at all (run `d8d2e445`).
    *
-   * So the trade is made narrowly: called only when an asset the TIMELINE references was
-   * acquired by this run and still has no rows, at a turn boundary, and at most a few times
-   * (see `MAX_LEDGER_REFRESHES`). One cache miss, in exchange for the facts about footage
-   * the run itself chose.
+   * So the trade is made narrowly: called only when an asset the TIMELINE references has no
+   * rows and was either acquired by this run or never yet asked about, at a turn boundary,
+   * in one request, and at most a few times (see `MAX_LEDGER_REFRESHES`). One cache miss,
+   * in exchange for the facts about the footage the run is actually cutting.
    *
    * Fire-and-forget in spirit like `rememberDecision`: a host that cannot read returns
    * `null`/`undefined` and the run carries on with what it has. Absent ⇒ the ledger stays
    * fixed for the run, exactly as before (the browser build has no brain).
    *
-   * @param assetIds - The acquired assets to re-read; the host re-reads the whole run's
+   * @param assetIds - The placed, unmeasured assets to re-read; the host re-reads the whole run's
    *   asset set and refreshes these entries (`LedgerClient.snapshot`'s `refresh`).
    * @param signal - The run's abort signal.
    * @returns A fresh snapshot, or `null` when nothing could be read.

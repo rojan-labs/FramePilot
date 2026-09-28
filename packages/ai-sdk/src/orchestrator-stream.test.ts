@@ -4002,6 +4002,94 @@ describe('streamAgent host tool execution (Phase T)', () => {
       expect(calls).toEqual([]);
     });
 
+    /**
+     * Run d8d2e445 started on an EMPTY timeline. The host scopes its one ledger read to what
+     * the timeline references, so the run began with no snapshot, placed its footage from
+     * the bin, and every picture tool — `apply_look` first — found each clip unmeasured.
+     * Those assets were not acquired by the run, so the acquired-only refresh never fired.
+     */
+    describe('a run that starts on an empty timeline', () => {
+      const emptyStart = (base: ContextInput): ContextInput => ({
+        ...base,
+        project: {
+          ...base.project,
+          timeline: {
+            ...base.project.timeline,
+            tracks: base.project.timeline.tracks.map((track) => ({ ...track, clips: [] })),
+          },
+        },
+      });
+      const place = (id: string, assetId: string, start: number) => ({
+        id,
+        name: 'add_clip',
+        arguments: {
+          trackId: 'video_1',
+          assetId,
+          start,
+          end: start + 2,
+          sourceStart: 0,
+          sourceEnd: 2,
+        },
+      });
+      const noRows = {
+        shots: [],
+        digests: [],
+        coverage: { measured: 0, labelled: 0, described: 0, total: 0 },
+      } as unknown as LedgerSnapshot;
+
+      it('reads the ledger for bin footage once it is placed, and asks once per asset', async () => {
+        const calls: string[][] = [];
+        const provider = new ScriptedProvider([
+          { text: 'placing', toolCalls: [place('p1', 'asset_1', 0)] },
+          { text: 'placing more', toolCalls: [place('p2', 'asset_1', 2)] },
+          { text: 'done', toolCalls: [] },
+        ]);
+        await drain(
+          new Orchestrator(provider).streamAgent(
+            emptyStart(input),
+            opts(),
+            {},
+            {
+              refreshLedger: async (assetIds) => {
+                calls.push([...assetIds]);
+                return noRows;
+              },
+            },
+          ),
+        );
+        // Asked on the turn it was placed. The second placement of the same asset does not
+        // ask again: it was imported before the run, so its answer has not changed, and a
+        // re-read would spend the prompt cache for nothing.
+        expect(calls).toEqual([['asset_1']]);
+      });
+
+      it('holds the refresh count to its bound however many assets get placed', async () => {
+        const calls: string[][] = [];
+        const provider = new ScriptedProvider([
+          { text: 'one', toolCalls: [place('p1', 'asset_1', 0)] },
+          { text: 'two', toolCalls: [place('p2', 'b2', 2)] },
+          { text: 'three', toolCalls: [place('p3', 'b3', 4)] },
+          { text: 'four', toolCalls: [place('p4', 'b4', 6)] },
+          { text: 'done', toolCalls: [] },
+        ]);
+        await drain(
+          new Orchestrator(provider).streamAgent(
+            withAssets(emptyStart(input), 'b2', 'b3', 'b4'),
+            opts(),
+            { maxSteps: 8 },
+            {
+              refreshLedger: async (assetIds) => {
+                calls.push([...assetIds]);
+                return null;
+              },
+            },
+          ),
+        );
+        // One request per refresh, three refreshes at most (`MAX_LEDGER_REFRESHES`).
+        expect(calls).toEqual([['asset_1'], ['b2'], ['b3']]);
+      });
+    });
+
     // THE regression this suite exists for: before the `add_stock` arm existed,
     // the host spent quota and disk, the call fell through to the generic settle
     // with `ops: []`, and the model was told the clip had been added to a

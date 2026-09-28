@@ -681,6 +681,54 @@ const MAX_UNUSABLE_TURN_RETRIES = 1;
 const MAX_LEDGER_REFRESHES = 3;
 
 /**
+ * Bin assets the timeline references, as ids. Synthetic clip ids (a caption, a title) that
+ * name no bin asset are left out: they can never have ledger rows.
+ */
+function placedBinAssetIds(project: Project): Set<string> {
+  const inBin = new Set(project.assets.map((asset) => asset.id));
+  const placed = new Set<string>();
+  for (const track of project.timeline.tracks) {
+    for (const clip of track.clips) {
+      if (clip.assetId && inBin.has(clip.assetId)) placed.add(clip.assetId);
+    }
+  }
+  return placed;
+}
+
+/**
+ * Which placed assets a mid-run ledger refresh should ask about (VU8).
+ *
+ * Two kinds of asset, both on the timeline and both with no rows in the current snapshot:
+ *
+ * - footage the run ACQUIRED — it may still be indexing, so it is asked about again at later
+ *   boundaries until it has rows (the refresh cap bounds that);
+ * - any other bin asset the host has never been asked about. The host reads the ledger once,
+ *   at run start, scoped to what the timeline references then — so a run that STARTS on an
+ *   empty timeline (run d8d2e445) had no picture facts for the footage it went on to place
+ *   from the bin: `apply_look` found every clip unmeasured and the model abandoned colour.
+ *   Those assets were imported before the run and are usually long measured, so one ask each
+ *   is enough; asking again every turn would spend the prompt cache on an asset whose
+ *   answer has not changed.
+ *
+ * @param placed - Bin assets the timeline references now (`placedBinAssetIds`).
+ * @param ledger - The run's current snapshot.
+ * @param acquired - Assets this run put in the bin.
+ * @param asked - Assets the host has already been asked about (seeded with the run start's).
+ * @returns The asset ids to refresh, in timeline order; empty when nothing needs a re-read.
+ */
+function ledgerRefreshCandidates(
+  placed: ReadonlySet<string>,
+  ledger: LedgerSnapshot | null | undefined,
+  acquired: ReadonlySet<string>,
+  asked: ReadonlySet<string>,
+): string[] {
+  const measured = new Set((ledger?.shots ?? []).map((shot) => shot.assetId));
+  return [...placed].filter(
+    (assetId) => !measured.has(assetId) && (acquired.has(assetId) || !asked.has(assetId)),
+  );
+}
+
+/**
  * Picture clips this run has actually put on the timeline.
  *
  * `add_clip` specifically, not "any applied operation": the captured run applied
@@ -9110,11 +9158,16 @@ export class Orchestrator {
     let working: Project = input.project;
     /**
      * The run's picture facts. Fixed for the run by design — it renders into the prompt
-     * prefix — except for footage the run acquires ITSELF (see `refreshRunLedger`).
+     * prefix — except for placed footage it has no rows for (see the VU8 refresh).
      */
     let ledger = input.ledger;
     /** Assets this run put in the bin, so a refresh can be scoped to them. */
     const acquiredAssetIds = new Set<string>();
+    /**
+     * Assets the host has already been asked about. Seeded with what the timeline referenced
+     * at run start, because that is exactly the set the host's initial read covered.
+     */
+    const ledgerAskedAssetIds = placedBinAssetIds(input.project);
     /** How many mid-run ledger re-reads this run has spent. */
     let ledgerRefreshes = 0;
     // Mirror of the reducer's cumulative applied ops; feeds the completion report and
@@ -9803,8 +9856,8 @@ export class Orchestrator {
         const ctx = self.toolContext({
           ...input,
           project: working,
-          // The run-scoped snapshot, which is `input.ledger` until the run acquires
-          // footage of its own (see the refresh below).
+          // The run-scoped snapshot, which is `input.ledger` until the run places
+          // footage the snapshot has no rows for (see the refresh below).
           ...(ledger === undefined ? {} : { ledger }),
         });
         // U2: turns map positionally onto the seeded ledger; past it — or with none —
@@ -10087,27 +10140,29 @@ export class Orchestrator {
             });
           }
         }
-        // VU8 — the run's own footage becomes visible to the run.
+        // VU8 — footage placed mid-run becomes visible to the run.
         //
         // The ledger is read once per `runAiStream` call, which in agent mode is the whole
-        // multi-turn run: an asset the agent sources at minute six is measured about ninety
-        // seconds later and still carries no picture facts for the remaining half hour, so
-        // `match_color` and `add_transitions` decline on it and its row has no shot words.
-        // Re-reading every turn would spend the prompt cache the fixed snapshot exists to
-        // protect, so this asks only about assets THIS RUN acquired that the timeline
-        // references and that the current snapshot has no rows for, at a turn boundary, at
-        // most `MAX_LEDGER_REFRESHES` times. A host with no reader (the browser build)
-        // leaves the snapshot exactly as it was.
+        // multi-turn run, and the host scopes that read to what the timeline references AT
+        // START. So two kinds of footage carry no picture facts for the rest of the run: an
+        // asset the agent sources at minute six (measured about ninety seconds later), and —
+        // on a run that starts from an empty timeline — every bin asset it places at all.
+        // Without them `match_color`, `apply_look` and `add_transitions` decline and rows
+        // have no shot words. Re-reading every turn would spend the prompt cache the fixed
+        // snapshot exists to protect, so this asks only about placed assets the snapshot has
+        // no rows for (see `ledgerRefreshCandidates`), in ONE request, at a turn boundary, at
+        // most `MAX_LEDGER_REFRESHES` times. A host with no reader (the browser build) leaves
+        // the snapshot exactly as it was.
         if (applied.applied && controls?.refreshLedger && ledgerRefreshes < MAX_LEDGER_REFRESHES) {
-          const placed = new Set(
-            working.timeline.tracks.flatMap((track) => track.clips.map((clip) => clip.assetId)),
-          );
-          const unmeasured = [...acquiredAssetIds].filter(
-            (assetId) =>
-              placed.has(assetId) && !(ledger?.shots ?? []).some((s) => s.assetId === assetId),
+          const unmeasured = ledgerRefreshCandidates(
+            placedBinAssetIds(working),
+            ledger,
+            acquiredAssetIds,
+            ledgerAskedAssetIds,
           );
           if (unmeasured.length > 0) {
             ledgerRefreshes += 1;
+            for (const assetId of unmeasured) ledgerAskedAssetIds.add(assetId);
             const refreshed = await controls.refreshLedger(unmeasured, runSignal);
             if (refreshed) {
               orchestratorLog.action('mid-run ledger refresh', {
