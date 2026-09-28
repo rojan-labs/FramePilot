@@ -44,6 +44,8 @@ const COVERED_FIXTURES = {
   'motion.clip.y': 'motion.y.outcome',
   'motion.clip.rotation': 'motion.rotation.outcome',
   'motion.clip.opacity': 'motion.opacity.outcome',
+  'motion.clip.scale-x': 'motion.scale-x.outcome',
+  'motion.clip.scale-y': 'motion.scale-y.outcome',
   'color.clip.exposure': 'color.exposure.outcome',
   'color.clip.contrast': 'color.contrast.outcome',
   'color.clip.saturation': 'color.saturation.outcome',

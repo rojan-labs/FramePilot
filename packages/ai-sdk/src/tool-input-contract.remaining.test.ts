@@ -78,12 +78,16 @@ describe('renderer-backed model-facing schemas', () => {
         keyframes?: { items?: { properties?: { property?: { enum?: string[] } } } };
       };
     };
+    // scaleX/scaleY: the non-uniform stretch, drawn by the export (`frame_plan.layer_stretch_at`,
+    // engine `test_clip_stretch.py`) and both monitors.
     expect(parameters.properties?.keyframes?.items?.properties?.property?.enum).toEqual([
       'scale',
       'x',
       'y',
       'rotation',
       'opacity',
+      'scaleX',
+      'scaleY',
     ]);
     expect(() =>
       parseToolArguments(tool('add_keyframes'), {

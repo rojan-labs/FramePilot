@@ -11,12 +11,12 @@ registration covering these required stages:
 | Domain        | Registered editable rows | Explicitly unsupported |
 | ------------- | -----------------------: | ---------------------: |
 | Timeline      |                       12 |                      0 |
-| Motion        |                        5 |                      0 |
+| Motion        |                        7 |                      0 |
 | Color         |                        7 |                      0 |
 | Tracking/mask |                        2 |                      0 |
 | Audio         |                        8 |                      0 |
 | Graphics      |                        4 |                      0 |
-| **Total**     |                   **38** |                  **0** |
+| **Total**     |                   **40** |                  **0** |
 
 Automatic subject tracking is registered (2026-08): its executable case compiles a measured
 sample set — the exact payload a Capability Pack worker returns — into the same validated,
@@ -24,6 +24,9 @@ invertible tracked-mask patch as manual tracking, with the measuring pack's iden
 provenance. The capability runs through the on-demand Subject Intelligence / Tracking Lite packs;
 the user approves the exact signed install before anything downloads, and a missing pack fails
 honestly rather than degrading into manual interpolation.
+
+Motion covers the non-uniform stretch too: `scaleX` and `scaleY` (1 = none) each have an
+outcome case through `professional_motion`, like the uniform `scale`.
 
 Graphics (plan/elements EL4a, EL6a, EL7) are shapes and stickers and their animation. None is an
 editor command, so each case compiles with the builder the Elements panel and the agent's tool

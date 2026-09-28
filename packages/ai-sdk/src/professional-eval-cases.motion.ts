@@ -91,6 +91,19 @@ const SPECS: readonly MotionEvalSpec[] = [
     property: 'opacity',
     value: 0.5,
   },
+  // The stretch (scaleX/scaleY) multiplies the uniform scale along one axis; 1 is none.
+  {
+    fixtureId: 'motion.scale-x.outcome',
+    capabilityId: 'motion.clip.scale-x',
+    property: 'scaleX',
+    value: 1.3,
+  },
+  {
+    fixtureId: 'motion.scale-y.outcome',
+    capabilityId: 'motion.clip.scale-y',
+    property: 'scaleY',
+    value: 0.8,
+  },
 ];
 
 function resolveAndCompileMotion(
