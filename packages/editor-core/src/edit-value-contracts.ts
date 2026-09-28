@@ -1,11 +1,35 @@
 import type { Effect, Keyframe } from '@framepilot/timeline-schema';
 import { CLIP_BLUR_EFFECT_TYPE, MAX_CLIP_BLUR_AMOUNT } from './clip-blur.js';
 
-/** The clip-level animation properties the Python renderer actually composites. */
+/**
+ * The uniform clip transform properties every editing surface offers: the Inspector, the motion
+ * commands and loops, and the AI tools (`packages/ai-sdk` builds its `add_keyframes` enum from
+ * this list, and `engine/python/.../ai_tools/contract_overrides.py` mirrors it).
+ */
 export const CLIP_KEYFRAME_PROPERTIES = ['scale', 'x', 'y', 'rotation', 'opacity'] as const;
 export type ClipKeyframeProperty = (typeof CLIP_KEYFRAME_PROPERTIES)[number];
 
-const CLIP_KEYFRAME_PROPERTY_SET = new Set<string>(CLIP_KEYFRAME_PROPERTIES);
+/**
+ * The non-uniform STRETCH on top of the uniform `scale` (1 = none): a layer's width is
+ * fit × scale × scaleX and its height fit × scale × scaleY, in its own axes before rotation
+ * (`effects/transform.py`). `scale` stays the one zoom punch-ins and Ken Burns write; the stretch
+ * is what the bounding box's freeform (Shift) resize writes. Kept apart from
+ * {@link CLIP_KEYFRAME_PROPERTIES} until the AI tool surface (and its engine mirror) takes it.
+ */
+export const CLIP_STRETCH_PROPERTIES = ['scaleX', 'scaleY'] as const;
+export type ClipStretchProperty = (typeof CLIP_STRETCH_PROPERTIES)[number];
+
+/** Every clip keyframe property the renderers composite, and so the validator accepts. */
+export const CLIP_TRANSFORM_PROPERTIES = [
+  ...CLIP_KEYFRAME_PROPERTIES,
+  ...CLIP_STRETCH_PROPERTIES,
+] as const;
+export type ClipTransformKeyframeProperty = (typeof CLIP_TRANSFORM_PROPERTIES)[number];
+
+/** The properties that size a layer, each of which must stay strictly positive. */
+const POSITIVE_SCALE_PROPERTIES = new Set<string>(['scale', ...CLIP_STRETCH_PROPERTIES]);
+
+const CLIP_TRANSFORM_PROPERTY_SET = new Set<string>(CLIP_TRANSFORM_PROPERTIES);
 
 export interface ContractIssue {
   readonly field: string;
@@ -17,12 +41,12 @@ const finiteIssue = (field: string, value: number): ContractIssue | undefined =>
 
 /** Validate one clip transform keyframe against preview/export semantics. */
 export function clipKeyframeContractIssue(keyframe: Keyframe): ContractIssue | undefined {
-  if (!CLIP_KEYFRAME_PROPERTY_SET.has(keyframe.property)) {
+  if (!CLIP_TRANSFORM_PROPERTY_SET.has(keyframe.property)) {
     return {
       field: 'property',
       message:
         `Unsupported clip keyframe property "${keyframe.property}". ` +
-        `Supported properties: ${CLIP_KEYFRAME_PROPERTIES.join(', ')}.`,
+        `Supported properties: ${CLIP_TRANSFORM_PROPERTIES.join(', ')}.`,
     };
   }
   const timeIssue = finiteIssue('time', keyframe.time);
@@ -30,8 +54,14 @@ export function clipKeyframeContractIssue(keyframe: Keyframe): ContractIssue | u
   if (keyframe.time < 0) return { field: 'time', message: 'Keyframe time must be non-negative.' };
   const valueIssue = finiteIssue('value', keyframe.value);
   if (valueIssue) return valueIssue;
-  if (keyframe.property === 'scale' && keyframe.value <= 0) {
-    return { field: 'value', message: 'Scale keyframes must be greater than 0.' };
+  if (POSITIVE_SCALE_PROPERTIES.has(keyframe.property) && keyframe.value <= 0) {
+    return {
+      field: 'value',
+      message:
+        keyframe.property === 'scale'
+          ? 'Scale keyframes must be greater than 0.'
+          : `${keyframe.property} (stretch) keyframes must be greater than 0.`,
+    };
   }
   if (keyframe.property === 'opacity' && (keyframe.value < 0 || keyframe.value > 1)) {
     return { field: 'value', message: 'Opacity keyframes must be within 0..1.' };
