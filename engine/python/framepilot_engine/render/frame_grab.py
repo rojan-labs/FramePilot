@@ -57,6 +57,7 @@ from framepilot_engine.render.composition_cache import (
 )
 from framepilot_engine.render.picture_window import PictureWindow, picture_window_at
 from framepilot_engine.render.presets import ExportPreset
+from framepilot_engine.render.resources import close_clip_tree
 from framepilot_engine.timeline.models import Clip, Project, Resolution, Timeline, Track
 
 _log = logging.getLogger(__name__)
@@ -366,7 +367,7 @@ def _composite_pixels(
     return pixels, "timeline"
 
 
-def render_frame_pixels(
+def render_frame_pixels_uncached(
     project: Project,
     base_dir: Path,
     time_seconds: float,
@@ -374,20 +375,36 @@ def render_frame_pixels(
     max_dimension: int,
     burn_captions: bool,
 ) -> tuple[Any, float, float]:
-    """The model-facing frame as raw pixels, unencoded: ``(pixels, at, duration)``.
+    """The model-facing frame as raw pixels, composited once and closed: ``(pixels, at, duration)``.
 
-    The same composite :func:`grab_frame` encodes (clamped time, decode budget, windowed
-    compile), for a caller that lays several frames out itself — the multi-source sheet in
-    :mod:`framepilot_engine.render.source_sheet` — and would otherwise decode a JPEG it had
-    just encoded.
+    The same compile :func:`grab_frame` runs (clamped time, the decode budget, the export's
+    compiler), for a caller that lays several frames out itself — the multi-source sheet in
+    :mod:`framepilot_engine.render.source_sheet` — and would otherwise decode a JPEG it had just
+    encoded. NOT through the composition caches, on purpose: a sheet's twelve one-clip source
+    views are each looked at once, and borrowing them would evict the timeline windows the agent
+    keeps returning to (four slots) and serialise every tile behind the caches' one build slot.
+    A source view is one clip, so the picture window would hold exactly that clip anyway.
     """
     at, duration = _clamped_time(project, time_seconds)
     requested = min(max(1, int(max_dimension)), MAX_ALLOWED_DIMENSION)
     preset = _resolve_preset(project, requested)
-    pixels, _composited = _composite_pixels(
-        project, base_dir, at, preset, burn_captions=burn_captions, lossless=False
-    )
-    return pixels, at, duration
+    asset_index = index_assets([asset.model_dump() for asset in project.assets], base_dir=base_dir)
+    try:
+        composition = compile_timeline(
+            project,
+            asset_index,
+            preset,
+            burn_captions=burn_captions,
+            max_decode_dimension=max(preset.width, preset.height),
+        )
+    except Exception as exc:
+        raise FrameGrabError(f"Could not compile the timeline for a frame: {exc}") from exc
+    try:
+        return composition.get_frame(at), at, duration
+    except Exception as exc:
+        raise FrameGrabError(f"Could not read the frame at {at:.3f}s: {exc}") from exc
+    finally:
+        close_clip_tree(composition)
 
 
 def grab_frame(

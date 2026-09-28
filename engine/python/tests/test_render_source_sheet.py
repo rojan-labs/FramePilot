@@ -109,6 +109,20 @@ class TestGridShape:
             grid_shape(0)
 
 
+class TestTileLabel:
+    def test_a_narrow_tile_shortens_the_name_and_keeps_the_index_and_time(self) -> None:
+        pytest.importorskip("PIL")
+        from framepilot_engine.render.source_sheet import _load_font, _tile_label
+
+        font = _load_font(12)
+        wide = _tile_label(7, "camp-breakfast.mp4", 4.4, font, 400)
+        narrow = _tile_label(7, "camp-breakfast.mp4", 4.4, font, 110)
+        assert wide == "7  camp-breakfast.mp4  4.4s"
+        assert narrow.startswith("7  ")
+        assert narrow.endswith("…  4.4s")
+        assert font.getlength(narrow) <= 110
+
+
 class TestGrabSourceSheet:
     def test_tiles_are_in_the_order_asked_and_each_shows_its_source(self, media_dir: Path) -> None:
         pytest.importorskip("PIL")
@@ -179,6 +193,17 @@ class TestGrabSourceSheet:
         first = grab_source_sheet(_project(), media_dir, sources, image_format="png")
         second = grab_source_sheet(_project(), media_dir, sources, image_format="png")
         assert first.data == second.data
+
+    def test_leaves_the_timeline_frame_cache_alone(self, media_dir: Path) -> None:
+        """Twelve one-off source views must not evict the timeline windows the agent reuses."""
+        pytest.importorskip("PIL")
+        from framepilot_engine.render.composition_cache import FRAME_WINDOW_CACHE
+
+        before = (FRAME_WINDOW_CACHE.hits, FRAME_WINDOW_CACHE.misses)
+        grab_source_sheet(
+            _project(), media_dir, [SheetSource(asset_id) for asset_id, *_rest in _SOURCES]
+        )
+        assert (FRAME_WINDOW_CACHE.hits, FRAME_WINDOW_CACHE.misses) == before
 
     def test_refuses_more_than_the_cap(self, media_dir: Path) -> None:
         sources = [SheetSource("a_red")] * (MAX_SHEET_SOURCES + 1)

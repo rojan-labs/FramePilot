@@ -7,8 +7,8 @@ at every source one call at a time is 20 turns of latency and 20 images of conte
 sheet is one turn and one image whose pixel count the caller bounds.
 
 WHY it reuses the source view: every tile is :func:`frame_grab.source_view_project` rendered
-through :func:`frame_grab.render_frame_pixels` — the same compiler the export uses, the whole
-uncropped frame as shot. A second decoder would be a second opinion about rotation,
+through :func:`frame_grab.render_frame_pixels_uncached` — the same compiler the export uses,
+the whole uncropped frame as shot. A second decoder would be a second opinion about rotation,
 anamorphic pixels and stills.
 
 WHY the layout is fixed arithmetic: the tile index printed on the image is the number the
@@ -22,6 +22,7 @@ import io
 import logging
 import math
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -29,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 from framepilot_engine.render.frame_grab import (
     MAX_ALLOWED_DIMENSION,
     FrameGrabError,
-    render_frame_pixels,
+    render_frame_pixels_uncached,
     source_view_project,
 )
 from framepilot_engine.timeline.models import Asset, Project
@@ -46,6 +47,9 @@ MAX_SHEET_SOURCES = 12
 #: Longest edge of a sheet when the caller names none. Larger than a single frame's default
 #: (512): a sheet splits its pixels between up to twelve pictures.
 DEFAULT_SHEET_MAX_DIMENSION = 1024
+#: Tiles rendered at once. Each is an ffmpeg reader at tile size; four halved a 12-tile sheet's
+#: wall time on a 16 GB laptop, and more contend for the same cores and disk.
+_RENDER_WORKERS = 4
 #: Pixels between tiles and around the sheet.
 _GAP = 4
 _BACKGROUND = (24, 24, 24)
@@ -163,6 +167,23 @@ def _fit_label(text: str, font: ImageFont.FreeTypeFont | ImageFont.ImageFont, wi
     return trimmed + "…"
 
 
+def _tile_label(
+    index: int,
+    name: str,
+    seconds: float,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    width: int,
+) -> str:
+    """``"7  camp-coffee.mp4  3.6s"``, shortening the NAME when it does not fit.
+
+    The index and the time are what the model refers back with; the file name is the part
+    that can lose letters (the tool result carries it whole).
+    """
+    head, tail = f"{index}  ", f"  {seconds:.1f}s"
+    room = width - font.getlength(head) - font.getlength(tail)
+    return head + _fit_label(name, font, max(0, int(room))) + tail
+
+
 def _layout(
     count: int, max_dimension: int, cell_aspect: float
 ) -> tuple[int, int, int, int, int, int]:
@@ -200,6 +221,21 @@ def _paste_fitted(sheet: PILImage.Image, pixels: Any, box: tuple[int, int, int, 
     if target != image.size:
         image = image.resize(target, Image.Resampling.LANCZOS)
     sheet.paste(image, (x + (width - target[0]) // 2, y + (height - target[1]) // 2))
+
+
+def _render_tile(
+    project: Project, base_dir: Path, source: SheetSource, asset: Asset, tile_size: int
+) -> tuple[Any | None, float, float, str | None]:
+    """``(pixels or None, seconds shown, source length, error)`` for one source as shot."""
+    view, length = source_view_project(project, asset.id)
+    wanted = representative_seconds(asset, length) if source.seconds is None else source.seconds
+    try:
+        pixels, seconds, _duration = render_frame_pixels_uncached(
+            view, base_dir, wanted, max_dimension=tile_size, burn_captions=False
+        )
+    except FrameGrabError as exc:
+        return None, wanted, length, str(exc)
+    return pixels, seconds, length, None
 
 
 def grab_source_sheet(
@@ -248,22 +284,26 @@ def grab_source_sheet(
     font = _load_font(font_size)
 
     started = time.monotonic()
+    tile_size = max(cell_w, cell_h)
+    # Rendered in parallel, laid out in order: each tile is its own reader (an ffmpeg process),
+    # and on the 20-clip desktop project four at a time took a 12-tile sheet from 12.6s to 5.8s.
+    with ThreadPoolExecutor(max_workers=_RENDER_WORKERS) as pool:
+        rendered = list(
+            pool.map(
+                lambda pair: _render_tile(project, base_dir, pair[0], pair[1], tile_size),
+                zip(sources, assets, strict=True),
+            )
+        )
     tiles: list[SheetTile] = []
-    for position, (source, asset) in enumerate(zip(sources, assets, strict=True)):
-        view, length = source_view_project(project, asset.id)
-        wanted = representative_seconds(asset, length) if source.seconds is None else source.seconds
+    for position, (asset, (pixels, seconds, length, error)) in enumerate(
+        zip(assets, rendered, strict=True)
+    ):
         x = _GAP + (position % columns) * (cell_w + _GAP)
         y = _GAP + (position // columns) * (cell_h + label_h + _GAP)
-        error: str | None = None
-        seconds = wanted
-        try:
-            pixels, seconds, _duration = render_frame_pixels(
-                view, base_dir, wanted, max_dimension=max(cell_w, cell_h), burn_captions=False
-            )
+        if pixels is not None:
             _paste_fitted(sheet, pixels, (x, y, cell_w, cell_h))
-        except FrameGrabError as exc:
-            error = str(exc)
-            _log.warning("source sheet: tile %d (%s) failed: %s", position + 1, asset.id, exc)
+        else:
+            _log.warning("source sheet: tile %d (%s) failed: %s", position + 1, asset.id, error)
             draw.text(
                 (x + 6, y + 6),
                 _fit_label("could not render", font, cell_w - 12),
@@ -272,11 +312,11 @@ def grab_source_sheet(
             )
         index = position + 1
         name = _asset_name(asset)
-        label = f"{index}  {name}  {seconds:.1f}s"
+        label = _tile_label(index, name, seconds, font, cell_w - 8)
         draw.rectangle((x, y + cell_h, x + cell_w - 1, y + cell_h + label_h - 1), _LABEL_BACKGROUND)
         draw.text(
             (x + 4, y + cell_h + (label_h - font_size) // 2 - 1),
-            _fit_label(label, font, cell_w - 8),
+            label,
             fill=_LABEL_TEXT,
             font=font,
         )
