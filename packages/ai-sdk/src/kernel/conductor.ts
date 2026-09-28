@@ -1437,20 +1437,6 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   const resuming = !!(ao.resume && ao.resume.ops.length > 0);
   const planning = !resuming && !!ao.planFirst && !command.stream.signal?.aborted;
   const restored = resuming ? parseWorkingState(ao.resume?.working) : null;
-  const created = initialWorkingState({
-    runId: command.stream.runId ?? command.stream.turnId,
-    request: command.input.userPrompt,
-    conversationId: command.stream.conversationId,
-    projectId: command.input.project.id,
-    attemptId: command.stream.turnId,
-    projectRevision: command.input.project.timeline.revision ?? 0,
-  });
-  // P5.1: a new run starts where the last one finished. Only what is still true crosses
-  // the boundary — `revision_independent` facts and committed decisions — and only when
-  // the conversation and project both match; `carryForwardWorkingState` owns those rules.
-  // Skipped while resuming, because a crash checkpoint already carries this run's own
-  // ledger and seeding it a second time would duplicate its facts.
-
   // What the run is actually being asked to do. A message that only says "continue"
   // names no work of its own, so it resolves to the request underneath it: seeding the
   // objective from the literal nudge made "contine" the run's outcome, its acceptance
@@ -1464,6 +1450,24 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   const objectiveText =
     ao.requestReading?.objectiveText ??
     deriveObjectiveText(command.input.userPrompt, command.input.history);
+  const created = initialWorkingState({
+    runId: command.stream.runId ?? command.stream.turnId,
+    // The request the run works toward, not the nudge that started it: every echo check
+    // (`isRequestEcho`) compares against this field, so recording "load the tools and
+    // complete the task" here stored the continued 27k-character brief as a NEW outcome in
+    // every run-state serialization and printed it in every briefing.
+    request: objectiveText,
+    conversationId: command.stream.conversationId,
+    projectId: command.input.project.id,
+    attemptId: command.stream.turnId,
+    projectRevision: command.input.project.timeline.revision ?? 0,
+  });
+  // P5.1: a new run starts where the last one finished. Only what is still true crosses
+  // the boundary — `revision_independent` facts and committed decisions — and only when
+  // the conversation and project both match; `carryForwardWorkingState` owns those rules.
+  // Skipped while resuming, because a crash checkpoint already carries this run's own
+  // ledger and seeding it a second time would duplicate its facts.
+
   // WHAT DONE MEANS, in terms something can check. `acceptance.ts` reads the conditions the
   // request actually stated — a deliverable length, a minimum shot count — and the Critic
   // checks those same numbers, so the criterion the ledger reports against and the check that

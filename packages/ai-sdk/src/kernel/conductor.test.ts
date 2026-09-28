@@ -36,6 +36,7 @@ import {
   failedAfterApplyMessage,
 } from './conductor.js';
 import { SEMANTIC_LOOP_TURNS } from './loop-detector.js';
+import { isRequestEcho } from './working-state.js';
 
 /** Exactly `PLAN_APPROVAL_STEP_THRESHOLD` step labels — at the gate, not over it. */
 const labelsAtThreshold = Array.from({ length: PLAN_APPROVAL_STEP_THRESHOLD }, (_, i) => `s${i}`);
@@ -235,7 +236,11 @@ describe('onCommand', () => {
       },
     };
     const { objective } = onCommand(idle, continued).state.working;
+    // The brief is THE request, stored once; the outcome is its bounded echo, not a second
+    // copy (a 27k-character brief used to ride every run-state serialization twice).
+    expect(objective.request).toBe(brief);
     expect(objective.outcome).toContain('Edit a vertical travel reel');
+    expect(isRequestEcho(objective.outcome, objective.request)).toBe(true);
     const descriptions = objective.acceptance.map((entry) => entry.description);
     expect(descriptions).toContain(
       'The finished sequence runs 58–62s (the request says “58–62s”).',
@@ -265,14 +270,16 @@ describe('onCommand', () => {
     const { working } = onCommand(idle, nudged).state;
     const goal = 'use a different caption style and emphasize the captions';
     expect(working.objective.outcome).toBe(goal);
+    // The request the run works toward is the one it continues. The nudge is still the
+    // editor's own message in the conversation; recorded HERE it made the continued brief
+    // look like a new outcome, stored whole beside it in every run-state serialization.
+    expect(working.objective.request).toBe(goal);
     // Nothing here is checkable, so the judgement criterion is the only one — and it points
     // at the objective rather than copying it.
     expect(working.objective.acceptance.map((c) => c.description)).toEqual([JUDGEMENT_CRITERION]);
     // The decision and the objective verification reports against must name the real work.
     expect(working.decisions[0]!.decision).toBe(goal);
     expect(working.objectives[0]!.description).toBe(goal);
-    // The raw request is still preserved verbatim — the nudge is what the editor typed.
-    expect(working.objective.request).toBe('contine');
   });
 
   it('resolves config from agentOptions, else defaults', () => {
