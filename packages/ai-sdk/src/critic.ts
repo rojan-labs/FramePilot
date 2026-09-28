@@ -35,7 +35,7 @@ import {
   speechAssetIdsFor,
 } from '@framepilot/editor-core';
 import type { Clip, Effect, Project, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
-import type { AnyOperation } from '@framepilot/editor-core';
+import { framePlanAt, type AnyOperation } from '@framepilot/editor-core';
 import { verifyCaptions } from './verify.js';
 import type { TargetPlatform } from './context-builder.js';
 import { detectTranscriptLoop, type TranscriptLoop } from './transcript-loop.js';
@@ -933,12 +933,47 @@ function checkShotLengthTarget(project: Project, options: CritiqueOptions): Crit
  * found the framing acceptable, which is how a pillarboxed talking head shipped under
  * `"passed": true` with one advisory line at the end of the run.
  */
+/** Pixels of slack when asking whether a placed picture covers the frame. */
+const COVER_SLACK_PX = 0.5;
+
+/**
+ * Whether a clip's picture covers the whole frame by its own zoom — a pan's cover scale
+ * (`reframe_pan`), a punch-in — at its start, middle and end, read off the same frame plan
+ * the export composites. A crop is one way to fill the frame; a zoom is the other, and a
+ * check that knew only crops told harness run 7 that 30 panned clips "render with black
+ * bars", so the run put a crop over every one of its own pans.
+ */
+function coversFrameByZoom(project: Project, clip: Clip): boolean {
+  // Only a clip that zooms: a source that already matches the frame fills it by fitting, and
+  // the branches below say so in their own words.
+  if (!clip.keyframes.some((keyframe) => keyframe.property === 'scale')) return false;
+  const { width, height } = project.resolution;
+  const span = clip.end - clip.start;
+  const instants = [clip.start + span * 0.02, clip.start + span / 2, clip.end - span * 0.02];
+  return instants.every((time) => {
+    const plan = framePlanAt(project.timeline, project.assets, time, project.resolution);
+    const layer = plan.layers.find((candidate) => candidate.clipId === clip.id);
+    const box = layer?.geometry;
+    if (!box) return false;
+    const { left, top, width: w, height: h } = box;
+    if (left == null || top == null || w == null || h == null) return false;
+    return (
+      left <= COVER_SLACK_PX &&
+      top <= COVER_SLACK_PX &&
+      left + w >= width - COVER_SLACK_PX &&
+      top + h >= height - COVER_SLACK_PX
+    );
+  });
+}
+
 function checkReframeCoverage(project: Project): CriticCheck {
   const picture = pictureClips(project);
   if (picture.length === 0) {
     return check('reframe_coverage', 'Reframing is consistent', 'skipped', 'No picture clips.');
   }
-  const reframed = picture.filter((clip) => clip.crop !== undefined);
+  const fills = (clip: Clip): boolean =>
+    clip.crop !== undefined || coversFrameByZoom(project, clip);
+  const reframed = picture.filter(fills);
   const { width, height } = project.resolution;
   if (reframed.length === 0) {
     if (height <= width) {
@@ -1012,7 +1047,7 @@ function checkReframeCoverage(project: Project): CriticCheck {
       'reframe_coverage',
       'Reframing is consistent',
       'pass',
-      `All ${String(picture.length)} picture clips are cropped to fill the frame.`,
+      `All ${String(picture.length)} picture clips are cropped or zoomed to fill the frame.`,
     );
   }
   // A clip with no crop is only MISSING one for one of two reasons, and "some clips carry a
@@ -1022,7 +1057,7 @@ function checkReframeCoverage(project: Project): CriticCheck {
   // correct. Reading "reframed" as "has a crop" failed exactly that montage over the one
   // clip that already filled the frame — thirty correct edits reported to the editor as a
   // run that could not finish.
-  const uncropped = picture.filter((clip) => clip.crop === undefined);
+  const uncropped = picture.filter((clip) => !fills(clip));
   // 1. Measured wider than the frame: it will letterbox, whatever else is on the timeline.
   const needsCrop = new Set(needsCoverCropClipIds(project, picture));
   // 2. Unmeasured, but a SIBLING clip off the same asset is cropped. Nobody can measure the
@@ -1040,8 +1075,8 @@ function checkReframeCoverage(project: Project): CriticCheck {
       'reframe_coverage',
       'Reframing is consistent',
       'pass',
-      `${String(reframed.length)} of ${String(picture.length)} picture clips are cropped to ` +
-        `fill the frame; the rest already fill the ${String(width)}x${String(height)} frame.`,
+      `${String(reframed.length)} of ${String(picture.length)} picture clips are cropped or ` +
+        `zoomed to fill the frame; the rest already fill the ${String(width)}x${String(height)} frame.`,
     );
   }
   // The count named is the number of clips that are WRONG, not the number already right:

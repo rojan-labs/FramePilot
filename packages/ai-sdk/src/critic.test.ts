@@ -237,8 +237,57 @@ describe('reframe coverage', () => {
     const detail = critique(verticalCut(10, 10), {}).checks.find(
       (c) => c.id === 'reframe_coverage',
     )?.detail;
-    expect(detail).toBe('All 10 picture clips are cropped to fill the frame.');
+    expect(detail).toBe('All 10 picture clips are cropped or zoomed to fill the frame.');
     expect(detail).not.toMatch(/reframed/);
+  });
+
+  it('counts a zoom that covers the frame — a pan — as filling it, and one that does not as bars', () => {
+    // Harness run 7: 30 clips panned with reframe_pan (a cover zoom and moving x, no crop)
+    // were reported as "no crop, so they render with black bars", and the run put a crop on
+    // every one of its own pans.
+    const zoomed = (scale: number) =>
+      makeProject({
+        resolution: { width: 1080, height: 1920 },
+        assets: [
+          {
+            id: 'aerial',
+            path: 'a.mp4',
+            kind: 'video',
+            durationSeconds: 10,
+            media: { width: 1920, height: 1080 },
+          },
+        ],
+        timeline: {
+          tracks: [
+            {
+              id: 'v1',
+              type: 'video',
+              clips: [
+                {
+                  id: 'pan',
+                  assetId: 'aerial',
+                  trackId: 'v1',
+                  start: 0,
+                  end: 4,
+                  sourceStart: 0,
+                  sourceEnd: 4,
+                  effects: [],
+                  keyframes: [
+                    { id: 's0', time: 0, property: 'scale', value: scale, easing: 'linear' },
+                    { id: 's1', time: 4, property: 'scale', value: scale, easing: 'linear' },
+                    { id: 'x0', time: 0, property: 'x', value: 300, easing: 'ease-in-out' },
+                    { id: 'x1', time: 4, property: 'x', value: -300, easing: 'ease-in-out' },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      } as never);
+    const covered = critique(zoomed(3.1605), {}).checks.find((c) => c.id === 'reframe_coverage');
+    expect(covered).toMatchObject({ status: 'pass' });
+    const short = critique(zoomed(1.5), {}).checks.find((c) => c.id === 'reframe_coverage');
+    expect(short).toMatchObject({ status: 'fail' });
   });
 
   it('warns — never fails — when a portrait frame has no reframing and no measurements', () => {
