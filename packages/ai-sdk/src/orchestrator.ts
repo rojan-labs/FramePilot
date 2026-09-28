@@ -2486,15 +2486,47 @@ function catalogDigest(
   const head = `${String(obj.returned ?? entries.length)} of ${String(
     obj.matched ?? entries.length,
   )} matching ${noun}`;
+  // One line per entry, under its category: the id, its default length and what it looks
+  // like. Ids alone were not enough to choose with — run d8d2e445 spent a `recall_evidence`
+  // on each of its two discover results just to read the descriptions and lengths this
+  // digest had dropped. Params stay in the payload (and in `recall_evidence`): they are what
+  // a SECOND look is for, once an entry has been chosen.
   const byCategory = new Map<string, string[]>();
   for (const entry of entries) {
     const category = String(entry.category ?? 'other');
-    byCategory.set(category, [...(byCategory.get(category) ?? []), String(entry[idField])]);
+    byCategory.set(category, [
+      ...(byCategory.get(category) ?? []),
+      catalogEntryLine(entry, idField),
+    ]);
   }
   return [
     head,
-    ...[...byCategory.entries()].map(([category, ids]) => `${category}: ${ids.join(', ')}`),
+    ...[...byCategory.entries()].flatMap(([category, lines]) => [`${category}:`, ...lines]),
   ].join('\n');
+}
+
+/** Longest catalogue description a digest line carries; the catalogue's own run ≤ ~90. */
+const MAX_CATALOG_DESCRIPTION_CHARS = 90;
+
+/** `- id (default 2s) — description`, omitting whichever part the entry does not carry. */
+function catalogEntryLine(entry: Record<string, unknown>, idField: string): string {
+  const duration =
+    typeof entry.defaultDuration === 'number' && entry.defaultDuration > 0
+      ? ` (default ${round3(entry.defaultDuration)}s)`
+      : '';
+  const description =
+    typeof entry.description === 'string' && entry.description.trim() !== ''
+      ? ` — ${boundedDescription(entry.description.trim())}`
+      : '';
+  return `- ${String(entry[idField])}${duration}${description}`;
+}
+
+/** Cut at the last word boundary within the cap, so a line never ends mid-word. */
+function boundedDescription(text: string): string {
+  if (text.length <= MAX_CATALOG_DESCRIPTION_CHARS) return text;
+  const cut = text.slice(0, MAX_CATALOG_DESCRIPTION_CHARS - 1);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > 0 ? cut.slice(0, space) : cut).replace(/[\s,;:.]+$/, '')}…`;
 }
 
 /**

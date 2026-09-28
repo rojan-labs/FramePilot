@@ -1050,7 +1050,10 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         'effect affects every visible clip beneath it for that range — it is not ' +
         'attached to one clip. Use discover_effects first to get a real effectId ' +
         'and its parameter ranges. Creates an effect track if the project has ' +
-        'none. Omit endTime to use the effect’s own default duration.',
+        'none. Omit endTime to use the effect’s own default duration. ' +
+        'Finishing and texture layers (grain, print emulation, vignette) may run the ' +
+        'whole programme; light, glow, leak and flash accents belong on a moment, ' +
+        'around their defaultDuration.',
       capabilities: ['edit', 'effects'],
     },
     z

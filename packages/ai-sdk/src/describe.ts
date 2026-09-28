@@ -8,6 +8,7 @@
  * and deterministic. M5 layers richer cards on top of this same derivation.
  */
 import type { AnyOperation } from '@framepilot/editor-core';
+import { findEffect } from '@framepilot/timeline-schema/effect-catalog';
 import type { Reference } from './events.js';
 import type { ProjectNames } from './names.js';
 
@@ -509,6 +510,28 @@ function basename(path: unknown): string | undefined {
   return path.split('/').pop() || undefined;
 }
 
+/**
+ * `add_effect_layer` named by WHAT it adds and WHEN, e.g. "Added Golden Leak" · "43s–45s".
+ *
+ * The generic path read only the lane: five different effects rendered as one folded line,
+ * "Add effect layer Effect 1 (×5)", in run d8d2e445's receipt — which said nothing about
+ * which looks the run laid down or over what part of the programme. The effect and its range
+ * live on the nested `layer`, not on the op, so the generic `start`/`end` read never saw them.
+ */
+function describeEffectLayer(
+  record: Record<string, unknown>,
+  refs: readonly Reference[],
+): OperationDescriptor {
+  const layer = (record['layer'] ?? {}) as { effectId?: unknown; start?: unknown; end?: unknown };
+  const effectId = typeof layer.effectId === 'string' ? layer.effectId : undefined;
+  const name = effectId === undefined ? 'effect' : (findEffect(effectId)?.label ?? effectId);
+  const range =
+    typeof layer.start === 'number' && typeof layer.end === 'number'
+      ? `${round(layer.start)}s–${round(layer.end)}s`
+      : '';
+  return { action: `Added ${name}`, detail: range, refs: [...refs] };
+}
+
 export function describeOperation(op: AnyOperation, names?: ProjectNames): OperationDescriptor {
   const record = op as unknown as Record<string, unknown>;
   const action = ACTION_LABELS[op.type] ?? humanize(op.type);
@@ -538,6 +561,8 @@ export function describeOperation(op: AnyOperation, names?: ProjectNames): Opera
     const id = (nestedAsset as { id?: unknown }).id;
     if (typeof id === 'string') refs.push({ kind: 'asset', id, label: names?.asset(id) ?? id });
   }
+
+  if (op.type === 'add_effect_layer') return describeEffectLayer(record, refs);
 
   const start = record['start'];
   const end = record['end'];

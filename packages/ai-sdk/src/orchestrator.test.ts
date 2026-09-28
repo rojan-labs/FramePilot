@@ -2026,7 +2026,38 @@ describe('summarizeReadResult carries a verification report the run can act on',
       ],
     });
     expect(note.split('\n')[0]).toBe('2 of 78 matching effects');
-    expect(note).toContain('stylize: vhs-tape, film-grain');
+    expect(note).toContain('stylize:\n- vhs-tape\n- film-grain');
+  });
+
+  it('says what each effect looks like and how long it runs by default', () => {
+    // Run d8d2e445 called `recall_evidence` on BOTH of its discover results only to read
+    // the descriptions and default lengths this digest dropped. Choosing between a grain
+    // and a leak needs the look and the length; the params can wait for the chosen one.
+    const long =
+      'A very long description that keeps going well past what one digest line should ever carry for a single catalogue entry.';
+    const note = summarizeReadResult('discover_effects', {
+      matched: 2,
+      returned: 2,
+      effects: [
+        {
+          effectId: 'golden-leak',
+          category: 'light',
+          description: 'Warm light spilling in from the frame edge.',
+          defaultDuration: 2,
+          params: [{ name: 'strength', min: 0, max: 1, default: 0.6 }],
+        },
+        { effectId: 'wordy', category: 'light', description: long, defaultDuration: 1.25 },
+      ],
+    });
+    expect(note).toContain(
+      'light:\n- golden-leak (default 2s) — Warm light spilling in from the frame edge.',
+    );
+    const wordy = note.split('\n').find((line) => line.startsWith('- wordy'))!;
+    expect(wordy.startsWith('- wordy (default 1.25s) — A very long description')).toBe(true);
+    expect(wordy.endsWith('…')).toBe(true);
+    expect(wordy.length).toBeLessThan(long.length);
+    // Params are not repeated in the digest; the payload keeps them for a recall.
+    expect(note).not.toContain('strength');
   });
 
   it('falls back to the JSON preview when a payload is not the shape it expects', () => {
@@ -2135,7 +2166,7 @@ describe('summarizeReadResult carries a verification report the run can act on',
       'no effects match (0 in catalog)',
     );
     expect(summarizeReadResult('discover_effects', { effects: [{ effectId: 'vhs' }] })).toBe(
-      '1 of 1 matching effects\nother: vhs',
+      '1 of 1 matching effects\nother:\n- vhs',
     );
     expect(
       summarizeReadResult('list_edit_boundaries', [
