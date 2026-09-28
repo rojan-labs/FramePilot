@@ -37,12 +37,6 @@ import {
 import type { Clip, Effect, Project, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
 import type { AnyOperation } from '@framepilot/editor-core';
 import { verifyCaptions } from './verify.js';
-import {
-  COVERAGE_LABEL,
-  mentionsUnreadableShotCount,
-  type CoverageTreatment,
-  type RequestedElement,
-} from './acceptance.js';
 import type { TargetPlatform } from './context-builder.js';
 import { detectTranscriptLoop, type TranscriptLoop } from './transcript-loop.js';
 import type { TemporalReviewReport } from './temporal-review.js';
@@ -65,12 +59,9 @@ export type CheckId =
   | 'picture_coverage'
   | 'hidden_picture'
   | 'duration_target'
-  | 'shot_count'
-  | 'cutaway_count'
   | 'tracker_motion'
   | 'shot_length_target'
   | 'reframe_coverage'
-  | 'treatment_coverage'
   | 'caption_alignment'
   | 'safe_area'
   | 'audio_clipping'
@@ -102,9 +93,7 @@ export type CheckId =
   /** No more than three elements on screen at once. */
   | 'element_busy_frame'
   /** No sticker drawn beyond its sharp size at the export resolution. */
-  | 'sticker_sharp'
-  /** A request that asked for a sticker or a callout finishes with one on the timeline. */
-  | 'elements_placed';
+  | 'sticker_sharp';
 
 /** One check's verdict + a human-readable explanation. */
 export interface CriticCheck {
@@ -145,22 +134,10 @@ export interface CritiqueOptions {
   /** Allowed deviation from {@link durationTargetSeconds}. Defaults to 2s. */
   readonly durationToleranceSeconds?: number;
   /**
-   * Fewest distinct shots the request asked for ("use at least 20 moments"), if it named a
-   * number. Read deterministically from the prompt by `acceptance.ts`.
-   */
-  readonly minShotCount?: number;
-  /**
-   * The most stock cutaways the request asked for, when it named a number — see
-   * `acceptance.ts#explicitCutawayCount`. The tool surface refuses the placement past this
-   * (`domain-tools/timeline.ts`); this check is the same rule read back off the timeline.
-   */
-  readonly maxStockCutaways?: number;
-  /**
-   * The editor's request, verbatim, when the caller has it.
+   * The editor's request, verbatim. Read by no check: it fed the "a shot count was stated but
+   * could not be read" warning, which went with the request readers (issue #136).
    *
-   * Used only to tell "the brief asked for no shot count" apart from "the brief asked for one
-   * and the reader could not see it" — a distinction that was invisible in the run record and
-   * hid a reader bug through four rounds of gap analysis.
+   * @deprecated `orchestrator.ts#critiqueOptions` still sets it; remove with that line.
    */
   readonly request?: string;
   /**
@@ -176,11 +153,6 @@ export interface CritiqueOptions {
   readonly medianShotToleranceSeconds?: number;
   /** Which reference set the target, so the check names it rather than asserting a number. */
   readonly medianShotSource?: string;
-  /**
-   * Treatments the request demanded of EVERY clip ("every clip reframed", "grade across
-   * clips"), read deterministically from the prompt by `acceptance.ts`.
-   */
-  readonly coverage?: readonly CoverageTreatment[];
   /** Target platform, used to sanity-check export aspect ratio/orientation. */
   readonly targetPlatform?: TargetPlatform;
   /** Results of an auto preview render's validation, if one was run. */
@@ -212,11 +184,6 @@ export interface CritiqueOptions {
    * Absent, that check says it had nothing to go on rather than guessing.
    */
   readonly subjects?: readonly MeasuredSubject[];
-  /**
-   * Elements the request asked to have placed (`acceptance.ts` `explicitElements`): a run that
-   * finishes without one of each fails `elements_placed` (ADR 0153).
-   */
-  readonly requiredElements?: readonly RequestedElement[];
 }
 
 /** One measured subject's face, over the timeline span it was measured for. */
@@ -294,8 +261,9 @@ const overlayOrCaptionClips = (timeline: Timeline): readonly Clip[] =>
  * timeline — the track it had just downloaded — and `picture_present`, the check written
  * for precisely this failure (ADR 0144), reported **pass: 1 picture clip on the
  * timeline**. The one check that exists to say "there is no film here" was satisfied by a
- * sound file. `treatment_coverage` then told the run its audio clip was missing its
- * reframe ("own reframe: 0 of 1 clips"), which is not a sentence about anything.
+ * sound file. `treatment_coverage` (since retired, issue #136) then told the run its audio
+ * clip was missing its reframe ("own reframe: 0 of 1 clips"), which is not a sentence about
+ * anything.
  *
  * An asset the project does not list is treated as picture: a missing asset is
  * `checkMissingAssets`'s finding to report, and guessing "audio" here would hide a broken
@@ -420,16 +388,13 @@ function checkPicturePresent(project: Project, options: CritiqueOptions): Critic
 /**
  * Did someone ask for a film, as opposed to an audio-only or caption-only pass?
  *
- * A visual target — a platform, a duration, a shot count — means they did. Without one,
- * the picture checks warn rather than fail: an audio pass is a legitimate thing to ask
- * for and must not be failed for having no picture.
+ * A visual target — a platform or a finished length — means they did. Without one, the
+ * picture checks warn rather than fail: an audio pass is a legitimate thing to ask for and
+ * must not be failed for having no picture. (A shot count read out of the request's words
+ * used to count too; that reader is gone, issue #136.)
  */
 function requestWantsPicture(options: CritiqueOptions): boolean {
-  return (
-    options.targetPlatform !== undefined ||
-    options.durationTargetSeconds !== undefined ||
-    options.minShotCount !== undefined
-  );
+  return options.targetPlatform !== undefined || options.durationTargetSeconds !== undefined;
 }
 
 /**
@@ -495,31 +460,6 @@ function aspectMismatchClipIds(project: Project, picture: readonly Clip[]): read
       return aspect !== undefined && Math.abs(aspect - target) > 1e-3;
     })
     .map((clip) => clip.id);
-}
-
-/**
- * Picture clips whose MEASURED source is already no wider than the frame, so they fill it
- * with no crop at all. Unmeasured sources are deliberately absent: "we cannot see the
- * shape" is not "the shape is fine".
- */
-function fillsFrameUncroppedClipIds(
-  project: Project,
-  picture: readonly Clip[],
-): ReadonlySet<string> {
-  const target = project.resolution.width / project.resolution.height;
-  const aspects = new Map<string, number>();
-  for (const asset of project.assets) {
-    const { width, height } = asset.media ?? {};
-    if (typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0) {
-      aspects.set(asset.id, width / height);
-    }
-  }
-  const ids = new Set<string>();
-  for (const clip of picture) {
-    const aspect = aspects.get(clip.assetId);
-    if (aspect !== undefined && aspect - target <= 1e-3) ids.add(clip.id);
-  }
-  return ids;
 }
 
 /**
@@ -866,101 +806,6 @@ function checkDurationTarget(timeline: Timeline, options: CritiqueOptions): Crit
 }
 
 /**
- * Did the cut use as many shots as the request asked for?
- *
- * The captured run was asked for "20+ different best moments" and delivered eight, and
- * nothing noticed: the run's only acceptance criterion was the request's own text, so no
- * check could be derived from it. Counted as picture clips — text/caption overlays are not
- * shots — because that is what an editor means by a shot count.
- */
-function checkShotCount(project: Project, options: CritiqueOptions): CriticCheck {
-  const target = options.minShotCount;
-  if (target === undefined) {
-    // A brief long enough to be a spec that names a number beside a clip noun, and still
-    // yields no floor, is a READER failure worth surfacing — `skipped` alone is
-    // indistinguishable from a brief that asked for nothing. Warn, never fail: `critique`
-    // counts only `fail` toward `ok`, so a false alarm here cannot block a run that did the
-    // work. See `acceptance.ts#mentionsUnreadableShotCount`.
-    if (options.request !== undefined && mentionsUnreadableShotCount(options.request)) {
-      return check(
-        'shot_count',
-        'Shot count on target',
-        'warn',
-        'The request mentions a clip count, but it could not be read as a requirement, so ' +
-          'no shot-count check ran. Restate it as "at least N clips" to have it checked.',
-      );
-    }
-    return check('shot_count', 'Shot count on target', 'skipped', 'No shot count was asked for.');
-  }
-  // Picture only. Counting `allClips` minus overlays let the music bed count as a shot —
-  // the same derivation that made `picture_present` report "pass: 1 picture clip" on a
-  // fifty-clip montage request whose timeline held nothing but its soundtrack.
-  const shots = pictureClips(project).length;
-  if (shots >= target) {
-    return check(
-      'shot_count',
-      'Shot count on target',
-      'pass',
-      `The cut uses ${String(shots)} shots (at least ${String(target)} asked for).`,
-    );
-  }
-  return check(
-    'shot_count',
-    'Shot count on target',
-    'fail',
-    `The cut uses ${String(shots)} shots but at least ${String(target)} were asked for.`,
-  );
-}
-
-/**
- * Picture clips whose asset came from a stock library — the cutaways a run sourced.
- *
- * Stock is what `Asset.source` records (schema v20, the credit); the editor's own footage
- * has none. Music is sourced the same way and is not picture, so it is not counted.
- */
-export function stockPictureClips(project: Project): readonly Clip[] {
-  const stock = new Set(
-    project.assets.filter((asset) => asset.source?.provider !== undefined).map((a) => a.id),
-  );
-  return pictureClips(project).filter((clip) => stock.has(clip.assetId));
-}
-
-/**
- * Did the run place more stock cutaways than the brief asked for?
- *
- * Run `4a8e` asked for "two cutaways I never shot" and delivered eight stock clips over 50
- * of 60 seconds, burying six whole shots of the editor's own footage. Every placement was
- * legal on its own; the count was the defect, and the count was in the brief.
- */
-function checkCutawayCount(project: Project, options: CritiqueOptions): CriticCheck {
-  const cap = options.maxStockCutaways;
-  if (cap === undefined) {
-    return check('cutaway_count', 'Cutaways as asked', 'skipped', 'No cutaway count was asked for.');
-  }
-  const placed = stockPictureClips(project);
-  if (placed.length <= cap) {
-    return check(
-      'cutaway_count',
-      'Cutaways as asked',
-      'pass',
-      `${String(placed.length)} stock cutaway(s) on the timeline (at most ${String(cap)} asked for).`,
-    );
-  }
-  const named = placed
-    .slice(0, 4)
-    .map((clip) => `${clip.id} (${round(clip.start)}–${round(clip.end)}s)`)
-    .join(', ');
-  return check(
-    'cutaway_count',
-    'Cutaways as asked',
-    'fail',
-    `${String(placed.length)} stock cutaways are on the timeline but the request asked for ` +
-      `${String(cap)}: ${named}${placed.length > 4 ? ', …' : ''}. The editor's own footage is ` +
-      'the picture; delete_clip the extra stock so only the shots they named remain.',
-  );
-}
-
-/**
  * Does every tracker actually carry motion?
  *
  * `track_object` attaches an `object_track` effect; unless keyframes were supplied it holds
@@ -1067,77 +912,6 @@ function checkShotLengthTarget(project: Project, options: CritiqueOptions): Crit
   );
 }
 
-/** Does one clip carry the treatment the request demanded of every clip? */
-function clipCarries(clip: Clip, treatment: CoverageTreatment): boolean {
-  switch (treatment) {
-    case 'crop':
-      return clip.crop !== undefined;
-    case 'grade':
-      return clip.effects.some((effect) => effect.type === 'color_grade');
-    case 'motion':
-      return clip.keyframes.length > 0;
-    case 'speed':
-      return clip.speed !== undefined || (clip.speedRamp?.length ?? 0) > 0;
-  }
-}
-
-/**
- * Did every clip get the treatment the request asked for every clip to have?
- *
- * The defect this closes: a brief demanding a reframe, a grade and a Ken Burns move on EVERY
- * clip was answered with one graded clip and one moved clip out of forty-seven, and every
- * criterion the run had — a duration and a shot count, both counts of the whole — was
- * satisfied. "All checks passed" over a cut that had been polished for two seconds and
- * abandoned. Coverage is the question those counts cannot ask.
- */
-function checkTreatmentCoverage(project: Project, options: CritiqueOptions): CriticCheck {
-  const wanted = options.coverage ?? [];
-  if (wanted.length === 0) {
-    return check(
-      'treatment_coverage',
-      'Per-clip work is complete',
-      'skipped',
-      'The request asked for nothing of every clip.',
-    );
-  }
-  const picture = pictureClips(project);
-  if (picture.length === 0) {
-    return check('treatment_coverage', 'Per-clip work is complete', 'skipped', 'No picture clips.');
-  }
-  // A `crop` demand is the "fill the frame / no black bars" requirement (see the treatment
-  // readers in `acceptance.ts`), not a creative punch-in — so a clip whose source is already
-  // no wider than the frame SATISFIES it while carrying no crop, exactly as `add_clip`'s
-  // placer intends. Counting the crop rather than the framing failed mixed-source cuts for
-  // the one clip that needed nothing done to it. Unmeasured sources still need a crop: the
-  // request was explicit, and an unverifiable shape is not a satisfied one.
-  const alreadyFills = fillsFrameUncroppedClipIds(project, picture);
-  const shortfalls: string[] = [];
-  for (const treatment of wanted) {
-    const carried = picture.filter(
-      (clip) => clipCarries(clip, treatment) || (treatment === 'crop' && alreadyFills.has(clip.id)),
-    ).length;
-    if (carried < picture.length) {
-      shortfalls.push(
-        `${COVERAGE_LABEL[treatment]}: ${String(carried)} of ${String(picture.length)} clips`,
-      );
-    }
-  }
-  if (shortfalls.length === 0) {
-    return check(
-      'treatment_coverage',
-      'Per-clip work is complete',
-      'pass',
-      `All ${String(picture.length)} picture clips carry every treatment the request asked for.`,
-    );
-  }
-  return check(
-    'treatment_coverage',
-    'Per-clip work is complete',
-    'fail',
-    `The request asked for this on every clip, and it is not there yet — ${shortfalls.join('; ')}.`,
-  );
-}
-
 /**
  * Is the reframing CONSISTENT across the picture — or is half the cut full-bleed and half of
  * it letterboxed?
@@ -1236,12 +1010,16 @@ function checkReframeCoverage(project: Project): CriticCheck {
         `${String(width)}x${String(height)} frame.`,
     );
   }
+  // The pass details say "cropped to fill", not "reframed": this check measures whether the
+  // picture FILLS the frame, and the automatic centred crop `add_clip` gives every landscape
+  // clip in a portrait frame fills it without anyone having aimed it. Run `d8d2e445` read
+  // "reframed" off exactly those crops, for 25 of 29 clips nobody had framed.
   if (reframed.length === picture.length) {
     return check(
       'reframe_coverage',
       'Reframing is consistent',
       'pass',
-      `All ${String(picture.length)} picture clips are reframed.`,
+      `All ${String(picture.length)} picture clips are cropped to fill the frame.`,
     );
   }
   // A clip with no crop is only MISSING one for one of two reasons, and "some clips carry a
@@ -1269,8 +1047,8 @@ function checkReframeCoverage(project: Project): CriticCheck {
       'reframe_coverage',
       'Reframing is consistent',
       'pass',
-      `${String(reframed.length)} of ${String(picture.length)} picture clips are reframed; ` +
-        `the rest already fill the ${String(width)}x${String(height)} frame.`,
+      `${String(reframed.length)} of ${String(picture.length)} picture clips are cropped to ` +
+        `fill the frame; the rest already fill the ${String(width)}x${String(height)} frame.`,
     );
   }
   // The count named is the number of clips that are WRONG, not the number already right:
@@ -1955,43 +1733,6 @@ function checkStickerSharp(project: Project): CriticCheck {
       );
 }
 
-/** What each requested element needs on the timeline, and how the run can place one. */
-const REQUESTED_ELEMENT: Record<RequestedElement, { kind: string; how: string }> = {
-  sticker: { kind: 'sticker', how: 'Find one with search_elements and place it with add_sticker.' },
-  callout: {
-    kind: 'shape',
-    how: 'Place a box, an arrow, a circle or an underline with add_shape.',
-  },
-};
-
-function checkElementsPlaced(project: Project, options: CritiqueOptions): CriticCheck {
-  const label = 'The elements the request asked for are placed';
-  const wanted = options.requiredElements ?? [];
-  if (wanted.length === 0) {
-    return check('elements_placed', label, 'skipped', 'The request asked for no element.');
-  }
-  const kinds = new Set(elementClips(project).map(({ kind }) => kind as string));
-  const missing = wanted.filter((element) => !kinds.has(REQUESTED_ELEMENT[element].kind));
-  return missing.length === 0
-    ? check(
-        'elements_placed',
-        label,
-        'pass',
-        'Each element the request asked for is on the timeline.',
-      )
-    : check(
-        'elements_placed',
-        label,
-        'fail',
-        missing
-          .map(
-            (element) =>
-              `The request asked for a ${element}, and none is on the timeline. ${REQUESTED_ELEMENT[element].how}`,
-          )
-          .join(' '),
-      );
-}
-
 function checkLoopCoverage(project: Project): CriticCheck {
   const label = 'Element loops run the length of their clips';
   const loops = project.timeline.tracks
@@ -2616,13 +2357,12 @@ function checkShotRhythm(project: Project, fps: number): CriticCheck {
  */
 /**
  * The acceptance checks that count the WHOLE cut — `picture_coverage`, `duration_target`,
- * `shot_count`, `shot_length_target`, `reframe_coverage`, `treatment_coverage` — run on
- * their own.
+ * `tracker_motion`, `shot_length_target`, `reframe_coverage` — run on their own.
  *
  * Not every check belongs here. A jump cut or a severed word is a local defect the model
- * finds by looking at the seam; these five are properties of the finished thing that the
- * model cannot see from any one edit — how long it is, how many shots it has, whether
- * anything is under the sound, whether the treatment reached every clip. That is what
+ * finds by looking at the seam; these are properties of the finished thing that the model
+ * cannot see from any one edit — how long it is, how fast it cuts against a reference,
+ * whether anything is under the sound, whether the picture fills the frame. That is what
  * makes them worth telling a run about while it can still act on them.
  *
  * `standingAgainstAcceptance` is called on every prompt build — once per turn AND once per
@@ -2639,12 +2379,9 @@ function wholeCutChecks(project: Project, options: CritiqueOptions): CriticCheck
   return [
     checkPictureCoverage(project, options),
     checkDurationTarget(project.timeline, options),
-    checkShotCount(project, options),
-    checkCutawayCount(project, options),
     checkTrackerMotion(project),
     checkShotLengthTarget(project, options),
     checkReframeCoverage(project),
-    checkTreatmentCoverage(project, options),
   ];
 }
 
@@ -2727,9 +2464,7 @@ function inheritedKey(detail: string): string {
 const REQUEST_CHECKS: ReadonlySet<CheckId> = new Set<CheckId>([
   'request_match',
   'duration_target',
-  'shot_count',
   'shot_length_target',
-  'treatment_coverage',
   'temporal_evidence',
   'vision_review',
   'export_settings',
@@ -2875,7 +2610,6 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
     checkElementSafeArea(project, options),
     checkElementBusyFrame(project),
     checkStickerSharp(project),
-    checkElementsPlaced(project, options),
   ];
   const fails = checks.filter((c) => c.status === 'fail').length;
   const warns = checks.filter((c) => c.status === 'warn').length;

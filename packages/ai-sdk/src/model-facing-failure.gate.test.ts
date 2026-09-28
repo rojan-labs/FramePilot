@@ -474,17 +474,9 @@ describe('every model-facing failure names a next action', () => {
     crowded = sticker(crowded, { x: 1700, y: 0 }, 0.3);
     for (let n = 0; n < 4; n += 1) crowded = sticker(crowded, { x: 0, y: 0 }, 0.3);
     const face = { start: 0, end: 5, face: { x: 0.4, y: 0.3, width: 0.2, height: 0.3 } };
-    const report = [
-      ...critique(crowded, { subjects: [face], requiredElements: ['callout'] }).checks,
-    ];
+    const report = [...critique(crowded, { subjects: [face] }).checks];
     const dead = new DeadEnds();
-    const judged = [
-      'element_faces',
-      'element_safe_area',
-      'element_busy_frame',
-      'sticker_sharp',
-      'elements_placed',
-    ];
+    const judged = ['element_faces', 'element_safe_area', 'element_busy_frame', 'sticker_sharp'];
     for (const id of judged) {
       const check = report.find((candidate) => candidate.id === id)!;
       expect(['warn', 'fail'], id).toContain(check.status);

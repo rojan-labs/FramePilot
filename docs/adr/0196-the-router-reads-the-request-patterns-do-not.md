@@ -68,3 +68,37 @@ important" (from "Reframing (important)").
   read from their prompts; cases that need one should pass it explicitly.
 - Shot count, per-clip coverage, requested elements, file/preview/memory requests and cutaway caps
   are still pattern readers (issue #136). They should move to the same grounded reading.
+
+## Amendment (2026-09-28) — the remaining readers are removed, not moved
+
+Issue #136 proposed moving shot count, per-clip coverage, requested elements, file/preview/memory
+requests and cutaway caps into the router's grounded reading. They were deleted instead.
+
+**Why.** Desktop run `d8d2e445` (a 27k-character travel-reel brief) ended as completed after four
+steps with the model's own "Not done yet: colour, speed, transitions, …" list open. Its automatic
+criteria were all met by one `add_clips` and one arrow: "A tiny animated compass or arrow …
+(optional)" had become "A callout is on the timeline"; "at least 3 distinct shots" came from a brief
+that stated no count; and "Every picture clip carries its own reframe" passed because the Critic
+counted any crop, and `add_clip` gives every landscape clip in a portrait frame an automatic
+centred crop (25 of 29 clips nobody had framed). Grounding a quote does not fix this: "arrow" is
+in the request, and whether it is a requirement, an option or an example is reading comprehension
+over the whole brief. The model that edits already does that reading and now states the request's
+parts as its own plan (`update_plan`), which the run is held to.
+
+**What was removed** (`acceptance.ts`): `explicitMinShotCount`, `mentionsUnreadableShotCount`,
+`explicitCoverage`, `explicitElements`, `explicitCutawayCount`, `asksForRenderedFile`,
+`asksForPreview`, `asksToRememberPreference`, and the criteria they produced. In the Critic, the
+checks only those readings ever triggered — `shot_count`, `treatment_coverage`, `cutaway_count`,
+`elements_placed` — and the unreadable-shot-count warning. The stock cutaway cap
+(`ToolContext.stockCutawayCap`, enforced in `add_clip` and `add_stock`) had no other source and is
+gone. `reframe_coverage`, which measures that the picture fills the frame, now says "cropped to
+fill the frame" rather than "reframed", so an automatic crop is not reported as an aimed one.
+
+**What remains checkable** is only what arrives structured: the router-grounded length (or a host
+`durationTargetSeconds`) and a measured reference's median shot length. A `picture_present` /
+`picture_coverage` finding fails rather than warns when a platform or a length was stated; a shot
+count no longer counts toward that.
+
+**Transitional.** `orchestrator.ts` still imports the four retired function names, destructures
+four retired fields and calls `stockCutawayCapRefusal`; they are kept as inert, `@deprecated`
+exports that read nothing until those call sites are deleted.

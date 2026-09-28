@@ -188,21 +188,3 @@ describe('element checks', () => {
     }
   });
 });
-
-describe('the elements a request asked for', () => {
-  it('fails a run that was asked for a sticker or a callout and placed none', () => {
-    const none = base();
-    expect(find(none, 'elements_placed', { requiredElements: ['sticker'] }).status).toBe('fail');
-    const sticker = withSticker(base(), 0, 3);
-    expect(find(sticker, 'elements_placed', { requiredElements: ['sticker'] }).status).toBe('pass');
-    expect(find(sticker, 'elements_placed', { requiredElements: ['callout'] }).status).toBe('fail');
-    const shape = applyProjectPatch(
-      base(),
-      patchOf(
-        buildAddShapeOps(base().timeline, presetShapeParams('line-arrow/red')!, 0, 2).operations,
-      ),
-    );
-    expect(find(shape, 'elements_placed', { requiredElements: ['callout'] }).status).toBe('pass');
-    expect(find(none, 'elements_placed').status).toBe('skipped');
-  });
-});

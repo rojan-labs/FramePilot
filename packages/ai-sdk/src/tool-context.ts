@@ -48,12 +48,6 @@ export interface ToolContext {
    */
   readonly skills?: ReadonlyMap<string, Skill>;
   /**
-   * The most stock cutaways the request asked for, when it named a number
-   * (`acceptance.ts#explicitCutawayCount`). The placement tools refuse the placement past it
-   * — run `4a8e` asked for two and got eight, burying the editor's own footage.
-   */
-  readonly stockCutawayCap?: number;
-  /**
    * The host ships the whole sticker library (the desktop installer's packaged set, plan/elements
    * EL6b), so `search_elements` offers every sticker, not only the curated ones every build has.
    */
