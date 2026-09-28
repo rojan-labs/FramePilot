@@ -61,13 +61,20 @@ import {
   type Project,
   type Track,
 } from '@framepilot/timeline-schema';
-import type { AgentOptions, AgentRun, AgentStep, ReviewResult } from './agent.js';
+import type {
+  AgentOptions,
+  AgentRun,
+  AgentStep,
+  RequestReading,
+  ReviewResult,
+} from './agent.js';
 import {
   asksForPreview,
   asksForRenderedFile,
   asksToRememberPreference,
   checkableAcceptance,
   explicitCutawayCount,
+  statedDuration,
 } from './acceptance.js';
 import { referenceDirectives, shotLengthTolerance } from './references/directives.js';
 import { referenceImagesBlock } from './references/images.js';
@@ -90,7 +97,6 @@ import {
   type MeasuredSubject,
   type CritiqueReport,
   critique,
-  explicitDurationTarget,
   repairTrailingSoundOverrun,
   standingAgainstAcceptance,
   timelineDuration,
@@ -111,8 +117,10 @@ import {
 } from './events.js';
 import {
   type CommandClassification,
+  type EarlierRequest,
   FALLBACK_CLASSIFICATION,
   buildClassifierMessages,
+  earlierRequestsFrom,
   parseClassification,
   projectHeaderOf,
 } from './kernel/command-classifier.js';
@@ -3996,19 +4004,21 @@ export class Orchestrator {
     // nothing left to settle. `deriveObjectiveText` already owns this resolution for the
     // run's objective; the Critic reads the same answer so criterion and check cannot be
     // about two different requests.
-    const objectiveText = deriveObjectiveText(input.userPrompt, input.history);
+    // When the command reader ran, its reading settles both: which request this is, and the
+    // finished length it states (`kernel/command-classifier.ts#DeliverableLength`).
+    const objectiveText =
+      options.requestReading?.objectiveText ?? deriveObjectiveText(input.userPrompt, input.history);
     // A request that stated a RANGE ("20–35 seconds") also stated its own tolerance; using
     // the 2s default over the range's midpoint would fail a 34-second cut the brief allowed.
-    const stated = explicitDurationTarget(objectiveText);
-    const durationTargetSeconds = options.durationTargetSeconds ?? stated?.seconds;
-    const durationToleranceSeconds =
-      options.durationTargetSeconds === undefined ? stated?.toleranceSeconds : undefined;
+    const stated = statedDuration(options);
+    const durationTargetSeconds = stated?.seconds;
+    const durationToleranceSeconds = stated?.toleranceSeconds;
     // The conditions the request stated in checkable terms (see `acceptance.ts`). The same
     // reading is recorded on the run's objective, so the criterion the ledger reports against
     // and the check that settles it can never be two different things.
     const { minShotCount, coverage, maxStockCutaways, elements } = checkableAcceptance(
       objectiveText,
-      durationTargetSeconds,
+      stated,
     );
     // The measured half of "make it feel like this" (P3.4). The reference's numbers reach
     // the Critic WITHOUT passing through the model: a run cannot forget, round or re-derive
@@ -7680,6 +7690,8 @@ export class Orchestrator {
     signal?: AbortSignal,
   ): Promise<{
     classification: CommandClassification;
+    /** The earlier messages the reader was shown; `classification.continues` indexes it. */
+    readonly earlierRequests: readonly EarlierRequest[];
     /** The classifier call's real usage (C1), if the provider reported any. */
     usage?: { readonly inputTokens?: number; readonly outputTokens?: number };
     readonly contextTokens: number;
@@ -7688,11 +7700,15 @@ export class Orchestrator {
     readonly manifest: ContextManifest;
   }> {
     const header = projectHeaderOf(input.project, input.targetPlatform);
+    // One list for the prompt and for grounding the reply: `continues` is a position in it.
+    const earlierRequests = earlierRequestsFrom(input.history);
+    const shownEarlier = earlierRequests.map((request) => request.shown);
     const messages = buildClassifierMessages({
       userText: input.userPrompt,
       header,
       ...(input.selection ? { selection: input.selection } : {}),
       hasSelection: input.selection !== undefined,
+      ...(shownEarlier.length > 0 ? { earlierRequests: shownEarlier } : {}),
     });
     // Routing is the cheapest judgement the orchestrator makes, so it is the one call
     // stamped `small`: with `FRAMEPILOT_TIER_SMALL_*` configured it runs on a cheap model
@@ -7729,14 +7745,23 @@ export class Orchestrator {
     });
     try {
       const response = await provider.complete(classifyRequest, signal);
-      const classification = parseClassification(response.text) ?? FALLBACK_CLASSIFICATION;
+      const classification =
+        parseClassification(response.text, {
+          request: input.userPrompt,
+          earlierRequests: shownEarlier,
+        }) ?? FALLBACK_CLASSIFICATION;
       orchestratorLog.action('classifyCommand ← response', {
         provider: provider.name,
         route: classification.route,
+        ...(classification.continues === undefined ? {} : { continues: classification.continues }),
+        ...(classification.deliverableLength === undefined
+          ? {}
+          : { deliverableLength: classification.deliverableLength }),
         usage: response.usage,
       });
       return {
         classification,
+        earlierRequests,
         contextTokens: response.usage?.inputTokens ?? estimatedInput,
         contextEstimated: response.usage?.inputTokens === undefined,
         manifest: response.usage ? withProviderUsage(manifest, response.usage) : manifest,
@@ -7748,6 +7773,7 @@ export class Orchestrator {
       });
       return {
         classification: FALLBACK_CLASSIFICATION,
+        earlierRequests,
         contextTokens: estimatedInput,
         contextEstimated: true,
         manifest,
@@ -7785,6 +7811,7 @@ export class Orchestrator {
     yield emit.status('thinking');
     const {
       classification,
+      earlierRequests,
       usage: classifierUsage,
       contextTokens,
       contextEstimated,
@@ -7849,12 +7876,24 @@ export class Orchestrator {
           classifierPricing?.tier ?? 'small',
           classifierPricing?.prices,
         );
+        // What the run is being asked for, as the reader just read it. A continuation's
+        // objective is the whole earlier request it continues, not the reader's excerpt.
+        const continued =
+          classification.continues === undefined
+            ? undefined
+            : earlierRequests[classification.continues - 1];
+        const requestReading: RequestReading = {
+          objectiveText: continued === undefined ? input.userPrompt : continued.full,
+          ...(classification.deliverableLength === undefined
+            ? {}
+            : { deliverableLength: classification.deliverableLength }),
+        };
         yield* this.streamEditorRun(
           input,
           options,
           {
             route: 'agent',
-            agentOptions: autoOptions.agentOptions ?? {},
+            agentOptions: { ...(autoOptions.agentOptions ?? {}), requestReading },
             initialCost: {
               tokens: classifierCost.tokens,
               usd: classifierCost.usd,

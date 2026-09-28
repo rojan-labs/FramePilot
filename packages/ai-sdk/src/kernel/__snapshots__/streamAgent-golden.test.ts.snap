@@ -161,12 +161,16 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "objective": {
           "acceptance": [
             {
-              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "description": "The finished sequence runs about 1s.",
               "id": "criterion_1",
+            },
+            {
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "id": "criterion_2",
             },
           ],
           "outcome": "tighten the intro",
-          "provisional": true,
+          "provisional": false,
           "request": "tighten the intro",
         },
         "objectives": [
@@ -305,14 +309,14 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s10",
             "included": true,
             "label": "run briefing",
-            "tokenEstimate": 176,
+            "tokenEstimate": 185,
             "type": "system",
           },
           {
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 4,
+            "tokenEstimate": 5,
             "type": "system",
           },
           {
@@ -326,8 +330,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 13170,
-          "estimatedRemainingCapacity": 178638,
+          "estimatedInputTokensBeforeSend": 13180,
+          "estimatedRemainingCapacity": 178628,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -336,7 +340,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 13170,
+      "usedTokens": 13180,
     },
     {
       "conversationId": "conv_1",
@@ -577,12 +581,16 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "objective": {
           "acceptance": [
             {
-              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "description": "The finished sequence runs about 1s.",
               "id": "criterion_1",
+            },
+            {
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "id": "criterion_2",
             },
           ],
           "outcome": "tighten the intro",
-          "provisional": true,
+          "provisional": false,
           "request": "tighten the intro",
         },
         "objectives": [
@@ -737,14 +745,14 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s10",
             "included": true,
             "label": "run briefing",
-            "tokenEstimate": 396,
+            "tokenEstimate": 406,
             "type": "system",
           },
           {
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 24,
+            "tokenEstimate": 23,
             "type": "system",
           },
           {
@@ -758,8 +766,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 12789,
-          "estimatedRemainingCapacity": 179019,
+          "estimatedInputTokensBeforeSend": 12798,
+          "estimatedRemainingCapacity": 179010,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -769,7 +777,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 12789,
+      "usedTokens": 12798,
     },
     {
       "chunk": "done",
@@ -873,12 +881,16 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "objective": {
           "acceptance": [
             {
-              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "description": "The finished sequence runs about 1s.",
               "id": "criterion_1",
+            },
+            {
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "id": "criterion_2",
             },
           ],
           "outcome": "tighten the intro",
-          "provisional": true,
+          "provisional": false,
           "request": "tighten the intro",
         },
         "objectives": [
@@ -1033,7 +1045,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s10",
             "included": true,
             "label": "run briefing",
-            "tokenEstimate": 423,
+            "tokenEstimate": 433,
             "type": "system",
           },
           {
@@ -1047,7 +1059,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s12",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 27,
+            "tokenEstimate": 26,
             "type": "system",
           },
           {
@@ -1061,8 +1073,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 10821,
-          "estimatedRemainingCapacity": 180987,
+          "estimatedInputTokensBeforeSend": 10830,
+          "estimatedRemainingCapacity": 180978,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -1072,7 +1084,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 10821,
+      "usedTokens": 10830,
     },
     {
       "conversationId": "conv_1",
@@ -1318,12 +1330,16 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "objective": {
           "acceptance": [
             {
-              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "description": "The finished sequence runs about 1s.",
               "id": "criterion_1",
+            },
+            {
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "id": "criterion_2",
             },
           ],
           "outcome": "tighten the intro",
-          "provisional": true,
+          "provisional": false,
           "request": "tighten the intro",
         },
         "objectives": [
@@ -1492,14 +1508,14 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s10",
             "included": true,
             "label": "run briefing",
-            "tokenEstimate": 425,
+            "tokenEstimate": 434,
             "type": "system",
           },
           {
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 66,
+            "tokenEstimate": 67,
             "type": "system",
           },
           {
@@ -1513,8 +1529,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 12860,
-          "estimatedRemainingCapacity": 178948,
+          "estimatedInputTokensBeforeSend": 12870,
+          "estimatedRemainingCapacity": 178938,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -1524,7 +1540,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 12860,
+      "usedTokens": 12870,
     },
     {
       "conversationId": "conv_1",
@@ -1619,12 +1635,16 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "objective": {
           "acceptance": [
             {
-              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "description": "The finished sequence runs about 1s.",
               "id": "criterion_1",
+            },
+            {
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "id": "criterion_2",
             },
           ],
           "outcome": "tighten the intro",
-          "provisional": true,
+          "provisional": false,
           "request": "tighten the intro",
         },
         "objectives": [
@@ -1793,14 +1813,14 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s10",
             "included": true,
             "label": "run briefing",
-            "tokenEstimate": 425,
+            "tokenEstimate": 434,
             "type": "system",
           },
           {
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 137,
+            "tokenEstimate": 138,
             "type": "system",
           },
           {
@@ -1814,8 +1834,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 12931,
-          "estimatedRemainingCapacity": 178877,
+          "estimatedInputTokensBeforeSend": 12941,
+          "estimatedRemainingCapacity": 178867,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -1825,7 +1845,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 12931,
+      "usedTokens": 12941,
     },
     {
       "conversationId": "conv_1",
@@ -1920,12 +1940,16 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "objective": {
           "acceptance": [
             {
-              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "description": "The finished sequence runs about 1s.",
               "id": "criterion_1",
+            },
+            {
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "id": "criterion_2",
             },
           ],
           "outcome": "tighten the intro",
-          "provisional": true,
+          "provisional": false,
           "request": "tighten the intro",
         },
         "objectives": [
@@ -2094,7 +2118,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s10",
             "included": true,
             "label": "run briefing",
-            "tokenEstimate": 386,
+            "tokenEstimate": 396,
             "type": "system",
           },
           {
@@ -2122,8 +2146,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 10965,
-          "estimatedRemainingCapacity": 180843,
+          "estimatedInputTokensBeforeSend": 10975,
+          "estimatedRemainingCapacity": 180833,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -2133,7 +2157,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 10965,
+      "usedTokens": 10975,
     },
     {
       "conversationId": "conv_1",
@@ -2236,12 +2260,16 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "objective": {
           "acceptance": [
             {
-              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "description": "The finished sequence runs about 1s.",
               "id": "criterion_1",
+            },
+            {
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "id": "criterion_2",
             },
           ],
           "outcome": "tighten the intro",
-          "provisional": true,
+          "provisional": false,
           "request": "tighten the intro",
         },
         "objectives": [
@@ -2355,7 +2383,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s4",
             "included": true,
             "label": "user turn 3",
-            "tokenEstimate": 796,
+            "tokenEstimate": 806,
             "type": "conversation",
           },
           {
@@ -2377,8 +2405,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 13139,
-          "estimatedRemainingCapacity": 178669,
+          "estimatedInputTokensBeforeSend": 13149,
+          "estimatedRemainingCapacity": 178659,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -2387,7 +2415,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 13139,
+      "usedTokens": 13149,
     },
     {
       "conversationId": "conv_1",
@@ -2504,12 +2532,16 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "objective": {
           "acceptance": [
             {
-              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "description": "The finished sequence runs about 1s.",
               "id": "criterion_1",
+            },
+            {
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "id": "criterion_2",
             },
           ],
           "outcome": "tighten the intro",
-          "provisional": true,
+          "provisional": false,
           "request": "tighten the intro",
         },
         "objectives": [
@@ -2693,7 +2725,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s10",
             "included": true,
             "label": "run briefing",
-            "tokenEstimate": 480,
+            "tokenEstimate": 490,
             "type": "system",
           },
           {
@@ -2721,8 +2753,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 11270,
-          "estimatedRemainingCapacity": 180538,
+          "estimatedInputTokensBeforeSend": 11280,
+          "estimatedRemainingCapacity": 180528,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -2732,7 +2764,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 11270,
+      "usedTokens": 11280,
     },
     {
       "conversationId": "conv_1",
@@ -2838,12 +2870,16 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "objective": {
           "acceptance": [
             {
-              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "description": "The finished sequence runs about 1s.",
               "id": "criterion_1",
+            },
+            {
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "id": "criterion_2",
             },
           ],
           "outcome": "tighten the intro",
-          "provisional": true,
+          "provisional": false,
           "request": "tighten the intro",
         },
         "objectives": [
@@ -2972,7 +3008,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s4",
             "included": true,
             "label": "user turn 3",
-            "tokenEstimate": 1101,
+            "tokenEstimate": 1111,
             "type": "conversation",
           },
           {
@@ -2994,8 +3030,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 13444,
-          "estimatedRemainingCapacity": 178364,
+          "estimatedInputTokensBeforeSend": 13454,
+          "estimatedRemainingCapacity": 178354,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -3004,7 +3040,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 13444,
+      "usedTokens": 13454,
     },
     {
       "conversationId": "conv_1",
@@ -3135,12 +3171,16 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "objective": {
           "acceptance": [
             {
-              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "description": "The finished sequence runs about 1s.",
               "id": "criterion_1",
+            },
+            {
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself.",
+              "id": "criterion_2",
             },
           ],
           "outcome": "tighten the intro",
-          "provisional": true,
+          "provisional": false,
           "request": "tighten the intro",
         },
         "objectives": [

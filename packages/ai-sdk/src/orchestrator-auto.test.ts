@@ -410,6 +410,41 @@ describe('Orchestrator.streamAuto', () => {
     expect(usage?.tokens).toBe(7);
   });
 
+  it("holds a continuation to the brief it continues, with the brief's own stated length", async () => {
+    // Run 6cb12e30, end to end through the router: the brief states "58–62s" for the
+    // master and "the best 2–4s of each" for shots; the follow-up names no work of its own.
+    const brief =
+      'Edit a vertical travel reel. MASTER: 1080×1920, 58–62s. Use only the best 2–4s of each clip.';
+    const provider = new ScriptedProvider([
+      {
+        text: '{"route":"edit","continues":1,"length":{"min":58,"max":62,"quote":"58–62s"}}',
+      },
+      { text: 'done' },
+    ]);
+    const events = await collect(
+      new Orchestrator(provider).streamAuto(
+        {
+          ...input,
+          userPrompt: 'load the tools and complete the task',
+          history: [
+            { role: 'user', content: brief },
+            { role: 'assistant', content: 'Applied 83 edits' },
+          ],
+        },
+        opts,
+      ),
+    );
+    // The reader was shown the brief, numbered, above the message.
+    expect(provider.requests[0]?.messages[1]?.content).toContain(`[1] ${brief}`);
+    const working = events.find((event) => event.type === 'run_state') as
+      | { working: { objective: { outcome: string; acceptance: { description: string }[] } } }
+      | undefined;
+    expect(working?.working.objective.outcome).toContain('Edit a vertical travel reel');
+    const criteria = working?.working.objective.acceptance.map((entry) => entry.description);
+    expect(criteria).toContain('The finished sequence runs 58–62s (the request says “58–62s”).');
+    expect(criteria?.some((text) => text.includes('about 3s'))).toBe(false);
+  });
+
   it('threads the selection into the classifier prompt when one is pinned', async () => {
     const withSelection: ContextInput = { ...input, selection: { start: 1, end: 2 } };
     const provider = new ScriptedProvider([{ text: '{"route":"chitchat","reply":"hi"}' }]);

@@ -47,9 +47,13 @@ import {
   SELF_CHECK_NOTICE_REASON,
   createTurnEmitter,
 } from '../events.js';
-import { acceptanceCriteria, checkableAcceptance, hasCheckableAcceptance } from '../acceptance.js';
+import {
+  acceptanceCriteria,
+  checkableAcceptance,
+  hasCheckableAcceptance,
+  statedDuration,
+} from '../acceptance.js';
 import { survivesAppliedEdit } from '../tool-refusal.js';
-import { explicitDurationTargetSeconds } from '../critic.js';
 import type { Command } from './commands.js';
 import { deriveObjectiveText } from './continuation.js';
 import type { Distillation } from './briefing.js';
@@ -1452,7 +1456,14 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   // objective from the literal nudge made "contine" the run's outcome, its acceptance
   // criterion, its committed decision AND the criterion verification checked — so the run
   // both forgot the real goal and could only report itself inconclusive.
-  const objectiveText = deriveObjectiveText(command.input.userPrompt, command.input.history);
+  //
+  // The command reader (`streamAuto`'s classifier) settles that first when it ran: it reads
+  // "load the tools and complete the task" as carrying on with the brief above it, which
+  // the word-list fallback cannot — that message has content words, so run `6cb12e30`'s
+  // follow-up turns recorded it verbatim as their objective and lost the brief.
+  const objectiveText =
+    ao.requestReading?.objectiveText ??
+    deriveObjectiveText(command.input.userPrompt, command.input.history);
   // WHAT DONE MEANS, in terms something can check. `acceptance.ts` reads the conditions the
   // request actually stated — a deliverable length, a minimum shot count — and the Critic
   // checks those same numbers, so the criterion the ledger reports against and the check that
@@ -1468,11 +1479,10 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   // the objective, and the field stays open for a turn that records a real interpretation.
   const references = command.input.references ?? [];
   const directives = referenceDirectives(references);
-  const checkable = checkableAcceptance(
-    command.input.userPrompt,
-    explicitDurationTargetSeconds(command.input.userPrompt),
-    directives,
-  );
+  // Read off the OBJECTIVE, not the literal message: the Critic reads the same text
+  // (`orchestrator.ts#critiqueOptions`), and a criterion and the check that settles it
+  // must be about one request.
+  const checkable = checkableAcceptance(objectiveText, statedDuration(ao), directives);
   const criteria = acceptanceCriteria(checkable);
   const interpreted = setObjective(created, {
     outcome: objectiveText,

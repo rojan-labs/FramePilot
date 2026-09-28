@@ -248,9 +248,37 @@ describe('asksForRenderedFile', () => {
 
 describe('checkableAcceptance', () => {
   it('carries the duration its caller already read, plus any shot count', () => {
-    const acceptance = checkableAcceptance('a 30s reel from at least 20 moments', 30);
+    const acceptance = checkableAcceptance('a 30s reel from at least 20 moments', { seconds: 30 });
     expect(acceptance).toEqual({ durationSeconds: 30, minShotCount: 20 });
     expect(hasCheckableAcceptance(acceptance)).toBe(true);
+  });
+
+  it("names the request's own words for the length, so a target can be traced to its source", () => {
+    // Run 6cb12e30 was held to "about 3s" read from "Use only the best 2–4s of each" (per
+    // shot), and argued with a bare number five times. A criterion that quotes its source
+    // makes a misreading visible to the run and to the editor.
+    const acceptance = checkableAcceptance('a travel reel, 58–62s master', {
+      seconds: 60,
+      toleranceSeconds: 2,
+      statedAs: '58–62s',
+    });
+    expect(acceptance).toMatchObject({
+      durationSeconds: 60,
+      durationToleranceSeconds: 2,
+      durationStatedAs: '58–62s',
+    });
+    expect(acceptanceCriteria(acceptance)[0]).toBe(
+      'The finished sequence runs 58–62s (the request says “58–62s”).',
+    );
+  });
+
+  it('never reads a length out of the prompt itself', () => {
+    // The length is the command reader's (or the host's); this module no longer has a
+    // pattern for it, so a brief full of pacing figures cannot produce one.
+    expect(
+      checkableAcceptance('Use only the best 2–4s of each. Make a 30 second reel.', undefined)
+        .durationSeconds,
+    ).toBeUndefined();
   });
 
   it('reads the count when it is hyphenated onto the noun', () => {
@@ -290,7 +318,7 @@ describe('checkableAcceptance', () => {
 
   it('records a requested file as a condition, so the run can say it cannot make one', () => {
     const prompt = 'a 30s reel, delivered as a rendered mp4';
-    const acceptance = checkableAcceptance(prompt, 30);
+    const acceptance = checkableAcceptance(prompt, { seconds: 30 });
     expect(acceptance.deliverableFile).toBe(true);
     const criteria = acceptanceCriteria(acceptance);
     expect(criteria.some((line) => line.includes('Export dialog'))).toBe(true);
@@ -415,7 +443,7 @@ describe('unmeetableDeliverables', () => {
 
   it('becomes a criterion the run has to answer for, naming the way forward', () => {
     const prompt = 'a 30s reel with a voiceover and whoosh transitions';
-    const acceptance = checkableAcceptance(prompt, 30);
+    const acceptance = checkableAcceptance(prompt, { seconds: 30 });
     expect(acceptance.unmeetable).toEqual(['voiceover', 'soundEffects']);
     expect(hasCheckableAcceptance(acceptance)).toBe(true);
     const criteria = acceptanceCriteria(acceptance).join('\n');
@@ -447,7 +475,7 @@ describe('acceptanceCriteria', () => {
   // The request is already persisted verbatim as `objective.request`, one field away.
   it('never copies the request into a criterion, however long the brief', () => {
     const brief = `${'Make a high-retention vertical reel. '.repeat(200)}30 seconds.`;
-    const criteria = acceptanceCriteria(checkableAcceptance(brief, 30));
+    const criteria = acceptanceCriteria(checkableAcceptance(brief, { seconds: 30 }));
     expect(criteria.some((line) => line.includes('high-retention'))).toBe(false);
     expect(criteria.join('').length).toBeLessThan(400);
   });
@@ -573,7 +601,7 @@ describe('round 6 — a brief made of photos still states a shot count', () => {
       '# IMPORTANT. USE ALL PHOTOS INTELLIGENTLY',
       'Attempt to use **all approximately 61 hiking photos**.',
     ].join('\n\n');
-    expect(checkableAcceptance(brief, 27.5)).toMatchObject({
+    expect(checkableAcceptance(brief, { seconds: 27.5 })).toMatchObject({
       minShotCount: 61,
       durationSeconds: 27.5,
     });

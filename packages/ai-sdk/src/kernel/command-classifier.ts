@@ -92,6 +92,36 @@ export function projectHeaderOf(project: Project, platform?: TargetPlatform): Pr
  */
 export type CommandRoute = 'chitchat' | 'question' | 'edit';
 
+/**
+ * How long the request says the FINISHED video must run, as the command reader read it.
+ *
+ * ## Why a model reads this, not a pattern
+ *
+ * It used to be `critic.ts#explicitDurationTarget`: anchor words ("best", "build",
+ * "video", "duration" …) within forty characters of a number and a time unit. Every brief
+ * that broke it got one more guard — `PER_UNIT_QUALIFIER` for "0.3–0.6s per clip", the
+ * range reader for "20–35 seconds" — and the next brief broke it again. Run `6cb12e30`'s
+ * brief said "Use only the best 2–4s of each" about SHOTS and "58–62s" about the master;
+ * the anchor `best` read the first as a 3-second deliverable. That one misreading became
+ * an acceptance criterion the run could not satisfy without deleting its own work: seven
+ * "the request is not met yet" recoveries, a DO THIS NOW pinned to "the target is 3s" for
+ * the rest of the run, a question to the editor whose answer ("Keep the 60s master")
+ * nothing could apply to the criterion, and a run that ended failed after 95 correct edits.
+ *
+ * Telling a deliverable length from a pacing figure is reading comprehension, and this
+ * call already reads the whole request. What stays deterministic is the part that must:
+ * {@link statedAs} has to appear verbatim in the request, so a length the model invented
+ * never becomes a criterion, and every criterion and finding built on it can say which
+ * words it came from.
+ */
+export interface DeliverableLength {
+  readonly seconds: number;
+  /** Half-width of a stated range ("58–62s" → 60 ± 2); absent for a single length. */
+  readonly toleranceSeconds?: number;
+  /** The request's own words that state the length, verbatim. */
+  readonly statedAs: string;
+}
+
 /** The classifier's validated verdict. */
 export interface CommandClassification {
   readonly route: CommandRoute;
@@ -100,6 +130,14 @@ export interface CommandClassification {
    * used verbatim so a greeting costs exactly this one classification call and no more.
    */
   readonly reply?: string;
+  /**
+   * `edit` only: the 1-based position, in {@link ClassifierInput.earlierRequests}, of the
+   * earlier request this message carries on — "load the tools and complete the task" names
+   * no work of its own; the brief two turns up does. Absent for a new request.
+   */
+  readonly continues?: number;
+  /** `edit` only: the finished length the request states, grounded in its own words. */
+  readonly deliverableLength?: DeliverableLength;
 }
 
 /** Bounded input to the classifier — the full user text + a tiny header + the selection. */
@@ -109,13 +147,108 @@ export interface ClassifierInput {
   readonly selection?: TimeRange;
   /** Whether the editor has a live selection ("this"/"here" resolve against it). */
   readonly hasSelection?: boolean;
+  /**
+   * The editor's earlier messages in this conversation, oldest first — see
+   * {@link earlierRequestsFrom}. Shown so the reader can tell a continuation from a new
+   * request and read the length of the work a continuation refers to.
+   */
+  readonly earlierRequests?: readonly string[];
 }
 
 /** The classifier's Zod schema. `route` is required; the rest are route-specific. */
 export const CommandClassificationSchema = z.object({
   route: z.enum(['chitchat', 'question', 'edit']),
   reply: z.string().optional(),
+  // Read separately below: a malformed reading must cost the reading, never the route.
+  continues: z.unknown().optional(),
+  length: z.unknown().optional(),
 });
+
+const StatedLengthSchema = z.object({
+  seconds: z.number().finite().positive().optional(),
+  min: z.number().finite().positive().optional(),
+  max: z.number().finite().positive().optional(),
+  quote: z.string().trim().min(1),
+});
+
+/** What {@link parseClassification} checks a reading against. */
+export interface ClassificationGrounding {
+  /** The message being classified. */
+  readonly request: string;
+  /** The same list, in the same order, that was shown as {@link ClassifierInput.earlierRequests}. */
+  readonly earlierRequests?: readonly string[];
+}
+
+/** How many of the editor's earlier messages the reader is shown. */
+const MAX_EARLIER_REQUESTS = 4;
+
+/**
+ * Character budget for the earlier messages together. Big enough for the long briefs
+ * editors actually paste (run `6cb12e30`'s was 27,043 characters), bounded because this
+ * call sits on every turn's critical path.
+ */
+const MAX_EARLIER_REQUEST_CHARS = 40_000;
+
+/** One earlier message: what the reader is shown, and the whole message it stands for. */
+export interface EarlierRequest {
+  readonly shown: string;
+  readonly full: string;
+}
+
+/**
+ * The editor's earlier messages to show the reader, oldest first: the newest
+ * {@link MAX_EARLIER_REQUESTS} within {@link MAX_EARLIER_REQUEST_CHARS}. A message that
+ * does not fit whole is cut at the budget — its head is where a brief states its work, and
+ * a quote from a cut-off tail simply fails grounding, which drops the reading rather than
+ * inventing one. `full` keeps the whole message, so a continuation's objective is the
+ * request itself, never the reader's excerpt of it.
+ */
+export function earlierRequestsFrom(
+  history: readonly { readonly role: string; readonly content: string }[] | undefined,
+): EarlierRequest[] {
+  const kept: EarlierRequest[] = [];
+  let budget = MAX_EARLIER_REQUEST_CHARS;
+  const users = (history ?? []).filter(
+    (message) => message.role === 'user' && message.content.trim().length > 0,
+  );
+  for (let index = users.length - 1; index >= 0 && kept.length < MAX_EARLIER_REQUESTS; index -= 1) {
+    if (budget <= 0) break;
+    const full = users[index]!.content.trim();
+    kept.unshift({ shown: full.length <= budget ? full : full.slice(0, budget), full });
+    budget -= full.length;
+  }
+  return kept;
+}
+
+/**
+ * Text as a quote is compared against it: case, whitespace runs, dash and quote-mark
+ * variants folded. A model copying "58–62s" as "58-62s" has still quoted the request.
+ */
+function comparable(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[‐-―−]/g, '-')
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** A stated length, if its shape is one number or a real range and its quote is the request's. */
+function groundedLength(
+  raw: unknown,
+  sources: readonly string[],
+): DeliverableLength | undefined {
+  const parsed = StatedLengthSchema.safeParse(raw);
+  if (!parsed.success) return undefined;
+  const { seconds, min, max, quote } = parsed.data;
+  const wanted = comparable(quote);
+  if (!sources.some((source) => comparable(source).includes(wanted))) return undefined;
+  if (min !== undefined && max !== undefined && max > min) {
+    return { seconds: (min + max) / 2, toleranceSeconds: (max - min) / 2, statedAs: quote.trim() };
+  }
+  return seconds === undefined ? undefined : { seconds, statedAs: quote.trim() };
+}
 
 // The prompt text lives in prompts.ts — the single home for model-facing prompts.
 const SYSTEM = classifierSystemPrompt();
@@ -132,6 +265,11 @@ function renderInput(input: ClassifierInput): string {
     lines.push(`Selection: ${selection.start.toFixed(2)}s–${selection.end.toFixed(2)}s`);
   } else if (hasSelection) {
     lines.push('Selection: (a live selection exists)');
+  }
+  const earlier = input.earlierRequests ?? [];
+  if (earlier.length > 0) {
+    lines.push('Earlier requests in this conversation (oldest first):');
+    earlier.forEach((text, index) => lines.push(`[${String(index + 1)}] ${text}`));
   }
   lines.push(`Request: ${userText}`);
   return lines.join('\n');
@@ -153,8 +291,17 @@ export function buildClassifierMessages(input: ClassifierInput): readonly AiMess
  * Returns `null` when the reply is not parseable JSON or fails the schema — the caller
  * ({@link Orchestrator.streamAuto}) then falls back to the safe default (`edit`), never a
  * crash (§16.3: a bad classification is data, not an exception).
+ *
+ * The `edit` readings are kept only when they check out against `grounding`: a
+ * `continues` must name a request that was shown, and a length's quote must appear in the
+ * message or in the request it continues. Without `grounding` nothing can be checked, so
+ * neither reading is kept — a missing criterion costs a check, a wrong one fails a run
+ * that did the work.
  */
-export function parseClassification(raw: string): CommandClassification | null {
+export function parseClassification(
+  raw: string,
+  grounding?: ClassificationGrounding,
+): CommandClassification | null {
   let json: unknown;
   try {
     json = JSON.parse(stripFence(raw));
@@ -168,7 +315,22 @@ export function parseClassification(raw: string): CommandClassification | null {
   if (route === 'chitchat') {
     return reply ? { route: 'chitchat', reply } : { route: 'chitchat' };
   }
-  return { route };
+  if (route !== 'edit' || grounding === undefined) return { route };
+  const earlier = grounding.earlierRequests ?? [];
+  const continues =
+    typeof parsed.data.continues === 'number' &&
+    Number.isInteger(parsed.data.continues) &&
+    parsed.data.continues >= 1 &&
+    parsed.data.continues <= earlier.length
+      ? parsed.data.continues
+      : undefined;
+  const sources = [grounding.request, ...(continues === undefined ? [] : [earlier[continues - 1]!])];
+  const deliverableLength = groundedLength(parsed.data.length, sources);
+  return {
+    route,
+    ...(continues === undefined ? {} : { continues }),
+    ...(deliverableLength === undefined ? {} : { deliverableLength }),
+  };
 }
 
 /** Strip a ```json code fence a model may wrap structured output in (mirrors proposers). */

@@ -17,10 +17,14 @@
  * ## What this reads, and what it deliberately does not
  *
  * Only conditions a deterministic check can settle against the timeline: a stated deliverable
- * length, and a stated minimum number of shots. Both are read the way
- * `critic.ts`'s `explicitDurationTargetSeconds` reads a duration — conservatively, requiring
- * the number to be attached to a deliverable word — because a wrong criterion is worse than a
- * missing one: it fails runs that did the work.
+ * length, and a stated minimum number of shots. Conservatively, because a wrong criterion is
+ * worse than a missing one: it fails runs that did the work.
+ *
+ * The LENGTH is not read here. It comes in already read — by the model that routes the
+ * message, grounded in the request's own words (`kernel/command-classifier.ts`
+ * `DeliverableLength`) — because telling "58–62s" for the master from "the best 2–4s of
+ * each" shot is reading comprehension, and the pattern reader that used to do it here
+ * turned the second into a 3-second deliverable (run `6cb12e30`).
  *
  * Taste ("make it nice", "attractive"), rhythm ("beat synced") and retention ("retaining
  * watchers") are NOT extracted. They are real parts of the request and they belong to the
@@ -33,10 +37,45 @@ import type { ReferenceDirectives } from './references/directives.js';
 /** A per-clip treatment a request can demand of the WHOLE cut. */
 export type CoverageTreatment = 'crop' | 'grade' | 'motion' | 'speed';
 
+/**
+ * A finished length the run is held to: read from the request by the command reader
+ * (`kernel/command-classifier.ts#DeliverableLength`, which also carries `statedAs`) or
+ * stated by the host (`AgentOptions.durationTargetSeconds`, which does not).
+ */
+export interface StatedDuration {
+  readonly seconds: number;
+  readonly toleranceSeconds?: number;
+  readonly statedAs?: string;
+}
+
+/**
+ * The finished length a run is held to: the host's explicit target when it set one, else
+ * the command reader's grounded reading, else none. One function for the criterion
+ * (`conductor.ts`) and the check (`orchestrator.ts#critiqueOptions`), so they cannot pick
+ * different targets.
+ */
+export function statedDuration(options: {
+  readonly durationTargetSeconds?: number;
+  readonly requestReading?: { readonly deliverableLength?: StatedDuration };
+}): StatedDuration | undefined {
+  if (options.durationTargetSeconds !== undefined) {
+    return { seconds: options.durationTargetSeconds };
+  }
+  return options.requestReading?.deliverableLength;
+}
+
 /** A condition the deterministic Critic can check against a finished timeline. */
 export interface CheckableAcceptance {
   /** Stated deliverable length in seconds, when the request named one. */
   readonly durationSeconds?: number;
+  /** Half-width of the stated range, when the length was stated as one. */
+  readonly durationToleranceSeconds?: number;
+  /**
+   * The request's own words that state the length. Carried into the criterion so a run —
+   * and the editor reading its record — can see WHICH words a target came from, instead
+   * of arguing with a bare number (run `6cb12e30` argued with "3s" five times).
+   */
+  readonly durationStatedAs?: string;
   /** Stated minimum number of distinct shots, when the request named one. */
   readonly minShotCount?: number;
   /**
@@ -687,13 +726,6 @@ export function unmeetableDeliverables(prompt: string): UnmeetableDeliverable[] 
   return missing;
 }
 
-/**
- * The checkable conditions in a request, if any.
- *
- * @param prompt - The editor's request, verbatim.
- * @param durationSeconds - A duration already extracted by the caller (the Critic's own
- *   reader), so the two cannot disagree about what the request asked for.
- */
 const STICKER_WORDS = /\b(?:stickers?|emojis?)\b/i;
 const CALLOUT_WORDS =
   /\b(?:callouts?|highlight(?:ed)? box(?:es)?|box(?:es)? around|arrows?|circle|circling|underlin\w*|numbered badges?|speech bubbles?)\b/i;
@@ -721,9 +753,18 @@ export function explicitElements(prompt: string): readonly RequestedElement[] {
   return (['sticker', 'callout'] as const).filter((element) => found.has(element));
 }
 
+/**
+ * The checkable conditions in a request, if any.
+ *
+ * @param prompt - The request the run works toward (its resolved objective text).
+ * @param length - The finished length, as the command reader read and grounded it
+ *   (`kernel/command-classifier.ts#DeliverableLength`) or as the host stated it. Passed in
+ *   rather than read here, so the criterion and the Critic's check are one reading.
+ * @param references - Targets measured off the editor's attached references.
+ */
 export function checkableAcceptance(
   prompt: string,
-  durationSeconds: number | undefined,
+  length: StatedDuration | undefined,
   /** Targets measured off the editor's attached references (`references/directives.ts`). */
   references: ReferenceDirectives = { applied: [], ignored: [] },
 ): CheckableAcceptance {
@@ -734,7 +775,11 @@ export function checkableAcceptance(
   const elements = explicitElements(prompt);
   const medianShotSource = references.applied.find((c) => c.line.startsWith('Pacing:'));
   return {
-    ...(durationSeconds === undefined ? {} : { durationSeconds }),
+    ...(length === undefined ? {} : { durationSeconds: length.seconds }),
+    ...(length?.toleranceSeconds === undefined
+      ? {}
+      : { durationToleranceSeconds: length.toleranceSeconds }),
+    ...(length?.statedAs === undefined ? {} : { durationStatedAs: length.statedAs }),
     ...(minShotCount === undefined ? {} : { minShotCount }),
     ...(references.medianShotSeconds === undefined
       ? {}
@@ -774,7 +819,17 @@ export const JUDGEMENT_CRITERION =
 export function acceptanceCriteria(acceptance: CheckableAcceptance): readonly string[] {
   const criteria: string[] = [];
   if (acceptance.durationSeconds !== undefined) {
-    criteria.push(`The finished sequence runs about ${String(acceptance.durationSeconds)}s.`);
+    const seconds = acceptance.durationSeconds;
+    const tolerance = acceptance.durationToleranceSeconds;
+    const span =
+      tolerance === undefined
+        ? `about ${String(seconds)}s`
+        : `${String(seconds - tolerance)}–${String(seconds + tolerance)}s`;
+    const stated =
+      acceptance.durationStatedAs === undefined
+        ? ''
+        : ` (the request says “${acceptance.durationStatedAs}”)`;
+    criteria.push(`The finished sequence runs ${span}${stated}.`);
   }
   if (acceptance.minShotCount !== undefined) {
     criteria.push(`The cut uses at least ${String(acceptance.minShotCount)} distinct shots.`);

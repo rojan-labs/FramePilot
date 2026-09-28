@@ -18,6 +18,7 @@ import type { EditResult } from './assemble.js';
 import type { CritiqueReport, RenderValidationInput } from './critic.js';
 import type { TargetPlatform } from './context-builder.js';
 import type { AnalysisCaps } from './kernel/cost/analysis-caps.js';
+import type { DeliverableLength } from './kernel/command-classifier.js';
 
 /** One turn of the agent loop. */
 export interface AgentStep {
@@ -57,6 +58,20 @@ export interface AgentRun {
   readonly critique: CritiqueReport;
   /** Flat, human-readable log of every action taken. */
   readonly log: readonly string[];
+}
+
+/**
+ * What a run is being asked to do, read by the model that routed the message
+ * (`kernel/command-classifier.ts`) rather than by patterns over its text.
+ */
+export interface RequestReading {
+  /**
+   * The request the run works toward: the message itself, or — when it only asks to carry
+   * on ("load the tools and complete the task") — the earlier request that states the work.
+   */
+  readonly objectiveText: string;
+  /** The finished length that request states, with the words that state it. */
+  readonly deliverableLength?: DeliverableLength;
 }
 
 /** Options controlling an agent run. */
@@ -113,6 +128,14 @@ export interface AgentOptions {
   readonly requirePlanApproval?: boolean;
   /** Target output duration the Critic checks against (e.g. 45s). */
   readonly durationTargetSeconds?: number;
+  /**
+   * The request as `streamAuto`'s command reader understood it. Set by the orchestrator,
+   * never by a host: the run's objective, its acceptance criteria and the Critic's
+   * duration check all read from it, so they are one reading of one request. Absent on
+   * entry points that skip the reader (`streamAgent` called directly), which fall back to
+   * the message as typed and state no length criterion — see {@link RequestReading}.
+   */
+  readonly requestReading?: RequestReading;
   /** Target platform, threaded into the Critic's export-settings check. */
   readonly targetPlatform?: TargetPlatform;
   /** Results of an auto preview render's validation, fed to the Critic. */

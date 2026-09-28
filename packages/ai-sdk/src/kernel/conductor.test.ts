@@ -165,24 +165,83 @@ describe('onCommand', () => {
     // verification reported against were all the same sentence the editor typed — so a
     // request for "20+ different best moments" was satisfied, as far as the ledger knew, by
     // eight shots. See `acceptance.ts`.
+    const userPrompt = 'make a 30 second reel from at least 20 different best moments';
     const asked: Command = {
       kind: 'submit_turn',
       mode: 'agent',
       stream,
-      input: {
-        project: makeProject(),
-        userPrompt: 'make a 30 second reel from at least 20 different best moments',
+      input: { project: makeProject(), userPrompt },
+      // The length as `streamAuto`'s command reader read and grounded it.
+      agentOptions: {
+        requestReading: {
+          objectiveText: userPrompt,
+          deliverableLength: { seconds: 30, statedAs: '30 second reel' },
+        },
       },
     };
     const { working } = onCommand(idle, asked).state;
     const descriptions = working.objective.acceptance.map((entry) => entry.description);
-    expect(descriptions.some((text) => text.includes('30s'))).toBe(true);
+    expect(descriptions).toContain(
+      'The finished sequence runs about 30s (the request says “30 second reel”).',
+    );
     expect(descriptions.some((text) => text.includes('20 distinct shots'))).toBe(true);
     // The unmeasurable half of the ask is still a criterion — as a pointer to the request,
     // not a copy of it (the run already persists it verbatim as `objective.request`).
     expect(descriptions.at(-1)).toBe(JUDGEMENT_CRITERION);
     // A reading with something checkable in it is not a placeholder.
     expect(working.objective.provisional).toBe(false);
+  });
+
+  it('reads no length out of the prompt when no reader ran — a missing criterion, never a wrong one', () => {
+    // Run 6cb12e30: "Use only the best 2–4s of each" became "runs about 3s" and held a
+    // correct 60s reel to it for the rest of the run. Pattern-reading is gone; without
+    // the command reader or a host target there is simply no length criterion.
+    const asked: Command = {
+      kind: 'submit_turn',
+      mode: 'agent',
+      stream,
+      input: {
+        project: makeProject(),
+        userPrompt: 'Look at every clip. Use only the best 2–4s of each. Master: 58–62s.',
+      },
+    };
+    const descriptions = onCommand(idle, asked).state.working.objective.acceptance.map(
+      (entry) => entry.description,
+    );
+    expect(descriptions.some((text) => text.includes('finished sequence runs'))).toBe(false);
+  });
+
+  it("takes the reader's continuation as the objective, and its criteria from that request", () => {
+    // Run 6cb12e30's follow-up, "load the tools and complete the task", has content words,
+    // so the word-list fallback kept it as the objective and the run lost its brief.
+    const brief = 'Edit a vertical travel reel. MASTER: 58–62s. Every clip needs its own reframe.';
+    const continued: Command = {
+      kind: 'submit_turn',
+      mode: 'agent',
+      stream,
+      input: {
+        project: makeProject(),
+        userPrompt: 'load the tools and complete the task',
+        history: [
+          { role: 'user', content: brief },
+          { role: 'assistant', content: 'Applied 83 edits' },
+        ],
+      },
+      agentOptions: {
+        requestReading: {
+          objectiveText: brief,
+          deliverableLength: { seconds: 60, toleranceSeconds: 2, statedAs: '58–62s' },
+        },
+      },
+    };
+    const { objective } = onCommand(idle, continued).state.working;
+    expect(objective.outcome).toContain('Edit a vertical travel reel');
+    const descriptions = objective.acceptance.map((entry) => entry.description);
+    expect(descriptions).toContain(
+      'The finished sequence runs 58–62s (the request says “58–62s”).',
+    );
+    // Criteria come from the brief, not from the nudge.
+    expect(descriptions).toContain('Every picture clip carries its own reframe.');
   });
 
   it('resolves a bare "continue" to the request underneath it, not to the nudge', () => {

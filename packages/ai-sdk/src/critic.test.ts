@@ -12,10 +12,8 @@ import {
 import {
   INHERITED_PREFIX,
   critique,
-  explicitDurationTarget,
   detectTranscriptLoop,
   reconcileInheritedFailures,
-  explicitDurationTargetSeconds,
   repairTrailingSoundOverrun,
   standingAgainstAcceptance,
   timelineDuration,
@@ -48,108 +46,6 @@ describe('timelineDuration', () => {
   it('is the latest clip end, 0 for empty', () => {
     expect(timelineDuration(makeProject().timeline)).toBe(10);
     expect(timelineDuration({ tracks: [] })).toBe(0);
-  });
-});
-
-describe('explicitDurationTargetSeconds', () => {
-  it('extracts explicit whole-deliverable lengths', () => {
-    expect(explicitDurationTargetSeconds('I want full video of 30 seconds')).toBe(30);
-    expect(explicitDurationTargetSeconds('Create a 45-second montage')).toBe(45);
-    expect(explicitDurationTargetSeconds('Make it 1.5 minutes long')).toBe(90);
-  });
-
-  it('does not mistake an edit timestamp for a duration goal', () => {
-    expect(explicitDurationTargetSeconds('Cut at 30 seconds and add a transition')).toBeUndefined();
-    expect(explicitDurationTargetSeconds('Move this clip to 12s')).toBeUndefined();
-  });
-
-  it('reads the deliverable nouns people actually use, and the bare "best N" idiom', () => {
-    // The golden set's own podcast case stated its length as plainly as a request can and
-    // yielded nothing, so `duration_target` reported "skipped — no duration target was set"
-    // and a run that answered a 60-second brief with 36 seconds completed as a success.
-    expect(
-      explicitDurationTargetSeconds(
-        'Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.',
-      ),
-    ).toBe(60);
-    // No anchor anywhere: the length itself names the deliverable.
-    expect(explicitDurationTargetSeconds('Give me the best 60 seconds.')).toBe(60);
-    expect(explicitDurationTargetSeconds('Build a 20-35 second teaser')).toBe(27.5);
-    expect(explicitDurationTargetSeconds('Make a 30 second supercut')).toBe(30);
-  });
-
-  it('reads "cut this down to N" only when the object is the whole deliverable', () => {
-    expect(explicitDurationTargetSeconds('Cut this down to 45 seconds.')).toBe(45);
-    expect(explicitDurationTargetSeconds('Shorten it down to 2 minutes.')).toBe(120);
-    expect(explicitDurationTargetSeconds('Bring the video down to 90s')).toBe(90);
-    // …and never when it is one clip. This is why the bare preposition is not an anchor.
-    expect(explicitDurationTargetSeconds('Trim the first clip down to 5 seconds.')).toBeUndefined();
-    expect(
-      explicitDurationTargetSeconds('Trim the first clip so it ends at exactly 10 seconds.'),
-    ).toBeUndefined();
-  });
-
-  it('regression: a montage brief\u2019s pacing spec is not the deliverable length', () => {
-    // Run `f014f3ac`. `build` is in the anchor list because people say "build me a
-    // 30-second reel" — but it is also a PACING PHASE heading, and the lazy gap then
-    // skipped past `0.3\u2013` to take `0.6` as the length of a fifty-clip montage. The run
-    // was told "Timeline is 203.068s but the target is 0.6s" and reported itself failed.
-    const brief = [
-      '# PACING',
-      'Suggested progression:',
-      '### INTRO',
-      'Approximately:',
-      '**0.5\u20131.0s per clip**',
-      '### BUILD',
-      'Approximately:',
-      '**0.3\u20130.6s per clip**',
-      '### PEAK',
-      'Approximately:',
-      '**0.1\u20130.35s per clip**',
-    ].join('\n\n');
-    expect(explicitDurationTargetSeconds(brief)).toBeUndefined();
-  });
-
-  it('reads neither the far end of a range nor a per-clip figure', () => {
-    // The two structural guards, stated on their own so a future anchor-list edit cannot
-    // quietly remove either.
-    expect(
-      explicitDurationTargetSeconds('Build a montage at 0.3\u20130.6s per clip'),
-    ).toBeUndefined();
-    expect(explicitDurationTargetSeconds('Create a video with 2 seconds per shot')).toBeUndefined();
-    expect(explicitDurationTargetSeconds('Make it 4s each cut')).toBeUndefined();
-    // The far end alone is still never the target: 2 minutes is not what this asked for.
-    expect(explicitDurationTargetSeconds('Build a reel, 1\u20132 minutes')).not.toBe(120);
-  });
-
-  it('reads a stated range as an interval, not as nothing', () => {
-    // Run 4c9b5f82. `endsARange` refuses the far end, and in `20\u201335 seconds` only the far
-    // number carries the unit \u2014 so the near end was never matched and the whole range was
-    // dropped. The brief said its length as plainly as a brief can, and `duration_target`
-    // reported `skipped` over a 10-second answer.
-    expect(
-      explicitDurationTarget('**Duration:** Approximately 20\u201335 seconds, depending on music'),
-    ).toEqual({ seconds: 27.5, toleranceSeconds: 7.5 });
-    expect(explicitDurationTarget('Build a reel, 1\u20132 minutes')).toEqual({
-      seconds: 90,
-      toleranceSeconds: 30,
-    });
-  });
-
-  it('does not read a pacing range as the deliverable length', () => {
-    // The range reading must not undo the guard it sits beside: a per-clip figure is
-    // pacing whether it is stated as one number or as two.
-    expect(explicitDurationTarget('Build a montage at 0.3\u20130.6s per clip')).toBeUndefined();
-  });
-
-  it('still finds a real length stated after the pacing talk', () => {
-    // The guards skip candidates; they must not stop the scan. A brief that describes its
-    // rhythm and THEN names a deliverable length still gets a target.
-    expect(
-      explicitDurationTargetSeconds(
-        'Cut at roughly 0.3\u20130.6s per clip. Export a 45 second reel.',
-      ),
-    ).toBe(45);
   });
 });
 
@@ -1838,15 +1734,17 @@ describe('run 4c9b5f82, end to end', () => {
     );
 
   it('reads the brief and fails what the run shipped against it', () => {
-    const stated = explicitDurationTarget(brief);
-    expect(stated).toEqual({ seconds: 27.5, toleranceSeconds: 7.5 });
-    const acceptance = checkableAcceptance(brief, stated?.seconds);
+    // The length as the command reader grounds it (`kernel/command-classifier.ts`): the
+    // range's midpoint and half-width, with the brief's own words.
+    const stated = { seconds: 27.5, toleranceSeconds: 7.5, statedAs: 'Approximately 20–35 seconds' };
+    const acceptance = checkableAcceptance(brief, stated);
     expect(acceptance.minShotCount).toBe(61);
+    expect(acceptance.durationStatedAs).toBe('Approximately 20–35 seconds');
 
     const report = critique(whatItShipped(), {
       request: brief,
-      durationTargetSeconds: stated!.seconds,
-      durationToleranceSeconds: stated!.toleranceSeconds,
+      durationTargetSeconds: stated.seconds,
+      durationToleranceSeconds: stated.toleranceSeconds,
       minShotCount: acceptance.minShotCount,
     });
     expect(report.ok).toBe(false);
