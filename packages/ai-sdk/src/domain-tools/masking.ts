@@ -989,8 +989,11 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
   hostMeasured(
     CREATE_SHAPE_MASK_TOOL_NAME,
     'Split screen, mirror band, gradient and shape-preset masks (heart, star, polygon, speech ' +
-      'bubble, arrow, rounded frame). Placed on a candidateId from find_mask_targets, on the ' +
-      'frame (pass neither), or in a userBox ONLY with numbers the editor typed. side: which ' +
+      'bubble, arrow, rounded frame — a rounded frame keeps only a BORDER band around the ' +
+      'picture, so as a cutout it blacks out the middle; to show the picture inside a rounded ' +
+      'or shaped window use a shape preset with purpose cutout). Placed on a candidateId from ' +
+      'find_mask_targets, on the frame (pass neither: the part of the clip on screen, its crop), ' +
+      'or in a userBox ONLY with numbers the editor typed. side: which ' +
       'half a split keeps, or where a gradient is opaque; direction: a mirror band runs ' +
       'horizontal or vertical; count: star points or polygon sides. purpose, effect and edge ' +
       'as in create_mask. You never give coordinates.',
