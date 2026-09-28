@@ -47,10 +47,14 @@ already draw; `planAutomaticReframe`, exported and unused). ADR 0195. Branch
 - [x] **AR10** `get_frame { assetId }` shows a source as shot; `reframe_pan`; skills updated.
 - [x] **AR11** `add_transitions` takes a named `kind` per cut; `get_clip` digest shows titles;
   silent turns' patch reasons name their operations.
-- [~] **AR12** Keyframed x/y scaled to the render size (downscaled grabs/reviews mis-placed pans).
-- [ ] **AR13** Follow-ups filed: #135 typography (tracking, italic, shadow), #136 remaining regex
+- [x] **AR12** Keyframed x/y scaled to the render size (downscaled grabs/reviews mis-placed pans).
+- [x] **AR13** Follow-ups filed: #135 typography (tracking, italic, shadow), #136 remaining regex
   acceptance readers, #137 subject-following reframe, #138 professional_motion/color targets,
   #139 punch_in over a pan.
+- [x] **AR14** Frame-space and adjustment-lane masks drawn in project pixels at every render size
+  — engine grabs/reviews AND the desktop monitor (capped at 1280 px, so every 1080×1920 project).
+- [x] **AR15** `set_clip_speed` `playback: "freeze" | "reverse"` (the Inspector's Speed panel
+  already did both; the run reported a freeze-frame "not built").
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

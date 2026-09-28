@@ -32,6 +32,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   you asked for, and the AI "fixed" it by ending the fade half-way.
 - **Looking at a frame takes about a second, not half a minute.** A frame check re-built the
   whole timeline; it now builds only the clips on screen, pixel-identical to the export.
+- **The AI's frame checks show moves where the export puts them.** A keyframed position was applied
+  unscaled to the smaller frames the AI looks at, so a pan across a wide shot showed black bars the
+  export did not have.
+- **Masks fixed to the frame stay where you drew them.** A mask fixed to the frame, or on an
+  adjustment layer, landed in the wrong place in the monitor on any project larger than 1280 px (a
+  1080×1920 vertical included) and in the AI's frame checks. The export was already right.
 
 - **The preview keeps playing through captions.** Every caption template animates, so the desktop
   monitor needed a new caption image from the engine for every frame, asked for them one at a
@@ -82,6 +88,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   of a fixed centre crop.
 - **Named transitions in one pass.** When you name the transition for a cut (a whip pan, a light
   leak), the AI places that one; the rest are still chosen for you.
+- **Freeze frames and reverse from the AI.** Asked to hold a moment or play a shot backwards, the
+  AI now can, as the Speed panel always could.
 
 - **Shapes, in Elements.** A new **Shapes** sub-tab adds the six callouts a screen recording or
   a product demo needs: a highlight box, a filled box, an ellipse, a translucent marker, an arrow
