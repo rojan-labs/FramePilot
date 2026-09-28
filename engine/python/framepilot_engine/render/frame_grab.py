@@ -294,6 +294,102 @@ def source_view_project(project: Project, asset_id: str) -> tuple[Project, float
     return view, duration
 
 
+def _clamped_time(project: Project, time_seconds: float) -> tuple[float, float]:
+    """``(at, duration)``: ``time_seconds`` clamped just inside the timeline, and its length.
+
+    :raises FrameGrabError: For an empty timeline.
+    """
+    duration = timeline_duration(project.timeline)
+    if duration <= 0:
+        raise FrameGrabError("The timeline is empty — there is no frame to render.")
+    # Clamp, and step just inside the end: `get_frame(duration)` is past the last
+    # frame and MoviePy raises rather than returning the final picture.
+    fps = float(project.fps or 30)
+    last_frame_time = max(0.0, duration - (1.0 / fps))
+    return min(max(0.0, float(time_seconds)), last_frame_time), duration
+
+
+def _composite_pixels(
+    project: Project,
+    base_dir: Path,
+    at: float,
+    preset: ExportPreset,
+    *,
+    burn_captions: bool,
+    lossless: bool,
+) -> tuple[Any, str]:
+    """The composited RGB(A) pixels at ``at`` and which composite answered (for the ACT line)."""
+    asset_index = index_assets([asset.model_dump() for asset in project.assets], base_dir=base_dir)
+    # No source is decoded larger than the frame it is being composited into. The
+    # export path deliberately reads camera masters; a picture for a model to look
+    # at has no such requirement, and decoding UHD for a 512px JPEG is the single
+    # most expensive thing this module used to do.
+    # A lossless frame is the export's, so it reads sources the way the export does: unbudgeted.
+    decode_budget: int | None = None if lossless else max(preset.width, preset.height)
+
+    # Only the clips that can be on screen at `at` (see `render/picture_window.py`). A
+    # lossless frame is the parity oracle's reference, so it keeps compositing the whole
+    # timeline exactly as the export does rather than trusting the window it is there to check.
+    window = (
+        None
+        if lossless
+        else picture_window_at(
+            project, at, {entry.asset_id: entry.kind for entry in asset_index.entries}
+        )
+    )
+    pixels = (
+        None
+        if window is None
+        else _windowed_frame(
+            project,
+            base_dir,
+            asset_index,
+            preset,
+            window,
+            burn_captions=burn_captions,
+            decode_budget=decode_budget,
+        )
+    )
+    # Which composite answered: a grab that silently fell back to the whole timeline is the
+    # slow case worth spotting in a run log.
+    if pixels is not None and window is not None:
+        return pixels, f"{len(window.clip_ids)} clips"
+    pixels = _whole_timeline_frame(
+        project,
+        base_dir,
+        asset_index,
+        preset,
+        at,
+        burn_captions=burn_captions,
+        decode_budget=decode_budget,
+    )
+    return pixels, "timeline"
+
+
+def render_frame_pixels(
+    project: Project,
+    base_dir: Path,
+    time_seconds: float,
+    *,
+    max_dimension: int,
+    burn_captions: bool,
+) -> tuple[Any, float, float]:
+    """The model-facing frame as raw pixels, unencoded: ``(pixels, at, duration)``.
+
+    The same composite :func:`grab_frame` encodes (clamped time, decode budget, windowed
+    compile), for a caller that lays several frames out itself — the multi-source sheet in
+    :mod:`framepilot_engine.render.source_sheet` — and would otherwise decode a JPEG it had
+    just encoded.
+    """
+    at, duration = _clamped_time(project, time_seconds)
+    requested = min(max(1, int(max_dimension)), MAX_ALLOWED_DIMENSION)
+    preset = _resolve_preset(project, requested)
+    pixels, _composited = _composite_pixels(
+        project, base_dir, at, preset, burn_captions=burn_captions, lossless=False
+    )
+    return pixels, at, duration
+
+
 def grab_frame(
     project: Project,
     base_dir: Path,
@@ -350,14 +446,7 @@ def grab_frame(
             "a lossy encode would defeat the pixel comparison it exists for."
         )
 
-    duration = timeline_duration(project.timeline)
-    if duration <= 0:
-        raise FrameGrabError("The timeline is empty — there is no frame to render.")
-    # Clamp, and step just inside the end: `get_frame(duration)` is past the last
-    # frame and MoviePy raises rather than returning the final picture.
-    fps = float(project.fps or 30)
-    last_frame_time = max(0.0, duration - (1.0 / fps))
-    at = min(max(0.0, float(time_seconds)), last_frame_time)
+    at, duration = _clamped_time(project, time_seconds)
 
     if lossless_size is not None and not lossless:
         raise FrameGrabError("lossless_size only applies to a lossless frame.")
@@ -380,50 +469,9 @@ def grab_frame(
         else:
             requested_dimension = min(max(1, int(max_dimension)), MAX_ALLOWED_DIMENSION)
         preset = _resolve_preset(project, requested_dimension)
-    asset_index = index_assets([asset.model_dump() for asset in project.assets], base_dir=base_dir)
-    # No source is decoded larger than the frame it is being composited into. The
-    # export path deliberately reads camera masters; a picture for a model to look
-    # at has no such requirement, and decoding UHD for a 512px JPEG is the single
-    # most expensive thing this module used to do.
-    # A lossless frame is the export's, so it reads sources the way the export does: unbudgeted.
-    decode_budget: int | None = None if lossless else max(preset.width, preset.height)
-
-    # Only the clips that can be on screen at `at` (see `render/picture_window.py`). A
-    # lossless frame is the parity oracle's reference, so it keeps compositing the whole
-    # timeline exactly as the export does rather than trusting the window it is there to check.
-    window = (
-        None
-        if lossless
-        else picture_window_at(
-            project, at, {entry.asset_id: entry.kind for entry in asset_index.entries}
-        )
+    pixels, composited = _composite_pixels(
+        project, base_dir, at, preset, burn_captions=burn_captions, lossless=lossless
     )
-    pixels = (
-        None
-        if window is None
-        else _windowed_frame(
-            project,
-            base_dir,
-            asset_index,
-            preset,
-            window,
-            burn_captions=burn_captions,
-            decode_budget=decode_budget,
-        )
-    )
-    # Which composite answered, for the ACT line: a grab that silently fell back to the whole
-    # timeline is the slow case worth spotting in a run log.
-    composited = "timeline" if pixels is None or window is None else f"{len(window.clip_ids)} clips"
-    if pixels is None:
-        pixels = _whole_timeline_frame(
-            project,
-            base_dir,
-            asset_index,
-            preset,
-            at,
-            burn_captions=burn_captions,
-            decode_budget=decode_budget,
-        )
 
     # Encoding is guarded for the same reason the compile above it is: everything this
     # function raises should be a `FrameGrabError`, which the route answers as a 422 with

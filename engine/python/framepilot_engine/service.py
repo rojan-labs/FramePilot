@@ -19,6 +19,7 @@ export (see ``render_preview_route``'s docstring for the full rationale).
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import hashlib
 import json
@@ -324,6 +325,12 @@ from framepilot_engine.render.preview_text import (
 )
 from framepilot_engine.render.queue import JobStatus, RenderQueue, RenderTask
 from framepilot_engine.render.queue import RenderRequest as QueuedRenderRequest
+from framepilot_engine.render.source_sheet import (
+    DEFAULT_SHEET_MAX_DIMENSION,
+    MAX_SHEET_SOURCES,
+    SheetSource,
+    grab_source_sheet,
+)
 from framepilot_engine.render.text_overlay import rasterize_text_overlay
 from framepilot_engine.safety import PathTraversalError, resolve_within
 from framepilot_engine.singleflight import AsyncSingleFlight, SingleFlight
@@ -991,6 +998,19 @@ class AnalysisProjectSource(BaseModel):
         return self
 
 
+class RenderFrameSource(BaseModel):
+    """One tile of a multi-source sheet: a source file as shot, at a moment in it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    asset_id: str = Field(min_length=1, description="The media file to show as shot.")
+    source_seconds: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="The time in the SOURCE file; omitted = the middle of the source.",
+    )
+
+
 class RenderFrameRequest(AnalysisProjectSource):
     """Request body for ``POST /render/frame`` — one composited still.
 
@@ -1021,9 +1041,21 @@ class RenderFrameRequest(AnalysisProjectSource):
         default=None,
         description="With ``asset_id``: the time in the SOURCE file. Clamped into the file.",
     )
-    max_dimension: int = Field(
-        default=DEFAULT_MAX_DIMENSION,
-        description="Longest edge of the returned image, in pixels.",
+    sources: list[RenderFrameSource] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_SHEET_SOURCES,
+        description=(
+            "Several source files as shot, tiled into ONE labelled image "
+            "(``render.source_sheet``), numbered in this order."
+        ),
+    )
+    max_dimension: int | None = Field(
+        default=None,
+        description=(
+            "Longest edge of the returned image, in pixels (of the whole sheet with "
+            "``sources``). Default 512 for one frame, 1024 for a sheet."
+        ),
     )
     image_format: str = Field(default="jpeg", description="'jpeg' (small) or 'png' (lossless).")
     burn_captions: bool = Field(
@@ -1033,9 +1065,11 @@ class RenderFrameRequest(AnalysisProjectSource):
 
     @model_validator(mode="after")
     def _timeline_or_source(self) -> RenderFrameRequest:
-        if (self.time_seconds is None) == (self.asset_id is None):
+        named = [value is not None for value in (self.time_seconds, self.asset_id, self.sources)]
+        if sum(named) != 1:
             raise ValueError(
-                "Provide exactly one of time_seconds (the edit) or asset_id (a source)."
+                "Provide exactly one of time_seconds (the edit), asset_id (a source) or "
+                "sources (several sources on one sheet)."
             )
         if self.source_seconds is not None and self.asset_id is None:
             raise ValueError("source_seconds needs asset_id.")
@@ -1228,6 +1262,17 @@ class SubjectLayoutResponse(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class RenderFrameTile(BaseModel):
+    """One tile of a multi-source sheet, numbered as the image labels it."""
+
+    index: int = Field(description="1-based tile number, as printed on the sheet.")
+    asset_id: str
+    name: str = Field(description="The source file's name, as printed on the sheet.")
+    source_seconds: float = Field(description="The source time shown, after clamping.")
+    duration_seconds: float = Field(description="The source file's length.")
+    error: str | None = Field(default=None, description="Why this tile has no picture.")
+
+
 class RenderFrameResponse(BaseModel):
     """One composited frame, inline, as base64 image bytes."""
 
@@ -1237,6 +1282,10 @@ class RenderFrameResponse(BaseModel):
     height: int
     time_seconds: float = Field(description="The time actually rendered, after clamping.")
     duration_seconds: float = Field(description="The timeline's full duration.")
+    tiles: list[RenderFrameTile] | None = Field(
+        default=None,
+        description="With ``sources``: what each tile shows, in the order they are numbered.",
+    )
 
 
 class PreviewTextRasterRequest(BaseModel):
@@ -6649,6 +6698,46 @@ def create_app(
                 burn_captions=req.burn_captions,
             )
 
+    def _source_sheet_response(
+        project: Project, media_base: Path, req: RenderFrameRequest, label: str
+    ) -> RenderFrameResponse:
+        """Several sources as shot on one labelled sheet (``get_frame { sources }``)."""
+        assert req.sources is not None
+        sheet = grab_source_sheet(
+            project,
+            media_base,
+            [SheetSource(source.asset_id, source.source_seconds) for source in req.sources],
+            max_dimension=req.max_dimension or DEFAULT_SHEET_MAX_DIMENSION,
+            image_format=req.image_format,
+        )
+        _log.info(
+            "ACT source sheet served: %d tiles size=%dx%d source=%s",
+            len(sheet.tiles),
+            sheet.width,
+            sheet.height,
+            label,
+        )
+        return RenderFrameResponse(
+            media_type=sheet.media_type,
+            base64=base64.b64encode(sheet.data).decode("ascii"),
+            width=sheet.width,
+            height=sheet.height,
+            # A sheet is many instants of many files; each tile carries its own time.
+            time_seconds=0.0,
+            duration_seconds=0.0,
+            tiles=[
+                RenderFrameTile(
+                    index=tile.index,
+                    asset_id=tile.asset_id,
+                    name=tile.name,
+                    source_seconds=tile.seconds,
+                    duration_seconds=tile.duration_seconds,
+                    error=tile.error,
+                )
+                for tile in sheet.tiles
+            ],
+        )
+
     @app.post("/render/frame", response_model=RenderFrameResponse)
     def render_frame_route(req: RenderFrameRequest) -> RenderFrameResponse:
         """Composite ONE frame of the timeline and return it inline as base64.
@@ -6663,13 +6752,15 @@ def create_app(
             # Same bargain as `/render/preview`: this compiles the timeline and decodes at
             # project resolution, so indexing pauses around it (plan VU8 §8.3).
             with index_governor.foreground("a frame grab"):
+                if req.sources is not None:
+                    return _source_sheet_response(project, media_base, req, label)
                 if req.asset_id is not None:
                     view, _length = source_view_project(project, req.asset_id)
                     frame = grab_frame(
                         view,
                         media_base,
                         req.source_seconds or 0.0,
-                        max_dimension=req.max_dimension,
+                        max_dimension=req.max_dimension or DEFAULT_MAX_DIMENSION,
                         image_format=req.image_format,
                         burn_captions=False,
                     )
@@ -6679,7 +6770,7 @@ def create_app(
                         project,
                         media_base,
                         req.time_seconds,
-                        max_dimension=req.max_dimension,
+                        max_dimension=req.max_dimension or DEFAULT_MAX_DIMENSION,
                         image_format=req.image_format,
                         burn_captions=req.burn_captions,
                     )
