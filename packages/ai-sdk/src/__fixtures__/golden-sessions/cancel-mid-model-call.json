@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 14461,
+      "usedTokens": 14499,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -186,7 +186,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2442,
+            "tokenEstimate": 2457,
             "included": true
           },
           {
@@ -207,7 +207,7 @@
             "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 9197,
+            "tokenEstimate": 9220,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -215,9 +215,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 14461,
+          "estimatedInputTokensBeforeSend": 14499,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 177347,
+          "estimatedRemainingCapacity": 177309,
           "calculationSource": "local_estimate"
         },
         "compaction": {
