@@ -505,6 +505,8 @@ def _compile_image_clip(
     lut_base_dir: Path,
     media_size: tuple[float, float] | None = None,
     layer_mattes: LayerMatteResolver | None = None,
+    *,
+    project_size: tuple[int, int] | None,
 ) -> Any:
     """A still through the picture pipeline, in the video path's order (plan/elements EL2a, EL2b).
 
@@ -528,8 +530,10 @@ def _compile_image_clip(
         None,
         None
         if layer_mattes is None
-        else _layer_matte_binding(layer_mattes, clip, target, transition),
-        _frame_placement_binding(clip, target, transition),
+        else _layer_matte_binding(
+            layer_mattes, clip, target, transition, project_size=project_size
+        ),
+        _frame_placement_binding(clip, target, transition, project_size=project_size),
     )
     source = _apply_color_grade(source, clip, lut_base_dir, stacks)
     source = _apply_transition_blur(source, transition)
@@ -538,7 +542,9 @@ def _compile_image_clip(
     source = _apply_key_despill(source, stacks)
     source = _apply_edge_styles(source, clip, stacks, media_size, transition, own_alpha, still=True)
     source = _apply_catalog_transition(source, clip, use_legacy)
-    placed = _place_video_clip(source, clip, target, transition, still=True)
+    placed = _place_video_clip(
+        source, clip, target, transition, still=True, project_size=project_size
+    )
     return placed.with_start(clip.start)
 
 
@@ -560,7 +566,8 @@ def _compile_text_clip(
 
     EL2b: its mask stack (the kinds a title can take: a track matte, a Frame-space shape, a key)
     and its edge styles, which trace its glyphs. A title has no source picture, so a style's
-    lengths are frame pixels at the project's own size (``project_size``), scaled with the frame.
+    lengths are frame pixels at the project's own size (``project_size``), scaled with the frame;
+    its ``x``/``y`` keyframes are project pixels too, converted the same way.
     """
     content = text_overlay_text(clip)
     if content is None:
@@ -583,8 +590,10 @@ def _compile_text_clip(
         None,
         None
         if layer_mattes is None
-        else _layer_matte_binding(layer_mattes, clip, target, transition, centre),
-        _frame_placement_binding(clip, target, transition, centre),
+        else _layer_matte_binding(
+            layer_mattes, clip, target, transition, centre, project_size=project_size
+        ),
+        _frame_placement_binding(clip, target, transition, centre, project_size=project_size),
     )
     layer = _apply_transition_blur(layer, transition)
     own_alpha = layer.mask
@@ -608,6 +617,7 @@ def _compile_text_clip(
         fit_to_frame=False,
         centre=(layout.centre_x, layout.centre_y),
         still=True,
+        project_size=project_size,
     )
     return placed.with_start(clip.start)
 
@@ -633,7 +643,13 @@ def _title_edge_size(
     return raster[0] * factor, raster[1] * factor
 
 
-def _compile_shape_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int]) -> Any | None:
+def _compile_shape_clip(
+    image_clip_cls: Any,
+    clip: Clip,
+    target: tuple[int, int],
+    *,
+    project_size: tuple[int, int] | None,
+) -> Any | None:
     """Rasterise a shape and place it: the title's pipeline around the raster's own centre.
 
     The engine is the only shape rasteriser (``render/shape_raster.py``); the desktop monitor draws
@@ -651,7 +667,14 @@ def _compile_shape_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int]
     layer = _attach_mask(layer, clip, transition, with_stack=False)
     layer = _apply_catalog_transition(layer, clip, use_legacy)
     placed = _place_video_clip(
-        layer, clip, target, transition, fit_to_frame=False, centre=bounds.centre, still=True
+        layer,
+        clip,
+        target,
+        transition,
+        fit_to_frame=False,
+        centre=bounds.centre,
+        still=True,
+        project_size=project_size,
     )
     return placed.with_start(clip.start)
 
@@ -665,6 +688,7 @@ def _place_video_clip(
     fit_to_frame: bool = True,
     centre: tuple[float, float] | None = None,
     still: bool = False,
+    project_size: tuple[int, int] | None,
 ) -> VideoClip:
     """Scale, animate and position one picture layer inside the target frame.
 
@@ -679,6 +703,9 @@ def _place_video_clip(
         every overlay exported dead centre whatever the editor had positioned.
     :param still: ``True`` for a layer made from one picture (a still, a title, a shape): its
         resize is reused while its picture and size repeat (:func:`_resized`).
+    :param project_size: The project's frame, which the clip's ``x``/``y`` keyframes are authored
+        in; ``None`` only when ``target`` is that frame or the clip has no such keyframes.
+        Required so no caller at another size can forget it (frame grabs, review renders).
     """
     target_w, target_h = target
     clip_w, clip_h = source.size
@@ -701,7 +728,14 @@ def _place_video_clip(
 
     def position_at(t: float) -> tuple[float, float]:
         return layer_position_at(
-            clip, t, (clip_w, clip_h), base_scale, target, (centre_x, centre_y), transition
+            clip,
+            t,
+            (clip_w, clip_h),
+            base_scale,
+            target,
+            (centre_x, centre_y),
+            transition,
+            project_size=project_size,
         )
 
     placed = _resized(source, scale_at, still)
@@ -784,7 +818,8 @@ def _underlay_layer(
     # plain picture — it is the thing being revealed, never a second reveal) and without its
     # keyframed motion, which is timed to the neighbour's own clip-local clock.
     plain = neighbour.model_copy(update={"keyframes": []})
-    placed = _place_video_clip(material, plain, target, None)
+    # No keyframes, so there is no x/y to convert: the project's size would change nothing.
+    placed = _place_video_clip(material, plain, target, None, project_size=None)
     return placed.with_start(start).with_duration(span)
 
 
@@ -859,6 +894,7 @@ def picture_placement_at(
     *,
     fit_to_frame: bool = True,
     centre: tuple[float, float] | None = None,
+    project_size: tuple[int, int] | None = None,
 ) -> PicturePlacement:
     """Where :func:`_place_video_clip` lands a clip's ``size`` picture at clip-local ``t``.
 
@@ -869,6 +905,8 @@ def picture_placement_at(
 
     :param fit_to_frame: ``False`` and ``centre`` for a layer drawn at its finished size around
         its own centre, as a title is (EL2b): the arguments ``_place_video_clip`` takes.
+    :param project_size: The frame the clip's ``x``/``y`` keyframes are authored in, when
+        ``target`` is not the project's own (``_place_video_clip``'s argument). ``None``: it is.
     """
     clip_w, clip_h = size
     target_w, target_h = target
@@ -890,7 +928,14 @@ def picture_placement_at(
     scale = base_scale * layer_scale_at(clip, t, transition)
     centre_xy = centre if centre is not None else (target_w / 2, target_h / 2)
     left, top = layer_position_at(
-        clip, t, (clip_w, clip_h), base_scale, target, centre_xy, transition
+        clip,
+        t,
+        (clip_w, clip_h),
+        base_scale,
+        target,
+        centre_xy,
+        transition,
+        project_size=project_size,
     )
     rotation = (
         float(evaluate_clip_transform(clip, t).rotation)
@@ -907,6 +952,8 @@ def _frame_placement_binding(
     target: tuple[int, int],
     transition: transitions.Transition | None,
     centre: tuple[float, float] | None = None,
+    *,
+    project_size: tuple[int, int] | None,
 ) -> Callable[[float, int, int], tuple[PicturePlacement, tuple[int, int]]]:
     """Where a clip's raster lands on the frame at clip-local ``t``, and the frame's size (MK9.1).
 
@@ -924,6 +971,7 @@ def _frame_placement_binding(
             transition,
             fit_to_frame=centre is None,
             centre=centre,
+            project_size=project_size,
         )
         return placement, target
 
@@ -936,6 +984,8 @@ def _layer_matte_binding(
     target: tuple[int, int],
     transition: transitions.Transition | None,
     centre: tuple[float, float] | None = None,
+    *,
+    project_size: tuple[int, int] | None,
 ) -> Callable[[Any, float, int, int], tuple[LayerMatteFrame, PicturePlacement]]:
     """A clip's track mattes at clip-local ``t``: the source frame and this clip's placement.
 
@@ -954,6 +1004,7 @@ def _layer_matte_binding(
             transition,
             fit_to_frame=centre is None,
             centre=centre,
+            project_size=project_size,
         )
         return frame, placement
 
@@ -1835,6 +1886,8 @@ def compile_timeline(
     # `VideoFileClip` opens by default, which nothing downstream of a picture would read.
     open_video: Any = VideoFileClip if window is None else partial(VideoFileClip, audio=False)
     target = (preset.width, preset.height)
+    # Keyframed x/y are project pixels; a preset at another size converts them (frame_plan).
+    project_size = (project.resolution.width, project.resolution.height)
     fps = preset.fps or project.fps
     asset_kinds = {entry.asset_id: entry.kind for entry in asset_index.entries}
     lut_base_dir = Path(asset_index.base_dir)
@@ -1882,6 +1935,7 @@ def compile_timeline(
                             lut_base_dir,
                             _asset_media_size(project, clip),
                             layer_mattes,
+                            project_size=project_size,
                         )
                         opened.append(picture)
                         if matte_sources.consumes(track.id, clip.id, None):
@@ -1928,9 +1982,15 @@ def compile_timeline(
                             (int(reader.size[0]), int(reader.size[1])),
                             prepared_tracks.get(clip.id, {}),
                             _layer_matte_binding(
-                                layer_mattes, clip, target, legacy_transition(clip)
+                                layer_mattes,
+                                clip,
+                                target,
+                                legacy_transition(clip),
+                                project_size=project_size,
                             ),
-                            _frame_placement_binding(clip, target, legacy_transition(clip)),
+                            _frame_placement_binding(
+                                clip, target, legacy_transition(clip), project_size=project_size
+                            ),
                         )
                         source = _apply_matte_decontamination(source, stacks)
                         source = _apply_color_grade(source, clip, lut_base_dir, stacks)
@@ -1945,7 +2005,9 @@ def compile_timeline(
                             source, clip, stacks, _asset_media_size(project, clip), transition
                         )
                         source = _apply_catalog_transition(source, clip, use_legacy)
-                        placed = _place_video_clip(source, clip, target, transition)
+                        placed = _place_video_clip(
+                            source, clip, target, transition, project_size=project_size
+                        )
                         # UNDER-LAYERS FIRST: a transition reveals the shot on the other side
                         # of its cut, and butt-joined clips leave nothing there — so the
                         # neighbour's handle is placed beneath the ramp before the clip itself
@@ -1988,15 +2050,9 @@ def compile_timeline(
                     if track.hidden:
                         continue
                     graphic = (
-                        _compile_text_clip(
-                            ImageClip,
-                            clip,
-                            target,
-                            (project.resolution.width, project.resolution.height),
-                            layer_mattes,
-                        )
+                        _compile_text_clip(ImageClip, clip, target, project_size, layer_mattes)
                         if kind == "text"
-                        else _compile_shape_clip(ImageClip, clip, target)
+                        else _compile_shape_clip(ImageClip, clip, target, project_size=project_size)
                     )
                     if graphic is not None:
                         opened.append(graphic)

@@ -8,6 +8,10 @@
  * `engine/python/tests/test_frame_plan_vectors.py`, fails when the stored vectors no longer
  * match the engine; this file fails when they no longer match TypeScript. Regenerate with
  * `pnpm frame-plan:vectors` after changing either implementation deliberately.
+ *
+ * `fixtures/frame-plan-offset-units.json` holds cases planned at a `target` frame other than the
+ * project's (a frame grab, a review render): keyframed `x`/`y` are project pixels, and both sides
+ * must convert them to the target's the same way (`projectResolution`).
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +20,9 @@ import { ProjectSchema } from '@framepilot/timeline-schema';
 import { framePlanAt } from './frame-plan.js';
 
 const FIXTURE_DIR = fileURLToPath(new URL('../../../tests/fixtures/frame-plan/', import.meta.url));
+const OFFSET_UNITS_FIXTURE = fileURLToPath(
+  new URL('../fixtures/frame-plan-offset-units.json', import.meta.url),
+);
 const FLOAT_TOLERANCE = 1e-6;
 /** Paths whose numbers are frame identity and must match exactly. */
 const EXACT_PATHS = [/\.source\.time$/, /\.source\.frame$/];
@@ -31,6 +38,8 @@ interface VectorCase {
   readonly project: unknown;
   readonly samples: readonly number[];
   readonly expected?: readonly unknown[];
+  /** The output frame, when it is not the project's own. */
+  readonly target?: { readonly width: number; readonly height: number };
 }
 
 interface VectorFile {
@@ -136,6 +145,41 @@ describe('frame plan parity vectors', () => {
           expect(found).toEqual([]);
         });
       }
+    });
+  }
+});
+
+describe("frame plan parity at a frame other than the project's", () => {
+  const document = JSON.parse(readFileSync(OFFSET_UNITS_FIXTURE, 'utf8')) as {
+    readonly cases: readonly VectorCase[];
+  };
+
+  it('has engine-written cases, each at a target other than the project frame', () => {
+    expect(document.cases.length).toBeGreaterThanOrEqual(3);
+    for (const vector of document.cases) {
+      expect(vector.target, vector.id).toBeDefined();
+      expect(vector.expected, vector.id).toHaveLength(vector.samples.length);
+    }
+  });
+
+  for (const vector of document.cases) {
+    it(`${vector.id} converts keyframed x/y as the engine does`, () => {
+      const project = ProjectSchema.parse(vector.project);
+      const target = vector.target ?? project.resolution;
+      const found = vector.samples.flatMap((t, index) =>
+        differences(
+          framePlanAt(project.timeline, project.assets, t, target, {
+            burnCaptions: vector.burnCaptions,
+            sourceFps: vector.probe.fps,
+            sourceFrameTimes: vector.probe.frameTimes ?? {},
+            transcript: project.transcript,
+            projectResolution: project.resolution,
+          }),
+          vector.expected?.[index],
+          `t=${t}`,
+        ),
+      );
+      expect(found).toEqual([]);
     });
   }
 });
