@@ -182,6 +182,7 @@ from framepilot_engine.render.mattes import (
     assert_frames_align,
     prepare_matte,
 )
+from framepilot_engine.render.picture_window import PictureWindow
 from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.render.pts_reader import (
     VideoTiming,
@@ -1775,6 +1776,23 @@ def _apply_audio_effects(source: Any, clip: Clip, timeline: Timeline) -> Any:
     return _carry_owned_resources(source, source.transform(gained, keep_duration=True))
 
 
+class PictureWindowMiss(CompileError):
+    """A windowed compile built no picture layer; the caller composites the whole timeline."""
+
+
+def _refuse_like_the_full_compile(
+    clip: Clip, kind: str, track: Any, asset_index: AssetIndex
+) -> None:
+    """Outside a picture window, refuse what the full compile would refuse for this clip.
+
+    A windowed frame is the full compile's frame, and that includes its failures: a clip
+    whose media is missing fails every frame of the export, so it fails every grab too,
+    whichever instant the grab asks for. Only the lookup runs; no reader opens.
+    """
+    if (kind in _PICTURE_KINDS and not track.hidden) or (kind == "audio" and not track.muted):
+        _resolve_clip_asset(clip, asset_index)
+
+
 def compile_timeline(
     project: Project,
     asset_index: AssetIndex,
@@ -1783,6 +1801,7 @@ def compile_timeline(
     burn_captions: bool = False,
     max_decode_dimension: int | None = None,
     on_progress: Callable[[float], None] | None = None,
+    window: PictureWindow | None = None,
 ) -> VideoClip:
     """Build the MoviePy composition for ``project``.
 
@@ -1790,6 +1809,15 @@ def compile_timeline(
     share of an export's wall time — about 13% of a 30 s 4K render, spent opening readers
     and building the graph — and reporting it as one flat number made the bar sit still
     and then lag: measured 5.5 percentage points behind reality at the 20% mark.
+
+    ``window`` (the single-frame grab, :mod:`framepilot_engine.render.picture_window`)
+    builds the picture layers of the clips it names and nothing else — no other clip's
+    reader, and no sound at all — so the composite's frame at ``window.time`` is the full
+    compile's frame at that instant, for the cost of the clips in it. The returned clip's
+    ``duration`` is then where its picture layers end: past it, the full compile's caption
+    compositor would hold ITS picture's last frame, which this composite does not have, so a
+    caller must not read at or beyond it. Raises :class:`PictureWindowMiss` when the window
+    builds no picture layer.
     """
     from moviepy import (
         AudioFileClip,
@@ -1803,6 +1831,9 @@ def compile_timeline(
     # the same pixels, without a full-frame blend per sticker (render/bounded_composite.py).
     from framepilot_engine.render.bounded_composite import BoundedCompositeVideoClip
 
+    # A window composites a picture: its readers skip the audio probe and decoder that
+    # `VideoFileClip` opens by default, which nothing downstream of a picture would read.
+    open_video: Any = VideoFileClip if window is None else partial(VideoFileClip, audio=False)
     target = (preset.width, preset.height)
     fps = preset.fps or project.fps
     asset_kinds = {entry.asset_id: entry.kind for entry in asset_index.entries}
@@ -1833,6 +1864,11 @@ def compile_timeline(
             for position, clip in enumerate(ordered):
                 _prepared_one()
                 kind = clip_kind(clip, asset_kinds)
+                if window is not None and clip.id not in window.clip_ids:
+                    # Still in `ordered`, so a windowed clip's transition finds this one as
+                    # its neighbour and borrows its handle exactly as the full compile does.
+                    _refuse_like_the_full_compile(clip, kind, track, asset_index)
+                    continue
                 if kind in _PICTURE_KINDS:
                     if track.hidden:
                         continue
@@ -1867,7 +1903,7 @@ def compile_timeline(
                             and transitions.transition_from_clip(clip) is None
                         )
                         reader = _open_source_reader(
-                            VideoFileClip,
+                            open_video,
                             path,
                             max_decode_dimension
                             if max_decode_dimension is not None
@@ -1918,7 +1954,7 @@ def compile_timeline(
                         for planned in transition_underlays(clip, position, ordered, asset_kinds):
                             resolved_neighbour = planned.neighbour
                             underlay = _underlay_layer(
-                                VideoFileClip,
+                                open_video,
                                 ImageClip,
                                 resolved_neighbour,
                                 planned.role,
@@ -1985,6 +2021,11 @@ def compile_timeline(
                     None,
                 )
             )
+        if not video_layers and window is not None:
+            raise PictureWindowMiss(
+                f"No picture layer of the timeline is near {window.time:.3f}s; "
+                "the whole timeline has to be composited for this frame."
+            )
         if not video_layers:
             raise CompileError(
                 "Timeline has no renderable video clips; rendering requires at least "
@@ -1997,6 +2038,7 @@ def compile_timeline(
             composite = BoundedCompositeVideoClip(
                 [layer for layer, _ in video_layers], size=target, bg_color=(0, 0, 0)
             ).with_fps(fps)
+        picture_end = composite.duration
         composite = apply_effect_layers(composite, project.timeline, fps=fps)
         # Burned captions go on AFTER the effect layers. A look restyles the picture; the
         # captions are delivery text with a design of their own, and the preview draws them as
@@ -2004,7 +2046,7 @@ def compile_timeline(
         # short's opening caption was radial-blurred and every cue vignetted in the export
         # while the monitor showed them crisp.
         if burn_captions:
-            captions = _caption_layers(project, target)
+            captions = _caption_layers(project, target, None if window is None else window.clip_ids)
             if any(caption.backdrop is not None for caption in captions):
                 # A frosted-glass chip blurs the DELIVERED picture behind it, which no
                 # MoviePy layer can see; the caption compositor draws each playing
@@ -2024,6 +2066,9 @@ def compile_timeline(
                 ).with_fps(fps)
         if audio_layers:
             composite = composite.with_audio(CompositeAudioClip(audio_layers))
+        if window is not None and picture_end is not None:
+            # See the docstring: only instants before the picture's end are the full frame.
+            composite = composite.with_duration(float(picture_end))
         return composite
     except BaseException:
         for clip_obj in opened:
@@ -2221,10 +2266,15 @@ class _CaptionLayer:
     backdrop_sigma_px: float = 0.0
 
 
-def _caption_layers(project: Project, target: tuple[int, int]) -> list[_CaptionLayer]:
+def _caption_layers(
+    project: Project, target: tuple[int, int], only: frozenset[str] | None = None
+) -> list[_CaptionLayer]:
+    """Every burned caption's layer, or (``only``) those of the named cues, in track order."""
     layers: list[_CaptionLayer] = []
     for track in caption_tracks(project):
         for clip in track.clips:
+            if only is not None and clip.id not in only:
+                continue
             cue = resolve_caption_cue(clip, project.transcript)
             if not cue.text.strip():
                 continue

@@ -47,18 +47,25 @@ def composition_key(
     *,
     burn_captions: bool,
     max_decode_dimension: int | None = None,
+    window: frozenset[str] | None = None,
 ) -> str:
-    payload = json.dumps(
-        {
-            "project": project.model_dump(mode="json"),
-            "base": str(base_dir),
-            "preset": [preset.id, preset.width, preset.height, preset.fps],
-            "captions": burn_captions,
-            "decode": max_decode_dimension,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    """The identity of one compiled composition.
+
+    :param window: The clip ids of a windowed composite (``compile_timeline(window=...)``).
+        A windowed composite holds a subset of the full one's layers, so it is keyed by that
+        subset: every instant whose window names the same clips reuses it, and it can never
+        answer for the full composition, whose payload has no ``window`` entry at all.
+    """
+    fields: dict[str, Any] = {
+        "project": project.model_dump(mode="json"),
+        "base": str(base_dir),
+        "preset": [preset.id, preset.width, preset.height, preset.fps],
+        "captions": burn_captions,
+        "decode": max_decode_dimension,
+    }
+    if window is not None:
+        fields["window"] = sorted(window)
+    payload = json.dumps(fields, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -210,3 +217,10 @@ class CompositionCache:
 
 
 COMPOSITION_CACHE = CompositionCache()
+
+#: Windowed single-frame composites (``render/frame_grab.py``), kept apart from the full ones.
+#: A grab builds a handful of readers in about a second; sharing the full cache's one build
+#: slot and two entries made it queue behind a background review's whole-timeline build and
+#: evict that build's result. Four entries: a model inspecting its edit looks at a few shots.
+MAX_CACHED_FRAME_WINDOWS = 4
+FRAME_WINDOW_CACHE = CompositionCache(MAX_CACHED_FRAME_WINDOWS, name="frame window")
