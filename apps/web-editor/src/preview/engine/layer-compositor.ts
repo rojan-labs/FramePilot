@@ -172,6 +172,25 @@ export type LayerSource =
       readonly height: number;
     };
 
+/**
+ * The steps a frosted chip's coverage goes through: the layer's own geometry and envelope
+ * (resize, rotation, position, opacity, wipe, catalog transitions), none of what reads or
+ * restyles its colours (effects, transition blur, the mask stack and its keys, edge styles).
+ * The export places the coverage the same way (`compiler.py` `_place_text_backdrop`).
+ */
+export function frostCoverageStep(step: PictureRasterStep): PictureRasterStep {
+  return {
+    ...step,
+    effects: [],
+    effectIds: [],
+    blurRadius: 0,
+    mask: null,
+    maskRefusal: null,
+    edgeStyles: [],
+    ownAlphaEdges: null,
+  };
+}
+
 /** One layer of a frame, back to front. */
 export type CompositeLayer =
   | {
@@ -190,6 +209,20 @@ export type CompositeLayer =
        * list is a source that draws nothing here.
        */
       readonly layerMattes?: ReadonlyMap<string, readonly CompositeLayer[]>;
+      /**
+       * A frosted-glass chip on this layer (a text overlay's `typography.background.blur`):
+       * `coverage` is the chip's coverage in its ALPHA channel, the size of the layer's source.
+       * It is placed through the layer's own geometric steps ({@link frostCoverageStep}) and the
+       * frame already drawn beneath the layer is blurred through it before the layer goes on,
+       * as the export's `_composite_frosted` does.
+       */
+      readonly frost?: {
+        readonly key: string;
+        readonly coverage: TexImageSource;
+        readonly width: number;
+        readonly height: number;
+        readonly sigmaPx: number;
+      };
     }
   | {
       /** A pre-rasterised RGBA layer (text, captions) placed at an integer position. */
@@ -409,6 +442,21 @@ export class LayerCompositor {
                 y: layer.y,
               };
         if (placed === null) continue;
+        if (layer.kind === 'picture' && layer.frost !== undefined && layer.frost.sigmaPx > 0) {
+          const coverage = this.rasterPicture(
+            frostCoverageStep(layer.step),
+            {
+              kind: 'image',
+              key: layer.frost.key,
+              image: layer.frost.coverage,
+              width: layer.frost.width,
+              height: layer.frost.height,
+            },
+            decodedMemo,
+          );
+          if (coverage !== null)
+            frame = this.frostPlaced(frame, coverage, layer.frost.sigmaPx, size);
+        }
         frame = this.place(frame, layer, placed, size);
       }
 
@@ -1738,7 +1786,8 @@ export class LayerCompositor {
     placed: { readonly target: RenderTarget; readonly x: number; readonly y: number },
     size: PixelSize,
   ): RenderTarget {
-    const blendMode = layer.kind === 'picture' ? layer.step.blendMode : (layer.blendMode ?? 'normal');
+    const blendMode =
+      layer.kind === 'picture' ? layer.step.blendMode : (layer.blendMode ?? 'normal');
     const mode = BLEND_MODE_INDEX[blendMode] ?? 0;
     let base = frame;
     if (layer.kind === 'raster' && layer.frost !== undefined) {
@@ -1775,16 +1824,57 @@ export class LayerCompositor {
     );
     const r = this.resources;
     const coverage = r.bytesTarget(coverageTexels(frost.coverage), layer.width, layer.height);
+    return this.pasteBlurred(frame, blurred, { left, top }, coverage, layer.x, layer.y, 0, size);
+  }
+
+  /**
+   * `_frost_under_layer` (`render/compiler.py`): blur the frame under a layer's placed frost
+   * coverage. The crop is the placed coverage's whole box plus three sigma, the crop the export
+   * blurs too (neither side knows where inside a turned, scaled box the coverage ends).
+   */
+  private frostPlaced(
+    frame: RenderTarget,
+    coverage: { readonly target: RenderTarget; readonly x: number; readonly y: number },
+    sigmaPx: number,
+    size: PixelSize,
+  ): RenderTarget {
+    const reach = Math.ceil(3 * sigmaPx);
+    const { target, x, y } = coverage;
+    const left = Math.max(0, x - reach);
+    const top = Math.max(0, y - reach);
+    const right = Math.min(size.width, x + target.width + reach);
+    const bottom = Math.min(size.height, y + target.height + reach);
+    if (right <= left || bottom <= top) return frame;
+    const blurred = this.pilGaussianBlur(
+      this.copy(frame, left, top, right - left, bottom - top, null),
+      sigmaPx,
+    );
+    return this.pasteBlurred(frame, blurred, { left, top }, target, x, y, 3, size);
+  }
+
+  /** `frame.paste(blurred, box, mask=coverage)`: the frost's paste, Pillow's integer rounding. */
+  private pasteBlurred(
+    frame: RenderTarget,
+    blurred: RenderTarget,
+    origin: { readonly left: number; readonly top: number },
+    coverage: RenderTarget,
+    x: number,
+    y: number,
+    channel: 0 | 3,
+    size: PixelSize,
+  ): RenderTarget {
+    const r = this.resources;
     const out = r.target(size.width, size.height, 'rgba8');
     const program = r.program('frost', FROST_FRAGMENT);
     this.gl.useProgram(program.handle);
     r.bind(program, 'u_frame', 0, frame.texture);
     r.bind(program, 'u_blurred', 1, blurred.texture);
     r.bind(program, 'u_coverage', 2, coverage.texture);
-    program.ivec2('u_blurOrigin', left, top);
-    program.ivec2('u_blurSize', right - left, bottom - top);
-    program.ivec2('u_position', layer.x, layer.y);
-    program.ivec2('u_size', layer.width, layer.height);
+    program.ivec2('u_blurOrigin', origin.left, origin.top);
+    program.ivec2('u_blurSize', blurred.width, blurred.height);
+    program.ivec2('u_position', x, y);
+    program.ivec2('u_size', coverage.width, coverage.height);
+    program.int('u_channel', channel);
     r.draw(out, size.width, size.height);
     return out;
   }

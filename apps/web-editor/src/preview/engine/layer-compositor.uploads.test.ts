@@ -6,7 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { LayerCompositor, type CompositeLayer } from './layer-compositor';
+import { LayerCompositor, frostCoverageStep, type CompositeLayer } from './layer-compositor';
 import type { PictureRasterStep } from './layer-raster';
 import { PreviewTelemetry } from './preview-telemetry';
 
@@ -170,5 +170,50 @@ describe('LayerCompositor source uploads', () => {
     for (let frame = 0; frame < 5; frame += 1) instance.render(FRAME, [layer]);
     expect(reads).toBe(readsAfterFirst);
     expect(texelUploads()).toBe(1);
+  });
+  it("places a text overlay's frosted coverage with the layer and uploads it once", () => {
+    const { instance, uploadsOf } = compositor();
+    const letters = new FakeImageBitmap(32, 18) as unknown as ImageBitmap;
+    const coverage = image(32, 18);
+    const layer: CompositeLayer = {
+      kind: 'picture',
+      step: stillStep(),
+      source: { kind: 'image', key: 'text:1', image: letters, width: 32, height: 18 },
+      frost: { key: 'text-frost:1', coverage, width: 32, height: 18, sigmaPx: 2 },
+    };
+    for (let frame = 0; frame < 6; frame += 1) instance.render(FRAME, [layer]);
+    expect(uploadsOf(letters)).toBe(1);
+    expect(uploadsOf(coverage)).toBe(1);
+  });
+});
+
+describe('frostCoverageStep', () => {
+  it("keeps the layer's geometry and envelope, and drops what reads its colours", () => {
+    const step: PictureRasterStep = {
+      ...stillStep(),
+      opacity: 0.5,
+      rotation: 12,
+      x: 3,
+      y: 4,
+      blurRadius: 2,
+      effects: [{ type: 'color_grade', params: {} }] as unknown as PictureRasterStep['effects'],
+      effectIds: ['g'],
+      edgeStyles: [{}] as unknown as PictureRasterStep['edgeStyles'],
+      ownAlphaEdges: { scale: 1 },
+    };
+    const coverage = frostCoverageStep(step);
+    expect(coverage).toMatchObject({
+      opacity: 0.5,
+      rotation: 12,
+      x: 3,
+      y: 4,
+      resize: step.resize,
+      blurRadius: 0,
+      effects: [],
+      effectIds: [],
+      edgeStyles: [],
+      ownAlphaEdges: null,
+      mask: null,
+    });
   });
 });
