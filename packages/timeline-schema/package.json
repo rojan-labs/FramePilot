@@ -18,6 +18,10 @@
       "types": "./dist/caption-templates.d.ts",
       "default": "./dist/caption-templates.js"
     },
+    "./title-templates": {
+      "types": "./dist/title-templates.d.ts",
+      "default": "./dist/title-templates.js"
+    },
     "./caption-fonts": {
       "types": "./dist/caption-fonts.d.ts",
       "default": "./dist/caption-fonts.js"
