@@ -6,6 +6,32 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **A Text panel built around title styles.** Add a heading, subheading or body text in one
+  click, or choose from 31 ready-made styles (bold titles, lower thirds, callouts, subscribe and
+  follow buttons, quotes). Every caption look is also available as a title. Each style is drawn in
+  its real font. Click to add it at the playhead (the new title is selected), drag it onto a lane,
+  or, with a title selected, press **Apply** to restyle it without moving it. Search finds styles
+  by name, category or font, and a Recent row keeps the styles you last used. See
+  `docs/guides/text-and-titles.md` and ADR 0194.
+- **Titles take the caption typography.** A title now has the same 92 bundled fonts as captions,
+  plus case, italic, letter spacing, line height, see-through letters, outline, shadow and a
+  rounded background. The export and the desktop monitor draw it with the caption renderer itself,
+  so the title and the captions beside it match.
+
+### Fixed
+
+- **A title keeps its font in the export.** The title Inspector offered Georgia, Impact, Courier
+  New, Arial and Verdana, which are not bundled: the export used whatever the machine had, or
+  Pillow's default face. Titles added from the panel or dropped on the timeline also stored only
+  their text, so the export drew them in the default face while the preview showed Inter. Titles
+  now use bundled fonts, and new titles carry their whole look.
+- **A title can be added to any project.** A project without an overlay lane (the demo, for
+  one) had every Text panel button disabled. A new overlay lane is made on top instead.
+- **Editing a title's words in the list keeps its style.** The inline edit deleted the title and
+  added a plain one in its place.
+
 ### Fixed
 
 - **The preview keeps playing through captions.** Every caption template animates, so the desktop

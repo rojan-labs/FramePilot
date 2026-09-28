@@ -10433,7 +10433,7 @@ stickers, CC BY 4.0 (EL10).
   the archive at packaging so main checks the set against it
   (`docs/runbooks/security-hardening.md`, 2026-09-26 packaged set review).
 
-## Text panel — title templates in caption typography — `[~]` in progress (2026-09-28)
+## Text panel — title templates in caption typography — `[x]` done (2026-09-28, follow-ups in TX7)
 
 Maintainer (2026-09-28): "the Overlay panel is not nice … the typography should sync with the
 captions typography … rethink the overlay panel exploring the competitors … there should be
@@ -10456,18 +10456,34 @@ through the Animation section's layer transitions), an AI `template` argument. *
 engine raster tests for styled titles (typography changes pixels, legacy titles unchanged),
 catalog tests (fonts bundled, weights in range, hex colours), panel/Inspector component tests.
 
-- [~] **TX1** Title typography: `TextOverlayParams.typography` (caption-style line fields) and one
+- [x] **TX1** Title typography: `TextOverlayParams.typography` (caption-style line fields) and one
   mapping to a `CaptionStyle` per runtime; the engine draws a typed title through
-  `render_caption_raster` (export + desktop monitor), untyped titles unchanged.
-- [ ] **TX2** Title template catalog (`timeline-schema/title-templates.ts`), pure data, plus caption
-  looks as title looks; catalog invariants tested.
-- [ ] **TX3** Browser preview draws title typography (DOM title, on-canvas editor, canvas painter).
-- [ ] **TX4** Text panel rebuilt: search, quick add (heading/subheading/body), category chips,
-  live template grid (click adds at the playhead and selects; drag onto a lane; apply to the
-  selected title), titles-on-the-timeline list.
-- [ ] **TX5** Inspector: bundled caption fonts (shared picker), weights from the family, and the
-  typography controls (case, italic, spacing, line height, outline, shadow, chip, opacity).
-- [ ] **TX6** Docs: ADR, guide, CHANGELOG, website changelog.
+  `render_caption_raster` (export + desktop monitor), untyped titles unchanged. (`f45a9e91`,
+  `393c4cfc`; engine tests `test_text_overlay_typography.py`.)
+- [x] **TX2** Title template catalog (`timeline-schema/title-templates.ts`): 31 hand-made looks plus
+  the 68 caption looks, catalog invariants tested (fonts, weights, italics, hex, separation layer,
+  unique names). (`2eafb36c`)
+- [x] **TX3** Browser preview draws title typography (DOM title and on-canvas editor through the
+  caption CSS). The typed box reserves the caption renderer's padding, so it wraps where the
+  export does (`26f8f43e`). The desktop hit target over the engine raster paints nothing.
+- [x] **TX4** Text panel rebuilt: quick add, search, category chips, Recent, a live template grid
+  (click adds at the playhead and selects; drag onto a lane; Apply restyles the selected title),
+  titles from every lane. A project without an overlay lane gets one. (`07b0611a`, `5c54a620`)
+- [x] **TX5** Inspector: bundled caption fonts through the shared `FontFamilySelect`, weights from
+  the family, italic only where shipped, and the typography rows. A plain title converts from
+  `PLAIN_TITLE_TYPOGRAPHY`. (`c8605b01`)
+- [x] **TX6** Docs: ADR 0194, `docs/guides/text-and-titles.md`, CHANGELOG, website changelog.
+- Evidence: engine contact sheet of 20 templates through `rasterize_text_overlay` (the export
+  call) matched the panel tiles; the panel, restyle and Inspector were checked in the running app.
+  That check found three defects (a project with no overlay lane had every button disabled; the
+  grid collapsed to one column; the 9:16 lower third wrapped), and the engine sheet found the wrap
+  gap fixed in TX3. All are fixed.
+- [ ] **TX7** Follow-ups (not started): an optional `template` on the agent's `add_text_layer`
+  (a prompt/golden change); frosted chips on titles (needs a backdrop pass in the title
+  pipeline); saved user styles ("Your styles"); typography in the browser-only canvas fallback
+  raster (`text-raster.ts`); the caption preview's own chipless wrap padding (captions reserve no
+  padding in CSS but the engine wraps inside 0.35 em a side); `title_metrics` and
+  `subject_layout` measuring the typed layout.
 
 **Last updated:** 2026-09-28
 
