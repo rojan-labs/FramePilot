@@ -297,7 +297,7 @@
         "patch": {
           "patchId": "patch_bce93a18",
           "createdBy": "agent",
-          "reason": "Agent step",
+          "reason": "Deleted range Video 1 · 0s–2s",
           "operations": [
             {
               "type": "delete_range",
@@ -391,7 +391,7 @@
             "[video_1] ~ clip clip_a (0–6s → 2–6s)"
           ]
         },
-        "text": "Agent step"
+        "text": "Deleted range Video 1 · 0s–2s"
       },
       "scope": "turn",
       "turnIndex": 1,
@@ -730,7 +730,7 @@
         "patch": {
           "patchId": "patch_76c10f5b",
           "createdBy": "agent",
-          "reason": "Agent step",
+          "reason": "Deleted range Video 1 · 8s–9s",
           "operations": [
             {
               "type": "delete_range",
@@ -838,7 +838,7 @@
             "[video_1] - clip clip_b (6–10s)"
           ]
         },
-        "text": "Agent step"
+        "text": "Deleted range Video 1 · 8s–9s"
       },
       "scope": "turn",
       "turnIndex": 2,

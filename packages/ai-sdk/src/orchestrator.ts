@@ -1341,6 +1341,24 @@ function operationLine(op: AnyOperation, names?: ProjectNames): string {
 }
 
 /**
+ * A patch's reason when its turn said nothing: what its operations did.
+ *
+ * The fallback was the literal "Agent step" — which the editor then read on the patch card
+ * and the receipt, and which the project's memory of accepted edits kept (run `6cb12e30`
+ * stored it for four of its patches, where it told the next run nothing).
+ */
+function operationsReason(ops: readonly AnyOperation[], names: ProjectNames): string {
+  const lines = [...new Set(ops.map((op) => operationLine(op, names)))];
+  if (lines.length === 0) return 'Agent step';
+  const shown = lines.slice(0, OPERATIONS_REASON_LINES).join('; ');
+  const more = lines.length - OPERATIONS_REASON_LINES;
+  return more > 0 ? `${shown}; and ${String(more)} more` : shown;
+}
+
+/** How many distinct operation lines a silent turn's patch reason names. */
+const OPERATIONS_REASON_LINES = 3;
+
+/**
  * Summarize applied operations into one past-tense line for a tool-result note /
  * agent log, e.g. `Trimmed Intro.mp4 · 0s–3.2s; Added captions`. Uses `names` to
  * resolve clip/track/asset ids to friendly labels. Returns '' for no ops.
@@ -6814,7 +6832,12 @@ export class Orchestrator {
 
     const turnOps = args.turnOps;
 
-    const edit = assembleEdit(working, turnOps, rationale || 'Agent step', 'agent');
+    const edit = assembleEdit(
+      working,
+      turnOps,
+      rationale || operationsReason(turnOps, projectNames(working)),
+      'agent',
+    );
     /* v8 ignore start -- defense in depth: every op in `turnOps` already passed its own
      * per-call probe (`runAgentCall`'s `assembleEdit(ctx.project, ops, …)`) against the
      * exact speculative state this whole-turn recombination replays against, so

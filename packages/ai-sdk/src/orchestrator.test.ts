@@ -600,7 +600,11 @@ describe('agent mode', () => {
     const run = await new Orchestrator(provider).agent({ project: makeProject(), userPrompt: '' });
     expect(run.steps.filter((s) => s.applied)).toHaveLength(1);
     expect(run.result.patch.reason).toBe('Agent edit'); // empty goal → fallback
-    expect(run.steps.find((s) => s.applied)?.patch?.reason).toBe('Agent step'); // empty rationale → fallback
+    // A silent turn's patch says what it did, never the placeholder "Agent step" (run
+    // 6cb12e30 stored that in the project's memory of accepted edits four times).
+    const reason = run.steps.find((s) => s.applied)?.patch?.reason ?? '';
+    expect(reason).not.toBe('Agent step');
+    expect(reason).toMatch(/audio/i);
   });
 
   it('recovers from an invalid-args tool call (operationsFor throws)', async () => {
