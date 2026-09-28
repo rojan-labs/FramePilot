@@ -2480,12 +2480,6 @@ g.mask-canvas-draft circle {
   flex-direction: column;
   gap: var(--space-2);
 }
-.text-panel-heading-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
 .text-panel-heading {
   margin: 0;
   font-size: 0.72rem;
@@ -2494,19 +2488,6 @@ g.mask-canvas-draft circle {
   text-transform: uppercase;
   color: var(--muted);
 }
-.text-panel-more {
-  padding: 0;
-  font-size: 0.74rem;
-  color: var(--accent);
-  cursor: pointer;
-  background: none;
-  border: 0;
-}
-.text-panel-more:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
-}
-
 /* Two columns at the rail's usual width, more as it is widened. */
 .text-tile-grid {
   display: grid;
@@ -2604,6 +2585,81 @@ g.mask-canvas-draft circle {
   .text-tile-apply {
     opacity: 1;
   }
+}
+
+/* Styles and Fonts share one column: controls on top, only the list below scrolls. */
+.text-panel-tab {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+}
+
+/* Fonts tab: one row per bundled family, drawn in its own face. Rows off screen skip layout
+   and paint, so a family's file is only fetched when its row comes into view. */
+.text-font-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.text-font-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 44px;
+}
+.text-font-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'name check'
+    'facts check';
+  align-items: center;
+  column-gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: 4px var(--space-2);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+.text-font-row:hover {
+  background: var(--bg-hover);
+  border-color: var(--line);
+}
+.text-font-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.text-font-row.is-current {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.text-font-name {
+  grid-area: name;
+  overflow: hidden;
+  font-size: 1.05rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-synthesis: none;
+}
+.text-font-facts {
+  grid-area: facts;
+  font-size: 0.68rem;
+  color: var(--text-tertiary);
+}
+.text-font-check {
+  grid-area: check;
+  color: var(--accent);
 }
 
 /* Shapes and stickers moved to Elements (plan/elements EL4a): one line points there. */

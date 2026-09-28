@@ -17,7 +17,8 @@ import {
 } from '@framepilot/timeline-schema/caption-fonts';
 import { Select, type SelectOption } from './Select.js';
 
-const FONT_CATEGORIES: readonly { id: CaptionFontCategory; label: string }[] = [
+/** The font categories, in the order every font list shows them. */
+export const FONT_CATEGORIES: readonly { id: CaptionFontCategory; label: string }[] = [
   { id: 'sans', label: 'Sans serif' },
   { id: 'display', label: 'Display' },
   { id: 'serif', label: 'Serif' },
@@ -72,27 +73,4 @@ export function FontFamilySelect({
       onChange={onChange}
     />
   );
-}
-
-/**
- * The weights a family really has, in hundreds: a static family draws its regular face below 600
- * and its bold file at 600 and up, so offering 300 or 900 there would promise a face neither
- * renderer draws.
- */
-export function fontWeightsFor(family: string): readonly number[] {
-  const font = getCaptionFont(family);
-  if (font === undefined) return [400, 600, 700, 800];
-  if (!font.variable) {
-    return font.boldFile !== undefined ? [font.minWeight, 700] : [font.minWeight];
-  }
-  const weights: number[] = [];
-  for (let weight = 100; weight <= 900; weight += 100) {
-    if (weight >= font.minWeight && weight <= font.maxWeight) weights.push(weight);
-  }
-  return weights;
-}
-
-/** Whether the family ships an italic face (neither renderer fakes one). */
-export function fontHasItalic(family: string): boolean {
-  return getCaptionFont(family)?.italicFile !== undefined;
 }

@@ -17,7 +17,8 @@ import {
 } from '../../../editor/patch-builders.js';
 import { ScrubNumber } from '../../ScrubNumber.js';
 import { Checkbox } from '../../Checkbox.js';
-import { FontFamilySelect, fontHasItalic, fontWeightsFor } from '../../FontFamilySelect.js';
+import { FontFamilySelect } from '../../FontFamilySelect.js';
+import { fontHasItalic, fontWeightsFor, titleFontParams } from '../../../editor/titleFonts.js';
 import { LabeledSelect } from '../LabeledSelect.js';
 import { InspectorRow } from '../InspectorRow.js';
 
@@ -64,12 +65,6 @@ function shadowPresetOf(shadow: TitleTypography['shadow']): ShadowPreset {
 /** A `#rrggbb` for an `<input type=color>`, which cannot show an alpha. */
 function opaque(color: string): string {
   return /^#[0-9a-f]{8}$/i.test(color) ? color.slice(0, 7) : color;
-}
-
-/** The weight nearest `weight` that `family` has, so a family change never asks for a face it lacks. */
-function nearestWeight(family: string, weight: number): number {
-  const weights = fontWeightsFor(family);
-  return weights.reduce((best, w) => (Math.abs(w - weight) < Math.abs(best - weight) ? w : best));
 }
 
 /** `typography` without `key` (turning a property off removes it rather than zeroing it). */
@@ -119,19 +114,9 @@ export function TextOverlayInspector({
   const outlineOn = typography.outlineColor !== undefined && (typography.outlineWidth ?? 0) > 0;
   const shadow = typography.shadow;
 
-  const changeFamily = (family: string): void => {
-    const patch: Partial<TextOverlayParams> = {
-      fontFamily: family,
-      fontWeight: nearestWeight(family, params.fontWeight),
-    };
-    // An italic the new family does not ship would be drawn upright by both renderers anyway;
-    // clearing it keeps the Inspector truthful.
-    if (typography.fontStyle === 'italic' && !fontHasItalic(family)) {
-      commit({ ...patch, typography: without(typography, 'fontStyle') });
-      return;
-    }
-    commit(patch);
-  };
+  // A family change keeps the title to a weight and style the new family ships.
+  const changeFamily = (family: string): void =>
+    commit(titleFontParams({ fontWeight: params.fontWeight, typography }, family));
 
   return (
     <>

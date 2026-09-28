@@ -1991,7 +1991,8 @@ function titleLane(
  * look as a `set_effect_params` on the clip it creates, one patch and so one undo (the pattern
  * the agent's `add_text_layer` uses). `text` defaults to the template's sample text. Returns
  * the patch and the new clip's id (so the caller can select it), or `null` when the template or
- * track is unknown, or the span is too short.
+ * track is unknown, or the span is too short. `overrides` replace parts of the look (the Text
+ * panel's Fonts tab adds a heading in the font that was picked).
  */
 export function addTitleFromTemplatePatch(
   timeline: Timeline,
@@ -2000,6 +2001,7 @@ export function addTitleFromTemplatePatch(
   start: number,
   end: number,
   text?: string,
+  overrides: Partial<TextOverlayParams> = {},
 ): { readonly patch: Patch; readonly clipId: string } | null {
   const template = getTitleTemplate(templateId);
   const body = text?.trim() ? text : template?.sampleText;
@@ -2022,7 +2024,7 @@ export function addTitleFromTemplatePatch(
           type: 'set_effect_params',
           clipId,
           effectId: textEffectId(clipId),
-          params: { ...titleLookParams(template.look, template.id), text: body },
+          params: { ...titleLookParams(template.look, template.id), ...overrides, text: body },
         },
       ],
     },

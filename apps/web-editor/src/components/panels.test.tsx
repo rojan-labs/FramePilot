@@ -16,6 +16,7 @@ import { MediaBin, ASSET_DND_TYPE } from './MediaBin.js';
 import { EffectsPanel, EFFECT_DND_TYPE } from './EffectsPanel.js';
 import { EFFECT_LIBRARY_STORAGE_KEYS } from './useEffectLibrary.js';
 import { OverlaysPanel } from './OverlaysPanel.js';
+import { CAPTION_FONT_CATALOG } from '@framepilot/timeline-schema/caption-fonts';
 import { Inspector } from './Inspector.js';
 import { TimelineView } from './TimelineView.js';
 import { addTransitionPatch } from '../editor/patch-builders.js';
@@ -966,7 +967,12 @@ function projectWithOverlayTrack(): Project {
 describe('OverlaysPanel (Text panel)', () => {
   beforeEach(() => {
     // The chip and the recent styles are view preferences; each test starts from none.
-    for (const key of ['framepilot.view.textCategory', 'framepilot.view.textRecentTemplates']) {
+    for (const key of [
+      'framepilot.view.textCategory',
+      'framepilot.view.textRecentTemplates',
+      'framepilot.view.textPanelTab',
+      'framepilot.view.textFontCategory',
+    ]) {
       globalThis.localStorage.removeItem(key);
     }
   });
@@ -1026,7 +1032,7 @@ describe('OverlaysPanel (Text panel)', () => {
   it('adds a template from its tile, drawn in its own font', () => {
     const { titles } = renderTextPanel();
     fireEvent.click(screen.getByRole('button', { name: 'Titles' }));
-    const tile = screen.getByRole('button', { name: 'Retro pop text style' });
+    const tile = screen.getByRole('button', { name: 'Add Retro pop title' });
     expect((tile.querySelector('.text-tile-sample') as HTMLElement).style.fontFamily).toContain(
       'Luckiest Guy',
     );
@@ -1047,35 +1053,92 @@ describe('OverlaysPanel (Text panel)', () => {
       within(results)
         .getAllByRole('button')
         .map((b) => b.getAttribute('aria-label')),
-    ).toEqual(['Neon sign text style', 'Neon text style']);
+    ).toEqual(['Add Neon sign title']);
     fireEvent.change(search, { target: { value: 'lower thirds' } });
     expect(
       within(screen.getByRole('list', { name: 'Matching text styles' })).getAllByRole('button')
         .length,
-    ).toBe(5);
+    ).toBe(8);
     fireEvent.change(search, { target: { value: 'zzzz' } });
     expect(screen.getByText(/Nothing matched/)).toBeDefined();
   });
 
-  it('shows a few caption looks under All and every one in their own category', () => {
+  it('shows every style category under All, including Script and Retro', () => {
     renderTextPanel();
-    const preview = screen.getByRole('list', { name: 'Caption looks text styles' });
-    expect(within(preview).getAllByRole('button')).toHaveLength(6);
-    fireEvent.click(screen.getByRole('button', { name: /See all/ }));
-    expect(screen.getByRole('button', { name: 'Caption looks' }).getAttribute('aria-pressed')).toBe(
-      'true',
+    for (const name of [
+      'Basic',
+      'Titles',
+      'Lower thirds',
+      'Callouts',
+      'Social',
+      'Quotes',
+      'Script',
+      'Retro & fun',
+    ]) {
+      expect(screen.getByRole('list', { name: `${name} text styles` })).toBeDefined();
+    }
+    expect(screen.queryByRole('button', { name: 'Caption looks' })).toBeNull();
+  });
+
+  it('lists every caption font in the Fonts tab and adds a heading in the one picked', () => {
+    const { titles, live } = renderTextPanel();
+    fireEvent.click(screen.getByRole('tab', { name: 'Fonts' }));
+    const fonts = screen.getByRole('list', { name: 'Fonts' });
+    expect(within(fonts).getAllByRole('button')).toHaveLength(CAPTION_FONT_CATALOG.length);
+    const row = within(fonts).getByRole('button', { name: 'Add a heading in Bebas Neue' });
+    expect((row.querySelector('.text-font-name') as HTMLElement).style.fontFamily).toContain(
+      'Bebas Neue',
     );
+    fireEvent.click(row);
+    const [title] = titles();
+    // Bebas Neue ships one weight: the heading takes it rather than asking for 800.
+    expect(title!.effects[0]!.params).toMatchObject({
+      fontFamily: 'Bebas Neue',
+      fontWeight: 400,
+      templateId: 'heading',
+    });
+    expect(live.editor!.state.selectedIds).toEqual([title!.id]);
+  });
+
+  it('sets the selected title in the font picked, and marks it', () => {
+    const { titles } = renderTextPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a heading' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Fonts' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search fonts' }), {
+      target: { value: 'playfair' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Use Playfair Display for the selected title' }),
+    );
+    expect(titles()).toHaveLength(1);
+    expect(titles()[0]!.effects[0]!.params).toMatchObject({
+      fontFamily: 'Playfair Display',
+      fontWeight: 800,
+      text: 'Add a heading',
+    });
     expect(
-      within(screen.getByRole('list', { name: 'Caption looks text styles' })).getAllByRole('button')
-        .length,
-    ).toBeGreaterThan(40);
+      screen
+        .getByRole('button', { name: 'Use Playfair Display for the selected title' })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+  });
+
+  it('filters fonts by category', () => {
+    renderTextPanel();
+    fireEvent.click(screen.getByRole('tab', { name: 'Fonts' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Monospace' }));
+    const names = within(screen.getByRole('list', { name: 'Fonts' }))
+      .getAllByRole('button')
+      .map((b) => b.getAttribute('aria-label'));
+    expect(names).toContain('Add a heading in JetBrains Mono');
+    expect(names).not.toContain('Add a heading in Inter');
   });
 
   it('remembers what was used in a Recent row', () => {
     renderTextPanel();
     fireEvent.click(screen.getByRole('button', { name: 'Add a subheading' }));
     const recent = screen.getByRole('list', { name: 'Recent text styles' });
-    expect(within(recent).getByRole('button', { name: 'Subheading text style' })).toBeDefined();
+    expect(within(recent).getByRole('button', { name: 'Add Subheading title' })).toBeDefined();
   });
 
   it('restyles the selected title with Apply, keeping its words and place', () => {
@@ -1094,7 +1157,7 @@ describe('OverlaysPanel (Text panel)', () => {
     });
     // The applied template is marked on its tile.
     expect(
-      screen.getByRole('button', { name: 'Retro pop text style' }).closest('.text-tile')?.className,
+      screen.getByRole('button', { name: 'Add Retro pop title' }).closest('.text-tile')?.className,
     ).toContain('is-applied');
   });
 

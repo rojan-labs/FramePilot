@@ -8,7 +8,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import type { Clip, Timeline } from '@framepilot/timeline-schema';
 import { PLAIN_TITLE_TYPOGRAPHY } from '@framepilot/timeline-schema/title-templates';
 import type { UseEditor } from '../../../editor/useEditor.js';
-import { fontHasItalic, fontWeightsFor } from '../../FontFamilySelect.js';
+import { fontHasItalic, fontWeightsFor } from '../../../editor/titleFonts.js';
 import { TextOverlayInspector } from './TextSection.js';
 
 function titleClip(params: Record<string, unknown>): Clip {

@@ -1,19 +1,23 @@
 /**
- * Text panel (the left rail's "Text" tab): add titles from templates, in the caption typography.
+ * Text panel (the left rail's "Text" tab): titles from styles, in every font captions have.
  *
  * Shaped by what creators already know from CapCut, Clipchamp, Canva and VEED (the 2026-09-28
- * survey in plan/PLAN.md "Text panel"): quick Heading / Subheading / Body buttons, a search,
- * category chips, and a grid of templates each drawn in its real font and look. A click adds
- * the title at the playhead and selects it, so the Inspector and the on-canvas box are ready to
- * edit it; a tile dragged onto a lane adds it there. With a title selected, every tile also
- * offers Apply, which restyles that title and leaves its text and place alone.
+ * survey in plan/PLAN.md "Text panel"). Two tabs, as CapCut's text panel has:
  *
- * Everything a tile shows is what the title will be: a template is a complete look written into
- * the title's params (`title-templates.ts`), drawn by the caption rasterizer in the export and
- * the desktop monitor, and by the same caption CSS here (`titleTypographyCss`).
+ * - **Styles:** quick Heading / Subheading / Body buttons, a search, category chips, a Recent row
+ *   and a grid of overlay styles, each drawn in its real font and look. A click adds the title at
+ *   the playhead and selects it, so the Inspector and the on-canvas box are ready to edit it; a
+ *   tile dragged onto a lane adds it there. With a title selected, every tile also offers Apply,
+ *   which restyles that title and leaves its text and place alone.
+ * - **Fonts:** every bundled caption font (`TextFontsTab`). A click sets the selected title's
+ *   font, or adds a heading in it.
  *
- * The list at the bottom holds the titles already on the timeline: click to go to one and select
- * it, double-click to edit its words, or delete it.
+ * Everything a tile shows is what the title will be: a style is a complete look written into the
+ * title's params (`title-templates.ts`), drawn by the caption rasterizer in the export and the
+ * desktop monitor, and by the same caption CSS here (`titleTypographyCss`).
+ *
+ * The list under the styles holds the titles already on the timeline: click to go to one and
+ * select it, double-click to edit its words, or delete it.
  */
 import { memo, useCallback, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { Clip, Timeline } from '@framepilot/timeline-schema';
@@ -40,7 +44,9 @@ import {
 import { titleTypographyCss } from '../editor/textOverlay.js';
 import { useSettings } from '../editor/useSettings.js';
 import { useViewPreference } from '../editor/useViewPreference.js';
+import { titleFontParams } from '../editor/titleFonts.js';
 import { useTileGrid } from './elements/useTileGrid.js';
+import { TextFontsTab } from './TextFontsTab.js';
 import { Check, ICON_SIZE, Trash2 } from './icons.js';
 
 export interface OverlaysPanelProps {
@@ -75,10 +81,16 @@ const QUICK_ADD: readonly { readonly templateId: string; readonly label: string 
   { templateId: 'body', label: 'Add body text' },
 ];
 
-/** How many caption looks "All" shows before offering the whole category. */
-const CAPTION_LOOK_PREVIEW = 6;
 /** How many recently used templates the Recent row keeps. */
 const RECENT_LIMIT = 6;
+
+type PanelTab = 'styles' | 'fonts';
+const PANEL_TABS: readonly { readonly id: PanelTab; readonly label: string }[] = [
+  { id: 'styles', label: 'Styles' },
+  { id: 'fonts', label: 'Fonts' },
+];
+const coercePanelTab = (raw: unknown): PanelTab | undefined =>
+  raw === 'styles' || raw === 'fonts' ? raw : undefined;
 
 const coerceChip = (raw: unknown): CategoryChip | undefined =>
   CHIPS.some((chip) => chip.id === raw) ? (raw as CategoryChip) : undefined;
@@ -146,6 +158,7 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
   const { settings } = useSettings();
   const { timeline, selectedIds } = editor.state;
 
+  const [tab, setTab] = useViewPreference<PanelTab>('textPanelTab', 'styles', coercePanelTab);
   const [query, setQuery] = useState('');
   const [chip, setChip] = useViewPreference<CategoryChip>('textCategory', 'all', coerceChip);
   const [recent, setRecent] = useViewPreference<readonly string[]>(
@@ -155,7 +168,6 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
   );
   const [editing, setEditing] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
-  const searchRef = useRef<HTMLInputElement>(null);
 
   const titles = useMemo(() => titlesOnTimeline(timeline), [timeline]);
   const selectedTitle = useMemo(
@@ -195,6 +207,35 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
     setNotice(`Selected title restyled as ${getTitleTemplate(templateId)?.label ?? 'a template'}.`);
   };
 
+  /** Fonts tab: set the selected title's font, or add a heading in it at the playhead. */
+  const pickFont = (family: string): void => {
+    if (selectedTitle) {
+      const params = readTextParams(selectedTitle);
+      const patch = setTextParamsPatch(timeline, selectedTitle.id, titleFontParams(params, family));
+      if (patch) editor.applyPatch(patch);
+      setNotice(`Selected title set in ${family}.`);
+      return;
+    }
+    const heading = getTitleTemplate(DEFAULT_TITLE_TEMPLATE_ID)!;
+    const start = editor.getPlayhead();
+    const built = addTitleFromTemplatePatch(
+      timeline,
+      undefined,
+      heading.id,
+      start,
+      start + settings.defaultOverlaySeconds,
+      undefined,
+      titleFontParams(
+        { fontWeight: heading.look.fontWeight, typography: heading.look.typography },
+        family,
+      ),
+    );
+    if (!built) return;
+    editor.applyPatch(built.patch);
+    editor.select(built.clipId);
+    setNotice(`Heading in ${family} added at the playhead.`);
+  };
+
   const remove = (clip: Clip): void => {
     const patch = deleteClipPatch(timeline, clip.id);
     if (patch) editor.applyPatch(patch);
@@ -210,10 +251,11 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
 
   // Stable identities for the memoised tiles: the handlers read the latest timeline through a
   // ref, so a tile re-renders only when what it draws changes, never on every edit.
-  const handlers = useRef({ add, apply });
-  handlers.current = { add, apply };
+  const handlers = useRef({ add, apply, pickFont });
+  handlers.current = { add, apply, pickFont };
   const onAdd = useCallback((templateId: string) => handlers.current.add(templateId), []);
   const onApply = useCallback((templateId: string) => handlers.current.apply(templateId), []);
+  const onPickFont = useCallback((family: string) => handlers.current.pickFont(family), []);
 
   const trimmed = query.trim().toLowerCase();
   const tileProps: TileProps = {
@@ -223,12 +265,8 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
     onApply,
   };
 
-  return (
-    <section className="text-panel" aria-label="overlays panel">
-      <header className="panel-head">
-        <h2>Text</h2>
-      </header>
-
+  const stylesTab = (
+    <div className="text-panel-tab">
       <div className="text-quick" role="group" aria-label="add text">
         {QUICK_ADD.map(({ templateId, label }) => (
           <button
@@ -249,13 +287,12 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
       </div>
 
       <input
-        ref={searchRef}
         type="search"
         className="elements-search"
         data-ui="input"
         data-size="sm"
         aria-label="Search text styles"
-        placeholder="Search text styles"
+        placeholder={`Search ${String(TITLE_TEMPLATE_CATALOG.length)} styles`}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         onKeyDown={(event) => {
@@ -288,13 +325,7 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
       )}
 
       <div className="text-panel-scroll">
-        <TemplateSections
-          query={trimmed}
-          chip={chip}
-          recent={recent}
-          onShowCategory={setChip}
-          tileProps={tileProps}
-        />
+        <TemplateSections query={trimmed} chip={chip} recent={recent} tileProps={tileProps} />
 
         <section className="text-panel-section" aria-label="titles on the timeline">
           <h3 className="text-panel-heading">
@@ -334,6 +365,45 @@ export function OverlaysPanel({ editor, onOpenElements }: OverlaysPanelProps): J
           </p>
         )}
       </div>
+    </div>
+  );
+
+  return (
+    <section className="text-panel" aria-label="overlays panel">
+      <header className="panel-head">
+        <h2>Text</h2>
+      </header>
+      <div className="elements-tabs" role="tablist" aria-label="Text">
+        {PANEL_TABS.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            id={`text-tab-${id}`}
+            className="elements-tab"
+            aria-selected={tab === id}
+            aria-controls={`text-tabpanel-${id}`}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div
+        className="elements-tabpanel"
+        role="tabpanel"
+        id={`text-tabpanel-${tab}`}
+        aria-labelledby={`text-tab-${tab}`}
+      >
+        {tab === 'styles' ? (
+          stylesTab
+        ) : (
+          <TextFontsTab
+            currentFamily={selectedTitle ? readTextParams(selectedTitle).fontFamily : undefined}
+            onPick={onPickFont}
+          />
+        )}
+      </div>
       {/* Mounted empty, so the region exists before it has anything to say. */}
       <p className="sr-only" role="status">
         {notice}
@@ -353,13 +423,11 @@ function TemplateSections({
   query,
   chip,
   recent,
-  onShowCategory,
   tileProps,
 }: {
   readonly query: string;
   readonly chip: CategoryChip;
   readonly recent: readonly string[];
-  readonly onShowCategory: (chip: CategoryChip) => void;
   readonly tileProps: TileProps;
 }): JSX.Element {
   if (query !== '') {
@@ -389,21 +457,14 @@ function TemplateSections({
       {recentTemplates.length > 0 && (
         <TemplateSection title="Recent" templates={recentTemplates} tileProps={tileProps} />
       )}
-      {TITLE_TEMPLATE_CATEGORIES.map((category) => {
-        const all = TITLE_TEMPLATE_CATALOG.filter((template) => template.category === category.id);
-        const capped = category.id === 'caption-looks';
-        return (
-          <TemplateSection
-            key={category.id}
-            title={category.label}
-            templates={capped ? all.slice(0, CAPTION_LOOK_PREVIEW) : all}
-            tileProps={tileProps}
-            {...(capped && all.length > CAPTION_LOOK_PREVIEW
-              ? { more: { count: all.length, onShow: () => onShowCategory(category.id) } }
-              : {})}
-          />
-        );
-      })}
+      {TITLE_TEMPLATE_CATEGORIES.map((category) => (
+        <TemplateSection
+          key={category.id}
+          title={category.label}
+          templates={TITLE_TEMPLATE_CATALOG.filter((template) => template.category === category.id)}
+          tileProps={tileProps}
+        />
+      ))}
     </>
   );
 }
@@ -412,23 +473,14 @@ function TemplateSection({
   title,
   templates,
   tileProps,
-  more,
 }: {
   readonly title: string;
   readonly templates: readonly TitleTemplate[];
   readonly tileProps: TileProps;
-  readonly more?: { readonly count: number; readonly onShow: () => void };
 }): JSX.Element {
   return (
     <section className="text-panel-section" aria-label={`${title} text styles`}>
-      <div className="text-panel-heading-row">
-        <h3 className="text-panel-heading">{title}</h3>
-        {more && (
-          <button type="button" className="link-button text-panel-more" onClick={more.onShow}>
-            See all {more.count}
-          </button>
-        )}
-      </div>
+      <h3 className="text-panel-heading">{title}</h3>
       <TemplateGrid label={`${title} text styles`} templates={templates} {...tileProps} />
     </section>
   );
@@ -491,7 +543,7 @@ const TemplateTile = memo(function TemplateTile({
         type="button"
         className="text-tile-add"
         tabIndex={tabbable ? 0 : -1}
-        aria-label={`${template.label} text style`}
+        aria-label={`Add ${template.label} title`}
         title={`Add ${template.label} at the playhead, or drag it onto the timeline`}
         draggable
         onDragStart={(event) => {
