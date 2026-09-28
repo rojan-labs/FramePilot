@@ -151,3 +151,75 @@ describe('frame-space raster cache', () => {
     expect(new FrameMaskRasterCache().raster(refused, 64, 64, 0)).toBeNull();
   });
 });
+
+describe('adjustment-lane masks on a monitor frame smaller than the project', () => {
+  const PROJECT = { width: 1080, height: 1920 };
+  const CANVAS = { width: 720, height: 1280 };
+  // Project pixels over the upper right, turned and feathered.
+  const stack = effectLayerMaskStack(
+    layerWith([
+      rectangle({ cx: 810, cy: 480, width: 360, height: 480, rotation: 10, featherOuterPx: 12 }),
+    ]),
+  )!;
+
+  /** Where `alpha` is over one half, as `[x0, x1, y0, y1]` fractions of a `width`-wide frame. */
+  const coveredBox = (
+    alpha: Float64Array | null,
+    width: number,
+    height: number,
+  ): [number, number, number, number] | null => {
+    if (alpha === null) return null;
+    let [x0, x1, y0, y1] = [width, -1, height, -1];
+    for (let row = 0; row < height; row += 1) {
+      for (let col = 0; col < width; col += 1) {
+        if (alpha[row * width + col]! <= 0.5) continue;
+        x0 = Math.min(x0, col);
+        x1 = Math.max(x1, col);
+        y0 = Math.min(y0, row);
+        y1 = Math.max(y1, row);
+      }
+    }
+    return x1 < 0 ? null : [x0 / width, (x1 + 1) / width, y0 / height, (y1 + 1) / height];
+  };
+
+  it('draws the project-size mask scaled: the same relative region at the canvas size', () => {
+    expect(stack.refusal).toBeNull();
+    const full = coveredBox(
+      frameStackAlphaAt(stack, PROJECT.width, PROJECT.height, 0),
+      PROJECT.width,
+      PROJECT.height,
+    );
+    const reduced = coveredBox(
+      frameStackAlphaAt(stack, CANVAS.width, CANVAS.height, 0, PROJECT),
+      CANVAS.width,
+      CANVAS.height,
+    );
+    expect(full).not.toBeNull();
+    expect(reduced).not.toBeNull();
+    reduced!.forEach((edge, index) => {
+      expect(Math.abs(edge - full![index]!)).toBeLessThanOrEqual(1 / CANVAS.width + 1e-9);
+    });
+    // Drawn as canvas pixels (the old monitor), the region lands 1.5x too far right and down.
+    const unconverted = coveredBox(
+      frameStackAlphaAt(stack, CANVAS.width, CANVAS.height, 0),
+      CANVAS.width,
+      CANVAS.height,
+    );
+    expect(unconverted?.[0]).toBeGreaterThan(full![0] + 0.2);
+  });
+
+  it('is float64-identical to before when the monitor frame is the project frame', () => {
+    const converted = frameStackAlphaAt(stack, PROJECT.width, PROJECT.height, 0, PROJECT)!;
+    expect(digest(converted)).toBe(
+      digest(frameStackAlphaAt(stack, PROJECT.width, PROJECT.height, 0)!),
+    );
+  });
+
+  it('keys the cached raster by the geometry frame', () => {
+    const cache = new FrameMaskRasterCache();
+    const converted = cache.raster(stack, CANVAS.width, CANVAS.height, 0, PROJECT);
+    expect(converted).not.toBeNull();
+    expect(cache.raster(stack, CANVAS.width, CANVAS.height, 0, PROJECT)).toBe(converted);
+    expect(cache.raster(stack, CANVAS.width, CANVAS.height, 0)).not.toBe(converted);
+  });
+});
