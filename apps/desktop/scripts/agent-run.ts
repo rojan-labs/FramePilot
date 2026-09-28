@@ -986,8 +986,8 @@ async function runTurn(scratchProjectPath: string): Promise<void> {
         effectKind: effect.kind,
         phase,
         ...(phase === 'requested'
-          ? { detail: ai.JsonValueSchema.parse(value) }
-          : { outcome: ai.JsonValueSchema.parse(value) }),
+          ? { detail: ai.toJsonValue(value) }
+          : { outcome: ai.toJsonValue(value) }),
       });
     };
     return {
@@ -1263,7 +1263,7 @@ async function runTurn(scratchProjectPath: string): Promise<void> {
             const durableEvent = await runGatewayCoordinator.recordStreamEvent({
               runId: durableRunId,
               projectId: project.id,
-              event: ai.JsonValueSchema.parse(staleEvent),
+              event: ai.toJsonValue(staleEvent),
             });
             aiStreamHub.failDurable(durableRunId);
             return { event: staleEvent, durableSequence: durableEvent.sequence };
@@ -1283,7 +1283,7 @@ async function runTurn(scratchProjectPath: string): Promise<void> {
             const durableEvent = await runGatewayCoordinator.recordStreamEvent({
               runId: durableRunId,
               projectId: project.id,
-              event: ai.JsonValueSchema.parse(refusedEvent),
+              event: ai.toJsonValue(refusedEvent),
             });
             return { event: refusedEvent, durableSequence: durableEvent.sequence };
           }
@@ -1327,7 +1327,7 @@ async function runTurn(scratchProjectPath: string): Promise<void> {
             const durableEvent = await runGatewayCoordinator.recordStreamEvent({
               runId: durableRunId,
               projectId: project.id,
-              event: ai.JsonValueSchema.parse(staleEvent),
+              event: ai.toJsonValue(staleEvent),
             });
             aiStreamHub.failDurable(durableRunId);
             return { event: staleEvent, durableSequence: durableEvent.sequence };
@@ -1364,7 +1364,7 @@ async function runTurn(scratchProjectPath: string): Promise<void> {
           const durableEvent = await runGatewayCoordinator.recordStreamEvent({
             runId: durableRunId,
             projectId: project.id,
-            event: ai.JsonValueSchema.parse(committedEvent),
+            event: ai.toJsonValue(committedEvent),
           });
           return { event: committedEvent, durableSequence: durableEvent.sequence };
         }
@@ -1376,7 +1376,7 @@ async function runTurn(scratchProjectPath: string): Promise<void> {
       const durableEvent = await runGatewayCoordinator.recordStreamEvent({
         runId: durableRunId,
         projectId: project.id,
-        event: ai.JsonValueSchema.parse(transportEvent),
+        event: ai.toJsonValue(transportEvent),
       });
       return { event: transportEvent, durableSequence: durableEvent.sequence };
     },
