@@ -61,6 +61,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant fixes what the review of its last edit finds.** The review of the final edit
+  used to arrive after the run had ended, so it could only be reported ("came back after the run
+  had finished, so nothing was done about it"). When the assistant says it is done, it now waits
+  up to a minute for that review ("Checking the edit"), and if it finds something the assistant
+  gets one more turn to fix it. A review still running after a minute is reported as before.
+- **The assistant sees the picture on a run that starts from an empty timeline.** It read the
+  footage measurements only for clips already on the timeline when the run began, so a run that
+  started empty had none: it treated every clip it placed as unmeasured and gave up on colour.
+  It now reads them for footage it places from the bin.
+- **Effect choices and receipts say which effect.** Browsing effects or transitions shows each
+  one's look and default length, not just its id. The run summary names each effect layer and its
+  time ("Added Golden Leak · 43s–45s") instead of "Add effect layer Effect 1 (×5)".
 - **A text overlay keeps its font in the export.** The text overlay Inspector offered Georgia, Impact, Courier
   New, Arial and Verdana, which are not bundled: the export used whatever the machine had, or
   Pillow's default face. Text overlays added from the panel or dropped on the timeline also stored only

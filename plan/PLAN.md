@@ -81,6 +81,18 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   windows. Skills (footage-intelligence, vertical-reframe, travel-montage) point at it.
   Deferred: the MCP server's `get_frame` forwards only `timeSeconds` (no `assetId`/`sources`
   yet); the action card says "Looking at the frame at" with no subject (`describe.ts`).
+- [x] **AL7** Shot ledger on an empty start: the mid-run refresh also asks about bin assets placed
+  mid-run that the snapshot has no rows for (once each; acquired footage still re-asked), same
+  3-refresh bound, one request per refresh. Evidence: run `d8d2e445` started empty, `apply_look`
+  found every clip unmeasured. Tests: `orchestrator-stream.test.ts` (empty start).
+- [x] **AL8** Late review: at the done declaration (no open plan item, no shortfall) the loop waits
+  once, ≤ `LATE_REVIEW_WAIT_MS` (60 s), for pending reviews; findings buy one steering turn
+  (`lateReviewSteering`); anything later is reported as before (ADR 0187 amendment). Tests:
+  `editor-run-adapter.test.ts`, `conductor.test.ts`, `review-findings.test.ts`. Not measured on a
+  live desktop run yet.
+- [x] **AL9** Effect catalogue digest carries description + default length per entry (+~16
+  tokens/entry, default call 82 -> 440 tokens); `apply_effect` says accents belong on a moment;
+  receipts name the effect and its range.
 - [ ] **AL5** Follow-up: the model plan lives in conductor state only — a resume checkpoint and
   the next run in the conversation start without it (the model re-plans). Measure on a real
   long brief (desktop) before deciding whether to persist it in the working state (schema).
