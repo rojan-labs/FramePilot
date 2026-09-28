@@ -51,18 +51,49 @@ function omitted(what: string): OmittedValue {
 }
 
 /**
+ * `value` as the JSON the durable log will actually hold.
+ *
+ * WHY a real projection and not a cast: TypeScript objects routinely carry keys whose value
+ * is `undefined` — a colour measurement's skin-only `coverageRatio` on its luma sample, an
+ * optional field spread from a partial — and `JSON.stringify` drops such keys when the WAL
+ * is written, but `JsonValueSchema.parse` (see `main.ts`) rejects them before it gets there.
+ * The durable observer's throw becomes the EFFECT's failure (`effect-runtime.ts` routes it
+ * to `onFailed` and rethrows), so every `measure_color` call ended its run with "The AI run
+ * stopped unexpectedly" and a wall of `invalid_union` issues — run `6cb12e30`, twice, at
+ * the same call. The `AnalysisBudget` projection below fixed one instance of this class by
+ * hand; serialising here is what closes the class, because the record IS its JSON.
+ */
+function jsonProjection(value: unknown, what: string): JsonValue {
+  let text: string | undefined;
+  try {
+    text = JSON.stringify(value);
+  } catch (error) {
+    // A cycle or a BigInt: not representable in the log, and never worth failing a run over.
+    return {
+      omitted: true,
+      reason: `${what} is not JSON-serialisable: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
+  return text === undefined ? null : (JSON.parse(text) as JsonValue);
+}
+
+/**
  * `value` when it fits the audit budget, otherwise an explicit omission marker.
  *
  * @param value - Any JSON-like value from an effect or its result.
  * @param what - Human label used in the omission reason (e.g. `'Tool arguments'`).
- * @returns The value unchanged, or `{ omitted: true, reason }`.
+ * @returns The value's JSON projection, or `{ omitted: true, reason }`.
  */
 export function boundedJson(value: unknown, what: string): JsonValue {
   if (value === undefined) return null;
+  // Size first: the projection below serialises, and only a bounded value may be serialised
+  // on the main process (the 34 MB history this module exists for).
   if (exceedsTransportBudget(value, MAX_DURABLE_EFFECT_FIELD_CHARS)) {
     return omitted(what) as unknown as JsonValue;
   }
-  return value as JsonValue;
+  return jsonProjection(value, what);
 }
 
 /**
@@ -140,7 +171,9 @@ export function describeRuntimeEffect(effect: RuntimeEffect): JsonValue {
       const { control, ...rest } = effect;
       const bounded: Record<string, JsonValue> = {
         kind: effect.kind,
-        control: { ...control } as unknown as JsonValue,
+        // Projected, not cast: an optional control field left `undefined` is the same
+        // parse failure `jsonProjection` exists to prevent.
+        control: jsonProjection(control, 'Effect control'),
       };
       for (const [key, value] of Object.entries(rest)) {
         if (key === 'kind') continue;
